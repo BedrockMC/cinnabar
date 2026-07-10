@@ -102,7 +102,11 @@ the core — before any more Rust exists.
 
 Scope (detailed plan to be written at phase start):
 - Control channel on `control.sock`: protobuf or JSON-RPC; methods — `Status`, `StartAuth` (device-code events streamed), `SignOut`, `ListServers`, `ListRealms`, `ListFriends` (gophertunnel realms package + go-xsapi sessions; the join side of what go-mcxboxbroadcast does), `Connect{target}`, `Disconnect`; events — auth state, connection state, transfer notices, disconnect reasons.
-- Session lifecycle: core dials upstream (RakNet / NetherNet via Xbox signaling / Realms address), serves the game socket, handles transfers by reconnecting upstream while holding the client session (Lunar already has this pattern).
+- Session lifecycle: begin by copying Lunar's `lunar/internal/relay/relay.go` and relay tests
+  into `core/internal/relay`, adapting only imports/helpers needed to make the package
+  standalone. The core uses that relay logic to dial upstream (RakNet / NetherNet via Xbox
+  signaling / Realms address), serve the game socket, and handle transfers. Lunar remains a
+  source donor, never a module dependency.
 - Resource-pack negotiation upstream; pack payloads handed to client over the control channel as files in a cache dir (client applies them — Phase 6 renders them).
 - Windows transport flavor (named pipe or TCP) behind the same listener interface.
 - **Conformance harness (promoted from deferral):** `tools/fixturegen` grows to full packet coverage; CI job round-trips gophertunnel↔valentine bytes both directions on every core and defs bump. This is the automated version of spike task 0.4.
