@@ -14976,7 +14976,7 @@ impl crate::bedrock::codec::BedrockCodec for ReservedCraftingVector3EntryField1 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReservedCraftingVector3Entry {
     pub reserved_field_0: i32,
-    pub reserved_field_1: ReservedCraftingVector3EntryField1,
+    pub reserved_field_1: Vec<ReservedCraftingVector3EntryField1>,
 }
 impl crate::bedrock::codec::BedrockSized for ReservedCraftingVector3Entry {
     fn encoded_size(&self) -> usize {
@@ -14984,7 +14984,14 @@ impl crate::bedrock::codec::BedrockSized for ReservedCraftingVector3Entry {
         size += crate::bedrock::codec::BedrockSized::encoded_size(
             &crate::bedrock::codec::ZigZag32(self.reserved_field_0),
         );
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.reserved_field_1);
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
+            self.reserved_field_1.len() as i32,
+        ));
+        size += self
+            .reserved_field_1
+            .iter()
+            .map(crate::bedrock::codec::BedrockSized::encoded_size)
+            .sum::<usize>();
         size
     }
 }
@@ -14993,7 +15000,26 @@ impl crate::bedrock::codec::BedrockCodec for ReservedCraftingVector3Entry {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         crate::bedrock::codec::ZigZag32(self.reserved_field_0).encode(buf)?;
-        self.reserved_field_1.encode(buf)?;
+        let len = self.reserved_field_1.len();
+        if len > crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "material reducer output count {len} exceeds maximum {}",
+                    crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS
+                ),
+            ));
+        }
+        let len = i32::try_from(len).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "material reducer output count does not fit VarUInt32",
+            )
+        })?;
+        crate::bedrock::codec::VarInt(len).encode(buf)?;
+        for output in &self.reserved_field_1 {
+            output.encode(buf)?;
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -15006,7 +15032,32 @@ impl crate::bedrock::codec::BedrockCodec for ReservedCraftingVector3Entry {
             (),
         )?
         .0;
-        let reserved_field_1 = <ReservedCraftingVector3EntryField1 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let raw = <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?
+        .0 as i64;
+        if raw < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+        }
+        let len = raw as usize;
+        crate::proto::validate_collection_len(
+            len,
+            crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+            buf.remaining(),
+        )?;
+        let mut reserved_field_1 = Vec::new();
+        reserved_field_1.try_reserve_exact(len).map_err(|_| {
+            crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                declared: len,
+                available: 0,
+            }
+        })?;
+        for _ in 0..len {
+            reserved_field_1.push(
+                <ReservedCraftingVector3EntryField1 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+            );
+        }
         Ok(Self { reserved_field_0, reserved_field_1 })
     }
 }
