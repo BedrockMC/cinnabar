@@ -9,6 +9,7 @@
 use crate::bedrock::codec::BedrockCodec;
 use crate::proto::*;
 use crate::types::*;
+use bytes::Buf;
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbilityLayersView {
     pub type_: AbilityLayersType,
@@ -4601,7 +4602,7 @@ impl From<ReservedCraftingVector3EntryField1View> for ReservedCraftingVector3Ent
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReservedCraftingVector3EntryView {
     pub reserved_field_0: i32,
-    pub reserved_field_1: ReservedCraftingVector3EntryField1View,
+    pub reserved_field_1: Vec<ReservedCraftingVector3EntryField1View>,
 }
 impl crate::bedrock::codec::BedrockSized for ReservedCraftingVector3EntryView {
     fn encoded_size(&self) -> usize {
@@ -4609,7 +4610,14 @@ impl crate::bedrock::codec::BedrockSized for ReservedCraftingVector3EntryView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
                 *&self.reserved_field_0,
             ))
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.reserved_field_1)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarInt(
+                self.reserved_field_1.len() as i32,
+            ))
+            + self
+                .reserved_field_1
+                .iter()
+                .map(crate::bedrock::codec::BedrockSized::encoded_size)
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedCraftingVector3EntryView {
@@ -4625,10 +4633,35 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedCraftingVector3En
             (),
         )?
         .0;
-        let reserved_field_1 = <ReservedCraftingVector3EntryField1View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+        let raw = <crate::bedrock::codec::VarInt as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
             (),
+        )?
+        .0 as i64;
+        if raw < 0 {
+            return Err(crate::bedrock::error::DecodeError::NegativeLength { value: raw });
+        }
+        let len = raw as usize;
+        crate::proto::validate_collection_len(
+            len,
+            crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS,
+            buf.remaining(),
         )?;
+        let mut reserved_field_1 = Vec::new();
+        reserved_field_1.try_reserve_exact(len).map_err(|_| {
+            crate::bedrock::error::DecodeError::ArrayLengthExceeded {
+                declared: len,
+                available: 0,
+            }
+        })?;
+        for _ in 0..len {
+            reserved_field_1.push(
+                <ReservedCraftingVector3EntryField1View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                    buf,
+                    (),
+                )?,
+            );
+        }
         Ok(Self { reserved_field_0, reserved_field_1 })
     }
 }
@@ -4639,7 +4672,26 @@ impl ReservedCraftingVector3EntryView {
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         crate::bedrock::codec::ZigZag32(*&self.reserved_field_0).encode(buf)?;
-        (&self.reserved_field_1).encode(buf)?;
+        let len = self.reserved_field_1.len();
+        if len > crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "material reducer output count {len} exceeds maximum {}",
+                    crate::proto::MAX_LOGIN_COLLECTION_ELEMENTS
+                ),
+            ));
+        }
+        let len = i32::try_from(len).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "material reducer output count does not fit VarUInt32",
+            )
+        })?;
+        crate::bedrock::codec::VarInt(len).encode(buf)?;
+        for output in &self.reserved_field_1 {
+            output.encode(buf)?;
+        }
         Ok(())
     }
 }
@@ -4648,7 +4700,7 @@ impl From<ReservedCraftingVector3EntryView> for ReservedCraftingVector3Entry {
         let _ = &value;
         Self {
             reserved_field_0: value.reserved_field_0,
-            reserved_field_1: (value.reserved_field_1).into(),
+            reserved_field_1: value.reserved_field_1.into_iter().map(Into::into).collect(),
         }
     }
 }

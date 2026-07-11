@@ -71,6 +71,13 @@ Task 0.5 adds the following reviewed local patches:
   extra-data NBT with fixed-width little endian, and encode/decode shaped recipe
   input as exactly `width * height` descriptors without length prefixes.
 
+Task 0.8 adds additional reviewed protocol-1001 patches:
+
+- `valentine/bedrock_versions/v1_26_30/src/proto.rs`: make
+  `AvailableCommands.EnumValues` use the pinned gophertunnel single shared
+  VarUInt count, reject more than 4,096 entries, and reserve fallibly.
+
+
 The generated Valentine changes are deliberate manual protocol-1001 patches
 and would be overwritten by regeneration. In particular, the upstream
 generator currently collapses fixed little-endian `lnbt` and network
