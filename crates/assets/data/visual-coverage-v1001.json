@@ -1,7 +1,7 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "e27e6e5775342c1f4089b749c69afeac19937dac0f5b7834c73164f1b6fa442c",
+  "registry_sha256": "bbd430a773d1d93d772178fc974abef4787b2e15a90754b7bccf98776e821826",
   "counts": {
     "names": 1356,
     "states": 16913,
@@ -83173,7 +83173,7 @@
       "network_hash": 277575049,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83181,7 +83181,7 @@
       "network_hash": 2042000540,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83189,7 +83189,7 @@
       "network_hash": 3942898203,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83197,7 +83197,7 @@
       "network_hash": 3197179430,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83205,7 +83205,7 @@
       "network_hash": 339049872,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83213,7 +83213,7 @@
       "network_hash": 1980525717,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83221,7 +83221,7 @@
       "network_hash": 4004373026,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83229,7 +83229,7 @@
       "network_hash": 3135704607,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83237,7 +83237,7 @@
       "network_hash": 154625403,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83245,7 +83245,7 @@
       "network_hash": 1919050894,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83253,7 +83253,7 @@
       "network_hash": 4065847849,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83261,7 +83261,7 @@
       "network_hash": 3320129076,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83269,7 +83269,7 @@
       "network_hash": 216100226,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83277,7 +83277,7 @@
       "network_hash": 1857576071,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83285,7 +83285,7 @@
       "network_hash": 4127322672,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83293,7 +83293,7 @@
       "network_hash": 3258654253,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83301,7 +83301,7 @@
       "network_hash": 31675757,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83309,7 +83309,7 @@
       "network_hash": 2287899832,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83317,7 +83317,7 @@
       "network_hash": 3696998911,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83325,7 +83325,7 @@
       "network_hash": 3443078722,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83333,7 +83333,7 @@
       "network_hash": 93150580,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83341,7 +83341,7 @@
       "network_hash": 2226425009,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83349,7 +83349,7 @@
       "network_hash": 3758473734,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -83357,7 +83357,7 @@
       "network_hash": 3381603899,
       "name": "minecraft:bee_nest",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -99973,7 +99973,7 @@
       "network_hash": 450333055,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -99981,7 +99981,7 @@
       "network_hash": 1524217242,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -99989,7 +99989,7 @@
       "network_hash": 1221792925,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -99997,7 +99997,7 @@
       "network_hash": 3442483264,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100005,7 +100005,7 @@
       "network_hash": 511807878,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100013,7 +100013,7 @@
       "network_hash": 1462742419,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100021,7 +100021,7 @@
       "network_hash": 1283267748,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100029,7 +100029,7 @@
       "network_hash": 3381008441,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100037,7 +100037,7 @@
       "network_hash": 573282701,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100045,7 +100045,7 @@
       "network_hash": 1647166888,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100053,7 +100053,7 @@
       "network_hash": 1098843279,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100061,7 +100061,7 @@
       "network_hash": 3319533618,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100069,7 +100069,7 @@
       "network_hash": 634757524,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100077,7 +100077,7 @@
       "network_hash": 1585692065,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100085,7 +100085,7 @@
       "network_hash": 1160318102,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100093,7 +100093,7 @@
       "network_hash": 3258058795,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100101,7 +100101,7 @@
       "network_hash": 696232347,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100109,7 +100109,7 @@
       "network_hash": 1278317950,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100117,7 +100117,7 @@
       "network_hash": 1467692217,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100125,7 +100125,7 @@
       "network_hash": 3196583972,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100133,7 +100133,7 @@
       "network_hash": 757707170,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":0},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100141,7 +100141,7 @@
       "network_hash": 1216843127,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":1},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100149,7 +100149,7 @@
       "network_hash": 1529167040,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":2},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -100157,7 +100157,7 @@
       "network_hash": 3135109149,
       "name": "minecraft:beehive",
       "canonical_state": "{\"direction\":{\"type\":\"int\",\"value\":3},\"honey_level\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cube",
       "is_air": false
     },
     {
@@ -136679,30 +136679,6 @@
     10390,
     10391,
     10394,
-    10395,
-    10396,
-    10397,
-    10398,
-    10399,
-    10400,
-    10401,
-    10402,
-    10403,
-    10404,
-    10405,
-    10406,
-    10407,
-    10408,
-    10409,
-    10410,
-    10411,
-    10412,
-    10413,
-    10414,
-    10415,
-    10416,
-    10417,
-    10418,
     10419,
     10420,
     10421,
@@ -136907,30 +136883,6 @@
     12492,
     12493,
     12494,
-    12495,
-    12496,
-    12497,
-    12498,
-    12499,
-    12500,
-    12501,
-    12502,
-    12503,
-    12504,
-    12505,
-    12506,
-    12507,
-    12508,
-    12509,
-    12510,
-    12511,
-    12512,
-    12513,
-    12514,
-    12515,
-    12516,
-    12517,
-    12518,
     12519,
     12565,
     12566,
