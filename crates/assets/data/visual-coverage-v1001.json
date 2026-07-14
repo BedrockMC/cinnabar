@@ -1,7 +1,7 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "af1c1b71c48f4373e0bbad4bdceae7adf4f69ed11bf595efbfa339abdac788bc",
+  "registry_sha256": "6979e887ebd0b5b61d677c1253443dc64488b5c657a29f05878c71cbc1d33cfe",
   "counts": {
     "names": 1356,
     "states": 16913,
@@ -48989,7 +48989,7 @@
       "network_hash": 360492383,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48997,7 +48997,7 @@
       "network_hash": 421967206,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -49005,7 +49005,7 @@
       "network_hash": 483442029,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -49013,7 +49013,7 @@
       "network_hash": 544916852,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -49021,7 +49021,7 @@
       "network_hash": 606391675,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -49029,7 +49029,7 @@
       "network_hash": 667866498,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -49037,7 +49037,7 @@
       "network_hash": 729341321,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":6}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -49045,7 +49045,7 @@
       "network_hash": 790816144,
       "name": "minecraft:farmland",
       "canonical_state": "{\"moisturized_amount\":{\"type\":\"int\",\"value\":7}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -135997,14 +135997,6 @@
     6119,
     6120,
     6121,
-    6122,
-    6123,
-    6124,
-    6125,
-    6126,
-    6127,
-    6128,
-    6129,
     6130,
     6131,
     6132,
