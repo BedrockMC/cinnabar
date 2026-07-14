@@ -1,7 +1,7 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "23a504f0daa248c717249d0aa247362933ff963754aedd790566fc0516cdcf95",
+  "registry_sha256": "050cf1e79f9505cfcb240b1eb6627df95451e062e77b368b6d2700c21e68c3e6",
   "counts": {
     "names": 1356,
     "states": 16913,
@@ -112453,7 +112453,7 @@
       "network_hash": 1996091415,
       "name": "minecraft:cake",
       "canonical_state": "{\"bite_counter\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112461,7 +112461,7 @@
       "network_hash": 2057566238,
       "name": "minecraft:cake",
       "canonical_state": "{\"bite_counter\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112469,7 +112469,7 @@
       "network_hash": 2119041061,
       "name": "minecraft:cake",
       "canonical_state": "{\"bite_counter\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112477,7 +112477,7 @@
       "network_hash": 2180515884,
       "name": "minecraft:cake",
       "canonical_state": "{\"bite_counter\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112485,7 +112485,7 @@
       "network_hash": 2241990707,
       "name": "minecraft:cake",
       "canonical_state": "{\"bite_counter\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112493,7 +112493,7 @@
       "network_hash": 2303465530,
       "name": "minecraft:cake",
       "canonical_state": "{\"bite_counter\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112501,7 +112501,7 @@
       "network_hash": 2364940353,
       "name": "minecraft:cake",
       "canonical_state": "{\"bite_counter\":{\"type\":\"int\",\"value\":6}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -137308,13 +137308,6 @@
     14040,
     14041,
     14042,
-    14055,
-    14056,
-    14057,
-    14058,
-    14059,
-    14060,
-    14061,
     14510,
     14531,
     14565,
