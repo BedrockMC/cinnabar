@@ -1,7 +1,7 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "bbd430a773d1d93d772178fc974abef4787b2e15a90754b7bccf98776e821826",
+  "registry_sha256": "922d287a9a195543644542e84f0d948264bff6cd48b8430024107245fa2e1b73",
   "counts": {
     "names": 1356,
     "states": 16913,
@@ -2429,7 +2429,7 @@
       "network_hash": 4269500173,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2437,7 +2437,7 @@
       "network_hash": 36007700,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2445,7 +2445,7 @@
       "network_hash": 4146550527,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2453,7 +2453,7 @@
       "network_hash": 4208025350,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2461,7 +2461,7 @@
       "network_hash": 3221065588,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2469,7 +2469,7 @@
       "network_hash": 3159590765,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2477,7 +2477,7 @@
       "network_hash": 3098115942,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2485,7 +2485,7 @@
       "network_hash": 3036641119,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2493,7 +2493,7 @@
       "network_hash": 780872348,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2501,7 +2501,7 @@
       "network_hash": 719397525,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2509,7 +2509,7 @@
       "network_hash": 657922702,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2517,7 +2517,7 @@
       "network_hash": 596447879,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2525,7 +2525,7 @@
       "network_hash": 1492466837,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2533,7 +2533,7 @@
       "network_hash": 1553941660,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2541,7 +2541,7 @@
       "network_hash": 1369517191,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2549,7 +2549,7 @@
       "network_hash": 1430992014,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2557,7 +2557,7 @@
       "network_hash": 2986848587,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2565,7 +2565,7 @@
       "network_hash": 3048323410,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2573,7 +2573,7 @@
       "network_hash": 3109798233,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2581,7 +2581,7 @@
       "network_hash": 3171273056,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2589,7 +2589,7 @@
       "network_hash": 3438284730,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2597,7 +2597,7 @@
       "network_hash": 3376809907,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2605,7 +2605,7 @@
       "network_hash": 3561234376,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2613,7 +2613,7 @@
       "network_hash": 3499759553,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2621,7 +2621,7 @@
       "network_hash": 624887486,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2629,7 +2629,7 @@
       "network_hash": 563412663,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2637,7 +2637,7 @@
       "network_hash": 747837132,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2645,7 +2645,7 @@
       "network_hash": 686362309,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2653,7 +2653,7 @@
       "network_hash": 4232716799,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2661,7 +2661,7 @@
       "network_hash": 4294191622,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2669,7 +2669,7 @@
       "network_hash": 60699149,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -2677,7 +2677,7 @@
       "network_hash": 122173972,
       "name": "minecraft:birch_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3077,7 +3077,7 @@
       "network_hash": 447055332,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3085,7 +3085,7 @@
       "network_hash": 385580509,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3093,7 +3093,7 @@
       "network_hash": 324105686,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3101,7 +3101,7 @@
       "network_hash": 262630863,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3109,7 +3109,7 @@
       "network_hash": 3895777597,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3117,7 +3117,7 @@
       "network_hash": 3957252420,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3125,7 +3125,7 @@
       "network_hash": 3772827951,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3133,7 +3133,7 @@
       "network_hash": 3834302774,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3141,7 +3141,7 @@
       "network_hash": 3800545151,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3149,7 +3149,7 @@
       "network_hash": 3862019974,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3157,7 +3157,7 @@
       "network_hash": 3923494797,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3165,7 +3165,7 @@
       "network_hash": 3984969620,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3173,7 +3173,7 @@
       "network_hash": 192715838,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3181,7 +3181,7 @@
       "network_hash": 131241015,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3189,7 +3189,7 @@
       "network_hash": 315665484,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3197,7 +3197,7 @@
       "network_hash": 254190661,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3205,7 +3205,7 @@
       "network_hash": 1950561126,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3213,7 +3213,7 @@
       "network_hash": 1889086303,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3221,7 +3221,7 @@
       "network_hash": 2073510772,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3229,7 +3229,7 @@
       "network_hash": 2012035949,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3237,7 +3237,7 @@
       "network_hash": 1897397639,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3245,7 +3245,7 @@
       "network_hash": 1958872462,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3253,7 +3253,7 @@
       "network_hash": 2020347285,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3261,7 +3261,7 @@
       "network_hash": 2081822108,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3269,7 +3269,7 @@
       "network_hash": 390704285,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3277,7 +3277,7 @@
       "network_hash": 452179108,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3285,7 +3285,7 @@
       "network_hash": 267754639,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3293,7 +3293,7 @@
       "network_hash": 329229462,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3301,7 +3301,7 @@
       "network_hash": 4144608068,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3309,7 +3309,7 @@
       "network_hash": 4083133245,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3317,7 +3317,7 @@
       "network_hash": 4021658422,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -3325,7 +3325,7 @@
       "network_hash": 3960183599,
       "name": "minecraft:acacia_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41309,7 +41309,7 @@
       "network_hash": 400564380,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41317,7 +41317,7 @@
       "network_hash": 339089557,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41325,7 +41325,7 @@
       "network_hash": 277614734,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41333,7 +41333,7 @@
       "network_hash": 216139911,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41341,7 +41341,7 @@
       "network_hash": 1112158869,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41349,7 +41349,7 @@
       "network_hash": 1173633692,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41357,7 +41357,7 @@
       "network_hash": 989209223,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41365,7 +41365,7 @@
       "network_hash": 1050684046,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41373,7 +41373,7 @@
       "network_hash": 2912371399,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41381,7 +41381,7 @@
       "network_hash": 2973846222,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41389,7 +41389,7 @@
       "network_hash": 3035321045,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41397,7 +41397,7 @@
       "network_hash": 3096795868,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41405,7 +41405,7 @@
       "network_hash": 2113957286,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41413,7 +41413,7 @@
       "network_hash": 2052482463,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41421,7 +41421,7 @@
       "network_hash": 2236906932,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41429,7 +41429,7 @@
       "network_hash": 2175432109,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41437,7 +41437,7 @@
       "network_hash": 4214510734,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41445,7 +41445,7 @@
       "network_hash": 4153035911,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41453,7 +41453,7 @@
       "network_hash": 42493084,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41461,7 +41461,7 @@
       "network_hash": 4275985557,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41469,7 +41469,7 @@
       "network_hash": 1304021391,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41477,7 +41477,7 @@
       "network_hash": 1365496214,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41485,7 +41485,7 @@
       "network_hash": 1426971037,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41493,7 +41493,7 @@
       "network_hash": 1488445860,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41501,7 +41501,7 @@
       "network_hash": 2415892837,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41509,7 +41509,7 @@
       "network_hash": 2477367660,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41517,7 +41517,7 @@
       "network_hash": 2292943191,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41525,7 +41525,7 @@
       "network_hash": 2354418014,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41533,7 +41533,7 @@
       "network_hash": 1596802732,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41541,7 +41541,7 @@
       "network_hash": 1535327909,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41549,7 +41549,7 @@
       "network_hash": 1473853086,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -41557,7 +41557,7 @@
       "network_hash": 1412378263,
       "name": "minecraft:spruce_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42253,7 +42253,7 @@
       "network_hash": 272314173,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42261,7 +42261,7 @@
       "network_hash": 333788996,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42269,7 +42269,7 @@
       "network_hash": 149364527,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42277,7 +42277,7 @@
       "network_hash": 210839350,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42285,7 +42285,7 @@
       "network_hash": 1118559204,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42293,7 +42293,7 @@
       "network_hash": 1057084381,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42301,7 +42301,7 @@
       "network_hash": 995609558,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42309,7 +42309,7 @@
       "network_hash": 934134735,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42317,7 +42317,7 @@
       "network_hash": 4182036716,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42325,7 +42325,7 @@
       "network_hash": 4120561893,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42333,7 +42333,7 @@
       "network_hash": 4059087070,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42341,7 +42341,7 @@
       "network_hash": 3997612247,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42349,7 +42349,7 @@
       "network_hash": 3945998757,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42357,7 +42357,7 @@
       "network_hash": 4007473580,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42365,7 +42365,7 @@
       "network_hash": 3823049111,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42373,7 +42373,7 @@
       "network_hash": 3884523934,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42381,7 +42381,7 @@
       "network_hash": 3924633819,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42389,7 +42389,7 @@
       "network_hash": 3986108642,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42397,7 +42397,7 @@
       "network_hash": 4047583465,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42405,7 +42405,7 @@
       "network_hash": 4109058288,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42413,7 +42413,7 @@
       "network_hash": 1939188170,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42421,7 +42421,7 @@
       "network_hash": 1877713347,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42429,7 +42429,7 @@
       "network_hash": 2062137816,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42437,7 +42437,7 @@
       "network_hash": 2000662993,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42445,7 +42445,7 @@
       "network_hash": 690382446,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42453,7 +42453,7 @@
       "network_hash": 628907623,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42461,7 +42461,7 @@
       "network_hash": 813332092,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42469,7 +42469,7 @@
       "network_hash": 751857269,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42477,7 +42477,7 @@
       "network_hash": 743992047,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42485,7 +42485,7 @@
       "network_hash": 805466870,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42493,7 +42493,7 @@
       "network_hash": 866941693,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42501,7 +42501,7 @@
       "network_hash": 928416516,
       "name": "minecraft:mangrove_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42517,7 +42517,7 @@
       "network_hash": 2852401755,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42525,7 +42525,7 @@
       "network_hash": 2913876578,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42533,7 +42533,7 @@
       "network_hash": 2975351401,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42541,7 +42541,7 @@
       "network_hash": 3036826224,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42549,7 +42549,7 @@
       "network_hash": 866956106,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42557,7 +42557,7 @@
       "network_hash": 805481283,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42565,7 +42565,7 @@
       "network_hash": 989905752,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42573,7 +42573,7 @@
       "network_hash": 928430929,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42581,7 +42581,7 @@
       "network_hash": 1621250222,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42589,7 +42589,7 @@
       "network_hash": 1559775399,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42597,7 +42597,7 @@
       "network_hash": 1744199868,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42605,7 +42605,7 @@
       "network_hash": 1682725045,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42613,7 +42613,7 @@
       "network_hash": 3497115695,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42621,7 +42621,7 @@
       "network_hash": 3558590518,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42629,7 +42629,7 @@
       "network_hash": 3620065341,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42637,7 +42637,7 @@
       "network_hash": 3681540164,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42645,7 +42645,7 @@
       "network_hash": 2570854085,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42653,7 +42653,7 @@
       "network_hash": 2632328908,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42661,7 +42661,7 @@
       "network_hash": 2447904439,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42669,7 +42669,7 @@
       "network_hash": 2509379262,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42677,7 +42677,7 @@
       "network_hash": 3562384908,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42685,7 +42685,7 @@
       "network_hash": 3500910085,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42693,7 +42693,7 @@
       "network_hash": 3439435262,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42701,7 +42701,7 @@
       "network_hash": 3377960439,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42709,7 +42709,7 @@
       "network_hash": 4104382540,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42717,7 +42717,7 @@
       "network_hash": 4042907717,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42725,7 +42725,7 @@
       "network_hash": 3981432894,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42733,7 +42733,7 @@
       "network_hash": 3919958071,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42741,7 +42741,7 @@
       "network_hash": 2781880069,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42749,7 +42749,7 @@
       "network_hash": 2843354892,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42757,7 +42757,7 @@
       "network_hash": 2658930423,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -42765,7 +42765,7 @@
       "network_hash": 2720405246,
       "name": "minecraft:warped_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48373,7 +48373,7 @@
       "network_hash": 2560803145,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48381,7 +48381,7 @@
       "network_hash": 2622277968,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48389,7 +48389,7 @@
       "network_hash": 2437853499,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48397,7 +48397,7 @@
       "network_hash": 2499328322,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48405,7 +48405,7 @@
       "network_hash": 1959317584,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48413,7 +48413,7 @@
       "network_hash": 1897842761,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48421,7 +48421,7 @@
       "network_hash": 1836367938,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48429,7 +48429,7 @@
       "network_hash": 1774893115,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48437,7 +48437,7 @@
       "network_hash": 2086055776,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48445,7 +48445,7 @@
       "network_hash": 2024580953,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48453,7 +48453,7 @@
       "network_hash": 1963106130,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48461,7 +48461,7 @@
       "network_hash": 1901631307,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48469,7 +48469,7 @@
       "network_hash": 726850521,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48477,7 +48477,7 @@
       "network_hash": 788325344,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48485,7 +48485,7 @@
       "network_hash": 603900875,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48493,7 +48493,7 @@
       "network_hash": 665375698,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48501,7 +48501,7 @@
       "network_hash": 431168279,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48509,7 +48509,7 @@
       "network_hash": 492643102,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48517,7 +48517,7 @@
       "network_hash": 554117925,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48525,7 +48525,7 @@
       "network_hash": 615592748,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48533,7 +48533,7 @@
       "network_hash": 3491716598,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48541,7 +48541,7 @@
       "network_hash": 3430241775,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48549,7 +48549,7 @@
       "network_hash": 3614666244,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48557,7 +48557,7 @@
       "network_hash": 3553191421,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48565,7 +48565,7 @@
       "network_hash": 3900931098,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48573,7 +48573,7 @@
       "network_hash": 3839456275,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48581,7 +48581,7 @@
       "network_hash": 4023880744,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48589,7 +48589,7 @@
       "network_hash": 3962405921,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48597,7 +48597,7 @@
       "network_hash": 3969915435,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48605,7 +48605,7 @@
       "network_hash": 4031390258,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48613,7 +48613,7 @@
       "network_hash": 4092865081,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -48621,7 +48621,7 @@
       "network_hash": 4154339904,
       "name": "minecraft:jungle_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52117,7 +52117,7 @@
       "network_hash": 1680282726,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52125,7 +52125,7 @@
       "network_hash": 1618807903,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52133,7 +52133,7 @@
       "network_hash": 1803232372,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52141,7 +52141,7 @@
       "network_hash": 1741757549,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52149,7 +52149,7 @@
       "network_hash": 1627119239,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52157,7 +52157,7 @@
       "network_hash": 1688594062,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52165,7 +52165,7 @@
       "network_hash": 1750068885,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52173,7 +52173,7 @@
       "network_hash": 1811543708,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52181,7 +52181,7 @@
       "network_hash": 266572805,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52189,7 +52189,7 @@
       "network_hash": 328047628,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52197,7 +52197,7 @@
       "network_hash": 143623159,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52205,7 +52205,7 @@
       "network_hash": 205097982,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52213,7 +52213,7 @@
       "network_hash": 1589075276,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52221,7 +52221,7 @@
       "network_hash": 1527600453,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52229,7 +52229,7 @@
       "network_hash": 1466125630,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52237,7 +52237,7 @@
       "network_hash": 1404650807,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52245,7 +52245,7 @@
       "network_hash": 3553655452,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52253,7 +52253,7 @@
       "network_hash": 3492180629,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52261,7 +52261,7 @@
       "network_hash": 3430705806,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52269,7 +52269,7 @@
       "network_hash": 3369230983,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52277,7 +52277,7 @@
       "network_hash": 4265249941,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52285,7 +52285,7 @@
       "network_hash": 31757468,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52293,7 +52293,7 @@
       "network_hash": 4142300295,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52301,7 +52301,7 @@
       "network_hash": 4203775118,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52309,7 +52309,7 @@
       "network_hash": 1936176575,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52317,7 +52317,7 @@
       "network_hash": 1997651398,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52325,7 +52325,7 @@
       "network_hash": 2059126221,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52333,7 +52333,7 @@
       "network_hash": 2120601044,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52341,7 +52341,7 @@
       "network_hash": 1188873342,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52349,7 +52349,7 @@
       "network_hash": 1127398519,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52357,7 +52357,7 @@
       "network_hash": 1311822988,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -52365,7 +52365,7 @@
       "network_hash": 1250348165,
       "name": "minecraft:bamboo_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55189,7 +55189,7 @@
       "network_hash": 3881061342,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55197,7 +55197,7 @@
       "network_hash": 3819586519,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55205,7 +55205,7 @@
       "network_hash": 4004010988,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55213,7 +55213,7 @@
       "network_hash": 3942536165,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55221,7 +55221,7 @@
       "network_hash": 3744103071,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55229,7 +55229,7 @@
       "network_hash": 3805577894,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55237,7 +55237,7 @@
       "network_hash": 3867052717,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55245,7 +55245,7 @@
       "network_hash": 3928527540,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55253,7 +55253,7 @@
       "network_hash": 659925133,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55261,7 +55261,7 @@
       "network_hash": 721399956,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55269,7 +55269,7 @@
       "network_hash": 536975487,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55277,7 +55277,7 @@
       "network_hash": 598450310,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55285,7 +55285,7 @@
       "network_hash": 3906457844,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55293,7 +55293,7 @@
       "network_hash": 3844983021,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55301,7 +55301,7 @@
       "network_hash": 3783508198,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55309,7 +55309,7 @@
       "network_hash": 3722033375,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55317,7 +55317,7 @@
       "network_hash": 4134778980,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55325,7 +55325,7 @@
       "network_hash": 4073304157,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55333,7 +55333,7 @@
       "network_hash": 4011829334,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55341,7 +55341,7 @@
       "network_hash": 3950354511,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55349,7 +55349,7 @@
       "network_hash": 3288533949,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55357,7 +55357,7 @@
       "network_hash": 3350008772,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55365,7 +55365,7 @@
       "network_hash": 3165584303,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55373,7 +55373,7 @@
       "network_hash": 3227059126,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55381,7 +55381,7 @@
       "network_hash": 698991879,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55389,7 +55389,7 @@
       "network_hash": 760466702,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55397,7 +55397,7 @@
       "network_hash": 821941525,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55405,7 +55405,7 @@
       "network_hash": 883416348,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55413,7 +55413,7 @@
       "network_hash": 752155366,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55421,7 +55421,7 @@
       "network_hash": 690680543,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55429,7 +55429,7 @@
       "network_hash": 875105012,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -55437,7 +55437,7 @@
       "network_hash": 813630189,
       "name": "minecraft:oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73061,7 +73061,7 @@
       "network_hash": 814593406,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73069,7 +73069,7 @@
       "network_hash": 753118583,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73077,7 +73077,7 @@
       "network_hash": 937543052,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73085,7 +73085,7 @@
       "network_hash": 876068229,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73093,7 +73093,7 @@
       "network_hash": 1561896639,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73101,7 +73101,7 @@
       "network_hash": 1623371462,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73109,7 +73109,7 @@
       "network_hash": 1684846285,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73117,7 +73117,7 @@
       "network_hash": 1746321108,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73125,7 +73125,7 @@
       "network_hash": 178176429,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73133,7 +73133,7 @@
       "network_hash": 239651252,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73141,7 +73141,7 @@
       "network_hash": 55226783,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73149,7 +73149,7 @@
       "network_hash": 116701606,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73157,7 +73157,7 @@
       "network_hash": 866406164,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73165,7 +73165,7 @@
       "network_hash": 804931341,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73173,7 +73173,7 @@
       "network_hash": 743456518,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73181,7 +73181,7 @@
       "network_hash": 681981695,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73189,7 +73189,7 @@
       "network_hash": 1042878596,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73197,7 +73197,7 @@
       "network_hash": 981403773,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73205,7 +73205,7 @@
       "network_hash": 919928950,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73213,7 +73213,7 @@
       "network_hash": 858454127,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73221,7 +73221,7 @@
       "network_hash": 3972594397,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73229,7 +73229,7 @@
       "network_hash": 4034069220,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73237,7 +73237,7 @@
       "network_hash": 3849644751,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73245,7 +73245,7 @@
       "network_hash": 3911119574,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73253,7 +73253,7 @@
       "network_hash": 3897912231,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73261,7 +73261,7 @@
       "network_hash": 3959387054,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73269,7 +73269,7 @@
       "network_hash": 4020861877,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73277,7 +73277,7 @@
       "network_hash": 4082336700,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73285,7 +73285,7 @@
       "network_hash": 2624585094,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73293,7 +73293,7 @@
       "network_hash": 2563110271,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73301,7 +73301,7 @@
       "network_hash": 2747534740,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -73309,7 +73309,7 @@
       "network_hash": 2686059917,
       "name": "minecraft:dark_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88653,7 +88653,7 @@
       "network_hash": 1395370190,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88661,7 +88661,7 @@
       "network_hash": 1333895367,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88669,7 +88669,7 @@
       "network_hash": 1518319836,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88677,7 +88677,7 @@
       "network_hash": 1456845013,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88685,7 +88685,7 @@
       "network_hash": 1724568271,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88693,7 +88693,7 @@
       "network_hash": 1786043094,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88701,7 +88701,7 @@
       "network_hash": 1847517917,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88709,7 +88709,7 @@
       "network_hash": 1908992740,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88717,7 +88717,7 @@
       "network_hash": 2183722525,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88725,7 +88725,7 @@
       "network_hash": 2245197348,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88733,7 +88733,7 @@
       "network_hash": 2060772879,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88741,7 +88741,7 @@
       "network_hash": 2122247702,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88749,7 +88749,7 @@
       "network_hash": 1642659012,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88757,7 +88757,7 @@
       "network_hash": 1581184189,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88765,7 +88765,7 @@
       "network_hash": 1519709366,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88773,7 +88773,7 @@
       "network_hash": 1458234543,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88781,7 +88781,7 @@
       "network_hash": 2157356148,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88789,7 +88789,7 @@
       "network_hash": 2095881325,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88797,7 +88797,7 @@
       "network_hash": 2034406502,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88805,7 +88805,7 @@
       "network_hash": 1972931679,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88813,7 +88813,7 @@
       "network_hash": 3205790733,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88821,7 +88821,7 @@
       "network_hash": 3267265556,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88829,7 +88829,7 @@
       "network_hash": 3082841087,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88837,7 +88837,7 @@
       "network_hash": 3144315910,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88845,7 +88845,7 @@
       "network_hash": 1936982135,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88853,7 +88853,7 @@
       "network_hash": 1998456958,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88861,7 +88861,7 @@
       "network_hash": 2059931781,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88869,7 +88869,7 @@
       "network_hash": 2121406604,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88877,7 +88877,7 @@
       "network_hash": 1373523542,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88885,7 +88885,7 @@
       "network_hash": 1312048719,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88893,7 +88893,7 @@
       "network_hash": 1496473188,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -88901,7 +88901,7 @@
       "network_hash": 1434998365,
       "name": "minecraft:pale_oak_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111069,7 +111069,7 @@
       "network_hash": 1385924850,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111077,7 +111077,7 @@
       "network_hash": 1324450027,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111085,7 +111085,7 @@
       "network_hash": 1508874496,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111093,7 +111093,7 @@
       "network_hash": 1447399673,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111101,7 +111101,7 @@
       "network_hash": 3208193603,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111109,7 +111109,7 @@
       "network_hash": 3269668426,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111117,7 +111117,7 @@
       "network_hash": 3331143249,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111125,7 +111125,7 @@
       "network_hash": 3392618072,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111133,7 +111133,7 @@
       "network_hash": 3465490825,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111141,7 +111141,7 @@
       "network_hash": 3526965648,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111149,7 +111149,7 @@
       "network_hash": 3342541179,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111157,7 +111157,7 @@
       "network_hash": 3404016002,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111165,7 +111165,7 @@
       "network_hash": 3857535376,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111173,7 +111173,7 @@
       "network_hash": 3796060553,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111181,7 +111181,7 @@
       "network_hash": 3734585730,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111189,7 +111189,7 @@
       "network_hash": 3673110907,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111197,7 +111197,7 @@
       "network_hash": 3079871256,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111205,7 +111205,7 @@
       "network_hash": 3018396433,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111213,7 +111213,7 @@
       "network_hash": 2956921610,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111221,7 +111221,7 @@
       "network_hash": 2895446787,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111229,7 +111229,7 @@
       "network_hash": 1617950449,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111237,7 +111237,7 @@
       "network_hash": 1679425272,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111245,7 +111245,7 @@
       "network_hash": 1495000803,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111253,7 +111253,7 @@
       "network_hash": 1556475626,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111261,7 +111261,7 @@
       "network_hash": 2260545691,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111269,7 +111269,7 @@
       "network_hash": 2322020514,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111277,7 +111277,7 @@
       "network_hash": 2383495337,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111285,7 +111285,7 @@
       "network_hash": 2444970160,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111293,7 +111293,7 @@
       "network_hash": 556306314,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111301,7 +111301,7 @@
       "network_hash": 494831491,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111309,7 +111309,7 @@
       "network_hash": 679255960,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -111317,7 +111317,7 @@
       "network_hash": 617781137,
       "name": "minecraft:crimson_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112069,7 +112069,7 @@
       "network_hash": 394363157,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112077,7 +112077,7 @@
       "network_hash": 455837980,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112085,7 +112085,7 @@
       "network_hash": 271413511,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112093,7 +112093,7 @@
       "network_hash": 332888334,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112101,7 +112101,7 @@
       "network_hash": 3977735964,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112109,7 +112109,7 @@
       "network_hash": 3916261141,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112117,7 +112117,7 @@
       "network_hash": 3854786318,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112125,7 +112125,7 @@
       "network_hash": 3793311495,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"south\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112133,7 +112133,7 @@
       "network_hash": 889185844,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112141,7 +112141,7 @@
       "network_hash": 827711021,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112149,7 +112149,7 @@
       "network_hash": 766236198,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112157,7 +112157,7 @@
       "network_hash": 704761375,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112165,7 +112165,7 @@
       "network_hash": 1195896013,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112173,7 +112173,7 @@
       "network_hash": 1257370836,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112181,7 +112181,7 @@
       "network_hash": 1072946367,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112189,7 +112189,7 @@
       "network_hash": 1134421190,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"west\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112197,7 +112197,7 @@
       "network_hash": 61210723,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112205,7 +112205,7 @@
       "network_hash": 122685546,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112213,7 +112213,7 @@
       "network_hash": 184160369,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112221,7 +112221,7 @@
       "network_hash": 245635192,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112229,7 +112229,7 @@
       "network_hash": 13006226,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112237,7 +112237,7 @@
       "network_hash": 4246498699,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112245,7 +112245,7 @@
       "network_hash": 135955872,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112253,7 +112253,7 @@
       "network_hash": 74481049,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112261,7 +112261,7 @@
       "network_hash": 2988972982,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112269,7 +112269,7 @@
       "network_hash": 2927498159,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112277,7 +112277,7 @@
       "network_hash": 3111922628,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112285,7 +112285,7 @@
       "network_hash": 3050447805,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":0},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112293,7 +112293,7 @@
       "network_hash": 4277844439,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112301,7 +112301,7 @@
       "network_hash": 44351966,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112309,7 +112309,7 @@
       "network_hash": 105826789,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -112317,7 +112317,7 @@
       "network_hash": 167301612,
       "name": "minecraft:cherry_shelf",
       "canonical_state": "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"east\"},\"powered_bit\":{\"type\":\"byte\",\"value\":1},\"powered_shelf_type\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
