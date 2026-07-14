@@ -1,7 +1,7 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "d24871b5c11d59d236b0608fa539b8bff25602a06f35a47b77ae383b914d11c5",
+  "registry_sha256": "6e7b4d05461a77d885a89ebc4426236b524ceecea1a7a578598cbbe187068d93",
   "counts": {
     "names": 1356,
     "states": 16913,
@@ -108861,7 +108861,7 @@
       "network_hash": 269582903,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108869,7 +108869,7 @@
       "network_hash": 331057726,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108877,7 +108877,7 @@
       "network_hash": 392532549,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108885,7 +108885,7 @@
       "network_hash": 454007372,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108893,7 +108893,7 @@
       "network_hash": 515482195,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108901,7 +108901,7 @@
       "network_hash": 576957018,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108909,7 +108909,7 @@
       "network_hash": 638431841,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":6}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108917,7 +108917,7 @@
       "network_hash": 699906664,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":7}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108925,7 +108925,7 @@
       "network_hash": 761381487,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":8}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108933,7 +108933,7 @@
       "network_hash": 822856310,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":9}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108941,7 +108941,7 @@
       "network_hash": 884331133,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":10}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108949,7 +108949,7 @@
       "network_hash": 945805956,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":11}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108957,7 +108957,7 @@
       "network_hash": 1007280779,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":12}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108965,7 +108965,7 @@
       "network_hash": 1068755602,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":13}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108973,7 +108973,7 @@
       "network_hash": 1130230425,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":14}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -108981,7 +108981,7 @@
       "network_hash": 1191705248,
       "name": "minecraft:cactus",
       "canonical_state": "{\"age\":{\"type\":\"int\",\"value\":15}}",
-      "model_family": "unknown",
+      "model_family": "cuboid",
       "is_air": false
     },
     {
@@ -137192,22 +137192,6 @@
     13585,
     13586,
     13587,
-    13606,
-    13607,
-    13608,
-    13609,
-    13610,
-    13611,
-    13612,
-    13613,
-    13614,
-    13615,
-    13616,
-    13617,
-    13618,
-    13619,
-    13620,
-    13621,
     13622,
     13623,
     13624,
