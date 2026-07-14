@@ -1,7 +1,7 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "3e0a67718b6368d8b5f7755e9e49a1241233f21bcea8724a9163febb4f1b1d92",
+  "registry_sha256": "33a31ec89a04fe638a4f59ab315561c1c0d897e04f2041d5643262d3de56d30c",
   "counts": {
     "names": 1356,
     "states": 16913,
@@ -23453,7 +23453,7 @@
       "network_hash": 3287003413,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23461,7 +23461,7 @@
       "network_hash": 3348478236,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23469,7 +23469,7 @@
       "network_hash": 3164053767,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23477,7 +23477,7 @@
       "network_hash": 3225528590,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23485,7 +23485,7 @@
       "network_hash": 3532902705,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":4}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23493,7 +23493,7 @@
       "network_hash": 3594377528,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":5}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23501,7 +23501,7 @@
       "network_hash": 3409953059,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":6}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23509,7 +23509,7 @@
       "network_hash": 3471427882,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":7}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23517,7 +23517,7 @@
       "network_hash": 3778801997,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":8}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23525,7 +23525,7 @@
       "network_hash": 3840276820,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":9}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23533,7 +23533,7 @@
       "network_hash": 3655852351,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":10}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23541,7 +23541,7 @@
       "network_hash": 3717327174,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":11}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23549,7 +23549,7 @@
       "network_hash": 4024701289,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":12}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23557,7 +23557,7 @@
       "network_hash": 4086176112,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":13}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23565,7 +23565,7 @@
       "network_hash": 3901751643,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":14}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23573,7 +23573,7 @@
       "network_hash": 3963226466,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":15}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23581,7 +23581,7 @@
       "network_hash": 4270600581,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":16}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23589,7 +23589,7 @@
       "network_hash": 37108108,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":17}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23597,7 +23597,7 @@
       "network_hash": 4147650935,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":18}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23605,7 +23605,7 @@
       "network_hash": 4209125758,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":19}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23613,7 +23613,7 @@
       "network_hash": 221532577,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":20}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23621,7 +23621,7 @@
       "network_hash": 283007400,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":21}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23629,7 +23629,7 @@
       "network_hash": 98582931,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":22}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23637,7 +23637,7 @@
       "network_hash": 160057754,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":23}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23645,7 +23645,7 @@
       "network_hash": 467431869,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":24}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23653,7 +23653,7 @@
       "network_hash": 528906692,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":25}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23661,7 +23661,7 @@
       "network_hash": 344482223,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":26}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23669,7 +23669,7 @@
       "network_hash": 405957046,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":27}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23677,7 +23677,7 @@
       "network_hash": 713331161,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":28}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23685,7 +23685,7 @@
       "network_hash": 774805984,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":29}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23693,7 +23693,7 @@
       "network_hash": 590381515,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":30}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23701,7 +23701,7 @@
       "network_hash": 651856338,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":31}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23709,7 +23709,7 @@
       "network_hash": 959230453,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":32}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23717,7 +23717,7 @@
       "network_hash": 1020705276,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":33}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23725,7 +23725,7 @@
       "network_hash": 836280807,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":34}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23733,7 +23733,7 @@
       "network_hash": 897755630,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":35}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23741,7 +23741,7 @@
       "network_hash": 1205129745,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":36}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23749,7 +23749,7 @@
       "network_hash": 1266604568,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":37}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23757,7 +23757,7 @@
       "network_hash": 1082180099,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":38}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23765,7 +23765,7 @@
       "network_hash": 1143654922,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":39}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23773,7 +23773,7 @@
       "network_hash": 1451029037,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":40}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23781,7 +23781,7 @@
       "network_hash": 1512503860,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":41}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23789,7 +23789,7 @@
       "network_hash": 1328079391,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":42}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23797,7 +23797,7 @@
       "network_hash": 1389554214,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":43}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23805,7 +23805,7 @@
       "network_hash": 1696928329,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":44}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23813,7 +23813,7 @@
       "network_hash": 1758403152,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":45}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23821,7 +23821,7 @@
       "network_hash": 1573978683,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":46}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23829,7 +23829,7 @@
       "network_hash": 1635453506,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":47}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23837,7 +23837,7 @@
       "network_hash": 1942827621,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":48}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23845,7 +23845,7 @@
       "network_hash": 2004302444,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":49}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23853,7 +23853,7 @@
       "network_hash": 1819877975,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":50}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23861,7 +23861,7 @@
       "network_hash": 1881352798,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":51}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23869,7 +23869,7 @@
       "network_hash": 2188726913,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":52}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23877,7 +23877,7 @@
       "network_hash": 2250201736,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":53}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23885,7 +23885,7 @@
       "network_hash": 2065777267,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":54}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23893,7 +23893,7 @@
       "network_hash": 2127252090,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":55}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23901,7 +23901,7 @@
       "network_hash": 2434626205,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":56}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23909,7 +23909,7 @@
       "network_hash": 2496101028,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":57}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23917,7 +23917,7 @@
       "network_hash": 2311676559,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":58}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23925,7 +23925,7 @@
       "network_hash": 2373151382,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":59}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23933,7 +23933,7 @@
       "network_hash": 2680525497,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":60}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23941,7 +23941,7 @@
       "network_hash": 2742000320,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":61}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23949,7 +23949,7 @@
       "network_hash": 2557575851,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":62}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -23957,7 +23957,7 @@
       "network_hash": 2619050674,
       "name": "minecraft:resin_clump",
       "canonical_state": "{\"multi_face_direction_bits\":{\"type\":\"int\",\"value\":63}}",
-      "model_family": "unknown",
+      "model_family": "resin_clump",
       "is_air": false
     },
     {
@@ -135644,70 +135644,6 @@
     2916,
     2917,
     2918,
-    2930,
-    2931,
-    2932,
-    2933,
-    2934,
-    2935,
-    2936,
-    2937,
-    2938,
-    2939,
-    2940,
-    2941,
-    2942,
-    2943,
-    2944,
-    2945,
-    2946,
-    2947,
-    2948,
-    2949,
-    2950,
-    2951,
-    2952,
-    2953,
-    2954,
-    2955,
-    2956,
-    2957,
-    2958,
-    2959,
-    2960,
-    2961,
-    2962,
-    2963,
-    2964,
-    2965,
-    2966,
-    2967,
-    2968,
-    2969,
-    2970,
-    2971,
-    2972,
-    2973,
-    2974,
-    2975,
-    2976,
-    2977,
-    2978,
-    2979,
-    2980,
-    2981,
-    2982,
-    2983,
-    2984,
-    2985,
-    2986,
-    2987,
-    2988,
-    2989,
-    2990,
-    2991,
-    2992,
-    2993,
     2994,
     2995,
     2996,
