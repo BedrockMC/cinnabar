@@ -1,7 +1,7 @@
 {
   "schema": "cinnabar-visual-coverage-baseline-v1",
   "protocol": 1001,
-  "registry_sha256": "4ab7175f47a2cab8909c9d4ff0b46cdc285c2548ac74ad6cbc97ddb712ad5878",
+  "registry_sha256": "3e0a67718b6368d8b5f7755e9e49a1241233f21bcea8724a9163febb4f1b1d92",
   "counts": {
     "names": 1356,
     "states": 16913,
@@ -12853,7 +12853,7 @@
       "network_hash": 2461494154,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":0},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12861,7 +12861,7 @@
       "network_hash": 2400019331,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":0},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12869,7 +12869,7 @@
       "network_hash": 2584443800,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":0},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12877,7 +12877,7 @@
       "network_hash": 2522968977,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":0},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12885,7 +12885,7 @@
       "network_hash": 2140573675,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":1},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12893,7 +12893,7 @@
       "network_hash": 2202048498,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":1},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12901,7 +12901,7 @@
       "network_hash": 2263523321,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":1},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12909,7 +12909,7 @@
       "network_hash": 2324998144,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":1},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12917,7 +12917,7 @@
       "network_hash": 1658070772,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":2},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12925,7 +12925,7 @@
       "network_hash": 1596595949,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":2},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12933,7 +12933,7 @@
       "network_hash": 1535121126,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":2},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12941,7 +12941,7 @@
       "network_hash": 1473646303,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":2},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12949,7 +12949,7 @@
       "network_hash": 4082577277,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":3},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12957,7 +12957,7 @@
       "network_hash": 4144052100,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":3},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12965,7 +12965,7 @@
       "network_hash": 3959627631,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":3},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12973,7 +12973,7 @@
       "network_hash": 4021102454,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":3},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12981,7 +12981,7 @@
       "network_hash": 3284167598,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":4},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12989,7 +12989,7 @@
       "network_hash": 3222692775,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":4},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -12997,7 +12997,7 @@
       "network_hash": 3407117244,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":4},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13005,7 +13005,7 @@
       "network_hash": 3345642421,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":4},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13013,7 +13013,7 @@
       "network_hash": 4229508351,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":5},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13021,7 +13021,7 @@
       "network_hash": 4290983174,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":5},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13029,7 +13029,7 @@
       "network_hash": 57490701,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":5},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13037,7 +13037,7 @@
       "network_hash": 118965524,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":5},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13045,7 +13045,7 @@
       "network_hash": 2892197416,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":6},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13053,7 +13053,7 @@
       "network_hash": 2830722593,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":6},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13061,7 +13061,7 @@
       "network_hash": 2769247770,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":6},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13069,7 +13069,7 @@
       "network_hash": 2707772947,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":6},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13077,7 +13077,7 @@
       "network_hash": 2986036209,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":7},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13085,7 +13085,7 @@
       "network_hash": 3047511032,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":7},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13093,7 +13093,7 @@
       "network_hash": 2863086563,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":7},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13101,7 +13101,7 @@
       "network_hash": 2924561386,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":7},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13109,7 +13109,7 @@
       "network_hash": 994688018,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":8},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13117,7 +13117,7 @@
       "network_hash": 933213195,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":8},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13125,7 +13125,7 @@
       "network_hash": 1117637664,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":8},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13133,7 +13133,7 @@
       "network_hash": 1056162841,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":8},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13141,7 +13141,7 @@
       "network_hash": 3867318803,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":9},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13149,7 +13149,7 @@
       "network_hash": 3928793626,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":9},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13157,7 +13157,7 @@
       "network_hash": 3990268449,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":9},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13165,7 +13165,7 @@
       "network_hash": 4051743272,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":9},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13173,7 +13173,7 @@
       "network_hash": 1501213532,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":10},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13181,7 +13181,7 @@
       "network_hash": 1439738709,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":10},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13189,7 +13189,7 @@
       "network_hash": 1378263886,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":10},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13197,7 +13197,7 @@
       "network_hash": 1316789063,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":10},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13205,7 +13205,7 @@
       "network_hash": 3382753957,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":11},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13213,7 +13213,7 @@
       "network_hash": 3444228780,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":11},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13221,7 +13221,7 @@
       "network_hash": 3259804311,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":11},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13229,7 +13229,7 @@
       "network_hash": 3321279134,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":11},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13237,7 +13237,7 @@
       "network_hash": 3361220182,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":12},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13245,7 +13245,7 @@
       "network_hash": 3299745359,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":12},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13253,7 +13253,7 @@
       "network_hash": 3484169828,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":12},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13261,7 +13261,7 @@
       "network_hash": 3422695005,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":12},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13269,7 +13269,7 @@
       "network_hash": 2937243175,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":13},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13277,7 +13277,7 @@
       "network_hash": 2998717998,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":13},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13285,7 +13285,7 @@
       "network_hash": 3060192821,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":13},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13293,7 +13293,7 @@
       "network_hash": 3121667644,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":13},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13301,7 +13301,7 @@
       "network_hash": 2056988464,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":14},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13309,7 +13309,7 @@
       "network_hash": 1995513641,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":14},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13317,7 +13317,7 @@
       "network_hash": 1934038818,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":14},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13325,7 +13325,7 @@
       "network_hash": 1872563995,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":14},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13333,7 +13333,7 @@
       "network_hash": 1329413017,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":15},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13341,7 +13341,7 @@
       "network_hash": 1390887840,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":15},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13349,7 +13349,7 @@
       "network_hash": 1206463371,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":15},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13357,7 +13357,7 @@
       "network_hash": 1267938194,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":15},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13365,7 +13365,7 @@
       "network_hash": 314910010,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":16},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13373,7 +13373,7 @@
       "network_hash": 253435187,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":16},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13381,7 +13381,7 @@
       "network_hash": 437859656,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":16},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13389,7 +13389,7 @@
       "network_hash": 376384833,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":16},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13397,7 +13397,7 @@
       "network_hash": 2320934811,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":17},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13405,7 +13405,7 @@
       "network_hash": 2382409634,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":17},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13413,7 +13413,7 @@
       "network_hash": 2443884457,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":17},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13421,7 +13421,7 @@
       "network_hash": 2505359280,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":17},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13429,7 +13429,7 @@
       "network_hash": 3633256356,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":18},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13437,7 +13437,7 @@
       "network_hash": 3571781533,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":18},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13445,7 +13445,7 @@
       "network_hash": 3510306710,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":18},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13453,7 +13453,7 @@
       "network_hash": 3448831887,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":18},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13461,7 +13461,7 @@
       "network_hash": 83724333,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":19},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13469,7 +13469,7 @@
       "network_hash": 145199156,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":19},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13477,7 +13477,7 @@
       "network_hash": 4255741983,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":19},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13485,7 +13485,7 @@
       "network_hash": 22249510,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":19},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13493,7 +13493,7 @@
       "network_hash": 2426159390,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":20},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13501,7 +13501,7 @@
       "network_hash": 2364684567,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":20},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13509,7 +13509,7 @@
       "network_hash": 2549109036,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":20},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13517,7 +13517,7 @@
       "network_hash": 2487634213,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":20},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13525,7 +13525,7 @@
       "network_hash": 1496133935,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":21},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13533,7 +13533,7 @@
       "network_hash": 1557608758,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":21},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13541,7 +13541,7 @@
       "network_hash": 1619083581,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":21},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13549,7 +13549,7 @@
       "network_hash": 1680558404,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":21},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13557,7 +13557,7 @@
       "network_hash": 3170250968,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":22},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13565,7 +13565,7 @@
       "network_hash": 3108776145,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":22},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13573,7 +13573,7 @@
       "network_hash": 3047301322,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":22},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13581,7 +13581,7 @@
       "network_hash": 2985826499,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":22},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13589,7 +13589,7 @@
       "network_hash": 2542704737,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":23},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13597,7 +13597,7 @@
       "network_hash": 2604179560,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":23},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13605,7 +13605,7 @@
       "network_hash": 2419755091,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":23},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13613,7 +13613,7 @@
       "network_hash": 2481229914,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":23},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13621,7 +13621,7 @@
       "network_hash": 853578434,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":24},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13629,7 +13629,7 @@
       "network_hash": 792103611,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":24},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13637,7 +13637,7 @@
       "network_hash": 976528080,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":24},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13645,7 +13645,7 @@
       "network_hash": 915053257,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":24},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13653,7 +13653,7 @@
       "network_hash": 3457073347,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":25},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13661,7 +13661,7 @@
       "network_hash": 3518548170,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":25},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13669,7 +13669,7 @@
       "network_hash": 3580022993,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":25},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13677,7 +13677,7 @@
       "network_hash": 3641497816,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":25},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13685,7 +13685,7 @@
       "network_hash": 2599157900,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":26},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13693,7 +13693,7 @@
       "network_hash": 2537683077,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":26},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13701,7 +13701,7 @@
       "network_hash": 2476208254,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":26},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13709,7 +13709,7 @@
       "network_hash": 2414733431,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":26},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13717,7 +13717,7 @@
       "network_hash": 3056458261,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":27},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13725,7 +13725,7 @@
       "network_hash": 3117933084,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":27},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13733,7 +13733,7 @@
       "network_hash": 2933508615,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":27},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13741,7 +13741,7 @@
       "network_hash": 2994983438,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":27},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13749,7 +13749,7 @@
       "network_hash": 891538566,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":28},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13757,7 +13757,7 @@
       "network_hash": 830063743,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":28},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13765,7 +13765,7 @@
       "network_hash": 1014488212,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":28},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13773,7 +13773,7 @@
       "network_hash": 953013389,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":28},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13781,7 +13781,7 @@
       "network_hash": 2035363927,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":29},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13789,7 +13789,7 @@
       "network_hash": 2096838750,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":29},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13797,7 +13797,7 @@
       "network_hash": 2158313573,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":29},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13805,7 +13805,7 @@
       "network_hash": 2219788396,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":29},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13813,7 +13813,7 @@
       "network_hash": 360588448,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":30},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13821,7 +13821,7 @@
       "network_hash": 299113625,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":30},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13829,7 +13829,7 @@
       "network_hash": 237638802,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":30},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13837,7 +13837,7 @@
       "network_hash": 176163979,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":30},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13845,7 +13845,7 @@
       "network_hash": 1570894153,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":31},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13853,7 +13853,7 @@
       "network_hash": 1632368976,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":31},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13861,7 +13861,7 @@
       "network_hash": 1447944507,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":31},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13869,7 +13869,7 @@
       "network_hash": 1509419330,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":31},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13877,7 +13877,7 @@
       "network_hash": 3959090602,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":32},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13885,7 +13885,7 @@
       "network_hash": 3897615779,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":32},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13893,7 +13893,7 @@
       "network_hash": 4082040248,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":32},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13901,7 +13901,7 @@
       "network_hash": 4020565425,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":32},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13909,7 +13909,7 @@
       "network_hash": 1778933003,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":33},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13917,7 +13917,7 @@
       "network_hash": 1840407826,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":33},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13925,7 +13925,7 @@
       "network_hash": 1901882649,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":33},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13933,7 +13933,7 @@
       "network_hash": 1963357472,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":33},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13941,7 +13941,7 @@
       "network_hash": 336776980,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":34},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13949,7 +13949,7 @@
       "network_hash": 275302157,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":34},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13957,7 +13957,7 @@
       "network_hash": 213827334,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":34},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13965,7 +13965,7 @@
       "network_hash": 152352511,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":34},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13973,7 +13973,7 @@
       "network_hash": 752308637,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":35},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13981,7 +13981,7 @@
       "network_hash": 813783460,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":35},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13989,7 +13989,7 @@
       "network_hash": 629358991,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":35},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -13997,7 +13997,7 @@
       "network_hash": 690833814,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":35},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14005,7 +14005,7 @@
       "network_hash": 3192059854,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":36},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14013,7 +14013,7 @@
       "network_hash": 3130585031,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":36},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14021,7 +14021,7 @@
       "network_hash": 3315009500,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":36},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14029,7 +14029,7 @@
       "network_hash": 3253534677,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":36},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14037,7 +14037,7 @@
       "network_hash": 2847741727,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":37},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14045,7 +14045,7 @@
       "network_hash": 2909216550,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":37},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14053,7 +14053,7 @@
       "network_hash": 2970691373,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":37},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14061,7 +14061,7 @@
       "network_hash": 3032166196,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":37},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14069,7 +14069,7 @@
       "network_hash": 4202270536,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":38},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14077,7 +14077,7 @@
       "network_hash": 4140795713,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":38},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14085,7 +14085,7 @@
       "network_hash": 4079320890,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":38},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14093,7 +14093,7 @@
       "network_hash": 4017846067,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":38},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14101,7 +14101,7 @@
       "network_hash": 2759638289,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":39},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14109,7 +14109,7 @@
       "network_hash": 2821113112,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":39},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14117,7 +14117,7 @@
       "network_hash": 2636688643,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":39},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14125,7 +14125,7 @@
       "network_hash": 2698163466,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":39},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14133,7 +14133,7 @@
       "network_hash": 686280498,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":40},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14141,7 +14141,7 @@
       "network_hash": 624805675,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":40},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14149,7 +14149,7 @@
       "network_hash": 809230144,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":40},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14157,7 +14157,7 @@
       "network_hash": 747755321,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":40},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14165,7 +14165,7 @@
       "network_hash": 3404234547,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":41},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14173,7 +14173,7 @@
       "network_hash": 3465709370,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":41},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14181,7 +14181,7 @@
       "network_hash": 3527184193,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":41},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14189,7 +14189,7 @@
       "network_hash": 3588659016,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":41},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14197,7 +14197,7 @@
       "network_hash": 4112491900,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":42},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14205,7 +14205,7 @@
       "network_hash": 4051017077,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":42},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14213,7 +14213,7 @@
       "network_hash": 3989542254,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":42},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14221,7 +14221,7 @@
       "network_hash": 3928067431,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":42},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14229,7 +14229,7 @@
       "network_hash": 1724199109,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":43},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14237,7 +14237,7 @@
       "network_hash": 1785673932,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":43},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14245,7 +14245,7 @@
       "network_hash": 1601249463,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":43},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14253,7 +14253,7 @@
       "network_hash": 1662724286,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":43},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14261,7 +14261,7 @@
       "network_hash": 4291339382,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":44},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14269,7 +14269,7 @@
       "network_hash": 4229864559,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":44},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14277,7 +14277,7 @@
       "network_hash": 119321732,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":44},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14285,7 +14285,7 @@
       "network_hash": 57846909,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":44},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14293,7 +14293,7 @@
       "network_hash": 3250919239,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":45},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14301,7 +14301,7 @@
       "network_hash": 3312394062,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":45},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14309,7 +14309,7 @@
       "network_hash": 3373868885,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":45},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14317,7 +14317,7 @@
       "network_hash": 3435343708,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":45},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14325,7 +14325,7 @@
       "network_hash": 1830590544,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":46},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14333,7 +14333,7 @@
       "network_hash": 1769115721,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":46},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14341,7 +14341,7 @@
       "network_hash": 1707640898,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":46},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14349,7 +14349,7 @@
       "network_hash": 1646166075,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":46},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14357,7 +14357,7 @@
       "network_hash": 2639486137,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":47},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14365,7 +14365,7 @@
       "network_hash": 2700960960,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":47},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14373,7 +14373,7 @@
       "network_hash": 2516536491,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":47},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14381,7 +14381,7 @@
       "network_hash": 2578011314,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":47},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14389,7 +14389,7 @@
       "network_hash": 2724720986,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":48},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14397,7 +14397,7 @@
       "network_hash": 2663246163,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":48},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14405,7 +14405,7 @@
       "network_hash": 2847670632,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":48},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14413,7 +14413,7 @@
       "network_hash": 2786195809,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":48},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14421,7 +14421,7 @@
       "network_hash": 2905211579,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":49},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14429,7 +14429,7 @@
       "network_hash": 2966686402,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":49},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14437,7 +14437,7 @@
       "network_hash": 3028161225,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":49},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14445,7 +14445,7 @@
       "network_hash": 3089636048,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":49},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14453,7 +14453,7 @@
       "network_hash": 648362180,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":50},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14461,7 +14461,7 @@
       "network_hash": 586887357,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":50},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14469,7 +14469,7 @@
       "network_hash": 525412534,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":50},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14477,7 +14477,7 @@
       "network_hash": 463937711,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":50},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14485,7 +14485,7 @@
       "network_hash": 4286583885,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":51},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14493,7 +14493,7 @@
       "network_hash": 53091412,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":51},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14501,7 +14501,7 @@
       "network_hash": 4163634239,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":51},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14509,7 +14509,7 @@
       "network_hash": 4225109062,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":51},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14517,7 +14517,7 @@
       "network_hash": 660460862,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":52},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14525,7 +14525,7 @@
       "network_hash": 598986039,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":52},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14533,7 +14533,7 @@
       "network_hash": 783410508,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":52},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14541,7 +14541,7 @@
       "network_hash": 721935685,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":52},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14549,7 +14549,7 @@
       "network_hash": 4050536783,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":53},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14557,7 +14557,7 @@
       "network_hash": 4112011606,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":53},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14565,7 +14565,7 @@
       "network_hash": 4173486429,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":53},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14573,7 +14573,7 @@
       "network_hash": 4234961252,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":53},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14581,7 +14581,7 @@
       "network_hash": 926296824,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":54},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14589,7 +14589,7 @@
       "network_hash": 864822001,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":54},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14597,7 +14597,7 @@
       "network_hash": 803347178,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":54},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14605,7 +14605,7 @@
       "network_hash": 741872355,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":54},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14613,7 +14613,7 @@
       "network_hash": 784602753,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":55},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14621,7 +14621,7 @@
       "network_hash": 846077576,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":55},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14629,7 +14629,7 @@
       "network_hash": 661653107,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":55},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14637,7 +14637,7 @@
       "network_hash": 723127930,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":55},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14645,7 +14645,7 @@
       "network_hash": 2667905250,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":56},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14653,7 +14653,7 @@
       "network_hash": 2606430427,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":56},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14661,7 +14661,7 @@
       "network_hash": 2790854896,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":56},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14669,7 +14669,7 @@
       "network_hash": 2729380073,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":56},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14677,7 +14677,7 @@
       "network_hash": 3019123171,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":57},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14685,7 +14685,7 @@
       "network_hash": 3080597994,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":57},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14693,7 +14693,7 @@
       "network_hash": 3142072817,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":57},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14701,7 +14701,7 @@
       "network_hash": 3203547640,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":57},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14709,7 +14709,7 @@
       "network_hash": 560649132,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":58},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14717,7 +14717,7 @@
       "network_hash": 499174309,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":58},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14725,7 +14725,7 @@
       "network_hash": 437699486,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":58},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14733,7 +14733,7 @@
       "network_hash": 376224663,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":58},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14741,7 +14741,7 @@
       "network_hash": 2427726901,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":59},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14749,7 +14749,7 @@
       "network_hash": 2489201724,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":59},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14757,7 +14757,7 @@
       "network_hash": 2304777255,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":59},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14765,7 +14765,7 @@
       "network_hash": 2366252078,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":59},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14773,7 +14773,7 @@
       "network_hash": 453588390,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":60},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14781,7 +14781,7 @@
       "network_hash": 392113567,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":60},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14789,7 +14789,7 @@
       "network_hash": 576538036,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":60},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14797,7 +14797,7 @@
       "network_hash": 515063213,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":60},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14805,7 +14805,7 @@
       "network_hash": 4233622647,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":61},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14813,7 +14813,7 @@
       "network_hash": 130174,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":61},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14821,7 +14821,7 @@
       "network_hash": 61604997,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":61},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14829,7 +14829,7 @@
       "network_hash": 123079820,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":61},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14837,7 +14837,7 @@
       "network_hash": 3342843328,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":62},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14845,7 +14845,7 @@
       "network_hash": 3281368505,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":62},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14853,7 +14853,7 @@
       "network_hash": 3219893682,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":62},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14861,7 +14861,7 @@
       "network_hash": 3158418859,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":62},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14869,7 +14869,7 @@
       "network_hash": 626296425,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":63},\"direction\":{\"type\":\"int\",\"value\":0}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14877,7 +14877,7 @@
       "network_hash": 687771248,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":63},\"direction\":{\"type\":\"int\",\"value\":1}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14885,7 +14885,7 @@
       "network_hash": 503346779,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":63},\"direction\":{\"type\":\"int\",\"value\":2}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -14893,7 +14893,7 @@
       "network_hash": 564821602,
       "name": "minecraft:chiseled_bookshelf",
       "canonical_state": "{\"books_stored\":{\"type\":\"int\",\"value\":63},\"direction\":{\"type\":\"int\",\"value\":3}}",
-      "model_family": "unknown",
+      "model_family": "chiseled_bookshelf",
       "is_air": false
     },
     {
@@ -135547,262 +135547,6 @@
     1601,
     1603,
     1604,
-    1605,
-    1606,
-    1607,
-    1608,
-    1609,
-    1610,
-    1611,
-    1612,
-    1613,
-    1614,
-    1615,
-    1616,
-    1617,
-    1618,
-    1619,
-    1620,
-    1621,
-    1622,
-    1623,
-    1624,
-    1625,
-    1626,
-    1627,
-    1628,
-    1629,
-    1630,
-    1631,
-    1632,
-    1633,
-    1634,
-    1635,
-    1636,
-    1637,
-    1638,
-    1639,
-    1640,
-    1641,
-    1642,
-    1643,
-    1644,
-    1645,
-    1646,
-    1647,
-    1648,
-    1649,
-    1650,
-    1651,
-    1652,
-    1653,
-    1654,
-    1655,
-    1656,
-    1657,
-    1658,
-    1659,
-    1660,
-    1661,
-    1662,
-    1663,
-    1664,
-    1665,
-    1666,
-    1667,
-    1668,
-    1669,
-    1670,
-    1671,
-    1672,
-    1673,
-    1674,
-    1675,
-    1676,
-    1677,
-    1678,
-    1679,
-    1680,
-    1681,
-    1682,
-    1683,
-    1684,
-    1685,
-    1686,
-    1687,
-    1688,
-    1689,
-    1690,
-    1691,
-    1692,
-    1693,
-    1694,
-    1695,
-    1696,
-    1697,
-    1698,
-    1699,
-    1700,
-    1701,
-    1702,
-    1703,
-    1704,
-    1705,
-    1706,
-    1707,
-    1708,
-    1709,
-    1710,
-    1711,
-    1712,
-    1713,
-    1714,
-    1715,
-    1716,
-    1717,
-    1718,
-    1719,
-    1720,
-    1721,
-    1722,
-    1723,
-    1724,
-    1725,
-    1726,
-    1727,
-    1728,
-    1729,
-    1730,
-    1731,
-    1732,
-    1733,
-    1734,
-    1735,
-    1736,
-    1737,
-    1738,
-    1739,
-    1740,
-    1741,
-    1742,
-    1743,
-    1744,
-    1745,
-    1746,
-    1747,
-    1748,
-    1749,
-    1750,
-    1751,
-    1752,
-    1753,
-    1754,
-    1755,
-    1756,
-    1757,
-    1758,
-    1759,
-    1760,
-    1761,
-    1762,
-    1763,
-    1764,
-    1765,
-    1766,
-    1767,
-    1768,
-    1769,
-    1770,
-    1771,
-    1772,
-    1773,
-    1774,
-    1775,
-    1776,
-    1777,
-    1778,
-    1779,
-    1780,
-    1781,
-    1782,
-    1783,
-    1784,
-    1785,
-    1786,
-    1787,
-    1788,
-    1789,
-    1790,
-    1791,
-    1792,
-    1793,
-    1794,
-    1795,
-    1796,
-    1797,
-    1798,
-    1799,
-    1800,
-    1801,
-    1802,
-    1803,
-    1804,
-    1805,
-    1806,
-    1807,
-    1808,
-    1809,
-    1810,
-    1811,
-    1812,
-    1813,
-    1814,
-    1815,
-    1816,
-    1817,
-    1818,
-    1819,
-    1820,
-    1821,
-    1822,
-    1823,
-    1824,
-    1825,
-    1826,
-    1827,
-    1828,
-    1829,
-    1830,
-    1831,
-    1832,
-    1833,
-    1834,
-    1835,
-    1836,
-    1837,
-    1838,
-    1839,
-    1840,
-    1841,
-    1842,
-    1843,
-    1844,
-    1845,
-    1846,
-    1847,
-    1848,
-    1849,
-    1850,
-    1851,
-    1852,
-    1853,
-    1854,
-    1855,
-    1856,
-    1857,
-    1858,
-    1859,
-    1860,
     1869,
     1871,
     1872,
