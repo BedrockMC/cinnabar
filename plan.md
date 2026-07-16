@@ -1511,6 +1511,7 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   first-person visuals, live render-pipeline creation on a hardware backend, and multi-client
   visual evidence remain open Phase 4 work.
 
+
 ## Phase 5 — Interaction, inventory, UI
 
 Scope: block breaking (server-auth crack progress overlay), placement, item use via
