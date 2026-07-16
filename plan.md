@@ -829,6 +829,15 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       `minecraft:cinnabar` (12638/`0xbda02665`), with `minecraft:leaf_litter`
       far behind, replacing screenshot-based family guesses with exact live
       evidence.
+      **Sulfur/cinnabar exact route complete (2026-07-16):** both single-state
+      minerals now compile as exact opaque full cubes for sequential and hashed
+      protocol identities. Admission proves the reviewed collision, selector,
+      sound, static texture, tint, flipbook, alias, and extension-metadata
+      boundaries and rejects the pair atomically on any mismatch. Independent
+      review, the ignored pinned-pack witness, full affected suites, and strict
+      checks are green through the `6aeb8c8` merge. Production visual diagnostics
+      fell exactly from 2,400 to 2,398 with zero additions. A fresh native BDS
+      run must still prove the previously dominant magenta surfaces are gone.
       **Fixed-pose diagnostic attempt (2026-07-15):** run
       `20260715T164233Z-14908` disabled auto-fly and retained one stable render
       view generation, but the client never emitted its mutation/world-ready
