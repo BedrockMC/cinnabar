@@ -75,7 +75,7 @@ patch-unique commits. The three genuine candidates and their current disposition
 |---|---|---|---|
 | Phase 3 movement foundation | `efa5400` -> `71d38a3` | Integrated history-preservingly as merge `e370880`; focused and full locked workspace tests, strict Clippy, formatting, and architecture enforcement are green | Keep production outbound movement disabled while FreeCamera is active; finish the remaining movement strata and live server-authoritative acceptance before enabling `Physics` transmission |
 | Phase 2.6 leaf litter | `efa5400` -> `698be1c` (`phase26-leaf-litter`) | Clean, local-only, review **needs changes**; not mergeable as-is | Replace provisional growth 4-7 geometry/UV/tint and complete texture admission from version-matched Bedrock visual authority, then re-review |
-| Phase 4 entity geometry stream | `105107d` -> `15bbfe2` (`phase43-entity-geometry-payloads`) | Clean, local-only; inheritance fixes landed after the first review | Independently re-review the complete range, then integrate only if approved |
+| Phase 4 entity geometry carrier | `105107d` -> `4a6696b` | Integrated history-preservingly as merges `1e4ba3c` and `73b8de7` after three Important parser/inheritance findings were fixed, the complete behavior range received fresh APPROVE, and the policy-compliant module split received a separate APPROVE | Consume the bounded geometry/bone/cube payloads in runtime rigs; animation clips, Molang/controller evaluation, GPU posing, and native animated-actor evidence remain open |
 
 Phase status at this audit:
 
@@ -85,7 +85,7 @@ Phase status at this audit:
 | Phase 2.6 visual coverage | Open: the authoritative production residual is 2,398 diagnostics; the leaf-litter tranche above is not counted because it is review-blocked and unmerged |
 | Phase 2.7 lighting/sky/fog/clouds | Open: the cloud evidence sub-gate is complete, but calibrated atmosphere parity, native cloud/celestial comparison, and the <=2 s teleport-remesh gate remain open |
 | Phase 3 movement | Packet/simulation foundations plus app input, fixed-step simulation, collision registries, camera interpolation, and correction/session reanchors are integrated through `e370880`. Production outbound movement remains intentionally off in FreeCamera mode; remaining bedsim movement strata and live server-authoritative acceptance are still open |
-| Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, and distinct per-frame render interpolation are complete. Authoritative geometry/bone/cube streaming remains pending in `15bbfe2`; animations/Molang, persona/custom geometry, legacy/outer skin layers, and remaining entity families are still open |
+| Phase 4 actors | Actor tracking, standard-skin biped rendering, Oomph-style three-tick player convergence, distinct per-frame render interpolation, and the bounded MCBEENT3 geometry/bone/cube carrier are complete. Runtime rig consumption, animations/Molang, persona/custom rendering, legacy/outer skin layers, and remaining entity families are still open |
 
 Nine other patch-unique branch heads were audited as superseded/reimplemented and were
 deleted locally after their authoritative replacements were verified: local `phase2-textures`
@@ -101,8 +101,8 @@ audit: the root `cinnabar-work`, `external-mode-diagnostic`, `blockentity-eviden
 `atmosphere-black-diagnosis`, and `static-fence-gates`. Their changes are not part of the
 three integration candidates above.
 
-Prioritized continuation: (1) re-review and, if approved, integrate entity geometry through
-`15bbfe2`; (2) repair leaf litter before any merge; (3) continue the source-backed bulk
+Prioritized continuation: (1) repair leaf litter before any merge; (2) consume the entity
+geometry carrier in runtime rigs; (3) continue the source-backed bulk
 visual-rule generator, using BDS state/collision
 data only as structural authority and version-matched native client/resource-pack evidence
 for render geometry and UVs, with ambiguous families failing closed; then (4) close the
