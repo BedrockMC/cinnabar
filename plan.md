@@ -1710,16 +1710,6 @@ UI phases get fable-5/opus-4.8 review before merge.
 
 **Phase 5 roadmap (kept current as work lands):**
 
-**Approved gameplay-HUD presentation deviation (expanded 2026-07-19):** the
-in-game HUD may use the pinned Java Edition 26.2 presentation for chat, hotbar,
-scoreboard, hearts, hunger, armor, air, experience/level, and applicable
-mount/offhand/effect/attack-indicator surfaces. Bedrock remains authoritative
-for packets, attributes, equipment, inventory, game mode, combat timing, and
-reconciliation; Java presentation must not invent state that Bedrock does not
-expose. Menus, inventories, containers, forms, controls, and resource-pack JSON
-UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
-incomplete scaffold until the full state matrix and native/live comparison gates
-below are green.
 
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,
