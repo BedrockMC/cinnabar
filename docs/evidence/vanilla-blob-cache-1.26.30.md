@@ -10,10 +10,10 @@ observations. No disassembly, proprietary source, or copied code structure is
 reproduced here.
 
 
-## World-change ordering uses a connection-channel pause
+## World-change ordering uses receive-side pause bookkeeping
 
 Vanilla buffers selected world-change packets by pausing a per-connection
-channel. It does not use a per-column apply barrier.
+receive-side bucket. It does not use a per-column apply barrier.
 
 
 - `UpdateBlockPacket`
@@ -31,7 +31,8 @@ resolving every hit.
 
 When the count for the packet's column is non-zero,
 `queueHandleWorldChangePacket` calls
-`NetworkSystem::setConnectionChannelPaused(id, channel 0, true)` and stashes a
+`NetworkSystem::setConnectionChannelPaused(id, 0, true)` to pause receive-side
+bucket 0 and stashes a
 `std::function<void(BlockSource&)>` in `mConnectionPausedCallbacks`. The
 corresponding client log string is
 `"Network Stream Paused for LevelChunk handling"`.
@@ -42,12 +43,22 @@ The paused packets are buffered rather than dropped.
 packets are replayed through `mResumedPackets`.
 
 
-## Channel separation makes the pause recoverable
+## The pause is recoverable because miss responses bypass buffering
 
 
-Pausing channel 0 therefore stops the gameplay stream while blob-miss payloads
-continue to arrive on channel 1. This separation allows a client stalled on a
-column to receive the data required to complete that column and unpause.
+A program-wide caller scan found exactly one caller of `getChannel()`. Its
+return value is used solely as an index into
+`NetworkConnection::mPausedChannels`, a `std::bitset<2>` at offset `+0x148`,
+and `NetworkConnection::mPausedPackets`, a
+`std::array<std::vector<PausedPacket>, 2>` at offset `+0x178`. This is
+receive-side pause bookkeeping, not a RakNet ordering channel or any other
+transport channel; it does not cause any packet to be transmitted
+differently.
+
+While bucket 0 is paused, received packets classified into it are buffered,
+but packet ID 136 is classified into bucket 1 and processed immediately.
+That exception allows a client stalled on a column to receive the blob
+payloads required to complete that column and unpause.
 
 ## Vanilla has no timeout on the pause
 
@@ -58,8 +69,8 @@ No watchdog or timeout call site exists for this pause.
 
 Consequently, if a server never answers a blob miss for a column after a
 world-change packet for that column has reached the queueing path, vanilla
-leaves channel 0 paused permanently. This is observed vanilla behavior and is
-a remotely triggerable client hang.
+leaves receive-side bucket 0 paused permanently. This is observed vanilla
+behavior and is a remotely triggerable client hang.
 
 ## Chunk insertion is strictly sequence-ordered
 
@@ -97,11 +108,17 @@ Cinnabar deliberately retains blob-payload hash validation even though
 vanilla no longer performs it. This is a security-motivated divergence that
 protects against cache poisoning.
 
-Cinnabar does not currently replicate vanilla's permanent channel-0 pause
-as-is. Whether to reproduce vanilla's unbounded pause or deliberately diverge
-with a bounded timeout remains open pending a decision by the repository
-owner. This document does not resolve that choice.
+Cinnabar does not currently replicate vanilla's permanent receive-side
+bucket-0 pause as-is. Whether to reproduce vanilla's unbounded pause or
+deliberately diverge with a bounded timeout remains open pending a decision
+by the repository owner. This document does not resolve that choice.
 
 Cinnabar currently resolves transactions out of order and uses per-column
-ordering rather than vanilla's connection-channel pause. This is a known
+ordering rather than vanilla's connection-wide receive pause. This is a known
 divergence pending redesign, not a validated parity choice.
+
+Implementing vanilla's pause requires no channel or transport concept: only
+a receive-side pause with the two-bucket classification described above.
+Cinnabar's existing cache/ordinary lane split approximates that mechanism;
+aligning the pause condition with vanilla's per-column reference count remains
+open work.
