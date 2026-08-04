@@ -10,6 +10,9 @@ remembered behavior are not references. A provisional approximation may be
 committed only when labeled incomplete in `plan.md` and in user-facing status, and
 it never closes a vanilla acceptance gate.
 
+## Gameplay HUD: Java Edition parity exception
+
+
 These are the things that are not obvious from the code. Read the linked docs when
 the work touches them.
 
