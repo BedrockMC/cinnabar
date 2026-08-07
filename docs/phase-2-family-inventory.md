@@ -251,7 +251,6 @@ Known false negatives:
 - `iron_bars` and eight copper-bar names are missed by a pane-only suffix rule;
 - all walls (32 names/5,184 states), controls (31/440), rails (4/46), torches
   (10/60), and the bed (1/16) are otherwise left unknown;
-- `colored_torch_*` does not end in `_torch`;
 - most modern flower names do not end in `_flower`; and
 - melon and pumpkin stems are absent from the original crop allowlist.
 
@@ -332,9 +331,8 @@ changed status.
 The original 412-name/2,860-state planning residual was bounded and
 attributable:
 
-- 229 names/812 states have full-cube collision. This is only a candidate set:
-  it also contains shulker boxes, pistons, chorus flower, azalea,
-  spawners, and other visible exceptions.
+- Full-cube collision remains only a candidate signal; visible exceptions need
+  independent family-level admission.
 - 23 names/477 states have entirely empty collision: ground overlays, powder
   snow, portals/gateway, vines/lichen/sculk vein, item frames, banners,
   redstone/tripwire, scaffolding, sea pickle, small dripleaf, frog spawn,
@@ -354,18 +352,11 @@ authority.
 ## Mojang mapping gaps
 
 The pinned pack has 1,231 real `blocks.json` entries and 1,300 terrain keys.
-Direct canonical-name lookup covers 1,181 names; 175 require aliases, special
-handling, or sourced engine-only treatment:
-
-- 146 residual names, including 119 reserved names and other unavailable records;
-- 17 reserved names;
-- five reserved names;
-- five engine-only names without block entries; and
-- `grass_block` and `sea_lantern`, which are ordinary alias cases.
-
-The standard sample pack had no direct terrain keys for these reserved records.
-They remain outside the retail coverage scope; their historical counts do not
-establish retail visual support.
+Direct canonical-name lookup covers the retail inventory wherever the pinned
+pack supplies an exact route. `grass_block` and `sea_lantern` use reviewed
+legacy aliases. Any remaining retail zero-diagnostic coverage needs an explicit
+reviewed alias or authoritative family treatment; it cannot be inferred from
+collision or `blocks.json`.
 
 ## High-impact implementation order
 

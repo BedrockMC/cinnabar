@@ -26,6 +26,20 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Global Constraints
 
+- Pinned loopback wire target: **Bedrock 1.26.40 / protocol 2168** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
+- The Rust side NEVER implements auth, encryption-to-upstream, RakNet-to-upstream, or NetherNet. If a task seems to need one of those in Rust, the task is wrong.
+- The loopback game channel is Bedrock packets with length-prefixed framing; no RakNet on this leg. Encryption on this leg: whatever gophertunnel's Listener does by default — do not fork to remove it; AES on loopback is negligible.
+- Single source of truth for protocol/data lives in the Go estate: packet truth = gophertunnel (validated against Mojang bedrock-protocol-docs via `cmd/protocoldrift`); block/item/biome registries = generated exports from dragonfly; client packet defs = valentine (docs-generated), conformance-tested against gophertunnel bytes.
+- New Go types get doc comments at creation (contract on the type, one-liner per method).
+- `lunar` gains at most ONE new consumer (the core). Respect the frozen-facade/ABI rules in `platform/Lunar/AGENTS.md`.
+- **Go relay source rule:** copy Lunar's `lunar/internal/relay/relay.go` package logic and
+  its relay tests into this repository's Go core (target: `core/internal/relay`), recording
+  the exact Lunar source commit. Preserve its forwarding, transfer, resource-pack, and
+  lifecycle behavior. Replace only its tiny `lunar/utils` panic-helper dependency with a
+  local equivalent. **Do not import `github.com/lunar-bedrock/lunar` or add Lunar as a Go
+  module dependency; the copied relay package is the only Lunar code the core consumes.**
+- Never edit anything under `refs/` (read-only).
+- Model routing (per workspace CLAUDE.md): bulk/mechanical implementation → gpt-5.5 via codex skills; anything user-facing (UI, menus, copy) and plan/impl reviews → fable-5/opus-4.8 taste bar.
 
 ## Repos and Layout
 
@@ -243,7 +257,7 @@ any other phase proceeds.
 - [x] **0.5 Login sequence.** Complete at `1fa35ee` (encrypted Rust bridge login, strict protocol-1001 conformance fixtures, bounded malformed-input handling, independent review approved). `LoginSequence` reaches StartGame through the spike core. With `BEDROCK_BDS_DIR` set, `cargo test -p protocol --test login --locked -- --nocapture` builds the Go external-client harness, starts/stops core+BDS itself, and verifies clean shutdown.
 - [x] **0.6 Sub-chunk decode.** Complete at `7d9248a` (12 reproducible goldens from pinned Dragonfly, packed/paletted v1/v8/v9 decode, atomic sparse chunk ingestion, 28 Rust world tests, three independent reviews approved). Runtime storage remains palette + packed words and preserves high-bit network block hashes without a flat per-block array.
 - [x] **0.7 Spike renderer.** Complete at `f2a6a1c` (400 Rust tests, strict all-target Clippy, independent review approved, and live fly/input pass recorded). First extend `crates/world` with packed-palette `UpdateBlock`/`UpdateSubChunkBlocks` mutation and full-column eviction APIs; expand each changed key through `mesh_dependents` before remeshing. Bevy app: consume LevelChunk and SubChunk responses → decode → cull-meshing on rayon → vertex buffers → draw untextured (per-runtime-ID debug colors); fly camera. Pure meshing remains unit-tested. Use Computer Use for a live interaction pass covering window focus/capture, keyboard inputs, fly movement on every axis, mouse-look yaw/pitch, and clean input release (no stuck movement or rotation); the acceptance run below remains the end-to-end renderer gate.
-- [ ] **0.8 Acceptance run.** Connect to BDS world, render 16-chunk radius, fly at speed, break/place blocks from a second client to force live remeshing. Repeat the Task 0.7 Computer Use interaction checklist in the live streamed world and record the result. Before the run, resolve the recorded `AvailableCommands` live drift and add/fix reserved-vector output-count conformance coverage from `crates/protocol/DEVIATIONS.md`. **Gate: p99 frame time ≤ 8ms on the dev MacBook at 16 chunks; remesh of a modified sub-chunk visible ≤ 100ms; zero decode errors over a 15-minute session (or all errors adjudicated as 0.4-style findings and fixed).** Record numbers in the phase report.
+- [ ] **0.8 Acceptance run.** Connect to BDS world, render 16-chunk radius, fly at speed, break/place blocks from a second client to force live remeshing. Repeat the Task 0.7 Computer Use interaction checklist in the live streamed world and record the result. Before the run, resolve the recorded `AvailableCommands` live drift and remaining protocol conformance coverage from `crates/protocol/DEVIATIONS.md`. **Gate: p99 frame time ≤ 8ms on the dev MacBook at 16 chunks; remesh of a modified sub-chunk visible ≤ 100ms; zero decode errors over a 15-minute session (or all errors adjudicated as 0.4-style findings and fixed).** Record numbers in the phase report.
   - Historical Windows evidence at `3898530` passed: 900.0015 s, radius 16/16/16, p99 5.1 ms, 432/432 visible mutations, max mutation-to-visible 45.4522 ms, zero decode errors, clean shutdown. At that revision Phase 0 was **CONDITIONAL GO**, pending only the authoritative dev MacBook p99 run.
   - **Current-candidate performance audit (2026-08-02, local and uncommitted):**
     a release baseline at `.local/acceptance/20260802T174927Z-10764` recorded
@@ -769,8 +783,7 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       an equal six-face material identity under the checked transparent-cube
       semantic, preserves both cross-colour boundary faces, culls glass behind
       full opaque neighbours without hiding the opaque face, stays cave-open,
-      and applies across all six subchunk boundaries. Stained-glass panes, copper grates, slime, legacy flags-zero cubes, and
-      `minecraft:invisible_bedrock` remain excluded. The production ratchet
+      and applies across all six subchunk boundaries. The production ratchet
       removes exactly these 16 IDs with zero additions, leaving 7,706
       diagnostics and 7,235 cumulative removals; the ignored integrated blob is
       SHA-256
@@ -1162,9 +1175,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       than block-state geometry.
     - [ ] Shelf visual authority: the exact twelve-name/384-state registry
       contract is classified and now fails closed if one complete family is
-      missing or an unexpected `_shelf` family appears. The installed Bedrock
-      1.26.3301.0 package exposes direction-specific
-      `minecraft:voxel_shape` files and the installed/pinned vanilla packs
+      missing or an unexpected `_shelf` family appears. The versioned retail
+      package exposes direction-specific `minecraft:voxel_shape` files and the pinned vanilla packs
       expose shelf texture routes, texture sets, and pixels, but none defines
       visible render geometry or per-face UV mapping. Collision/voxel bounds
       must not be promoted into an exact render model. All 384 shelf states use
@@ -1896,7 +1908,7 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     shutdown. The run rendered 477 resident meshes but remained under sustained load.
     Release-budget evidence, a version-matched native lighting comparison, clean live shutdown,
     integration, and final PR acceptance therefore remain open. The Linux acceptance shell suite
-    also remains unexecuted on this workstation because no usable Python/WSL runtime is installed.
+    was not exercised by that Windows-only run.
 
 - **PR #6 blob-pressure convergence follow-up (2026-08-02, local commit `4726be0`).**
   The cache-pressure deadlock exposed by the committed run above is fixed and independently
@@ -1972,8 +1984,7 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   - The final safety integration passes formatting, the architecture checker, all 496
     bedrock-client tests, strict bedrock-client Clippy, and all 106 Phase 3/FastTransfer
     Pester contracts. The preceding integrated head passed all 2,487 workspace tests and
-    strict workspace Clippy. Linux acceptance remains delegated to CI because this workstation
-    has no WSL distribution.
+    strict workspace Clippy. Linux acceptance remains delegated to CI.
   - This is one BDS FreeCamera smoke, not CandidatePhysics, external-server, native-parity,
     release-performance, or Phase 3 closure evidence. Those gates remain open after PR merge.
 
@@ -2037,6 +2048,44 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   post-merge protocol/client-world/app verification are green through `e7c85ea`; the LBSG live
   ground-contact witness remains open under 4.4.
 
+- [ ] **4.3 Data-driven Bedrock entity rigs and animation.** `P4.3-RIGS` Ingest the pinned
+  vanilla resource pack's `entity`, `models/entity`, `animations`,
+  `animation_controllers`, `render_controllers`, and `textures/entity` trees as
+  bounded compiled assets. Evaluate only the reviewed Molang subset needed by
+  those controllers, drive poses from protocol metadata/attributes and the
+  20-Hz actor state, then perform the distinct adjacent-tick frame
+  interpolation in the renderer. Preserve shared geometry/material/texture
+  storage and bounded per-frame actor work.
+  **Bounded asset-catalog tranche complete (2026-07-16):** the pinned vanilla
+  `entity`, geometry, animation, animation-controller, render-controller, and
+  entity-texture trees now compile into the deterministic `MCBEENT3` carrier
+  with exact source-manifest provenance. The real reviewed pack produces 3,247
+  source records, 2,993 symbols, and 3,071 dependency edges (2,929 internal and
+  142 explicitly external); duplicate identifiers remain selectable candidates
+  rather than silently choosing a generation. Texture identifiers and
+  conditional render-controller keys resolve canonically, startup fails closed
+  on stale provenance, and generated carriers/reports and Mojang payloads remain
+  ignored. Independent review and post-merge assets/compiler/client tests and
+  strict checks are green. **Geometry payload tranche complete (2026-07-16):**
+  the carrier now preserves bounded, deterministic geometry, bone, cube,
+  pivot/rotation, mirror, inflate, and UV payloads. Legacy inheritance resolves
+  sparse overlays through the selected parent chain, exact reviewed legacy/modern
+  schema versions fail closed, and geometry JSON rejects duplicate semantic keys
+  recursively. The complete `105107d..d84667d` behavior range received fresh APPROVE
+  after all three Important review findings were fixed and landed as merge `1e4ba3c`.
+  The subsequent behavior-preserving compiler split through `4a6696b` independently
+  passed review and architecture enforcement and landed as merge `73b8de7`.
+  Animation clip payloads, the reviewed Molang/controller evaluator, runtime rig
+  consumption and skeletal GPU skinning/posing, and native animated-actor evidence
+  remain open.
+- [ ] **4.4 Live actor ground-contact and interpolation witness.** `P4.4-LIVE-ACTOR` Join
+  `play.lbsg.net:19132` with the normal authenticated core, observe at least one
+  remote player's spawn, ordinary movement, rotation, and teleport, and prove
+  that AddPlayer/MovePlayer origins, three-tick convergence, frame
+  interpolation, and the shared biped model keep both feet on the same ground
+  plane without a 1.6-block jump. Keep the visual standing eye height (`1.62`)
+  distinct from Bedrock's standing-player movement network offset (`1.62001`).
+  Capture bounded native visual and packet/pose evidence.
 
 - [ ] **4.5 Held items, actions, dropped items, and viewmodel.** `P4.5-ITEM-ACTIONS`
 
@@ -2051,6 +2100,16 @@ UI phases get fable-5/opus-4.8 review before merge.
 
 **Phase 5 roadmap (kept current as work lands):**
 
+**Approved gameplay-HUD presentation deviation (expanded 2026-07-19):** the
+in-game HUD may use the pinned Java Edition 26.2 presentation for chat, hotbar,
+scoreboard, hearts, hunger, armor, air, experience/level, and applicable
+mount/offhand/effect/attack-indicator surfaces. Bedrock remains authoritative
+for packets, attributes, equipment, inventory, game mode, combat timing, and
+reconciliation; Java presentation must not invent state that Bedrock does not
+expose. Menus, inventories, containers, forms, controls, and resource-pack JSON
+UI remain Bedrock/resource-pack-driven. The current text/panel renderer is an
+incomplete scaffold until the full state matrix and native/live comparison gates
+below are green. See `AGENTS.md` for the repository-wide gameplay-HUD exception.
 
 **Bounded native HUD tranche (2026-07-19):** the protocol-1001 carrier and
 retained presentation now provide provenance-pinned health, hunger, armor, air,
@@ -2082,6 +2141,16 @@ work and are not closed by asset availability. Base Latin Mojangles, 185 sound
 binaries, and block-render model JSON remain absent from the official sample
 archive.
 
+**Approved Java-style gameplay HUD contract (2026-07-19):** the clean-room
+visual reference is Minecraft Java Edition 26.2 with default resources on
+Windows 11. Acceptance covers survival, creative, and spectator; normal,
+damaged, absorption, poisoned, withered, and frozen hearts; normal/depleted
+hunger; air; XP/level; armor present/absent; mount health/jump; main/offhand;
+attack indicator; selected-item label; effects; and scoreboard/chat overlap.
+The armor row appears above hearts only while authoritative equipped armor is
+nonzero. Capture GUI scales 2, 3, 4, and Auto at 1280x720, 1920x1080, and
+2560x1440 with 100% and 150% desktop scaling where applicable, then validate
+equivalent logical layout and safe areas on supported macOS Retina output.
 
 Delivered so far: Java-style scoreboard/chat presentation, centered hotbar
 selection, local number-key/wheel/controller slot prediction with outbound
