@@ -10,7 +10,11 @@
 
 ## Global Constraints
 
-- Execute only in the task-provided `$env:COMPLETION_WORKTREE` (the `completion-phase2` worktree) on branch `completion-phase2`, after the integration owner creates it from the reviewed `full-client-design` tip. Both `b2940086fa2bc8d7089ae065da575086557cbd67` and `d8e469979a0ec6c4798bb2ffc1dc45d3a9891eeb` must be ancestors. Never execute this plan in `full-client-design` or an archival Phase 2 worktree.
+- Execute only in the dedicated worktree named by `$env:CINNABAR_PHASE2_WORKTREE` on branch
+  `completion-phase2`, after the integration owner creates it from the reviewed
+  `full-client-design` tip. Both `b2940086fa2bc8d7089ae065da575086557cbd67` and
+  `d8e469979a0ec6c4798bb2ffc1dc45d3a9891eeb` must be ancestors. Never execute this plan in
+  `full-client-design` or an archival Phase 2 worktree.
 - Never commit Mojang payloads, generated asset carriers, native binaries, credentials, token contents, screenshots, or captured world databases. Store them below ignored `.local/phase2/` or the OS temporary directory.
 - Completion is strict: unavailable native evidence, missing live witnesses, unexplained diagnostics, failed performance gates, or an unreviewed change remains blocking.
 - Preserve palette-native immutable biome/light neighbourhoods, eight-byte packed cube and cloud records, bounded queues/arenas, generation and source-identity validation, and fail-closed unknown boundaries.
@@ -154,8 +158,10 @@ pub struct EnvironmentQualitySettings {
 Run:
 
 ```powershell
-if ([string]::IsNullOrWhiteSpace($env:COMPLETION_WORKTREE)) { throw "COMPLETION_WORKTREE is required" }
-$expectedRoot = (Resolve-Path -LiteralPath $env:COMPLETION_WORKTREE -ErrorAction Stop).Path
+if ([string]::IsNullOrWhiteSpace($env:CINNABAR_PHASE2_WORKTREE)) {
+    throw 'set CINNABAR_PHASE2_WORKTREE to the dedicated completion-phase2 worktree'
+}
+$expectedRoot = (Resolve-Path $env:CINNABAR_PHASE2_WORKTREE).Path
 $actualRoot = (git rev-parse --show-toplevel).Trim() -replace '/', '\'
 $actualBranch = (git branch --show-current).Trim()
 if ($actualRoot -cne $expectedRoot) { throw "wrong worktree: $actualRoot" }
