@@ -10,6 +10,17 @@
 
 ## Global Constraints
 
+- Pinned loopback protocol version: **1.26.30 / protocol 1001**.
+- The Rust side never implements upstream auth, upstream encryption, RakNet, or NetherNet. Its encryption is only the default gophertunnel listener session on the local leg.
+- Do not reuse Rust-LCE code, assets, renderer, world model, or world generation. The client is greenfield against current Bedrock/BDS data.
+- Relay decoded Bedrock packet values between the two independently negotiated Go connections. Never forward RakNet datagrams or encrypted/compressed batches between legs.
+- The proxy does not start ordinary packet pumps until downstream `StartGame` and upstream `DoSpawn` have both completed successfully.
+- Login order is `RequestNetworkSettings → Login → encrypted handshake → resource packs → StartGame → RequestChunkRadius(16) → PlayerSpawn/ChunkRadiusUpdated → SetLocalPlayerAsInitialized`.
+- Handle both `LevelChunk` payloads and the `SubChunkRequest`/`SubChunk` response path.
+- New Go exported types and methods receive doc comments at creation.
+- `.local/refs` and `.local/bds` are read-only development inputs and remain gitignored. Committed builds must not require those directories except live tests guarded by `BEDROCK_BDS_DIR`.
+- Never edit reference checkouts under `.local/refs`.
+- Every behavioral change follows RED → GREEN → REFACTOR. Generated/vendor copying and repository configuration are the only non-behavioral exceptions.
 
 ## Local Stream Contract
 
@@ -190,7 +201,7 @@
 **Files:**
 - Create: `crates/protocol/vendor/UPSTREAM.md`
 - Create: `crates/protocol/vendor/LICENSE`
-- Vendor: `crates/protocol/vendor/valentine/`
+- Vendor: reviewed protocol implementation files.
 - Vendor: `crates/protocol/vendor/jolyne/`
 - Create: `crates/protocol/src/codec.rs`
 - Create: `crates/protocol/src/packet.rs`
