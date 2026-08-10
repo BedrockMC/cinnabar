@@ -311,11 +311,6 @@ func fixtures() []fixture {
 			pk:   availableCommandsLiveRegression(),
 		},
 		{
-			name: "ReservedRecipeVector",
-			file: "reserved_recipe_vector.bin",
-			pk: &reservedRecipeVector{},
-		},
-		{
 			name: "BiomeDefinitionListChunkGeneration",
 			file: "biome_definition_list_chunk_generation.bin",
 			pk: &packet.BiomeDefinitionList{
@@ -536,14 +531,4 @@ func encode(pk packet.Packet) ([]byte, error) {
 		return nil, err
 	}
 	return append([]byte(nil), batch.Bytes()...), nil
-}
-
-// The reserved fixture body is an opaque byte-preservation witness.
-type reservedRecipeVector struct{}
-
-func (*reservedRecipeVector) ID() uint32 { return 52 }
-
-func (*reservedRecipeVector) Marshal(io protocol.IO) {
-	body := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x86, 0x80, 0xd0, 0x02, 0x02, 0x0e, 0x04, 0x11, 0x08, 0x01}
-	io.Bytes(&body)
 }
