@@ -1,6 +1,5 @@
 use client_world::{CommittedUiEvent, WorldStream};
-use protocol::{WorldBootstrap, WorldEvent};
-use world::{ChunkCollisionRevision, ChunkKey};
+use protocol::{BlockCrackAction, WorldBootstrap, WorldEvent};
 
 use super::*;
 
@@ -12,172 +11,6 @@ fn start(value: u16) -> BlockCrackAction {
     BlockCrackAction::Start {
         progress_per_tick: value,
     }
-}
-
-fn update(value: u16) -> BlockCrackAction {
-    BlockCrackAction::UpdateSpeed {
-        progress_per_tick: value,
-    }
-}
-
-fn identity(runtime_id: u32, revision: u64) -> CrackTargetIdentity {
-    let mut layers = [None; world::MAX_STORAGE_COUNT];
-    layers[0] = Some(runtime_id);
-    CrackTargetIdentity {
-        runtime_id,
-        layers,
-        column: ChunkCollisionRevision {
-            chunk: ChunkKey::new(0, -1, 0),
-            revision,
-        },
-    }
-}
-
-#[test]
-fn block_crack_reducer_preserves_values_without_progress_invention() {
-    let mut state = BlockCracks::default();
-    state.consume(0, event([-1, 64, 0], start(123)));
-    state.reconcile_targets(|_| Some(identity(7, 1)));
-    assert_eq!(state.active[&[-1, 64, 0]].server_value, 123);
-    state.consume(0, event([-1, 64, 0], update(456)));
-    assert_eq!(state.active[&[-1, 64, 0]].server_value, 456);
-    assert_eq!(state.active[&[-1, 64, 0]].target, Some(identity(7, 1)));
-    for _ in 0..100 {
-        state.reconcile_targets(|_| Some(identity(7, 1)));
-    }
-    assert_eq!(state.active[&[-1, 64, 0]].server_value, 456);
-    state.consume(0, event([-1, 64, 0], start(789)));
-    assert_eq!(state.active[&[-1, 64, 0]].server_value, 789);
-    assert_eq!(state.active[&[-1, 64, 0]].target, None);
-    state.consume(0, event([-1, 64, 0], BlockCrackAction::Stop));
-    assert_eq!(state.status().active, 0);
-}
-
-#[test]
-fn block_crack_full_capacity_keeps_updates_and_stops_usable() {
-    let mut state = BlockCracks::default();
-    for position in 0..MAX_ACTIVE_BLOCK_CRACKS {
-        state.consume(0, event([i32::try_from(position).unwrap(), 0, 0], start(1)));
-    }
-    state.consume(0, event([-1, 0, 0], start(1)));
-    assert_eq!(state.status().capacity_rejections, 1);
-    assert_eq!(state.status().active, MAX_ACTIVE_BLOCK_CRACKS);
-    state.consume(0, event([0, 0, 0], update(27)));
-    assert_eq!(state.active[&[0, 0, 0]].server_value, 27);
-    state.consume(0, event([0, 0, 0], start(30)));
-    assert_eq!(state.active[&[0, 0, 0]].server_value, 30);
-    state.consume(0, event([0, 0, 0], BlockCrackAction::Stop));
-    state.consume(0, event([-1, 0, 0], start(42)));
-    assert_eq!(state.status().active, MAX_ACTIVE_BLOCK_CRACKS);
-    assert_eq!(state.active[&[-1, 0, 0]].server_value, 42);
-    assert_eq!(state.status().capacity_rejections, 1);
-}
-
-#[test]
-fn block_crack_unsupported_and_orphan_values_are_counted_not_authority() {
-    let mut state = BlockCracks::default();
-    state.consume(0, event([0; 3], update(1)));
-    state.consume(0, event([0; 3], BlockCrackAction::Stop));
-    assert_eq!(state.status().active, 0);
-    assert_eq!(state.status().orphan_updates, 1);
-    state.consume(0, event([0; 3], start(5)));
-    state.consume(0, event([0; 3], start(0)));
-    state.consume(0, event([0; 3], update(0)));
-    assert_eq!(state.active[&[0; 3]].server_value, 5);
-    assert_eq!(state.status().unsupported_values, 2);
-    state.consume(1, event([0; 3], BlockCrackAction::Stop));
-    assert_eq!(state.status().active, 1);
-    assert_eq!(state.status().wrong_dimension, 1);
-}
-
-#[test]
-fn block_crack_target_reconciliation_retires_unknown_and_replaced_layers() {
-    let mut state = BlockCracks::default();
-    state.consume(0, event([0; 3], start(1)));
-    state.reconcile_targets(|_| None);
-    assert_eq!(state.status().retired_targets, 1);
-    let mut changed_layer = identity(7, 1);
-    changed_layer.layers[1] = Some(8);
-    for changed in [identity(8, 1), changed_layer] {
-        state.consume(0, event([0; 3], start(1)));
-        state.reconcile_targets(|_| Some(identity(7, 1)));
-        state.reconcile_targets(|_| Some(changed));
-        assert_eq!(state.status().active, 0);
-    }
-    assert_eq!(state.status().retired_targets, 3);
-}
-
-#[test]
-fn block_crack_exact_cell_survives_unrelated_column_mutation_and_retires_on_air_or_unload() {
-    let mut store = world::ChunkStore::new();
-    let key = world::SubChunkKey::new(0, -1, 4, -2);
-    store.mark_chunk_loaded(key.chunk()).unwrap();
-    let air = protocol::SEQUENTIAL_AIR_NETWORK_ID;
-    store
-        .update_block(key, world::BlockUpdate::new(15, 0, 15, 0, 0), air)
-        .unwrap();
-    let assets = assets::RuntimeAssets::diagnostic();
-    let sample = |store: &world::ChunkStore| {
-        sample_target(
-            store,
-            0,
-            [-1, 64, -17],
-            assets::NetworkIdMode::Sequential,
-            &assets,
-        )
-    };
-    let mut state = BlockCracks::default();
-    state.consume(0, event([-1, 64, -17], start(41)));
-    state.reconcile_targets(|_| sample(&store));
-    let initial = state.active[&[-1, 64, -17]].target.unwrap();
-    store
-        .update_block(key, world::BlockUpdate::new(1, 0, 1, 0, 0), air)
-        .unwrap();
-    assert_ne!(initial.column, sample(&store).unwrap().column);
-    state.reconcile_targets(|_| sample(&store));
-    assert_eq!(state.status().active, 1);
-    assert_eq!(state.status().server_value_sum, 41);
-    store
-        .update_block(key, world::BlockUpdate::new(15, 0, 15, 0, air), air)
-        .unwrap();
-    state.reconcile_targets(|_| sample(&store));
-    assert_eq!(state.status().active, 0);
-    store
-        .update_block(key, world::BlockUpdate::new(15, 0, 15, 0, 0), air)
-        .unwrap();
-    state.consume(0, event([-1, 64, -17], start(42)));
-    state.reconcile_targets(|_| sample(&store));
-    assert_eq!(state.status().active, 1);
-    store.evict_chunk(key.chunk());
-    state.reconcile_targets(|_| sample(&store));
-    assert_eq!(state.status().active, 0);
-    assert_eq!(state.status().retired_targets, 2);
-}
-
-#[test]
-fn block_crack_lifecycle_clears_keys_but_not_the_fifo_watermark() {
-    let mut ui = UiRuntime::new(9);
-    consume_committed_block_crack(&mut ui, 9, 10, 0, event([0; 3], start(1))).unwrap();
-    ui.note_stream_dimension(1);
-    assert_eq!(ui.block_cracks_status().active, 0);
-    assert!(matches!(
-        consume_committed_block_crack(&mut ui, 9, 10, 1, event([0; 3], start(1))),
-        Err(UiRuntimeError::StaleBlockCrackSequence { .. })
-    ));
-    consume_committed_block_crack(&mut ui, 9, 11, 0, event([0; 3], start(1))).unwrap();
-    assert_eq!(ui.block_cracks_status().wrong_dimension, 1);
-    consume_committed_block_crack(&mut ui, 9, 12, 1, event([0; 3], start(2))).unwrap();
-    ui.clear_disconnected_block_cracks();
-    assert_eq!(ui.block_cracks_status().active, 0);
-    assert!(consume_committed_block_crack(&mut ui, 9, 12, 1, event([0; 3], start(1))).is_err());
-    ui.begin_session(10);
-    assert_eq!(ui.block_cracks_status(), BlockCrackStatus::default());
-    assert!(matches!(
-        consume_committed_block_crack(&mut ui, 9, 13, 1, event([0; 3], start(1))),
-        Err(UiRuntimeError::WrongSession { .. })
-    ));
-    consume_committed_block_crack(&mut ui, 10, 1, 1, event([0; 3], start(3))).unwrap();
-    assert_eq!(ui.block_cracks_status().active, 1);
 }
 
 fn stream() -> WorldStream {
@@ -217,23 +50,11 @@ fn block_crack_production_stream_batches_consume_beyond_former_history_limit() {
             };
             consume_committed_block_crack(&mut ui, 9, sequence, dimension, event).unwrap();
         }
-        reconcile_world_block_cracks(&mut ui, &stream, &assets::RuntimeAssets::diagnostic());
+        reconcile_world_block_cracks(&mut ui, &stream);
         assert_eq!(ui.block_cracks_status().active, 0);
     }
     assert_eq!(ui.block_cracks_status().consumed, 1_280);
     assert!(stream.take_committed_ui().is_empty());
-}
-
-#[test]
-fn block_crack_production_world_reconciliation_clears_unloaded_targets() {
-    let stream = stream();
-    let mut ui = UiRuntime::new(9);
-    ui.note_stream_dimension(0);
-    consume_committed_block_crack(&mut ui, 9, 1, 0, event([-1, 64, -17], start(1))).unwrap();
-    assert_eq!(ui.block_cracks_status().active, 1);
-    reconcile_world_block_cracks(&mut ui, &stream, &assets::RuntimeAssets::diagnostic());
-    assert_eq!(ui.block_cracks_status().active, 0);
-    assert_eq!(ui.block_cracks_status().retired_targets, 1);
 }
 
 #[test]
@@ -244,6 +65,174 @@ fn block_crack_consumer_is_wired_to_the_production_committed_dispatch() {
         .unwrap()
         .1;
     assert!(drive.contains("} => consume_committed_block_crack("));
-    assert!(drive.contains("reconcile_world_block_cracks(&mut ui_runtime, stream, &crack_assets)"));
+    assert!(drive.contains("reconcile_world_block_cracks(&mut ui_runtime, stream)"));
     assert!(drive.contains("ui_runtime.clear_disconnected_block_cracks()"));
+}
+
+fn committed_column(stream: &mut WorldStream, sequence: u64, runtime_id: u32, biome: u8) {
+    let mut payload = vec![9, 1, (-4_i8) as u8, 1];
+    let mut encoded = runtime_id << 1;
+    loop {
+        let byte = (encoded & 0x7f) as u8;
+        encoded >>= 7;
+        payload.push(byte | if encoded == 0 { 0 } else { 0x80 });
+        if encoded == 0 {
+            break;
+        }
+    }
+    payload.extend([1, biome << 1]);
+    payload.extend(std::iter::repeat_n(0xff, 23));
+    payload.push(0);
+    stream
+        .submit(
+            sequence,
+            WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: protocol::LevelChunkMode::Inline { count: 1 },
+                payload,
+            }),
+        )
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        stream.poll([0.0; 3], 0);
+        assert!(stream.take_fatal_error().is_none());
+        if stream
+            .collision_store()
+            .sub_chunk(world::SubChunkKey::new(0, 0, -4, 0))
+            .is_some_and(|chunk| chunk.runtime_id(0, 0, 0, 0) == Some(runtime_id))
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "column commit timed out"
+        );
+        std::thread::yield_now();
+    }
+}
+
+fn drain_cracks(ui: &mut UiRuntime, stream: &mut WorldStream) {
+    ui.note_stream_dimension(stream.current_dimension());
+    for committed in stream.take_committed_ui() {
+        if let CommittedUiEvent::BlockCrack {
+            sequence,
+            dimension,
+            event,
+        } = committed
+        {
+            consume_committed_block_crack(ui, 9, sequence, dimension, event).unwrap();
+        }
+    }
+    reconcile_world_block_cracks(ui, stream);
+}
+
+#[test]
+fn block_crack_production_start_does_not_bind_to_later_replacement() {
+    let mut stream = stream();
+    let mut ui = UiRuntime::new(9);
+    committed_column(&mut stream, 1, 0, 1);
+    stream
+        .submit(2, WorldEvent::BlockCrack(event([0, -64, 0], start(7))))
+        .unwrap();
+    committed_column(&mut stream, 3, 1, 1);
+    committed_column(&mut stream, 4, 0, 1);
+    drain_cracks(&mut ui, &mut stream);
+    assert_eq!(ui.block_cracks_status().active, 0);
+}
+
+#[test]
+fn block_crack_production_unload_reload_identical_target_retires_start() {
+    let mut stream = stream();
+    let mut ui = UiRuntime::new(9);
+    committed_column(&mut stream, 1, 0, 1);
+    stream
+        .submit(2, WorldEvent::BlockCrack(event([0, -64, 0], start(7))))
+        .unwrap();
+    // A changed biome column request commits through the production eviction path.
+    let mut payload = vec![1, 4];
+    payload.extend(std::iter::repeat_n(0xff, 23));
+    payload.push(0);
+    stream
+        .submit(
+            3,
+            WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: protocol::LevelChunkMode::LimitlessRequests,
+                payload,
+            }),
+        )
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while stream
+        .collision_store()
+        .sub_chunk(world::SubChunkKey::new(0, 0, -4, 0))
+        .is_some()
+    {
+        stream.poll([0.0; 3], 0);
+        assert!(stream.take_fatal_error().is_none());
+        assert!(
+            std::time::Instant::now() < deadline,
+            "eviction commit timed out"
+        );
+        std::thread::yield_now();
+    }
+    committed_column(&mut stream, 4, 0, 2);
+    drain_cracks(&mut ui, &mut stream);
+    assert_eq!(ui.block_cracks_status().active, 0);
+}
+
+#[test]
+fn block_crack_production_dimension_round_trip_does_not_resurrect_start() {
+    let mut stream = stream();
+    let mut ui = UiRuntime::new(9);
+    committed_column(&mut stream, 1, 0, 1);
+    stream
+        .submit(2, WorldEvent::BlockCrack(event([0, -64, 0], start(7))))
+        .unwrap();
+    for (sequence, dimension) in [(3, 1), (4, 0)] {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                    dimension,
+                    position: [0.0; 3],
+                }),
+            )
+            .unwrap();
+    }
+    committed_column(&mut stream, 5, 0, 1);
+    drain_cracks(&mut ui, &mut stream);
+    assert_eq!(ui.block_cracks_status().active, 0);
+}
+
+#[test]
+fn block_crack_projection_disconnect_and_session_reset_preserve_identity_rules() {
+    let mut stream = stream();
+    let mut ui = UiRuntime::new(9);
+    committed_column(&mut stream, 1, 0, 1);
+    stream
+        .submit(2, WorldEvent::BlockCrack(event([0, -64, 0], start(7))))
+        .unwrap();
+    drain_cracks(&mut ui, &mut stream);
+    assert_eq!(ui.block_cracks_status().active, 1);
+    assert_eq!(ui.block_cracks_status().server_value_sum, 7);
+    ui.clear_disconnected_block_cracks();
+    assert_eq!(ui.block_cracks_status().active, 0);
+    assert!(matches!(
+        consume_committed_block_crack(&mut ui, 9, 2, 0, event([0, -64, 0], start(7))),
+        Err(UiRuntimeError::StaleBlockCrackSequence { .. })
+    ));
+    ui.begin_session(10);
+    assert_eq!(ui.block_cracks_status(), BlockCrackStatus::default());
+    assert!(matches!(
+        consume_committed_block_crack(&mut ui, 9, 3, 0, event([0, -64, 0], start(7))),
+        Err(UiRuntimeError::WrongSession { .. })
+    ));
+    consume_committed_block_crack(&mut ui, 10, 1, 0, event([0, -64, 0], start(7))).unwrap();
+    assert_eq!(ui.block_cracks_status().active, 0);
 }

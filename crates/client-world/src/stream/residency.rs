@@ -43,6 +43,7 @@ impl WorldStream {
         became_resident || became_known_air
     }
     pub(super) fn evict_column(&mut self, key: ChunkKey) {
+        self.evict_block_crack_column(key);
         self.block_entity_visuals.remove_chunk(key);
         self.loaded_columns.remove(&key);
         self.request_collision_failures.remove(&key);

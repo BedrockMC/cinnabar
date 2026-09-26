@@ -626,13 +626,10 @@ impl UiRuntime {
         true
     }
 
-    pub(crate) fn reconcile_block_cracks(
-        &mut self,
-        target_at: impl FnMut([i32; 3]) -> Option<crate::block_cracks::CrackTargetIdentity>,
-    ) {
-        self.block_cracks.reconcile_targets(target_at);
-        let status = self.block_cracks_status();
-        self.block_cracks.report_status(self.session_id, status);
+    pub(crate) fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {
+        self.block_cracks.project(snapshot);
+        self.block_cracks
+            .report_status(self.session_id, self.block_cracks_status());
     }
 
     pub(crate) fn block_cracks_status(&self) -> crate::block_cracks::BlockCrackStatus {
@@ -641,8 +638,8 @@ impl UiRuntime {
 
     pub(crate) fn clear_disconnected_block_cracks(&mut self) {
         self.block_cracks.synchronize_dimension(None);
-        let status = self.block_cracks_status();
-        self.block_cracks.report_status(self.session_id, status);
+        self.block_cracks
+            .report_status(self.session_id, self.block_cracks_status());
     }
 
     pub fn begin_session(&mut self, session_id: u64) {
@@ -900,8 +897,6 @@ impl UiRuntime {
             });
         }
         self.last_block_crack_sequence = Some(envelope.fifo_sequence);
-        self.block_cracks
-            .consume(envelope.dimension, envelope.event);
         Ok(())
     }
 
