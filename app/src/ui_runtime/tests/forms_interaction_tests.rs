@@ -7,6 +7,7 @@ use crate::{
     },
 };
 use bevy::{
+    ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet},
     input::{
         ButtonState,
         keyboard::{Key, KeyboardInput, NativeKey},
@@ -16,6 +17,96 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
+
+#[test]
+fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
+    use crate::{
+        app::{
+            ClientFrameSet, configure_client_frame_schedule,
+            configure_client_production_frame_systems,
+        },
+        runtime::world::{
+            drain_committed_ui_before_authority, drive_world_stream,
+            reconcile_world_stream_before_physics,
+        },
+    };
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    configure_client_production_frame_systems(&mut app);
+    let schedules = app.world().resource::<Schedules>();
+    let graph = schedules.get(Update).unwrap().graph();
+    let authority = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(ClientFrameSet::UiAuthority.intern())
+            .unwrap(),
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            production_system_node(graph, reconcile_world_stream_before_physics),
+            authority,
+        ),
+        "the real stream commit must precede admission-frame form/cursor authority"
+    );
+    let drain = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(
+                drain_committed_ui_before_authority
+                    .into_system_set()
+                    .intern(),
+            )
+            .unwrap(),
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            production_system_node(graph, reconcile_world_stream_before_physics),
+            drain,
+        ),
+        "the sole UI drain follows real committed stream reconciliation"
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            production_system_node(graph, drain_committed_ui_before_authority),
+            authority,
+        ),
+        "the actual sole committed UI consumer precedes form input"
+    );
+    let publication = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(ClientFrameSet::WorldPublication.intern())
+            .unwrap(),
+    );
+    assert!(
+        graph.hierarchy().graph().contains_edge(
+            publication,
+            production_system_node(graph, drive_world_stream)
+        ),
+        "render/world publication remains in its existing later phase"
+    );
+}
+
+fn production_system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeId {
+    let parent = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(system.into_system_set().intern())
+            .unwrap(),
+    );
+    graph
+        .systems
+        .iter()
+        .find_map(|(key, _, _)| {
+            let child = NodeId::System(key);
+            graph
+                .hierarchy()
+                .graph()
+                .contains_edge(parent, child)
+                .then_some(child)
+        })
+        .unwrap()
+}
 
 fn app() -> (App, Entity) {
     app_for(false)
