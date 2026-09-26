@@ -71,7 +71,10 @@ pub(super) fn sample(
                 && fluid_intersects(player, block, facts.fluid_height_blocks);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
                 && fluid_intersects(player, block, facts.fluid_height_blocks);
-            movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB);
+            // Cobwebs occupy a full block volume even without solid collision
+            // boxes. Swept/support samples alone do not establish body contact.
+            movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB)
+                && fluid_intersects(player, block, 1.0);
             movement.in_powder_snow |= facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW);
             movement.in_scaffolding |= facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
         }
