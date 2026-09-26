@@ -1,14 +1,17 @@
 mod secondary;
 mod servers;
+mod status;
+
+use status::{status_extent, status_text};
 
 use ui::{SafeArea, TextLayoutCache, UiNode, UiRect};
 
 use crate::menu::{MenuAction, MenuScreen, MenuServerCard, MenuView};
 
 use super::{
-    ContentArea, TextMetrics, UiPresentationError,
+    ContentArea, TextMetrics, UiPresentationError, bounded_visible_text,
     components::{button, card, solid, text},
-    rect,
+    rect, text_visual_extent,
     tokens::*,
 };
 
@@ -213,7 +216,11 @@ fn home(
             font,
             metrics,
             solid_page,
-            "Nothing joinable right now",
+            if !view.catalog_loading && view.catalog_message.is_some() {
+                "Account destinations unavailable"
+            } else {
+                "Nothing joinable right now"
+            },
             catalog_status(view, "Friends and Realms will appear here when available."),
             [area.left, y],
             left_width,
@@ -278,7 +285,7 @@ fn home(
                 } else {
                     "Featured servers unavailable"
                 },
-                catalog_status(view, "Refresh from Servers to try again."),
+                catalog_status(view, "Social: Refresh to try again."),
                 [right + SPACE_MD, right_y],
                 right_width - SPACE_XL,
                 120.0,
@@ -764,30 +771,44 @@ fn empty_state(
         )?,
         PANEL_ALT,
     );
-    text(
-        nodes,
-        next_id,
+    let text_width = (width - SPACE_XL).max(1.0);
+    let available = (height - SPACE_MD * 2.0).max(0.0);
+    let body_row = status_extent(layouts, font, metrics, "…", text_width)?.unwrap_or(available);
+    // Reserve a complete recovery row even when a large-scale title wraps.
+    let title = status_text(
         layouts,
         font,
         metrics,
-        solid_page,
         title,
-        [position[0] + SPACE_MD, position[1] + SPACE_MD],
-        width - SPACE_XL,
-        TEXT,
+        text_width,
+        (available - body_row - SPACE_SM).max(0.0),
     )?;
-    text(
-        nodes,
-        next_id,
+    let body_top = SPACE_MD + title.1 + if title.0.is_empty() { 0.0 } else { SPACE_SM };
+    let body = status_text(
         layouts,
         font,
         metrics,
-        solid_page,
         body,
-        [position[0] + SPACE_MD, position[1] + 52.0],
-        width - SPACE_XL,
-        MUTED,
-    )
+        text_width,
+        (height - body_top - SPACE_MD).max(0.0),
+    )?;
+    for (value, top, color) in [(title.0, SPACE_MD, TEXT), (body.0, body_top, MUTED)] {
+        if !value.is_empty() {
+            text(
+                nodes,
+                next_id,
+                layouts,
+                font,
+                metrics,
+                solid_page,
+                &value,
+                [position[0] + SPACE_MD, position[1] + top],
+                text_width,
+                color,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn panel(
