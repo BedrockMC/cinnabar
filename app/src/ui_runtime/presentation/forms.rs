@@ -102,16 +102,26 @@ impl UiPresentationRuntime {
                 &[],
             ),
         };
-        let body_with_notice;
-        if let ServerFormModel::TextMenu(menu) = &entry.model
-            && menu.omitted_images > 0
-        {
-            body_with_notice = format!(
-                "{} button images omitted. Text-only buttons.\n\n{body}",
+        let notice = match &entry.model {
+            ServerFormModel::TextMenu(menu) if menu.omitted_images > 0 => Some(format!(
+                "{} button images omitted. Text-only buttons.",
                 menu.omitted_images
-            );
-            body = &body_with_notice;
-        }
+            )),
+            _ => None,
+        };
+        // Controlled diagnostic text has its own layout budget, never reducing
+        // the valid server-authored body's 16 KiB text budget.
+        let notice_layout = notice
+            .as_deref()
+            .map(|notice| {
+                self.layouts
+                    .layout(metrics.request(notice, (text_width * 64.0) as u32, &self.font))
+                    .map_err(UiPresentationError::Text)
+            })
+            .transpose()?;
+        let notice_height = notice_layout
+            .as_ref()
+            .map_or(0.0, |layout| layout.size_64()[1] as f32 / 64.0 + 16.0);
         let title_layout = fit_line(self, metrics, title, text_width)?;
         let body_layout =
             match self
@@ -134,7 +144,8 @@ impl UiPresentationRuntime {
         } else {
             body_layout.size_64()[1] as f32 / 64.0 + 16.0
         };
-        let content_height = body_height + buttons.len() as f32 * row_height;
+        let text_height = notice_height + body_height;
+        let content_height = text_height + buttons.len() as f32 * row_height;
         let maximum = (content_height - list_height).max(0.0) as usize;
         let scroll = runtime.server_forms().scroll().min(maximum);
         let mut state = FormPresentation {
@@ -188,6 +199,22 @@ impl UiPresentationRuntime {
                 list_bottom,
             )?,
         );
+        if let Some(notice_layout) = notice_layout {
+            text(
+                nodes,
+                next,
+                list_clip,
+                notice_layout,
+                metrics,
+                rect(
+                    0.0,
+                    -(scroll as f32),
+                    text_width,
+                    notice_height - scroll as f32,
+                )?,
+                [166, 178, 193, 255],
+            );
+        }
         if !body.is_empty() {
             text(
                 nodes,
@@ -197,15 +224,15 @@ impl UiPresentationRuntime {
                 metrics,
                 rect(
                     0.0,
-                    -(scroll as f32),
+                    notice_height - scroll as f32,
                     text_width,
-                    body_height - scroll as f32,
+                    text_height - scroll as f32,
                 )?,
                 [166, 178, 193, 255],
             );
         }
         for (index, label) in buttons.iter().enumerate() {
-            let offset = body_height + index as f32 * row_height;
+            let offset = text_height + index as f32 * row_height;
             state.offsets.push(offset as usize);
             let y = offset - scroll as f32;
             if y + row_height <= 0.0 || y >= list_height {

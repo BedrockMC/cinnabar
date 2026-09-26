@@ -526,12 +526,20 @@ fn unsupported_form_controls_are_nonfatal_and_never_fake_text_buttons() {
 
 #[test]
 fn valid_button_images_are_omitted_without_retaining_uri_or_changing_indexes() {
-    let event = form_event(r#"{"type":"form","buttons":[{"text":"First","image":{"type":"url","data":"https://example.invalid/private-decoration"}},{"text":"第二","image":{"type":"path","data":"textures/private-decoration"}}]}"#).unwrap();
+    let json = serde_json::json!({
+        "type": "form", "content": "x".repeat(MAX_UI_TEXT_BYTES),
+        "buttons": [
+            {"text": "First", "image": {"type": "url", "data": "https://example.invalid/private-decoration"}},
+            {"text": "第二", "image": {"type": "path", "data": "textures/private-decoration"}},
+        ],
+    }).to_string();
+    let event = form_event(&json).unwrap();
     assert!(!format!("{:?}", event.model).contains("private-decoration"));
     let protocol::ServerFormModel::TextMenu(menu) = event.model else {
         panic!("valid text buttons must remain playable")
     };
     assert_eq!(menu.omitted_images, 2);
+    assert_eq!(menu.content.len(), MAX_UI_TEXT_BYTES);
     assert_eq!(
         menu.buttons
             .iter()

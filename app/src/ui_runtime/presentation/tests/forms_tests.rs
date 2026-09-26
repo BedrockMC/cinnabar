@@ -173,3 +173,65 @@ fn omitted_images_add_a_controlled_text_notice_without_changing_buttons() {
         Some(256)
     );
 }
+
+#[test]
+fn image_notice_does_not_consume_the_valid_content_text_budget_or_hide_buttons() {
+    let mut model = form_runtime()
+        .server_forms()
+        .active()
+        .unwrap()
+        .model
+        .clone();
+    let ServerFormModel::TextMenu(menu) = &mut model else {
+        unreachable!()
+    };
+    menu.content = "x".repeat(protocol::MAX_UI_TEXT_BYTES).into();
+    assert_eq!(menu.content.len(), ui::UiLimits::MAX_TEXT_BYTES);
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 1,
+            local_millis: 0,
+            server_tick: None,
+            event: UiEvent::Form(FormRequestEvent {
+                form_id: 7,
+                kind: FormKind::Menu,
+                title: None,
+                json: Arc::from("{}"),
+                model,
+            }),
+        })
+        .unwrap();
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    for (size, scale) in [
+        ([1280, 720], 2),
+        ([1280, 720], 3),
+        ([420, 720], 2),
+        ([320, 240], 4),
+    ] {
+        presentation.set_gui_scale_preference(Some(scale));
+        runtime.server_forms_mut().set_scroll(0);
+        presentation
+            .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+            .unwrap();
+        assert_eq!(
+            presentation.form_button_count(identity),
+            Some(256),
+            "a controlled notice must not turn valid buttons into cancel-only"
+        );
+        runtime
+            .server_forms_mut()
+            .set_scroll(presentation.form_focus_scroll(identity, 255).unwrap());
+        let frame = presentation
+            .build(&runtime, 0, size, ui::DpiScale::new(1.0).unwrap())
+            .unwrap();
+        assert!(presentation.form_button_visible(identity, 255));
+        assert!(frame.vertices.len() <= ui::UiLimits::MAX_UI_VERTICES);
+        assert!(frame.batches.iter().all(
+            |batch| batch.scissor.x.saturating_add(batch.scissor.width) <= size[0]
+                && batch.scissor.y.saturating_add(batch.scissor.height) <= size[1]
+        ));
+    }
+}
