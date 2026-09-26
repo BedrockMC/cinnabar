@@ -54,8 +54,9 @@ impl MenuRuntime {
             .stderr(Stdio::null());
         match command.spawn() {
             Ok(child) => self.catalog_process = Some(child),
-            Err(error) => {
-                self.catalog_message = Some(format!("Could not start account catalog: {error}"));
+            Err(_) => {
+                self.catalog_message =
+                    Some("Reopen Cinnabar to retry the account catalog.".to_owned());
             }
         }
     }
@@ -69,18 +70,12 @@ impl MenuRuntime {
         if let Ok(bytes) = fs::read(&self.catalog_path) {
             match serde_json::from_slice::<CatalogFile>(&bytes) {
                 Ok(catalog) => {
-                    self.featured = catalog.featured;
-                    self.gatherings = catalog.gatherings;
-                    self.realms = catalog.realms;
-                    self.friends = catalog.friends.into_iter().map(Into::into).collect();
-                    self.catalog_message = catalog.errors.first().cloned();
                     let _ = child.wait();
                     self.catalog_process = None;
+                    self.apply_catalog(catalog);
                     let _ = fs::remove_file(&self.catalog_path);
                 }
-                Err(error) => {
-                    self.catalog_message = Some(format!("Could not read account catalog: {error}"))
-                }
+                Err(_) => self.catalog_message = Some("Social: Refresh to try again.".to_owned()),
             }
             return;
         }
@@ -97,6 +92,17 @@ impl MenuRuntime {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+
+    fn apply_catalog(&mut self, catalog: CatalogFile) {
+        self.featured = catalog.featured;
+        self.gatherings = catalog.gatherings;
+        self.realms = catalog.realms;
+        self.friends = catalog.friends.into_iter().map(Into::into).collect();
+        // Service errors may contain URLs, response bodies, or account material.
+        // Keep successful sections, but expose only controlled recovery copy.
+        self.catalog_message =
+            (!catalog.errors.is_empty()).then(|| "Social: Refresh to try again.".to_owned());
     }
 
     pub(super) fn start_sign_in(&mut self) {
@@ -180,6 +186,23 @@ mod tests {
     use super::*;
     use crate::install_layout::{InstallEnvironment, Platform};
     use crate::menu::core_process::core_command_for_address;
+
+    #[test]
+    fn catalog_failures_have_safe_recovery_copy_and_preserve_partial_success() {
+        let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
+        let catalog: CatalogFile = serde_json::from_str(
+            r#"{"featured":[{"name":"Available server","address":"example.test:19132","caption":"Live","image_path":""}],"errors":["Realms: POST https://example.test/?token=synthetic-secret: 503 response-body-sentinel"]}"#,
+        ).unwrap();
+        menu.apply_catalog(catalog);
+        assert_eq!(menu.featured.len(), 1);
+        assert_eq!(menu.featured[0].name, "Available server");
+        assert_eq!(
+            menu.catalog_message.as_deref(),
+            Some("Social: Refresh to try again.")
+        );
+        menu.apply_catalog(CatalogFile::default());
+        assert!(menu.catalog_message.is_none());
+    }
 
     fn launch_layout_with_spaces() -> InstallLayout {
         InstallLayout::resolve(
