@@ -12,11 +12,11 @@ use protocol::{
     PlayerAuthInputInteractions, PlayerInputMode, VerifiedNetworkItemStack,
 };
 use semantic_input::{Action, InputMode};
-use sim::{BlockHit, PaletteWorld, Vec3, WorldCollisionIdentity};
+use sim::WorldCollisionIdentity;
 
 use crate::{
     block_use::mining_edge_authorized,
-    local_player::{FrozenInteractionOrigin, InteractionOriginSnapshot},
+    local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
     movement::{MovementTicker, PhysicsCollisionRegistries},
     runtime::world::ClientWorld,
@@ -30,9 +30,6 @@ use crate::{
 const CREATIVE_MOUSE_REACH_BLOCKS: f64 = 5.7;
 const CREATIVE_GAMEPAD_REACH_BLOCKS: f64 = 5.6;
 const CREATIVE_TOUCH_REACH_BLOCKS: f64 = 12.0;
-// Covers the render frames between adjacent 20 Hz physics ticks while placing
-// a hard ceiling on an input edge retained during a stalled simulation.
-const MAX_PENDING_ATTACK_FRAMES: u64 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CreativeMiningAbility {
@@ -87,31 +84,25 @@ pub(crate) struct FrozenCreativeMining {
 
 impl FrozenCreativeMining {
     pub(crate) fn still_authorized_by(&self, current: &Self) -> bool {
-        self.frame.session_generation == current.frame.session_generation
-            && self.frame.position_authority_generation
-                == current.frame.position_authority_generation
-            && self.frame.input_authority_generation == current.frame.input_authority_generation
-            && self.frame.input_frame_sequence <= current.frame.input_frame_sequence
-            && current
-                .frame
-                .input_frame_sequence
-                .saturating_sub(self.frame.input_frame_sequence)
-                <= MAX_PENDING_ATTACK_FRAMES
-            && self.frame.fifo_sequence <= current.frame.fifo_sequence
-            && self.frame.physics_tick <= current.frame.physics_tick
-            && self.frame.pose_generation <= current.frame.pose_generation
-            && self.ray.origin.into_iter().all(f32::is_finite)
-            && self.ray.direction.into_iter().all(f32::is_finite)
-            && self.ray.movement_world_identity == current.ray.movement_world_identity
-            && self.ray.world_identity == current.ray.world_identity
-            && self.reach == current.reach
-            && self.input_mode == current.input_mode
-            && self.ability == current.ability
-            && self.selection == current.selection
-            && self.target.position == current.target.position
-            && self.target.face == current.target.face
-            && self.target.runtime_id == current.target.runtime_id
-            && self.target.identity == current.target.identity
+        self.ability == current.ability
+            && crate::interaction_authority::still_authorized_by(
+                (
+                    &self.frame,
+                    &self.ray,
+                    self.reach,
+                    self.input_mode,
+                    &self.selection,
+                    &self.target,
+                ),
+                (
+                    &current.frame,
+                    &current.ray,
+                    current.reach,
+                    current.input_mode,
+                    &current.selection,
+                    &current.target,
+                ),
+            )
     }
 
     pub(crate) fn into_tick_payload(self, player_position: [f32; 3]) -> QueuedMiningInteraction {
@@ -320,38 +311,29 @@ pub(crate) fn creative_observation(
     position_authority_generation: u64,
 ) -> Option<FrozenCreativeMining> {
     let ability = creative_mining_ui_ability(ui.ui_focused(), ui.player_game_mode()?)?;
-    let ray = origin.outbound_ray()?;
-    let stream = client_world.stream.as_ref()?;
-    if ray.session_generation() != ui.session_id()
-        || ray.session_generation() != stream.actor_session_id()
-    {
-        return None;
-    }
-    if stream.committed_sequence() != ray.fifo_sequence() {
-        return None;
-    }
     let input_mode = protocol_input_mode(input_mode);
-    let reach = creative_reach(input_mode);
-    let registry = collisions.registry(stream.network_id_mode());
-    let world = PaletteWorld::new(
-        stream.collision_store(),
-        registry,
-        stream.current_dimension(),
-    );
-    let hit = world
-        .block_interaction_ray_current(sim_vec(ray.origin()), sim_vec(ray.direction()), reach)
-        .ok()??;
-    let ray_world_identity = hit.identity.clone();
-    let selection = verified_selection(ui)?;
-    Some(frozen_observation(
-        ray,
-        input_mode,
-        reach,
-        selection,
-        (ray_world_identity, hit),
-        (input_authority, position_authority_generation),
+    let observed = crate::interaction_authority::observe_block(
+        origin,
+        ui,
+        client_world,
+        collisions,
+        verified_selection(ui)?,
+        (
+            input_mode,
+            creative_reach(input_mode),
+            input_authority,
+            position_authority_generation,
+        ),
+    )?;
+    Some(FrozenCreativeMining {
+        frame: observed.frame,
+        ray: observed.ray,
+        reach: observed.reach,
+        input_mode: observed.input_mode,
         ability,
-    ))
+        selection: observed.selection,
+        target: observed.target,
+    })
 }
 
 fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
@@ -366,52 +348,6 @@ fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
         slot: selected.slot,
         item,
     })
-}
-
-fn frozen_observation(
-    ray: &FrozenInteractionOrigin,
-    input_mode: PlayerInputMode,
-    reach: f64,
-    selection: FrozenMiningSelection,
-    ray_hit: (WorldCollisionIdentity, BlockHit),
-    generations: ((NonZeroU64, u64), u64),
-    ability: CreativeMiningAbility,
-) -> FrozenCreativeMining {
-    let (ray_world_identity, hit) = ray_hit;
-    let ((input_authority_generation, input_frame_sequence), position_authority_generation) =
-        generations;
-    FrozenCreativeMining {
-        frame: FrozenMiningFrame {
-            session_generation: ray.session_generation(),
-            position_authority_generation,
-            input_authority_generation,
-            input_frame_sequence,
-            fifo_sequence: ray.fifo_sequence(),
-            physics_tick: ray.physics_tick(),
-            pose_generation: ray.pose_generation(),
-        },
-        ray: FrozenMiningRay {
-            origin: ray.origin().to_array(),
-            direction: ray.direction().to_array(),
-            movement_world_identity: ray.world_collision_identity().clone(),
-            world_identity: ray_world_identity,
-        },
-        reach,
-        input_mode,
-        ability,
-        selection,
-        target: FrozenMiningTarget {
-            position: hit.block_pos,
-            face: hit.face,
-            relative_hit: [
-                hit.hit_local.x as f32,
-                hit.hit_local.y as f32,
-                hit.hit_local.z as f32,
-            ],
-            runtime_id: hit.runtime_id,
-            identity: hit.identity,
-        },
-    }
 }
 
 const fn creative_mining_ability(
@@ -455,10 +391,6 @@ const fn creative_reach(input_mode: PlayerInputMode) -> f64 {
         PlayerInputMode::GamePad => CREATIVE_GAMEPAD_REACH_BLOCKS,
         PlayerInputMode::Touch => CREATIVE_TOUCH_REACH_BLOCKS,
     }
-}
-
-fn sim_vec(value: bevy::prelude::Vec3) -> Vec3 {
-    Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
 }
 
 #[cfg(test)]

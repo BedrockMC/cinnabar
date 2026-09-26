@@ -13,6 +13,10 @@ pub(super) enum OccupiedStackRelation {
 }
 
 impl PlayerInventoryLedger {
+    pub(crate) fn negotiated_item_entry(&self, network_id: i32) -> Option<&ItemRegistryEntry> {
+        self.item_registry.as_ref()?.get(&network_id)
+    }
+
     pub fn apply_registry(&mut self, event: &ItemRegistryEvent) {
         let Some(next) = registry_map(event) else {
             return;
