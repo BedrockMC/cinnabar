@@ -8,6 +8,8 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+mod forms;
+use forms::test_packet;
 
 use protocol::{
     ActorPositionOrigin, BlobCacheStats, ChangeDimensionEvent, InventoryAuthority, InventoryEvent,
@@ -1133,6 +1135,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
     let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let worker = thread::spawn(|| thread::sleep(Duration::from_millis(250)));
     let mut handle = NetworkHandle {
+        session_generation: 0,
         control_events,
         world_events,
         commands,
@@ -1160,6 +1163,7 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
     let (shutdown, _shutdown_rx) = watch::channel(false);
     let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let mut handle = NetworkHandle {
+        session_generation: 0,
         control_events,
         world_events,
         commands,
@@ -1193,8 +1197,4 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
     assert_eq!(handle.pending_command_count(), 1);
     command_rx.try_recv().unwrap();
     assert_eq!(handle.pending_command_count(), 0);
-}
-
-fn test_packet() -> protocol::Packet {
-    protocol::request_sub_chunk_column(0, 0, 0, -4, 1).unwrap()
 }

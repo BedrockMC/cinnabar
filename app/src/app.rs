@@ -95,7 +95,8 @@ use crate::{
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, flush_chat_network, flush_inventory_network,
+        drive_inventory_ui_actions, drive_server_form_input, flush_chat_network,
+        flush_inventory_network, flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
     },
@@ -165,6 +166,7 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
+        .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<MiningRuntime>()
         .init_resource::<BlockUseRuntime>()
         .init_resource::<WorldStreamFramePoll>()
@@ -184,6 +186,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                drive_server_form_input,
                 drive_chat_ui_actions,
                 drain_inventory_authority,
                 drive_chat_keyboard_input,
@@ -202,6 +205,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             receive_network_events
+                .before(drive_server_form_input)
                 .before(drain_inventory_authority)
                 .before(ClientFrameSet::Physics),
         )
@@ -327,6 +331,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             (
                 exit_on_window_close_requested,
                 flush_chat_network,
+                flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
                 poll_model_witness_request,
