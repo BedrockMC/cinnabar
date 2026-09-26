@@ -79,6 +79,7 @@ pub struct ServerFormStore {
     replaced_by_reissue: u64,
     dropped_over_capacity: u64,
     watched_dimension: Option<i32>,
+    watched_epoch: Option<(u64, u64)>,
     focus: usize,
     scroll: usize,
 }
@@ -220,11 +221,19 @@ impl ServerFormStore {
         }
         self.watched_dimension = Some(dimension);
     }
+    pub fn synchronize_epoch(&mut self, session: u64, dimension_epoch: u64) {
+        let identity = (session, dimension_epoch);
+        if self.watched_epoch != Some(identity) {
+            self.clear();
+            self.watched_epoch = Some(identity);
+        }
+    }
     pub fn clear(&mut self) {
         self.active = None;
         self.pending = None;
         self.busy.clear();
         self.watched_dimension = None;
+        self.watched_epoch = None;
         self.focus = 0;
         self.scroll = 0;
     }

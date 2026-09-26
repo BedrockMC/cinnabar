@@ -19,6 +19,11 @@ pub(crate) fn drain_committed_ui_before_authority(
         return;
     };
     ui_runtime.note_stream_dimension(stream.current_dimension());
+    let session = clock.session_generation();
+    let dimension_epoch = stream.form_dimension_epoch();
+    ui_runtime
+        .server_forms_mut()
+        .synchronize_epoch(session, dimension_epoch);
     let committed_ui = stream.take_committed_ui();
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     if !committed_ui.is_empty() {
@@ -32,6 +37,29 @@ pub(crate) fn drain_committed_ui_before_authority(
     }
     for committed in committed_ui {
         let result = match committed {
+            CommittedUiEvent::Form {
+                sequence,
+                dimension_epoch: event_epoch,
+                event,
+            } => {
+                if event_epoch != dimension_epoch {
+                    continue;
+                }
+                ui_runtime
+                    .apply(SequencedUiEvent {
+                        session_id: session,
+                        fifo_sequence: sequence,
+                        local_millis,
+                        server_tick: None,
+                        event: protocol::UiEvent::Form(event),
+                    })
+                    .map(|_| ())
+            }
+            // A generic UI entry must never bypass the form lifetime fence.
+            CommittedUiEvent::Ui {
+                event: protocol::UiEvent::Form(_),
+                ..
+            } => continue,
             CommittedUiEvent::Ui { sequence, event } => ui_runtime
                 .apply(SequencedUiEvent {
                     session_id: clock.session_generation(),

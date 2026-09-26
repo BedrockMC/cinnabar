@@ -232,3 +232,43 @@ fn session_and_dimension_retirement_clear_every_unsent_response() {
         );
     }
 }
+
+#[test]
+fn epoch_identity_clears_unsent_state_but_never_reuses_a_rendered_revision() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.server_forms_mut().synchronize_epoch(1, 0);
+    runtime.apply(retained(7, 1)).unwrap();
+    runtime.apply(retained(8, 2)).unwrap();
+    let old = identity(&runtime);
+    runtime.server_forms_mut().move_focus(1);
+    runtime.server_forms_mut().set_scroll(5);
+    runtime
+        .respond_to_server_form(old, LocalFormAction::Dismiss)
+        .unwrap();
+    assert_eq!(
+        flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+        Err(FormTransportError::Full)
+    );
+    runtime.server_forms_mut().synchronize_epoch(1, 0);
+    assert!(
+        runtime.server_forms().owns_input(),
+        "unchanged authority preserves pending reply"
+    );
+    runtime.server_forms_mut().synchronize_epoch(1, 3);
+    assert!(!runtime.server_forms().owns_input());
+    assert_eq!(runtime.server_forms().queued_busy_count(), 0);
+    assert_eq!(runtime.server_forms().focus(), 0);
+    assert_eq!(runtime.server_forms().scroll(), 0);
+    assert!(drain(&mut runtime).is_empty());
+    runtime.apply(retained(7, 4)).unwrap();
+    assert!(identity(&runtime).revision > old.revision);
+    assert_eq!(
+        runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
+        Err(FormRespondError::StaleIdentity)
+    );
+    runtime.server_forms_mut().synchronize_epoch(2, 3);
+    assert!(
+        runtime.server_forms().active().is_none(),
+        "session replacement fences the same token"
+    );
+}

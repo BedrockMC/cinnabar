@@ -217,6 +217,12 @@ impl WorldStream {
         self.current_dimension
     }
 
+    /// The validated sequence of the last committed dimension transition.
+    #[must_use]
+    pub const fn form_dimension_epoch(&self) -> u64 {
+        self.form_dimension_epoch
+    }
+
     #[must_use]
     pub const fn local_movement_speed(&self) -> Option<f64> {
         self.local_movement_speed
