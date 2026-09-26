@@ -34,6 +34,19 @@ import (
 
 const cachedRelyingParty = "http://xboxlive.com"
 
+// derivedTestDir mirrors the production entry point's trusted top-level alias
+// resolution. Low-level private reads and lease checks require canonical paths;
+// t.TempDir may otherwise retain the macOS /var alias. Nested links are not
+// resolved, so unsafe-path fixtures still exercise the fail-closed checks.
+func derivedTestDir(t *testing.T) string {
+	t.Helper()
+	dir, err := canonicalizeCachePath(filepath.Clean(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestPersistentSourceRetainsCanonicalCachePath(t *testing.T) {
 	raw := filepath.Join(t.TempDir(), "alias", "derived")
 	canonical := filepath.Join(t.TempDir(), "canonical", "derived")
@@ -70,7 +83,7 @@ func TestPersistentSourceRejectsUntrustedCanonicalization(t *testing.T) {
 }
 
 func TestPersistentSourceFreshInstanceReusesDerivedStateAndMintsPerKey(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	var discoveryCalls, serviceCalls, mintCalls int
@@ -124,7 +137,7 @@ func TestPersistentSourceFreshInstanceReusesDerivedStateAndMintsPerKey(t *testin
 }
 
 func TestPersistentSourceExpiredServiceRefreshesOnlyServiceLayer(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
 	var discoveryCalls, serviceCalls int
@@ -161,7 +174,7 @@ func TestPersistentSourceExpiredServiceRefreshesOnlyServiceLayer(t *testing.T) {
 }
 
 func TestPersistentSourceOAuthRotationInvalidatesInMemoryDerivedState(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oldToken := testOAuthToken("account-a")
 	newToken := testOAuthToken("account-b")
 	writeDerivedState(t, path, oldToken, time.Now().Add(time.Hour))
@@ -187,7 +200,7 @@ func TestPersistentSourceOAuthRotationInvalidatesInMemoryDerivedState(t *testing
 }
 
 func TestPersistentSourceOAuthRotationDoesNotPublishWithoutLease(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oldToken := testOAuthToken("account-a")
 	newToken := testOAuthToken("account-b")
 	writeDerivedState(t, path, oldToken, time.Now().Add(time.Hour))
@@ -209,7 +222,7 @@ func TestPersistentSourceOAuthRotationDoesNotPublishWithoutLease(t *testing.T) {
 }
 
 func TestPersistentSourceProofKeyStableAcrossOAuthReset(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oldToken := testOAuthToken("account-a")
 	newToken := testOAuthToken("account-b")
 	writeDerivedState(t, path, oldToken, time.Now().Add(time.Hour))
@@ -231,7 +244,7 @@ func TestPersistentSourceProofKeyStableAcrossOAuthReset(t *testing.T) {
 }
 
 func TestPersistentSourceProofKeyStableAcrossConflictingReload(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	state, err := loadDerived(path)
@@ -292,7 +305,7 @@ func TestPersistentSourceBindingsAndUnsafeInputsAreConservativeMisses(t *testing
 	}
 	for name, arrange := range tests {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "derived")
+			path := filepath.Join(derivedTestDir(t), "derived")
 			token := testOAuthToken("account-a")
 			arrange(t, path, token)
 			var diagnostics bytes.Buffer
@@ -314,7 +327,7 @@ func TestPersistentSourceBindingsAndUnsafeInputsAreConservativeMisses(t *testing
 }
 
 func TestPersistentSourceMalformedEnvironmentCannotPartiallyRestoreSISU(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	state, err := loadDerived(path)
@@ -345,7 +358,7 @@ func TestPersistentSourceMalformedEnvironmentCannotPartiallyRestoreSISU(t *testi
 }
 
 func TestPersistentSourceMultiplayerCallChecksOAuthBindingBeforeReuse(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oldToken := testOAuthToken("account-a")
 	newToken := testOAuthToken("account-b")
 	writeDerivedState(t, path, oldToken, time.Now().Add(time.Hour))
@@ -371,7 +384,7 @@ func TestPersistentSourceMultiplayerCallChecksOAuthBindingBeforeReuse(t *testing
 }
 
 func TestPersistentSourceUnauthorizedServiceTokenRefreshesOnce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	var serviceCalls, mintCalls int
@@ -400,7 +413,7 @@ func TestPersistentSourceUnauthorizedServiceTokenRefreshesOnce(t *testing.T) {
 }
 
 func TestPersistentSourceServiceEnvironmentMismatchDoesNotReuse(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	var serviceCalls int
@@ -427,7 +440,7 @@ func TestPersistentSourceServiceEnvironmentMismatchDoesNotReuse(t *testing.T) {
 }
 
 func TestPersistentSourceCancellationDoesNotRetryOrLeak(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -459,7 +472,7 @@ func TestPersistentSourceCancellationDoesNotRetryOrLeak(t *testing.T) {
 }
 
 func TestPersistentSourceConcurrentFreshInstancesRemainUsable(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	deps := derivedDeps{
@@ -498,7 +511,7 @@ func TestPersistentSourceConcurrentFreshInstancesRemainUsable(t *testing.T) {
 }
 
 func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
 	var serviceCalls atomic.Int32
@@ -542,7 +555,7 @@ func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 }
 
 func TestPersistentSourceWarmReuseDoesNotRewriteBundle(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	before, err := os.Stat(path)
@@ -563,7 +576,7 @@ func TestPersistentSourceWarmReuseDoesNotRewriteBundle(t *testing.T) {
 }
 
 func TestPersistentSourceCancellationInterruptsLeaseWait(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	if err := savePrivate(path+".lock", []byte("join-auth-lease\n")); err != nil {
@@ -589,7 +602,7 @@ func TestPersistentSourceCancellationInterruptsLeaseWait(t *testing.T) {
 }
 
 func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
 	if err := prepareLeasePath(path + ".lock"); err != nil {
@@ -640,7 +653,7 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 }
 
 func TestPrepareLeasePathConcurrentFirstCreationKeepsStableIdentity(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived.lock")
+	path := filepath.Join(derivedTestDir(t), "derived.lock")
 	start := make(chan struct{})
 	errs := make(chan error, 8)
 	for range cap(errs) {
@@ -696,7 +709,7 @@ func TestPrepareLeasePathConcurrentFirstCreationKeepsStableIdentity(t *testing.T
 }
 
 func TestValidateLeasePathRejectsLinkedTarget(t *testing.T) {
-	dir := t.TempDir()
+	dir := derivedTestDir(t)
 	target := filepath.Join(dir, "target")
 	if err := os.WriteFile(target, []byte("outside"), 0o600); err != nil {
 		t.Fatal(err)
@@ -711,7 +724,7 @@ func TestValidateLeasePathRejectsLinkedTarget(t *testing.T) {
 }
 
 func TestValidateLeasePathRejectsMissingTarget(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "missing.lock")
+	path := filepath.Join(derivedTestDir(t), "missing.lock")
 	if err := validateLeasePath(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("error = %v, want missing", err)
 	}
@@ -727,7 +740,7 @@ func TestValidateLeasePathRejectsMissingTarget(t *testing.T) {
 }
 
 func TestSavePrivateFailurePreservesOldCache(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "derived")
+	path := filepath.Join(derivedTestDir(t), "derived")
 	if err := savePrivate(path, []byte("old\n")); err != nil {
 		t.Fatal(err)
 	}
