@@ -106,6 +106,7 @@ impl WorldStream {
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         Self {
             store: ChunkStore::new(),
+            block_cracks: block_cracks::BlockCracks::default(),
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors,
             actor_session_id,

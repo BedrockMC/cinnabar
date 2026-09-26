@@ -182,6 +182,7 @@ impl WorldStream {
                             );
                             return;
                         };
+                        self.reconcile_block_crack_column(key);
                         self.loaded_columns.insert(key);
                         self.purge_sub_chunk_column_state(key);
                         self.resident.retain(|resident| resident.chunk() != key);
@@ -366,6 +367,7 @@ impl WorldStream {
                     }
                     if committed {
                         self.refresh_block_entity_visuals_for_sub_chunk(key);
+                        self.reconcile_block_crack_column(key.chunk());
                     }
                     if completed {
                         self.complete_requested_sub_chunk(key, committed);
@@ -394,6 +396,7 @@ impl WorldStream {
                             Ok(changed) => {
                                 let now = Instant::now();
                                 for key in changed {
+                                    self.reconcile_block_crack_column(key.chunk());
                                     self.refresh_block_entity_visuals_for_sub_chunk(key);
                                     self.sync_resident(key);
                                     self.mark_live_mutation_changed(
@@ -565,9 +568,10 @@ impl WorldStream {
                 self.provisional_publisher_rebase = false;
             }
             WorldEvent::ChangeDimension(change) => {
+                let sequence = sequence.expect("sequenced dimension changes commit through submit");
+                self.replace_block_crack_dimension(sequence);
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
-                let sequence = sequence.expect("sequenced dimension changes commit through submit");
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 let _ =
                     self.actors
@@ -798,6 +802,7 @@ impl WorldStream {
             }
             WorldEvent::BlockCrack(event) => {
                 let sequence = sequence.expect("sequenced block cracks commit through submit");
+                self.consume_block_crack(sequence, event);
                 self.push_committed_ui(CommittedUiEvent::BlockCrack {
                     sequence,
                     dimension: self.current_dimension,
@@ -886,6 +891,7 @@ impl WorldStream {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
                 };
+                self.reconcile_block_crack_column(key);
                 let removed = removed.is_some();
                 let became_known = self.record_known_air(air);
                 if removed {
