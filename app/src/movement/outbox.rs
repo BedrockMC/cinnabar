@@ -9,7 +9,7 @@
 use protocol::{Packet, PlayerAuthInputError, player_auth_input_with_interactions};
 use tokio::sync::watch;
 
-use crate::block_use::FrozenEmptyHandBlockUse;
+use crate::block_use::FrozenBlockUse;
 use crate::mining::FrozenCreativeMining;
 
 /// Failure taxonomy of one bounded outbound movement flush.
@@ -288,7 +288,7 @@ impl MovementTicker {
         self.accepts_creative_mining()
     }
 
-    pub(crate) fn retain_block_use(&mut self, current: Option<&FrozenEmptyHandBlockUse>) {
+    pub(crate) fn retain_block_use(&mut self, current: Option<&FrozenBlockUse>) {
         let stale = self
             .outbox
             .iter()
@@ -304,7 +304,7 @@ impl MovementTicker {
         }
     }
 
-    pub(crate) fn attach_block_use(&mut self, frozen: FrozenEmptyHandBlockUse) -> Option<u64> {
+    pub(crate) fn attach_block_use(&mut self, frozen: FrozenBlockUse) -> Option<u64> {
         if !self.accepts_block_use() {
             return None;
         }

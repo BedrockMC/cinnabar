@@ -49,6 +49,13 @@
     "sha256": "20b89fd20d493a5bfdd2d7e726f1eece06054b9727892c8cbfd93322e2567853"
   },
   {
+    "name": "PlayerAuthInputUseBlock",
+    "file": "player_auth_input_use_block.bin",
+    "id": 144,
+    "byte_length": 190,
+    "sha256": "d19cf51326bf06759f86ce3fae9b5f1d8fc840824e620aeb0ee3b4e459582938"
+  },
+  {
     "name": "PlayerAuthInputBlockActionsAndBreakBlock",
     "file": "player_auth_input_block_actions_and_break_block.bin",
     "id": 144,
