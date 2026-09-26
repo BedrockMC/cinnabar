@@ -140,6 +140,10 @@ fn fixture_app() -> (App, Entity) {
 }
 
 fn submit_form(app: &mut App, sequence: u64) {
+    submit_form_id(app, sequence, 7);
+}
+
+fn submit_form_id(app: &mut App, sequence: u64, form_id: u32) {
     app.world_mut()
         .resource_mut::<ClientWorld>()
         .stream
@@ -148,7 +152,7 @@ fn submit_form(app: &mut App, sequence: u64) {
         .submit(
             sequence,
             WorldEvent::Ui(UiEvent::Form(FormRequestEvent {
-                form_id: 7,
+                form_id,
                 kind: FormKind::Menu,
                 title: Some(Arc::from("Choose 世界")),
                 json: Arc::from("{}"),
@@ -161,6 +165,186 @@ fn submit_form(app: &mut App, sequence: u64) {
             })),
         )
         .unwrap();
+}
+
+fn submit_transition(app: &mut App, sequence: u64, dimension: i32) {
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            sequence,
+            WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                dimension,
+                position: [0.0, 70.0, 0.0],
+            }),
+        )
+        .unwrap();
+}
+
+#[test]
+fn rapid_dimension_return_skips_old_form_but_preserves_new_form_and_non_form_ui() {
+    let (mut app, _) = fixture_app();
+    submit_form(&mut app, 1);
+    submit_transition(&mut app, 2, 1);
+    submit_transition(&mut app, 3, 0);
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            4,
+            WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { health: 17 })),
+        )
+        .unwrap();
+    submit_form_id(&mut app, 5, 8);
+    app.update();
+    let runtime = app.world().resource::<UiRuntime>();
+    assert_eq!(runtime.server_forms().active().unwrap().form_id, 8);
+    assert_eq!(runtime.server_forms().queued_busy_count(), 0);
+    assert_eq!(runtime.hud().health(), ui::BoundedStat::new(17, 20));
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+}
+
+#[test]
+fn transition_retires_full_local_and_busy_answers_and_stale_same_id_actions() {
+    use crate::ui_runtime::{FormRespondError, FormTransportError};
+    let (mut app, _) = fixture_app();
+    submit_form(&mut app, 1);
+    submit_form_id(&mut app, 2, 8);
+    app.update();
+    let old = app
+        .world()
+        .resource::<UiRuntime>()
+        .server_forms()
+        .active()
+        .unwrap()
+        .identity;
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        runtime.server_forms_mut().move_focus(1);
+        runtime.server_forms_mut().set_scroll(3);
+        runtime
+            .respond_to_server_form(old, LocalFormAction::SubmitButton(1))
+            .unwrap();
+        assert_eq!(
+            flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+            Err(FormTransportError::Full)
+        );
+        assert_eq!(runtime.server_forms().queued_busy_count(), 1);
+    }
+    submit_transition(&mut app, 3, 1);
+    submit_transition(&mut app, 4, 0);
+    submit_form(&mut app, 5);
+    app.update();
+    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    let current = runtime.server_forms().active().unwrap().identity;
+    assert!(current.revision > old.revision);
+    assert_eq!(runtime.server_forms().queued_busy_count(), 0);
+    assert_eq!(runtime.server_forms().focus(), 0);
+    assert_eq!(runtime.server_forms().scroll(), 0);
+    assert_eq!(
+        runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
+        Err(FormRespondError::StaleIdentity)
+    );
+    assert!(
+        !flush_form_response(&mut runtime, |_| panic!("retired answers must not enqueue")).unwrap()
+    );
+    runtime
+        .respond_to_server_form(current, LocalFormAction::SubmitButton(0))
+        .unwrap();
+    let mut packets = Vec::new();
+    assert!(
+        flush_form_response(&mut runtime, |packet| {
+            packets.push(packet);
+            Ok(())
+        })
+        .unwrap()
+    );
+    assert_eq!(packets.len(), 1);
+    assert!(!flush_form_response(&mut runtime, |_| panic!("no duplicate answer")).unwrap());
+}
+
+#[test]
+fn new_session_with_same_initial_epoch_retires_old_form_authority() {
+    let (mut app, _) = fixture_app();
+    submit_form(&mut app, 1);
+    app.update();
+    let old = app
+        .world()
+        .resource::<UiRuntime>()
+        .server_forms()
+        .active()
+        .unwrap()
+        .identity;
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .respond_to_server_form(old, LocalFormAction::Dismiss)
+        .unwrap();
+    let replacement = fixture_app()
+        .0
+        .world_mut()
+        .remove_resource::<ClientWorld>()
+        .unwrap();
+    app.insert_resource(replacement);
+    let mut clock = app.world_mut().remove_resource::<WorldClock>().unwrap();
+    let mut weather = app.world_mut().remove_resource::<WeatherState>().unwrap();
+    bind_session_generation(&mut clock, &mut weather, 2);
+    app.insert_resource(clock).insert_resource(weather);
+    app.world_mut().resource_mut::<UiRuntime>().begin_session(2);
+    submit_form(&mut app, 1);
+    app.update();
+    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    let current = runtime.server_forms().active().unwrap().identity;
+    assert_eq!(current.session, 2);
+    assert!(current.revision > old.revision);
+    assert_eq!(
+        runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
+        Err(crate::ui_runtime::FormRespondError::StaleIdentity)
+    );
+    assert!(
+        !flush_form_response(&mut runtime, |_| panic!(
+            "old-session pending response retired"
+        ))
+        .unwrap()
+    );
+}
+
+#[test]
+fn transition_without_successor_clears_display_and_definitely_unsent_busy_reply() {
+    use crate::ui_runtime::FormTransportError;
+    let (mut app, window) = fixture_app();
+    submit_form(&mut app, 1);
+    submit_form_id(&mut app, 2, 8);
+    app.update();
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        assert_eq!(
+            flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+            Err(FormTransportError::Full)
+        );
+        assert!(runtime.server_forms().active().is_some());
+        assert_eq!(runtime.server_forms().queued_busy_count(), 1);
+    }
+    submit_transition(&mut app, 3, 1);
+    submit_transition(&mut app, 4, 0);
+    app.update();
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        assert!(runtime.server_forms().active().is_none());
+        assert!(!runtime.server_forms().owns_input());
+        assert_eq!(runtime.server_forms().queued_busy_count(), 0);
+        assert!(
+            !flush_form_response(&mut runtime, |_| panic!(
+                "retired busy response must not enqueue"
+            ))
+            .unwrap()
+        );
+    }
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert!(!cursor.visible && cursor.grab_mode == CursorGrabMode::Locked);
 }
 
 fn press(app: &mut App, window: Entity, case: InputCase) {
