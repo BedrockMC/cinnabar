@@ -11,7 +11,15 @@ const OBSERVED_KICK: &str = "server disconnected: Cinnabar launcher return check
 #[test]
 fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
     let runtime = UiRuntime::new(1);
-    for (width, gui_scale) in [(1280, 2), (1280, 3), (900, 2), (420, 2)] {
+    for (width, height, gui_scale) in [
+        (1280, 720, 2),
+        (1280, 720, 3),
+        (900, 720, 2),
+        (420, 720, 2),
+        (420, 720, 3),
+        (900, 360, 1),
+        (420, 360, 1),
+    ] {
         let menu = MenuRuntime::new(true, gui_scale, "Player".to_owned());
         let mut view = menu.view();
         view.catalog_loading = false;
@@ -20,56 +28,205 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
         presentation.set_gui_scale_preference(Some(gui_scale));
         presentation.set_menu_view(Some(view));
         let input = presentation
-            .build(&runtime, 0, [width, 720], DpiScale::new(1.0).unwrap())
+            .build(&runtime, 0, [width, height], DpiScale::new(1.0).unwrap())
             .unwrap();
-        // Mirror the unchanged shell's desktop/compact empty-card bounds.
-        let (left, top, right, bottom) = if width >= 900 {
-            let right_width = (((width - 276) as f32) * 0.36).clamp(300.0, 420.0);
-            (
-                width as f32 - right_width - 8.0,
-                168.0,
-                width as f32 - 40.0,
-                288.0,
-            )
-        } else {
-            (16.0, 396.0, width as f32 - 16.0, 502.0)
-        };
-        let body: Vec<_> = input
+        // Locate actual empty-card quads rather than repeating production's
+        // origin formula. Headers are checked separately, including shadows.
+        let cards = input
             .vertices
-            .iter()
-            .filter(|vertex| {
-                vertex.color == [166, 178, 193, 255]
-                    && vertex.position[0] >= left + 16.0
-                    && vertex.position[1] >= top + 20.0
+            .chunks_exact(4)
+            .filter(|quad| quad[0].color == [33, 42, 56, 252])
+            .map(|quad| {
+                quad.iter().fold(
+                    (
+                        f32::INFINITY,
+                        f32::INFINITY,
+                        f32::NEG_INFINITY,
+                        f32::NEG_INFINITY,
+                    ),
+                    |(left, top, right, bottom), vertex| {
+                        (
+                            left.min(vertex.position[0]),
+                            top.min(vertex.position[1]),
+                            right.max(vertex.position[0]),
+                            bottom.max(vertex.position[1]),
+                        )
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        if height == 720 {
+            assert_eq!(cards.len(), if width >= 900 { 2 } else { 1 });
+        }
+        for (left, top, right, bottom) in cards {
+            assert!(
+                left >= 0.0
+                    && right <= width as f32
+                    && top >= 0.0
+                    && bottom <= height as f32 - 16.0,
+                "card escaped {width}x{height}/GUI{gui_scale}: {left},{top}..{right},{bottom}"
+            );
+            let body: Vec<_> = input
+                .vertices
+                .chunks_exact(4)
+                .filter(|quad| {
+                    let min_x = quad
+                        .iter()
+                        .map(|vertex| vertex.position[0])
+                        .fold(f32::INFINITY, f32::min);
+                    let min_y = quad
+                        .iter()
+                        .map(|vertex| vertex.position[1])
+                        .fold(f32::INFINITY, f32::min);
+                    quad[0].color == [166, 178, 193, 255]
+                        && min_x >= left + 16.0
+                        && min_x < right
+                        && min_y >= top + 16.0
+                        && min_y < bottom
+                })
+                .flat_map(|quad| quad.iter())
+                .collect();
+            assert!(
+                !body.is_empty(),
+                "recovery text must remain visible at GUI {gui_scale}"
+            );
+            assert!(
+                body.iter()
+                    .all(|vertex| vertex.position[0] <= right && vertex.position[1] <= bottom),
+                "recovery text escaped its card at GUI {gui_scale}"
+            );
+            let title_bottom = input
+                .vertices
+                .chunks_exact(4)
+                .filter(|quad| {
+                    let min_x = quad
+                        .iter()
+                        .map(|vertex| vertex.position[0])
+                        .fold(f32::INFINITY, f32::min);
+                    let min_y = quad
+                        .iter()
+                        .map(|vertex| vertex.position[1])
+                        .fold(f32::INFINITY, f32::min);
+                    quad[0].color == [239, 243, 247, 255]
+                        && min_x >= left + 16.0
+                        && min_x < right
+                        && min_y >= top + 16.0
+                        && min_y < bottom
+                })
+                .flat_map(|quad| quad.iter())
+                .map(|vertex| vertex.position[1])
+                .fold(f32::NEG_INFINITY, f32::max);
+            let body_top = body
+                .iter()
+                .map(|vertex| vertex.position[1])
+                .fold(f32::INFINITY, f32::min);
+            if height == 720 {
+                assert!(
+                    title_bottom.is_finite(),
+                    "the full-height card must retain its title"
+                );
+            }
+            assert!(
+                body_top >= title_bottom + 6.0,
+                "title and recovery need a readable gap at {width}x{height}/GUI{gui_scale}: card={left},{top}..{right},{bottom}, title_bottom={title_bottom}, body_top={body_top}"
+            );
+            let text_and_shadow = input
+                .vertices
+                .chunks_exact(4)
+                .filter(|quad| {
+                    let min_x = quad
+                        .iter()
+                        .map(|vertex| vertex.position[0])
+                        .fold(f32::INFINITY, f32::min);
+                    let min_y = quad
+                        .iter()
+                        .map(|vertex| vertex.position[1])
+                        .fold(f32::INFINITY, f32::min);
+                    min_x >= left + 16.0 && min_x < right && min_y >= top + 16.0 && min_y < bottom
+                })
+                .flat_map(|quad| quad.iter())
+                .collect::<Vec<_>>();
+            assert!(
+                text_and_shadow
+                    .iter()
+                    .all(|vertex| vertex.position[0] <= right && vertex.position[1] <= bottom),
+                "whole text/shadow quad escaped card at {width}x{height}/GUI{gui_scale}"
+            );
+            // A glyph/shadow quad whose origin precedes the card must finish
+            // before it. This catches the old two-row heading overlap directly.
+            let header_bottom = input
+                .vertices
+                .chunks_exact(4)
+                .filter(|quad| {
+                    let min_y = quad
+                        .iter()
+                        .map(|vertex| vertex.position[1])
+                        .fold(f32::INFINITY, f32::min);
+                    let min_x = quad
+                        .iter()
+                        .map(|vertex| vertex.position[0])
+                        .fold(f32::INFINITY, f32::min);
+                    min_y >= if width >= 900 { 98.0 } else { 340.0 }
+                        && min_y < top
+                        && min_x >= left
+                        && min_x < right
+                        && !matches!(
+                            quad[0].color,
+                            [33, 42, 56, 252] | [26, 33, 45, 250] | [55, 67, 85, 255]
+                        )
+                })
+                .flat_map(|quad| quad.iter())
+                .map(|vertex| vertex.position[1])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!(
+                header_bottom + 6.0 <= top,
+                "header overlaps recovery card at {width}x{height}/GUI{gui_scale}: header_bottom={header_bottom}, card_top={top}"
+            );
+        }
+    }
+}
+
+#[test]
+fn measured_home_heading_never_moves_successful_featured_hits_below_the_viewport() {
+    let runtime = UiRuntime::new(1);
+    for (width, height, gui) in [(1280, 720, 3), (900, 360, 1)] {
+        let mut view = MenuRuntime::new(true, gui, "Player".to_owned()).view();
+        view.catalog_loading = false;
+        view.catalog_message = Some("Social: Refresh to try again.".to_owned());
+        view.featured = (0..3)
+            .map(|index| crate::menu::MenuServerCard {
+                name: format!("Server {index}"),
+                address: "example.invalid".to_owned(),
+                caption: "Available".to_owned(),
+                image_path: String::new(),
+                icon: None,
             })
             .collect();
-        assert!(
-            !body.is_empty(),
-            "recovery text must remain visible at GUI {gui_scale}"
-        );
-        assert!(
-            body.iter()
-                .all(|vertex| vertex.position[0] <= right && vertex.position[1] <= bottom),
-            "recovery text escaped its card at GUI {gui_scale}"
-        );
-        let title_bottom = input
-            .vertices
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        presentation.set_gui_scale_preference(Some(gui));
+        presentation.set_menu_view(Some(view));
+        presentation
+            .build(&runtime, 0, [width, height], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        let hits = presentation
+            .menu_hit_targets
             .iter()
-            .filter(|vertex| {
-                vertex.color == [239, 243, 247, 255]
-                    && vertex.position[0] >= left + 16.0
-                    && vertex.position[1] >= top
-            })
-            .map(|vertex| vertex.position[1])
-            .fold(f32::NEG_INFINITY, f32::max);
-        let body_top = body
-            .iter()
-            .map(|vertex| vertex.position[1])
-            .fold(f32::INFINITY, f32::min);
+            .filter(|(action, _)| matches!(action, MenuAction::PlayFeatured(_)))
+            .collect::<Vec<_>>();
         assert!(
-            body_top >= title_bottom + 6.0,
-            "title and recovery need a readable gap at GUI {gui_scale}"
+            !hits.is_empty(),
+            "successful catalog content remains actionable"
         );
+        assert!(
+            hits.iter()
+                .all(|(_, bounds)| bounds.max().y() <= height as f32 - 16.0),
+            "an omitted row must not leave an offscreen hit target"
+        );
+        if height == 720 {
+            assert_eq!(hits.len(), 3);
+        } else {
+            assert!(hits.len() < 3);
+        }
     }
 }
 
