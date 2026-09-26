@@ -76,7 +76,13 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     let first = compile_entity_assets(pack.path(), MANIFEST).expect("compile entity catalog");
     let second = compile_entity_assets(pack.path(), MANIFEST).expect("compile twice");
     assert_eq!(first, second);
-    assert_eq!(first.sources.len(), 8);
+    assert_eq!(first.sources.len(), 9);
+    assert!(
+        first
+            .sources
+            .iter()
+            .any(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.40.json")
+    );
     assert_eq!(first.geometries.len(), 1);
     let geometry = &first.geometries[0];
     assert_eq!(geometry.identifier.as_ref(), "geometry.allay");
