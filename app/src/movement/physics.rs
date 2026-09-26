@@ -515,13 +515,17 @@ impl LocalPhysicsController {
                     // started grounded and clear of the cooldown. The arc
                     // then rides the airborne window until the simulator
                     // reports ground contact again.
-                    let processed = ProcessedMovementState::next(
+                    let mut processed = ProcessedMovementState::next(
                         self.processed_jump_arc_active,
                         input.jump_pressed && grounded_before_tick && jump_cooldown_cleared,
                         state.on_ground,
                         input.sneaking,
                         input.sprinting,
                     );
+                    processed.direction_flags = Some(super::encoding::direction_flags([
+                        -input.strafe as f32,
+                        input.forward as f32,
+                    ]));
                     self.processed_jump_arc_active = processed.jump_arc_active;
                     frame.samples.push(PhysicsMovementSample {
                         tick: state.tick,
@@ -808,6 +812,10 @@ impl LocalPhysicsController {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
             let (initiated, arc_active) = jump_fold.step(frame_input, result.on_ground);
+            retained.processed.direction_flags = Some(super::encoding::direction_flags([
+                -frame_input.strafe as f32,
+                frame_input.forward as f32,
+            ]));
             retained.processed.jump_initiated = initiated;
             retained.processed.jump_arc_active = arc_active;
             replayed_samples.push(retained.clone());

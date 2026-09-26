@@ -33,6 +33,11 @@ pub struct ProcessedMovementState {
     pub sneaking: bool,
     /// Forward-gated sprint already narrowed by [`super::physics_movement_input`].
     pub sprinting: bool,
+    /// Immutable permission/device-normalized direction authority captured
+    /// before item/pose slowdown. None keeps legacy sample derivation. This
+    /// preserves Cinnabar's existing policy, pending exact retail acceptance.
+    /// The encoder masks this to direction bits; raw/analogue never substitute.
+    pub direction_flags: Option<protocol::PlayerInputFlags>,
 }
 
 impl ProcessedMovementState {
@@ -56,6 +61,7 @@ impl ProcessedMovementState {
             jump_arc_active: jump_initiated || (!grounded_after_tick && previous_jump_arc_active),
             sneaking,
             sprinting,
+            direction_flags: None,
         }
     }
 }

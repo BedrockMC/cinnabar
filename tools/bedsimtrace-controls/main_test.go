@@ -27,7 +27,7 @@ func TestControlsEmissionIsRepeatableAndRetainsDistinctInputSemantics(t *testing
 		}
 		records = append(records, next)
 	}
-	if len(records) != 11 {
+	if len(records) != 14 {
 		t.Fatalf("unexpected record count: %d", len(records))
 	}
 	if records[1].Processed == records[3].Processed {

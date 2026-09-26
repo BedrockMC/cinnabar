@@ -1,4 +1,82 @@
 #[test]
+fn slowed_primary_preserves_captured_device_normalized_direction_policy() {
+    let component = std::f32::consts::FRAC_1_SQRT_2;
+    let diagonal_mask = PlayerInputFlags::UP_LEFT
+        | PlayerInputFlags::UP_RIGHT
+        | PlayerInputFlags::DOWN_LEFT
+        | PlayerInputFlags::DOWN_RIGHT;
+    for (axes, expected_diagonal) in [
+        ([component, component], PlayerInputFlags::UP_RIGHT),
+        ([0.5, 0.5], PlayerInputFlags::NONE),
+        ([0.25, 0.5], PlayerInputFlags::NONE),
+        ([0.0, 0.0], PlayerInputFlags::NONE),
+    ] {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
+        let input = physics_movement_input(axes, 0.0, true, false, true, false, false);
+        let frame = physics.advance_with_context(
+            Duration::from_millis(50),
+            input,
+            PhysicsSampleContext {
+                raw_move_vector: [-1.0, -1.0],
+                analogue_move_vector: [-1.0, -1.0],
+                ..Default::default()
+            },
+            &Floor,
+        );
+        let [sample] = frame.samples.as_slice() else {
+            panic!("expected one tick")
+        };
+        assert_eq!(
+            sample.move_vector.map(f32::to_bits),
+            axes.map(|axis| (axis * 0.3_f32).to_bits())
+        );
+        let mut ticker = MovementTicker::default();
+        ticker.reset(1, 40, sample.position);
+        ticker.set_source(MovementSource::Physics);
+        ticker.enqueue_completed_physics(sample.clone()).unwrap();
+        let snapshot = ticker.pop_pending().unwrap().snapshot;
+        assert_eq!(
+            snapshot.flags.bits() & diagonal_mask.bits(),
+            expected_diagonal.bits()
+        );
+        assert_eq!(
+            snapshot.flags.bits() & PlayerInputFlags::UP.bits() != 0,
+            axes[1] > 0.0
+        );
+        assert_eq!(
+            snapshot.flags.bits() & PlayerInputFlags::RIGHT.bits() != 0,
+            axes[0] > 0.0
+        );
+        assert_eq!(
+            snapshot.flags.bits() & (PlayerInputFlags::DOWN | PlayerInputFlags::LEFT).bits(),
+            0
+        );
+    }
+}
+
+#[test]
+fn captured_direction_snapshot_cannot_inject_unrelated_flags() {
+    let mut sample = completed_sample(41, [0.0, 64.0, 0.0]);
+    sample.move_vector = [0.0; 2];
+    sample.processed.direction_flags = Some(
+        PlayerInputFlags::UP_RIGHT
+            | PlayerInputFlags::SPRINTING
+            | PlayerInputFlags::JUMP_PRESSED_RAW,
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 40, sample.position);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(sample).unwrap();
+    let flags = ticker.pop_pending().unwrap().snapshot.flags;
+    assert_ne!(flags.bits() & PlayerInputFlags::UP_RIGHT.bits(), 0);
+    assert_eq!(
+        flags.bits() & (PlayerInputFlags::SPRINTING | PlayerInputFlags::JUMP_PRESSED_RAW).bits(),
+        0
+    );
+}
+
+#[test]
 fn partial_sneak_controls_are_scaled_once_before_packet_sampling() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
@@ -23,7 +101,10 @@ fn partial_sneak_controls_are_scaled_once_before_packet_sampling() {
     ticker.reset(1, 40, sample.position);
     ticker.set_source(MovementSource::Physics);
     ticker.enqueue_completed_physics(sample.clone()).unwrap();
-    assert_eq!(ticker.pop_pending().unwrap().snapshot.move_vector, [0.075, 0.15]);
+    assert_eq!(
+        ticker.pop_pending().unwrap().snapshot.move_vector,
+        [0.075, 0.15]
+    );
 }
 
 #[test]

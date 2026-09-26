@@ -28,19 +28,20 @@ impl From<&PhysicsMovementSample> for HeldInput {
     }
 }
 
-pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
+/// Existing direction policy, independent of item/pose control magnitude.
+pub(super) fn direction_flags(vector: [f32; 2]) -> PlayerInputFlags {
     let mut flags = PlayerInputFlags::NONE;
-    if sample.move_vector[1] > 0.0 {
+    if vector[1] > 0.0 {
         flags |= PlayerInputFlags::UP;
-    } else if sample.move_vector[1] < 0.0 {
+    } else if vector[1] < 0.0 {
         flags |= PlayerInputFlags::DOWN;
     }
-    if sample.move_vector[0] < 0.0 {
+    if vector[0] < 0.0 {
         flags |= PlayerInputFlags::LEFT;
-    } else if sample.move_vector[0] > 0.0 {
+    } else if vector[0] > 0.0 {
         flags |= PlayerInputFlags::RIGHT;
     }
-    let processed = normalize_move_vector(sample.move_vector);
+    let processed = normalize_move_vector(vector);
     let diagonal = (processed[0].abs() - processed[1].abs()).abs() <= f32::EPSILON * 4.0
         && (processed[0].mul_add(processed[0], processed[1] * processed[1]) - 1.0).abs()
             <= f32::EPSILON * 4.0;
@@ -55,6 +56,29 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
             flags |= PlayerInputFlags::DOWN_RIGHT;
         }
     }
+    flags
+}
+
+pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
+    let mut flags = sample.processed.direction_flags.map_or_else(
+        || direction_flags(sample.move_vector),
+        |captured| {
+            [
+                PlayerInputFlags::UP,
+                PlayerInputFlags::DOWN,
+                PlayerInputFlags::LEFT,
+                PlayerInputFlags::RIGHT,
+                PlayerInputFlags::UP_LEFT,
+                PlayerInputFlags::UP_RIGHT,
+                PlayerInputFlags::DOWN_LEFT,
+                PlayerInputFlags::DOWN_RIGHT,
+            ]
+            .into_iter()
+            .fold(PlayerInputFlags::NONE, |flags, bit| {
+                flags.with_mask(bit, captured.bits() & bit.bits() != 0)
+            })
+        },
+    );
 
     if sample.horizontal_collision {
         flags |= PlayerInputFlags::HORIZONTAL_COLLISION;

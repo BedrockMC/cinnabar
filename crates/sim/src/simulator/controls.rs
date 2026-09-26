@@ -16,6 +16,30 @@ pub struct ControlledTickResult {
 }
 
 pub(super) fn process(input: MovementInput) -> ProcessedControls {
+    if input.move_vector_is_raw {
+        // Primary controls are a wire-f32 contract: round operands and each
+        // item/pose multiplication before widening into existing f64 travel.
+        let item = input.item_use_movement_modifier.map_or(
+            if input.using_consumable {
+                super::CONSUMABLE_INPUT_MULTIPLIER as f32
+            } else {
+                1.0
+            },
+            |value| value as f32,
+        );
+        let factor = item
+            * if input.sneaking {
+                super::SNEAK_INPUT_MULTIPLIER as f32
+            } else {
+                1.0
+            };
+        return ProcessedControls {
+            move_vector: [
+                f64::from((input.strafe as f32).clamp(-1.0, 1.0) * factor),
+                f64::from((input.forward as f32).clamp(-1.0, 1.0) * factor),
+            ],
+        };
+    }
     let item = input
         .item_use_movement_modifier
         .unwrap_or(if input.using_consumable {
@@ -29,13 +53,7 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
         } else {
             1.0
         };
-    let process_axis = |axis: f64| {
-        if input.move_vector_is_raw {
-            axis.clamp(-1.0, 1.0) * factor
-        } else {
-            axis.clamp(-factor, factor)
-        }
-    };
+    let process_axis = |axis: f64| axis.clamp(-factor, factor);
     ProcessedControls {
         move_vector: [process_axis(input.strafe), process_axis(input.forward)],
     }

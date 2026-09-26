@@ -63,7 +63,7 @@ fn pinned_newer_control_oracle_has_exact_source_and_fixture_identity() {
 }
 
 #[test]
-fn all_eleven_public_model_controls_match_without_replacing_kinematic_fixtures() {
+fn all_fourteen_public_model_controls_match_without_replacing_kinematic_fixtures() {
     let mut names = std::collections::BTreeSet::new();
     for line in TRACE.lines() {
         let record: Record = serde_json::from_str(line).unwrap();
@@ -79,8 +79,13 @@ fn all_eleven_public_model_controls_match_without_replacing_kinematic_fixtures()
             .into_iter()
             .zip(record.processed)
         {
-            assert_eq!(actual as f32, expected, "{}", record.name);
+            assert_eq!(
+                (actual as f32).to_bits(),
+                expected.to_bits(),
+                "{}",
+                record.name
+            );
         }
     }
-    assert_eq!(names.len(), 11);
+    assert_eq!(names.len(), 14);
 }
