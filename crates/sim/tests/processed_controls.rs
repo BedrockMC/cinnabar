@@ -10,12 +10,34 @@ impl CollisionWorld for Empty {
     }
 }
 
-fn controls(input: MovementInput) -> [f64; 2] {
+fn controls(input: MovementInput) -> [f32; 2] {
     Simulator::default()
         .tick_with_controls(&mut PlayerState::new(Vec3::ZERO), input, &Empty)
         .unwrap()
         .controls
         .move_vector
+        .map(|axis| axis as f32)
+}
+
+#[test]
+fn raw_nonbinary_controls_round_operands_and_pose_intermediates_as_f32() {
+    let input = MovementInput {
+        strafe: f64::from(0.7_f32),
+        forward: f64::from(-0.9_f32),
+        move_vector_is_raw: true,
+        sneaking: true,
+        ..Default::default()
+    };
+    assert_eq!(controls(input)[0].to_bits(), 0x3e57_0a3e);
+    let composed = controls(MovementInput {
+        item_use_movement_modifier: Some(f64::from(0.7_f32)),
+        ..input
+    });
+    let factor = 0.7_f32 * 0.3_f32;
+    assert_eq!(
+        composed.map(f32::to_bits),
+        [(0.7_f32 * factor).to_bits(), (-0.9_f32 * factor).to_bits()]
+    );
 }
 
 #[test]

@@ -61,7 +61,14 @@ func cases() []record {
 	}
 	bounded := makeCase("raw_component_bounds", true, true, false, nil)
 	bounded.Input.Strafe, bounded.Input.Forward = 2, -2
-	return append(records, bounded)
+	nonbinary := makeCase("raw_nonbinary_sneak", true, true, false, nil)
+	nonbinary.Input.Strafe, nonbinary.Input.Forward = 0.7, -0.7
+	unequal := makeCase("raw_nonbinary_unequal_sneak", true, true, false, nil)
+	unequal.Input.Strafe, unequal.Input.Forward = 0.1, 0.9
+	sevenTenths := float32(0.7)
+	composed := makeCase("raw_nonbinary_item_pose", true, true, true, &sevenTenths)
+	composed.Input.Strafe, composed.Input.Forward = 0.7, -0.9
+	return append(records, bounded, nonbinary, unequal, composed)
 }
 
 func emit(w io.Writer) error {

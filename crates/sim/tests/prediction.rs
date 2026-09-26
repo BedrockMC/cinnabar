@@ -51,7 +51,10 @@ fn replay_controls_come_from_retained_raw_input_and_item_modifier() {
     let live = history
         .predict_with_controls(&mut state, input, &simulator, &Floor)
         .unwrap();
-    assert_eq!(live.controls.move_vector, [0.0375, 0.075]);
+    assert_eq!(
+        live.controls.move_vector.map(|axis| axis as f32),
+        [0.0375, 0.075]
+    );
     let corrected = history.state_at(1).unwrap().clone();
     let (_, outputs) = history
         .rewind_and_replay_with_controls(&mut state, corrected, &simulator, &Floor, &[])
