@@ -201,6 +201,9 @@ pub(crate) fn drive_chat_ui_actions(
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
+    if runtime.server_forms().owns_input() {
+        return;
+    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.chat_focused()
         || !window.focused
@@ -266,6 +269,9 @@ pub(crate) fn drive_inventory_ui_actions(
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
+    if runtime.server_forms().owns_input() {
+        return;
+    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.inventory_open()
         || !window.focused
@@ -406,6 +412,10 @@ pub(crate) fn drive_chat_keyboard_input(
     mut runtime: ResMut<UiRuntime>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    if runtime.server_forms().owns_input() {
+        keyboard_messages.clear();
+        return;
+    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         if runtime.inventory_open() {
             runtime.close_inventory();

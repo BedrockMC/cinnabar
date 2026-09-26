@@ -303,6 +303,7 @@ impl PacketSendError {
 
 #[derive(Resource)]
 pub struct NetworkHandle {
+    session_generation: u64,
     control_events: mpsc::Receiver<NetworkControlEvent>,
     world_events: mpsc::Receiver<WorldIngress>,
     commands: mpsc::Sender<NetworkCommand>,
@@ -374,11 +375,6 @@ impl NetworkHandle {
         self.readiness_ingress
             .consumed
             .fetch_add(1, Ordering::Release);
-    }
-
-    #[cfg(test)]
-    pub fn send_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
-        self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
     pub(crate) fn send_physics_packet(
@@ -506,6 +502,7 @@ fn empty_network_channels() -> (NetworkHandle, watch::Receiver<u64>) {
     let (shutdown, _shutdown_rx) = watch::channel(false);
     (
         NetworkHandle {
+            session_generation: 0,
             control_events,
             world_events,
             commands,
@@ -638,6 +635,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             });
         })?;
     Ok(NetworkHandle {
+        session_generation,
         control_events,
         world_events,
         commands,
@@ -985,6 +983,7 @@ fn emit_packet_id_trace<S: NetworkSession>(session: &mut S) {
 }
 
 mod bootstrap;
+mod forms;
 mod handle_state;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 mod pump;

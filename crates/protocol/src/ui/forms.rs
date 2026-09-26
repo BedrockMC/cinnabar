@@ -4,9 +4,9 @@
 //! document whose top-level `"type"` member selects the vanilla family
 //! (`"form"` is the fixture-pinned button menu; `"modal"` and `"custom_form"`
 //! are provisional spellings pending a version-matched reference).
-//! Normalization validates structure and captures only the family, the title,
-//! and the raw text — never the element model — so oversized or malformed
-//! content is a counted semantic skip instead of session state.
+//! Text-only button menus have a bounded model. Valid image decorations are
+//! counted but never retained or loaded. Other families and controls remain
+//! explicitly unsupported; malformed JSON is a semantic skip.
 
 use std::sync::Arc;
 
@@ -21,6 +21,30 @@ use valentine::bedrock::version::v1_26_44::{
 use super::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
 
 pub const MAX_FORM_JSON_DEPTH: usize = 16;
+pub const MAX_FORM_BUTTONS: usize = 256;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextMenuForm {
+    pub title: Arc<str>,
+    pub content: Arc<str>,
+    /// Array order is the zero-based wire selection index. Never truncate it.
+    pub buttons: Arc<[Arc<str>]>,
+    /// Decorations are not retained or loaded; indexes remain unchanged.
+    pub omitted_images: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsupportedForm {
+    Family,
+    Controls,
+    Limit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerFormModel {
+    TextMenu(TextMenuForm),
+    Unsupported(UnsupportedForm),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FormKind {
@@ -52,18 +76,100 @@ pub struct FormRequestEvent {
     pub kind: FormKind,
     pub title: Option<Arc<str>>,
     pub json: Arc<str>,
+    pub model: ServerFormModel,
 }
 
 pub(crate) fn normalize_form(packet: ModalFormRequestPacket) -> Result<UiEvent, UiPacketError> {
     let json = bounded_form(packet.form_uijson)?;
     let mut header = FormHeader::default();
     scan_form_header(&json, &mut header)?;
+    let kind = header.kind.unwrap_or(FormKind::Unknown);
+    let model = text_menu_model(&json, kind);
     Ok(UiEvent::Form(FormRequestEvent {
         form_id: packet.form_id,
-        kind: header.kind.unwrap_or(FormKind::Unknown),
+        kind,
         title: header.title,
         json,
+        model,
     }))
+}
+
+fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
+    let unsupported = ServerFormModel::Unsupported;
+    if kind != FormKind::Menu {
+        return unsupported(UnsupportedForm::Family);
+    }
+    // The raw document and nesting were bounded before this second parse;
+    // allocation here is bounded by MAX_FORM_JSON_BYTES, not server counts.
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return unsupported(UnsupportedForm::Controls);
+    };
+    let Some(object) = value.as_object() else {
+        return unsupported(UnsupportedForm::Controls);
+    };
+    if object.get("type").and_then(serde_json::Value::as_str) != Some("form") {
+        return unsupported(UnsupportedForm::Family);
+    }
+    let text = |key: &str| match object.get(key) {
+        None => Some(""),
+        Some(value) => value.as_str(),
+    };
+    let (Some(title), Some(content), Some(buttons)) = (
+        text("title"),
+        text("content"),
+        object.get("buttons").and_then(serde_json::Value::as_array),
+    ) else {
+        return unsupported(UnsupportedForm::Controls);
+    };
+    if title.len() > MAX_UI_TEXT_BYTES
+        || content.len() > MAX_UI_TEXT_BYTES
+        || buttons.len() > MAX_FORM_BUTTONS
+    {
+        return unsupported(UnsupportedForm::Limit);
+    }
+    let mut labels = Vec::with_capacity(buttons.len());
+    let mut omitted_images = 0;
+    for button in buttons {
+        let Some(button) = button.as_object() else {
+            return unsupported(UnsupportedForm::Controls);
+        };
+        if button.keys().any(|key| key != "text" && key != "image") {
+            return unsupported(UnsupportedForm::Controls);
+        }
+        if let Some(image) = button.get("image") {
+            let Some(image) = image.as_object() else {
+                return unsupported(UnsupportedForm::Controls);
+            };
+            if image.keys().any(|key| key != "type" && key != "data")
+                || !matches!(
+                    image.get("type").and_then(serde_json::Value::as_str),
+                    Some("url" | "path")
+                )
+            {
+                return unsupported(UnsupportedForm::Controls);
+            }
+            let Some(data) = image.get("data").and_then(serde_json::Value::as_str) else {
+                return unsupported(UnsupportedForm::Controls);
+            };
+            if data.len() > MAX_UI_TEXT_BYTES {
+                return unsupported(UnsupportedForm::Limit);
+            }
+            omitted_images += 1;
+        }
+        let Some(label) = button.get("text").and_then(serde_json::Value::as_str) else {
+            return unsupported(UnsupportedForm::Controls);
+        };
+        if label.len() > MAX_UI_TEXT_BYTES {
+            return unsupported(UnsupportedForm::Limit);
+        }
+        labels.push(Arc::from(label));
+    }
+    ServerFormModel::TextMenu(TextMenuForm {
+        title: Arc::from(title),
+        content: Arc::from(content),
+        buttons: labels.into(),
+        omitted_images,
+    })
 }
 
 fn bounded_form(value: String) -> Result<Arc<str>, UiPacketError> {
@@ -239,6 +345,17 @@ pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
         form_id,
         json_response: None,
         form_cancel_reason: Some(EnumsModalFormCancelReason::UserClosed),
+    }
+    .into()
+}
+
+/// An overlapping dialog cannot take ownership of an already occupied UI.
+/// UserBusy is wire value 1 in the pinned response schema.
+pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
+    ModalFormResponsePacket {
+        form_id,
+        json_response: None,
+        form_cancel_reason: Some(EnumsModalFormCancelReason::UserBusy),
     }
     .into()
 }
