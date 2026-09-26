@@ -47,6 +47,7 @@ use super::block_entity_visuals::{
 use super::server_position::{ResolvedServerPosition, resolve_server_position};
 use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
+mod block_cracks;
 mod block_entities;
 mod cohort;
 mod connectivity;
@@ -211,6 +212,9 @@ use model::{
     split_block_update,
 };
 
+pub use block_cracks::{
+    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
+};
 pub use model::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedUiEvent,
     ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest, PublisherViewGeometry,
@@ -221,6 +225,7 @@ pub use model::{
 /// Ordered Bedrock world ingestion and bounded background meshing.
 pub struct WorldStream {
     store: ChunkStore,
+    block_cracks: block_cracks::BlockCracks,
     block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,

@@ -568,7 +568,6 @@ pub(crate) fn drive_world_stream(
         time,
         ..
     } = state;
-    let crack_assets = Arc::clone(&client_world.runtime_assets);
     let active_session = client_world
         .stream
         .as_ref()
@@ -681,7 +680,7 @@ pub(crate) fn drive_world_stream(
             return;
         }
     }
-    reconcile_world_block_cracks(&mut ui_runtime, stream, &crack_assets);
+    reconcile_world_block_cracks(&mut ui_runtime, stream);
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world

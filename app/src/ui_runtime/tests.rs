@@ -755,8 +755,9 @@ fn block_cracks_are_consumed_in_sequence_and_cleared_on_session_change() {
         })
         .unwrap();
 
-    assert_eq!(runtime.block_cracks.status().active, 1);
-    assert_eq!(runtime.block_cracks.status().consumed, 1);
+    // Envelopes validate ordering only; active authority arrives from the stream.
+    assert_eq!(runtime.block_cracks.status().active, 0);
+    assert_eq!(runtime.block_cracks.status().consumed, 0);
     assert!(matches!(
         runtime.retain_block_crack(SequencedBlockCrackEvent {
             session_id: 4,
@@ -790,7 +791,7 @@ fn block_crack_stops_consume_without_retaining_a_history() {
     }
 
     assert_eq!(runtime.block_cracks.status().active, 0);
-    assert_eq!(runtime.block_cracks.status().consumed, 1_280);
+    assert_eq!(runtime.block_cracks.status().consumed, 0);
 }
 
 #[test]

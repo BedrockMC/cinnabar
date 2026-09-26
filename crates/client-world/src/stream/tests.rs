@@ -355,6 +355,7 @@ fn decode_fatal_stays_terminal_across_later_polls() {
     ));
 }
 
+mod block_cracks;
 mod light_scheduler;
 
 mod mesh_dependency;
