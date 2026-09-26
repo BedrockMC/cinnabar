@@ -32,6 +32,35 @@ fn forward() -> MovementInput {
 }
 
 #[test]
+fn replay_controls_come_from_retained_raw_input_and_item_modifier() {
+    let simulator = Simulator::default();
+    let mut state = initial_state();
+    let mut history = PredictionHistory::new(8).unwrap();
+    history
+        .predict(&mut state, forward(), &simulator, &Floor)
+        .unwrap();
+    let input = MovementInput {
+        strafe: 0.25,
+        forward: 0.5,
+        move_vector_is_raw: true,
+        sneaking: true,
+        item_use_movement_modifier: Some(0.5),
+        movement_speed: Some(0.2),
+        ..Default::default()
+    };
+    let live = history
+        .predict_with_controls(&mut state, input, &simulator, &Floor)
+        .unwrap();
+    assert_eq!(live.controls.move_vector, [0.0375, 0.075]);
+    let corrected = history.state_at(1).unwrap().clone();
+    let (_, outputs) = history
+        .rewind_and_replay_with_controls(&mut state, corrected, &simulator, &Floor, &[])
+        .unwrap();
+    assert_eq!(outputs, [live]);
+    assert_eq!(history.input_at(2), Some(&input));
+}
+
+#[test]
 fn bounded_history_evicts_whole_oldest_frames_in_tick_order() {
     let mut state = initial_state();
     let mut history = PredictionHistory::new(2).unwrap();

@@ -1,4 +1,5 @@
 mod collision;
+mod controls;
 mod effects;
 mod environment;
 mod input;
@@ -11,6 +12,7 @@ use crate::{
 use collision::{clip_sneak_edge, resolve_motion};
 use environment::{contains_liquid, sample};
 
+pub use controls::{ControlledTickResult, ProcessedControls};
 pub use effects::MovementEffects;
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
@@ -72,8 +74,20 @@ impl Simulator {
         input: MovementInput,
         world: &impl CollisionWorld,
     ) -> Result<TickResult, SimulationError> {
+        self.tick_with_controls(state, input, world)
+            .map(|output| output.tick_result)
+    }
+
+    /// Advances the same transactional tick and publishes its primary controls.
+    pub fn tick_with_controls(
+        &self,
+        state: &mut PlayerState,
+        input: MovementInput,
+        world: &impl CollisionWorld,
+    ) -> Result<ControlledTickResult, SimulationError> {
         state::validate(state)?;
         input::validate(input)?;
+        let controls = controls::process(input);
         let mut next = state.clone();
         next.tick = next
             .tick
@@ -112,18 +126,10 @@ impl Simulator {
             DEFAULT_AIR_SPEED
         };
 
-        let mut max_input = if input.using_consumable {
-            CONSUMABLE_INPUT_MULTIPLIER
-        } else {
-            1.0
-        };
-        if input.sneaking {
-            max_input *= SNEAK_INPUT_MULTIPLIER;
-        }
         apply_relative_movement(
             &mut next.velocity,
-            input.strafe.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER,
-            input.forward.clamp(-max_input, max_input) * INPUT_IMPULSE_MULTIPLIER,
+            controls.move_vector[0] * INPUT_IMPULSE_MULTIPLIER,
+            controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER,
             input.yaw_degrees,
             relative_speed,
         );
@@ -316,7 +322,10 @@ impl Simulator {
             world_identity: identity,
         };
         *state = next;
-        Ok(result)
+        Ok(ControlledTickResult {
+            tick_result: result,
+            controls,
+        })
     }
 }
 

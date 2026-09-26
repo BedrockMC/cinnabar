@@ -99,6 +99,8 @@ pub enum SimulationError {
     NonFiniteInput { field: &'static str },
     #[error("movement speed authority must be finite and nonnegative")]
     InvalidMovementSpeed,
+    #[error("item-use movement modifier must be finite and within [0, 1]")]
+    InvalidItemUseMovementModifier,
     #[error(transparent)]
     World(#[from] WorldQueryError),
     #[error("movement tick overflow")]

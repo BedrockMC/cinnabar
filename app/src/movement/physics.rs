@@ -72,10 +72,12 @@ pub fn physics_movement_input(
         jump_pressed: false,
         sprinting,
         sneaking,
+        move_vector_is_raw: true,
         // Generic Use does not establish that the selected item is consumable
         // or that its use phase has begun. Keep this dormant until inventory
         // classification and authoritative use timing are available.
         using_consumable: false,
+        item_use_movement_modifier: None,
         movement_speed: None,
         effects: sim::MovementEffects::default(),
     }
@@ -496,8 +498,12 @@ impl LocalPhysicsController {
                 state.velocity = overlay.velocity;
             }
             let before = state.position;
-            match self.history.predict(state, input, &self.simulator, world) {
-                Ok(result) => {
+            match self
+                .history
+                .predict_with_controls(state, input, &self.simulator, world)
+            {
+                Ok(output) => {
+                    let result = output.tick_result;
                     effects.commit_successful_tick();
                     self.previous_position = before;
                     let world_identity = result.world_identity;
@@ -529,7 +535,10 @@ impl LocalPhysicsController {
                             result.velocity.y as f32,
                             result.velocity.z as f32,
                         ],
-                        move_vector: [-input.strafe as f32, input.forward as f32],
+                        move_vector: [
+                            -output.controls.move_vector[0] as f32,
+                            output.controls.move_vector[1] as f32,
+                        ],
                         raw_move_vector: context.raw_move_vector,
                         analogue_move_vector: context.analogue_move_vector,
                         pitch: context.pitch,
@@ -726,7 +735,7 @@ impl LocalPhysicsController {
         let anchor_jump_delay = corrected.jump_delay;
         let (replay, replayed_ticks) = self
             .history
-            .rewind_and_replay_traced_with_overlays(
+            .rewind_and_replay_with_controls(
                 self.state
                     .as_mut()
                     .expect("active correction checked for local state"),
@@ -764,7 +773,8 @@ impl LocalPhysicsController {
             )
         };
         let mut replayed_samples = Vec::with_capacity(replayed_ticks.len());
-        for result in replayed_ticks {
+        for output in replayed_ticks {
+            let result = output.tick_result;
             let Some(retained) = self
                 .sample_history
                 .iter_mut()
@@ -784,6 +794,10 @@ impl LocalPhysicsController {
                 result.velocity.x as f32,
                 result.velocity.y as f32,
                 result.velocity.z as f32,
+            ];
+            retained.move_vector = [
+                -output.controls.move_vector[0] as f32,
+                output.controls.move_vector[1] as f32,
             ];
             retained.horizontal_collision = result.collisions.x || result.collisions.z;
             retained.vertical_collision = result.collisions.y;

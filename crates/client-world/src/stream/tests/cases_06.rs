@@ -199,6 +199,95 @@ fn movement_attribute(current: f32) -> ActorAttribute {
 }
 
 #[test]
+fn movement_authority_removes_only_identified_sprint_multiplier_once() {
+    let modifier = protocol::ActorAttributeModifier {
+        id: Arc::from("D208FC00-42AA-4AAD-9276-D5446530DE43"),
+        name: Arc::from("unrelated label"),
+        amount: 0.3,
+        operation: 2,
+        operand: 2,
+        serializable: true,
+    };
+    let mut stream = riding_stream();
+    let mut sequence = 0;
+    let mut submit =
+        |modifiers: Arc<[protocol::ActorAttributeModifier]>, current: f32, expected: f32| {
+            sequence += 1;
+            let mut attribute = movement_attribute(current);
+            attribute.modifiers = modifiers;
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 1,
+                        attributes: Arc::from([attribute]),
+                        tick: sequence,
+                    })),
+                )
+                .unwrap();
+            assert_eq!(stream.local_movement_speed(), Some(f64::from(expected)));
+        };
+    submit(Arc::from([modifier.clone()]), 0.13, 0.13_f32 / 1.3);
+    submit(Arc::from([modifier.clone()]), 0.156, 0.156_f32 / 1.3);
+    submit(Arc::from([modifier.clone()]), 0.0, 0.0);
+    let mut custom = modifier.clone();
+    custom.id = Arc::from("custom-speed");
+    custom.name = Arc::from("Sprinting speed boost");
+    submit(Arc::from([custom]), 0.13, 0.13);
+    let mut different_operation = modifier.clone();
+    different_operation.operation = 1;
+    submit(Arc::from([different_operation]), 0.13, 0.13);
+    let mut different_operand = modifier;
+    different_operand.operand = 1;
+    submit(Arc::from([different_operand]), 0.13, 0.13);
+}
+
+#[test]
+fn ambiguous_or_invalid_sprint_authority_keeps_previous_speed_and_session() {
+    let modifier = protocol::ActorAttributeModifier {
+        id: Arc::from("d208fc00-42aa-4aad-9276-d5446530de43"),
+        name: Arc::from(""),
+        amount: 0.3,
+        operation: 2,
+        operand: 2,
+        serializable: true,
+    };
+    let mut stream = riding_stream();
+    for (index, modifiers) in [
+        Arc::from([]),
+        Arc::from([modifier.clone(), modifier.clone()]),
+        Arc::from([protocol::ActorAttributeModifier {
+            amount: f32::NAN,
+            ..modifier.clone()
+        }]),
+        Arc::from([protocol::ActorAttributeModifier {
+            amount: -1.0,
+            ..modifier
+        }]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut attribute = movement_attribute(if index == 0 { 0.25 } else { 0.13 });
+        attribute.modifiers = modifiers;
+        let sequence = index as u64 + 1;
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    attributes: Arc::from([attribute]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+        assert_eq!(stream.local_movement_speed(), Some(0.25));
+    }
+}
+
+#[test]
 fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
