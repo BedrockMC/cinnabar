@@ -1,4 +1,32 @@
 #[test]
+fn partial_sneak_controls_are_scaled_once_before_packet_sampling() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
+    let input = physics_movement_input([0.25, 0.5], 0.0, true, false, true, false, false);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(50),
+        input,
+        PhysicsSampleContext {
+            raw_move_vector: [0.25, 0.5],
+            analogue_move_vector: [0.25, 0.5],
+            ..PhysicsSampleContext::default()
+        },
+        &Floor,
+    );
+    let [sample] = frame.samples.as_slice() else {
+        panic!("expected one completed tick");
+    };
+    assert_eq!(sample.move_vector, [0.075, 0.15]);
+    assert_eq!(sample.raw_move_vector, [0.25, 0.5]);
+    assert_eq!(sample.analogue_move_vector, [0.25, 0.5]);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 40, sample.position);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(sample.clone()).unwrap();
+    assert_eq!(ticker.pop_pending().unwrap().snapshot.move_vector, [0.075, 0.15]);
+}
+
+#[test]
 fn completed_samples_carry_the_context_move_vector_carriers() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
