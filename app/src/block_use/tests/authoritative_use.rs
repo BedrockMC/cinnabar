@@ -326,7 +326,20 @@ fn production_world(runtime_id: u32) -> crate::runtime::world::ClientWorld {
             }]),
         )
         .unwrap();
-    stream.poll([0.5, -62.5, 0.5], 0);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        stream.poll([0.5, -62.5, 0.5], 0);
+        assert!(stream.take_fatal_error().is_none());
+        let target_committed = stream
+            .collision_store()
+            .sub_chunk(world::SubChunkKey::new(0, 0, -4, 0))
+            .is_some_and(|chunk| chunk.runtime_id(0, 0, 1, 2) == Some(runtime_id));
+        if stream.committed_sequence() == 2 && target_committed {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
     crate::runtime::world::ClientWorld {
         stream: Some(stream),
         ..Default::default()
