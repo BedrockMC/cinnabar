@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{SourcePayloads, invalid, json::parse_semantic_json};
+use super::{SourcePayloads, invalid, item_bindings, json::parse_semantic_json};
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
     include_bytes!("../../../assets/data/block-item-routes-v2168.json");
@@ -47,7 +47,7 @@ struct BlockItemRoute {
     block_visual: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct TextureVariant {
     source_path: Box<str>,
     variant: u32,
@@ -64,6 +64,10 @@ pub(super) fn compile(
         .map(|(index, source)| (source.path.as_ref(), index as u32))
         .collect::<BTreeMap<_, _>>();
     let routes = parse_block_item_routes()?;
+    let bindings = item_bindings::reviewed()?;
+    let binding_source = *source_indices
+        .get(item_bindings::SOURCE_PATH)
+        .ok_or_else(|| invalid("reviewed default sprite binding source is absent"))?;
     let route_source = *source_indices
         .get("registry/block-item-routes-v2168.json")
         .ok_or_else(|| invalid("reviewed block item authority source is absent"))?;
@@ -129,6 +133,58 @@ pub(super) fn compile(
                     return Err(invalid("duplicate exact item texture metadata route"));
                 }
             }
+        }
+        for binding in bindings {
+            let Some(definition) = texture_data.get(binding.default_alias.as_ref()) else {
+                // A partial atlas does not authorize inventing an absent route.
+                continue;
+            };
+            let variants = parse_texture_variants(definition)?;
+            let variant = variants
+                .get(binding.atlas_variant as usize)
+                .ok_or_else(|| invalid("default sprite binding variant is absent"))?;
+            let key = ItemVisualKey {
+                identifier: binding.identifier,
+                metadata: 0,
+            };
+            if routes.routes.contains_key(&key) {
+                return Err(invalid(
+                    "default sprite binding conflicts with a reviewed block route",
+                ));
+            }
+            let canonical_alias = key
+                .identifier
+                .strip_prefix("minecraft:")
+                .unwrap_or(&key.identifier);
+            if let Some(existing_definition) = texture_data
+                .get(canonical_alias)
+                .or_else(|| texture_data.get(key.identifier.as_ref()))
+            {
+                let existing_variants = parse_texture_variants(existing_definition)?;
+                if existing_variants.first() != Some(variant) {
+                    return Err(invalid(
+                        "default sprite binding conflicts with an exact atlas source",
+                    ));
+                }
+            }
+            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+                ItemVisualDefinitionRoute::Missing,
+                |source| ItemVisualDefinitionRoute::Sprite {
+                    texture: ItemTextureReference {
+                        source: *source,
+                        variant: variant.variant,
+                    },
+                },
+            );
+            if definitions
+                .get(&key)
+                .is_some_and(|(_, existing)| *existing != route)
+            {
+                return Err(invalid(
+                    "default sprite binding conflicts with an exact atlas route",
+                ));
+            }
+            definitions.insert(key, (binding_source, route));
         }
     }
     let visuals = definitions

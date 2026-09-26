@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::{
     AssetError,
@@ -413,9 +414,38 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
         compiled.sources.len(),
         compiled.block_visual_count as usize,
     )?;
+    let reviewed_bindings: DefaultSpriteBindings = serde_json::from_slice(DEFAULT_SPRITE_BINDINGS)
+        .map_err(|_| invalid("embedded default sprite bindings are invalid"))?;
+    let binding_hash: [u8; 32] = Sha256::digest(DEFAULT_SPRITE_BINDINGS).into();
+    for source in &compiled.sources {
+        if source.path.as_ref() == DEFAULT_SPRITE_BINDINGS_PATH
+            && (source.source_bytes as usize != DEFAULT_SPRITE_BINDINGS.len()
+                || source.source_sha256 != binding_hash)
+        {
+            return Err(invalid("default sprite defining source identity mismatch"));
+        }
+    }
     for visual in &compiled.item_visuals {
         let defining_path = &compiled.sources[visual.source as usize].path;
-        if !valid_item_definition_source(defining_path) {
+        if defining_path.as_ref() == DEFAULT_SPRITE_BINDINGS_PATH {
+            if visual.key.metadata != 0
+                || !reviewed_bindings
+                    .routes
+                    .iter()
+                    .any(|binding| binding.identifier == visual.key.identifier)
+                || !matches!(
+                    visual.route,
+                    ItemVisualDefinitionRoute::Missing
+                        | ItemVisualDefinitionRoute::Sprite {
+                            texture: crate::item::ItemTextureReference { variant: 0, .. }
+                        }
+                )
+            {
+                return Err(invalid(
+                    "item visual is outside reviewed default sprite bindings",
+                ));
+            }
+        } else if !valid_item_definition_source(defining_path) {
             return Err(invalid("item visual defining source is not reviewed"));
         }
         if let ItemVisualDefinitionRoute::Sprite { texture } = visual.route {
@@ -426,6 +456,20 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
         }
     }
     Ok(())
+}
+
+const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.40.json";
+const DEFAULT_SPRITE_BINDINGS: &[u8] =
+    include_bytes!("../../data/default-sprite-bindings-1.26.40.json");
+
+#[derive(Deserialize)]
+struct DefaultSpriteBindings {
+    routes: Vec<DefaultSpriteBinding>,
+}
+
+#[derive(Deserialize)]
+struct DefaultSpriteBinding {
+    identifier: Box<str>,
 }
 
 fn valid_item_definition_source(path: &str) -> bool {
