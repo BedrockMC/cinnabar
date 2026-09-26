@@ -8,6 +8,71 @@ use crate::{
 
 const OBSERVED_KICK: &str = "server disconnected: Cinnabar launcher return check (the server ended the current play session)";
 
+#[test]
+fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
+    let runtime = UiRuntime::new(1);
+    for (width, gui_scale) in [(1280, 2), (1280, 3), (900, 2), (420, 2)] {
+        let menu = MenuRuntime::new(true, gui_scale, "Player".to_owned());
+        let mut view = menu.view();
+        view.catalog_loading = false;
+        view.catalog_message = Some("Social: Refresh to try again.".to_owned());
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        presentation.set_gui_scale_preference(Some(gui_scale));
+        presentation.set_menu_view(Some(view));
+        let input = presentation
+            .build(&runtime, 0, [width, 720], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        // Mirror the unchanged shell's desktop/compact empty-card bounds.
+        let (left, top, right, bottom) = if width >= 900 {
+            let right_width = (((width - 276) as f32) * 0.36).clamp(300.0, 420.0);
+            (
+                width as f32 - right_width - 8.0,
+                168.0,
+                width as f32 - 40.0,
+                288.0,
+            )
+        } else {
+            (16.0, 396.0, width as f32 - 16.0, 502.0)
+        };
+        let body: Vec<_> = input
+            .vertices
+            .iter()
+            .filter(|vertex| {
+                vertex.color == [166, 178, 193, 255]
+                    && vertex.position[0] >= left + 16.0
+                    && vertex.position[1] >= top + 20.0
+            })
+            .collect();
+        assert!(
+            !body.is_empty(),
+            "recovery text must remain visible at GUI {gui_scale}"
+        );
+        assert!(
+            body.iter()
+                .all(|vertex| vertex.position[0] <= right && vertex.position[1] <= bottom),
+            "recovery text escaped its card at GUI {gui_scale}"
+        );
+        let title_bottom = input
+            .vertices
+            .iter()
+            .filter(|vertex| {
+                vertex.color == [239, 243, 247, 255]
+                    && vertex.position[0] >= left + 16.0
+                    && vertex.position[1] >= top
+            })
+            .map(|vertex| vertex.position[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let body_top = body
+            .iter()
+            .map(|vertex| vertex.position[1])
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            body_top >= title_bottom + 6.0,
+            "title and recovery need a readable gap at GUI {gui_scale}"
+        );
+    }
+}
+
 fn presented_message(
     physical_size: [u32; 2],
     safe_area: SafeArea,
