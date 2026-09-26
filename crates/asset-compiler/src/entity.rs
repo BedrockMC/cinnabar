@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 mod animation;
 mod geometry;
 mod item;
+mod item_bindings;
 mod json;
 mod molang;
 mod source;
@@ -152,6 +153,20 @@ pub fn compile_entity_assets_with_report(
         source_sha256: Sha256::digest(route_bytes).into(),
     });
     source_payloads.insert(route_path, route_bytes.into());
+    let binding_bytes = item_bindings::SOURCE_BYTES;
+    total_source_bytes = total_source_bytes
+        .checked_add(binding_bytes.len())
+        .ok_or_else(|| invalid("entity source-byte total overflow"))?;
+    if total_source_bytes > MAX_ENTITY_TOTAL_SOURCE_BYTES
+        || sources.len() >= MAX_ENTITY_ASSET_SOURCES
+    {
+        return Err(invalid("entity source-byte total or count exceeds bound"));
+    }
+    sources.push(EntityAssetSource {
+        path: item_bindings::SOURCE_PATH.into(),
+        source_bytes: binding_bytes.len() as u32,
+        source_sha256: Sha256::digest(binding_bytes).into(),
+    });
     sources.sort_by(|left, right| left.path.cmp(&right.path));
     if symbols.is_empty() || symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
