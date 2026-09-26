@@ -368,7 +368,9 @@ fn adversarial_finite_inputs_fail_without_mutation_and_large_sweeps_stop_before_
                         jump_pressed: true,
                         sprinting: true,
                         sneaking: true,
+                        move_vector_is_raw: false,
                         using_consumable: true,
+                        item_use_movement_modifier: None,
                         movement_speed: None,
                         effects: sim::MovementEffects::default(),
                     };
