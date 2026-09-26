@@ -58,7 +58,6 @@ use self::gameplay_hud::GameplayHudState;
 use self::inventory_ledger::PlayerInventoryLedger;
 use self::inventory_router::{EquipmentRoute, InventoryEquipmentRouter, InventoryRouterError};
 
-pub const MAX_PENDING_BLOCK_CRACK_EVENTS: usize = 1_024;
 pub const MAX_PENDING_INVENTORY_EVENTS: usize = 1_024;
 const MAX_PENDING_CHAT_SENDS: usize = 32;
 const MAX_CHAT_SENDS_PER_WINDOW: usize = 5;
@@ -115,7 +114,6 @@ pub enum UiRuntimeError {
     WrongSession { expected: u64, actual: u64 },
     StaleFifoSequence { previous: u64, actual: u64 },
     StaleBlockCrackSequence { previous: u64, actual: u64 },
-    BlockCrackQueueFull { maximum: usize },
     InventoryQueueFull { maximum: usize },
     NonMonotonicLocalTime { previous: u64, actual: u64 },
     NonMonotonicServerTick { previous: u64, actual: u64 },
@@ -169,7 +167,7 @@ pub struct UiRuntime {
     chat_source_name: Arc<str>,
     chat_xuid: Arc<str>,
     dropped_unsent_chat_messages: u64,
-    pending_block_cracks: VecDeque<SequencedBlockCrackEvent>,
+    block_cracks: crate::block_cracks::BlockCracks,
     inventory_authority: Option<InventoryAuthority>,
     player_game_mode: Option<PlayerGameMode>,
     world_default_game_mode: Option<PlayerGameMode>,
@@ -238,7 +236,7 @@ impl UiRuntime {
             chat_source_name: Arc::from(""),
             chat_xuid: Arc::from(""),
             dropped_unsent_chat_messages: 0,
-            pending_block_cracks: VecDeque::with_capacity(MAX_PENDING_BLOCK_CRACK_EVENTS),
+            block_cracks: crate::block_cracks::BlockCracks::default(),
             inventory_authority: None,
             player_game_mode: None,
             world_default_game_mode: None,
@@ -379,6 +377,7 @@ impl UiRuntime {
 
     pub(crate) fn note_stream_dimension(&mut self, dimension: i32) {
         self.forms.note_stream_dimension(dimension);
+        self.block_cracks.synchronize_dimension(Some(dimension));
     }
 
     pub fn inventory_ledger_mut(&mut self) -> &mut PlayerInventoryLedger {
@@ -627,12 +626,23 @@ impl UiRuntime {
         true
     }
 
-    pub const fn pending_block_cracks(&self) -> &VecDeque<SequencedBlockCrackEvent> {
-        &self.pending_block_cracks
+    pub(crate) fn reconcile_block_cracks(
+        &mut self,
+        target_at: impl FnMut([i32; 3]) -> Option<crate::block_cracks::CrackTargetIdentity>,
+    ) {
+        self.block_cracks.reconcile_targets(target_at);
+        let status = self.block_cracks_status();
+        self.block_cracks.report_status(self.session_id, status);
     }
 
-    pub fn take_block_cracks(&mut self) -> Vec<SequencedBlockCrackEvent> {
-        self.pending_block_cracks.drain(..).collect()
+    pub(crate) fn block_cracks_status(&self) -> crate::block_cracks::BlockCrackStatus {
+        self.block_cracks.status()
+    }
+
+    pub(crate) fn clear_disconnected_block_cracks(&mut self) {
+        self.block_cracks.synchronize_dimension(None);
+        let status = self.block_cracks_status();
+        self.block_cracks.report_status(self.session_id, status);
     }
 
     pub fn begin_session(&mut self, session_id: u64) {
@@ -664,7 +674,7 @@ impl UiRuntime {
         self.dropped_unsent_chat_messages = self
             .dropped_unsent_chat_messages
             .saturating_add(dropped as u64);
-        self.pending_block_cracks.clear();
+        self.block_cracks = crate::block_cracks::BlockCracks::default();
         self.inventory_authority = None;
         self.player_game_mode = None;
         self.world_default_game_mode = None;
@@ -889,13 +899,9 @@ impl UiRuntime {
                 actual: envelope.fifo_sequence,
             });
         }
-        if self.pending_block_cracks.len() >= MAX_PENDING_BLOCK_CRACK_EVENTS {
-            return Err(UiRuntimeError::BlockCrackQueueFull {
-                maximum: MAX_PENDING_BLOCK_CRACK_EVENTS,
-            });
-        }
         self.last_block_crack_sequence = Some(envelope.fifo_sequence);
-        self.pending_block_cracks.push_back(envelope);
+        self.block_cracks
+            .consume(envelope.dimension, envelope.event);
         Ok(())
     }
 

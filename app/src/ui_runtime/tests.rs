@@ -699,7 +699,45 @@ fn rejected_timed_event_leaves_fifo_and_server_tick_state_unadvanced() {
 }
 
 #[test]
-fn block_cracks_are_retained_in_sequence_and_cleared_on_session_change() {
+fn block_crack_history_does_not_accumulate_across_production_batches() {
+    let mut runtime = UiRuntime::new(9);
+    for batch in 0..40_u64 {
+        for offset in 0..32_u64 {
+            runtime
+                .retain_block_crack(SequencedBlockCrackEvent {
+                    session_id: 9,
+                    fifo_sequence: batch * 32 + offset,
+                    dimension: 0,
+                    event: BlockCrackEvent {
+                        position: [0, 64, 0],
+                        action: BlockCrackAction::Stop,
+                    },
+                })
+                .expect("consumed crack events must not exhaust a session history queue");
+        }
+    }
+}
+
+#[test]
+fn block_crack_single_committed_batch_exceeds_former_history_limit() {
+    let mut runtime = UiRuntime::new(9);
+    for sequence in 0..1_280_u64 {
+        runtime
+            .retain_block_crack(SequencedBlockCrackEvent {
+                session_id: 9,
+                fifo_sequence: sequence,
+                dimension: 0,
+                event: BlockCrackEvent {
+                    position: [0, 64, 0],
+                    action: BlockCrackAction::Stop,
+                },
+            })
+            .expect("one committed batch must consume each crack synchronously");
+    }
+}
+
+#[test]
+fn block_cracks_are_consumed_in_sequence_and_cleared_on_session_change() {
     let mut runtime = UiRuntime::new(4);
     let event = BlockCrackEvent {
         position: [3, 64, -2],
@@ -717,15 +755,8 @@ fn block_cracks_are_retained_in_sequence_and_cleared_on_session_change() {
         })
         .unwrap();
 
-    assert_eq!(
-        runtime.pending_block_cracks().front(),
-        Some(&SequencedBlockCrackEvent {
-            session_id: 4,
-            fifo_sequence: 7,
-            dimension: 0,
-            event,
-        })
-    );
+    assert_eq!(runtime.block_cracks.status().active, 1);
+    assert_eq!(runtime.block_cracks.status().consumed, 1);
     assert!(matches!(
         runtime.retain_block_crack(SequencedBlockCrackEvent {
             session_id: 4,
@@ -737,17 +768,18 @@ fn block_cracks_are_retained_in_sequence_and_cleared_on_session_change() {
     ));
 
     runtime.begin_session(5);
-    assert!(runtime.pending_block_cracks().is_empty());
+    assert_eq!(runtime.block_cracks.status().active, 0);
+    assert_eq!(runtime.block_cracks.status().consumed, 0);
 }
 
 #[test]
-fn block_crack_handoff_is_bounded_without_dropping_existing_events() {
+fn block_crack_stops_consume_without_retaining_a_history() {
     let mut runtime = UiRuntime::new(9);
-    for sequence in 0..MAX_PENDING_BLOCK_CRACK_EVENTS {
+    for sequence in 0..1_280_u64 {
         runtime
             .retain_block_crack(SequencedBlockCrackEvent {
                 session_id: 9,
-                fifo_sequence: sequence as u64,
+                fifo_sequence: sequence,
                 dimension: 1,
                 event: BlockCrackEvent {
                     position: [sequence as i32, 0, 0],
@@ -757,22 +789,8 @@ fn block_crack_handoff_is_bounded_without_dropping_existing_events() {
             .unwrap();
     }
 
-    let before = runtime.pending_block_cracks().clone();
-    assert_eq!(
-        runtime.retain_block_crack(SequencedBlockCrackEvent {
-            session_id: 9,
-            fifo_sequence: MAX_PENDING_BLOCK_CRACK_EVENTS as u64,
-            dimension: 1,
-            event: BlockCrackEvent {
-                position: [0, 0, 0],
-                action: BlockCrackAction::Stop,
-            },
-        }),
-        Err(UiRuntimeError::BlockCrackQueueFull {
-            maximum: MAX_PENDING_BLOCK_CRACK_EVENTS,
-        })
-    );
-    assert_eq!(runtime.pending_block_cracks(), &before);
+    assert_eq!(runtime.block_cracks.status().active, 0);
+    assert_eq!(runtime.block_cracks.status().consumed, 1_280);
 }
 
 #[test]

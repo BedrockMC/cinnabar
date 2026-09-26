@@ -28,6 +28,7 @@ use client_world::{
 };
 
 use super::audio::{SequencedAudioEvent, drain_committed_audio};
+use crate::block_cracks::{consume_committed_block_crack, reconcile_world_block_cracks};
 use crate::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
@@ -59,7 +60,7 @@ use crate::{
         shutdown::record_fatal_error,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
     },
-    ui_runtime::{SequencedBlockCrackEvent, SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
+    ui_runtime::{SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
 };
 
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
@@ -567,6 +568,7 @@ pub(crate) fn drive_world_stream(
         time,
         ..
     } = state;
+    let crack_assets = Arc::clone(&client_world.runtime_assets);
     let active_session = client_world
         .stream
         .as_ref()
@@ -579,6 +581,7 @@ pub(crate) fn drive_world_stream(
         *rendered_session = active_session;
     }
     let Some(stream) = client_world.stream.as_mut() else {
+        ui_runtime.clear_disconnected_block_cracks();
         return;
     };
     ui_runtime.note_stream_dimension(stream.current_dimension());
@@ -629,12 +632,13 @@ pub(crate) fn drive_world_stream(
                 sequence,
                 dimension,
                 event,
-            } => ui_runtime.retain_block_crack(SequencedBlockCrackEvent {
-                session_id: clock.session_generation(),
-                fifo_sequence: sequence,
+            } => consume_committed_block_crack(
+                &mut ui_runtime,
+                clock.session_generation(),
+                sequence,
                 dimension,
                 event,
-            }),
+            ),
             CommittedUiEvent::LocalAttributes {
                 sequence,
                 server_tick,
@@ -677,6 +681,7 @@ pub(crate) fn drive_world_stream(
             return;
         }
     }
+    reconcile_world_block_cracks(&mut ui_runtime, stream, &crack_assets);
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world
