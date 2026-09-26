@@ -126,10 +126,10 @@ pub(super) fn status_text(
     loop {
         if shortened {
             let Some(last) = rows.last_mut() else {
-                if let Some(extent) = status_extent(layouts, font, metrics, "…", width)? {
-                    if extent <= maximum_extent {
-                        return Ok(("…".to_owned(), extent));
-                    }
+                if let Some(extent) = status_extent(layouts, font, metrics, "…", width)?
+                    && extent <= maximum_extent
+                {
+                    return Ok(("…".to_owned(), extent));
                 }
                 return Ok((String::new(), 0.0));
             };
@@ -158,10 +158,10 @@ pub(super) fn status_text(
         if visible.is_empty() {
             return Ok((visible, 0.0));
         }
-        if let Some(extent) = status_extent(layouts, font, metrics, &visible, width)? {
-            if extent <= maximum_extent {
-                return Ok((visible, extent));
-            }
+        if let Some(extent) = status_extent(layouts, font, metrics, &visible, width)?
+            && extent <= maximum_extent
+        {
+            return Ok((visible, extent));
         }
         rows.pop();
         shortened = true;
