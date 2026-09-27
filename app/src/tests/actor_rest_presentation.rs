@@ -35,7 +35,7 @@ impl Drop for Pack {
 }
 
 fn fixture() -> (Pack, ActorArtworkPages, Arc<RuntimeEntityAssets>) {
-    weighted_fixture("query.modified_move_speed", 1)
+    weighted_fixture("query.ground_speed", 1)
 }
 
 fn weighted_fixture(

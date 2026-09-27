@@ -511,6 +511,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             first_channel: 0,
             channel_count: 1,
             source: 1,
+            override_previous: false,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -528,6 +529,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 entity::EntityGeometryScalar::new(0.0).unwrap(),
             ],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         }]
         .into_boxed_slice(),
         molang_symbols: vec![
@@ -586,7 +588,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         controller_animations: vec![EntityControllerAnimation {
-            clip: 0,
+            target: assets::EntityControllerAnimationTarget::Clip(0),
             weight: Some(0),
         }]
         .into_boxed_slice(),
@@ -601,6 +603,9 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             first_geometry: 0,
             geometry_count: 1,
             fallback: EntityRigFallback::GeometryOnly,
+            initialize: None,
+            pre_animation: None,
+            scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -612,10 +617,16 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             controller_count: 1,
         }]
         .into_boxed_slice(),
-        rig_animations: vec![EntityRigAnimationBinding { name: 0, clip: 0 }].into_boxed_slice(),
+        rig_animations: vec![EntityRigAnimationBinding {
+            name: 0,
+            clip: 0,
+            weight: None,
+        }]
+        .into_boxed_slice(),
         rig_controllers: vec![EntityRigControllerBinding {
             name: 0,
             controller: 0,
+            weight: None,
         }]
         .into_boxed_slice(),
         item_visuals: vec![ItemVisualDefinition {
@@ -648,7 +659,7 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
     let compiled = carrier_v4_fixture();
     let encoded = entity::encode_entity_blob(&compiled).expect("encode version-4 carrier");
     assert_eq!(&encoded[..8], b"MCBEENT3");
-    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 4);
+    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 5);
 
     let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-4 carrier");
     assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
@@ -660,9 +671,9 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
 }
 
 #[test]
-fn carrier_v4_rejects_versions_three_and_five_and_hashes_extended_payload() {
+fn carrier_rejects_adjacent_versions_and_hashes_extended_payload() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
-    for version in [3_u32, 5] {
+    for version in [4_u32, 6] {
         let mut wrong = encoded.to_vec();
         wrong[8..12].copy_from_slice(&version.to_le_bytes());
         assert!(RuntimeEntityAssetsV4::decode(&wrong).is_err());
@@ -825,7 +836,10 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
 
     let mut compiled = carrier_v4_fixture();
     compiled.molang_ops = std::iter::once(compiled.molang_ops[0])
-        .chain((0..127).flat_map(|_| [compiled.molang_ops[0], MolangOp::Add]))
+        .chain(
+            (0..(MAX_MOLANG_OPS_PER_EXPRESSION - 2) / 2)
+                .flat_map(|_| [compiled.molang_ops[0], MolangOp::Add]),
+        )
         .chain(std::iter::once(MolangOp::Abs))
         .collect();
     compiled.molang_expressions[0].op_count = MAX_MOLANG_OPS_PER_EXPRESSION as u16;

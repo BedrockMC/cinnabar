@@ -143,6 +143,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             first_channel: 0,
             channel_count: 1,
             source: 1,
+            override_previous: false,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -157,11 +158,13 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 time_seconds: scalar(0.0),
                 value: [scalar(0.0), scalar(0.0), scalar(0.0)],
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions: [None; 3],
             },
             EntityAnimationKeyframe {
                 time_seconds: scalar(0.1),
                 value: [scalar(2.0), scalar(0.0), scalar(0.0)],
                 interpolation: EntityAnimationInterpolation::Linear,
+                expressions: [None; 3],
             },
         ]
         .into_boxed_slice(),
@@ -176,7 +179,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             },
             MolangSymbol {
                 kind: MolangSymbolKind::Query,
-                identifier: "query.is_moving".into(),
+                identifier: "query.ground_speed".into(),
             },
         ]
         .into_boxed_slice(),
@@ -218,7 +221,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         ]
         .into_boxed_slice(),
         controller_animations: vec![EntityControllerAnimation {
-            clip: 0,
+            target: assets::EntityControllerAnimationTarget::Clip(0),
             weight: None,
         }]
         .into_boxed_slice(),
@@ -233,6 +236,9 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             first_geometry: 0,
             geometry_count: 1,
             fallback,
+            initialize: None,
+            pre_animation: None,
+            scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -248,6 +254,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         rig_controllers: vec![EntityRigControllerBinding {
             name: 0,
             controller: 0,
+            weight: None,
         }]
         .into_boxed_slice(),
         item_visuals: Box::new([]),
@@ -659,16 +666,19 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
             time_seconds: scalar(0.0),
             value: [scalar(0.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
         EntityAnimationKeyframe {
             time_seconds: scalar(0.0),
             value: [scalar(2.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
         EntityAnimationKeyframe {
             time_seconds: scalar(0.1),
             value: [scalar(4.0), scalar(0.0), scalar(0.0)],
             interpolation: EntityAnimationInterpolation::Linear,
+            expressions: [None; 3],
         },
     ]
     .into_boxed_slice();

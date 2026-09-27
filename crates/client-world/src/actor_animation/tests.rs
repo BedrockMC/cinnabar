@@ -1,4 +1,4 @@
-use super::*;
+use super::{pose::LocalDelta, query::QueryClock, *};
 use crate::ActorPose;
 
 #[test]
@@ -47,6 +47,14 @@ fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnaps
         int_properties: HashMap::new(),
         float_properties: HashMap::new(),
     }
+}
+
+fn read(actor: &ActorSnapshot, input: &ActorTickInput, life_tick: u64, name: &str) -> f32 {
+    let clock = QueryClock {
+        anim_tick: 0,
+        life_tick,
+    };
+    query::query(actor, input, clock, name, None)
 }
 
 #[test]
@@ -104,33 +112,64 @@ fn nonuniform_scale_is_rejected_instead_of_silently_truncated() {
 #[test]
 fn sleeping_player_metadata_does_not_spoof_sneaking() {
     let actor = actor_with_metadata(HashMap::from([(26, ActorMetadataValue::Byte(2))]));
-    let history = VecDeque::new();
-    assert_eq!(query(&actor, &history, 0, 0, "query.is_sleeping"), 1.0);
-    assert_eq!(query(&actor, &history, 0, 0, "query.is_sneaking"), 0.0);
+    let input = ActorTickInput::default();
+    assert_eq!(read(&actor, &input, 0, "query.is_sleeping"), 1.0);
+    assert_eq!(read(&actor, &input, 0, "query.is_sneaking"), 0.0);
+}
+
+#[test]
+fn riding_flag_is_not_read_as_sleeping() {
+    let actor = actor_with_metadata(HashMap::from([(0, ActorMetadataValue::Flags(1 << 2))]));
+    assert_eq!(
+        read(&actor, &ActorTickInput::default(), 0, "query.is_sleeping"),
+        0.0
+    );
+    let sleeping = actor_with_metadata(HashMap::from([(
+        92,
+        ActorMetadataValue::FlagsExtended(1 << (76 - 64)),
+    )]));
+    assert_eq!(
+        read(
+            &sleeping,
+            &ActorTickInput::default(),
+            0,
+            "query.is_sleeping"
+        ),
+        1.0
+    );
 }
 
 #[test]
 fn animation_reset_clock_is_distinct_from_actor_lifetime() {
     let actor = actor_with_metadata(HashMap::new());
-    let history = VecDeque::new();
-    assert_eq!(query(&actor, &history, 0, 7, "query.anim_time"), 0.0);
-    assert!((query(&actor, &history, 0, 7, "query.life_time") - 0.35).abs() < 1.0e-6);
+    let input = ActorTickInput::default();
+    assert_eq!(read(&actor, &input, 7, "query.anim_time"), 0.0);
+    assert!((read(&actor, &input, 7, "query.life_time") - 0.35).abs() < 1.0e-6);
 }
 
 #[test]
 fn riding_query_reads_only_the_authoritative_tick_input() {
     let actor = actor_with_metadata(HashMap::new());
-    let mut history = VecDeque::from([ActorTickInput {
-        velocity: [0.0; 3],
-        on_ground: false,
-        body_yaw: 0.0,
-        head_yaw: 0.0,
-        pitch: 0.0,
+    let mut input = ActorTickInput {
         is_riding: true,
-    }]);
-    assert_eq!(query(&actor, &history, 0, 0, "query.is_riding"), 1.0);
-    history.back_mut().unwrap().is_riding = false;
-    assert_eq!(query(&actor, &history, 0, 0, "query.is_riding"), 0.0);
+        ..ActorTickInput::default()
+    };
+    assert_eq!(read(&actor, &input, 0, "query.is_riding"), 1.0);
+    input.is_riding = false;
+    assert_eq!(read(&actor, &input, 0, "query.is_riding"), 0.0);
+}
+
+#[test]
+fn head_target_yaw_is_relative_to_the_body_and_wrapped() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput {
+        body_yaw: 170.0,
+        head_yaw: -170.0,
+        pitch: 30.0,
+        ..ActorTickInput::default()
+    };
+    assert!((read(&actor, &input, 0, "query.target_y_rotation") - 20.0).abs() < 1.0e-4);
+    assert_eq!(read(&actor, &input, 0, "query.target_x_rotation"), 30.0);
 }
 
 #[test]

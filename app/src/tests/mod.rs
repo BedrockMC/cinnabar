@@ -278,6 +278,7 @@ mod inventory_schedule;
 mod inventory_secondary_input;
 mod phase2_evidence;
 mod phase4_presentation;
+mod player_animation;
 mod publication;
 mod publication_pressure;
 mod runtime_metrics;
