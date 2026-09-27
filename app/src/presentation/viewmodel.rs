@@ -47,6 +47,8 @@ pub(crate) struct HandAdapter {
     revision: u64,
     revision_exhausted: bool,
     cube: Option<CubeCache>,
+    cube_observation: [i128; 4],
+    cube_reason: u8,
     pub(crate) stats: HandStats,
 }
 struct CubeCache {
@@ -80,17 +82,41 @@ impl HandAdapter {
         slot: u8,
         world: &ClientWorld,
     ) -> Option<(ViewmodelGeometry, ViewmodelSkin)> {
+        let diagnostic = ViewmodelCompletionGate::observation_enabled();
+        if diagnostic {
+            self.cube_reason = 1;
+            self.cube_observation = [0; 4];
+        }
         let stream = world.stream.as_ref()?;
         let entities = world.entity_assets.as_ref()?;
         let canonical = stream.canonical_item_stack(stack)?;
+        if diagnostic {
+            self.cube_reason = 2;
+        }
         let assets::ItemVisualRoute::BlockItem(visual) = canonical.visual else {
             return None;
         };
+        if diagnostic {
+            self.cube_observation = [1, i128::from(visual.0), 0, 0];
+            self.cube_reason = 3;
+        }
         if stack.nbt_digest != protocol::NetworkItemStack::empty().nbt_digest
             || entities.source_manifest_sha256()
                 != world.runtime_assets.provenance().source_manifest_sha256
             || entities.block_visual_count() as usize != world.runtime_assets.visual_count()
         {
+            if diagnostic {
+                self.cube_reason =
+                    if stack.nbt_digest != protocol::NetworkItemStack::empty().nbt_digest {
+                        3
+                    } else if entities.source_manifest_sha256()
+                        != world.runtime_assets.provenance().source_manifest_sha256
+                    {
+                        8
+                    } else {
+                        9
+                    };
+            }
             return None;
         }
         if stack.block_runtime_id != 0 {
@@ -100,6 +126,10 @@ impl HandAdapter {
                     .runtime_assets
                     .sequential_id_for_hash(stack.block_runtime_id as u32),
             };
+            if diagnostic {
+                self.cube_observation[2] = sequential.map_or(-1, i128::from);
+                self.cube_reason = 4;
+            }
             if sequential != Some(visual.0) {
                 return None;
             }
@@ -114,10 +144,19 @@ impl HandAdapter {
         }) {
             let registry: [u8; 32] =
                 Sha256::digest(crate::asset_startup::pinned_block_registry_bytes()).into();
+            if diagnostic {
+                self.cube_reason = 5;
+            }
             if world.runtime_assets.provenance().block_registry_sha256 != registry {
                 return None;
             }
+            if diagnostic {
+                self.cube_reason = 6;
+            }
             let (geometry, pixels) = ViewmodelGeometry::opaque_cube(&world.runtime_assets, visual)?;
+            if diagnostic {
+                self.cube_reason = 7;
+            }
             self.advance_revision()?;
             self.cube = Some(CubeCache {
                 stack: canonical.identity,
@@ -131,6 +170,9 @@ impl HandAdapter {
             });
         }
         let cached = self.cube.as_ref()?;
+        if diagnostic {
+            self.cube_reason = 0;
+        }
         Some((cached.geometry.clone(), cached.pixels.clone()))
     }
     fn skin(&mut self, raw: &protocol::StandardSkin) -> Option<ViewmodelSkin> {
@@ -203,6 +245,20 @@ impl ViewmodelPublish<'_, '_> {
         } else {
             self.clear();
         }
+        if ViewmodelCompletionGate::observation_enabled() {
+            let mut values = [0; 32];
+            values[0] = i128::from(cube);
+            values[1] = i128::from(icon.is_some());
+            if let Some(icon) = icon {
+                values[2] = i128::from(icon.page);
+                values[4..8].copy_from_slice(&icon.uv.map(i128::from));
+            }
+            values[3] = self
+                .scene
+                .as_ref()
+                .map_or(0, |scene| i128::from(scene.is_opaque_cube()));
+            ViewmodelCompletionGate::observe_binding(if values[3] != 0 { 1 } else { 2 }, values);
+        }
     }
     pub(crate) fn clear(&mut self) {
         if let (Some(scene), Some(gate)) = (&mut self.scene, &self.gate) {
@@ -228,6 +284,7 @@ impl ViewmodelPublish<'_, '_> {
         // installing the optional GPU hand resources.
         if self.adapter.is_none() || self.scene.is_none() || self.gate.is_none() {
             self.clear();
+            self.record_observation(runtime, world, first_person, hidden, viewport, false);
             return false;
         }
         let adapter = self.adapter.as_deref_mut().unwrap();
@@ -237,10 +294,14 @@ impl ViewmodelPublish<'_, '_> {
         adapter.stats.lighting_parity_unavailable = false;
         adapter.stats.avatar_model_identity_unavailable = false;
         adapter.stats.gpu_rejections = self.gate.as_deref().unwrap().rejection_count();
+        if ViewmodelCompletionGate::observation_enabled() {
+            adapter.cube_reason = 255;
+            adapter.cube_observation = [0; 4];
+        }
         let result = self.publish(runtime, world, first_person, hidden, viewport);
         let adapter = self.adapter.as_deref_mut().unwrap();
         let gate = self.gate.as_deref().unwrap();
-        match result {
+        let completed = match result {
             Ok(token) => {
                 adapter.stats.mode = Some(if adapter.cube.is_some() {
                     ViewmodelMode::OpaqueCubeNeutralStaticFallback
@@ -271,7 +332,120 @@ impl ViewmodelPublish<'_, '_> {
                     .saturating_add(1);
                 false
             }
+        };
+        self.record_observation(runtime, world, first_person, hidden, viewport, completed);
+        completed
+    }
+    fn record_observation(
+        &self,
+        runtime: &UiRuntime,
+        world: &ClientWorld,
+        first_person: bool,
+        hidden: bool,
+        viewport: [u32; 2],
+        completed: bool,
+    ) {
+        if !ViewmodelCompletionGate::observation_enabled() {
+            return;
         }
+        let (reason, values) =
+            self.diagnostic_snapshot(runtime, world, first_person, hidden, viewport, completed);
+        ViewmodelCompletionGate::observe_main(reason, values);
+    }
+    pub(crate) fn diagnostic_snapshot(
+        &self,
+        runtime: &UiRuntime,
+        world: &ClientWorld,
+        first_person: bool,
+        hidden: bool,
+        viewport: [u32; 2],
+        completed: bool,
+    ) -> (u8, [i128; 32]) {
+        let mut values = [0; 32];
+        values[0] = i128::from(runtime.session_id());
+        values[14] = runtime
+            .gameplay_hud()
+            .offhand_is_empty()
+            .map_or(0, |empty| if empty { 2 } else { 1 });
+        if let Some(stream) = &world.stream {
+            values[1] = i128::from(stream.actor_session_id());
+            values[2] = i128::from(stream.current_dimension());
+            values[3] = i128::from(stream.local_player_runtime_id());
+            if let Some(actor) = stream.actor(stream.local_player_runtime_id()) {
+                values[4] = 1;
+                values[5] = i128::from(actor.spawn_revision);
+                values[20] = i128::from(stream.actor_health_by_unique(actor.unique_id).is_some_and(|(health, _)| health <= 0.))
+                    | (i128::from(runtime.gameplay_hud().air_ticks().is_some_and(|(air, max)| air < max)) << 1)
+                    | (i128::from(matches!(actor.metadata.get(&0), Some(protocol::ActorMetadataValue::Flags(flags)) if flags & ((1 << 4) | (1 << 5)) != 0)) << 2)
+                    | (i128::from(actor.metadata.get(&38).is_some_and(|value| !matches!(value, protocol::ActorMetadataValue::Float(scale) if *scale == 1.0))) << 3);
+            }
+            values[15] = match stream.network_id_mode() {
+                assets::NetworkIdMode::Sequential => 1,
+                assets::NetworkIdMode::Hashed => 2,
+            };
+            values[24] = i128::from(stream.actor_rig(stream.local_player_runtime_id()).is_some());
+        }
+        if let Some(selected) = runtime.selected_stack_snapshot() {
+            values[7] = i128::from(selected.slot);
+            match selected.state {
+                crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => {}
+                crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => values[6] = 1,
+                crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+                    values[6] = 2;
+                    values[8..14].copy_from_slice(&[
+                        i128::from(stack.network_id),
+                        i128::from(stack.count),
+                        i128::from(stack.metadata),
+                        i128::from(stack.block_runtime_id),
+                        i128::from(stack.stack_network_id),
+                        i128::from(
+                            stack.nbt_digest == protocol::NetworkItemStack::empty().nbt_digest,
+                        ),
+                    ]);
+                }
+            }
+        }
+        let mut reason = 1;
+        if let Some(adapter) = &self.adapter {
+            values[16..20].copy_from_slice(&[
+                adapter.cube_observation[0],
+                adapter.cube_observation[1],
+                adapter.cube_observation[2],
+                i128::from(adapter.cube_reason),
+            ]);
+            reason = match adapter.stats.fallback {
+                None => 0,
+                Some(HandFallback::Hidden) => 2,
+                Some(HandFallback::Ownership) => 3,
+                Some(HandFallback::ItemsUnknownOrHeld) => 4,
+                Some(HandFallback::Skin) => 5,
+                Some(HandFallback::Geometry) => 6,
+                Some(HandFallback::View) => 7,
+                Some(HandFallback::KnownActive) => 8,
+            };
+        }
+        values[21] = self
+            .scene
+            .as_ref()
+            .map_or(0, |scene| i128::from(scene.is_opaque_cube()));
+        values[22] = i128::from(completed);
+        values[23] = i128::from(self.geometry.is_some());
+        if let Ok((_, camera, target, _, _)) = self.cameras.single() {
+            values[25] = 1
+                | (i128::from(camera.is_active) << 1)
+                | (i128::from(camera.viewport.is_none()) << 2)
+                | (i128::from(matches!(target, RenderTarget::Window(WindowRef::Primary))) << 3);
+            values[26] =
+                i128::from(camera.physical_viewport_size() == Some(UVec2::from_array(viewport)));
+        }
+        values[27..32].copy_from_slice(&[
+            i128::from(hidden),
+            i128::from(first_person),
+            i128::from(runtime.ui_focused()),
+            i128::from(viewport[0]),
+            i128::from(viewport[1]),
+        ]);
+        (reason, values)
     }
     fn publish(
         &mut self,
