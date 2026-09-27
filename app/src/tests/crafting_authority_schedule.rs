@@ -336,16 +336,27 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
         .unwrap()
         .commit(2)
         .unwrap();
+    // CommitOnly admission synchronously applies the now-ready prefix. The
+    // world budget is released here, while the craft observer's fence is stale.
+    assert!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .remaining_admission_capacity()
+            > 0
+    );
     assert_eq!(
         app.world()
             .resource::<ClientWorld>()
             .stream
             .as_ref()
             .unwrap()
-            .remaining_admission_capacity(),
-        0
+            .inventory_committed_through(),
+        Some(65)
     );
-    // Run the real world poll without the craft drain. This is a composed-system
+    // Run the real world poll without synchronizing the craft fence. This is a composed-system
     // retention witness, not an assertion about whole-frame scheduler interleaving.
     app.world_mut()
         .run_system_once(reconcile_world_stream_before_physics)
@@ -650,14 +661,25 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
                 .unwrap()
                 .commit(3)
                 .unwrap();
+            // The missing predecessor synchronously releases its ready prefix;
+            // this getter is an admission bound, not a craft-retention count.
+            assert!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .stream
+                    .as_ref()
+                    .unwrap()
+                    .remaining_admission_capacity()
+                    > 0
+            );
             assert_eq!(
                 app.world()
                     .resource::<ClientWorld>()
                     .stream
                     .as_ref()
                     .unwrap()
-                    .remaining_admission_capacity(),
-                0
+                    .inventory_committed_through(),
+                Some(66)
             );
             app.world_mut()
                 .run_system_once(reconcile_world_stream_before_physics)
