@@ -518,7 +518,8 @@ fn changed_target_selection_ray_or_expired_frame_window_cancels_a_latched_press(
     let mut changed_ray = original.clone();
     changed_ray.ray.world_identity = world_identity(4);
     let mut expired = original.clone();
-    expired.frame.input_frame_sequence += super::MAX_PENDING_ATTACK_FRAMES + 1;
+    expired.frame.input_frame_sequence +=
+        crate::interaction_authority::MAX_PENDING_INTERACTION_FRAMES + 1;
 
     for mut changed in [changed_target, changed_selection, changed_ray, expired] {
         let mut ticker = ticker_with_ticks(0);

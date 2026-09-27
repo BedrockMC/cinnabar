@@ -6,6 +6,7 @@ pub mod camera;
 mod environment;
 mod hotbar;
 mod install_layout;
+mod interaction_authority;
 pub mod local_player;
 mod menu;
 pub mod metrics;

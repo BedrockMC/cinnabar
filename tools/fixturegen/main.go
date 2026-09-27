@@ -218,6 +218,11 @@ func fixtures() []fixture {
 			pk:   playerAuthInputBreakBlockFixture(),
 		},
 		{
+			name: "PlayerAuthInputUseBlock",
+			file: "player_auth_input_use_block.bin",
+			pk:   playerAuthInputUseBlockFixture(),
+		},
+		{
 			name: "PlayerAuthInputBlockActionsAndBreakBlock",
 			file: "player_auth_input_block_actions_and_break_block.bin",
 			pk:   playerAuthInputBlockActionsAndBreakBlockFixture(),
@@ -676,6 +681,30 @@ func playerAuthInputBreakBlockFixture() *packet.PlayerAuthInput {
 		Position:            mgl32.Vec3{24.625, 69.5, -40.125},
 		ClickedPosition:     mgl32.Vec3{0.625, 0.375, 0.875},
 		BlockRuntimeID:      654_321,
+		ClientPrediction:    protocol.ClientPredictionFailure,
+		ClientCooldownState: protocol.ClientCooldownStateOff,
+	})
+	return pk
+}
+
+// playerAuthInputUseBlockFixture pins one filled-stack click in the movement
+// envelope, with a sign-bit-set runtime identity and no predicted inventory actions.
+func playerAuthInputUseBlockFixture() *packet.PlayerAuthInput {
+	pk := playerAuthInputFixture()
+	pk.InputData.Set(packet.InputFlagPerformItemInteraction)
+	held := inventoryItem(5, 37, 41)
+	heldRuntimeID := uint32(0x87654321)
+	held.Stack.BlockRuntimeID = int32(heldRuntimeID)
+	pk.ItemInteractionData = protocol.Option(protocol.UseItemTransactionData{
+		ActionType:          protocol.UseItemActionClickBlock,
+		TriggerType:         protocol.TriggerTypePlayerInput,
+		BlockPosition:       protocol.BlockPos{13, 71, -29},
+		BlockFace:           5,
+		HotBarSlot:          7,
+		HeldItem:            held,
+		Position:            mgl32.Vec3{13.25, 72.625, -28.75},
+		ClickedPosition:     mgl32.Vec3{0.125, 0.875, 0.625},
+		BlockRuntimeID:      123456,
 		ClientPrediction:    protocol.ClientPredictionFailure,
 		ClientCooldownState: protocol.ClientCooldownStateOff,
 	})

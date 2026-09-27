@@ -1,10 +1,9 @@
-//! Provisional empty-hand creative block use on a completed movement tick.
+//! Bounded single-edge authoritative block use on a completed movement tick.
 //!
-//! This intentionally covers only an uncontested keyboard/mouse use edge with
-//! a server-known empty selected slot. The server remains authoritative for
-//! any resulting container or world state. Broader item-use cadence, optional
-//! input-envelope fields, and non-empty-hand behavior remain outside this
-//! bounded path.
+//! Keyboard/mouse empty-hand Creative behavior is preserved. The new filled
+//! and Survival slice requires negotiated ordinary cube identities. Its
+//! collision-ray geometry remains incomplete; the server owns all outcomes.
+//! Held repetition, consumption and special item use are not implemented.
 
 use std::num::NonZeroU64;
 
@@ -20,9 +19,10 @@ use protocol::{
 use semantic_input::{Action, InputMode};
 
 use crate::{
+    interaction_authority::{FrozenBlockObservation, observe_block},
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
-    mining::{FrozenCreativeMining, FrozenMiningSelection, creative_observation},
+    mining::{FrozenMiningSelection, creative_observation},
     movement::{MovementTicker, PhysicsCollisionRegistries},
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
@@ -30,20 +30,29 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct FrozenEmptyHandBlockUse {
-    pub(crate) observation: FrozenCreativeMining,
+pub(crate) struct FrozenBlockUse {
+    pub(crate) observation: FrozenBlockObservation,
+    game_mode: protocol::PlayerGameMode,
 }
 
-impl FrozenEmptyHandBlockUse {
-    pub(crate) fn from_observation(observation: FrozenCreativeMining) -> Option<Self> {
-        (observation.input_mode == PlayerInputMode::Mouse
-            && observation.selection.item.network_id() == 0
-            && observation.selection.item.count() == 0)
-            .then_some(Self { observation })
+impl FrozenBlockUse {
+    pub(crate) fn from_observation(observation: impl Into<FrozenBlockObservation>) -> Option<Self> {
+        let observation = observation.into();
+        let item = &observation.selection.item;
+        let empty = item.network_id() == 0 && item.count() == 0;
+        let filled = item.network_id() != 0
+            && item.count() != 0
+            && item.stack_network_id() > 0
+            && item.block_runtime_id() != 0;
+        (observation.input_mode == PlayerInputMode::Mouse && (empty || filled)).then_some(Self {
+            observation,
+            game_mode: protocol::PlayerGameMode::Creative,
+        })
     }
 
     fn still_authorized_by(&self, current: &Self) -> bool {
-        self.observation.still_authorized_by(&current.observation)
+        self.game_mode == current.game_mode
+            && self.observation.still_authorized_by(&current.observation)
     }
 
     pub(crate) fn into_tick_payload(self, player_position: [f32; 3]) -> QueuedBlockUseInteraction {
@@ -69,19 +78,19 @@ impl FrozenEmptyHandBlockUse {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct QueuedBlockUseInteraction {
-    authority: FrozenEmptyHandBlockUse,
+    authority: FrozenBlockUse,
     pub(crate) interactions: PlayerAuthInputInteractions,
 }
 
 impl QueuedBlockUseInteraction {
-    pub(crate) fn still_authorized_by(&self, current: &FrozenEmptyHandBlockUse) -> bool {
+    pub(crate) fn still_authorized_by(&self, current: &FrozenBlockUse) -> bool {
         self.authority.still_authorized_by(current)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct PendingUsePress {
-    authority: FrozenEmptyHandBlockUse,
+    authority: FrozenBlockUse,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -108,7 +117,7 @@ impl BlockUseRuntime {
         &mut self,
         pressed: bool,
         input_authority_generation: NonZeroU64,
-        current: Option<FrozenEmptyHandBlockUse>,
+        current: Option<FrozenBlockUse>,
         ticker: &mut MovementTicker,
     ) -> Option<u64> {
         if self.synchronize_position_authority(ticker) {
@@ -179,7 +188,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     collisions: Res<'w, PhysicsCollisionRegistries>,
 }
 
-pub(crate) fn produce_empty_hand_block_use(
+pub(crate) fn produce_block_use(
     context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut movement: ResMut<MovementTicker>,
@@ -231,25 +240,61 @@ fn block_use_observation(
     input_mode: InputMode,
     input_authority: (NonZeroU64, u64),
     position_authority_generation: u64,
-) -> Option<FrozenEmptyHandBlockUse> {
+) -> Option<FrozenBlockUse> {
     if input_mode != InputMode::KeyboardMouse {
         return None;
     }
-    let selection = verified_empty_hand_selection(ui)?;
-    let mut observation = creative_observation(
-        origin,
-        ui,
-        client_world,
-        collisions,
-        input_mode,
-        input_authority,
-        position_authority_generation,
-    )?;
-    observation.selection = selection;
-    FrozenEmptyHandBlockUse::from_observation(observation)
+    let game_mode = ui.player_game_mode()?;
+    if ui.ui_focused()
+        || !matches!(
+            game_mode,
+            protocol::PlayerGameMode::Creative | protocol::PlayerGameMode::Survival
+        )
+    {
+        return None;
+    }
+    let mode = client_world.stream.as_ref()?.network_id_mode();
+    let selection = verified_block_use_selection(ui, collisions, mode)?;
+    let empty = selection.item.network_id() == 0;
+    let observation = if empty && game_mode == protocol::PlayerGameMode::Creative {
+        let mut existing = creative_observation(
+            origin,
+            ui,
+            client_world,
+            collisions,
+            input_mode,
+            input_authority,
+            position_authority_generation,
+        )?;
+        existing.selection = selection;
+        existing.into()
+    } else {
+        let observed = observe_block(
+            origin,
+            ui,
+            client_world,
+            collisions,
+            selection,
+            (
+                PlayerInputMode::Mouse,
+                5.7,
+                input_authority,
+                position_authority_generation,
+            ),
+        )?;
+        collisions.interaction_cube(mode, observed.target.runtime_id)?;
+        observed
+    };
+    let mut frozen = FrozenBlockUse::from_observation(observation)?;
+    frozen.game_mode = game_mode;
+    Some(frozen)
 }
 
-fn verified_empty_hand_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
+fn verified_block_use_selection(
+    ui: &UiRuntime,
+    collisions: &PhysicsCollisionRegistries,
+    mode: assets::NetworkIdMode,
+) -> Option<FrozenMiningSelection> {
     if ui.inventory_ledger().pending_request_id().is_some()
         || ui.inventory_ledger().resync_required()
         || ui.pending_hotbar_selection().is_some()
@@ -257,10 +302,30 @@ fn verified_empty_hand_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection
         return None;
     }
     let selected = ui.selected_stack_snapshot()?;
-    if !matches!(selected.state, PlayerInventorySlot::Empty) {
-        return None;
-    }
-    let stack = NetworkItemStack::empty();
+    let stack = match selected.state {
+        PlayerInventorySlot::Unknown => return None,
+        PlayerInventorySlot::Empty => NetworkItemStack::empty(),
+        PlayerInventorySlot::Present(stack) => {
+            let entry = ui
+                .inventory_ledger()
+                .negotiated_item_entry(stack.network_id)?;
+            if !matches!(
+                entry.version,
+                protocol::ItemRegistryVersion::Legacy | protocol::ItemRegistryVersion::None
+            ) || entry.component_based
+                || !entry.canonical_empty_component_data
+                || stack.stack_network_id <= 0
+                || stack.block_runtime_id == 0
+            {
+                return None;
+            }
+            let runtime_id = u32::from_ne_bytes(stack.block_runtime_id.to_ne_bytes());
+            if collisions.interaction_cube(mode, runtime_id)? != entry.identifier.as_ref() {
+                return None;
+            }
+            stack.clone()
+        }
+    };
     let item = VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).ok()?;
     Some(FrozenMiningSelection {
         slot: selected.slot,
