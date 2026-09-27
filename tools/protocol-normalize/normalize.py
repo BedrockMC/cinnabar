@@ -23,6 +23,36 @@ def digest(data):
     return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
 
 
+def uniform_source(data):
+    text = data.decode("utf-8")
+    eol = "\r\n" if "\r\n" in text else "\n"
+    require("\r" not in text.replace("\r\n", ""), "unsupported source line ending")
+    require(eol == "\n" or "\n" not in text.replace("\r\n", ""), "mixed source line endings")
+    return text.replace("\r\n", "\n"), eol
+
+
+def apply_layout(text, edits, reverse=False):
+    """Exact reviewed layout spans, not a general formatter or syntax mask."""
+    previous = 0
+    shift = 0
+    checked = []
+    for edit in edits:
+        offset, before, after = edit["offset"], edit["before"], edit["after"]
+        require(type(offset) is int and offset >= 0, "invalid layout offset")
+        require(isinstance(before, str) and isinstance(after, str), "invalid layout span")
+        require("\r" not in before + after and bool(before), "invalid layout line ending or empty preimage")
+        start = offset + shift if reverse else offset
+        expected, replacement = (after, before) if reverse else (before, after)
+        require(start >= previous and start + len(expected) <= len(text), "overlapping or out-of-range layout span")
+        require(text[start:start + len(expected)] == expected, "layout span preimage drift")
+        checked.append((start, start + len(expected), replacement))
+        previous = start + len(expected)
+        shift += len(after) - len(before)
+    for start, end, replacement in reversed(checked):
+        text = text[:start] + replacement + text[end:]
+    return text
+
+
 def items(text):
     """Read generated top-level declarations/impls without interpreting literals."""
     tokens = list(TOKEN.finditer(text))
@@ -251,14 +281,26 @@ def rewrite_source(text, types, scoped):
 
 def normalize(data, manifest, verify_hashes=True):
     require(set(data) == set(FILES), "source file set drift")
+    decoded = {name: uniform_source(value) for name, value in data.items()}
     hashes = {name: digest(value) for name, value in data.items()}
     if verify_hashes and hashes == manifest.get("normalized_sha256"):
+        unformatted = {name: apply_layout(value[0], manifest["layout_edits"][name], reverse=True)
+                       for name, value in decoded.items()}
+        require({name: digest(value.encode()) for name, value in unformatted.items()} == manifest["preformat_sha256"],
+                "canonical inverse layout fingerprint drift")
+        require(all(apply_layout(value, manifest["layout_edits"][name]) == decoded[name][0]
+                    for name, value in unformatted.items()), "canonical layout round-trip drift")
         return dict(data)
     if verify_hashes:
         require(hashes == manifest["input_sha256"], "pinned source drift or mixed normalization state")
-    sources = {name: value.decode("utf-8") for name, value in data.items()}
+    sources = {name: value[0] for name, value in decoded.items()}
     types, scoped = discover(sources, manifest)
-    output = {name: rewrite_source(text, types, scoped).encode("utf-8") for name, text in sources.items()}
+    renamed = {name: rewrite_source(text, types, scoped) for name, text in sources.items()}
+    if verify_hashes:
+        require({name: digest(value.encode()) for name, value in renamed.items()} == manifest["preformat_sha256"],
+                "preformat source fingerprint drift")
+    formatted = {name: apply_layout(text, manifest["layout_edits"][name]) for name, text in renamed.items()}
+    output = {name: text.replace("\n", decoded[name][1]).encode() for name, text in formatted.items()}
     inverse_types = {new: old for old, new in types.items()}
     require(len(inverse_types) == len(types), "type rename is not one-to-one")
     inverse_scoped = {
@@ -266,15 +308,18 @@ def normalize(data, manifest, verify_hashes=True):
         for owner, mapping in scoped.items()
     }
     for name, value in output.items():
-        restored = rewrite_source(value.decode("utf-8"), inverse_types, inverse_scoped)
-        require(restored == sources[name], "unapproved token or debug-span mutation")
+        unformatted = apply_layout(formatted[name], manifest["layout_edits"][name], reverse=True)
+        require(unformatted == renamed[name], "layout inverse byte drift")
+        restored = rewrite_source(unformatted, inverse_types, inverse_scoped)
+        require(restored.replace("\n", decoded[name][1]).encode() == data[name],
+                "unapproved token, debug-span or layout mutation")
         literals = lambda text: [match.group() for match in TOKEN.finditer(text)
                                  if match.group().startswith('"') or match.group()[0].isdigit()]
         require(literals(sources[name]) == literals(value.decode("utf-8")),
                 "wire numeric or error-string literal changed")
     # Discover again using the same numeric/ordinal selectors. No old aliases
     # are persisted; all canonical replacements must now be identity mappings.
-    canonical = {name: value.decode("utf-8") for name, value in output.items()}
+    canonical = formatted
     final_types, final_scoped = discover(canonical, manifest)
     require(all(old == new for old, new in final_types.items()), "noncanonical type binding remains")
     require(all(old == new for mapping in final_scoped.values() for old, new in mapping.items()),
