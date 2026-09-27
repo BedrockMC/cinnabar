@@ -359,6 +359,9 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::UpdateAbilitiesPacket(packet) => {
+            WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
+        }
         McpePacketData::TextPacket(packet) => WorldEvent::Ui(normalize_text(*packet)?),
         McpePacketData::CommandOutputPacket(packet) => {
             WorldEvent::Ui(crate::ui::normalize_command_output(*packet)?)

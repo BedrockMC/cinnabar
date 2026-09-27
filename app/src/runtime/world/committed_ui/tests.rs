@@ -54,6 +54,394 @@ enum InputCase {
     Pause,
 }
 
+fn ability_update(owner: i64, count: u32) -> protocol::AbilitiesUpdate {
+    let mut body = owner.to_le_bytes().to_vec();
+    body.extend_from_slice(&[0xff, 0xfe, count as u8]);
+    body.resize(body.len() + count as usize * 22, 0);
+    protocol::decode_abilities_update(&body).unwrap()
+}
+
+fn bind_ability_fixture(app: &mut App) {
+    let stream = app
+        .world()
+        .resource::<ClientWorld>()
+        .stream
+        .as_ref()
+        .unwrap()
+        .biome_tint_identity()
+        .stream();
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .bind_local_abilities(1, stream, 1, true);
+}
+
+fn prepare_ability_control_fixture(app: &mut App) {
+    app.init_resource::<crate::runtime::publication::PublicationController>()
+        .init_resource::<render::ChunkUploadAcknowledgements>()
+        .init_resource::<crate::local_player::LocalAvatarPresentation>()
+        .init_resource::<crate::movement::PhysicsAuthorityGate>()
+        .insert_resource(crate::runtime::visibility::AppMetrics(
+            crate::metrics::MetricsCollector::new(),
+        ))
+        .insert_resource(crate::camera::AutoFly::new(false));
+}
+
+#[test]
+fn actual_schedule_commits_ability_fifo_once_without_changing_input_or_forms() {
+    let (mut app, _) = fixture_app();
+    bind_ability_fixture(&mut app);
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .local_abilities()
+            .is_none()
+    );
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(2, WorldEvent::Abilities(ability_update(1, 0)))
+        .unwrap();
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .local_abilities()
+            .is_none()
+    );
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(1, WorldEvent::Abilities(ability_update(42, 33)))
+        .unwrap();
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().local_abilities(),
+        Some(&ability_update(1, 0))
+    );
+    let input = app.world().resource::<SemanticInputSnapshot>().clone();
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().local_abilities(),
+        Some(&ability_update(1, 0))
+    );
+    assert_eq!(
+        app.world().resource::<SemanticInputSnapshot>().movement(),
+        input.movement()
+    );
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .server_forms()
+            .active()
+            .is_none()
+    );
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(3, WorldEvent::Abilities(ability_update(1, 33)))
+        .unwrap();
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().local_abilities(),
+        Some(&ability_update(1, 33))
+    );
+}
+
+#[test]
+fn actual_drain_cannot_repopulate_after_fatal_transfer_or_missing_stream() {
+    for case in 0..3 {
+        let (mut app, _) = fixture_app();
+        bind_ability_fixture(&mut app);
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(1, WorldEvent::Abilities(ability_update(1, 0)))
+            .unwrap();
+        app.update();
+        assert!(
+            app.world()
+                .resource::<UiRuntime>()
+                .local_abilities()
+                .is_some()
+        );
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(2, WorldEvent::Abilities(ability_update(1, 33)))
+            .unwrap();
+        match case {
+            0 => {
+                app.world_mut().resource_mut::<ClientWorld>().fatal_error =
+                    Some("fixture failure".into())
+            }
+            1 => {
+                app.world_mut()
+                    .resource_mut::<ClientWorld>()
+                    .transfer_notice = Some(crate::runtime::world::TransferNotice {
+                    host: "127.0.0.1".into(),
+                    port: 19132,
+                })
+            }
+            _ => app.world_mut().resource_mut::<ClientWorld>().stream = None,
+        }
+        // Exercise the actual drain alone so the unrelated transfer follower cannot reconnect.
+        let mut schedule = Schedule::default();
+        schedule.add_systems(drain_committed_ui_before_authority);
+        schedule.run(app.world_mut());
+        assert!(
+            app.world()
+                .resource::<UiRuntime>()
+                .local_abilities()
+                .is_none()
+        );
+        {
+            let mut world = app.world_mut().resource_mut::<ClientWorld>();
+            world.fatal_error = None;
+            world.transfer_notice = None;
+        }
+        schedule.run(app.world_mut());
+        assert!(
+            app.world()
+                .resource::<UiRuntime>()
+                .local_abilities()
+                .is_none(),
+            "retired binding cannot be reminted"
+        );
+    }
+}
+
+#[test]
+fn actual_drain_retains_session_scoped_evidence_across_dimension_but_rejects_old_incarnation() {
+    let (mut app, _) = fixture_app();
+    bind_ability_fixture(&mut app);
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(1, WorldEvent::Abilities(ability_update(1, 0)))
+        .unwrap();
+    app.update();
+    submit_transition(&mut app, 2, 1);
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().local_abilities(),
+        Some(&ability_update(1, 0))
+    );
+    app.world_mut().resource_mut::<ClientWorld>().stream =
+        Some(client_world::WorldStream::new(WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 42,
+            local_player_unique_id: 1,
+            player_position: [0.0, 70.0, 0.0],
+            world_spawn_position: [0, 70, 0],
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        }));
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(1, WorldEvent::Abilities(ability_update(1, 33)))
+        .unwrap();
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .local_abilities()
+            .is_none()
+    );
+}
+
+#[test]
+fn actual_terminal_control_then_drain_retires_queued_abilities_without_rearming() {
+    use crate::runtime::network::{
+        NetworkControlEvent, NetworkFailureOrigin, SessionTransferTarget, receive_network_events,
+    };
+    let terminals = [
+        NetworkControlEvent::Stopped {
+            decode_error_count: 0,
+        },
+        NetworkControlEvent::Failed {
+            message: "fixture failure".into(),
+            decode_error_count: 0,
+            server_disconnect: None,
+            origin: NetworkFailureOrigin::Receive,
+        },
+        NetworkControlEvent::Transferred {
+            target: SessionTransferTarget {
+                host: "127.0.0.1".into(),
+                port: 19132,
+            },
+            decode_error_count: 0,
+        },
+    ];
+    for terminal in terminals {
+        let (mut app, _) = fixture_app();
+        prepare_ability_control_fixture(&mut app);
+        bind_ability_fixture(&mut app);
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(1, WorldEvent::Abilities(ability_update(1, 0)))
+            .unwrap();
+        app.update();
+        assert!(
+            app.world()
+                .resource::<UiRuntime>()
+                .local_abilities()
+                .is_some()
+        );
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(2, WorldEvent::Abilities(ability_update(1, 33)))
+            .unwrap();
+        let (handle, sender) = NetworkHandle::stub_with_control_sender();
+        sender.try_send(terminal).unwrap();
+        app.insert_resource(handle);
+        // Use real control-before-drain functions; do not run the external transfer follower.
+        let mut schedule = Schedule::default();
+        schedule.add_systems((receive_network_events, drain_committed_ui_before_authority).chain());
+        schedule.run(app.world_mut());
+        assert!(
+            app.world()
+                .resource::<UiRuntime>()
+                .local_abilities()
+                .is_none()
+        );
+        assert!(
+            app.world_mut()
+                .resource_mut::<ClientWorld>()
+                .stream
+                .as_mut()
+                .unwrap()
+                .take_committed_ui()
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn prebinding_queue_waits_for_identity_and_old_terminal_receiver_cannot_clear_new_evidence() {
+    let (mut app, _) = fixture_app();
+    // This models deferred play ingress already queued after a completed bootstrap,
+    // not a claim that StartGame contains an ability snapshot.
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(1, WorldEvent::Abilities(ability_update(1, 0)))
+        .unwrap();
+    bind_ability_fixture(&mut app);
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().local_abilities(),
+        Some(&ability_update(1, 0))
+    );
+    let (old_handle, sender) = NetworkHandle::stub_with_control_sender();
+    sender
+        .try_send(crate::runtime::network::NetworkControlEvent::Stopped {
+            decode_error_count: 0,
+        })
+        .unwrap();
+    drop(old_handle);
+    assert!(sender.is_closed());
+    app.insert_resource(NetworkHandle::disconnected());
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().local_abilities(),
+        Some(&ability_update(1, 0))
+    );
+}
+
+#[test]
+fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evidence() {
+    use crate::runtime::network::{NetworkControlEvent, receive_network_events};
+    for generation in [0, 1, 2] {
+        let (mut app, _) = fixture_app();
+        prepare_ability_control_fixture(&mut app);
+        bind_ability_fixture(&mut app);
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(1, WorldEvent::Abilities(ability_update(1, 0)))
+            .unwrap();
+        app.update();
+        let (handle, sender) = NetworkHandle::stub_with_control_sender();
+        sender
+            .try_send(NetworkControlEvent::Bootstrap {
+                session_generation: generation,
+                world: WorldBootstrap {
+                    dimension: 0,
+                    local_player_runtime_id: 42,
+                    local_player_unique_id: 1,
+                    player_position: [0.0, 70.0, 0.0],
+                    world_spawn_position: [0, 70, 0],
+                    air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+                    block_network_ids_are_hashes: false,
+                },
+                environment: protocol::WorldEnvironmentBootstrap {
+                    initial_time: 0,
+                    day_cycle_lock_time: -1,
+                    daylight_cycle_enabled: true,
+                    rain_level: 0.0,
+                    lightning_level: 0.0,
+                },
+                inventory: protocol::InventoryEvent::SelectedSlot(protocol::SelectedSlotEvent {
+                    container: protocol::ContainerIdentity::window(0),
+                    slot: 0,
+                    select_slot: true,
+                }),
+                item_registry: None,
+                player_game_mode: protocol::PlayerGameMode::Survival,
+                world_default_game_mode: protocol::PlayerGameMode::Survival,
+                player_game_mode_uses_world_default: false,
+                server_authoritative_block_breaking: true,
+                resource_packs: resource_pack::PackAdmission::None,
+                server_lang: None,
+            })
+            .unwrap();
+        app.insert_resource(handle);
+        let mut schedule = Schedule::default();
+        schedule.add_systems((receive_network_events, drain_committed_ui_before_authority).chain());
+        schedule.run(app.world_mut());
+        if generation < 2 {
+            assert_eq!(
+                app.world().resource::<UiRuntime>().local_abilities(),
+                Some(&ability_update(1, 0))
+            );
+            assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+        } else {
+            assert!(
+                app.world()
+                    .resource::<UiRuntime>()
+                    .local_abilities()
+                    .is_none()
+            );
+            assert!(app.world().resource::<ClientWorld>().fatal_error.is_some());
+        }
+    }
+}
+
 fn fixture_app() -> (App, Entity) {
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();

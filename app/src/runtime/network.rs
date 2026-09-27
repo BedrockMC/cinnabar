@@ -307,6 +307,7 @@ pub(crate) fn receive_network_events(
                 }
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
@@ -453,6 +454,14 @@ pub(crate) fn receive_network_events(
                     server_authoritative_block_breaking,
                     client_world.fatal_error.is_none(),
                 );
+                if let Some(stream) = client_world.stream.as_ref() {
+                    ui_runtime.bind_local_abilities(
+                        session_generation,
+                        stream.biome_tint_identity().stream(),
+                        bootstrap.local_player_unique_id,
+                        client_world.fatal_error.is_none(),
+                    );
+                }
             }
             NetworkControlEvent::SubChunkRequestSent {
                 chunk,
@@ -531,6 +540,7 @@ pub(crate) fn receive_network_events(
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
                 // Only a receive-side termination is a remote-initiated close;
                 // latch it while the ticker still reports the live session.
                 if origin == NetworkFailureOrigin::Receive {
@@ -554,6 +564,7 @@ pub(crate) fn receive_network_events(
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
                 // The client chose to end this session, so this is not a
                 // remote-initiated transport failure and must not latch the
                 // remote-close movement classification.
@@ -572,6 +583,7 @@ pub(crate) fn receive_network_events(
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
+                ui_runtime.clear_local_abilities();
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();

@@ -13,6 +13,7 @@ mod inventory_ingress;
 pub mod inventory_ledger;
 pub mod inventory_router;
 pub(crate) mod item_facts;
+mod local_abilities;
 mod platform_clipboard;
 pub mod presentation;
 mod raw_text_resolution;
@@ -146,6 +147,7 @@ impl UiAuthorityTransition {
 
 #[derive(Clone, Debug, Resource)]
 pub struct UiRuntime {
+    local_abilities: local_abilities::LocalAbilities,
     session_id: u64,
     last_fifo_sequence: Option<u64>,
     last_block_crack_sequence: Option<u64>,
@@ -214,6 +216,7 @@ impl UiRuntime {
         inventory_ledger.begin_session(session_id);
         Self {
             session_id,
+            local_abilities: Default::default(),
             last_fifo_sequence: None,
             last_block_crack_sequence: None,
             last_local_millis: None,
@@ -660,6 +663,7 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.clear_local_abilities();
         self.server_lang = None;
         self.last_fifo_sequence = None;
         self.last_block_crack_sequence = None;
