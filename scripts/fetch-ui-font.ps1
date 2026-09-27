@@ -72,10 +72,26 @@ Write-Output "Manifest: $manifestPath"
 Write-Output "Font source: $fontUrl"
 Write-Output "License source: $licenseUrl"
 Write-Output "Cache: $cache"
+$fallbackCommit = [string]$manifest.fallback_commit
+if ($fallbackCommit -cnotmatch "^[0-9a-f]{40}$") { throw "fallback font commit is invalid" }
+$fallbackFile = [string]$manifest.fallback_font_file
+$fallbackLicense = [string]$manifest.fallback_license_file
+Assert-Basename $fallbackFile "fallback_font_file"
+Assert-Basename $fallbackLicense "fallback_license_file"
+foreach ($url in @([string]$manifest.fallback_font_url, [string]$manifest.fallback_license_url)) {
+    if ($url -cnotmatch "^https://raw\.githubusercontent\.com/") { throw "fallback source URL is not approved HTTPS" }
+}
+$fallbackCache = Join-Path $repoRoot ".local\assets\ui-font\$fallbackCommit"
+Write-Output "Fallback source: $($manifest.fallback_font_url)"
+Write-Output "Fallback license: $($manifest.fallback_license_url)"
+Write-Output "Fallback cache: $fallbackCache"
 if ($DryRun) { return }
-
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 Get-VerifiedFile $fontUrl $fontPath ([long]$manifest.font_size_bytes) ([string]$manifest.font_sha256).ToLowerInvariant()
 Get-VerifiedFile $licenseUrl $licensePath ([long]$manifest.license_size_bytes) ([string]$manifest.license_sha256).ToLowerInvariant()
 Write-Output "FONT_SOURCE_PATH=$fontPath"
 Write-Output "FONT_LICENSE_PATH=$licensePath"
+New-Item -ItemType Directory -Force -Path $fallbackCache | Out-Null
+Get-VerifiedFile ([string]$manifest.fallback_font_url) (Join-Path $fallbackCache $fallbackFile) ([long]$manifest.fallback_font_size_bytes) ([string]$manifest.fallback_font_sha256)
+Get-VerifiedFile ([string]$manifest.fallback_license_url) (Join-Path $fallbackCache $fallbackLicense) ([long]$manifest.fallback_license_size_bytes) ([string]$manifest.fallback_license_sha256)
+Write-Output "FONT_FALLBACK_SOURCE_PATH=$(Join-Path $fallbackCache $fallbackFile)"

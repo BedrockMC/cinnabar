@@ -6,15 +6,13 @@ use std::{
 
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    GlyphAdvances, OutlineFontConfig, compile_atmosphere_assets_with_options,
-    compile_entity_assets_with_report, compile_fonts, compile_outline_font,
+    compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
     compile_pack_with_biomes, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
-    ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, MAX_FONT_SOURCE_BYTES,
-    encode_atmosphere_blob, encode_blob, encode_entity_blob, read_biome_registry,
-    write_blob_atomic,
+    ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
+    encode_entity_blob, read_biome_registry, write_blob_atomic,
 };
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -22,6 +20,8 @@ use sha2::{Digest, Sha256};
 
 #[path = "assetc/audio_command.rs"]
 mod audio_command;
+#[path = "assetc/font_command.rs"]
+mod font_command;
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
 #[path = "assetc/icon_command.rs"]
@@ -154,6 +154,9 @@ enum Command {
         /// Exact hash-verified local TTF/OTF source.
         #[arg(long)]
         font: PathBuf,
+        /// Exact hash-verified secondary source required by a fallback manifest.
+        #[arg(long)]
+        fallback_font: Option<PathBuf>,
         /// Tracked manifest pinning font URL, hash, license, and raster settings.
         #[arg(long)]
         source_manifest: PathBuf,
@@ -372,11 +375,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::OutlineFontAssets {
             font,
+            fallback_font,
             source_manifest,
             out,
             report,
         } => {
-            compile_outline_font_assets_command(&font, &source_manifest, &out, &report)?;
+            compile_outline_font_assets_command(
+                &font,
+                fallback_font.as_deref(),
+                &source_manifest,
+                &out,
+                &report,
+            )?;
         }
         Command::Compile {
             pack,
@@ -536,74 +546,12 @@ fn compile_font_assets_command(
 
 fn compile_outline_font_assets_command(
     font: &Path,
+    fallback: Option<&Path>,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let manifest_bytes = read_bounded_with_limit(
-        source_manifest,
-        MAX_SOURCE_MANIFEST_BYTES,
-        "source manifest",
-    )?;
-    let source =
-        serde_json::from_slice::<serde_json::Value>(&manifest_bytes).map_err(|source| {
-            AssetError::Json {
-                path: source_manifest.to_path_buf(),
-                source,
-            }
-        })?;
-    let raster = source
-        .get("rasterization")
-        .ok_or("font source manifest is missing rasterization")?;
-    let pixel_height = required_u32(raster, "pixel_height")?;
-    let atlas_side = required_u32(raster, "atlas_side")?;
-    let replacement = char::from_u32(required_u32(raster, "replacement_codepoint")?)
-        .ok_or("font replacement_codepoint is not a Unicode scalar")?;
-    // Absent means keep the outline font's own advances, so an older manifest
-    // still compiles to the same monospace metrics it always did.
-    let advances = match raster.get("proportional_advance_gap_px") {
-        None => GlyphAdvances::Source,
-        Some(_) => GlyphAdvances::InkPlusGap {
-            gap_px: required_u32(raster, "proportional_advance_gap_px")?,
-            blank_advance_px: match raster.get("blank_advance_px") {
-                None => None,
-                Some(_) => Some(required_u32(raster, "blank_advance_px")?),
-            },
-        },
-    };
-    let expected_font_size = source
-        .get("font_size_bytes")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or("font source manifest has invalid font_size_bytes")?;
-    let expected_font_sha256 = source
-        .get("font_sha256")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .ok_or("font source manifest has invalid font_sha256")?;
-    let source_manifest_sha256 = assets::canonical_source_manifest_sha256(&manifest_bytes);
-    let font_bytes = read_bounded_with_limit(
-        font,
-        usize::try_from(MAX_FONT_SOURCE_BYTES).expect("font source bound fits usize"),
-        "outline font",
-    )?;
-    if font_bytes.len() as u64 != expected_font_size {
-        return Err("outline font size does not match the source manifest".into());
-    }
-    if format!("{:x}", Sha256::digest(&font_bytes)) != expected_font_sha256.to_ascii_lowercase() {
-        return Err("outline font SHA-256 does not match the source manifest".into());
-    }
-    let compiled = compile_outline_font(
-        font,
-        &font_bytes,
-        source_manifest_sha256,
-        OutlineFontConfig {
-            pixel_height,
-            atlas_side,
-            replacement_codepoint: replacement,
-            advances,
-        },
-    )?;
-    write_compiled_font_assets(source, source_manifest_sha256, compiled, out, report)
+    font_command::compile(font, fallback, source_manifest, out, report)
 }
 
 fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn std::error::Error>> {
