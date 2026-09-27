@@ -93,6 +93,7 @@ use crate::{
         synchronize_semantic_input_authority,
     },
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
+    survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
         drive_inventory_ui_actions, drive_server_form_input, flush_chat_network,
@@ -151,6 +152,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
     app.init_resource::<MiningRuntime>()
         .init_resource::<BlockUseRuntime>()
+        .init_resource::<SurvivalMiningRuntime>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
@@ -237,6 +239,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 flush_inventory_network,
                 emit_phase3_evidence,
                 produce_creative_mining,
+                produce_survival_mining,
                 produce_block_use,
                 send_player_auth_inputs,
             )

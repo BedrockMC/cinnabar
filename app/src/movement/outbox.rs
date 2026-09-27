@@ -165,12 +165,10 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
         // intact, and pending state is consumed only after the transport
         // accepts the packet. See the `teleport_ack` module.
         let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
-        debug_assert!(sample.mining.is_none() || sample.block_use.is_none());
         let interaction_epoch = match (&sample.mining, &sample.block_use) {
-            (Some(_), None) => Some(&ticker.mining_epoch_publisher),
+            (Some(_), _) => Some(&ticker.mining_epoch_publisher),
             (None, Some(_)) => Some(&ticker.block_use_epoch_publisher),
             (None, None) => None,
-            (Some(_), Some(_)) => None,
         };
         let interaction_guard = interaction_epoch
             .map(|publisher| {
@@ -189,7 +187,16 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
         let interactions = match (&sample.mining, &sample.block_use) {
             (Some(mining), None) => mining.interactions.clone(),
             (None, Some(block_use)) => block_use.interactions.clone(),
-            (None, None) | (Some(_), Some(_)) => protocol::PlayerAuthInputInteractions::default(),
+            // A held survival destroy keeps its tick actions beside a one-off use.
+            (Some(mining), Some(block_use)) => protocol::PlayerAuthInputInteractions {
+                block_actions: mining.interactions.block_actions,
+                block_interaction: mining
+                    .interactions
+                    .block_interaction
+                    .clone()
+                    .or_else(|| block_use.interactions.block_interaction.clone()),
+            },
+            (None, None) => protocol::PlayerAuthInputInteractions::default(),
         };
         let packet = player_auth_input_with_interactions(sample.snapshot, &interactions)
             .map_err(MovementSendError::Encode)?;
@@ -238,6 +245,7 @@ impl MovementTicker {
                     .iter()
                     .filter_map(|pending| pending.sample.mining.as_ref()),
             )
+            .filter(|mining| mining.is_creative())
             .any(|mining| current.is_none_or(|current| !mining.still_authorized_by(current)));
         if stale {
             self.invalidate_creative_mining();
@@ -269,11 +277,45 @@ impl MovementTicker {
     }
 
     pub(crate) fn has_queued_creative_mining(&self) -> bool {
-        self.outbox.iter().any(|sample| sample.mining.is_some())
+        let creative = |mining: &Option<crate::mining::QueuedMiningInteraction>| {
+            mining.as_ref().is_some_and(|mining| mining.is_creative())
+        };
+        self.outbox.iter().any(|sample| creative(&sample.mining))
             || self
                 .pending_sends
                 .iter()
-                .any(|pending| pending.sample.mining.is_some())
+                .any(|pending| creative(&pending.sample.mining))
+    }
+
+    /// Unsent ticks newer than `after`, oldest first, with their post-tick ground state.
+    pub(crate) fn unstepped_interaction_ticks(&self, after: Option<u64>) -> Vec<(u64, bool)> {
+        self.outbox
+            .iter()
+            .filter(|sample| after.is_none_or(|after| sample.snapshot.tick > after))
+            .map(|sample| (sample.snapshot.tick, sample.evidence.grounded_after_tick))
+            .collect()
+    }
+
+    /// Attaches one survival destroy tick to its exact unsent sample.
+    pub(crate) fn attach_survival_mining(
+        &mut self,
+        tick: u64,
+        payload: crate::survival_mining::SurvivalTickPayload,
+    ) -> bool {
+        if !self.accepts_creative_mining() {
+            return false;
+        }
+        let Some(sample) = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick && sample.mining.is_none())
+        else {
+            return false;
+        };
+        sample.mining = Some(crate::mining::QueuedMiningInteraction::survival(
+            payload.into_interactions(sample.snapshot.position),
+        ));
+        true
     }
 
     pub(crate) const fn mining_authority_identity(&self) -> (u64, u64) {

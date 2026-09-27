@@ -192,6 +192,19 @@ impl PhysicsCollisionRegistries {
         full_cube.then_some(identifier.as_ref())
     }
 
+    pub(crate) fn block_identifier(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<&str> {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)
+            .map(|(identifier, _)| identifier.as_ref())
+    }
+
     #[must_use]
     pub const fn registry(&self, mode: assets::NetworkIdMode) -> &CollisionRegistry {
         match mode {

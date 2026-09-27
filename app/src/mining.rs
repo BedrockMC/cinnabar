@@ -30,6 +30,8 @@ use crate::{
 const CREATIVE_MOUSE_REACH_BLOCKS: f64 = 5.7;
 const CREATIVE_GAMEPAD_REACH_BLOCKS: f64 = 5.6;
 const CREATIVE_TOUCH_REACH_BLOCKS: f64 = 12.0;
+/// Survival keeps the mouse and gamepad ranges; touch is shorter. Needs independent measurement.
+const SURVIVAL_TOUCH_REACH_BLOCKS: f64 = 6.7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CreativeMiningAbility {
@@ -133,7 +135,7 @@ impl FrozenCreativeMining {
             })),
         };
         QueuedMiningInteraction {
-            authority: self,
+            authority: Some(self),
             interactions,
         }
     }
@@ -142,13 +144,27 @@ impl FrozenCreativeMining {
 /// Concrete payload retained on a completed movement tick through retries.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct QueuedMiningInteraction {
-    authority: FrozenCreativeMining,
+    /// `None` for a survival tick already committed by its destroy state machine.
+    authority: Option<FrozenCreativeMining>,
     pub(crate) interactions: PlayerAuthInputInteractions,
 }
 
 impl QueuedMiningInteraction {
+    pub(crate) const fn survival(interactions: PlayerAuthInputInteractions) -> Self {
+        Self {
+            authority: None,
+            interactions,
+        }
+    }
+
+    pub(crate) const fn is_creative(&self) -> bool {
+        self.authority.is_some()
+    }
+
     pub(crate) fn still_authorized_by(&self, current: &FrozenCreativeMining) -> bool {
-        self.authority.still_authorized_by(current)
+        self.authority
+            .as_ref()
+            .is_none_or(|authority| authority.still_authorized_by(current))
     }
 }
 
@@ -336,7 +352,7 @@ pub(crate) fn creative_observation(
     })
 }
 
-fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
+pub(crate) fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
     let selected = ui.selected_stack_snapshot()?;
     let stack = match selected.state {
         PlayerInventorySlot::Unknown => return None,
@@ -377,11 +393,18 @@ const fn creative_mining_input_authorized(menu_visible: bool, window_focused: bo
     !menu_visible && window_focused
 }
 
-const fn protocol_input_mode(input_mode: InputMode) -> PlayerInputMode {
+pub(crate) const fn protocol_input_mode(input_mode: InputMode) -> PlayerInputMode {
     match input_mode {
         InputMode::KeyboardMouse => PlayerInputMode::Mouse,
         InputMode::GamePad => PlayerInputMode::GamePad,
         InputMode::Touch => PlayerInputMode::Touch,
+    }
+}
+
+pub(crate) const fn survival_reach(input_mode: PlayerInputMode) -> f64 {
+    match input_mode {
+        PlayerInputMode::Touch => SURVIVAL_TOUCH_REACH_BLOCKS,
+        PlayerInputMode::Mouse | PlayerInputMode::GamePad => creative_reach(input_mode),
     }
 }
 
