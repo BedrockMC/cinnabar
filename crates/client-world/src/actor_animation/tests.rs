@@ -1,4 +1,4 @@
-use super::{pose::LocalDelta, query::QueryClock, *};
+use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
 use crate::ActorPose;
 
 #[test]
@@ -50,11 +50,34 @@ fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnaps
 }
 
 fn read(actor: &ActorSnapshot, input: &ActorTickInput, life_tick: u64, name: &str) -> f32 {
-    let clock = QueryClock {
+    read_with(
+        actor,
+        input,
+        &ActorTickContext::default(),
+        life_tick,
+        name,
+        &[],
+    )
+    .number()
+}
+
+fn read_with(
+    actor: &ActorSnapshot,
+    input: &ActorTickInput,
+    context: &ActorTickContext,
+    life_tick: u64,
+    name: &str,
+    arguments: &[MolangValue],
+) -> MolangValue {
+    let inputs = QueryInputs {
+        actor,
+        input,
+        context,
         anim_tick: 0,
         life_tick,
+        finished: (false, false),
     };
-    query::query(actor, input, clock, name, None)
+    query::query(&inputs, name, arguments)
 }
 
 #[test]
@@ -190,4 +213,89 @@ fn operation_work_and_transition_budgets_are_aggregate() {
         assert!(budget.take_transition());
     }
     assert!(!budget.take_transition());
+}
+
+#[test]
+fn item_and_vehicle_queries_read_equipment_and_links_with_vanilla_argument_forms() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    let context = ActorTickContext {
+        main_hand: Some("minecraft:crossbow".into()),
+        off_hand: Some("minecraft:shield".into()),
+        ridden: Some("minecraft:boat".into()),
+        ..ActorTickContext::default()
+    };
+    let text = |value: &str| MolangValue::String(value.into());
+    let read = |name: &str, arguments: &[MolangValue]| {
+        read_with(&actor, &input, &context, 0, name, arguments)
+    };
+    assert_eq!(read("query.get_equipped_item_name", &[]), text("crossbow"));
+    assert_eq!(
+        read("query.get_equipped_item_name", &[text("off_hand")]),
+        text("shield")
+    );
+    assert_eq!(
+        read("query.get_equipped_item_name", &[MolangValue::Number(1.0)]),
+        text("shield")
+    );
+    let empty = ActorTickContext::default();
+    assert_eq!(
+        read_with(
+            &actor,
+            &input,
+            &empty,
+            0,
+            "query.get_equipped_item_name",
+            &[]
+        ),
+        text("")
+    );
+    let any = |arguments: &[MolangValue]| read("query.is_item_name_any", arguments).number();
+    assert_eq!(
+        any(&[text("slot.weapon.mainhand"), text("minecraft:crossbow")]),
+        1.0
+    );
+    assert_eq!(
+        any(&[
+            text("slot.weapon.offhand"),
+            MolangValue::Number(0.0),
+            text("minecraft:bow"),
+            text("minecraft:shield"),
+        ]),
+        1.0
+    );
+    assert_eq!(any(&[text("slot.weapon.mainhand"), text("crossbow")]), 0.0);
+    let riding = |name: &str| {
+        read(
+            "query.is_riding_any_entity_of_type",
+            &[text("minecraft:minecart"), text(name)],
+        )
+        .number()
+    };
+    assert_eq!(riding("minecraft:boat"), 1.0);
+    assert_eq!(riding("minecraft:strider"), 0.0);
+}
+
+#[test]
+fn bare_head_rotation_queries_read_zero_and_limited_forms_clamp() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput {
+        head_yaw: 60.0,
+        pitch: 12.0,
+        ..ActorTickInput::default()
+    };
+    let context = ActorTickContext::default();
+    let read = |name: &str, arguments: &[MolangValue]| {
+        read_with(&actor, &input, &context, 0, name, arguments).number()
+    };
+    assert_eq!(read("query.head_y_rotation", &[]), 0.0);
+    assert_eq!(
+        read("query.head_y_rotation", &[MolangValue::Number(30.0)]),
+        30.0
+    );
+    assert_eq!(
+        read("query.head_x_rotation", &[MolangValue::Number(0.0)]),
+        12.0
+    );
+    assert_eq!(read("query.target_y_rotation", &[]), 60.0);
 }

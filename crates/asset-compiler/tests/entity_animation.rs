@@ -135,15 +135,9 @@ fn evaluate_selection_expression(
         match operation {
             MolangOp::Push(value) => stack.push(value.get()),
             MolangOp::LoadQuery(_) => stack.push(query_value),
-            MolangOp::Floor => {
-                let value = stack.pop().unwrap();
-                stack.push(value.floor());
-            }
-            MolangOp::Clamp => {
-                let maximum = stack.pop().unwrap();
-                let minimum = stack.pop().unwrap();
-                let value = stack.pop().unwrap();
-                stack.push(value.clamp(minimum, maximum));
+            MolangOp::Call(function) => {
+                let arguments = stack.split_off(stack.len() - function.arity());
+                stack.push(assets::molang_call(*function, &arguments, &mut || 0.0));
             }
             MolangOp::Equal => {
                 let right = stack.pop().unwrap();
@@ -265,8 +259,17 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
         symbol.kind == MolangSymbolKind::Variable
             && symbol.identifier.as_ref() == "variable.enabled"
     }));
-    assert!(first.molang_ops.contains(&MolangOp::And));
-    assert!(first.molang_ops.contains(&MolangOp::Clamp));
+    assert!(
+        first
+            .molang_ops
+            .iter()
+            .any(|op| matches!(op, MolangOp::JumpIfFalse(_)))
+    );
+    assert!(
+        first
+            .molang_ops
+            .contains(&MolangOp::Call(assets::MolangFunction::Clamp))
+    );
     assert!(first.molang_ops.contains(&MolangOp::Equal));
 }
 
@@ -418,7 +421,6 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "query.anim_time - query.life_time",
         "query.anim_time * query.life_time",
         "query.anim_time / query.life_time",
-        "query.anim_time % query.life_time",
         "!query.is_moving",
         "math.abs(query.body_y_rotation)",
         "math.ceil(query.anim_time)",
@@ -431,7 +433,11 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "math.max(query.anim_time, query.life_time)",
         "math.clamp(query.anim_time, 0, 1)",
         "math.lerp(query.anim_time, query.life_time, 0.5)",
-        "1 / 0 + 1 % 0",
+        "1 / 0 + math.mod(1, 0)",
+        "variable.speed ?? 1",
+        "query.get_equipped_item_name == 'bow'",
+        "query.is_moving ? 1",
+        "math.ease_in_out_back(0, 1, query.anim_time)",
     ];
     let transitions = expressions
         .iter()
@@ -452,39 +458,45 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(compiled.controller_transitions.len(), expressions.len());
+    use assets::MolangFunction as F;
     for operation in [
         MolangOp::Add,
         MolangOp::Subtract,
         MolangOp::Multiply,
         MolangOp::Divide,
-        MolangOp::Modulo,
         MolangOp::Negate,
         MolangOp::Not,
-        MolangOp::Abs,
-        MolangOp::Ceil,
-        MolangOp::Floor,
-        MolangOp::Round,
-        MolangOp::Sqrt,
-        MolangOp::Sin,
-        MolangOp::Cos,
-        MolangOp::And,
-        MolangOp::Or,
+        MolangOp::Truthy,
         MolangOp::Equal,
         MolangOp::NotEqual,
         MolangOp::Less,
         MolangOp::LessEqual,
         MolangOp::Greater,
         MolangOp::GreaterEqual,
-        MolangOp::Min,
-        MolangOp::Max,
-        MolangOp::Select,
-        MolangOp::Clamp,
-        MolangOp::Lerp,
+        MolangOp::Call(F::Abs),
+        MolangOp::Call(F::Ceil),
+        MolangOp::Call(F::Floor),
+        MolangOp::Call(F::Round),
+        MolangOp::Call(F::Sqrt),
+        MolangOp::Call(F::Sin),
+        MolangOp::Call(F::Cos),
+        MolangOp::Call(F::Min),
+        MolangOp::Call(F::Max),
+        MolangOp::Call(F::Clamp),
+        MolangOp::Call(F::Lerp),
     ] {
         assert!(
             compiled.molang_ops.contains(&operation),
             "missing {operation:?}"
         );
+    }
+    for present in [
+        |op: &MolangOp| matches!(op, MolangOp::Coalesce(_)),
+        |op: &MolangOp| matches!(op, MolangOp::PushString(_)),
+        |op: &MolangOp| matches!(op, MolangOp::JumpIfTrue(_)),
+        |op: &MolangOp| matches!(op, MolangOp::Call(F::Ease(..))),
+    ] {
+        assert!(compiled.molang_ops.iter().any(present));
     }
     assert!(
         compiled
@@ -495,14 +507,20 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
 }
 
 #[test]
-fn assignment_loops_return_strings_dynamic_properties_and_arbitrary_functions_are_unsupported() {
+fn forms_vanilla_rejects_leave_only_that_transition_out() {
     for expression in [
         "variable.x = 1",
         "loop(2, 1)",
         "return 1",
-        "'runtime string'",
         "variable['dynamic']",
-        "math.random(0, 1)",
+        "query.not_a_vanilla_query",
+        "math.not_a_function(1)",
+        "math.sin(1, 2)",
+        "break;",
+        "return 1; return 2;",
+        "v.a->v.b->v.c",
+        "1 % 2",
+        "'unterminated",
     ] {
         let pack = animation_pack(false);
         let controller = serde_json::json!({

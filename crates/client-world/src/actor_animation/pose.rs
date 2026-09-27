@@ -1,6 +1,6 @@
 use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
-use super::*;
+use super::{tick::WeightedClip, *};
 
 #[derive(Clone, Copy)]
 pub(super) struct LocalDelta {
@@ -35,19 +35,26 @@ pub(super) fn sample_clips(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     bone_count: usize,
-    clips: &[(usize, f32)],
+    clips: &[WeightedClip],
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<LocalDelta>, EvalError> {
     let assets = evaluator.assets;
     let mut local = vec![LocalDelta::default(); bone_count];
-    for &(clip_index, weight) in clips {
+    for weighted in clips {
         budget.charge_work()?;
+        let weight = weighted.weight;
         let clip = assets
             .animation_clips()
-            .get(clip_index)
+            .get(weighted.clip)
             .ok_or(EvalError::Invalid)?;
         let length = clip.length_seconds.get();
-        let raw_time = evaluator.anim_tick as f32 * 0.05;
+        // A clip's own clock starts when its controller state was entered.
+        let clip_tick = evaluator.anim_tick.saturating_sub(weighted.started_tick);
+        let evaluator = &Evaluator {
+            anim_tick: clip_tick,
+            ..*evaluator
+        };
+        let raw_time = clip_tick as f32 * 0.05;
         let time = match clip.loop_mode {
             EntityAnimationLoop::Loop if length > 0.0 => raw_time.rem_euclid(length),
             EntityAnimationLoop::Once | EntityAnimationLoop::HoldOnLastFrame => {
@@ -104,7 +111,7 @@ fn keyframe_value(
     let mut value = keyframe.value.map(|value| value.get());
     for axis in 0..3 {
         if let Some(expression) = keyframe.expressions[axis] {
-            value[axis] = evaluator.run(expression as usize, variables, this[axis], budget)?;
+            value[axis] = evaluator.number(expression as usize, variables, this[axis], budget)?;
         }
     }
     Ok(value)

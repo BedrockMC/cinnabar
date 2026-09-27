@@ -44,7 +44,13 @@ mod rig;
 use rig::{validate_controller_nesting, validate_rig_payload};
 #[path = "v4/molang.rs"]
 mod molang;
-pub use molang::{MOLANG_QUERIES, molang_lerp_rotate, molang_op_stack_effect};
+#[path = "v4/molang_math.rs"]
+mod molang_math;
+pub use molang::{
+    MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES,
+    MolangBranch, MolangCall, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp,
+    molang_call, molang_program_stack,
+};
 use molang::{molang_symbol_has_kind, validate_molang_payload};
 
 /// Deepest controller-in-controller chain a rig may reference.
@@ -127,6 +133,8 @@ pub enum MolangSymbolKind {
     Query = 1,
     Variable = 2,
     Temporary = 3,
+    /// A string literal, which may be empty.
+    String = 4,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -147,53 +155,6 @@ pub struct MolangCollection {
 #[serde(deny_unknown_fields)]
 pub struct MolangCollectionItem {
     pub value: EntityGeometryScalar,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case", tag = "op", content = "operand")]
-pub enum MolangOp {
-    Push(EntityGeometryScalar),
-    LoadQuery(u32),
-    LoadVariable(u32),
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-    Negate,
-    Not,
-    Abs,
-    Ceil,
-    Floor,
-    Round,
-    Sqrt,
-    Sin,
-    Cos,
-    And,
-    Or,
-    Equal,
-    NotEqual,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    Min,
-    Max,
-    Select,
-    Clamp,
-    Lerp,
-    SelectCollection(u32),
-    /// Discards a statement's value between script statements.
-    Pop,
-    /// Assigns the top of stack to a variable, leaving it on the stack.
-    StoreVariable(u32),
-    /// Value earlier animations produced for the channel being evaluated.
-    LoadThis,
-    /// Replaces the top of stack with the variable when it has been assigned.
-    Coalesce(u32),
-    CallQuery(u32),
-    Pow,
-    LerpRotate,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

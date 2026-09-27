@@ -840,7 +840,7 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
             (0..(MAX_MOLANG_OPS_PER_EXPRESSION - 2) / 2)
                 .flat_map(|_| [compiled.molang_ops[0], MolangOp::Add]),
         )
-        .chain(std::iter::once(MolangOp::Abs))
+        .chain(std::iter::once(MolangOp::Negate))
         .collect();
     compiled.molang_expressions[0].op_count = MAX_MOLANG_OPS_PER_EXPRESSION as u16;
     compiled.molang_expressions[0].max_stack = 2;
@@ -909,60 +909,63 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
 }
 
 #[test]
-fn carrier_v4_represents_task3_fixed_arity_math_and_collection_selection() {
-    let unary = [
-        MolangOp::Abs,
-        MolangOp::Ceil,
-        MolangOp::Floor,
-        MolangOp::Round,
-        MolangOp::Sqrt,
-        MolangOp::Sin,
-        MolangOp::Cos,
-        MolangOp::SelectCollection(0),
+fn every_math_function_and_collection_selection_validates_at_its_arity() {
+    use entity::{MolangEaseCurve, MolangEaseMode, MolangFunction};
+    let mut functions = vec![
+        MolangFunction::Abs,
+        MolangFunction::Acos,
+        MolangFunction::Asin,
+        MolangFunction::Atan,
+        MolangFunction::Atan2,
+        MolangFunction::Ceil,
+        MolangFunction::Clamp,
+        MolangFunction::CopySign,
+        MolangFunction::Cos,
+        MolangFunction::DieRoll,
+        MolangFunction::DieRollInteger,
+        MolangFunction::Exp,
+        MolangFunction::Floor,
+        MolangFunction::HermiteBlend,
+        MolangFunction::InverseLerp,
+        MolangFunction::Lerp,
+        MolangFunction::LerpRotate,
+        MolangFunction::Ln,
+        MolangFunction::Max,
+        MolangFunction::Min,
+        MolangFunction::MinAngle,
+        MolangFunction::Mod,
+        MolangFunction::Pow,
+        MolangFunction::Random,
+        MolangFunction::RandomInteger,
+        MolangFunction::Round,
+        MolangFunction::Sign,
+        MolangFunction::Sin,
+        MolangFunction::Sqrt,
+        MolangFunction::Trunc,
     ];
-    for operation in unary {
+    functions.push(MolangFunction::Ease(
+        MolangEaseCurve::Elastic,
+        MolangEaseMode::InOut,
+    ));
+    let one = entity::EntityGeometryScalar::new(1.0).unwrap();
+    for function in functions {
+        let arity = function.arity();
         let mut compiled = carrier_v4_fixture();
-        compiled.molang_ops = vec![
-            MolangOp::Push(entity::EntityGeometryScalar::new(1.0).unwrap()),
-            operation,
-        ]
-        .into_boxed_slice();
-        compiled.molang_expressions[0].op_count = 2;
-        assert!(compiled.validate().is_ok(), "unary operation {operation:?}");
+        let mut ops = vec![MolangOp::Push(one); arity];
+        ops.push(MolangOp::Call(function));
+        compiled.molang_expressions[0].op_count = ops.len() as u16;
+        compiled.molang_expressions[0].max_stack = arity.max(1) as u8;
+        compiled.molang_ops = ops.into_boxed_slice();
+        assert!(compiled.validate().is_ok(), "function {function:?}");
+        let mut short = compiled.clone();
+        short.molang_ops = short.molang_ops[1..].into();
+        short.molang_expressions[0].op_count -= 1;
+        assert!(short.validate().is_err(), "underfed {function:?}");
     }
-
-    for operation in [MolangOp::Modulo, MolangOp::Min, MolangOp::Max] {
-        let mut compiled = carrier_v4_fixture();
-        compiled.molang_ops = vec![
-            MolangOp::Push(entity::EntityGeometryScalar::new(1.0).unwrap()),
-            MolangOp::Push(entity::EntityGeometryScalar::new(2.0).unwrap()),
-            operation,
-        ]
-        .into_boxed_slice();
-        compiled.molang_expressions[0].op_count = 3;
-        compiled.molang_expressions[0].max_stack = 2;
-        assert!(
-            compiled.validate().is_ok(),
-            "binary operation {operation:?}"
-        );
-    }
-
-    for operation in [MolangOp::Clamp, MolangOp::Lerp] {
-        let mut compiled = carrier_v4_fixture();
-        compiled.molang_ops = vec![
-            MolangOp::Push(entity::EntityGeometryScalar::new(1.0).unwrap()),
-            MolangOp::Push(entity::EntityGeometryScalar::new(2.0).unwrap()),
-            MolangOp::Push(entity::EntityGeometryScalar::new(3.0).unwrap()),
-            operation,
-        ]
-        .into_boxed_slice();
-        compiled.molang_expressions[0].op_count = 4;
-        compiled.molang_expressions[0].max_stack = 3;
-        assert!(
-            compiled.validate().is_ok(),
-            "ternary operation {operation:?}"
-        );
-    }
+    let mut compiled = carrier_v4_fixture();
+    compiled.molang_ops = vec![MolangOp::Push(one), MolangOp::SelectCollection(0)].into();
+    compiled.molang_expressions[0].op_count = 2;
+    assert!(compiled.validate().is_ok());
 }
 
 #[test]
