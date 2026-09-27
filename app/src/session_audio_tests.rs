@@ -78,6 +78,7 @@ fn play(sequence: u64, name: &str) -> SequencedAudioEvent {
 
 fn play_with(sequence: u64, name: &str, volume: f32, pitch: f32) -> SequencedAudioEvent {
     SequencedAudioEvent {
+        origin_stream_session_id: 1,
         sequence,
         event: AudioEvent::Play(PlayAudioEvent {
             name: Arc::from(name),
@@ -96,6 +97,7 @@ fn stop(sequence: u64) -> SequencedAudioEvent {
 
 fn stop_named(sequence: u64, name: &str, stop_all_sounds: bool) -> SequencedAudioEvent {
     SequencedAudioEvent {
+        origin_stream_session_id: 1,
         sequence,
         event: AudioEvent::Stop(StopAudioEvent {
             name: Arc::from(name),
@@ -107,6 +109,7 @@ fn stop_named(sequence: u64, name: &str, stop_all_sounds: bool) -> SequencedAudi
 
 fn level(sequence: u64) -> SequencedAudioEvent {
     SequencedAudioEvent {
+        origin_stream_session_id: 1,
         sequence,
         event: AudioEvent::Level(LevelAudioEvent {
             sound_event: Arc::from("step.stone"),

@@ -57,6 +57,11 @@ fn app_audio_seam_drains_each_committed_event_once_in_the_same_call() {
     drain_committed_audio(&mut stream, |event| forwarded.push(event));
     assert_eq!(forwarded.len(), 2);
     assert_eq!((forwarded[0].sequence, forwarded[1].sequence), (1, 2));
+    assert!(
+        forwarded
+            .iter()
+            .all(|event| event.origin_stream_session_id == stream.actor_session_id())
+    );
     assert_eq!(stream.stats().committed_audio_events, 0);
 
     drain_committed_audio(&mut stream, |event| forwarded.push(event));
@@ -98,6 +103,7 @@ fn fixture_catalog() -> RuntimeAudioCatalog {
 
 fn sequenced_play(sequence: u64, name: &str) -> SequencedAudioEvent {
     SequencedAudioEvent {
+        origin_stream_session_id: 1,
         sequence,
         event: AudioEvent::Play(PlayAudioEvent {
             name: Arc::from(name),
@@ -112,6 +118,7 @@ fn sequenced_play(sequence: u64, name: &str) -> SequencedAudioEvent {
 
 fn sequenced_stop(sequence: u64) -> SequencedAudioEvent {
     SequencedAudioEvent {
+        origin_stream_session_id: 1,
         sequence,
         event: AudioEvent::Stop(StopAudioEvent {
             name: Arc::from("random.orb"),
