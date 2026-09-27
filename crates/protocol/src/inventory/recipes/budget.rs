@@ -90,6 +90,21 @@ mod tests {
     }
 
     #[test]
+    fn error_unwinds_a_successful_reservation_once() {
+        fn fallible_scope(owner: &Arc<Credits>) -> Result<(), ()> {
+            let _permit = owner.reserve(128).ok_or(())?;
+            assert_eq!(owner.used(), 128);
+            // A private unit witness of Rust error cleanup, not a reachable
+            // packet failure or allocator fault-injection mechanism.
+            Err(())
+        }
+        let owner = Credits::isolated(128);
+        assert!(fallible_scope(&owner).is_err());
+        assert_eq!(owner.used(), 0);
+        assert!(owner.reserve(128).is_some());
+    }
+
+    #[test]
     fn concurrent_reservations_cannot_oversubscribe() {
         let owner = Credits::isolated(4096);
         std::thread::scope(|scope| {

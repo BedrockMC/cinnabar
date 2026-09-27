@@ -72,7 +72,7 @@ pub use inventory::{
     normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
     project_container_cell, validate_item_nbt_size,
 };
-pub use inventory::{ManualCraftError, ManualCraftInput, ManualCraftPlan, manual_craft_packet};
+pub use inventory::{ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,

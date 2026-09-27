@@ -56,6 +56,15 @@ impl RecipeCatalog {
     /// Every accepted FIFO update advances authority, including unavailable-only
     /// replacements. A policy refusal retires the complete previous catalog.
     pub fn apply(&mut self, session: u64, sequence: u64, update: &RecipeUpdate) -> bool {
+        self.apply_with_credits(session, sequence, update, &Credits::shared())
+    }
+    fn apply_with_credits(
+        &mut self,
+        session: u64,
+        sequence: u64,
+        update: &RecipeUpdate,
+        credits: &Arc<Credits>,
+    ) -> bool {
         if self.exhausted || session != self.session || session == 0 || sequence <= self.sequence {
             return false;
         }
@@ -83,7 +92,7 @@ impl RecipeCatalog {
         let charge = capacity
             .checked_mul(size_of::<Entry>())
             .and_then(|n| n.checked_add(128));
-        let Some(permit) = charge.and_then(|n| Credits::shared().reserve(n)) else {
+        let Some(permit) = charge.and_then(|n| credits.reserve(n)) else {
             self.retire();
             return true;
         };
@@ -127,5 +136,98 @@ impl RecipeCatalog {
         self.available = true;
         self.revision += 1; // checked exhaustion above, before any new authority.
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::model::{Batch, Output, Recipe, Record};
+    use super::*;
+
+    fn update(owner: &Arc<Credits>, clear: bool) -> RecipeUpdate {
+        RecipeUpdate {
+            batch: Some(Arc::new(Batch {
+                records: vec![Record {
+                    id: 17,
+                    recipe: Some(Recipe {
+                        width: 1,
+                        height: 1,
+                        ingredients: [None, None, None, None],
+                        output: Output {
+                            id: 7,
+                            aux: 0,
+                            count: 4,
+                            block: 0,
+                            empty_envelope: false,
+                        },
+                    }),
+                }],
+                clear,
+                _permit: owner.reserve(512).unwrap(),
+            })),
+        }
+    }
+
+    #[test]
+    fn catalog_and_external_handle_keep_batch_credit_until_final_drop() {
+        let owner = Credits::isolated(4096);
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        let update = update(&owner, true);
+        assert!(catalog.apply_with_credits(1, 1, &update, &owner));
+        let handle = catalog.recipe(17).unwrap();
+        drop(update);
+        assert_eq!(owner.used(), 512 + size_of::<Entry>() + 128);
+        catalog.begin_session(2);
+        assert_eq!(owner.used(), 512);
+        assert_eq!(handle.network_id(), 17);
+        drop(handle);
+        assert_eq!(owner.used(), 0);
+    }
+
+    #[test]
+    fn merge_scratch_refusal_retires_catalog_without_unaccounted_storage() {
+        let owner = Credits::isolated(4096);
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        let first = update(&owner, true);
+        assert!(catalog.apply_with_credits(1, 1, &first, &owner));
+        drop(first);
+        let replacement = update(&owner, false);
+        let occupied = owner.reserve(4096 - owner.used()).unwrap();
+        assert!(catalog.apply_with_credits(1, 2, &replacement, &owner));
+        assert!(!catalog.is_available());
+        assert!(catalog.recipe(17).is_none());
+        drop(replacement);
+        drop(occupied);
+        assert_eq!(owner.used(), 0);
+    }
+
+    #[test]
+    fn oversized_merged_catalog_releases_reserved_scratch_on_policy_return() {
+        let owner = Credits::isolated(2 * 1024 * 1024);
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        let first = update(&owner, true);
+        catalog.apply_with_credits(1, 1, &first, &owner);
+        drop(first);
+        let charge = MAX_RECORDS * size_of::<Record>() + 512;
+        let permit = owner.reserve(charge).unwrap();
+        let replacement = RecipeUpdate {
+            batch: Some(Arc::new(Batch {
+                records: (100..100 + MAX_RECORDS as u32)
+                    .map(|id| Record { id, recipe: None })
+                    .collect(),
+                clear: false,
+                _permit: permit,
+            })),
+        };
+        // Both individually bounded batches fit. Their disjoint merge reserves
+        // scratch successfully, then exceeds the retained catalog cardinality.
+        assert!(catalog.apply_with_credits(1, 2, &replacement, &owner));
+        assert!(!catalog.is_available());
+        assert_eq!(owner.used(), charge);
+        drop(replacement);
+        assert_eq!(owner.used(), 0);
     }
 }

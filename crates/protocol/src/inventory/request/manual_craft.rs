@@ -35,12 +35,22 @@ pub struct ManualCraftInput {
 }
 
 #[derive(Debug)]
-pub struct ManualCraftPlan {
-    session: u64,
-    revision: u64,
+struct ManualCraftPlan {
     recipe: RecipeHandle,
     output_name: Arc<str>,
     consume: [Option<(u8, u8, i32)>; 4],
+}
+
+/// One immutable caller-owned authority snapshot for an atomic request.
+/// The ledger consumer must provide current, session-bound, single-flight state;
+/// the protocol constructor cannot establish that caller's freshness itself.
+#[derive(Debug)]
+pub struct ManualCraftSnapshot<'a> {
+    pub session: u64,
+    pub catalog: &'a RecipeCatalog,
+    pub registry: &'a [ItemRegistryEntry],
+    pub inputs: [Option<ManualCraftInput>; 4],
+    pub cursor: &'a VerifiedNetworkItemStack,
 }
 
 fn binding(
@@ -61,7 +71,7 @@ fn binding(
 impl ManualCraftPlan {
     /// Inputs must be supplied from current server-authoritative cells. No tag
     /// expansion, stack-ID allocator, cursor overwrite or metadata fallback.
-    pub fn prepare(
+    fn prepare(
         catalog: &RecipeCatalog,
         session: u64,
         recipe_id: u32,
@@ -123,8 +133,6 @@ impl ManualCraftPlan {
             }
         }
         Ok(Self {
-            session,
-            revision: catalog.revision(),
             output_name: Arc::clone(&output.identifier),
             recipe: handle,
             consume,
@@ -150,24 +158,21 @@ fn slot(
 /// The only negative stack reference is this request's newly created output.
 /// The caller must have authoritative evidence that the destination cursor is empty.
 pub fn manual_craft_packet(
-    catalog: &RecipeCatalog,
-    plan: &ManualCraftPlan,
+    snapshot: ManualCraftSnapshot<'_>,
+    recipe_id: u32,
     request_id: i32,
-    cursor: &VerifiedNetworkItemStack,
 ) -> Result<crate::Packet, ManualCraftError> {
     if request_id >= -1 || request_id & 1 == 0 {
         return Err(InventoryPacketError::InvalidStackRequestId.into());
     }
-    let current = catalog
-        .recipe(plan.recipe.network_id())
-        .ok_or(ManualCraftError::Unavailable)?;
-    if plan.session != catalog.session()
-        || plan.revision != catalog.revision()
-        || !Arc::ptr_eq(&current.batch, &plan.recipe.batch)
-        || current.index != plan.recipe.index
-    {
-        return Err(ManualCraftError::Unavailable);
-    }
+    let ManualCraftSnapshot {
+        session,
+        catalog,
+        registry,
+        inputs,
+        cursor,
+    } = snapshot;
+    let plan = ManualCraftPlan::prepare(catalog, session, recipe_id, inputs, registry)?;
     if cursor.network_id() != 0 || cursor.count() != 0 || !cursor.extra_data().is_empty() {
         return Err(ManualCraftError::Unsupported);
     }
