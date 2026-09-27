@@ -616,6 +616,7 @@ fn apply_apple_registry(runtime: &mut UiRuntime) {
                 component_digest: [6; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: false,
+                item_tags: std::sync::Arc::from([]),
             }]),
         });
 }

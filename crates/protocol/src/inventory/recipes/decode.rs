@@ -68,6 +68,8 @@ fn decode_with_credits(
                     width: candidate.width,
                     height: candidate.height,
                     shapeless: candidate.shapeless,
+                    mirror: candidate.mirror,
+                    priority: candidate.priority,
                     ingredients,
                     output: candidate.output,
                 })

@@ -317,6 +317,8 @@ pub struct ItemRegistryEntry {
     pub negotiated_max_stack_size: Option<u8>,
     /// Whether the component payload is the exact canonical empty compound.
     pub canonical_empty_component_data: bool,
+    /// Item tags a component-based entry declares for itself.
+    pub item_tags: Arc<[Arc<str>]>,
 }
 
 /// Returns the retail-positive item registry for the pinned Bedrock protocol.
@@ -344,6 +346,7 @@ pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
             component_digest: [0; 32],
             negotiated_max_stack_size: None,
             canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         });
     }
     Arc::from(entries)
@@ -640,9 +643,14 @@ pub(crate) fn normalize_item_registry(
             network_id,
             component_based: item.is_component_based,
             version,
-            component_digest: Sha256::digest(component_bytes).into(),
+            component_digest: Sha256::digest(&component_bytes).into(),
             negotiated_max_stack_size,
             canonical_empty_component_data,
+            item_tags: if item.is_component_based {
+                registry_capacity::declared_item_tags(&component_bytes).into()
+            } else {
+                Arc::from([])
+            },
         });
     }
     Ok(ItemActorEvent::Registry(ItemRegistryEvent {

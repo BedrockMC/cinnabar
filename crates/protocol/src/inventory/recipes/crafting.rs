@@ -1,10 +1,11 @@
 //! Crafting-table recipe identification for a player's 2x2 or 3x3 grid.
 //!
 //! Shaped recipes match their exact orientation inside the occupied bounding
-//! box; shapeless recipes match a one-to-one cell assignment. Tag ingredients
-//! never match: the client has no vanilla tag membership source.
+//! box (or its mirror when the recipe allows); shapeless recipes match a
+//! one-to-one cell assignment.
 
 use super::catalog::RecipeCatalog;
+use super::item_tags::vanilla_tag_contains;
 use super::model::{Ingredient, MAX_INGREDIENTS, Recipe, RecipeHandle};
 
 /// One occupied grid cell as the matcher sees it.
@@ -15,6 +16,8 @@ pub struct CraftGridItem<'a> {
     pub count: u16,
     /// No NBT, place or break data; recipe inputs never carry any.
     pub plain: bool,
+    /// Tags the session item registry declares for this item.
+    pub tags: &'a [std::sync::Arc<str>],
 }
 
 #[derive(Debug, Clone)]
@@ -72,10 +75,14 @@ impl RecipeHandle {
 }
 
 fn accepts(ingredient: &Ingredient, item: &CraftGridItem<'_>, crafts: u16) -> bool {
-    !ingredient.tag
-        && item.plain
-        && ingredient.name == item.identifier
-        && u32::from(ingredient.aux) == item.metadata
+    let kind = if ingredient.tag {
+        // An unknown tag with no declaring item fails closed.
+        item.tags.iter().any(|tag| **tag == *ingredient.name)
+            || vanilla_tag_contains(&ingredient.name, item.identifier) == Some(true)
+    } else {
+        ingredient.name == item.identifier && ingredient.accepts_metadata(item.metadata)
+    };
+    kind && item.plain
         && u16::from(ingredient.count)
             .checked_mul(crafts)
             .is_some_and(|needed| item.count >= needed)
@@ -94,26 +101,44 @@ pub fn match_crafting_grid(
     {
         return CraftGridMatch::Unavailable;
     }
-    let mut unique = None;
+    // The lowest priority wins; recipes tied at it must agree on output.
+    let mut best: Option<(i32, RecipeHandle)> = None;
+    let mut ambiguous = false;
     for handle in catalog.crafting_recipes() {
         let recipe = handle.recipe();
         let matched = if recipe.shapeless {
             shapeless_matches(recipe, grid)
         } else {
-            shaped_matches(recipe, width, grid)
+            shaped_matches(recipe, width, grid, false)
+                || (recipe.mirror && shaped_matches(recipe, width, grid, true))
         };
         if !matched {
             continue;
         }
-        if unique.is_some() {
-            return CraftGridMatch::Ambiguous;
+        match &best {
+            Some((priority, _)) if recipe.priority > *priority => {}
+            Some((priority, chosen)) if recipe.priority == *priority => {
+                ambiguous |= chosen.recipe().output != recipe.output;
+            }
+            _ => {
+                best = Some((recipe.priority, handle.clone()));
+                ambiguous = false;
+            }
         }
-        unique = Some(handle.clone());
     }
-    unique.map_or(CraftGridMatch::NoMatch, CraftGridMatch::Unique)
+    match best {
+        None => CraftGridMatch::NoMatch,
+        Some(_) if ambiguous => CraftGridMatch::Ambiguous,
+        Some((_, handle)) => CraftGridMatch::Unique(handle),
+    }
 }
 
-fn shaped_matches(recipe: &Recipe, width: u8, grid: &[Option<CraftGridItem<'_>>]) -> bool {
+fn shaped_matches(
+    recipe: &Recipe,
+    width: u8,
+    grid: &[Option<CraftGridItem<'_>>],
+    mirrored: bool,
+) -> bool {
     let width = usize::from(width);
     let occupied = || {
         grid.iter()
@@ -137,7 +162,12 @@ fn shaped_matches(recipe: &Recipe, width: u8, grid: &[Option<CraftGridItem<'_>>]
     }
     (0..rows).all(|row| {
         (0..columns).all(|column| {
-            let expected = recipe.ingredients[row * columns + column].as_ref();
+            let source = if mirrored {
+                columns - 1 - column
+            } else {
+                column
+            };
+            let expected = recipe.ingredients[row * columns + source].as_ref();
             let cell = grid[(top + row) * width + left + column].as_ref();
             match (expected, cell) {
                 (None, None) => true,

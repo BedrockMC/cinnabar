@@ -17,6 +17,8 @@ pub(super) struct Candidate<'a> {
     pub(super) width: u8,
     pub(super) height: u8,
     pub(super) shapeless: bool,
+    pub(super) mirror: bool,
+    pub(super) priority: i32,
     pub(super) ingredients: [Ingredient<'a>; super::model::MAX_INGREDIENTS],
     pub(super) output: Output,
 }
@@ -152,10 +154,8 @@ fn normal<'a>(
     }
     reader.take(16)?;
     valid &= reader.string()? == "crafting_table";
-    reader.int()?;
-    if shaped {
-        reader.byte()?;
-    }
+    let priority = reader.int()?;
+    let mirror = shaped && reader.byte()? != 0;
     valid &= unlock(reader)?;
     let id = reader.uint()?;
     valid &= id != 0;
@@ -166,6 +166,8 @@ fn normal<'a>(
                 width: width as u8,
                 height: height as u8,
                 shapeless: !shaped,
+                mirror,
+                priority,
                 ingredients,
                 output,
             })

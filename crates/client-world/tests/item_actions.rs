@@ -213,6 +213,7 @@ fn registry(network_id: i32, identifier: &str) -> WorldEvent {
             component_digest: [7; 32],
             negotiated_max_stack_size: None,
             canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         }]),
     }))
 }
@@ -580,6 +581,7 @@ fn registry_record_bound_accepts_exact_limit_and_rejects_limit_plus_one_atomical
                     component_digest: [index as u8; 32],
                     negotiated_max_stack_size: None,
                     canonical_empty_component_data: true,
+                    item_tags: std::sync::Arc::from([]),
                 })
                 .collect::<Vec<_>>()
                 .into(),

@@ -152,6 +152,7 @@ fn named_registry(name: &str, capacity: u8) -> protocol::ItemRegistryEvent {
             component_digest: [0; 32],
             negotiated_max_stack_size: Some(capacity),
             canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         }]),
     }
 }

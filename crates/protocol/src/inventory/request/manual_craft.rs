@@ -98,7 +98,7 @@ pub(in crate::inventory) fn validate_grid<'a>(
             (None, None) => {}
             (Some(expected), Some(stack)) => {
                 if stack.count() < u16::from(expected.count)
-                    || stack.metadata() != u32::from(expected.aux)
+                    || !expected.accepts_metadata(stack.metadata())
                     || !super::super::recipes::empty_extra(stack.extra_data())
                     || lookup(stack.network_id())?.identifier.as_ref() != expected.name
                 {

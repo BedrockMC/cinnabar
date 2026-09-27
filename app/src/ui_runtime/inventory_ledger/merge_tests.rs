@@ -26,6 +26,7 @@ fn entry(
         component_digest: [network_id as u8; 32],
         negotiated_max_stack_size: negotiated,
         canonical_empty_component_data: canonical_empty,
+        item_tags: std::sync::Arc::from([]),
     }
 }
 
