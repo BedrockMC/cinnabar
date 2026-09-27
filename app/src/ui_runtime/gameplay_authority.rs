@@ -320,6 +320,11 @@ impl UiRuntime {
                 super::InventoryAuthorityEvent::Inventory(event) => event,
                 super::InventoryAuthorityEvent::Registry(registry) => {
                     self.inventory_ledger.apply_registry(&registry);
+                    self.observe_use_on_identity(
+                        sequenced.session_generation,
+                        sequenced.fifo_sequence,
+                        &super::InventoryAuthorityEvent::Registry(registry),
+                    );
                     continue;
                 }
             };
@@ -365,6 +370,11 @@ impl UiRuntime {
                 self.pending_hotbar_selection = None;
             }
             self.gameplay_hud.apply_inventory(&event);
+            self.observe_use_on_identity(
+                sequenced.session_generation,
+                sequenced.fifo_sequence,
+                &super::InventoryAuthorityEvent::Inventory(event),
+            );
         }
     }
 
