@@ -106,7 +106,7 @@ func generate(out string) error {
 }
 
 func fixtures() []fixture {
-	return []fixture{
+	return append([]fixture{
 		{
 			name: "NetworkSettings",
 			file: "network_settings.bin",
@@ -588,6 +588,47 @@ func fixtures() []fixture {
 			file: "disconnect_hidden.bin",
 			pk:   &packet.Disconnect{Reason: packet.DisconnectReasonKicked, HideDisconnectionScreen: true},
 		},
+	}, manualCraftFixtures()...)
+}
+
+// Independently authored codec fixtures, not captured client requests.
+func manualCraftFixtures() []fixture {
+	shape := func(id uint32, width, height int32) protocol.ShapedRecipe {
+		inputs := make([]protocol.ItemDescriptorCount, width*height)
+		for i := range inputs {
+			inputs[i] = protocol.ItemDescriptorCount{Descriptor: &protocol.DefaultItemDescriptor{Name: "minecraft:oak_log"}, Count: 1}
+		}
+		return protocol.ShapedRecipe{RecipeID: "test:manual", Width: width, Height: height, Input: inputs,
+			Output: []protocol.ItemStack{{ItemType: protocol.ItemType{NetworkID: 7}, Count: 4}},
+			Block:  "crafting_table", RecipeNetworkID: id}
+	}
+	source := protocol.StackRequestSlotInfo{Container: protocol.FullContainerName{ContainerID: 13}, Slot: 28, StackNetworkID: 101}
+	consume := &protocol.ConsumeStackRequestAction{}
+	consume.Count, consume.Source = 1, source
+	take := &protocol.TakeStackRequestAction{}
+	take.Count = 4
+	take.Source = protocol.StackRequestSlotInfo{Container: protocol.FullContainerName{ContainerID: 60}, Slot: 50, StackNetworkID: -3}
+	take.Destination = protocol.StackRequestSlotInfo{Container: protocol.FullContainerName{ContainerID: 59}, Slot: 0, StackNetworkID: 0}
+	request := &packet.ItemStackRequest{Requests: []protocol.ItemStackRequest{{RequestID: -3, FilterCause: -1,
+		Actions: []protocol.StackRequestAction{
+			&protocol.CraftRecipeStackRequestAction{RecipeNetworkID: 17, NumberOfCrafts: 1},
+			&protocol.CraftResultsDeprecatedStackRequestAction{ResultItems: []protocol.StackRequestItem{{Identifier: "minecraft:oak_planks", Count: 4}}, TimesCrafted: 1},
+			consume, take,
+		}}}}
+	response := &packet.ItemStackResponse{Responses: []protocol.ItemStackResponse{
+		{RequestID: -3, Status: 0, ContainerInfo: []protocol.StackResponseContainerInfo{
+			{Container: protocol.FullContainerName{ContainerID: 13}, SlotInfo: []protocol.StackResponseSlotInfo{{Slot: 28, HotbarSlot: 28, Count: 0, StackNetworkID: 0}}},
+			{Container: protocol.FullContainerName{ContainerID: 59}, SlotInfo: []protocol.StackResponseSlotInfo{{Slot: 0, Count: 4, StackNetworkID: 201}}},
+		}},
+		{RequestID: -5, Status: 1},
+	}}
+	return []fixture{
+		{name: "CraftingDataManualNamed1x1", file: "crafting_data_manual_named_1x1.bin", pk: &packet.CraftingData{ShapedRecipes: []protocol.ShapedRecipe{shape(17, 1, 1)}, ClearRecipes: true}},
+		{name: "CraftingDataManualNamed1x2", file: "crafting_data_manual_named_1x2.bin", pk: &packet.CraftingData{ShapedRecipes: []protocol.ShapedRecipe{shape(18, 1, 2)}}},
+		{name: "CraftingDataManualUnsupportedReplacement", file: "crafting_data_manual_unsupported_replacement.bin", pk: &packet.CraftingData{ShapedRecipes: []protocol.ShapedRecipe{shape(17, 3, 1)}}},
+		{name: "CraftingDataManualClearEmpty", file: "crafting_data_manual_clear_empty.bin", pk: &packet.CraftingData{ClearRecipes: true}},
+		{name: "ItemStackRequestManualCraft", file: "item_stack_request_manual_craft.bin", pk: request},
+		{name: "ItemStackResponseManualCraft", file: "item_stack_response_manual_craft.bin", pk: response},
 	}
 }
 
