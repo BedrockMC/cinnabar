@@ -19,13 +19,46 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(std::sync::Arc::clone(&stack));
-    let overlay = view.read("texts/en_US.lang").and_then(|bytes| {
-        assets::ServerLangOverlay::read(bytes.len(), |output| {
-            output.copy_from_slice(&bytes);
-            true
-        })
-    });
+    let overlay = merged_server_lang(&view);
     (PackAdmission::Validated(stack), overlay)
+}
+
+/// The client requests `en_US` at login, so that is the only locale merged.
+const SERVER_LANG_PATH: &str = "texts/en_US.lang";
+
+/// Merges every pack's language file so a higher-precedence pack overrides a
+/// key and keys it does not define still come from lower packs. Lowest layers
+/// are dropped first if the merged text would exceed the overlay input bound.
+fn merged_server_lang(view: &LayeredPackView) -> Option<std::sync::Arc<assets::ServerLangOverlay>> {
+    let mut kept = Vec::new();
+    let mut total = 0usize;
+    for layer in view.read_layers(SERVER_LANG_PATH).into_iter().rev() {
+        let text = layer
+            .strip_prefix(b"\xef\xbb\xbf")
+            .unwrap_or(&layer)
+            .to_vec();
+        let Some(next) = total.checked_add(text.len() + 1) else {
+            break;
+        };
+        if next > assets::MAX_SERVER_LANG_INPUT_BYTES {
+            break;
+        }
+        total = next;
+        kept.push(text);
+    }
+    if kept.is_empty() {
+        return None;
+    }
+    // The overlay keeps the last definition of a key, so write lowest first.
+    let mut merged = Vec::with_capacity(total);
+    for text in kept.iter().rev() {
+        merged.extend_from_slice(text);
+        merged.push(b'\n');
+    }
+    assets::ServerLangOverlay::read(merged.len(), |output| {
+        output.copy_from_slice(&merged);
+        true
+    })
 }
 
 pub(super) fn install_server_language(
@@ -156,6 +189,45 @@ mod tests {
             AdmissionError::InvalidZipFooter
         );
         assert!(overlay.is_none());
+    }
+
+    fn lang_pack(id: u128, lang: &[u8]) -> protocol::ResourcePackArchive {
+        use std::io::Write;
+        let id = format!("00000000-0000-0000-0000-{id:012x}");
+        let manifest = format!(
+            r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+        );
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (path, bytes) in [
+            ("manifest.json", manifest.as_bytes()),
+            ("texts/en_US.lang", lang),
+        ] {
+            writer
+                .start_file(path, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        let archive = writer.finish().unwrap().into_inner();
+        protocol::ResourcePackArchive::unencrypted(
+            id.parse().unwrap(),
+            "1.0.0".into(),
+            String::new(),
+            archive,
+        )
+    }
+
+    // Higher packs override shared keys; keys only a lower pack defines survive.
+    #[test]
+    fn language_files_merge_across_the_stack_by_precedence() {
+        let handoff = protocol::ResourcePackHandoff::from_archives(vec![
+            lang_pack(1, b"shared=top\ntop.only=T"),
+            lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
+        ]);
+        let (_, overlay) = super::prepare_pack_application(handoff);
+        let overlay = overlay.expect("merged overlay");
+        assert_eq!(overlay.lookup("shared"), Some("top"));
+        assert_eq!(overlay.lookup("top.only"), Some("T"));
+        assert_eq!(overlay.lookup("bottom.only"), Some("B"));
     }
 
     #[test]
