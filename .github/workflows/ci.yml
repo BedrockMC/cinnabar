@@ -42,11 +42,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
-      - name: Install Wayland development libraries
+      - name: Install Linux desktop development libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev
       - name: Build release desktop client
         run: cargo build --release -p bedrock-client --locked
       - name: Build release Go core on Windows
@@ -137,10 +137,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
-      - name: Install Wayland development library
+      - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev
+          sudo apt-get install --yes libwayland-dev libasound2-dev
       - name: Verify Linux window backends
         shell: bash
         run: |
