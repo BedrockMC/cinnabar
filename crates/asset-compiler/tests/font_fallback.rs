@@ -1,7 +1,21 @@
 use asset_compiler::{
     GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
 };
+use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
+
+fn verify_input(bytes: &[u8], source: &serde_json::Value, field: &str) -> [u8; 32] {
+    assert_eq!(
+        bytes.len() as u64,
+        source[format!("{field}_size_bytes")].as_u64().unwrap()
+    );
+    let digest: [u8; 32] = Sha256::digest(bytes).into();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(bytes)),
+        source[format!("{field}_sha256")].as_str().unwrap()
+    );
+    digest
+}
 
 #[test]
 #[ignore = "requires both explicitly fetched pinned outline sources"]
@@ -18,6 +32,18 @@ fn two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics(
     let fallback_path = path("fallback_");
     let primary = fs::read(&primary_path).unwrap();
     let fallback = fs::read(&fallback_path).unwrap();
+    let primary_hash = verify_input(&primary, &source, "font");
+    let fallback_hash = verify_input(&fallback, &source, "fallback_font");
+    for (font_path, prefix) in [(&primary_path, ""), (&fallback_path, "fallback_")] {
+        let license = fs::read(
+            font_path
+                .parent()
+                .unwrap()
+                .join(source[format!("{prefix}license_file")].as_str().unwrap()),
+        )
+        .unwrap();
+        verify_input(&license, &source, &format!("{prefix}license"));
+    }
     let identity = assets::canonical_source_manifest_sha256(&manifest);
     let config = OutlineFontConfig {
         advances: GlyphAdvances::InkPlusGap {
@@ -49,12 +75,30 @@ fn two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics(
     let old = assets::RuntimeFontCatalog::decode(&original.bytes, identity).unwrap();
     let new = assets::RuntimeFontCatalog::decode(&merged.bytes, identity).unwrap();
     assert_eq!(old.pages()[0].rgba8, new.pages()[0].rgba8);
+    assert_eq!(new.pages()[0].source_sha256, primary_hash);
+    assert_eq!(new.pages()[0].source_bytes as usize, primary.len());
     for glyph in old.glyphs() {
         assert_eq!(Some(glyph), new.glyph(glyph.codepoint));
     }
     assert!(new.pages().len() <= 4);
     for page in &new.pages()[1..] {
         assert_eq!(page.source_bytes as usize, fallback.len());
+        assert_eq!(page.source_sha256, fallback_hash);
+    }
+    // Exact present coverage of this pinned source, not universal Unicode support.
+    for (first, last, present) in [
+        (0x2713, 0x2713, 1),
+        (0x3000, 0x30ff, 253),
+        (0x3400, 0x4dbf, 6582),
+        (0x4e00, 0x9fff, 20976),
+    ] {
+        assert_eq!(
+            new.glyphs()
+                .iter()
+                .filter(|glyph| (first..=last).contains(&u32::from(glyph.codepoint)))
+                .count(),
+            present
+        );
     }
 }
 

@@ -181,7 +181,9 @@ $(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FON
 $(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)
 	$(RUN_IF_ASSET_REPORT_STALE) || $(FONT_ASSET_COMPILE)
 
-$(FONT_ASSET_NOTICES): $(FONT_ASSET_BLOB)
+# Notices are published before the carrier. Their earlier timestamp is valid;
+# only their absence needs recovery after the carrier has been checked/rebuilt.
+$(FONT_ASSET_NOTICES): | $(FONT_ASSET_BLOB)
 	$(FONT_ASSET_COMPILE)
 
 $(HUD_ASSET_BLOB): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(HUD_SOURCE_MANIFEST)
