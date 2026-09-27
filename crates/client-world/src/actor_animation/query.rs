@@ -66,11 +66,7 @@ pub(super) const FLAG_BABY: u32 = 11;
 pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
-const FLAG_SLEEPING: u32 = 76;
 
-const KEY_FLAGS_EXTENDED: u32 = 92;
-const KEY_PLAYER_FLAGS: u32 = 26;
-const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 const INTEGER_QUERIES: [(&str, u32); 10] = [
     ("fuse_time", 55),
     ("hurt_direction", 12),
@@ -170,7 +166,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "is_moving" => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
         "is_alive" => truth(health(actor).is_none_or(|health| health > 0.0)),
         "health" => health(actor).unwrap_or(0.0),
-        "is_sleeping" => truth(player_sleeping_flag(actor) || actor_flag(actor, FLAG_SLEEPING)),
+        "is_sleeping" => truth(actor.player_is_sleeping()),
         "body_y_rotation" => input.body_yaw,
         "body_x_rotation" | "target_x_rotation" => input.pitch,
         "target_y_rotation" => head_relative_yaw(input, TARGET_YAW_LIMIT),
@@ -253,24 +249,7 @@ fn metadata_number(actor: &ActorSnapshot, key: u32) -> Option<f32> {
 }
 
 pub(super) fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
-    let (key, bit) = if bit < 64 {
-        (0, bit)
-    } else {
-        (KEY_FLAGS_EXTENDED, bit - 64)
-    };
-    match actor.metadata.get(&key) {
-        Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)) => {
-            flags & (1_u64 << bit) != 0
-        }
-        _ => false,
-    }
-}
-
-fn player_sleeping_flag(actor: &ActorSnapshot) -> bool {
-    matches!(
-        actor.metadata.get(&KEY_PLAYER_FLAGS),
-        Some(ActorMetadataValue::Byte(flags)) if (*flags as u8) & PLAYER_FLAGS_SLEEPING != 0
-    )
+    actor.flag(bit)
 }
 
 fn head_relative_yaw(input: &ActorTickInput, limit: f32) -> f32 {

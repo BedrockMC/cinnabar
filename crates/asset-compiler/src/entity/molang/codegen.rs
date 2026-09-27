@@ -337,6 +337,7 @@ pub(super) fn binary(operator: Binary, left: f32, right: f32) -> f32 {
         Binary::Add => left + right,
         Binary::Subtract => left - right,
         Binary::Multiply => left * right,
+        // Same near-zero divisor rule as the runtime; needs independent measurement.
         Binary::Divide => {
             if right.abs() < f32::EPSILON {
                 0.0

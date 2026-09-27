@@ -722,3 +722,107 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
         -6.0
     );
 }
+
+fn turn(sequence: u64, yaw: f32) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Move(ActorMoveEvent {
+        dimension: 0,
+        runtime_id: 42,
+        position: [None; 3],
+        position_origin: ActorPositionOrigin::Feet,
+        pitch: None,
+        yaw: Some(yaw),
+        head_yaw: Some(yaw),
+        on_ground: Some(true),
+        teleported: false,
+        player_mode: None,
+        source_tick: Some(sequence),
+    }))
+}
+
+fn with_weight_program(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>, stack: u8) {
+    let first_op = compiled.molang_ops.len() as u32;
+    let op_count = program.len() as u16;
+    let mut ops = std::mem::take(&mut compiled.molang_ops).into_vec();
+    ops.extend(program);
+    compiled.molang_ops = ops.into_boxed_slice();
+    let weight = compiled.molang_expressions.len() as u32;
+    let mut expressions = std::mem::take(&mut compiled.molang_expressions).into_vec();
+    expressions.push(CompiledMolangExpression {
+        first_op,
+        op_count,
+        max_stack: stack,
+    });
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    compiled.controller_animations[0].weight = Some(weight);
+}
+
+#[test]
+fn static_and_failing_rigs_still_turn_their_bodies_toward_the_reported_yaw() {
+    let mut failing = compiled_entity_assets(EntityRigFallback::Skip);
+    // A NaN weight makes every pose non-finite, so evaluation fails each tick.
+    with_weight_program(
+        &mut failing,
+        vec![
+            MolangOp::Push(scalar(-1.0)),
+            MolangOp::Call(assets::MolangFunction::Sqrt),
+        ],
+        1,
+    );
+    for assets in [
+        entity_assets(EntityRigFallback::GeometryOnly),
+        decode_entity_assets(&failing),
+    ] {
+        let mut stream = stream_with_entity_assets(assets);
+        stream.submit(1, spawn(42, -7, [0.0; 3])).unwrap();
+        stream.submit(2, turn(2, 90.0)).unwrap();
+        stream.advance_actor_interpolation_ticks(30);
+        let rig = stream.actor_rig(42).unwrap();
+        assert!(
+            (rig.body_yaw - 90.0).abs() < 1.0e-3,
+            "body yaw {}",
+            rig.body_yaw
+        );
+    }
+}
+
+#[test]
+fn world_budget_starvation_rotates_so_the_same_actors_do_not_always_freeze() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    // One capped loop spends about a thousand operations per actor per tick.
+    with_weight_program(
+        &mut compiled,
+        vec![
+            MolangOp::Push(scalar(5_000.0)),
+            MolangOp::LoopStart(3),
+            MolangOp::LoopNext(2),
+            MolangOp::Push(scalar(1.0)),
+        ],
+        1,
+    );
+    let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
+    let actors = 300_u64;
+    for runtime_id in 0..actors {
+        stream
+            .submit(
+                runtime_id + 1,
+                spawn(100 + runtime_id, -100 - runtime_id as i64, [1.0, 0.0, 0.0]),
+            )
+            .unwrap();
+    }
+    stream.advance_actor_interpolation_ticks(1);
+    let starved_first = (0..actors)
+        .filter(|index| stream.actor_rig(100 + index).unwrap().completed_tick == 0)
+        .collect::<Vec<_>>();
+    assert!(
+        !starved_first.is_empty(),
+        "the fixture exhausts the world budget"
+    );
+    stream.advance_actor_interpolation_ticks(1);
+    for index in starved_first {
+        assert_eq!(
+            stream.actor_rig(100 + index).unwrap().completed_tick,
+            2,
+            "actor {index} starved twice"
+        );
+    }
+}

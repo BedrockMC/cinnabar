@@ -47,9 +47,9 @@ mod molang;
 #[path = "v4/molang_math.rs"]
 mod molang_math;
 pub use molang::{
-    MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES,
-    MolangBranch, MolangCall, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp,
-    molang_call, molang_program_stack,
+    MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_QUERY_ARGUMENTS,
+    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangEaseCurve,
+    MolangEaseMode, MolangFunction, MolangOp, molang_call, molang_program_stack,
 };
 use molang::{molang_symbol_has_kind, validate_molang_payload};
 

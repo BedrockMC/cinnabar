@@ -185,7 +185,8 @@ fn sleeping_player_network_position_uses_explicit_sleeping_metadata() {
 #[test]
 fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
     const EXTENDED_FLAGS_KEY: u32 = 92;
-    const EXTENDED_SLEEPING_BIT: u64 = 1 << 11;
+    // Sleeping is actor flag 76, bit 12 of the overflow word.
+    const EXTENDED_SLEEPING_BIT: u64 = 1 << 12;
 
     let mut store = ActorStore::new(1, 0);
     let ActorEvent::Spawn(mut spawn) = player_spawn(42, -7, 0.0) else {
@@ -199,6 +200,19 @@ fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
     store.apply(1, 2, network_move(42, 64.2, true));
 
     assert!((store.get(42).unwrap().position[1] - 64.0).abs() < 1e-5);
+
+    // The neighbouring overflow bit is a shield flag, not sleeping.
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut spawn) = player_spawn(42, -7, 0.0) else {
+        unreachable!();
+    };
+    spawn.metadata = Arc::from([ActorMetadata {
+        key: EXTENDED_FLAGS_KEY,
+        value: ActorMetadataValue::FlagsExtended(1 << 11),
+    }]);
+    store.apply(1, 1, ActorEvent::Spawn(spawn));
+    store.apply(1, 2, network_move(42, 64.2, true));
+    assert!((store.get(42).unwrap().position[1] - (64.2 - PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
 }
 
 #[test]

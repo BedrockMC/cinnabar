@@ -15,6 +15,9 @@ use super::{
 
 /// Deepest `loop`/`for_each` nesting a program may open.
 pub const MAX_MOLANG_LOOP_DEPTH: usize = 8;
+/// Most iterations one `loop` runs: the publicly documented limit, kept as a Cinnabar bound
+/// although the reference client enforces none, so a long loop cannot freeze an actor.
+pub const MAX_MOLANG_LOOP_ITERATIONS: u32 = 1_024;
 /// Most arguments one query call may pass.
 pub const MAX_MOLANG_QUERY_ARGUMENTS: u8 = 16;
 

@@ -63,6 +63,29 @@ impl MolangCompiler {
         }
     }
 
+    /// Compiles an authored script field: one string or an array of strings. Any other shape
+    /// cannot compile, so the whole script is dropped and counted, like uncompilable text.
+    pub fn compile_script_value(
+        &mut self,
+        value: Option<&serde_json::Value>,
+    ) -> Result<(Option<u32>, usize), AssetError> {
+        match value {
+            None => Ok((None, 0)),
+            Some(serde_json::Value::String(statement)) => self.compile_script(&[statement]),
+            Some(serde_json::Value::Array(entries)) => {
+                match entries
+                    .iter()
+                    .map(serde_json::Value::as_str)
+                    .collect::<Option<Vec<_>>>()
+                {
+                    Some(statements) => self.compile_script(&statements),
+                    None => Ok((None, entries.len().max(1))),
+                }
+            }
+            Some(_) => Ok((None, 1)),
+        }
+    }
+
     /// Evaluates a constant reading with every query and variable at zero.
     pub fn evaluate_default(source: &str) -> Option<f32> {
         match parse(source).ok()? {

@@ -25,7 +25,9 @@ const NAMETAG_METADATA_KEY: u32 = 4;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
-const EXTENDED_FLAGS_SLEEPING: u64 = 1 << 11;
+/// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
+/// 64 live in the overflow flag word.
+pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -168,14 +170,26 @@ impl ActorSnapshot {
         }
     }
 
-    fn player_is_sleeping(&self) -> bool {
+    pub(crate) fn player_is_sleeping(&self) -> bool {
         let player_flags = self.metadata.get(&PLAYER_FLAGS_METADATA_KEY).is_some_and(
             |value| matches!(value, ActorMetadataValue::Byte(flags) if (*flags as u8) & PLAYER_FLAGS_SLEEPING != 0),
         );
-        let extended_flags = self.metadata.get(&EXTENDED_FLAGS_METADATA_KEY).is_some_and(
-            |value| matches!(value, ActorMetadataValue::FlagsExtended(flags) if flags & EXTENDED_FLAGS_SLEEPING != 0),
-        );
-        player_flags || extended_flags
+        player_flags || self.flag(ACTOR_FLAG_SLEEPING)
+    }
+
+    /// Reads one actor flag bit from the primary or overflow flag word.
+    pub(crate) fn flag(&self, bit: u32) -> bool {
+        let (key, bit) = if bit < 64 {
+            (0, bit)
+        } else {
+            (EXTENDED_FLAGS_METADATA_KEY, bit - 64)
+        };
+        match self.metadata.get(&key) {
+            Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)) => {
+                flags & (1_u64 << bit) != 0
+            }
+            _ => false,
+        }
     }
 
     fn primed_tnt_network_offset(&self) -> f32 {
