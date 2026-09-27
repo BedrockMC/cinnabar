@@ -1,5 +1,5 @@
 use bytes::BytesMut;
-use protocol::{RecipeCatalog, decode_recipe_update};
+use ::protocol::{RecipeCatalog, decode_recipe_update};
 use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
 
 fn recipe(id: u32) -> ShapedRecipePayload {
@@ -27,7 +27,7 @@ fn recipe(id: u32) -> ShapedRecipePayload {
         ..Default::default()
     }
 }
-fn update(recipes: Vec<ShapedRecipePayload>, clear: bool) -> protocol::RecipeUpdate {
+fn update(recipes: Vec<ShapedRecipePayload>, clear: bool) -> ::protocol::RecipeUpdate {
     let mut bytes = BytesMut::new();
     CraftingDataPacket {
         shaped_recipes: recipes,
