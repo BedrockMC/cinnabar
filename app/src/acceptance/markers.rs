@@ -8,6 +8,7 @@ use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 pub(crate) const ACCEPTANCE_RUNTIME_METADATA: &str = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA";
 pub(crate) const ANCHOR_PROBE: &str = "RUST_MCBE_ANCHOR_PROBE";
 pub(crate) const ASSETS: &str = "RUST_MCBE_ASSETS";
+pub(crate) const USE_ON_IDENTITY_EVIDENCE: &str = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE";
 pub(crate) const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub(crate) const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
 pub(crate) const ERROR_COUNTERS: &str = "RUST_MCBE_ERROR_COUNTERS";
@@ -64,6 +65,10 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ACCEPTANCE_RUNTIME_METADATA, MarkerContract::ParsedEvidence),
     (ANCHOR_PROBE, MarkerContract::EnvironmentVariable),
     (ASSETS, MarkerContract::EnvironmentVariable),
+    (
+        USE_ON_IDENTITY_EVIDENCE,
+        MarkerContract::EnvironmentVariable,
+    ),
     (CAMERA_COMMITTED, MarkerContract::ParsedEvidence),
     (ERROR_COUNTERS, MarkerContract::LogOnlyDiagnostic),
     (FAST_TRANSFER_ACTION, MarkerContract::ParsedEvidence),

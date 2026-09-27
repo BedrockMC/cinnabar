@@ -16,6 +16,7 @@ pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
+mod use_on_identity_evidence;
 
 pub use forms::{
     FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
@@ -182,6 +183,7 @@ pub struct UiRuntime {
     server_selected_slot: Option<u8>,
     gameplay_hud: GameplayHudState,
     inventory_ledger: PlayerInventoryLedger,
+    use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
     inventory_pointer_gui: Option<[f32; 2]>,
     last_health_drop_millis: Option<u64>,
@@ -251,6 +253,8 @@ impl UiRuntime {
             server_selected_slot: None,
             gameplay_hud: GameplayHudState::default(),
             inventory_ledger,
+            use_on_identity_evidence:
+                use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
             inventory_pointer_gui: None,
             last_health_drop_millis: None,
@@ -686,6 +690,7 @@ impl UiRuntime {
         self.server_selected_slot = None;
         self.gameplay_hud.clear();
         self.inventory_ledger.begin_session(session_id);
+        self.use_on_identity_evidence.reset(session_id);
         self.forms.clear();
         self.inventory_pointer_gui = None;
         self.last_health_drop_millis = None;
