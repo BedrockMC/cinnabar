@@ -86,6 +86,11 @@ pub(super) struct UiGpuTextures {
 }
 
 impl UiGpuTextures {
+    pub(super) fn allocated_buckets(&self) -> &[crate::UiTextureBucket] {
+        self.allocation_plan
+            .as_ref()
+            .map_or(&[], |plan| plan.buckets())
+    }
     pub(super) fn resident(&self, catalog: &UiTextureCatalog) -> bool {
         self.allocation_identity == Some(catalog.static_identity())
             && self.allocation_plan.as_ref() == Some(catalog.plan())

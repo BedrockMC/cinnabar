@@ -115,7 +115,9 @@ pub(crate) struct UiGpu {
     sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
-    accepted_publication: Weak<UiRenderInput>,
+    // Admission watermark survives every draw rejection, even after payload drop.
+    last_admitted_revision: Option<u64>,
+    last_admitted_publication: Weak<UiRenderInput>,
     /// Specialized pipelines for the frame's view: the shared alpha pipeline
     /// and the crosshair invert variant. Written by `queue_ui_overlay` (the
     /// overlay renders through the single primary view) and read by
@@ -157,7 +159,8 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sampler,
         batches: Arc::from([]),
         accepted_revision: None,
-        accepted_publication: Weak::new(),
+        last_admitted_revision: None,
+        last_admitted_publication: Weak::new(),
         alpha_pipeline: None,
         invert_pipeline: None,
     });
@@ -195,19 +198,29 @@ pub(crate) fn prepare_ui_resources(
         record_render_rejection(&stats, input.revision, reason);
         return;
     }
-    if gpu.accepted_revision == Some(input.revision) {
-        if !gpu.accepted_publication.ptr_eq(&Arc::downgrade(input)) {
+    if let Some(previous) = gpu.last_admitted_revision {
+        let reason = if input.revision < previous {
+            Some(UiRenderRejectReason::StaleRevision {
+                current: previous,
+                rejected: input.revision,
+            })
+        } else if input.revision == previous
+            && !gpu.last_admitted_publication.ptr_eq(&Arc::downgrade(input))
+        {
+            Some(UiRenderRejectReason::RevisionConflict {
+                revision: input.revision,
+            })
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
             gpu.accepted_revision = None;
             gpu.batches = Arc::from([]);
-            record_render_rejection(
-                &stats,
-                input.revision,
-                UiRenderRejectReason::RevisionConflict {
-                    revision: input.revision,
-                },
-            );
+            record_render_rejection(&stats, input.revision, reason);
             return;
         }
+    }
+    if gpu.accepted_revision == Some(input.revision) {
         if !gpu.textures.resident(&input.textures)
             || (!input.vertices.is_empty() && gpu.vertex_buffer.is_none())
             || (!input.indices.is_empty() && gpu.index_buffer.is_none())
@@ -273,7 +286,8 @@ pub(crate) fn prepare_ui_resources(
 
     gpu.batches = Arc::clone(&input.batches);
     gpu.accepted_revision = Some(input.revision);
-    gpu.accepted_publication = Arc::downgrade(input);
+    gpu.last_admitted_revision = Some(input.revision);
+    gpu.last_admitted_publication = Arc::downgrade(input);
     stats.update(|stats| {
         stats.accepted_revision = Some(input.revision);
         stats.uploaded_vertices = input.vertices.len() as u32;
@@ -629,15 +643,16 @@ fn resolved_batches<'a>(
     accepted_revision: Option<u64>,
     batches: &'a [UiRenderBatch],
     locations: &'a [crate::UiTextureLocation],
-    bucket_count: usize,
+    buckets: &[crate::UiTextureBucket],
 ) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, crate::UiTextureLocation)>> {
     if accepted_revision.is_none()
         || batches.iter().any(|batch| {
             locations
                 .get(batch.texture_page as usize)
                 .is_none_or(|location| {
-                    location.bucket >= bucket_count
-                        || location.layer >= crate::ui::MAX_UI_TEXTURE_LAYERS
+                    buckets
+                        .get(location.bucket)
+                        .is_none_or(|bucket| location.layer >= bucket.layers)
                 })
         })
     {
@@ -665,11 +680,14 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
     ) -> RenderCommandResult {
         let gpu = gpu.into_inner();
         let pipeline_cache = pipeline_cache.into_inner();
+        if gpu.textures.buckets.len() != gpu.textures.allocated_buckets().len() {
+            return RenderCommandResult::Skip;
+        }
         let Some(batches) = resolved_batches(
             gpu.accepted_revision,
             &gpu.batches,
             &gpu.textures.locations,
-            gpu.textures.buckets.len(),
+            gpu.textures.allocated_buckets(),
         ) else {
             return RenderCommandResult::Skip;
         };
@@ -753,7 +771,7 @@ mod ordered_command_tests {
                 )
             })
             .collect::<Vec<_>>();
-        let trace = resolved_batches(Some(7), &batches, plan.locations(), plan.buckets().len())
+        let trace = resolved_batches(Some(7), &batches, plan.locations(), plan.buckets())
             .unwrap()
             .map(|(index, batch, location)| {
                 (
@@ -784,14 +802,25 @@ mod ordered_command_tests {
             ]
         );
         assert!(
-            resolved_batches(None, &batches, plan.locations(), plan.buckets().len()).is_none(),
+            resolved_batches(None, &batches, plan.locations(), plan.buckets()).is_none(),
             "rejected frame emits no commands"
         );
-        let mut malformed = batches;
+        let mut malformed = batches.clone();
         malformed.last_mut().unwrap().texture_page = 99;
         assert!(
-            resolved_batches(Some(7), &malformed, plan.locations(), plan.buckets().len()).is_none(),
+            resolved_batches(Some(7), &malformed, plan.locations(), plan.buckets()).is_none(),
             "invalid late mapping must not emit a partial prefix"
+        );
+        let mut locations = plan.locations().to_vec();
+        locations.push(crate::UiTextureLocation {
+            bucket: 2,
+            layer: 1,
+        });
+        malformed = batches;
+        malformed.last_mut().unwrap().texture_page = 4;
+        assert!(
+            resolved_batches(Some(7), &malformed, &locations, plan.buckets()).is_none(),
+            "late layer outside the actual one-layer bucket emits no prefix"
         );
     }
 }
