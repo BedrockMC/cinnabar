@@ -72,7 +72,7 @@ impl AudioPcmExpectedIdentity {
             source_sha,
             pcm_sha,
         ];
-        if hashes.iter().any(|hash| *hash == [0; 32])
+        if hashes.contains(&[0; 32])
             || source_bytes == 0
             || source_bytes > MAX_AUDIO_PCM_SOURCE_BYTES
             || !matches!(channels, 1 | 2)
