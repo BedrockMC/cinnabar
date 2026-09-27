@@ -93,6 +93,8 @@ pub struct LoadedFontAssets {
 }
 
 mod audio_carrier;
+mod audio_pcm_carrier;
+pub(crate) use audio_pcm_carrier::load_audio_pcm_assets;
 mod hud_carrier;
 mod icon_carrier;
 mod lang_carrier;
@@ -256,6 +258,10 @@ impl std::fmt::Debug for LoadedAssets {
 
 #[derive(Debug, Error)]
 pub enum AssetStartupError {
+    #[error(
+        "invalid local finite PCM carrier at {path}: {detail}; rebuild with make audio-pcm-assets"
+    )]
+    AudioPcm { path: PathBuf, detail: String },
     #[error("could not read compiled asset blob at {path}: {source}")]
     Read {
         path: PathBuf,

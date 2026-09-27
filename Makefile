@@ -51,6 +51,8 @@ LANG_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbelang
 LANG_ASSET_REPORT ?= .local/assets/compiled/lang-assets.json
 AUDIO_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeaud
 AUDIO_ASSET_REPORT ?= .local/assets/compiled/audio-assets.json
+AUDIO_PCM_BLOB ?= .local/assets/compiled/vanilla-v1.mcbepcm
+AUDIO_PCM_REPORT ?= .local/assets/compiled/audio-pcm-assets.json
 ICON_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeico
 ICON_ASSET_REPORT ?= .local/assets/compiled/icon-assets.json
 CINNABAR_CLOUDS_PNG ?=
@@ -67,6 +69,7 @@ LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc 
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 LANG_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- lang-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LANG_ASSET_BLOB)" --report "$(LANG_ASSET_REPORT)"
 AUDIO_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_ASSET_BLOB)" --report "$(AUDIO_ASSET_REPORT)"
+AUDIO_PCM_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-pcm-assets --pack "$(PACK_DIR)" --catalog "$(AUDIO_ASSET_BLOB)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_PCM_BLOB)" --report "$(AUDIO_PCM_REPORT)"
 ICON_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- icon-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ICON_ASSET_BLOB)" --report "$(ICON_ASSET_REPORT)"
 CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
@@ -141,6 +144,10 @@ lang-assets: $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT)
 
 audio-assets: $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT)
 
+# Explicit opt-in finite predecode; not part of startup or playback activation.
+.PHONY: audio-pcm-assets
+audio-pcm-assets: $(AUDIO_PCM_BLOB) $(AUDIO_PCM_REPORT)
+
 icon-assets: $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT)
 
 $(UI_FONT_SOURCE) $(UI_FONT_FALLBACK_SOURCE) $(UI_FONT_DIR)/LICENSE $(UI_FONT_FALLBACK_DIR)/LICENSE: $(UI_FONT_SOURCE_MANIFEST)
@@ -209,6 +216,12 @@ $(AUDIO_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_
 
 $(AUDIO_ASSET_REPORT): $(AUDIO_ASSET_BLOB)
 	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(AUDIO_ASSET_COMPILE); fi
+
+$(AUDIO_PCM_BLOB): $(AUDIO_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) $(PACK_DIR)/sounds/ambient/underwater/loop/underwater_ambience.fsb
+	$(AUDIO_PCM_COMPILE)
+
+$(AUDIO_PCM_REPORT): $(AUDIO_PCM_BLOB)
+	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(AUDIO_PCM_COMPILE); fi
 
 core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))

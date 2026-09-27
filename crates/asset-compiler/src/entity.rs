@@ -25,6 +25,7 @@ mod source;
 
 use geometry::parse_geometry;
 use json::{parse_fully_unique_json, parse_semantic_json, parse_unique_json};
+pub(crate) use source::open_source_handle;
 use source::read_bounded_source;
 
 #[allow(unused_imports)] // Integration publishes this private leaf after review.
