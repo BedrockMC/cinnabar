@@ -1,4 +1,6 @@
 use std::mem::size_of;
+mod artwork;
+use artwork::{GpuArtwork, draw_spans};
 
 use crate::actor::{
     ActorDrawFrame, ActorDrawWitness, ActorGpuInstance, ActorPrepareWitness, ActorPresentationGate,
@@ -29,10 +31,10 @@ use bevy::{
             ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
             DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache, PollType,
             RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
-            TextureViewDimension, Variants, VertexState,
+            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
+            TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDataOrder,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
+            TextureView, TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -100,6 +102,12 @@ fn install_actor_render(app: &mut App) {
 
 #[derive(Resource)]
 struct ActorGpu {
+    artwork: GpuArtwork,
+    player_material: Buffer,
+    neutral_material: Buffer,
+    spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    artwork_identity: [u8; 32],
+    artwork_current: bool,
     instance_buffer: Buffer,
     previous_bone_buffer: Buffer,
     current_bone_buffer: Buffer,
@@ -125,7 +133,6 @@ struct ActorSkinUploadPlan {
 
 fn actor_skin_upload_plan(frame: &ActorRenderFrame) -> Option<ActorSkinUploadPlan> {
     if frame.rig.instances.is_empty()
-        || frame.skins_rgba8.is_empty()
         || !frame.skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES)
     {
         return None;
@@ -136,7 +143,11 @@ fn actor_skin_upload_plan(frame: &ActorRenderFrame) -> Option<ActorSkinUploadPla
             .rig
             .instances
             .iter()
-            .any(|instance| instance.texture_layer as usize >= layer_count)
+            .enumerate()
+            .any(|(index, instance)| {
+                frame.instance_pages.get(index).copied().unwrap_or(0) == 0
+                    && instance.texture_layer as usize >= layer_count
+            })
     {
         return None;
     }
@@ -147,7 +158,7 @@ fn actor_skin_upload_plan(frame: &ActorRenderFrame) -> Option<ActorSkinUploadPla
 
 fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
     let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("nearest standard player skin sampler"),
+        label: Some("nearest shared actor artwork sampler"),
         address_mode_u: AddressMode::ClampToEdge,
         address_mode_v: AddressMode::ClampToEdge,
         address_mode_w: AddressMode::ClampToEdge,
@@ -157,6 +168,20 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         ..default()
     });
     commands.insert_resource(ActorGpu {
+        artwork: GpuArtwork::default(),
+        player_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("unchanged player material class"),
+            contents: bytemuck::cast_slice(&[0u32; 4]),
+            usage: BufferUsages::UNIFORM,
+        }),
+        neutral_material: render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("neutral binary-alpha material class"),
+            contents: bytemuck::cast_slice(&[1u32, 0, 0, 0]),
+            usage: BufferUsages::UNIFORM,
+        }),
+        spans: Vec::new(),
+        artwork_identity: [0; 32],
+        artwork_current: false,
         instance_buffer: render_device.create_buffer(&BufferDescriptor {
             label: Some("bounded shared actor instance arena"),
             size: (crate::actor::MAX_RENDERED_PLAYERS * size_of::<ActorGpuInstance>()) as u64,
@@ -197,8 +222,20 @@ fn prepare_actor_resources(
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ActorGpu>,
     witness: Res<ActorRuntimeWitness>,
+    gate: Res<ActorPresentationGate>,
+    tracker: Res<ActorDrawTracker>,
 ) {
     let rig = &frame.rig;
+    let artwork_valid = gpu
+        .artwork
+        .prepare(&frame.artwork, &render_device, &render_queue);
+    gpu.artwork_current = artwork_valid;
+    if gpu.artwork_identity != frame.artwork.identity() {
+        gate.clear();
+        tracker.clear();
+        gpu.artwork_identity = frame.artwork.identity();
+        gpu.frame_generation = u64::MAX;
+    }
     let skin_upload_plan = actor_skin_upload_plan(&frame);
     let structurally_valid = !rig.instances.is_empty()
         && rig.instances.len() <= crate::actor::MAX_RENDERED_PLAYERS
@@ -207,8 +244,12 @@ fn prepare_actor_resources(
             <= crate::actor::MAX_RENDERED_PLAYERS * crate::actor::MAX_RENDER_BONES_PER_ACTOR
         && rig.manifest.len() == rig.instances.len()
         && rig.maximum_vertex_count != 0
-        && skin_upload_plan.is_some();
+        && skin_upload_plan.is_some()
+        && frame.instance_pages.len() == rig.instances.len();
     if gpu.geometry_revision != rig.geometry_revision {
+        gate.clear();
+        tracker.clear();
+        gpu.frame_generation = u64::MAX;
         if rig.geometry_vertices.is_empty() || rig.geometry_spans.is_empty() {
             gpu.geometry_vertex_buffer = None;
             gpu.geometry_span_buffer = None;
@@ -230,8 +271,33 @@ fn prepare_actor_resources(
         }
         gpu.geometry_revision = rig.geometry_revision;
         gpu.bind_group = None;
+        gpu.artwork.invalidate_bindings();
     }
     if gpu.frame_generation != rig.frame_generation {
+        let lifetime_changed = gpu.manifest.len() != rig.manifest.len()
+            || gpu
+                .manifest
+                .iter()
+                .zip(rig.manifest.iter())
+                .any(|(old, new)| {
+                    let old = old.identity;
+                    let new = new.identity;
+                    (
+                        old.session_id,
+                        old.dimension,
+                        old.runtime_id,
+                        old.spawn_revision,
+                    ) != (
+                        new.session_id,
+                        new.dimension,
+                        new.runtime_id,
+                        new.spawn_revision,
+                    )
+                });
+        if lifetime_changed {
+            gate.clear();
+            tracker.clear();
+        }
         if structurally_valid {
             render_queue.write_buffer(
                 &gpu.instance_buffer,
@@ -251,17 +317,23 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
+            gpu.spans = draw_spans(&frame.instance_pages);
         } else {
             gpu.instance_count = 0;
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);
+            gpu.spans.clear();
+            gate.clear();
+            tracker.clear();
         }
         gpu.frame_generation = rig.frame_generation;
     }
-    if gpu.skin_revision != frame.skin_revision {
+    if gpu.skin_revision != frame.skin_revision
+        || (structurally_valid && gpu.skin_texture.is_none())
+    {
+        gate.clear();
+        tracker.clear();
         let Some(plan) = skin_upload_plan else {
-            gpu.skin_texture = None;
-            gpu.skin_view = None;
             gpu.instance_count = 0;
             gpu.skin_revision = frame.skin_revision;
             gpu.bind_group = None;
@@ -276,32 +348,58 @@ fn prepare_actor_resources(
             });
             return;
         };
-        let texture = render_device.create_texture_with_data(
-            &render_queue,
-            &TextureDescriptor {
-                label: Some("bounded normalized server player skins"),
-                size: Extent3d {
+        if gpu.skin_texture.is_none() {
+            let texture = render_device.create_texture_with_data(
+                &render_queue,
+                &TextureDescriptor {
+                    label: Some("bounded normalized server player skins"),
+                    size: Extent3d {
+                        width: STANDARD_SKIN_SIDE as u32,
+                        height: STANDARD_SKIN_SIDE as u32,
+                        depth_or_array_layers: crate::actor::MAX_RENDERED_PLAYERS as u32,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Rgba8UnormSrgb,
+                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                    view_formats: &[],
+                },
+                TextureDataOrder::LayerMajor,
+                &vec![0; crate::actor::MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES],
+            );
+            let view = texture.create_view(&TextureViewDescriptor {
+                label: Some("bounded normalized server player skin array"),
+                dimension: Some(TextureViewDimension::D2Array),
+                ..default()
+            });
+            gpu.skin_texture = Some(texture);
+            gpu.skin_view = Some(view);
+        }
+        if plan.layer_count != 0 {
+            render_queue.write_texture(
+                TexelCopyTextureInfo {
+                    texture: gpu
+                        .skin_texture
+                        .as_ref()
+                        .expect("player allocation initialized"),
+                    mip_level: 0,
+                    origin: default(),
+                    aspect: default(),
+                },
+                &frame.skins_rgba8,
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(STANDARD_SKIN_SIDE as u32 * 4),
+                    rows_per_image: Some(STANDARD_SKIN_SIDE as u32),
+                },
+                Extent3d {
                     width: STANDARD_SKIN_SIDE as u32,
                     height: STANDARD_SKIN_SIDE as u32,
                     depth_or_array_layers: plan.layer_count,
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            TextureDataOrder::LayerMajor,
-            &frame.skins_rgba8,
-        );
-        let view = texture.create_view(&TextureViewDescriptor {
-            label: Some("bounded normalized server player skin array"),
-            dimension: Some(TextureViewDimension::D2Array),
-            ..default()
-        });
-        gpu.skin_texture = Some(texture);
-        gpu.skin_view = Some(view);
+            );
+        }
         gpu.skin_revision = frame.skin_revision;
         gpu.bind_group = None;
     }
@@ -415,6 +513,16 @@ fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 8,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(16),
+                },
+                count: None,
+            },
         ],
     )
 }
@@ -423,7 +531,7 @@ fn actor_pipeline_descriptor(
     bind_group_layout: BindGroupLayoutDescriptor,
 ) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
-        label: Some("instanced standard Bedrock biped pipeline".into()),
+        label: Some("bounded shared actor pipeline".into()),
         layout: vec![bind_group_layout],
         vertex: VertexState {
             shader: ACTOR_SHADER_HANDLE,
@@ -506,9 +614,65 @@ fn prepare_actor_bind_group(
         .uniforms
         .buffer()
         .expect("a dynamic view binding always owns a GPU buffer");
-    if gpu.bind_group.is_some() && gpu.view_buffer_id == Some(view_buffer.id()) {
+    if gpu.bind_group.is_some()
+        && gpu.view_buffer_id == Some(view_buffer.id())
+        && gpu
+            .artwork
+            .pages
+            .iter()
+            .all(|page| page.bind_group.is_some())
+    {
         return;
     }
+    let generic_groups: Vec<_> = gpu
+        .artwork
+        .pages
+        .iter()
+        .map(|page| {
+            render_device.create_bind_group(
+                "neutral actor page bind group",
+                &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: view_binding.clone(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: gpu.instance_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: geometry_vertex_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: geometry_span_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: gpu.previous_bone_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 5,
+                        resource: gpu.current_bone_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 6,
+                        resource: BindingResource::TextureView(&page.view),
+                    },
+                    BindGroupEntry {
+                        binding: 7,
+                        resource: BindingResource::Sampler(&gpu.sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 8,
+                        resource: gpu.neutral_material.as_entire_binding(),
+                    },
+                ],
+            )
+        })
+        .collect();
     gpu.bind_group = Some(render_device.create_bind_group(
         "instanced standard actor bind group",
         &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
@@ -545,8 +709,15 @@ fn prepare_actor_bind_group(
                 binding: 7,
                 resource: BindingResource::Sampler(&gpu.sampler),
             },
+            BindGroupEntry {
+                binding: 8,
+                resource: gpu.player_material.as_entire_binding(),
+            },
         ],
     ));
+    for (page, group) in gpu.artwork.pages.iter_mut().zip(generic_groups) {
+        page.bind_group = Some(group);
+    }
     gpu.view_buffer_id = Some(view_buffer.id());
 }
 
@@ -589,6 +760,7 @@ fn queue_actors(
     }
     let draw_function = params.draw_functions.read().id::<DrawActorCommands>();
     let mut queued = false;
+    let mut intended_view = None;
     for (view_entity, main_entity, view, msaa) in &params.views {
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
@@ -622,17 +794,27 @@ fn queue_actors(
             *next_tick,
         );
         queued = true;
+        intended_view = Some(intended_view.map_or(view_entity.to_bits(), |current: u64| {
+            current.min(view_entity.to_bits())
+        }));
     }
     if queued {
         let Some(draw_generation) = next_draw_generation.checked_add(1) else {
             return;
         };
         *next_draw_generation = draw_generation;
-        let _ = params.draw_tracker.begin(ActorDrawFrame {
-            frame_generation: params.gpu.frame_generation,
-            draw_generation,
-            manifest: std::sync::Arc::clone(&params.gpu.manifest),
-        });
+        let _ = params.draw_tracker.begin(
+            ActorDrawFrame {
+                artwork_identity: params.gpu.artwork_identity,
+                skin_revision: params.gpu.skin_revision,
+                geometry_revision: params.gpu.geometry_revision,
+                frame_generation: params.gpu.frame_generation,
+                draw_generation,
+                manifest: std::sync::Arc::clone(&params.gpu.manifest),
+            },
+            intended_view.expect("queued view exists"),
+            &params.gpu.spans,
+        );
     }
     params.witness.observe_queue(ActorQueueWitness {
         prepared_instances: params.gpu.instance_count,
@@ -642,29 +824,7 @@ fn queue_actors(
     });
 }
 
-type DrawActorCommands = (SetItemPipeline, SetActorBindGroup<0>, DrawActors);
-
-struct SetActorBindGroup<const I: usize>;
-
-impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetActorBindGroup<I> {
-    type Param = SRes<ActorGpu>;
-    type ViewQuery = Read<ViewUniformOffset>;
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        gpu: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let Some(bind_group) = &gpu.into_inner().bind_group else {
-            return RenderCommandResult::Skip;
-        };
-        pass.set_bind_group(I, bind_group, &[view_offset.offset]);
-        RenderCommandResult::Success
-    }
-}
+type DrawActorCommands = (SetItemPipeline, DrawActors);
 
 struct DrawActors;
 
@@ -674,23 +834,46 @@ impl<P: PhaseItem> RenderCommand<P> for DrawActors {
         SRes<ActorDrawTracker>,
         SRes<ActorRuntimeWitness>,
     );
-    type ViewQuery = ();
+    type ViewQuery = (Entity, Read<ViewUniformOffset>);
     type ItemQuery = ();
 
     fn render<'w>(
         _item: &P,
-        _view: ROQueryItem<'w, '_, Self::ViewQuery>,
+        view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let (gpu, tracker, witness) = params;
         let gpu = gpu.into_inner();
-        pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count);
-        tracker.into_inner().record_draw();
+        let tracker = tracker.into_inner();
+        let mut executed_instances = 0;
+        for span in &gpu.spans {
+            if span.page != 0 && !gpu.artwork_current {
+                continue;
+            }
+            let bind_group = if span.page == 0 {
+                gpu.bind_group.as_ref()
+            } else {
+                gpu.artwork
+                    .pages
+                    .get(usize::from(span.page) - 1)
+                    .and_then(|page| page.bind_group.as_ref())
+            };
+            let Some(bind_group) = bind_group else {
+                continue;
+            };
+            pass.set_bind_group(0, bind_group, &[view.1.offset]);
+            pass.draw(
+                0..gpu.maximum_vertex_count,
+                span.first..span.first + span.count,
+            );
+            tracker.record_draw(view.0.to_bits(), *span);
+            executed_instances += span.count;
+        }
         witness.into_inner().observe_draw(ActorDrawWitness {
-            executed: true,
-            instances: gpu.instance_count,
+            executed: executed_instances != 0,
+            instances: executed_instances,
             maximum_vertices: gpu.maximum_vertex_count,
         });
         RenderCommandResult::Success
@@ -756,146 +939,4 @@ fn submit_actor_presented_frame(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use bevy::{
-        app::SubApp,
-        asset::Assets,
-        core_pipeline::core_3d::{Opaque3d, Transparent3d},
-        ecs::schedule::Schedule,
-        prelude::{App, Shader},
-        render::{
-            ExtractSchedule, Render, RenderApp, RenderStartup,
-            render_phase::DrawFunctions,
-            renderer::{RenderDevice, RenderQueue, WgpuWrapper},
-        },
-    };
-
-    use super::{
-        ACTOR_SHADER_SOURCE, ActorGpu, ActorPipelineKey, ActorPipelineSpecializer,
-        ActorRenderInstalled, ActorRenderPlugin, actor_bind_group_layout,
-        actor_pipeline_descriptor, actor_skin_upload_plan,
-    };
-
-    #[test]
-    fn shared_skin_layer_prepares_one_texture_layer_for_multiple_actors() {
-        let mut frame = crate::actor::ActorRenderFrame::default();
-        frame.rig.instances = Arc::from([
-            crate::actor::ActorGpuInstance {
-                texture_layer: 0,
-                ..Default::default()
-            },
-            crate::actor::ActorGpuInstance {
-                texture_layer: 0,
-                ..Default::default()
-            },
-        ]);
-        frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES].into();
-
-        let plan = actor_skin_upload_plan(&frame)
-            .expect("a shared normalized skin family remains drawable");
-
-        assert_eq!(plan.layer_count, 1);
-    }
-
-    #[test]
-    fn skin_upload_preparation_rejects_misaligned_bytes_and_out_of_range_layers() {
-        let mut frame = crate::actor::ActorRenderFrame::default();
-        frame.rig.instances = Arc::from([crate::actor::ActorGpuInstance {
-            texture_layer: 0,
-            ..Default::default()
-        }]);
-        frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES - 1].into();
-        assert!(actor_skin_upload_plan(&frame).is_none());
-
-        frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES].into();
-        Arc::make_mut(&mut frame.rig.instances)[0].texture_layer = 1;
-        assert!(actor_skin_upload_plan(&frame).is_none());
-    }
-
-    fn app_with_noop_render_sub_app() -> App {
-        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-        let mut render_app = SubApp::new();
-        render_app
-            .insert_resource(RenderDevice::from(device))
-            .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))))
-            .insert_resource(DrawFunctions::<Opaque3d>::default())
-            .insert_resource(DrawFunctions::<Transparent3d>::default())
-            .add_schedule(Schedule::new(RenderStartup))
-            .add_schedule(Render::base_schedule())
-            .add_schedule(Schedule::new(ExtractSchedule));
-        let mut app = App::new();
-        app.insert_resource(Assets::<Shader>::default())
-            .insert_sub_app(RenderApp, render_app);
-        app
-    }
-
-    #[test]
-    fn actor_shader_parses_as_wgsl() {
-        let source = ACTOR_SHADER_SOURCE.replace(
-            "#import bevy_render::view::View",
-            "struct View { clip_from_world: mat4x4<f32>, }",
-        );
-        naga::front::wgsl::parse_str(&source).expect("actor shader parses");
-    }
-
-    #[test]
-    fn plugin_install_is_idempotent_and_starts_one_shared_gpu_state() {
-        let mut app = app_with_noop_render_sub_app();
-        app.add_plugins(ActorRenderPlugin);
-        app.finish();
-
-        let render_app = app.sub_app_mut(RenderApp);
-        assert!(
-            render_app
-                .world()
-                .contains_resource::<ActorRenderInstalled>()
-        );
-        render_app.world_mut().run_schedule(RenderStartup);
-        assert!(render_app.world().contains_resource::<ActorGpu>());
-    }
-
-    #[test]
-    fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout() {
-        use bevy::prelude::Msaa;
-        use bevy::render::{
-            render_resource::{ShaderStages, Specializer},
-            view::ViewTarget,
-        };
-
-        let layout = actor_bind_group_layout();
-        assert_eq!(layout.entries.len(), 8);
-        assert_eq!(layout.entries[0].visibility, ShaderStages::VERTEX);
-        assert_eq!(layout.entries[1].visibility, ShaderStages::VERTEX);
-        assert_eq!(layout.entries[2].visibility, ShaderStages::VERTEX);
-        assert_eq!(layout.entries[3].visibility, ShaderStages::VERTEX);
-        assert_eq!(layout.entries[4].visibility, ShaderStages::VERTEX);
-        assert_eq!(layout.entries[5].visibility, ShaderStages::VERTEX);
-        assert_eq!(layout.entries[6].visibility, ShaderStages::FRAGMENT);
-        assert_eq!(layout.entries[7].visibility, ShaderStages::FRAGMENT);
-
-        let mut descriptor = actor_pipeline_descriptor(layout.clone());
-        ActorPipelineSpecializer
-            .specialize(
-                ActorPipelineKey {
-                    msaa: Msaa::Sample4,
-                    hdr: true,
-                },
-                &mut descriptor,
-            )
-            .expect("actor pipeline specializes");
-        assert_eq!(descriptor.multisample.count, 4);
-        assert_eq!(
-            descriptor.fragment.as_ref().unwrap().targets[0]
-                .as_ref()
-                .unwrap()
-                .format,
-            ViewTarget::TEXTURE_FORMAT_HDR
-        );
-
-        let app = app_with_noop_render_sub_app();
-        let render_device = app.sub_app(RenderApp).world().resource::<RenderDevice>();
-        render_device.create_bind_group_layout("actor layout validation", &layout.entries);
-    }
-}
+mod tests;

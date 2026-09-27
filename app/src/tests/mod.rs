@@ -263,6 +263,7 @@ fn binding_teleport_completion(
         .unwrap()
 }
 
+mod actor_rest_presentation;
 mod audio;
 mod audio_camera;
 mod camera;
@@ -282,5 +283,6 @@ mod publication_pressure;
 mod runtime_metrics;
 mod servers;
 mod teleport;
+mod viewmodel_presentation;
 
 use core::{complete_world_stream_decodes, overworld_biome_payload, settled_world_snapshot};

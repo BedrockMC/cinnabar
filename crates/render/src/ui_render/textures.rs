@@ -13,18 +13,18 @@ use crate::ui::UiRenderRejectReason;
 use crate::{UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan};
 
 /// Observes schedule-separated device-resource changes, not arbitrary context IDs.
-pub(super) struct DeviceObservation {
+pub(crate) struct DeviceObservation {
     last_observed: bevy::ecs::change_detection::Tick,
     invalidated: bool,
 }
 impl DeviceObservation {
-    pub(super) fn new(now: bevy::ecs::change_detection::Tick) -> Self {
+    pub(crate) fn new(now: bevy::ecs::change_detection::Tick) -> Self {
         Self {
             last_observed: now,
             invalidated: false,
         }
     }
-    pub(super) fn observe(
+    pub(crate) fn observe(
         &mut self,
         changed: bevy::ecs::change_detection::Tick,
         now: bevy::ecs::change_detection::Tick,

@@ -154,6 +154,17 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     let mut interaction = InteractionOriginSnapshot::default();
     interaction.publish_from_local_player_frame(&local_frame);
 
+    let mut runtime = UiRuntime::new(1);
+    let input = b"item.stone.name=Session stone\n";
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+    assert_eq!(
+        runtime.localized_item_name("minecraft:stone"),
+        "Session stone"
+    );
+
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     app.add_message::<AppExit>()
@@ -162,7 +173,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(runtime)
         .insert_resource(ClientWorld::default())
         .insert_resource(movement)
         .insert_resource(physics)
@@ -190,6 +201,12 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     assert_eq!(menu.view().screen, MenuScreen::Home);
     assert!(menu.view().message.is_none());
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntime>()
+            .localized_item_name("minecraft:stone"),
+        "Stone"
+    );
     let movement = app.world().resource::<MovementTicker>();
     assert!(!movement.physics_is_authorized());
     assert_eq!(movement.pending_count(), 0);

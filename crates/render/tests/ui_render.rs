@@ -13,13 +13,13 @@ use std::sync::Arc;
 use bevy::{
     app::SubApp,
     asset::Assets,
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
+    core_pipeline::core_3d::Transparent3d,
     ecs::{schedule::Schedule, system::RunSystemOnce},
     prelude::{App, Shader},
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        render_resource::{BlendFactor, CompareFunction},
+        render_resource::BlendFactor,
         renderer::{RenderDevice, RenderQueue, WgpuWrapper},
     },
 };
@@ -69,16 +69,10 @@ fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
     assert_eq!(layout.entries.len(), 3);
     let descriptor = ui_pipeline_descriptor(layout);
-    // The overlay is queued into Transparent3d, whose pass carries a depth
-    // attachment, so the pipeline must declare a matching depth-stencil state.
-    // It stays depth-neutral: never writes depth and always passes the test.
-    let depth = descriptor
-        .depth_stencil
-        .as_ref()
-        .expect("overlay must declare a depth-stencil state for the Transparent3d pass");
-    assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
-    assert!(!depth.depth_write_enabled);
-    assert_eq!(depth.depth_compare, CompareFunction::Always);
+    assert!(
+        descriptor.depth_stencil.is_none(),
+        "dedicated HUD pass has no depth"
+    );
     let blend = descriptor.fragment.unwrap().targets[0]
         .as_ref()
         .unwrap()
@@ -543,4 +537,245 @@ fn app_with_noop_render_sub_app() -> App {
     app.insert_resource(Assets::<Shader>::default())
         .insert_sub_app(RenderApp, render_app);
     app
+}
+
+#[test]
+fn ui_only_plugin_never_registers_a_duplicate_transparent_draw() {
+    use bevy::{
+        core_pipeline::core_3d::graph::{Core3d, Node3d},
+        render::render_graph::{EmptyNode, RenderGraph},
+    };
+    let mut app = app_with_noop_render_sub_app();
+    let mut core = RenderGraph::default();
+    core.add_node(Node3d::MainTransparentPass, EmptyNode);
+    core.add_node(Node3d::EndMainPass, EmptyNode);
+    let mut graphs = RenderGraph::default();
+    graphs.add_sub_graph(Core3d, core);
+    app.sub_app_mut(RenderApp).insert_resource(graphs);
+    app.add_plugins(UiRenderPlugin);
+    app.finish();
+    // Compare the first assigned ID against an independently empty registry,
+    // rather than querying for a type that could never have been registered.
+    let empty = DrawFunctions::<Transparent3d>::default();
+    let expected = empty.write().add(TestTransparentDraw);
+    let actual = app
+        .sub_app_mut(RenderApp)
+        .world_mut()
+        .resource::<DrawFunctions<Transparent3d>>()
+        .write()
+        .add(TestTransparentDraw);
+    assert_eq!(actual, expected);
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<RenderGraph>()
+            .get_sub_graph(Core3d)
+            .unwrap()
+            .get_node_state(ui_render::UiOverlayLabel)
+            .is_ok()
+    );
+}
+
+struct TestTransparentDraw;
+#[test]
+fn unchanged_view_pipeline_pairs_update_in_place_and_departed_views_are_removed() {
+    use bevy::{prelude::Entity, render::render_resource::CachedRenderPipelineId};
+    use std::collections::BTreeMap;
+    use ui_render::overlay::{cache_view_pipeline_pair, retain_view_pipeline_entries};
+    let live = Entity::from_raw_u32(0).unwrap();
+    let departed = Entity::from_raw_u32(1).unwrap();
+    let pair = (
+        CachedRenderPipelineId::INVALID,
+        CachedRenderPipelineId::INVALID,
+    );
+    let mut entries = BTreeMap::new();
+    cache_view_pipeline_pair(&mut entries, live, pair);
+    cache_view_pipeline_pair(&mut entries, departed, pair);
+    let retained_address = entries.get(&live).unwrap() as *const _;
+    for _ in 0..16 {
+        retain_view_pipeline_entries(&mut entries, |view| view == live || view == departed);
+        cache_view_pipeline_pair(&mut entries, live, pair);
+        assert_eq!(entries.get(&live).unwrap() as *const _, retained_address);
+        assert_eq!(entries.len(), 2);
+    }
+    retain_view_pipeline_entries(&mut entries, |view| view == live);
+    assert_eq!(entries.len(), 1);
+    assert!(!entries.contains_key(&departed));
+    assert_eq!(*entries.get(&live).unwrap(), pair);
+}
+#[test]
+fn ui_only_overlay_preserves_partial_camera_viewport_and_resolution_override() {
+    use bevy::{
+        camera::{MainPassResolutionOverride, Viewport},
+        prelude::UVec2,
+    };
+    use ui_render::overlay::overlay_viewport;
+    let viewport = Viewport {
+        physical_position: UVec2::new(13, 27),
+        physical_size: UVec2::new(300, 200),
+        depth: 0.2..0.8,
+    };
+    let copied = overlay_viewport(Some(&viewport), None).unwrap();
+    assert_eq!(copied.physical_position, viewport.physical_position);
+    assert_eq!(copied.physical_size, viewport.physical_size);
+    assert_eq!(copied.depth, viewport.depth);
+    let override_size = MainPassResolutionOverride(UVec2::new(150, 100));
+    let smaller = overlay_viewport(Some(&viewport), Some(&override_size)).unwrap();
+    assert_eq!(smaller.physical_position, viewport.physical_position);
+    assert_eq!(smaller.physical_size, override_size.0);
+    assert_eq!(smaller.depth, viewport.depth);
+    let whole_override = overlay_viewport(None, Some(&override_size)).unwrap();
+    assert_eq!(whole_override.physical_position, UVec2::ZERO);
+    assert_eq!(whole_override.physical_size, override_size.0);
+    assert!(overlay_viewport(None, None).is_none());
+}
+#[test]
+fn empty_overlay_never_selects_retained_pipeline_after_target_change() {
+    use bevy::{
+        camera::{MainPassResolutionOverride, Viewport},
+        prelude::{Entity, UVec2},
+    };
+    use std::collections::BTreeMap;
+    use ui_render::overlay::{overlay_pipeline_pair, overlay_viewport};
+    let view = Entity::from_raw_u32(0).unwrap();
+    let batch = UiRenderBatch::new(
+        0,
+        UiScissor::new(0, 0, 64, 64),
+        0,
+        6,
+        render::UI_BLEND_ALPHA,
+    );
+    let mut entries = BTreeMap::new();
+    // Target specialization keys represent the retained pipeline pair's actual
+    // compatibility class. This tests selection, not GPU compilation.
+    entries.insert(view, (false, 1u32));
+    assert_eq!(
+        overlay_pipeline_pair(&[batch], &entries, view),
+        Some(&(false, 1))
+    );
+    let changed_target = (true, 4u32);
+    assert_ne!(*entries.get(&view).unwrap(), changed_target);
+    assert!(overlay_pipeline_pair(&[], &entries, view).is_none());
+    assert_eq!(entries.len(), 1);
+    let viewport = Viewport {
+        physical_position: UVec2::new(4, 8),
+        physical_size: UVec2::new(64, 64),
+        ..Default::default()
+    };
+    let override_size = MainPassResolutionOverride(UVec2::new(32, 32));
+    let effective = overlay_viewport(Some(&viewport), Some(&override_size)).unwrap();
+    assert_eq!(effective.physical_position, viewport.physical_position);
+    assert_eq!(effective.physical_size, override_size.0);
+    // Nonempty preparation must supply the new specialization before selection.
+    *entries.get_mut(&view).unwrap() = changed_target;
+    assert_eq!(
+        overlay_pipeline_pair(&[batch], &entries, view),
+        Some(&changed_target)
+    );
+    assert_eq!(
+        overlay_viewport(Some(&viewport), Some(&override_size))
+            .unwrap()
+            .depth,
+        effective.depth
+    );
+}
+#[test]
+fn current_hand_coverage_omits_only_its_quad_and_missing_stale_coverage_keeps_cpu() {
+    use bevy::prelude::Entity;
+    use ui_render::{UiHandCoverage, overlay::retained_batch_ranges};
+    let view = Entity::from_raw_u32(0).unwrap();
+    let main = Entity::from_raw_u32(1).unwrap();
+    let coverage = UiHandCoverage::default();
+    let batch = UiRenderBatch::new(1, UiScissor::new(2, 3, 4, 5), 0, 18, render::UI_BLEND_ALPHA);
+    assert!(coverage.range(view, main, Some(7), &[batch], 18).is_none());
+    coverage.clear();
+    coverage.record(view, main, 7, 6, 1);
+    let range = coverage.range(view, main, Some(7), &[batch], 18).unwrap();
+    assert_eq!(
+        retained_batch_ranges(&batch, Some(&range)),
+        [Some(0..6), Some(12..18)]
+    );
+    assert_eq!(retained_batch_ranges(&batch, None), [Some(0..18), None]);
+    assert!(coverage.range(main, main, Some(7), &[batch], 18).is_none());
+    assert!(coverage.range(view, view, Some(7), &[batch], 18).is_none());
+    assert!(coverage.range(view, main, Some(8), &[batch], 18).is_none());
+    assert!(
+        coverage
+            .range(view, main, Some(7), &[batch, batch], 18)
+            .is_none()
+    );
+    assert!(coverage.range(view, main, Some(7), &[batch], 11).is_none());
+    coverage.clear();
+    assert!(coverage.range(view, main, Some(7), &[batch], 18).is_none());
+    // An unchanged UI revision/view cannot reuse last render-frame coverage.
+    assert_eq!(retained_batch_ranges(&batch, None), [Some(0..18), None]);
+    assert_eq!(batch.texture_page, 1);
+    assert_eq!(batch.scissor, UiScissor::new(2, 3, 4, 5));
+    assert_eq!(batch.blend_mode, render::UI_BLEND_ALPHA);
+}
+
+#[test]
+fn actual_prepare_clears_hand_coverage_on_unchanged_empty_and_rejected_input() {
+    use bevy::prelude::Entity;
+    use ui_render::UiHandCoverage;
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(UiRenderPlugin);
+    app.finish();
+    let stats = app.world().resource::<UiRenderStats>().clone();
+    let render = app.sub_app_mut(RenderApp);
+    render.world_mut().run_schedule(RenderStartup);
+    let mut scene = UiRenderScene::default();
+    let input = fixture_draw_list(1);
+    scene.publish(input.clone(), &stats).unwrap();
+    render.world_mut().insert_resource(scene.clone());
+    render
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    let view = Entity::from_raw_u32(0).unwrap();
+    let main = Entity::from_raw_u32(1).unwrap();
+    for state in 0..3 {
+        let coverage = render.world().resource::<UiHandCoverage>();
+        coverage.record(view, main, 1, 12, 1);
+        assert_eq!(
+            coverage.range(view, main, Some(1), &input.batches, 18),
+            Some(12..18)
+        );
+        if state == 1 {
+            scene.input = None;
+        }
+        if state == 2 {
+            let mut invalid = input.clone();
+            invalid.indices = Arc::from([u32::MAX]);
+            scene.input = Some(Arc::new(invalid));
+        }
+        render.world_mut().insert_resource(scene.clone());
+        render
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert!(
+            render
+                .world()
+                .resource::<UiHandCoverage>()
+                .range(view, main, Some(1), &input.batches, 18)
+                .is_none()
+        );
+        if state == 0 {
+            assert_eq!(stats.snapshot().accepted_revision, Some(1));
+        } else {
+            assert_eq!(stats.snapshot().accepted_revision, None);
+        }
+    }
+}
+impl bevy::render::render_phase::Draw<Transparent3d> for TestTransparentDraw {
+    fn draw<'w>(
+        &mut self,
+        _world: &'w bevy::prelude::World,
+        _pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
+        _view: bevy::prelude::Entity,
+        _item: &Transparent3d,
+    ) -> Result<(), bevy::render::render_phase::DrawError> {
+        Ok(())
+    }
 }

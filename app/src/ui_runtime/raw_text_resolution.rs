@@ -63,9 +63,7 @@ impl UiRuntime {
         &self,
         document: &protocol::RawTextDocument,
     ) -> protocol::ResolvedRawText {
-        let catalog = self.lang_catalog.as_deref();
-        let translate =
-            |key: &str| -> Option<Arc<str>> { catalog.and_then(|catalog| catalog.lookup(key)) };
+        let translate = |key: &str| -> Option<Arc<str>> { self.translation(key) };
         let scoreboards = &self.scoreboards;
         let owner_names = &self.score_owner_names;
         let score = |owner: &str, objective: &str| {

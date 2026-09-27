@@ -20,9 +20,9 @@ use crate::local_player::{
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
-    ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
-    local_diagnostic_presentation, select_actor_presentations, select_actor_presentations_for_view,
-    update_actor_rig_scene,
+    ActorRigPresentation, actor_rig_presentation, entity_rig_presentation,
+    local_actor_presentation_for_visibility, local_diagnostic_presentation,
+    select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
 use crate::runtime::network::{authoritative_local_actor_eye, publish_local_actor_visibility};
 
@@ -108,6 +108,9 @@ fn rig<'a>(
         rig: EntityRigId(9),
         previous,
         current,
+        rest: previous,
+        rest_completed_tick: 11,
+        rest_reset_generation: 5,
         completed_tick: 11,
         reset_generation: 5,
         fallback: EntityRigFallback::GeometryOnly,
@@ -143,6 +146,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
             route: ActorRigRoute::Compiled,
         },
         skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
+        artwork: None,
     }
 }
 
@@ -180,6 +184,30 @@ fn actor_snapshot_conversion_preserves_identity_pose_and_model_space_units() {
             .is_some_and(|skin| skin.iter().all(|byte| *byte == 7)),
         "the selected non-default roster skin survives conversion",
     );
+}
+
+#[test]
+fn generic_actor_without_validated_artwork_remains_explicitly_no_draw() {
+    let mut actor = actor(42, 0);
+    actor.kind = ActorKind::Entity {
+        identifier: "minecraft:example".into(),
+    };
+    let bones = [model_bone([0.0; 3])];
+    let presentation = entity_rig_presentation(
+        &rig(42, &bones, &bones),
+        &actor,
+        &render::ActorArtworkPages::default(),
+        0.5,
+    )
+    .unwrap();
+    assert_eq!(presentation.submission.route, ActorRigRoute::NoDraw);
+    assert!(presentation.artwork.is_none());
+    assert!(presentation.skin_rgba8.is_none());
+    let batch = select_actor_presentations(7, false, None, [presentation]);
+    assert_eq!(batch.submissions.len(), 1);
+    assert_eq!(batch.submissions[0].route, ActorRigRoute::NoDraw);
+    assert!(batch.skins_rgba8.is_empty());
+    assert!(batch.artwork.is_empty());
 }
 
 #[test]

@@ -119,10 +119,11 @@ pub struct ActorRigVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    pub back_uv: [f32; 2],
     pub bone_index: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == 36);
+const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == 44);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Pod, Zeroable)]
@@ -158,6 +159,7 @@ impl ActorRigGeometry {
                 .iter()
                 .chain(vertex.normal.iter())
                 .chain(vertex.uv.iter())
+                .chain(vertex.back_uv.iter())
                 .any(|value| !value.is_finite())
                 || vertex.bone_index as usize >= bone_pivots.len()
         }) || bone_pivots.iter().flatten().any(|value| !value.is_finite())
@@ -789,6 +791,7 @@ fn diagnostic_geometry() -> ActorRigGeometry {
             position: vertex.position,
             normal: [0.0, 1.0, 0.0],
             uv: vertex.uv,
+            back_uv: vertex.uv,
             bone_index: vertex.part,
         })
         .collect::<Vec<_>>();

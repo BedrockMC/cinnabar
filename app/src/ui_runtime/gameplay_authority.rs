@@ -544,14 +544,26 @@ impl UiRuntime {
         self.lang_catalog = Some(catalog);
     }
 
+    pub(crate) fn set_server_lang(&mut self, overlay: Option<Arc<assets::ServerLangOverlay>>) {
+        self.server_lang = overlay;
+    }
+
+    pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {
+        self.server_lang
+            .as_ref()
+            .and_then(|overlay| overlay.lookup(key))
+            .map(Arc::from)
+            .or_else(|| self.lang_catalog.as_ref().and_then(|base| base.lookup(key)))
+    }
+
     /// The localized display name for a vanilla item identifier: the pinned
     /// `item.<path>.name` / `tile.<path>.name` translation when present,
     /// otherwise the mechanical title-cased identifier.
     pub(crate) fn localized_item_name(&self, identifier: &str) -> String {
-        if let Some(catalog) = self.lang_catalog.as_ref() {
+        if self.server_lang.is_some() || self.lang_catalog.is_some() {
             let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
             for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {
-                if let Some(value) = catalog.lookup(&key) {
+                if let Some(value) = self.translation(&key) {
                     return value.as_ref().to_owned();
                 }
             }

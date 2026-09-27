@@ -23,10 +23,11 @@ mod json;
 mod molang;
 mod source;
 
+pub(crate) use animation::roots::authored_roots;
 use geometry::parse_geometry;
-use json::{parse_fully_unique_json, parse_semantic_json, parse_unique_json};
-pub(crate) use source::open_source_handle;
-use source::read_bounded_source;
+pub(crate) use json::parse_fully_unique_json;
+use json::{parse_semantic_json, parse_unique_json};
+pub(crate) use source::{open_source_handle, read_bounded_source};
 
 #[allow(unused_imports)] // Integration publishes this private leaf after review.
 pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};

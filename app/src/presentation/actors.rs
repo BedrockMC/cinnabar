@@ -4,22 +4,24 @@ use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput,
-    ActorRigRoute, ActorRigSubmission, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    normalize_actor_skin,
+    ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
+    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
+    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_rig_submission_is_visible,
+    default_actor_skin_rgba8, normalize_actor_skin,
 };
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActorRigPresentation {
     pub(crate) submission: ActorRigSubmission,
     pub(crate) skin_rgba8: Option<Arc<[u8]>>,
+    pub(crate) artwork: Option<ActorArtworkLocation>,
 }
 
 #[derive(Debug)]
 pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
     pub(crate) skins_rgba8: Arc<[u8]>,
+    pub(crate) artwork: BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
 pub(crate) fn update_actor_rig_scene(
@@ -31,7 +33,67 @@ pub(crate) fn update_actor_rig_scene(
     // to remotes before enforcing capacity. Passing no second cull view keeps
     // Phase 3's visible local reservation unconditional in both third-person
     // modes while the render-owned builder still validates every other field.
-    scene.update_rigs(partial_tick, None, batch.submissions, batch.skins_rgba8)
+    scene.update_rigs_with_artwork(
+        partial_tick,
+        None,
+        batch.submissions,
+        batch.skins_rgba8,
+        &batch.artwork,
+    )
+}
+
+pub(crate) fn entity_rig_presentation(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    artwork: &ActorArtworkPages,
+    partial_tick: f32,
+) -> Option<ActorRigPresentation> {
+    let location = matches!(actor.kind, ActorKind::Entity { .. })
+        .then(|| artwork.route(EntityRigId(rig.rig.0)))
+        .flatten();
+    let rest_mode =
+        location.is_some_and(|location| location.pose_mode() == assets::ActorPoseMode::RestPose);
+    let bad_rest = rest_mode
+        && (rig.rest.is_empty()
+            || rig.rest.len() != rig.previous.len()
+            || rig.rest.len() != rig.current.len()
+            || !rig.rest.iter().all(|bone| {
+                RenderBoneTransform::from_model_space(bone.rotation, bone.translation_scale)
+                    .is_some()
+            }));
+    let selected = if rest_mode {
+        ActorRigSnapshot {
+            previous: rig.rest,
+            current: rig.rest,
+            completed_tick: rig.rest_completed_tick,
+            reset_generation: rig.rest_reset_generation,
+            ..*rig
+        }
+    } else {
+        *rig
+    };
+    let mut presentation =
+        actor_rig_presentation_inner(&selected, actor, None, partial_tick, bad_rest)?;
+    if matches!(actor.kind, ActorKind::Entity { .. })
+        && let Some(location) = location
+    {
+        presentation.submission.route = match rig.fallback {
+            EntityRigFallback::Skip => ActorRigRoute::Compiled,
+            EntityRigFallback::GeometryOnly => ActorRigRoute::StaticFallback,
+            EntityRigFallback::Diagnostic => ActorRigRoute::NoDraw,
+        };
+        if rest_mode {
+            presentation.submission.route =
+                if bad_rest || rig.fallback == EntityRigFallback::Diagnostic {
+                    ActorRigRoute::NoDraw
+                } else {
+                    ActorRigRoute::StaticFallback
+                };
+        }
+        presentation.submission.texture_layer = location.layer();
+        presentation.artwork = Some(location);
+    }
+    Some(presentation)
 }
 
 pub(crate) fn actor_rig_presentation(
@@ -40,6 +102,16 @@ pub(crate) fn actor_rig_presentation(
     profile: Option<&PlayerProfile>,
     partial_tick: f32,
 ) -> Option<ActorRigPresentation> {
+    actor_rig_presentation_inner(rig, actor, profile, partial_tick, false)
+}
+
+fn actor_rig_presentation_inner(
+    rig: &ActorRigSnapshot<'_>,
+    actor: &ActorSnapshot,
+    profile: Option<&PlayerProfile>,
+    partial_tick: f32,
+    rejected_pose: bool,
+) -> Option<ActorRigPresentation> {
     if rig.actor.runtime_id != actor.runtime_id
         || rig.actor.spawn_revision != actor.spawn_revision
         || rig.actor.session_id == 0
@@ -47,15 +119,24 @@ pub(crate) fn actor_rig_presentation(
         || rig.actor.spawn_revision == 0
         || rig.completed_tick == 0
         || rig.reset_generation == 0
-        || rig.previous.is_empty()
-        || rig.previous.len() != rig.current.len()
+        || (!rejected_pose && (rig.previous.is_empty() || rig.previous.len() != rig.current.len()))
         || !partial_tick.is_finite()
     {
         return None;
     }
 
-    let previous_bones = convert_bones(rig.previous)?;
-    let current_bones = convert_bones(rig.current)?;
+    // A rejected submission retains exact ownership for observable NoDraw counts,
+    // but contains no substitute pose and can never reach a GPU draw.
+    let previous_bones = if rejected_pose {
+        Arc::from([])
+    } else {
+        convert_bones(rig.previous)?
+    };
+    let current_bones = if rejected_pose {
+        Arc::from([])
+    } else {
+        convert_bones(rig.current)?
+    };
     let alpha = partial_tick.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
     let yaw = lerp_degrees(actor.previous_pose.yaw, actor.yaw, alpha);
@@ -97,6 +178,7 @@ pub(crate) fn actor_rig_presentation(
             route,
         },
         skin_rgba8,
+        artwork: None,
     })
 }
 
@@ -161,6 +243,7 @@ pub(crate) fn local_diagnostic_presentation(
             route: ActorRigRoute::Diagnostic,
         },
         skin_rgba8: Some(default_actor_skin_rgba8()),
+        artwork: None,
     })
 }
 
@@ -247,9 +330,15 @@ pub(crate) fn select_actor_presentations_for_view(
         selected.push(remote);
     }
 
+    let mut artwork = BTreeMap::new();
     let mut skin_families = Vec::<Arc<[u8]>>::new();
     let mut submissions = Vec::with_capacity(selected.len());
     for mut presentation in selected {
+        if let Some(location) = presentation.artwork {
+            artwork.insert(presentation.submission.input.identity, location);
+            submissions.push(presentation.submission);
+            continue;
+        }
         let Some(skin) = presentation.skin_rgba8 else {
             presentation.submission.route = ActorRigRoute::NoDraw;
             presentation.submission.texture_layer = u32::MAX;
@@ -274,6 +363,7 @@ pub(crate) fn select_actor_presentations_for_view(
     ActorPresentationBatch {
         submissions,
         skins_rgba8: skin_bytes.into(),
+        artwork,
     }
 }
 

@@ -1,5 +1,6 @@
 //! Bounded Bedrock resource-pack source readers.
 
+mod actor;
 mod atmosphere;
 mod audio;
 mod audio_pcm;
@@ -20,8 +21,16 @@ mod physics_registry;
 mod provenance;
 mod registry;
 mod runtime;
+mod server_lang;
 mod texture;
 
+pub use actor::{
+    ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
+    MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
+    MAX_ACTOR_TEXTURES, RuntimeActorCatalog, encode_actor_catalog,
+    neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
+    neutral_actor_pose_mode,
+};
 pub use atmosphere::{
     ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
     BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
@@ -130,4 +139,5 @@ pub use registry::{
     read_registry_for_protocol, registry_header_protocol,
 };
 pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
+pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
 pub use texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};

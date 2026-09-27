@@ -75,6 +75,7 @@ pub enum NetworkControlEvent {
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
         resource_packs: resource_pack::PackAdmission,
+        server_lang: Option<Arc<assets::ServerLangOverlay>>,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -574,14 +575,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 // publishing any StartGame state; optional semantic rejection
                 // remains a live base-assets session.
                 let handoff = session.take_resource_pack_handoff();
-                let resource_packs = if handoff.is_empty() {
-                    resource_pack::PackAdmission::None
-                } else {
-                    match resource_pack::validate_handoff(handoff) {
-                        Ok(stack) => resource_pack::PackAdmission::Validated(stack),
-                        Err(reason) => resource_pack::PackAdmission::Rejected(reason),
-                    }
-                };
+                let (resource_packs, server_lang) =
+                    super::resource_packs::prepare_pack_application(handoff);
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
@@ -611,6 +606,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
                         resource_packs,
+                        server_lang,
                     },
                 )
                 .await

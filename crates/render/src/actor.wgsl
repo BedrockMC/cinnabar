@@ -22,6 +22,7 @@ struct BoneMatrix {
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
+@group(0) @binding(8) var<uniform> material_class: vec4<u32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -29,6 +30,7 @@ struct VertexOutput {
     @location(1) @interpolate(flat) skin_layer: u32,
     @location(2) @interpolate(flat) valid: u32,
     @location(3) world_normal: vec3<f32>,
+    @location(4) back_uv: vec2<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -80,13 +82,14 @@ fn actor_vertex(
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
+        out.back_uv = vec2(0.0);
         out.valid = 0u;
         out.world_normal = vec3(0.0, 1.0, 0.0);
         return out;
     }
 
-    // ActorRigVertex is nine packed words (position, normal, UV, bone).
-    let vertex_base = (span.first_vertex + vertex_index) * 9u;
+    // ActorRigVertex is eleven packed words (position, normal, front/back UV, bone).
+    let vertex_base = (span.first_vertex + vertex_index) * 11u;
     let local = vec3(
         bitcast<f32>(vertex_words[vertex_base]),
         bitcast<f32>(vertex_words[vertex_base + 1u]),
@@ -101,7 +104,11 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     );
-    let bone_index = vertex_words[vertex_base + 8u];
+    out.back_uv = vec2(
+        bitcast<f32>(vertex_words[vertex_base + 8u]),
+        bitcast<f32>(vertex_words[vertex_base + 9u]),
+    );
+    let bone_index = vertex_words[vertex_base + 10u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
     let posed = mix(previous, current, partial_tick);
@@ -131,12 +138,12 @@ fn actor_vertex(
 }
 
 @fragment
-fn actor_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
+fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     if (input.valid == 0u) {
         discard;
     }
-    let color = textureSample(skins, skin_sampler, input.uv, i32(input.skin_layer));
-    if (color.a < 0.1) {
+    let color = textureSample(skins, skin_sampler, select(input.back_uv, input.uv, front), i32(input.skin_layer));
+    if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
         discard;
     }
     return color;

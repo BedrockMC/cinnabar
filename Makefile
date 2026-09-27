@@ -55,6 +55,8 @@ AUDIO_PCM_BLOB ?= .local/assets/compiled/vanilla-v1.mcbepcm
 AUDIO_PCM_REPORT ?= .local/assets/compiled/audio-pcm-assets.json
 ICON_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeico
 ICON_ASSET_REPORT ?= .local/assets/compiled/icon-assets.json
+ACTOR_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeact
+ACTOR_ASSET_REPORT ?= .local/assets/compiled/actor-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
@@ -71,6 +73,7 @@ LANG_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- lan
 AUDIO_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_ASSET_BLOB)" --report "$(AUDIO_ASSET_REPORT)"
 AUDIO_PCM_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-pcm-assets --pack "$(PACK_DIR)" --catalog "$(AUDIO_ASSET_BLOB)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_PCM_BLOB)" --report "$(AUDIO_PCM_REPORT)"
 ICON_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- icon-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ICON_ASSET_BLOB)" --report "$(ICON_ASSET_REPORT)"
+ACTOR_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- actor-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ACTOR_ASSET_BLOB)" --report "$(ACTOR_ASSET_REPORT)"
 CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 ifeq ($(OS),Windows_NT)
@@ -125,6 +128,13 @@ registry-foundation-check:
 vanilla-assets: $(PACK_SENTINEL)
 
 assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT) $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT) $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT)
+assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
+.PHONY: actor-assets
+actor-assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
+$(ACTOR_ASSET_BLOB): $(ENTITY_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) crates/assets/data/neutral-actor-materials-v1.json
+	$(ACTOR_ASSET_COMPILE)
+$(ACTOR_ASSET_REPORT): $(ACTOR_ASSET_BLOB)
+	$(RUN_IF_ASSET_REPORT_STALE) || $(ACTOR_ASSET_COMPILE)
 
 atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 

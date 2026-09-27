@@ -45,6 +45,11 @@ pub struct ActorRigSnapshot<'a> {
     pub rig: EntityRigId,
     pub previous: &'a [BoneTransform],
     pub current: &'a [BoneTransform],
+    /// Immutable authored rest transforms from the exact resolved geometry.
+    pub rest: &'a [BoneTransform],
+    /// Actual fixed-tick observation of this lifetime, independent of pose evaluation.
+    pub rest_completed_tick: u64,
+    pub rest_reset_generation: u64,
     pub completed_tick: u64,
     pub reset_generation: u64,
     pub fallback: EntityRigFallback,
@@ -65,6 +70,7 @@ pub(crate) struct ActorAnimationStore {
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     completed_tick: u64,
     next_reset_generation: u64,
+    next_rest_reset_generation: u64,
     stats: ActorAnimationStats,
 }
 
@@ -76,6 +82,10 @@ struct ActorRigState {
     controllers: Vec<ControllerState>,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
+    rest: Vec<BoneTransform>,
+    rest_completed_tick: u64,
+    rest_reset_generation: u64,
+    rest_reset_pending: bool,
     reset_generation: u64,
     reset_pending: bool,
     lifetime_epoch: u64,
@@ -176,6 +186,7 @@ impl ActorAnimationStore {
             runtime_to_lifetime: HashMap::new(),
             completed_tick: 0,
             next_reset_generation: 1,
+            next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
         }
     }
@@ -208,6 +219,7 @@ impl ActorAnimationStore {
             return;
         };
         state.reset_generation = self.next_reset_generation;
+        state.rest_reset_generation = self.take_rest_generation().unwrap_or(0);
         self.bump_generation();
         self.runtime_to_lifetime.insert(actor.runtime_id, lifetime);
         self.rigs.insert(lifetime, state);
@@ -219,6 +231,7 @@ impl ActorAnimationStore {
         };
         if let Some(state) = self.rigs.get_mut(lifetime) {
             state.reset_pending = true;
+            state.rest_reset_pending = true;
         }
     }
 
@@ -240,6 +253,30 @@ impl ActorAnimationStore {
             let Some(state) = self.rigs.get_mut(&lifetime) else {
                 continue;
             };
+            // Observe ownership before any evaluation budget branch. A failed
+            // animation cannot starve static publication for this or later actors.
+            if actor.runtime_id == lifetime.runtime_id
+                && actor.spawn_revision == lifetime.spawn_revision
+                && self.runtime_to_lifetime.get(&lifetime.runtime_id) == Some(&lifetime)
+            {
+                if state.rest_reset_pending {
+                    if let Some(next) = self.next_rest_reset_generation.checked_add(1) {
+                        state.rest_reset_generation = self.next_rest_reset_generation;
+                        self.next_rest_reset_generation = next;
+                        state.rest_reset_pending = false;
+                    } else {
+                        state.rest_reset_generation = 0;
+                    }
+                }
+                state.rest_completed_tick =
+                    if state.rest_reset_generation != 0 && !state.rest_reset_pending {
+                        self.completed_tick
+                    } else {
+                        0
+                    };
+            } else {
+                state.rest_completed_tick = 0;
+            }
             if state.fallback == EntityRigFallback::GeometryOnly {
                 state.previous.clone_from(&state.current);
                 if state.reset_pending {
@@ -339,6 +376,13 @@ impl ActorAnimationStore {
             rig: state.rig,
             previous: &state.previous,
             current: &state.current,
+            rest: &state.rest,
+            rest_completed_tick: if state.rest_reset_pending {
+                0
+            } else {
+                state.rest_completed_tick
+            },
+            rest_reset_generation: state.rest_reset_generation,
             completed_tick: state.completed_tick,
             reset_generation: state.reset_generation,
             fallback: state.fallback,
@@ -347,6 +391,13 @@ impl ActorAnimationStore {
 
     fn bump_generation(&mut self) {
         self.next_reset_generation = self.next_reset_generation.saturating_add(1);
+    }
+
+    fn take_rest_generation(&mut self) -> Option<u64> {
+        let next = self.next_rest_reset_generation.checked_add(1)?;
+        let generation = self.next_rest_reset_generation;
+        self.next_rest_reset_generation = next;
+        Some(generation)
     }
 }
 
@@ -430,6 +481,10 @@ fn resolve_rig(
         bones,
         controllers,
         previous: current.clone(),
+        rest: current.clone(),
+        rest_completed_tick: 0,
+        rest_reset_generation: 0,
+        rest_reset_pending: false,
         current,
         reset_generation: 0,
         reset_pending: false,

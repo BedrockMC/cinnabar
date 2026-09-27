@@ -1,6 +1,37 @@
 use bevy::prelude::Resource;
 use resource_pack::PackAdmission;
 
+pub(super) fn prepare_pack_application(
+    handoff: protocol::ResourcePackHandoff,
+) -> (
+    PackAdmission,
+    Option<std::sync::Arc<assets::ServerLangOverlay>>,
+) {
+    if handoff.is_empty() {
+        return (PackAdmission::None, None);
+    }
+    match resource_pack::validate_handoff_with_file(
+        handoff,
+        "texts/en_US.lang",
+        assets::MAX_SERVER_LANG_INPUT_BYTES,
+        |size, read| assets::ServerLangOverlay::read(size, read),
+    ) {
+        Ok((stack, overlay)) => (PackAdmission::Validated(stack), overlay),
+        Err(reason) => (PackAdmission::Rejected(reason), None),
+    }
+}
+
+pub(super) fn install_server_language(
+    runtime: &mut crate::ui_runtime::UiRuntime,
+    generation: u64,
+    overlay: Option<std::sync::Arc<assets::ServerLangOverlay>>,
+    setup_succeeded: bool,
+) {
+    if runtime.session_id() == generation {
+        runtime.set_server_lang(if setup_succeeded { overlay } else { None });
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BootstrapGenerationDisposition {
     Expected,
@@ -30,7 +61,7 @@ pub(crate) const fn classify_bootstrap_generation(
 }
 
 /// Generation-bound admission for the current session's optional pack stack.
-/// Asset application remains unavailable; this resource only owns validated bytes.
+/// This owns validated bytes independently of optional language application.
 #[derive(Debug, Resource)]
 pub(crate) struct ResourcePackAdmissionState {
     generation: u64,
@@ -92,6 +123,29 @@ mod tests {
     use resource_pack::{AdmissionError, PackAdmission};
 
     use super::ResourcePackAdmissionState;
+
+    #[test]
+    fn absent_or_rejected_application_preserves_optional_admission() {
+        let (admission, overlay) =
+            super::prepare_pack_application(protocol::ResourcePackHandoff::default());
+        assert!(matches!(admission, PackAdmission::None));
+        assert!(overlay.is_none());
+        let pack = protocol::ResourcePackArchive::unencrypted(
+            "11111111-2222-3333-4444-555555555555".parse().unwrap(),
+            "1.2.3".into(),
+            String::new(),
+            vec![0; 32],
+        );
+        let (admission, overlay) =
+            super::prepare_pack_application(protocol::ResourcePackHandoff::from_archives(vec![
+                pack,
+            ]));
+        assert!(matches!(
+            admission,
+            PackAdmission::Rejected(AdmissionError::InvalidZipFooter)
+        ));
+        assert!(overlay.is_none());
+    }
 
     #[test]
     fn newer_generation_replaces_atomically_and_stale_results_are_ignored() {

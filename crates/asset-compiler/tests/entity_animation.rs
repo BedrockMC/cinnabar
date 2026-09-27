@@ -9,6 +9,51 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
+#[test]
+fn unsupported_player_scripts_keep_existing_parent_binding_compatibility() {
+    let pack = animation_pack(false);
+    let path = pack.path().join("entity/test.entity.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    value["format_version"] = serde_json::json!("1.26.0");
+    value["minecraft:client_entity"]["description"]["identifier"] =
+        serde_json::json!("minecraft:player");
+    value["minecraft:client_entity"]["description"]["scripts"] =
+        serde_json::json!({"initialize":["variable.example=0;"],"animate":["main"]});
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    for candidate in &compiled.rig_geometries {
+        assert_eq!(candidate.animation_count, 2);
+        assert_eq!(candidate.controller_count, 1);
+    }
+}
+
+#[test]
+fn modern_alias_lookup_alone_does_not_activate_and_explicit_roots_are_not_subtracted() {
+    let pack = animation_pack(false);
+    let path = pack.path().join("entity/test.entity.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let description = value["minecraft:client_entity"]["description"]
+        .as_object_mut()
+        .unwrap();
+    description.remove("animation_controllers");
+    description.remove("scripts");
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert!(!compiled.animation_clips.is_empty());
+    for candidate in &compiled.rig_geometries {
+        assert_eq!(candidate.animation_count, 0);
+        assert_eq!(candidate.controller_count, 0);
+    }
+    value["minecraft:client_entity"]["description"]["scripts"] =
+        serde_json::json!({"animate":["walk","main"]});
+    fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let explicit = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    for candidate in &explicit.rig_geometries {
+        assert_eq!(candidate.animation_count, 1);
+        assert_eq!(candidate.controller_count, 1);
+    }
+}
+
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -25,7 +70,7 @@ fn selectable_geometry_pack(index: &str, members: &[&str]) -> TempDir {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     let controller = serde_json::json!({
         "format_version": "1.8.0",
@@ -257,7 +302,7 @@ fn required_missing_animation_rejects_only_that_rig_and_optional_expression_fall
     write(
         pack.path(),
         "entity/rejected.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:rejected","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"required":"animation.missing"},"render_controllers":[{"controller.render.test":"query.unlisted"}]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:rejected","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"required":"animation.missing"},"render_controllers":[{"controller.render.test":"query.unlisted"}],"scripts":{"animate":["required"]}}}}"#,
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(
@@ -444,12 +489,12 @@ fn conflicting_animation_aliases_are_resolved_inside_each_entity_environment() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk","main":"controller.animation.test"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.walk","main":"controller.animation.test"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move","main"]}}}}"#,
     );
     write(
         pack.path(),
         "entity/second.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.attack","main":"controller.animation.second"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"move":"animation.test.attack","main":"controller.animation.second"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move","main"]}}}}"#,
     );
     write(
         pack.path(),
@@ -511,7 +556,7 @@ fn explicit_default_geometry_wins_over_alphabetically_earlier_optional_alias() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"aaa_optional":"geometry.player","default":"geometry.test"},"animations":{"walk":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"aaa_optional":"geometry.player","default":"geometry.test"},"animations":{"walk":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["walk"]}}}}"#,
     );
 
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
@@ -536,7 +581,7 @@ fn inherited_geometry_clips_use_parent_order_and_child_overlays() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.child"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.child"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
@@ -570,12 +615,12 @@ fn animation_bones_are_numbered_in_the_selected_geometry_not_global_order() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a"},"animations":{"move":"animation.test.walk"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
         "entity/second.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","geometry":{"default":"geometry.b"},"animations":{"move":"animation.test.second"},"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:second","geometry":{"default":"geometry.b"},"animations":{"move":"animation.test.second"},"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
