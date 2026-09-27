@@ -269,6 +269,7 @@ mod camera_controls;
 mod cohort_epoch;
 mod core;
 mod core_process;
+mod crafting_authority_schedule;
 mod finish;
 mod inventory;
 mod inventory_schedule;

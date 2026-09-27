@@ -35,6 +35,8 @@ pub const CONTAINER_NAME_LEVEL_ENTITY: u8 = 7;
 /// `EnumsContainerEnumName::CombinedHotbarAndInventoryContainer`, the combined
 /// player inventory surface every gesture request names.
 pub const CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY: u8 = 12;
+/// The distinct personal crafting input surface; wire cells 28..31.
+pub const CONTAINER_NAME_CRAFT_INPUT: u8 = 13;
 /// `EnumsContainerEnumName::InventoryContainer`, the named player-inventory
 /// alias live servers send riding the legacy window id (the pinned
 /// gophertunnel fixture corpus encodes exactly this shape).
@@ -69,6 +71,8 @@ pub enum CanonicalCell {
     Offhand,
     /// The single held-stack cursor cell.
     Cursor,
+    /// One of four personal crafting cells, never a player-inventory alias.
+    CraftInput(u8),
     /// One screen-specific generic storage cell identified by its open
     /// container's dynamic id.
     GenericStorage { dynamic_id: Option<u32>, slot: u16 },
@@ -104,6 +108,10 @@ impl CanonicalCell {
 #[must_use]
 pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option<CanonicalCell> {
     match identity.slot_type {
+        Some(CONTAINER_NAME_CRAFT_INPUT) => {
+            let index = slot.checked_sub(28)?;
+            (index < 4).then_some(CanonicalCell::CraftInput(u8::try_from(index).ok()?))
+        }
         Some(CONTAINER_NAME_CURSOR) => (slot == 0).then_some(CanonicalCell::Cursor),
         Some(CONTAINER_NAME_ARMOR) => Some(CanonicalCell::Armor(u8::try_from(slot).ok()?)),
         Some(CONTAINER_NAME_OFFHAND) => (slot == 0).then_some(CanonicalCell::Offhand),
@@ -183,6 +191,10 @@ mod tests {
         use valentine::bedrock::version::v1_26_44::EnumsContainerEnumName;
 
         let pairs = [
+            (
+                CONTAINER_NAME_CRAFT_INPUT,
+                EnumsContainerEnumName::CraftingInputContainer,
+            ),
             (CONTAINER_NAME_ARMOR, EnumsContainerEnumName::ArmorContainer),
             (
                 CONTAINER_NAME_LEVEL_ENTITY,
@@ -382,5 +394,27 @@ mod tests {
         assert_eq!(project_container_cell(&identity(-777, None), 0), None);
         assert_eq!(project_container_cell(&identity(119, None), 1), None);
         assert_eq!(project_container_cell(&identity(0, None), 4_096), None);
+    }
+
+    #[test]
+    fn four_named_crafting_cells_are_distinct_from_player_main_inventory_and_bare_ui() {
+        for slot in 28..32 {
+            let craft =
+                project_container_cell(&identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)), slot);
+            assert_eq!(
+                craft,
+                Some(CanonicalCell::CraftInput(u8::try_from(slot - 28).unwrap()))
+            );
+            assert_ne!(craft, project_container_cell(&identity(0, None), slot));
+            assert_eq!(project_container_cell(&identity(124, None), slot), None);
+        }
+        assert_eq!(
+            project_container_cell(&identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)), 27),
+            None
+        );
+        assert_eq!(
+            project_container_cell(&identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)), 32),
+            None
+        );
     }
 }

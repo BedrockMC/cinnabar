@@ -2,6 +2,20 @@ use super::*;
 use protocol::PLAYER_NETWORK_OFFSET;
 
 impl WorldStream {
+    /// Mutation-through frontier for inactive inventory projections after polling.
+    /// A popped asynchronous block update is not committed until its decode applies.
+    #[must_use]
+    pub fn inventory_committed_through(&self) -> Option<u64> {
+        if self.fatal_decode_failure || self.fatal_light_failure {
+            return None;
+        }
+        let popped = self.ordered.next_sequence().saturating_sub(1);
+        Some(
+            self.blocking_block_updates
+                .map_or(popped, |sequence| popped.min(sequence.saturating_sub(1))),
+        )
+    }
+
     const INITIAL_MESH_DISPATCH_BUDGET_PER_POLL: usize = 32;
 
     /// Breaks the publication-token deadlock: when the allowance is exhausted
