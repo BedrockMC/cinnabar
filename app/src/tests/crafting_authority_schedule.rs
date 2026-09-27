@@ -95,17 +95,18 @@ fn app() -> App {
 }
 
 fn ingress(app: &mut App, sequence: u64, event: InventoryEvent) {
-    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
-    route_inventory_ingress(
-        &mut runtime,
-        SequencedWorldEvent {
-            session_generation: 1,
-            sequence,
-            event: WorldEvent::Inventory(event),
-        },
-    )
-    .unwrap();
-    drop(runtime);
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        route_inventory_ingress(
+            &mut runtime,
+            SequencedWorldEvent {
+                session_generation: 1,
+                sequence,
+                event: WorldEvent::Inventory(event),
+            },
+        )
+        .unwrap();
+    }
     app.world_mut()
         .resource_mut::<ClientWorld>()
         .stream
