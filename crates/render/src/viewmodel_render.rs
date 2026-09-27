@@ -212,6 +212,7 @@ fn prepare(params: PrepareViewmodel) {
     }
     *drawn.0.lock().expect("hand drawn lock") = None;
     if !device_valid {
+        ViewmodelCompletionGate::observe_stage(2, 1, scene.frame.as_ref().map(|frame| frame.token));
         if let Some(frame) = &scene.frame {
             gate.reject(frame.token);
         }
@@ -219,11 +220,13 @@ fn prepare(params: PrepareViewmodel) {
         return;
     }
     let Some(frame) = &scene.frame else {
+        ViewmodelCompletionGate::observe_stage(2, 2, None);
         deactivate_hand(&mut gpu);
         return;
     };
     let token = frame.token;
     if frame.fallback.is_none() {
+        ViewmodelCompletionGate::observe_stage(2, 3, Some(token));
         gate.reject(token);
         gpu.token = None;
         return;
@@ -233,6 +236,7 @@ fn prepare(params: PrepareViewmodel) {
             && !std::sync::Arc::ptr_eq(&old.pixels, &frame.skin.rgba8)
             && old.pixels != frame.skin.rgba8
     }) {
+        ViewmodelCompletionGate::observe_stage(2, 4, Some(token));
         gate.reject(token);
         gpu.token = None;
         return;
@@ -255,12 +259,14 @@ fn prepare(params: PrepareViewmodel) {
             .allowed_usages
             .contains(TextureUsages::RENDER_ATTACHMENT)
     {
+        ViewmodelCompletionGate::observe_stage(2, 5, Some(token));
         gate.reject(token);
         gpu.token = None;
         gpu.depth = None;
         return;
     }
     if gpu.token == Some(token) {
+        ViewmodelCompletionGate::observe_stage(2, 0, Some(token));
         return;
     }
     if gpu.geometry != Some(token.geometry) {
@@ -373,11 +379,13 @@ fn prepare(params: PrepareViewmodel) {
             ))
         });
     if gpu.pipeline.is_none() {
+        ViewmodelCompletionGate::observe_stage(2, 6, Some(token));
         gate.reject(token);
         gpu.token = None;
         return;
     }
     gpu.token = Some(token);
+    ViewmodelCompletionGate::observe_stage(2, 0, Some(token));
 }
 
 fn invalidate_hand_resources(gpu: &mut HandGpu) {
@@ -541,8 +549,16 @@ fn submit_completion(
             callback.complete(reservation);
         });
         queue.submit([command]);
+        ViewmodelCompletionGate::observe_stage(4, 1, token);
+    } else {
+        ViewmodelCompletionGate::observe_stage(
+            4,
+            if token.is_some() { 2 } else { 3 },
+            token.or(gpu.token),
+        );
     }
     if let Err(error) = device.poll(PollType::Poll) {
+        ViewmodelCompletionGate::observe_stage(4, 4, token);
         if let Some(token) = token {
             gate.reject(token);
         }

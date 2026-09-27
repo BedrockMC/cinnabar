@@ -690,6 +690,17 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             move |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
                 assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
                 hand.bind_cpu_fallback(&observed_input, empty, None);
+                let (reason, values) =
+                    hand.diagnostic_snapshot(&runtime, &world, true, false, [640, 480], false);
+                assert_eq!(reason, 0);
+                assert_eq!(values[4], 1);
+                assert_eq!(values[6], 2);
+                assert_eq!(values[8], i128::from(item));
+                assert_eq!(values[9], 1);
+                assert_eq!(values[14], 2);
+                assert_eq!(values[21], 1);
+                assert_eq!(values[23], 0);
+                assert_eq!(values[24], 0);
             },
         )
         .unwrap();
@@ -858,6 +869,11 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
                 assert!(world.stream.as_ref().unwrap().actor(1).is_none());
                 assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                let (reason, values) =
+                    hand.diagnostic_snapshot(&runtime, &world, true, false, [640, 480], false);
+                assert_eq!(reason, 3);
+                assert_eq!(values[4], 0);
+                assert_eq!(values[21], 0);
             },
         )
         .unwrap();

@@ -6,6 +6,7 @@ mod cube;
 mod geometry;
 #[cfg(test)]
 mod tests;
+mod witness;
 
 pub const MAX_VIEWMODEL_DEPTH_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -349,6 +350,43 @@ pub(super) struct CompletionReservation {
     token: ViewmodelToken,
 }
 impl ViewmodelCompletionGate {
+    /// Enables bounded diagnostics only for an explicitly matching loopback marker.
+    pub fn configure_observation(address: Option<&str>) {
+        witness::configure(address);
+    }
+    pub fn retire_observation() {
+        witness::retire();
+    }
+    pub fn observation_enabled() -> bool {
+        witness::enabled()
+    }
+    /// Numeric diagnostic input, never admission or completion authority.
+    pub fn observe_main(reason: u8, values: [i128; 32]) {
+        witness::record(0, reason, values);
+    }
+    pub fn observe_binding(reason: u8, values: [i128; 32]) {
+        witness::record(1, reason, values);
+    }
+    pub(crate) fn observe_stage(stage: usize, reason: u8, token: Option<ViewmodelToken>) {
+        if !witness::enabled() {
+            return;
+        }
+        let mut values = [0; 32];
+        if let Some(token) = token {
+            values[..9].copy_from_slice(&[
+                i128::from(token.session),
+                i128::from(token.actor_session),
+                i128::from(token.dimension),
+                i128::from(token.runtime),
+                i128::from(token.spawn),
+                i128::from(token.revision),
+                i128::from(token.viewport[0]),
+                i128::from(token.viewport[1]),
+                i128::from(token.samples),
+            ]);
+        }
+        witness::record(stage, reason, values);
+    }
     pub fn select(&self, token: Option<ViewmodelToken>) {
         let mut state = self.0.lock().expect("hand completion lock");
         if state.selected != token {
@@ -402,11 +440,13 @@ impl ViewmodelCompletionGate {
             || state.selected != Some(reservation.token)
             || !state.pending
         {
+            Self::observe_stage(5, 2, Some(reservation.token));
             return false;
         }
         state.pending = false;
         state.completed = true;
         state.rejected = false;
+        Self::observe_stage(5, 1, Some(reservation.token));
         true
     }
 }
