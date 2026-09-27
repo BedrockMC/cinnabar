@@ -69,6 +69,24 @@ class NormalizationTests(unittest.TestCase):
         self.assertTrue("LegacyTelemetryEventPacketEventData::Reserved19" in text)
         self.assertTrue(b"pub struct ReservedPacket65Event18View" in self.input["borrowed.rs"])
 
+    def test_shared_numeric_bindings_and_default_are_canonical(self):
+        text = self.input["types.rs"].decode()
+        owners = {
+            "EnumsPlayStatus": (5, 6),
+            "EnumsConnectionDisconnectFailReason": (11, 131, 132),
+            "EnumsActorType": (78, 107, 312, 318, 4194410),
+            "EnumsActorEvent": (36, 71, 73),
+            "EnumsPhotoType": (0, 1),
+        }
+        for owner, numbers in owners.items():
+            for number in numbers:
+                self.assertEqual(normalizer.numeric_variant(text, owner, number), f"Reserved{number}")
+        self.assertEqual(normalizer.numeric_variant(text, "EnumsActorType", 307), "Npc")
+        self.assertEqual(normalizer.numeric_variant(text, "EnumsPhotoType", 2), "Book")
+        default = next(body for _, _, header, body in normalizer.items(text)
+                       if header.strip() == "impl Default for EnumsPhotoType")
+        self.assertIn("Self::Reserved0", default)
+
     def test_codec_literal_drift_is_rejected(self):
         data = dict(self.canonical)
         data["common.rs"] = data["common.rs"].replace(b"109u32", b"110u32", 1)

@@ -570,9 +570,7 @@ pub(crate) fn normalize_player_status(packet: PlayStatusPacket) -> Result<UiEven
         EnumsPlayStatus::PlayerSpawn => PlayerStatus::PlayerSpawn,
         EnumsPlayStatus::LoginFailedInvalidTenant
         | EnumsPlayStatus::Reserved5
-        | EnumsPlayStatus::Reserved6 => {
-            PlayerStatus::UnsupportedEdition
-        }
+        | EnumsPlayStatus::Reserved6 => PlayerStatus::UnsupportedEdition,
         EnumsPlayStatus::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
         EnumsPlayStatus::LoginFailedEditorMismatchEditorToVanilla => {
             PlayerStatus::FailedEditorVanillaMismatch

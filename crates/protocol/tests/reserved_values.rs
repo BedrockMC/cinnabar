@@ -2,8 +2,9 @@ use bytes::{Bytes, BytesMut};
 use std::fmt::Debug;
 use valentine::bedrock::codec::BedrockCodec;
 use valentine::bedrock::version::v1_26_44::types::{
-    BookEditActionAddPage, BookEditActionReplacePage, EnumsActorEvent, EnumsContainerEnumName,
-    EnumsItemStackRequestActionType, EnumsLegacyTelemetryEventPacketPayloadType, EnumsPlayStatus,
+    BookEditActionAddPage, BookEditActionReplacePage, EnumsActorEvent, EnumsActorType,
+    EnumsConnectionDisconnectFailReason, EnumsContainerEnumName, EnumsItemStackRequestActionType,
+    EnumsLegacyTelemetryEventPacketPayloadType, EnumsPhotoType, EnumsPlayStatus,
     ResourcePackClientResponsePacketPayloadCancel,
     ResourcePackClientResponsePacketPayloadDownloading,
     ResourcePackClientResponsePacketPayloadDownloadingFinished,
@@ -41,6 +42,34 @@ fn generated_unknown_enum_values_keep_their_wire_numbers() {
 fn reserved_telemetry_values_keep_their_wire_numbers() {
     assert_wire(EnumsLegacyTelemetryEventPacketPayloadType::Reserved8, &[16]);
     assert_wire(EnumsLegacyTelemetryEventPacketPayloadType::Reserved9, &[18]);
+}
+
+#[test]
+fn reserved_shared_enum_values_keep_their_wire_numbers() {
+    assert_wire(EnumsPlayStatus::Reserved5, &[0, 0, 0, 5]);
+    assert_wire(EnumsPlayStatus::Reserved6, &[0, 0, 0, 6]);
+    assert_wire(EnumsConnectionDisconnectFailReason::Reserved11, &[22]);
+    assert_wire(
+        EnumsConnectionDisconnectFailReason::Reserved131,
+        &[0x86, 0x02],
+    );
+    assert_wire(
+        EnumsConnectionDisconnectFailReason::Reserved132,
+        &[0x88, 0x02],
+    );
+    assert_wire(EnumsActorType::Reserved78, &[0x9c, 0x01]);
+    assert_wire(EnumsActorType::Reserved107, &[0xd6, 0x01]);
+    assert_wire(EnumsActorType::Reserved312, &[0xf0, 0x04]);
+    assert_wire(EnumsActorType::Reserved318, &[0xfc, 0x04]);
+    assert_wire(EnumsActorType::Reserved4194410, &[0xd4, 0x81, 0x80, 0x04]);
+    assert_wire(EnumsActorType::Npc, &[0xe6, 0x04]);
+    assert_wire(EnumsActorEvent::Reserved36, &[36]);
+    assert_wire(EnumsActorEvent::Reserved71, &[71]);
+    assert_wire(EnumsActorEvent::Reserved73, &[73]);
+    assert_wire(EnumsPhotoType::Reserved0, &[0]);
+    assert_wire(EnumsPhotoType::Reserved1, &[1]);
+    assert_wire(EnumsPhotoType::Book, &[2]);
+    assert_eq!(EnumsPhotoType::default(), EnumsPhotoType::Reserved0);
 }
 
 #[test]
