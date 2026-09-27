@@ -264,6 +264,7 @@ fn binding_teleport_completion(
 }
 
 mod audio;
+mod audio_camera;
 mod camera;
 mod camera_controls;
 mod cohort_epoch;

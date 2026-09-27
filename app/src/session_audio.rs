@@ -3,8 +3,8 @@
 //! This slice resolves committed named `PlaySound`/`StopSound` traffic into
 //! retained outcomes only. There is deliberately no audible output, no audio
 //! backend or mixer dependency, no listener math, no category settings, and
-//! no resource-pack routing here; a future playback consumer reads the
-//! retained outcomes and owns all of those semantics.
+//! no resource-pack routing here. Audible consumers read the independent live
+//! sequenced message stream, NEVER these retained diagnostic outcomes.
 //!
 //! `LevelSoundEvent` records are transport-only in this slice: numeric/string
 //! level routing is unverified against vanilla, so they are counted without

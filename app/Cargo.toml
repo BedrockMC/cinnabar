@@ -27,6 +27,7 @@ meshing = { path = "../crates/meshing" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
 rayon.workspace = true
+rodio = { version = "=0.20.1", default-features = false }
 render = { path = "../crates/render" }
 semantic-input = { path = "../crates/input" }
 sim = { path = "../crates/sim" }

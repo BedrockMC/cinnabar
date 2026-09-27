@@ -715,9 +715,15 @@ impl WorldStream {
             }
             WorldEvent::Audio(event) => {
                 let sequence = sequence.expect("sequenced audio events commit through submit");
-                self.push_committed_audio(CommittedAudioEvent { sequence, event });
+                self.push_committed_audio(CommittedAudioEvent {
+                    sequence,
+                    dimension: self.current_dimension,
+                    dimension_epoch: self.form_dimension_epoch,
+                    event,
+                });
             }
             WorldEvent::Camera(event) => {
+                self.stats.audio_nondefault_camera_observed = true;
                 let sequence = sequence.expect("sequenced camera events commit through submit");
                 self.push_committed_camera(CommittedCameraEvent { sequence, event });
             }

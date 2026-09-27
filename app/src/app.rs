@@ -174,6 +174,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
+        .init_resource::<crate::named_audio::NamedAudio>()
+        .init_resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
             Update,
             receive_network_events
@@ -201,7 +203,11 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            resolve_camera_pose
+            (
+                crate::local_player_camera_receipt::begin_camera_publication_attempt,
+                resolve_camera_pose,
+            )
+                .chain()
                 .in_set(LocalPlayerFrameSet::Camera)
                 .in_set(ClientFrameSet::Camera),
         )
@@ -218,6 +224,16 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(receive_network_events)
                 .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
+        )
+        .add_systems(
+            Update,
+            crate::named_audio::drain_live_named_audio
+                .after(publish_local_player_frame)
+                .after(drive_world_stream)
+                .after(reconcile_world_stream_before_physics)
+                .after(drive_menu_connection)
+                .after(follow_server_transfer)
+                .after(recover_menu_session_failure),
         )
         .add_systems(
             Update,
@@ -464,11 +480,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // back to a bounded empty catalog with this one-time notice, while a
     // present-but-invalid carrier fails startup closed above through the
     // typed error naming the exact path and rebuild command.
-    let audio_catalog = match crate::asset_startup::load_audio_assets(&loaded_assets.selected_path)
-    {
+    let loaded_audio = match crate::asset_startup::load_audio_assets(&loaded_assets.selected_path) {
         Ok(Some(loaded)) => {
             eprintln!("{}", loaded.startup_summary());
-            Some(loaded.into_runtime())
+            Some(loaded)
         }
         Ok(None) => {
             eprintln!(
@@ -484,6 +499,18 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 .context("load optional pinned sound-definition carrier");
         }
     };
+    let pcm = crate::asset_startup::load_audio_pcm_assets(
+        &loaded_assets.selected_path,
+        loaded_audio.as_ref(),
+    )
+    .context("load optional reviewed finite PCM carrier")?;
+    let audio_device = if pcm.is_some() {
+        crate::named_audio::AudioDevice::open_default_once()
+    } else {
+        crate::named_audio::AudioDevice::disabled()
+    };
+    let named_audio = crate::named_audio::NamedAudio::new(pcm);
+    let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
     let font_runtime = loaded_assets.fonts.into_runtime();
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
@@ -674,6 +701,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ))
         .init_resource::<crate::menu::MenuClipboard>()
         .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
+        .insert_resource(named_audio)
+        .insert_non_send_resource(audio_device)
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalMovementEffectTimeline::default())
         .insert_resource(LocalMovementSpeedAuthority::default())
