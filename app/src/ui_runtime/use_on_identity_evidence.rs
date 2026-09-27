@@ -65,7 +65,8 @@ struct Row {
     identity: Identity,
 }
 
-#[derive(Debug)]
+// Cloning a UI snapshot must preserve the observation quota, FIFO and dedup state.
+#[derive(Clone, Debug)]
 pub(super) struct UseOnIdentityEvidence {
     enabled: bool,
     session: u64,

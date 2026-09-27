@@ -58,6 +58,53 @@ fn push(runtime: &mut UiRuntime, sequence: u64, event: InventoryAuthorityEvent) 
 }
 
 #[test]
+fn cloned_ui_preserves_evidence_fifo_deduplication_and_full_quota() {
+    let mut original = runtime(true);
+    push(&mut original, 1, registry());
+    push(&mut original, 2, slot(37));
+    let mut snapshot = original.clone();
+    let evidence = &snapshot.use_on_identity_evidence;
+    assert!(evidence.enabled);
+    assert_eq!(evidence.session, 7);
+    assert_eq!(evidence.last_sequence, Some(2));
+    assert_eq!(
+        evidence.registry,
+        original.use_on_identity_evidence.registry
+    );
+    assert_eq!(
+        evidence.stack_sources,
+        original.use_on_identity_evidence.stack_sources
+    );
+    assert_eq!(
+        serde_json::to_value(&evidence.rows).unwrap(),
+        serde_json::to_value(&original.use_on_identity_evidence.rows).unwrap()
+    );
+    assert!(!snapshot.use_on_identity_evidence.admit_sequence(7, 2));
+    push(&mut snapshot, 3, slot(37));
+    assert_eq!(
+        snapshot.use_on_identity_evidence.rows.len(),
+        1,
+        "clone must not log an already observed identity again"
+    );
+    push(&mut snapshot, 4, slot(36));
+    assert_eq!(snapshot.use_on_identity_evidence.rows.len(), 2);
+    assert_eq!(original.use_on_identity_evidence.rows.len(), 1);
+    for count in 1..=12 {
+        push(&mut original, u64::from(count) + 2, slot(count));
+    }
+    let mut full = original.clone();
+    assert_eq!(full.use_on_identity_evidence.rows.len(), MAX_ROWS);
+    assert_eq!(
+        full.use_on_identity_evidence.last_sequence,
+        original.use_on_identity_evidence.last_sequence
+    );
+    assert!(!full.use_on_identity_evidence.admit_sequence(7, 100));
+    full.begin_session(8);
+    assert!(full.use_on_identity_evidence.rows.is_empty());
+    assert_eq!(original.use_on_identity_evidence.rows.len(), MAX_ROWS);
+}
+
+#[test]
 fn disabled_observation_has_no_retained_rows_or_sources() {
     let mut runtime = runtime(false);
     push(&mut runtime, 1, registry());
