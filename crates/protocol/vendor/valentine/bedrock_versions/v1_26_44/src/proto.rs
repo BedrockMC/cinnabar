@@ -8045,10 +8045,7 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket109 {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
         let reserved_field_0 =
-            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
+            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_1 = <BlockPos as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_2 =
             <ReservedPacket109Field2 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -9342,9 +9339,7 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket137 {
         let _ = buf;
         let reserved_field_0 =
             <ReservedPacket137Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            reserved_field_0,
-        })
+        Ok(Self { reserved_field_0 })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -11795,9 +11790,7 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket170 {
         let _ = buf;
         let reserved_field_0 =
             <ReservedPacket170Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        Ok(Self {
-            reserved_field_0,
-        })
+        Ok(Self { reserved_field_0 })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -12253,18 +12246,12 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket178 {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let reserved_field_0 = <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let reserved_field_1 = <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let reserved_field_2 = <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
+        let reserved_field_0 =
+            <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_1 =
+            <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_2 =
+            <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
             reserved_field_0,
             reserved_field_1,
@@ -13666,7 +13653,8 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket304 {
         let _ = buf;
         let reserved_field_0 =
             <ReservedPacket304Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let reserved_field_1 = <ActorRuntimeId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_1 =
+            <ActorRuntimeId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
             reserved_field_0,
             reserved_field_1,

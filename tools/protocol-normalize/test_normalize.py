@@ -1,5 +1,6 @@
 """Neutral synthetic mutations exercise selectors without retaining source aliases."""
 import json
+import copy
 from pathlib import Path
 import unittest
 
@@ -20,6 +21,41 @@ class NormalizationTests(unittest.TestCase):
 
     def test_second_run_is_byte_identical(self):
         self.assertEqual(normalizer.normalize(self.canonical, self.manifest), self.canonical)
+
+    def test_uniform_crlf_is_preserved_and_mixed_eol_rejected(self):
+        crlf = {name: value.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+                for name, value in self.canonical.items()}
+        self.assertEqual(normalizer.normalize(crlf, self.manifest), crlf)
+        mixed = dict(crlf)
+        mixed["proto.rs"] = mixed["proto.rs"].replace(b"\r\n", b"\n", 1)
+        with self.assertRaises(normalizer.ShapeError):
+            normalizer.normalize(mixed, self.manifest)
+
+    def test_layout_offset_overlap_range_and_spans_are_guarded(self):
+        for kind in ("offset", "overlap", "range", "before", "after", "prehash", "posthash"):
+            manifest = copy.deepcopy(self.manifest)
+            edits = manifest["layout_edits"]["borrowed.rs"]
+            if kind == "offset":
+                edits[0]["offset"] += 1
+            elif kind == "overlap":
+                edits[1]["offset"] = edits[0]["offset"]
+            elif kind == "range":
+                edits[0]["offset"] = 10 ** 9
+            elif kind in ("before", "after"):
+                edits[0][kind] += " "
+            elif kind == "prehash":
+                manifest["preformat_sha256"]["borrowed.rs"] = "0" * 64
+            else:
+                manifest["normalized_sha256"]["borrowed.rs"] = "0" * 64
+            with self.subTest(kind=kind), self.assertRaises(normalizer.ShapeError):
+                normalizer.normalize(self.canonical, manifest)
+
+    def test_mixed_formatting_states_are_rejected(self):
+        mixed = dict(self.canonical)
+        text, eol = normalizer.uniform_source(mixed["proto.rs"])
+        mixed["proto.rs"] = normalizer.apply_layout(text, self.manifest["layout_edits"]["proto.rs"], reverse=True).replace("\n", eol).encode()
+        with self.assertRaises(normalizer.ShapeError):
+            normalizer.normalize(mixed, self.manifest)
 
     def test_numeric_extension_closure_is_canonical(self):
         text = self.input["types.rs"].decode()
