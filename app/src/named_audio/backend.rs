@@ -145,10 +145,16 @@ impl Source for CancelablePcm {
 /// Main-thread owner. No automatic reopen, alternate device enumeration or Sink.
 pub(crate) struct AudioDevice {
     output: Option<(OutputStream, OutputStreamHandle)>,
+    #[cfg(test)]
+    test_output: Option<Arc<rodio::dynamic_mixer::DynamicMixerController<f32>>>,
 }
 impl AudioDevice {
     pub fn disabled() -> Self {
-        Self { output: None }
+        Self {
+            output: None,
+            #[cfg(test)]
+            test_output: None,
+        }
     }
     pub fn open_default_once() -> Self {
         use rodio::cpal::traits::HostTrait;
@@ -160,6 +166,8 @@ impl AudioDevice {
         match OutputStream::try_from_device(&device) {
             Ok(output) => Self {
                 output: Some(output),
+                #[cfg(test)]
+                test_output: None,
             },
             Err(error) => {
                 eprintln!("named audio disabled: default output initialization failed: {error}");
@@ -168,9 +176,30 @@ impl AudioDevice {
         }
     }
     pub fn available(&self) -> bool {
+        #[cfg(test)]
+        if self.test_output.is_some() {
+            return true;
+        }
         self.output.is_some()
     }
+    /// Only replaces hardware transport; admission and source ownership are real.
+    #[cfg(test)]
+    pub(super) fn test_mixer() -> (Self, rodio::dynamic_mixer::DynamicMixer<f32>) {
+        let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 48000);
+        (
+            Self {
+                output: None,
+                test_output: Some(controller),
+            },
+            mixer,
+        )
+    }
     pub(super) fn submit(&mut self, source: CancelablePcm) -> bool {
+        #[cfg(test)]
+        if let Some(controller) = &self.test_output {
+            controller.add(source.convert_samples::<f32>());
+            return true;
+        }
         let Some((_, handle)) = &self.output else {
             return false;
         };
