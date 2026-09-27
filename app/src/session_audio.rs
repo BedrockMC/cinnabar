@@ -20,6 +20,8 @@ use bevy::prelude::{MessageReader, Res, ResMut, Resource};
 
 use crate::runtime::audio::SequencedAudioEvent;
 
+mod wire_evidence;
+
 /// Maximum retained audio outcomes.
 ///
 /// Named audio commands are rare relative to level events, so this ceiling
@@ -123,6 +125,7 @@ impl AudioOutcome {
 /// window closes at the next drain after the switch.
 #[derive(Debug, Default, Resource)]
 pub struct SessionAudio {
+    wire_evidence: wire_evidence::WireEvidence,
     entries: VecDeque<AudioOutcome>,
     admitted_total: u64,
     dropped_oldest_total: u64,
@@ -171,7 +174,10 @@ impl SessionAudio {
     ) {
         self.refresh_identity(session_generation, dimension);
         let mut admitted = 0_u64;
-        for SequencedAudioEvent { sequence, event } in events {
+        for SequencedAudioEvent {
+            sequence, event, ..
+        } in events
+        {
             let outcome = match event {
                 protocol::AudioEvent::Play(play) => self.resolve_play(catalog, sequence, &play),
                 protocol::AudioEvent::Stop(stop) => AudioOutcome::Stop {
@@ -308,6 +314,7 @@ impl SessionAudio {
     /// session instead of counting the same disconnect twice. Repeated idle
     /// frames remain idempotent.
     fn end_session(&mut self) {
+        self.wire_evidence.bind(None);
         self.entries.clear();
         if self.identity.take().is_some() {
             self.resets = self.resets.saturating_add(1);
@@ -389,6 +396,13 @@ pub(crate) fn drain_sequenced_audio_into_session(
         return;
     };
     let events: Vec<_> = messages.read().cloned().collect();
+    // Producer-owned stream lifetime rejects retained messages from replaced streams.
+    // This observation precedes catalog resolution and makes no playback claim.
+    let origin_stream_session_id = stream.actor_session_id();
+    session.wire_evidence.bind(Some(origin_stream_session_id));
+    for event in &events {
+        session.wire_evidence.emit(origin_stream_session_id, event);
+    }
     session.admit(
         clock.session_generation(),
         stream.current_dimension(),
