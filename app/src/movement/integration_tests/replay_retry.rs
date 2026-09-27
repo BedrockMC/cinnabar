@@ -26,9 +26,56 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     }
     ticker.pop_pending().unwrap();
     let before = ticker.pending_samples();
-    for pending in &mut ticker.outbox {
-        pending.snapshot.move_vector = [99.0; 2];
-        pending.snapshot.flags |= PlayerInputFlags::UP_LEFT;
+    let confirmation = ticker.sent_confirmation(101);
+    let plan = physics
+        .clone()
+        .apply_correction(
+            [0.25, 2.620_01, 0.0],
+            101,
+            true,
+            PhysicsCorrectionMode::ReplayIfRetained,
+            confirmation.as_ref(),
+            &VersionedFloor(1),
+        )
+        .unwrap();
+    assert_eq!(
+        plan.outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: 101,
+            replayed_ticks: 2,
+        }
+    );
+    assert_eq!(plan.replayed_samples.len(), before.len());
+    let mask = PlayerInputFlags::UP | PlayerInputFlags::RIGHT | PlayerInputFlags::UP_LEFT;
+    for (live, retained) in before.iter().zip(&plan.replayed_samples) {
+        assert_eq!(retained.tick, live.snapshot.tick);
+        assert_eq!(retained.move_vector.map(f32::to_bits), expected);
+        assert_eq!(
+            retained.processed.direction_flags.unwrap().bits() & mask.bits(),
+            live.snapshot.flags.bits() & mask.bits()
+        );
+        assert_eq!(retained.raw_move_vector, [-1.0, -1.0]);
+        assert_eq!(retained.analogue_move_vector, [-1.0, -1.0]);
+    }
+    // Captured input stays immutable; only replay-owned output is corrupted.
+    for (pending, retained) in ticker.outbox.iter_mut().zip(&plan.replayed_samples) {
+        pending.snapshot.position = [99.0; 3];
+        pending.snapshot.delta = [99.0; 3];
+        pending.snapshot.flags = pending
+            .snapshot
+            .flags
+            .with_mask(
+                PlayerInputFlags::HORIZONTAL_COLLISION,
+                !retained.horizontal_collision,
+            )
+            .with_mask(
+                PlayerInputFlags::VERTICAL_COLLISION,
+                !retained.vertical_collision,
+            )
+            .with_mask(
+                PlayerInputFlags::JUMPING,
+                !retained.processed.jump_arc_active,
+            );
     }
     reconcile_candidate_physics_correction(
         &mut ticker,
@@ -43,8 +90,32 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     let after = ticker.pending_samples();
     assert_eq!(before.len(), 2);
     assert_eq!(after.len(), before.len());
-    let mask = PlayerInputFlags::UP | PlayerInputFlags::RIGHT | PlayerInputFlags::UP_LEFT;
-    for (live, replayed) in before.into_iter().zip(after) {
+    for ((live, replayed), retained) in before.into_iter().zip(after).zip(plan.replayed_samples) {
+        assert_eq!(replayed.snapshot.position, retained.position);
+        assert_eq!(replayed.snapshot.delta, retained.velocity);
+        assert_ne!(replayed.snapshot.position, [99.0; 3]);
+        assert_ne!(replayed.snapshot.delta, [99.0; 3]);
+        assert_ne!(replayed.snapshot.position, live.snapshot.position);
+        assert_eq!(replayed.evidence.network_position, retained.position);
+        for (flag, expected_value) in [
+            (
+                PlayerInputFlags::HORIZONTAL_COLLISION,
+                retained.horizontal_collision,
+            ),
+            (
+                PlayerInputFlags::VERTICAL_COLLISION,
+                retained.vertical_collision,
+            ),
+            (
+                PlayerInputFlags::JUMPING,
+                retained.processed.jump_arc_active,
+            ),
+        ] {
+            assert_eq!(
+                replayed.snapshot.flags.bits() & flag.bits() != 0,
+                expected_value
+            );
+        }
         assert_eq!(live.snapshot.move_vector.map(f32::to_bits), expected);
         assert_eq!(replayed.snapshot.move_vector.map(f32::to_bits), expected);
         assert_eq!(
