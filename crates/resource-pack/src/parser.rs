@@ -1,7 +1,7 @@
-//! Internal bounded archive and manifest parser.
+//! Bounded archive indexing and per-pack admission.
 //!
-//! Admission indexes each archive and validates its manifest atomically. It does
-//! not extract archives, merge pack namespaces, or apply assets.
+//! Structural ZIP damage or a bad manifest drops one pack; odd entries inside an
+//! otherwise sound archive are skipped and counted instead.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -11,137 +11,126 @@ use std::{
 
 #[cfg(feature = "handoff")]
 use protocol::ResourcePackArchive;
-use serde::Deserialize;
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
 use crate::{
-    AdmissionError, EntryIndex, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_DEPENDENCIES,
-    MAX_ENTRIES_PER_PACK, MAX_FILE_BYTES, MAX_MANIFEST_BYTES, MAX_MANIFEST_STRING_BYTES,
-    MAX_MODULES, MAX_PATH_BYTES, MAX_SUBPACKS, ValidatedPack,
+    AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK,
+    MAX_FILE_BYTES, MAX_MANIFEST_BYTES, MAX_PATH_BYTES,
+    crypto::{ContentKey, contents_file_keys},
+    manifest::read_manifest,
+    pack::{EntryIndex, ValidatedPack, read_entry},
 };
 #[cfg(feature = "handoff")]
 use crate::{
     MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, MAX_PACKS, MAX_STACK_ARCHIVE_BYTES,
-    ValidatedPackStack,
+    PackRejection, ValidatedPackStack,
 };
 
 const EOCD_MIN_BYTES: usize = 22;
 const EOCD_MAX_SEARCH_BYTES: usize = EOCD_MIN_BYTES + u16::MAX as usize;
+const MAX_CONTENTS_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 
-mod file_application;
-
-#[cfg(feature = "handoff")]
-pub(super) use file_application::validate_archives_with_file;
-use file_application::{FilePreparation, disabled_file};
-
+/// Validates one unencrypted archive under a nil identity; used by fuzzing.
 pub fn validate_archive_bytes(bytes: &[u8]) -> Result<(), AdmissionError> {
     if bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
     }
-    validate_archive_parts(
-        Uuid::nil(),
-        "0.0.0",
-        "",
-        bytes.to_vec(),
-        &mut disabled_file(),
-    )
-    .map(|_| ())
+    validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None).map(|_| ())
+}
+
+/// Admits each archive independently in stack order. Stack-wide bounds drop
+/// the packs that would exceed them, not the packs already admitted.
+#[cfg(feature = "handoff")]
+pub(super) fn validate_stack(archives: Vec<ResourcePackArchive>) -> ValidatedPackStack {
+    let mut packs = Vec::with_capacity(archives.len().min(MAX_PACKS));
+    let mut rejections = Vec::new();
+    let (mut archive_bytes, mut entry_count, mut declared_bytes) = (0usize, 0usize, 0u64);
+    let mut seen = HashSet::with_capacity(archives.len());
+    for (stack_index, archive) in archives.into_iter().enumerate() {
+        let admitted = admit_stack_entry(
+            archive,
+            &mut seen,
+            packs.len(),
+            archive_bytes,
+            |pack, declared| {
+                let entries = entry_count.saturating_add(pack.entry_count());
+                let bytes = declared_bytes.saturating_add(declared);
+                if entries > MAX_ENTRIES_PER_STACK {
+                    Err(AdmissionError::TooManyStackEntries)
+                } else if bytes > MAX_DECLARED_BYTES_PER_STACK {
+                    Err(AdmissionError::StackDeclaredSizeTooLarge)
+                } else {
+                    Ok((entries, bytes))
+                }
+            },
+        );
+        match admitted {
+            Ok((pack, size, (entries, declared))) => {
+                archive_bytes += size;
+                (entry_count, declared_bytes) = (entries, declared);
+                packs.push(pack);
+            }
+            Err(reason) => rejections.push(PackRejection {
+                stack_index,
+                reason,
+            }),
+        }
+    }
+    ValidatedPackStack {
+        packs: packs.into_boxed_slice(),
+        rejections: rejections.into_boxed_slice(),
+    }
 }
 
 #[cfg(feature = "handoff")]
-pub(super) fn validate_archives(
-    archives: Vec<ResourcePackArchive>,
-) -> Result<ValidatedPackStack, AdmissionError> {
-    validate_archives_inner(archives, &mut disabled_file())
-}
-
-#[cfg(feature = "handoff")]
-fn validate_archives_inner<F, T>(
-    archives: Vec<ResourcePackArchive>,
-    file: &mut FilePreparation<'_, F, T>,
-) -> Result<ValidatedPackStack, AdmissionError>
-where
-    F: FnOnce(usize, &mut dyn FnMut(&mut [u8]) -> bool) -> Option<T>,
-{
-    if archives.len() > MAX_PACKS {
+fn admit_stack_entry<T>(
+    archive: ResourcePackArchive,
+    seen: &mut HashSet<Uuid>,
+    admitted: usize,
+    archive_bytes: usize,
+    stack_bounds: impl FnOnce(&ValidatedPack, u64) -> Result<T, AdmissionError>,
+) -> Result<(ValidatedPack, usize, T), AdmissionError> {
+    if admitted >= MAX_PACKS {
         return Err(AdmissionError::TooManyPacks);
     }
-    // Never copy or format content keys. Reject before ZIP or manifest parsing.
-    if archives
-        .iter()
-        .any(|archive| !archive.content_key.expose().is_empty())
-    {
-        return Err(AdmissionError::UnsupportedContentEncryption);
+    let size = archive.archive.len();
+    if size > MAX_ARCHIVE_BYTES {
+        return Err(AdmissionError::ArchiveTooLarge);
     }
-    let mut archive_bytes = 0usize;
-    let mut entry_count = 0usize;
-    let mut declared_bytes = 0u64;
-    let mut packs = Vec::with_capacity(archives.len());
-    for archive in archives {
-        if archive.archive.len() > MAX_ARCHIVE_BYTES {
-            return Err(AdmissionError::ArchiveTooLarge);
-        }
-        archive_bytes = archive_bytes
-            .checked_add(archive.archive.len())
-            .ok_or(AdmissionError::StackArchiveTooLarge)?;
-        if archive_bytes > MAX_STACK_ARCHIVE_BYTES {
-            return Err(AdmissionError::StackArchiveTooLarge);
-        }
-        let (pack, pack_declared) = validate_archive(archive, file)?;
-        entry_count = entry_count
-            .checked_add(pack.entry_count())
-            .ok_or(AdmissionError::TooManyStackEntries)?;
-        if entry_count > MAX_ENTRIES_PER_STACK {
-            return Err(AdmissionError::TooManyStackEntries);
-        }
-        declared_bytes = declared_bytes
-            .checked_add(pack_declared)
-            .ok_or(AdmissionError::StackDeclaredSizeTooLarge)?;
-        if declared_bytes > MAX_DECLARED_BYTES_PER_STACK {
-            return Err(AdmissionError::StackDeclaredSizeTooLarge);
-        }
-        packs.push(pack);
+    if archive_bytes.saturating_add(size) > MAX_STACK_ARCHIVE_BYTES {
+        return Err(AdmissionError::StackArchiveTooLarge);
     }
-    validate_dependency_graph(&packs)?;
-    Ok(ValidatedPackStack {
-        packs: packs.into_boxed_slice(),
-    })
-}
-
-#[cfg(feature = "handoff")]
-fn validate_archive<F, T>(
-    archive: ResourcePackArchive,
-    file: &mut FilePreparation<'_, F, T>,
-) -> Result<(ValidatedPack, u64), AdmissionError>
-where
-    F: FnOnce(usize, &mut dyn FnMut(&mut [u8]) -> bool) -> Option<T>,
-{
-    validate_archive_parts(
+    if seen.contains(&archive.pack_id) {
+        return Err(AdmissionError::DuplicatePack);
+    }
+    let key = archive.content_key.expose();
+    let key = if key.is_empty() {
+        None
+    } else {
+        Some(ContentKey::new(key).ok_or(AdmissionError::InvalidContentKey)?)
+    };
+    let (pack, declared) = validate_archive_parts(
         archive.pack_id,
         &archive.version,
         &archive.sub_pack_name,
         archive.archive,
-        file,
-    )
+        key,
+    )?;
+    let bounds = stack_bounds(&pack, declared)?;
+    seen.insert(pack.pack_id);
+    Ok((pack, size, bounds))
 }
 
-fn validate_archive_parts<F, T>(
+pub(crate) fn validate_archive_parts(
     pack_id: Uuid,
     version: &str,
     sub_pack_name: &str,
     archive_bytes: Vec<u8>,
-    file: &mut FilePreparation<'_, F, T>,
-) -> Result<(ValidatedPack, u64), AdmissionError>
-where
-    F: FnOnce(usize, &mut dyn FnMut(&mut [u8]) -> bool) -> Option<T>,
-{
+    key: Option<ContentKey>,
+) -> Result<(ValidatedPack, u64), AdmissionError> {
     if archive_bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(AdmissionError::ArchiveTooLarge);
-    }
-    if version.len() > MAX_MANIFEST_STRING_BYTES || sub_pack_name.len() > MAX_MANIFEST_STRING_BYTES
-    {
-        return Err(AdmissionError::ManifestStringTooLong);
     }
     let expected_entries = preflight_eocd(&archive_bytes)?;
     let bytes: Arc<[u8]> = archive_bytes.into();
@@ -150,101 +139,161 @@ where
     if zip.len() != expected_entries || zip.len() > MAX_ENTRIES_PER_PACK {
         return Err(AdmissionError::TooManyEntries);
     }
-    let mut physical_entries = HashMap::with_capacity(zip.len());
-    let mut folded_paths = HashSet::with_capacity(zip.len());
-    let mut declared = 0u64;
+    let mut physical = HashMap::with_capacity(zip.len());
+    let mut folded_seen = HashSet::with_capacity(zip.len());
+    let (mut declared, mut skipped) = (0u64, 0usize);
     for archive_index in 0..zip.len() {
         let file = zip
             .by_index_raw(archive_index)
             .map_err(|_| AdmissionError::MalformedZip)?;
-        if file.encrypted() {
-            return Err(AdmissionError::UnsupportedZipEncryption);
-        }
-        if !matches!(
-            file.compression(),
-            CompressionMethod::Stored | CompressionMethod::Deflated
-        ) {
-            return Err(AdmissionError::UnsupportedCompression);
-        }
-        if file.is_dir() || !is_regular_file(file.unix_mode()) {
-            return Err(AdmissionError::NonFileEntry);
-        }
-        if file.size() > MAX_FILE_BYTES {
-            return Err(AdmissionError::FileTooLarge);
-        }
         declared = declared
             .checked_add(file.size())
+            .filter(|total| *total <= MAX_DECLARED_BYTES_PER_PACK)
             .ok_or(AdmissionError::DeclaredSizeTooLarge)?;
-        if declared > MAX_DECLARED_BYTES_PER_PACK {
-            return Err(AdmissionError::DeclaredSizeTooLarge);
-        }
-        let path = canonical_path(file.name_raw())?;
-        let folded = path.to_lowercase();
-        if !folded_paths.insert(folded) || physical_entries.contains_key(path.as_ref()) {
-            return Err(AdmissionError::DuplicatePath);
-        }
-        physical_entries.insert(
-            path,
-            EntryIndex {
-                archive_index,
-                uncompressed_size: file.size(),
-            },
-        );
-    }
-    let manifest_path: Box<str> = "manifest.json".into();
-    let manifest_entry = physical_entries
-        .get(manifest_path.as_ref())
-        .cloned()
-        .ok_or(AdmissionError::MissingManifest)?;
-    if manifest_entry.uncompressed_size > MAX_MANIFEST_BYTES as u64 {
-        return Err(AdmissionError::ManifestTooLarge);
-    }
-    let mut files = HashMap::with_capacity(physical_entries.len());
-    let mut logical_keys = HashMap::with_capacity(physical_entries.len());
-    for (path, entry) in &physical_entries {
-        if !is_physical_subpack_path(path) {
-            files.insert(path.clone(), entry.clone());
-            logical_keys.insert(path.to_lowercase(), path.clone());
-        }
-    }
-    if !sub_pack_name.is_empty() {
-        for (path, entry) in &physical_entries {
-            if let Some(logical) = selected_subpack_logical_path(path, sub_pack_name) {
-                if logical.eq_ignore_ascii_case("manifest.json") || logical.is_empty() {
-                    return Err(AdmissionError::InvalidSubpack);
-                }
-                let logical: Box<str> = logical.into();
-                if let Some(root_key) = logical_keys.insert(logical.to_lowercase(), logical.clone())
-                {
-                    files.remove(root_key.as_ref());
-                }
-                files.insert(logical, entry.clone());
+        let path = canonical_path(file.name_raw());
+        let usable = !file.is_dir()
+            && is_regular_file(file.unix_mode())
+            && !file.encrypted()
+            && matches!(
+                file.compression(),
+                CompressionMethod::Stored | CompressionMethod::Deflated
+            )
+            && file.size() <= MAX_FILE_BYTES;
+        match path {
+            Some(path) if usable && folded_seen.insert(path.to_ascii_lowercase()) => {
+                let entry = EntryIndex {
+                    archive_index,
+                    uncompressed_size: file.size(),
+                    key: None,
+                };
+                physical.insert(path, entry);
             }
+            _ => skipped += usize::from(!file.is_dir()),
         }
     }
-    // The root manifest is identity authority and cannot be shadowed by a subpack.
-    files.insert(manifest_path.clone(), manifest_entry);
+    let root = pack_root(&physical);
+    let mut rooted: HashMap<Box<str>, EntryIndex> = physical
+        .into_iter()
+        .filter_map(|(path, entry)| Some((path.strip_prefix(root.as_str())?.into(), entry)))
+        .collect();
+    let keys = match key {
+        Some(pack_key) => attach_file_keys(&bytes, &mut rooted, &pack_key)?,
+        None => Box::default(),
+    };
+    let manifest_path = ["manifest.json", "pack_manifest.json"]
+        .into_iter()
+        .find(|path| rooted.contains_key(*path))
+        .ok_or(AdmissionError::MissingManifest)?;
+    let files = logical_files(&rooted, sub_pack_name)?;
     let mut file_order = files.keys().cloned().collect::<Vec<_>>();
     file_order.sort_unstable();
-    let mut pack = ValidatedPack {
+    let folded = files
+        .keys()
+        .map(|path| (path.to_ascii_lowercase().into_boxed_str(), path.clone()))
+        .collect();
+    let pack = ValidatedPack {
         pack_id,
         version: version.into(),
         sub_pack_name: sub_pack_name.into(),
         archive: bytes,
         files,
+        folded,
         file_order: file_order.into_boxed_slice(),
-        dependencies: Box::new([]),
+        keys,
         physical_entry_count: expected_entries,
+        skipped_entries: skipped,
     };
     let manifest_bytes = pack
-        .read_file_with_limit(&manifest_path, MAX_MANIFEST_BYTES as u64)?
+        .read_file_with_limit(manifest_path, MAX_MANIFEST_BYTES as u64)
+        .map_err(|error| match error {
+            AdmissionError::FileTooLarge => AdmissionError::ManifestTooLarge,
+            other => other,
+        })?
         .ok_or(AdmissionError::MissingManifest)?;
-    if manifest_bytes.len() > MAX_MANIFEST_BYTES {
-        return Err(AdmissionError::ManifestTooLarge);
+    let manifest = read_manifest(&manifest_bytes, pack_id, version)?;
+    if !sub_pack_name.is_empty()
+        && !manifest
+            .subpack_folders
+            .iter()
+            .any(|folder| folder.as_ref() == sub_pack_name)
+    {
+        return Err(AdmissionError::InvalidSubpack);
     }
-    pack.dependencies = validate_manifest(&pack, &manifest_bytes)?.into_boxed_slice();
-    file.apply(&pack, &mut zip);
     Ok((pack, declared))
+}
+
+/// Returns the directory prefix holding the manifest when an archive wraps the
+/// pack in one top-level folder.
+fn pack_root(physical: &HashMap<Box<str>, EntryIndex>) -> String {
+    if physical.contains_key("manifest.json") || physical.contains_key("pack_manifest.json") {
+        return String::new();
+    }
+    let mut roots = physical
+        .keys()
+        .filter_map(|path| {
+            let (folder, rest) = path.split_once('/')?;
+            (rest == "manifest.json").then(|| format!("{folder}/"))
+        })
+        .collect::<Vec<_>>();
+    roots.sort_unstable();
+    roots.into_iter().next().unwrap_or_default()
+}
+
+fn attach_file_keys(
+    archive: &Arc<[u8]>,
+    rooted: &mut HashMap<Box<str>, EntryIndex>,
+    pack_key: &ContentKey,
+) -> Result<Box<[ContentKey]>, AdmissionError> {
+    let contents = rooted
+        .get("contents.json")
+        .ok_or(AdmissionError::MissingContentsIndex)?;
+    let raw = read_entry(archive, contents, MAX_CONTENTS_INDEX_BYTES)
+        .map_err(|_| AdmissionError::MalformedContentsIndex)?;
+    let mut file_keys = contents_file_keys(&raw, pack_key)?;
+    let mut keys = Vec::with_capacity(file_keys.len());
+    for (path, entry) in rooted.iter_mut() {
+        if path.as_ref() == "contents.json" {
+            continue;
+        }
+        if let Some(key) = file_keys.remove(path.as_ref()) {
+            entry.key = Some(keys.len());
+            keys.push(key);
+        }
+    }
+    Ok(keys.into_boxed_slice())
+}
+
+/// Maps physical paths to logical ones: the selected subpack overlays the root
+/// and every other subpack is hidden. The root manifest cannot be shadowed.
+fn logical_files(
+    rooted: &HashMap<Box<str>, EntryIndex>,
+    sub_pack_name: &str,
+) -> Result<HashMap<Box<str>, EntryIndex>, AdmissionError> {
+    let mut files = HashMap::with_capacity(rooted.len());
+    let mut logical_keys = HashMap::with_capacity(rooted.len());
+    for (path, entry) in rooted {
+        if !is_physical_subpack_path(path) {
+            files.insert(path.clone(), entry.clone());
+            logical_keys.insert(path.to_ascii_lowercase(), path.clone());
+        }
+    }
+    if sub_pack_name.is_empty() {
+        return Ok(files);
+    }
+    for (path, entry) in rooted {
+        let Some(logical) = selected_subpack_logical_path(path, sub_pack_name) else {
+            continue;
+        };
+        if logical.eq_ignore_ascii_case("manifest.json") || logical.is_empty() {
+            return Err(AdmissionError::InvalidSubpack);
+        }
+        let logical: Box<str> = logical.into();
+        if let Some(root_key) = logical_keys.insert(logical.to_ascii_lowercase(), logical.clone()) {
+            files.remove(root_key.as_ref());
+        }
+        files.insert(logical, entry.clone());
+    }
+    Ok(files)
 }
 
 fn is_physical_subpack_path(path: &str) -> bool {
@@ -338,356 +387,23 @@ fn is_regular_file(mode: Option<u32>) -> bool {
     })
 }
 
-fn canonical_path(raw: &[u8]) -> Result<Box<str>, AdmissionError> {
+/// Normalizes separators and a leading `./`; paths that could escape the pack
+/// root or carry control characters are refused.
+fn canonical_path(raw: &[u8]) -> Option<Box<str>> {
     if raw.is_empty() || raw.len() > MAX_PATH_BYTES || raw.contains(&0) {
-        return Err(AdmissionError::UnsafePath);
+        return None;
     }
-    let path = std::str::from_utf8(raw).map_err(|_| AdmissionError::UnsafePath)?;
-    if path.starts_with('/')
-        || path.starts_with('\\')
-        || path.contains('\\')
+    let path = std::str::from_utf8(raw).ok()?.replace('\\', "/");
+    let path = path.trim_start_matches("./");
+    let unsafe_path = path.is_empty()
+        || path.starts_with('/')
         || path.contains(':')
         || path.ends_with('/')
         || path.bytes().any(|byte| byte.is_ascii_control())
         || path
             .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(AdmissionError::UnsafePath);
-    }
-    Ok(path.into())
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Manifest {
-    format_version: u32,
-    header: Header,
-    modules: Vec<Module>,
-    #[serde(default)]
-    dependencies: Vec<Dependency>,
-    #[serde(default)]
-    subpacks: Vec<Subpack>,
-    #[serde(default)]
-    capabilities: Vec<String>,
-    #[serde(default)]
-    metadata: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Header {
-    name: String,
-    description: String,
-    uuid: Uuid,
-    version: Version,
-    #[serde(default)]
-    min_engine_version: Option<Version>,
-    #[serde(default)]
-    pack_scope: Option<String>,
-    #[serde(default)]
-    lock_template_options: Option<bool>,
-    #[serde(default)]
-    allow_random_seed: Option<bool>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Module {
-    #[serde(default)]
-    description: String,
-    #[serde(rename = "type")]
-    module_type: String,
-    uuid: Uuid,
-    version: Version,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Dependency {
-    uuid: Uuid,
-    version: Version,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Subpack {
-    folder_name: String,
-    name: String,
-    memory_tier: u32,
-}
-
-#[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
-pub(super) struct Version([u32; 3]);
-
-impl Version {
-    fn parse_canonical(value: &str) -> Result<Self, AdmissionError> {
-        let mut parts = value.split('.');
-        let mut parsed = [0; 3];
-        for part in &mut parsed {
-            let text = parts.next().ok_or(AdmissionError::InvalidVersion)?;
-            if text.is_empty()
-                || (text.len() > 1 && text.starts_with('0'))
-                || !text.bytes().all(|byte| byte.is_ascii_digit())
-            {
-                return Err(AdmissionError::InvalidVersion);
-            }
-            *part = text.parse().map_err(|_| AdmissionError::InvalidVersion)?;
-        }
-        if parts.next().is_some() {
-            return Err(AdmissionError::InvalidVersion);
-        }
-        Ok(Self(parsed))
-    }
-}
-
-fn validate_manifest(
-    pack: &ValidatedPack,
-    bytes: &[u8],
-) -> Result<Vec<(Uuid, Version)>, AdmissionError> {
-    let stripped = strip_jsonc(bytes)?;
-    let mut deserializer = serde_json::Deserializer::from_slice(&stripped);
-    let manifest =
-        Manifest::deserialize(&mut deserializer).map_err(|_| AdmissionError::MalformedManifest)?;
-    deserializer
-        .end()
-        .map_err(|_| AdmissionError::MalformedManifest)?;
-    if manifest.format_version != 2 {
-        return Err(AdmissionError::UnsupportedManifestFormat);
-    }
-    validate_manifest_strings(&manifest)?;
-    if manifest.header.uuid != pack.pack_id
-        || manifest.header.version != Version::parse_canonical(&pack.version)?
-    {
-        return Err(AdmissionError::ManifestIdentityMismatch);
-    }
-    if manifest.modules.is_empty() || manifest.modules.len() > MAX_MODULES {
-        return Err(AdmissionError::InvalidModules);
-    }
-    let mut module_ids = HashSet::with_capacity(manifest.modules.len());
-    let mut has_resources = false;
-    for module in &manifest.modules {
-        if module.module_type != "resources" || !module_ids.insert(module.uuid) {
-            return Err(AdmissionError::InvalidModules);
-        }
-        let _ = module.version;
-        has_resources = true;
-    }
-    if !has_resources {
-        return Err(AdmissionError::InvalidModules);
-    }
-    if manifest.dependencies.len() > MAX_DEPENDENCIES {
-        return Err(AdmissionError::InvalidDependencies);
-    }
-    let mut dependencies = HashSet::with_capacity(manifest.dependencies.len());
-    if manifest
-        .dependencies
-        .iter()
-        .any(|dependency| !dependencies.insert(dependency.uuid) || dependency.uuid == pack.pack_id)
-    {
-        return Err(AdmissionError::InvalidDependencies);
-    }
-    if manifest.subpacks.len() > MAX_SUBPACKS {
-        return Err(AdmissionError::InvalidSubpack);
-    }
-    let mut subpack_names = HashSet::with_capacity(manifest.subpacks.len());
-    if manifest.subpacks.iter().any(|subpack| {
-        let _ = subpack.memory_tier;
-        subpack.folder_name.is_empty()
-            || canonical_path(subpack.folder_name.as_bytes()).is_err()
-            || subpack.folder_name.contains('/')
-            || !subpack_names.insert(subpack.folder_name.to_lowercase())
-    }) {
-        return Err(AdmissionError::InvalidSubpack);
-    }
-    if !pack.sub_pack_name.is_empty()
-        && !manifest
-            .subpacks
-            .iter()
-            .any(|subpack| subpack.folder_name == pack.sub_pack_name.as_ref())
-    {
-        return Err(AdmissionError::InvalidSubpack);
-    }
-    Ok(manifest
-        .dependencies
-        .into_iter()
-        .map(|dependency| (dependency.uuid, dependency.version))
-        .collect())
-}
-
-fn validate_manifest_strings(manifest: &Manifest) -> Result<(), AdmissionError> {
-    let strings = std::iter::once(manifest.header.name.as_str())
-        .chain(std::iter::once(manifest.header.description.as_str()))
-        .chain(manifest.header.pack_scope.iter().map(String::as_str))
-        .chain(manifest.capabilities.iter().map(String::as_str))
-        .chain(
-            manifest
-                .modules
-                .iter()
-                .flat_map(|module| [module.description.as_str(), module.module_type.as_str()]),
-        )
-        .chain(
-            manifest
-                .subpacks
-                .iter()
-                .flat_map(|subpack| [subpack.folder_name.as_str(), subpack.name.as_str()]),
-        );
-    if strings
-        .into_iter()
-        .any(|value| value.len() > MAX_MANIFEST_STRING_BYTES)
-    {
-        return Err(AdmissionError::ManifestStringTooLong);
-    }
-    if let Some(metadata) = &manifest.metadata {
-        validate_json_strings(metadata)?;
-    }
-    // Consume optional fields so they remain intentionally admitted and visible to review.
-    let _ = (
-        manifest.header.min_engine_version,
-        manifest.header.lock_template_options,
-        manifest.header.allow_random_seed,
-        &manifest.metadata,
-    );
-    Ok(())
-}
-
-fn validate_json_strings(value: &serde_json::Value) -> Result<(), AdmissionError> {
-    match value {
-        serde_json::Value::String(value) => {
-            if value.len() > MAX_MANIFEST_STRING_BYTES {
-                return Err(AdmissionError::ManifestStringTooLong);
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for value in values {
-                validate_json_strings(value)?;
-            }
-        }
-        serde_json::Value::Object(values) => {
-            for (key, value) in values {
-                if key.len() > MAX_MANIFEST_STRING_BYTES {
-                    return Err(AdmissionError::ManifestStringTooLong);
-                }
-                validate_json_strings(value)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-#[cfg(any(feature = "handoff", test))]
-fn validate_dependency_graph(packs: &[ValidatedPack]) -> Result<(), AdmissionError> {
-    let positions: HashMap<Uuid, usize> = packs
-        .iter()
-        .enumerate()
-        .map(|(index, pack)| (pack.pack_id, index))
-        .collect();
-    if positions.len() != packs.len() {
-        return Err(AdmissionError::InvalidDependencies);
-    }
-    let mut edges = vec![Vec::new(); packs.len()];
-    for (index, pack) in packs.iter().enumerate() {
-        for &(dependency_id, dependency_version) in &pack.dependencies {
-            let Some(&target) = positions.get(&dependency_id) else {
-                return Err(AdmissionError::InvalidDependencies);
-            };
-            if packs[target].version.as_ref()
-                != canonical_version_string(dependency_version).as_str()
-            {
-                return Err(AdmissionError::InvalidDependencies);
-            }
-            edges[index].push(target);
-        }
-    }
-    let mut states = vec![0u8; packs.len()];
-    for root in 0..packs.len() {
-        visit(root, &edges, &mut states)?;
-    }
-    Ok(())
-}
-
-#[cfg(any(feature = "handoff", test))]
-fn visit(index: usize, edges: &[Vec<usize>], states: &mut [u8]) -> Result<(), AdmissionError> {
-    match states[index] {
-        1 => return Err(AdmissionError::DependencyCycle),
-        2 => return Ok(()),
-        _ => {}
-    }
-    states[index] = 1;
-    for &next in &edges[index] {
-        visit(next, edges, states)?;
-    }
-    states[index] = 2;
-    Ok(())
-}
-
-#[cfg(any(feature = "handoff", test))]
-fn canonical_version_string(version: Version) -> String {
-    format!("{}.{}.{}", version.0[0], version.0[1], version.0[2])
-}
-
-fn strip_jsonc(bytes: &[u8]) -> Result<Vec<u8>, AdmissionError> {
-    std::str::from_utf8(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
-    let mut output = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            output.push(byte);
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-            output.push(byte);
-            index += 1;
-        } else if bytes.get(index..index + 2) == Some(b"//") {
-            output.extend_from_slice(b"  ");
-            index += 2;
-            while index < bytes.len() && !matches!(bytes[index], b'\n' | b'\r') {
-                output.push(b' ');
-                index += 1;
-            }
-        } else if bytes.get(index..index + 2) == Some(b"/*") {
-            output.extend_from_slice(b"  ");
-            index += 2;
-            let mut terminated = false;
-            while index < bytes.len() {
-                if bytes.get(index..index + 2) == Some(b"*/") {
-                    output.extend_from_slice(b"  ");
-                    index += 2;
-                    terminated = true;
-                    break;
-                }
-                output.push(if matches!(bytes[index], b'\n' | b'\r') {
-                    bytes[index]
-                } else {
-                    b' '
-                });
-                index += 1;
-            }
-            if !terminated {
-                return Err(AdmissionError::MalformedManifest);
-            }
-        } else {
-            output.push(byte);
-            index += 1;
-        }
-    }
-    if in_string {
-        return Err(AdmissionError::MalformedManifest);
-    }
-    Ok(output)
+            .any(|part| part.is_empty() || part == "." || part == "..");
+    (!unsafe_path).then(|| path.into())
 }
 
 #[cfg(test)]
