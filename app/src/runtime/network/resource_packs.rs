@@ -1,5 +1,5 @@
 use bevy::prelude::Resource;
-use resource_pack::PackAdmission;
+use resource_pack::{LayeredPackView, PackAdmission};
 
 pub(super) fn prepare_pack_application(
     handoff: protocol::ResourcePackHandoff,
@@ -10,15 +10,22 @@ pub(super) fn prepare_pack_application(
     if handoff.is_empty() {
         return (PackAdmission::None, None);
     }
-    match resource_pack::validate_handoff_with_file(
-        handoff,
-        "texts/en_US.lang",
-        assets::MAX_SERVER_LANG_INPUT_BYTES,
-        |size, read| assets::ServerLangOverlay::read(size, read),
-    ) {
-        Ok((stack, overlay)) => (PackAdmission::Validated(stack), overlay),
-        Err(reason) => (PackAdmission::Rejected(reason), None),
+    let stack = resource_pack::validate_handoff(handoff);
+    for rejection in stack.rejections() {
+        bevy::log::warn!(
+            stack_index = rejection.stack_index,
+            reason = %rejection.reason,
+            "server resource pack dropped"
+        );
     }
+    let view = LayeredPackView::new(std::sync::Arc::clone(&stack));
+    let overlay = view.read("texts/en_US.lang").and_then(|bytes| {
+        assets::ServerLangOverlay::read(bytes.len(), |output| {
+            output.copy_from_slice(&bytes);
+            true
+        })
+    });
+    (PackAdmission::Validated(stack), overlay)
 }
 
 pub(super) fn install_server_language(
@@ -140,10 +147,14 @@ mod tests {
             super::prepare_pack_application(protocol::ResourcePackHandoff::from_archives(vec![
                 pack,
             ]));
-        assert!(matches!(
-            admission,
-            PackAdmission::Rejected(AdmissionError::InvalidZipFooter)
-        ));
+        let PackAdmission::Validated(stack) = admission else {
+            panic!("a dropped pack still yields an admitted stack");
+        };
+        assert!(stack.packs().is_empty());
+        assert_eq!(
+            stack.rejections()[0].reason,
+            AdmissionError::InvalidZipFooter
+        );
         assert!(overlay.is_none());
     }
 
@@ -152,15 +163,11 @@ mod tests {
         let mut state = ResourcePackAdmissionState::default();
         assert!(state.begin_generation(2));
         assert!(matches!(state.admission(), PackAdmission::None));
-        assert!(
-            state.replace_for_generation(2, PackAdmission::Rejected(AdmissionError::MalformedZip))
-        );
+        let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+        assert!(state.replace_for_generation(2, PackAdmission::Validated(stack)));
         assert!(!state.replace_for_generation(1, PackAdmission::None));
         assert_eq!(state.generation(), 2);
-        assert!(matches!(
-            state.admission(),
-            PackAdmission::Rejected(AdmissionError::MalformedZip)
-        ));
+        assert!(matches!(state.admission(), PackAdmission::Validated(_)));
         assert!(state.begin_generation(3));
         assert!(matches!(state.admission(), PackAdmission::None));
         assert!(!state.begin_generation(2));

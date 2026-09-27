@@ -54,8 +54,7 @@ fn deflated_zip_file(path: &str, bytes: &[u8]) -> Vec<u8> {
 }
 
 fn validate_fixture(bytes: Vec<u8>, selected: &str) -> Result<ValidatedPack, AdmissionError> {
-    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, &mut disabled_file())
-        .map(|(pack, _)| pack)
+    validate_archive_parts(PACK_ID, "1.2.3", selected, bytes, None).map(|(pack, _)| pack)
 }
 #[test]
 fn admits_jsonc_manifest_and_exposes_only_selected_logical_namespace() {
@@ -115,52 +114,61 @@ fn root_selection_excludes_all_physical_subpacks() {
     assert_eq!(pack.files_under("").as_ref(), ["base.txt", "manifest.json"]);
 }
 #[test]
-fn rejects_unsafe_duplicate_and_nonfile_entries() {
+fn skips_unsafe_duplicate_and_nonfile_entries_without_dropping_the_pack() {
     let manifest = manifest("");
-    let traversal = zip_files(&[("manifest.json", manifest.as_bytes()), ("../x", b"x")]);
-    assert_eq!(
-        validate_fixture(traversal, "").unwrap_err(),
-        AdmissionError::UnsafePath
-    );
-
-    let collision = zip_files(&[
-        ("manifest.json", manifest.as_bytes()),
-        ("Textures/x", b"a"),
-        ("textures/X", b"b"),
-    ]);
-    assert_eq!(
-        validate_fixture(collision, "").unwrap_err(),
-        AdmissionError::DuplicatePath
-    );
-
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     writer
         .add_directory("directory/", SimpleFileOptions::default())
         .unwrap();
     writer
-        .start_file("manifest.json", SimpleFileOptions::default())
-        .unwrap();
-    writer.write_all(manifest.as_bytes()).unwrap();
-    let directory = writer.finish().unwrap().into_inner();
-    assert_eq!(
-        validate_fixture(directory, "").unwrap_err(),
-        AdmissionError::NonFileEntry
-    );
-
-    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
-    writer
         .add_symlink("link", "target", SimpleFileOptions::default())
         .unwrap();
-    writer
-        .start_file("manifest.json", SimpleFileOptions::default())
-        .unwrap();
-    writer.write_all(manifest.as_bytes()).unwrap();
-    let symlink = writer.finish().unwrap().into_inner();
+    for (path, bytes) in [
+        ("manifest.json", manifest.as_bytes()),
+        ("../x", b"x".as_slice()),
+        ("Textures/x", b"a"),
+        ("textures/X", b"b"),
+        ("textures\\win.txt", b"w"),
+    ] {
+        writer
+            .start_file(path, SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(bytes).unwrap();
+    }
+    let pack = validate_fixture(writer.finish().unwrap().into_inner(), "").expect("lenient pack");
     assert_eq!(
-        validate_fixture(symlink, "").unwrap_err(),
-        AdmissionError::NonFileEntry
+        pack.skipped_entries(),
+        3,
+        "traversal, symlink, case duplicate"
+    );
+    assert_eq!(
+        pack.read_file("textures/x").unwrap().unwrap().as_ref(),
+        b"a"
+    );
+    assert_eq!(
+        pack.read_file("textures/win.txt")
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        b"w"
     );
 }
+
+#[test]
+fn unwraps_a_single_top_level_folder_holding_the_manifest() {
+    let manifest = manifest("");
+    let archive = zip_files(&[
+        ("pack/manifest.json", manifest.as_bytes()),
+        ("pack/texts/en_US.lang", b"a=b"),
+        ("stray.txt", b"outside"),
+    ]);
+    let pack = validate_fixture(archive, "").expect("wrapped pack");
+    assert_eq!(
+        pack.files_under("").as_ref(),
+        ["manifest.json", "texts/en_US.lang"]
+    );
+}
+
 #[test]
 fn rejects_zip64_sentinel_before_zip_parser_allocation() {
     let manifest = manifest("");
@@ -176,34 +184,81 @@ fn rejects_zip64_sentinel_before_zip_parser_allocation() {
     );
 }
 #[test]
-fn rejects_zip_encryption_and_unsupported_compression() {
+fn skips_zip_encrypted_and_unsupported_codec_entries() {
     let manifest = manifest("");
-    let original = zip_files(&[("manifest.json", manifest.as_bytes())]);
+    let original = zip_files(&[("manifest.json", manifest.as_bytes()), ("a.txt", b"a")]);
+    let second = |needle: &[u8]| {
+        original
+            .windows(4)
+            .enumerate()
+            .filter(|(_, window)| *window == needle)
+            .nth(1)
+            .unwrap()
+            .0
+    };
+    let (local, central) = (second(b"PK\x03\x04"), second(b"PK\x01\x02"));
 
     let mut encrypted = original.clone();
-    let local = encrypted
-        .windows(4)
-        .position(|window| window == b"PK\x03\x04")
-        .unwrap();
-    let central = encrypted
-        .windows(4)
-        .position(|window| window == b"PK\x01\x02")
-        .unwrap();
     encrypted[local + 6..local + 8].copy_from_slice(&1u16.to_le_bytes());
     encrypted[central + 8..central + 10].copy_from_slice(&1u16.to_le_bytes());
-    assert_eq!(
-        validate_fixture(encrypted, "").unwrap_err(),
-        AdmissionError::UnsupportedZipEncryption
-    );
-
-    let mut unsupported = original;
+    let mut unsupported = original.clone();
     unsupported[local + 8..local + 10].copy_from_slice(&12u16.to_le_bytes());
     unsupported[central + 10..central + 12].copy_from_slice(&12u16.to_le_bytes());
+    for archive in [encrypted, unsupported] {
+        let pack = validate_fixture(archive, "").expect("pack survives one bad entry");
+        assert_eq!(pack.skipped_entries(), 1);
+        assert!(pack.read_file("a.txt").unwrap().is_none());
+    }
+}
+
+#[test]
+fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
+    const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
+    const FILE_KEY: &str = "abcdefghijklmnopqrstuvwxyz012345";
+    let index = format!(
+        r#"{{"content":[{{"path":"texts/en_US.lang","key":"{FILE_KEY}"}},{{"path":"plain.json","key":"{FILE_KEY}"}}]}}"#
+    );
+    let mut contents = vec![0u8; 256];
+    let mut body = index.into_bytes();
+    crate::crypto::tests::encrypt(PACK_KEY, &mut body);
+    contents.extend_from_slice(&body);
+    let mut lang = b"a=secret".to_vec();
+    crate::crypto::tests::encrypt(FILE_KEY.as_bytes(), &mut lang);
+    let manifest = manifest("");
+    let archive = zip_files(&[
+        ("manifest.json", manifest.as_bytes()),
+        ("contents.json", &contents),
+        ("texts/en_US.lang", &lang),
+        ("plain.json", b"{\"a\": 1}"),
+    ]);
+    let key = ContentKey::new(PACK_KEY);
+    let (pack, _) = validate_archive_parts(PACK_ID, "1.2.3", "", archive.clone(), key).unwrap();
     assert_eq!(
-        validate_fixture(unsupported, "").unwrap_err(),
-        AdmissionError::UnsupportedCompression
+        pack.read_file("texts/en_US.lang")
+            .unwrap()
+            .unwrap()
+            .as_ref(),
+        b"a=secret"
+    );
+    assert_eq!(
+        pack.read_file("plain.json").unwrap().unwrap().as_ref(),
+        b"{\"a\": 1}"
+    );
+    assert!(!format!("{pack:?}").contains(FILE_KEY));
+
+    let wrong = ContentKey::new(b"vutsrqponmlkjihgfedcba9876543210");
+    assert_eq!(
+        validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong).unwrap_err(),
+        AdmissionError::MalformedContentsIndex
+    );
+    let unindexed = zip_files(&[("manifest.json", manifest.as_bytes())]);
+    assert_eq!(
+        validate_archive_parts(PACK_ID, "1.2.3", "", unindexed, ContentKey::new(PACK_KEY))
+            .unwrap_err(),
+        AdmissionError::MissingContentsIndex
     );
 }
+
 #[test]
 fn rejects_malformed_jsonc_and_multiple_json_values() {
     for body in [
@@ -243,40 +298,6 @@ fn manifest_read_is_bounded_by_its_forged_declared_size() {
     assert_eq!(
         validate_fixture(archive, "").unwrap_err(),
         AdmissionError::InvalidFileData
-    );
-}
-
-#[test]
-fn rejects_cycles_in_the_exact_selected_dependency_graph() {
-    let other = Uuid::from_u128(0x99999999_8888_7777_6666_555555555555);
-    let first_manifest = manifest(&format!(
-        r#", "dependencies": [{{"uuid":"{other}", "version":[1,2,3]}}]"#
-    ));
-    let second_manifest = manifest(&format!(
-        r#", "dependencies": [{{"uuid":"{PACK_ID}", "version":[1,2,3]}}]"#
-    ))
-    .replacen(&PACK_ID.to_string(), &other.to_string(), 1);
-    let first = validate_archive_parts(
-        PACK_ID,
-        "1.2.3",
-        "",
-        zip_files(&[("manifest.json", first_manifest.as_bytes())]),
-        &mut disabled_file(),
-    )
-    .unwrap()
-    .0;
-    let second = validate_archive_parts(
-        other,
-        "1.2.3",
-        "",
-        zip_files(&[("manifest.json", second_manifest.as_bytes())]),
-        &mut disabled_file(),
-    )
-    .unwrap()
-    .0;
-    assert_eq!(
-        validate_dependency_graph(&[first, second]),
-        Err(AdmissionError::DependencyCycle)
     );
 }
 
