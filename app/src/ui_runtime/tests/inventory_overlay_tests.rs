@@ -267,7 +267,7 @@ fn rejected_responses_rollback_without_writing_overlays() {
 }
 
 #[test]
-fn request_timeouts_clear_stale_overlays_through_recovery_marking() {
+fn request_timeouts_keep_authoritative_overlays_with_the_prediction() {
     let mut runtime = corrected_sword_in_slot_zero();
     assert!(runtime.inventory_ledger().slot_overlay(0).is_some());
 
@@ -283,9 +283,13 @@ fn request_timeouts_clear_stale_overlays_through_recovery_marking() {
             .poll_timeout(1_000 + INVENTORY_REQUEST_TIMEOUT_MILLIS)
     );
 
-    assert!(runtime.inventory_ledger().resync_required());
-    assert_eq!(runtime.inventory_ledger().slot_overlay(0), None);
-    assert_eq!(runtime.inventory_ledger().cursor_overlay(), None);
+    // A timeout discards nothing: confirmed truth keeps its overlay and the
+    // retained prediction carries it with the moved stack.
+    let ledger = runtime.inventory_ledger();
+    assert!(ledger.resync_required());
+    assert!(ledger.slot_overlay(0).is_some());
+    assert_eq!(ledger.presented_slot_overlay(0), None);
+    assert_eq!(ledger.cursor_overlay(), None);
 }
 
 #[test]

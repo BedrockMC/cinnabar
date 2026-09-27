@@ -250,6 +250,7 @@ impl PlayerInventoryLedger {
     ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(!matches!(target, Cell::Storage(_)))?;
         self.check_target(target)?;
+        self.check_surfaces([target, Cell::Cursor])?;
         let target_held = self.view().get(target).cloned();
         let cursor_held = self.view().get(Cell::Cursor).cloned();
         if [target_held.as_ref(), cursor_held.as_ref()]
@@ -432,7 +433,7 @@ impl PlayerInventoryLedger {
             return Err(InventoryGestureError::AuthorityUnavailable);
         }
         // A locally closing window only waits out its admitted requests.
-        if self.resync_required() || self.storage.as_ref().is_some_and(|storage| storage.closing) {
+        if self.storage.as_ref().is_some_and(|storage| storage.closing) {
             return Err(InventoryGestureError::ResyncRequired);
         }
         self.ensure_queue_capacity()?;
@@ -453,7 +454,22 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)
     }
 
+    /// Refuses a gesture touching any surface still waiting for authority.
+    pub(super) fn check_surfaces(
+        &self,
+        cells: impl IntoIterator<Item = Cell>,
+    ) -> Result<(), InventoryGestureError> {
+        if cells
+            .into_iter()
+            .any(|cell| self.surface_flagged(cell.surface()))
+        {
+            return Err(InventoryGestureError::ResyncRequired);
+        }
+        Ok(())
+    }
+
     pub(super) fn submit(&mut self, submission: Submission) -> Result<i32, InventoryGestureError> {
+        self.check_surfaces(submission.groups.iter().flat_map(DeltaGroup::touched))?;
         let request_id = self.peek_request_id()?;
         self.next_request_id -= 2;
         self.enqueue(PendingRequest {
@@ -464,6 +480,7 @@ impl PlayerInventoryLedger {
             transport_deadline_millis: None,
             deadline_millis: None,
             timed_out: false,
+            awaiting_refresh: Vec::new(),
             accepted: None,
             session_generation: self.session_generation,
             storage_generation: self.storage.as_ref().map(|storage| storage.generation),
@@ -472,6 +489,7 @@ impl PlayerInventoryLedger {
             requires_distinct_stack_ids: submission.requires_distinct_stack_ids,
             registry_bound_merge: submission.registry_bound_merge,
             predicted: Vec::new(),
+            mining: None,
         });
         Ok(request_id)
     }

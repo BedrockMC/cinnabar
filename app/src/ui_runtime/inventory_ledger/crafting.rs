@@ -115,6 +115,7 @@ impl PlayerInventoryLedger {
         crafts: u8,
     ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
+        self.check_surfaces([Cell::Cursor, Cell::CreatedOutput])?;
         if crafts == 0 || self.view().get(Cell::Cursor).is_some() {
             return Err(InventoryGestureError::InvalidRequest);
         }
@@ -265,6 +266,7 @@ impl PlayerInventoryLedger {
                 Cell::Inventory(slot)
             }
         };
+        self.check_surfaces([target, Cell::CreatedOutput])?;
         if self.view().get(target).is_some() {
             return Err(InventoryGestureError::InvalidRequest);
         }

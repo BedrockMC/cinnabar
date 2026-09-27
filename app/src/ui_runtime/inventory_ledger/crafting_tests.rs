@@ -481,3 +481,32 @@ fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
     ));
     assert_eq!(ledger.displayed_stack(4).unwrap().stack_network_id, request);
 }
+
+/// Closing either crafting screen returns the grid server-side, so no ghost
+/// cells or stale ids survive into the next screen.
+#[test]
+fn closing_a_crafting_screen_clears_the_grid() {
+    let mut personal = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    personal.apply(&craft_slot(28, stack(LOG, 101, 1)));
+    personal.request_personal_close();
+    assert!(personal.mark_transport_enqueued(10));
+    personal.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
+        container: ContainerIdentity::window(2),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        server_initiated: false,
+    }));
+    assert!(personal.target_stack(InventoryTarget::Craft(28)).is_none());
+    assert!(
+        personal
+            .crafting_grid_cells()
+            .unwrap()
+            .iter()
+            .all(Option::is_none)
+    );
+
+    let mut workbench = ledger(WORKBENCH_WINDOW_TYPE);
+    workbench.apply(&craft_slot(36, stack(COBBLE, 201, 1)));
+    workbench.request_storage_close();
+    assert!(workbench.target_stack(InventoryTarget::Craft(36)).is_none());
+    assert_eq!(workbench.crafting_grid(), CraftingGrid::Personal);
+}

@@ -1,6 +1,6 @@
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_44::{
-    ActorRuntimeId, BlockPos,
+    ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction,
     EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
@@ -96,6 +96,47 @@ pub fn click_block_packet(
         session,
         ItemUseInventoryTransactionActionType::Place,
     )
+}
+
+/// What fired a click-block transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemUseTrigger {
+    /// The use press itself.
+    PlayerInput,
+    /// A repeat while the use button stays held.
+    SimulationTick,
+}
+
+/// Builds a standalone click-block transaction carrying its trigger and whether the
+/// local use succeeded.
+pub fn click_block_transaction_packet(
+    request: BlockUseRequest,
+    trigger: ItemUseTrigger,
+    predicted_success: bool,
+) -> Result<crate::Packet, BlockUsePacketError> {
+    let mut transaction = item_use_transaction(
+        request,
+        ItemUseInventoryTransactionActionType::Place,
+        Some(Vec::new()),
+    )?;
+    transaction.trigger_type = match trigger {
+        ItemUseTrigger::PlayerInput => ItemUseInventoryTransactionTriggerType::PlayerInput,
+        ItemUseTrigger::SimulationTick => ItemUseInventoryTransactionTriggerType::SimulationTick,
+    };
+    if predicted_success {
+        transaction.client_interact_prediction =
+            ItemUseInventoryTransactionClientInteractPrediction::Success;
+    }
+    Ok(InventoryTransactionPacket {
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+        legacy_set_item_slots: None,
+        transaction: Some(
+            InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+                transaction,
+            )),
+        ),
+    }
+    .into())
 }
 
 /// Builds a protocol-2168 player-input destroy-block transaction.
@@ -268,4 +309,39 @@ pub fn use_actor_packet(
         ),
     }
     .into())
+}
+
+/// Why the local arm swung, as carried by an outbound swing animation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwingSource {
+    Build,
+    Mine,
+    Interact,
+    Attack,
+}
+
+impl SwingSource {
+    // Vanilla binds the capitalised names; gophertunnel writes lowercase and reads either.
+    const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Build => "Build",
+            Self::Mine => "Mine",
+            Self::Interact => "Interact",
+            Self::Attack => "Attack",
+        }
+    }
+}
+
+/// Builds the local player's arm-swing animation packet.
+#[must_use]
+pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Packet {
+    AnimatePacket {
+        action: EnumsAnimatePacketPayloadAction::Swing,
+        target_actor_runtime_id: ActorRuntimeId {
+            actor_runtime_id: local_runtime_id,
+        },
+        data: 0.0,
+        swing_source: Some(source.wire_name().to_owned()),
+    }
+    .into()
 }

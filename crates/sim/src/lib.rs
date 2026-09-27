@@ -2,6 +2,7 @@
 
 mod aabb;
 mod conformance;
+mod destroy;
 mod math;
 mod prediction;
 mod simulator;
@@ -12,6 +13,10 @@ pub use conformance::{
     ConformanceError, LegacyTickResult, LegacyTraceRecord, ScenarioAudit, ScenarioEvidence,
     ScenarioScript, ScenarioStep, ScenarioWorld, TraceRecord, audit_scenario_trace_jsonl,
     verify_legacy_trace_jsonl, verify_scenario_trace_jsonl, verify_trace_jsonl,
+};
+pub use destroy::{
+    BlockDestroyInfo, DestroyConditions, HeldTool, ToolKind, ToolTier, block_destroy_info,
+    destroy_progress_per_tick,
 };
 pub use math::Vec3;
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};

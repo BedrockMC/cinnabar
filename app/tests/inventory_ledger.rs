@@ -544,12 +544,8 @@ fn place_and_swap_admitted_timeout_keep_prediction_until_full_authority() {
         assert_eq!(ledger.displayed_stack(target), Some(&held));
         assert!(ledger.resync_required());
 
-        ledger.apply(&response(request, StackResponseStatus::Accepted));
-        assert_eq!(ledger.pending_request_id(), None);
-        assert_eq!(ledger.cursor_stack(), occupied.as_ref());
-        assert_eq!(ledger.displayed_stack(target), Some(&held));
-        assert!(ledger.resync_required());
-
+        // A timed-out request with no response retires only after both
+        // touched surfaces are completely restated.
         let player = match gesture {
             CursorGesture::Place => complete_player_content(None, None),
             CursorGesture::Swap => complete_player_content(None, occupied.clone()),
@@ -564,7 +560,13 @@ fn place_and_swap_admitted_timeout_keep_prediction_until_full_authority() {
             ledger.apply(&player);
         }
         assert!(!ledger.resync_required());
+        assert_eq!(ledger.pending_request_id(), None);
         assert_eq!(ledger.cursor_stack(), Some(&held));
+
+        // A late acceptance of the retired request changes nothing.
+        ledger.apply(&response(request, StackResponseStatus::Accepted));
+        assert_eq!(ledger.cursor_stack(), Some(&held));
+        assert!(!ledger.resync_required());
     }
 }
 

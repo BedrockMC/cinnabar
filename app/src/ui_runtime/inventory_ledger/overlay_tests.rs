@@ -486,3 +486,108 @@ fn timeout_retires_only_after_full_refresh() {
     assert_eq!(count(ledger.displayed_stack(0)), Some(4));
     assert!(ledger.cursor_stack().is_none());
 }
+
+/// A mining request rides player input: it is admitted at once, sits ahead
+/// of unsent gestures, never counts as a gesture, and its timeout never
+/// blocks inventory gestures.
+#[test]
+fn mining_requests_queue_at_their_wire_position_without_locking() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
+    let admitted = ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    let unsent = ledger.begin_click(5).unwrap();
+    let mining = ledger.begin_mining_request(1, 7).unwrap();
+    assert_eq!((admitted, unsent, mining), (-3, -5, -7));
+    let order: Vec<i32> = ledger
+        .queue
+        .iter()
+        .map(|pending| pending.request_id)
+        .collect();
+    assert_eq!(order, [admitted, mining, unsent]);
+    assert_eq!(ledger.pending_request_count(), 2);
+    assert_eq!(ledger.first_unsent().unwrap().request_id, unsent);
+    assert_eq!(ledger.predicted_slot_damage(1), Some(7));
+
+    ledger.poll_timeout(10);
+    ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
+    assert_eq!(
+        ledger.predicted_slot_damage(1),
+        None,
+        "an unanswered break is forgotten"
+    );
+    assert!(ledger.queue.iter().all(|pending| pending.mining.is_none()));
+    assert!(
+        !ledger.surface_flagged(CellSurface::Crafting)
+            && !ledger.surface_flagged(CellSurface::Armor)
+    );
+}
+
+/// An accepted mining response settles through the shared path, carrying its
+/// durability correction onto the slot overlay.
+#[test]
+fn accepted_mining_settles_durability_through_the_queue() {
+    let mut ledger = open_ledger(&[(2, stack(6, 10, 1))]);
+    let mining = ledger.begin_mining_request(2, 3).unwrap();
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id: mining,
+            containers: Arc::from([StackResponseContainer {
+                container: named(protocol::CONTAINER_NAME_HOTBAR),
+                slots: Arc::from([StackResponseSlot {
+                    slot: 2,
+                    hotbar_slot: 2,
+                    count: 1,
+                    item_stack_id: 11,
+                    custom_name: Arc::from(""),
+                    filtered_custom_name: Arc::from(""),
+                    durability_correction: 3,
+                }]),
+            }]),
+        }]),
+    }));
+    assert!(ledger.queue.is_empty());
+    assert_eq!(ledger.displayed_stack(2).unwrap().stack_network_id, 11);
+    assert_eq!(ledger.predicted_slot_damage(2), Some(3));
+}
+
+/// A full queue sends the break without a request instead of refusing it.
+#[test]
+fn full_queue_sends_mining_without_a_request() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
+    for index in 0..MAX_PENDING_REQUESTS {
+        let slot = if matches!(index % 4, 0 | 3) { 0 } else { 1 };
+        ledger.begin_click(slot).unwrap();
+    }
+    assert_eq!(ledger.begin_mining_request(0, 1), None);
+    assert_eq!(ledger.queue.len(), MAX_PENDING_REQUESTS);
+}
+
+/// An accepted request waiting behind an unanswered head never times out,
+/// and a timeout blocks only gestures touching its own surfaces.
+#[test]
+fn timeouts_skip_accepted_requests_and_gate_only_their_surfaces() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4)), (20, stack(7, 12, 1))]);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+        slots: Arc::from([stack(8, 30, 2)]),
+        storage_item: NetworkItemStack::default(),
+    }));
+    let head = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Offhand), Some(1))
+        .unwrap();
+    let tail = ledger.begin_click(0).unwrap();
+    send_all(&mut ledger);
+    respond(&mut ledger, tail, StackResponseStatus::Accepted, Vec::new());
+    ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
+    assert!(ledger.queue[0].timed_out);
+    assert!(!ledger.queue[1].timed_out, "accepted requests only wait");
+    assert!(ledger.begin_quick_move(InventoryTarget::Player(20)).is_ok());
+    assert_eq!(
+        ledger.begin_drop(DropSource::Target(InventoryTarget::Offhand), Some(1)),
+        Err(InventoryGestureError::ResyncRequired),
+        "the offhand is still unverified"
+    );
+    respond(&mut ledger, head, StackResponseStatus::Accepted, Vec::new());
+    assert!(!ledger.resync_required());
+}

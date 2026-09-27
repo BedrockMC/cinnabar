@@ -1,179 +1,323 @@
-//! Bounded single-edge authoritative block use on a completed movement tick.
+//! Block use as standalone click-block transactions on the press and while held.
 //!
-//! Keyboard/mouse empty-hand Creative behavior is preserved. The new filled
-//! and Survival slice requires negotiated ordinary cube identities. Its
-//! collision-ray geometry remains incomplete; the server owns all outcomes.
-//! Held repetition, consumption and special item use are not implemented.
-
-use std::num::NonZeroU64;
+//! The local use outcome (interaction, placement or nothing) only decides the
+//! transaction's prediction and swing; every outcome stays server-owned. Air
+//! use and item-use-on start/stop actions are not implemented.
 
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Query, Res, ResMut, Resource, Window, With},
+    prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
 use protocol::{
-    BlockItemInteraction, BlockUseRequest, NetworkItemStack, PlayerAuthInputInteractions,
-    PlayerInputMode, VerifiedNetworkItemStack,
+    BlockUseRequest, ItemUseTrigger, PlayerGameMode, PlayerInputMode, SwingSource,
+    VerifiedNetworkItemStack,
 };
-use semantic_input::{Action, InputMode};
+use semantic_input::Action;
+use sim::PaletteWorld;
 
 use crate::{
-    interaction_authority::{FrozenBlockObservation, observe_block},
+    interaction_authority::{FrozenBlockObservation, observe_block, within_pick_range},
     local_player::InteractionOriginSnapshot,
+    melee::{MeleeRuntime, SwingTracker, obstructs_placement, swing_duration},
     menu::MenuRuntime,
-    mining::{FrozenMiningSelection, creative_observation},
-    movement::{MovementTicker, PhysicsCollisionRegistries},
-    runtime::world::ClientWorld,
+    mining::{
+        FrozenMiningSelection, creative_reach, protocol_input_mode, survival_reach,
+        verified_selection,
+    },
+    movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
+    runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::{UiRuntime, inventory_ledger::PlayerInventorySlot},
+    ui_runtime::UiRuntime,
 };
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct FrozenBlockUse {
-    pub(crate) observation: FrozenBlockObservation,
-    game_mode: protocol::PlayerGameMode,
+// Held-use repeat timing is wall-clock. All values need independent measurement.
+const SLOW_REPEAT_MILLIS: u64 = 300;
+const STILL_REPEAT_MILLIS: u64 = 200;
+const MOVING_REPEAT_MAX_MILLIS: u64 = 180;
+/// Moving repeats wait this many milliseconds per block/second of speed.
+const MOVING_REPEAT_BLOCK_MILLIS: f32 = 900.0;
+const SURVIVAL_REPEAT_FLOOR_MILLIS: u64 = 100;
+/// How far behind now a moving repeat's schedule may lag.
+const REPEAT_MAX_LAG_MILLIS: u64 = 180;
+/// Placement boxes shrink by this much per side before the actor test.
+const PLACEMENT_ACTOR_EPSILON: f64 = 1.0e-5;
+
+/// Blocks a placement replaces in place. Provisional list; needs independent measurement.
+const REPLACEABLE_BLOCKS: &[&str] = &[
+    "minecraft:air",
+    "minecraft:short_grass",
+    "minecraft:tall_grass",
+    "minecraft:fern",
+    "minecraft:large_fern",
+    "minecraft:deadbush",
+    "minecraft:vine",
+    "minecraft:glow_lichen",
+    "minecraft:seagrass",
+    "minecraft:water",
+    "minecraft:flowing_water",
+    "minecraft:lava",
+    "minecraft:flowing_lava",
+    "minecraft:fire",
+    "minecraft:soul_fire",
+    "minecraft:structure_void",
+    "minecraft:crimson_roots",
+    "minecraft:warped_roots",
+    "minecraft:nether_sprouts",
+    "minecraft:hanging_roots",
+];
+
+/// Blocks whose own use succeeds locally. Provisional list; needs independent measurement.
+const INTERACTIVE_BLOCKS: &[&str] = &[
+    "minecraft:crafting_table",
+    "minecraft:furnace",
+    "minecraft:lit_furnace",
+    "minecraft:blast_furnace",
+    "minecraft:lit_blast_furnace",
+    "minecraft:smoker",
+    "minecraft:lit_smoker",
+    "minecraft:barrel",
+    "minecraft:lever",
+    "minecraft:anvil",
+    "minecraft:enchanting_table",
+    "minecraft:brewing_stand",
+    "minecraft:hopper",
+    "minecraft:dropper",
+    "minecraft:dispenser",
+    "minecraft:crafter",
+    "minecraft:loom",
+    "minecraft:stonecutter_block",
+    "minecraft:grindstone",
+    "minecraft:cartography_table",
+    "minecraft:smithing_table",
+    "minecraft:beacon",
+    "minecraft:noteblock",
+    "minecraft:unpowered_repeater",
+    "minecraft:powered_repeater",
+    "minecraft:unpowered_comparator",
+    "minecraft:powered_comparator",
+    "minecraft:daylight_detector",
+    "minecraft:daylight_detector_inverted",
+    "minecraft:bell",
+];
+
+fn is_interactive(identifier: &str) -> bool {
+    let metal = identifier == "minecraft:iron_door" || identifier == "minecraft:iron_trapdoor";
+    INTERACTIVE_BLOCKS.contains(&identifier)
+        || (!metal
+            && [
+                "_door",
+                "_trapdoor",
+                "_button",
+                "fence_gate",
+                "chest",
+                "shulker_box",
+                "_bed",
+            ]
+            .iter()
+            .any(|suffix| identifier.ends_with(suffix)))
+        || identifier == "minecraft:bed"
 }
 
-impl FrozenBlockUse {
-    pub(crate) fn from_observation(observation: impl Into<FrozenBlockObservation>) -> Option<Self> {
-        let observation = observation.into();
-        let item = &observation.selection.item;
-        let empty = item.network_id() == 0 && item.count() == 0;
-        let filled = item.network_id() != 0
-            && item.count() != 0
-            && item.stack_network_id() > 0
-            && item.block_runtime_id() != 0;
-        (observation.input_mode == PlayerInputMode::Mouse && (empty || filled)).then_some(Self {
-            observation,
-            game_mode: protocol::PlayerGameMode::Creative,
-        })
+/// Milliseconds until the next held-use repeat.
+///
+/// `slow` covers an interactive use and a placement before its line is established.
+pub(crate) fn repeat_interval_millis(
+    sneaking: bool,
+    slow: bool,
+    speed: f32,
+    survival: bool,
+) -> u64 {
+    let interval = if sneaking || slow {
+        SLOW_REPEAT_MILLIS
+    } else if speed.is_finite() && speed > 0.0 {
+        ((MOVING_REPEAT_BLOCK_MILLIS / speed) as u64).min(MOVING_REPEAT_MAX_MILLIS)
+    } else {
+        STILL_REPEAT_MILLIS
+    };
+    if survival {
+        interval.max(SURVIVAL_REPEAT_FLOOR_MILLIS)
+    } else {
+        interval
     }
+}
 
-    fn still_authorized_by(&self, current: &Self) -> bool {
-        self.game_mode == current.game_mode
-            && self.observation.still_authorized_by(&current.observation)
+/// The cell a block placed against `face` of `clicked` would occupy.
+pub(crate) const fn placement_cell(clicked: [i32; 3], face: u8) -> [i32; 3] {
+    let [x, y, z] = clicked;
+    match face {
+        0 => [x, y - 1, z],
+        1 => [x, y + 1, z],
+        2 => [x, y, z - 1],
+        3 => [x, y, z + 1],
+        4 => [x - 1, y, z],
+        _ => [x + 1, y, z],
     }
+}
 
-    pub(crate) fn into_tick_payload(self, player_position: [f32; 3]) -> QueuedBlockUseInteraction {
-        let target = &self.observation.target;
-        let interactions = PlayerAuthInputInteractions {
-            block_actions: protocol::BlockActions::new(),
-            block_interaction: Some(BlockItemInteraction::Use(BlockUseRequest {
-                block_position: target.position,
-                face: target.face,
-                selected_slot: self.observation.selection.slot,
-                selected_item: self.observation.selection.item.clone(),
-                player_position,
-                relative_hit: target.relative_hit,
-                block_runtime_id: u64::from(target.runtime_id),
-            })),
+/// A feet-anchored box, as `(min, max)`.
+pub(crate) type BoxBounds = ([f64; 3], [f64; 3]);
+
+fn overlaps_cell(cell: [i32; 3], (min, max): BoxBounds) -> bool {
+    (0..3).all(|axis| {
+        let low = f64::from(cell[axis]) + PLACEMENT_ACTOR_EPSILON;
+        let high = f64::from(cell[axis]) + 1.0 - PLACEMENT_ACTOR_EPSILON;
+        low < max[axis] && min[axis] < high
+    })
+}
+
+/// World facts one local use depends on.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct UseSurroundings {
+    pub(crate) clicked_identifier: Option<String>,
+    /// Identifier of the cell across the clicked face; `None` when unreadable.
+    pub(crate) neighbor_identifier: Option<String>,
+    pub(crate) player_box: BoxBounds,
+    /// Boxes of actors that obstruct placement.
+    pub(crate) actor_boxes: Vec<BoxBounds>,
+    pub(crate) sneaking: bool,
+}
+
+/// What the local client does with one click, which sets prediction and swing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalUse {
+    Interact,
+    Place,
+    Nothing,
+}
+
+impl LocalUse {
+    pub(crate) fn resolve(
+        item: &VerifiedNetworkItemStack,
+        clicked: [i32; 3],
+        face: u8,
+        surroundings: &UseSurroundings,
+    ) -> Self {
+        let clicked_identifier = surroundings.clicked_identifier.as_deref();
+        let holding = item.network_id() != 0 && item.count() > 0;
+        // Sneaking with an item uses the item instead of the block.
+        if clicked_identifier.is_some_and(is_interactive) && !(surroundings.sneaking && holding) {
+            return Self::Interact;
+        }
+        if item.block_runtime_id() == 0 || item.count() == 0 {
+            return Self::Nothing;
+        }
+        let replaceable = |identifier: Option<&str>| {
+            identifier.is_some_and(|identifier| REPLACEABLE_BLOCKS.contains(&identifier))
         };
-        QueuedBlockUseInteraction {
-            authority: self,
-            interactions,
+        let (cell, free) = if replaceable(clicked_identifier) {
+            (clicked, true)
+        } else {
+            let neighbor = surroundings.neighbor_identifier.as_deref();
+            (placement_cell(clicked, face), replaceable(neighbor))
+        };
+        let blocked = std::iter::once(&surroundings.player_box)
+            .chain(&surroundings.actor_boxes)
+            .any(|bounds| overlaps_cell(cell, *bounds));
+        if free && !blocked {
+            Self::Place
+        } else {
+            Self::Nothing
+        }
+    }
+
+    const fn swing(self) -> Option<SwingSource> {
+        match self {
+            Self::Interact => Some(SwingSource::Interact),
+            Self::Place => Some(SwingSource::Build),
+            Self::Nothing => None,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct QueuedBlockUseInteraction {
-    authority: FrozenBlockUse,
-    pub(crate) interactions: PlayerAuthInputInteractions,
-}
-
-impl QueuedBlockUseInteraction {
-    pub(crate) fn still_authorized_by(&self, current: &FrozenBlockUse) -> bool {
-        self.authority.still_authorized_by(current)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct PendingUsePress {
-    authority: FrozenBlockUse,
-}
-
+/// Press latch and the held-repeat schedule.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct BlockUseRuntime {
-    pending_press: Option<PendingUsePress>,
+    latched_press: bool,
+    last_use_millis: Option<u64>,
+    /// The last success was an interaction or a not-yet-lined placement.
+    slow_repeat: bool,
+    last_attempt_tick: Option<u64>,
     position_authority: Option<(u64, u64)>,
 }
 
+/// One held-use repeat's timing inputs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct RepeatClock {
+    pub(crate) now_millis: u64,
+    pub(crate) sneaking: bool,
+    /// Full 3D speed in blocks per second.
+    pub(crate) speed: f32,
+    pub(crate) survival: bool,
+}
+
 impl BlockUseRuntime {
-    fn synchronize_position_authority(&mut self, ticker: &mut MovementTicker) -> bool {
-        let position_authority = ticker.interaction_authority_identity();
-        let changed = self
+    fn clear(&mut self) {
+        self.latched_press = false;
+        self.slow_repeat = false;
+    }
+
+    /// A session or position-authority change drops the press and the schedule.
+    pub(crate) fn synchronize(&mut self, authority: (u64, u64)) {
+        if self
             .position_authority
-            .is_some_and(|previous| previous != position_authority);
-        self.position_authority = Some(position_authority);
-        if changed {
-            self.pending_press = None;
-            ticker.retain_block_use(None);
-        }
-        changed
-    }
-
-    fn update_press(
-        &mut self,
-        pressed: bool,
-        input_authority_generation: NonZeroU64,
-        current: Option<FrozenBlockUse>,
-        ticker: &mut MovementTicker,
-    ) -> Option<u64> {
-        if self.synchronize_position_authority(ticker) {
-            return None;
-        }
-        if self.pending_press.as_ref().is_some_and(|pending| {
-            pending
-                .authority
-                .observation
-                .frame
-                .input_authority_generation
-                != input_authority_generation
-        }) {
-            self.pending_press = None;
-        }
-        ticker.retain_block_use(current.as_ref());
-        if !ticker.accepts_block_use() {
-            self.pending_press = None;
-            return None;
-        }
-        if pressed {
-            self.pending_press = current.as_ref().map(|authority| PendingUsePress {
-                authority: authority.clone(),
-            });
-        }
-        let pending = self.pending_press.as_ref()?;
-        if pending
-            .authority
-            .observation
-            .frame
-            .input_authority_generation
-            != input_authority_generation
+            .is_some_and(|previous| previous != authority)
         {
-            self.pending_press = None;
-            return None;
+            *self = Self::default();
         }
-        let Some(current) = current else {
-            self.pending_press = None;
-            return None;
-        };
-        if !pending.authority.still_authorized_by(&current) {
-            self.pending_press = None;
-            return None;
-        }
-        let mut attachment = pending.authority.clone();
-        attachment.observation.frame.physics_tick = current.observation.frame.physics_tick;
-        let attached = ticker.attach_block_use(attachment);
-        if attached.is_some() {
-            self.pending_press = None;
-        }
-        attached
+        self.position_authority = Some(authority);
     }
 
-    fn clear(&mut self, ticker: &mut MovementTicker) {
-        self.pending_press = None;
-        ticker.retain_block_use(None);
+    /// The trigger due now, with the repeat's due time; at most one attempt per tick.
+    pub(crate) fn due(
+        &self,
+        held: bool,
+        tick: u64,
+        clock: RepeatClock,
+    ) -> Option<(ItemUseTrigger, u64)> {
+        if self.latched_press {
+            return Some((ItemUseTrigger::PlayerInput, clock.now_millis));
+        }
+        if !held || self.last_attempt_tick == Some(tick) {
+            return None;
+        }
+        let interval = repeat_interval_millis(
+            clock.sneaking,
+            self.slow_repeat,
+            clock.speed,
+            clock.survival,
+        );
+        let due = self
+            .last_use_millis
+            .map_or(0, |last| last.saturating_add(interval));
+        (clock.now_millis > due).then_some((ItemUseTrigger::SimulationTick, due))
+    }
+
+    /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
+    /// retries (and resends its transaction) on the next tick.
+    pub(crate) fn record(
+        &mut self,
+        trigger: ItemUseTrigger,
+        due: u64,
+        tick: u64,
+        local_use: LocalUse,
+        clock: RepeatClock,
+    ) {
+        self.latched_press = false;
+        self.last_attempt_tick = Some(tick);
+        if local_use == LocalUse::Nothing {
+            return;
+        }
+        let moving = clock.speed.is_finite() && clock.speed > 0.0;
+        self.last_use_millis = Some(match trigger {
+            ItemUseTrigger::SimulationTick if moving => {
+                due.max(clock.now_millis.saturating_sub(REPEAT_MAX_LAG_MILLIS))
+            }
+            ItemUseTrigger::SimulationTick | ItemUseTrigger::PlayerInput => clock.now_millis,
+        });
+        // A placement line is treated as established after its first repeat.
+        self.slow_repeat = local_use == LocalUse::Interact
+            || (local_use == LocalUse::Place && trigger == ItemUseTrigger::PlayerInput);
     }
 }
 
@@ -186,159 +330,237 @@ pub(crate) struct BlockUseContext<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
+    effects: Res<'w, LocalMovementEffectTimeline>,
+    melee: Res<'w, MeleeRuntime>,
+    network: Res<'w, NetworkHandle>,
+    time: Res<'w, Time<Real>>,
 }
 
 pub(crate) fn produce_block_use(
     context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
-    mut movement: ResMut<MovementTicker>,
+    mut swings: ResMut<SwingTracker>,
+    movement: Res<MovementTicker>,
 ) {
-    let position_authority_changed = runtime.synchronize_position_authority(&mut movement);
-    if context.menu.is_visible() || !context.windows.single().is_ok_and(|window| window.focused) {
-        runtime.clear(&mut movement);
-        return;
-    }
-    let Some(input_snapshot) = context.input.snapshot() else {
-        runtime.clear(&mut movement);
+    runtime.synchronize(movement.interaction_authority_identity());
+    let focused =
+        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
+    let game_mode = context.ui.player_game_mode();
+    let Some(input) = context.input.snapshot().filter(|input| {
+        focused
+            && !context.ui.ui_focused()
+            && matches!(
+                game_mode,
+                Some(PlayerGameMode::Survival | PlayerGameMode::Creative)
+            )
+            && input.input_mode != semantic_input::InputMode::Touch
+            && movement.accepts_creative_mining()
+    }) else {
+        runtime.clear();
         return;
     };
-    let use_pressed = !position_authority_changed && context.input.phase(Action::Use).pressed;
-    let attack_pressed = context.input.phase(Action::Attack).pressed;
-    if use_pressed && attack_pressed {
-        runtime.clear(&mut movement);
+    let use_phase = context.input.phase(Action::Use);
+    if context.input.phase(Action::Attack).held || !(use_phase.held || use_phase.pressed) {
+        runtime.clear();
         return;
     }
-    if !use_pressed && runtime.pending_press.is_none() && !movement.has_queued_block_use() {
+    runtime.latched_press |= use_phase.pressed;
+    // Frames between physics ticks have no unsent tick; a press waits for one.
+    let Some(sample) = movement.newest_unsent_sample() else {
+        return;
+    };
+    let clock = RepeatClock {
+        now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
+        sneaking: sample.sneaking,
+        speed: sample
+            .delta
+            .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
+            .into_iter()
+            .map(|axis| axis * axis)
+            .sum::<f32>()
+            .sqrt(),
+        survival: game_mode == Some(PlayerGameMode::Survival),
+    };
+    let Some((trigger, due)) = runtime.due(use_phase.held, sample.tick, clock) else {
+        return;
+    };
+    if context.melee.blocks_use_at(clock.now_millis) {
+        runtime.latched_press = false;
         return;
     }
-    let position_authority_generation = movement.interaction_authority_identity().1;
-    let current = block_use_observation(
+    let input_mode = protocol_input_mode(input.input_mode);
+    let (Some(observed), Some(stream)) = (
+        observe_use_target(
+            &context,
+            input_mode,
+            clock.survival,
+            (input.authority_generation, input.frame_sequence),
+            movement.interaction_authority_identity().1,
+        ),
+        context.client_world.stream.as_ref(),
+    ) else {
+        runtime.record(trigger, due, sample.tick, LocalUse::Nothing, clock);
+        return;
+    };
+    let surroundings = use_surroundings(&context, &observed, sample.position, sample.sneaking);
+    let local_use = LocalUse::resolve(
+        &observed.selection.item,
+        observed.target.position,
+        observed.target.face,
+        &surroundings,
+    );
+    runtime.record(trigger, due, sample.tick, local_use, clock);
+    // Only block items keep using while held.
+    if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
+    {
+        return;
+    }
+    let duration = swing_duration(context.effects.mining_effects());
+    let packets = use_packets(
+        &observed,
+        sample.position,
+        trigger,
+        local_use,
+        stream.local_player_runtime_id(),
+        |tick| swings.try_swing(tick, duration),
+        sample.tick,
+    );
+    for packet in packets {
+        let _ = context.network.send_inventory_packet(packet);
+    }
+}
+
+/// A successful local use swings before its transaction, which is always sent.
+pub(crate) fn use_packets(
+    observed: &FrozenBlockObservation,
+    player_position: [f32; 3],
+    trigger: ItemUseTrigger,
+    local_use: LocalUse,
+    local_runtime_id: u64,
+    mut try_swing: impl FnMut(u64) -> bool,
+    tick: u64,
+) -> Vec<protocol::Packet> {
+    let mut packets = Vec::with_capacity(2);
+    if let Some(source) = local_use.swing().filter(|_| try_swing(tick)) {
+        packets.push(protocol::swing_arm_packet(local_runtime_id, source));
+    }
+    let request = BlockUseRequest {
+        block_position: observed.target.position,
+        face: observed.target.face,
+        selected_slot: observed.selection.slot,
+        selected_item: observed.selection.item.clone(),
+        player_position,
+        relative_hit: observed.target.relative_hit,
+        block_runtime_id: u64::from(observed.target.runtime_id),
+    };
+    let predicted = local_use != LocalUse::Nothing;
+    if let Ok(packet) = protocol::click_block_transaction_packet(request, trigger, predicted) {
+        packets.push(packet);
+    }
+    packets
+}
+
+fn use_surroundings(
+    context: &BlockUseContext,
+    observed: &FrozenBlockObservation,
+    network_position: [f32; 3],
+    sneaking: bool,
+) -> UseSurroundings {
+    let stream = context.client_world.stream.as_ref();
+    let identifier = |position: [i32; 3]| -> Option<String> {
+        let stream = stream?;
+        let mode = stream.network_id_mode();
+        let world = PaletteWorld::new(
+            stream.collision_store(),
+            context.collisions.registry(mode),
+            stream.current_dimension(),
+        );
+        if world.is_air(position).ok()? {
+            return Some("minecraft:air".to_owned());
+        }
+        let runtime_id = world.primary_runtime_id(position).ok()?;
+        context
+            .collisions
+            .block_identifier(mode, runtime_id)
+            .map(str::to_owned)
+    };
+    let feet = [
+        f64::from(network_position[0]),
+        f64::from(network_position[1] - protocol::PLAYER_NETWORK_OFFSET),
+        f64::from(network_position[2]),
+    ];
+    let half_width = sim::PLAYER_WIDTH * 0.5;
+    UseSurroundings {
+        clicked_identifier: context
+            .collisions
+            .block_identifier(
+                stream.map_or(assets::NetworkIdMode::Sequential, |stream| {
+                    stream.network_id_mode()
+                }),
+                observed.target.runtime_id,
+            )
+            .map(str::to_owned),
+        neighbor_identifier: identifier(placement_cell(
+            observed.target.position,
+            observed.target.face,
+        )),
+        player_box: (
+            [feet[0] - half_width, feet[1], feet[2] - half_width],
+            [
+                feet[0] + half_width,
+                feet[1] + sim::PLAYER_HEIGHT,
+                feet[2] + half_width,
+            ],
+        ),
+        actor_boxes: stream
+            .into_iter()
+            .flat_map(|stream| stream.remote_actors())
+            .filter(|actor| obstructs_placement(actor))
+            .filter_map(|actor| actor.bounding_box())
+            .map(|(min, max)| (min.map(f64::from), max.map(f64::from)))
+            .collect(),
+        sneaking,
+    }
+}
+
+fn observe_use_target(
+    context: &BlockUseContext,
+    input_mode: PlayerInputMode,
+    survival: bool,
+    input_authority: (std::num::NonZeroU64, u64),
+    position_authority_generation: u64,
+) -> Option<FrozenBlockObservation> {
+    let reach = if survival {
+        survival_reach(input_mode)
+    } else {
+        creative_reach(input_mode)
+    };
+    let observed = observe_block(
         &context.origin,
         &context.ui,
         &context.client_world,
         &context.collisions,
-        input_snapshot.input_mode,
+        verified_use_selection(&context.ui)?,
         (
-            input_snapshot.authority_generation,
-            input_snapshot.frame_sequence,
-        ),
-        position_authority_generation,
-    );
-    let _ = runtime.update_press(
-        block_use_edge_authorized(use_pressed, attack_pressed),
-        input_snapshot.authority_generation,
-        current,
-        &mut movement,
-    );
-}
-
-fn block_use_observation(
-    origin: &InteractionOriginSnapshot,
-    ui: &UiRuntime,
-    client_world: &ClientWorld,
-    collisions: &PhysicsCollisionRegistries,
-    input_mode: InputMode,
-    input_authority: (NonZeroU64, u64),
-    position_authority_generation: u64,
-) -> Option<FrozenBlockUse> {
-    if input_mode != InputMode::KeyboardMouse {
-        return None;
-    }
-    let game_mode = ui.player_game_mode()?;
-    if ui.ui_focused()
-        || !matches!(
-            game_mode,
-            protocol::PlayerGameMode::Creative | protocol::PlayerGameMode::Survival
-        )
-    {
-        return None;
-    }
-    let mode = client_world.stream.as_ref()?.network_id_mode();
-    let selection = verified_block_use_selection(ui, collisions, mode)?;
-    let empty = selection.item.network_id() == 0;
-    let observation = if empty && game_mode == protocol::PlayerGameMode::Creative {
-        let mut existing = creative_observation(
-            origin,
-            ui,
-            client_world,
-            collisions,
             input_mode,
+            reach,
             input_authority,
             position_authority_generation,
-        )?;
-        existing.selection = selection;
-        existing.into()
-    } else {
-        let observed = observe_block(
-            origin,
-            ui,
-            client_world,
-            collisions,
-            selection,
-            (
-                PlayerInputMode::Mouse,
-                5.7,
-                input_authority,
-                position_authority_generation,
-            ),
-        )?;
-        collisions.interaction_cube(mode, observed.target.runtime_id)?;
-        observed
-    };
-    let mut frozen = FrozenBlockUse::from_observation(observation)?;
-    frozen.game_mode = game_mode;
-    Some(frozen)
+        ),
+    )?;
+    within_pick_range(&observed).then_some(observed)
 }
 
-fn verified_block_use_selection(
-    ui: &UiRuntime,
-    collisions: &PhysicsCollisionRegistries,
-    mode: assets::NetworkIdMode,
-) -> Option<FrozenMiningSelection> {
-    if ui.inventory_ledger().pending_request_id().is_some()
-        || ui.inventory_ledger().resync_required()
+/// The selected stack, only while no inventory request or hotbar change is in flight.
+fn verified_use_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
+    let ledger = ui.inventory_ledger();
+    if ledger.pending_request_id().is_some()
+        || ledger.resync_required()
         || ui.pending_hotbar_selection().is_some()
     {
         return None;
     }
-    let selected = ui.selected_stack_snapshot()?;
-    let stack = match selected.state {
-        PlayerInventorySlot::Unknown => return None,
-        PlayerInventorySlot::Empty => NetworkItemStack::empty(),
-        PlayerInventorySlot::Present(stack) => {
-            let entry = ui
-                .inventory_ledger()
-                .negotiated_item_entry(stack.network_id)?;
-            if !matches!(
-                entry.version,
-                protocol::ItemRegistryVersion::Legacy | protocol::ItemRegistryVersion::None
-            ) || entry.component_based
-                || !entry.canonical_empty_component_data
-                || stack.stack_network_id <= 0
-                || stack.block_runtime_id == 0
-            {
-                return None;
-            }
-            let runtime_id = u32::from_ne_bytes(stack.block_runtime_id.to_ne_bytes());
-            if collisions.interaction_cube(mode, runtime_id)? != entry.identifier.as_ref() {
-                return None;
-            }
-            stack.clone()
-        }
-    };
-    let item = VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).ok()?;
-    Some(FrozenMiningSelection {
-        slot: selected.slot,
-        item,
-    })
-}
-
-pub(crate) const fn block_use_edge_authorized(use_pressed: bool, attack_pressed: bool) -> bool {
-    use_pressed && !attack_pressed
-}
-
-pub(crate) const fn mining_edge_authorized(attack_pressed: bool, use_pressed: bool) -> bool {
-    attack_pressed && !use_pressed
+    verified_selection(ui)
 }
 
 #[cfg(test)]

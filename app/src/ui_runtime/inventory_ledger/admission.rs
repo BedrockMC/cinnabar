@@ -15,7 +15,7 @@ use protocol::{
     NetworkItemStack, SlotIdentity, project_container_cell,
 };
 
-use super::cells::{ARMOR_CELLS, FIRST_CRAFT_SLOT, Held};
+use super::cells::{ARMOR_CELLS, CellSurface, FIRST_CRAFT_SLOT, Held};
 use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
     Cell, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT, NO_CONTAINER_WINDOW_TYPE,
@@ -122,7 +122,7 @@ impl PlayerInventoryLedger {
                 }
                 if complete {
                     self.player_resync_required = false;
-                    self.drop_refreshed_timeouts();
+                    self.surface_refreshed(CellSurface::Player);
                 }
             }
             Some(CanonicalCell::Cursor) => {
@@ -131,7 +131,7 @@ impl PlayerInventoryLedger {
                 if let [stack] = content.slots.as_ref() {
                     self.confirmed.set(Cell::Cursor, Held::new(stack));
                     self.cursor_resync_required = false;
-                    self.drop_refreshed_timeouts();
+                    self.surface_refreshed(CellSurface::Cursor);
                 } else {
                     self.note_unrouted_container();
                 }
@@ -143,14 +143,14 @@ impl PlayerInventoryLedger {
                 }
                 if content.slots.len() >= ARMOR_CELLS - 1 {
                     self.armor_resync_required = false;
-                    self.drop_refreshed_timeouts();
+                    self.surface_refreshed(CellSurface::Armor);
                 }
             }
             Some(CanonicalCell::Offhand) => {
                 if let [stack] = content.slots.as_ref() {
                     self.confirmed.set(Cell::Offhand, Held::new(stack));
                     self.offhand_resync_required = false;
-                    self.drop_refreshed_timeouts();
+                    self.surface_refreshed(CellSurface::Offhand);
                 } else {
                     self.note_unrouted_container();
                 }
@@ -163,7 +163,7 @@ impl PlayerInventoryLedger {
                     self.confirmed.set(Cell::Craft(slot), Held::new(stack));
                 }
                 self.crafting_resync_required = false;
-                self.drop_refreshed_timeouts();
+                self.surface_refreshed(CellSurface::Crafting);
             }
             Some(
                 CanonicalCell::CraftInput(_)
@@ -228,9 +228,16 @@ impl PlayerInventoryLedger {
                 self.confirmed.set(Cell::Inventory(index), Held::new(stack));
                 self.known[usize::from(index)] = true;
             }
+            // A single-cell surface is completely restated by one slot update.
             Some(CanonicalCell::Cursor) => {
                 self.confirmed.set(Cell::Cursor, Held::new(stack));
                 self.cursor_resync_required = false;
+                self.surface_refreshed(CellSurface::Cursor);
+            }
+            Some(CanonicalCell::Offhand) => {
+                self.confirmed.set(Cell::Offhand, Held::new(stack));
+                self.offhand_resync_required = false;
+                self.surface_refreshed(CellSurface::Offhand);
             }
             Some(CanonicalCell::GenericStorage { slot, .. }) => {
                 self.apply_storage_slot(identity.container, slot, stack);
@@ -404,7 +411,7 @@ impl PlayerInventoryLedger {
         storage.identity = Some(identity);
         storage.resync_required = false;
         self.confirmed.replace_storage(slots);
-        self.drop_refreshed_timeouts();
+        self.surface_refreshed(CellSurface::Storage);
     }
 
     fn apply_storage_slot(
