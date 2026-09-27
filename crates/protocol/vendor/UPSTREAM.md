@@ -32,7 +32,11 @@ and debug labels. Shared retail records remain unchanged. This is a local
 generated-source naming patch, not pristine upstream output: codecs, numeric
 wire values, field order, sizing, limits, allocation and error paths are retained.
 The tool validates complete input/output fingerprints and a reversible scoped
-binding transformation before emitting an `apply_patch` patch; it never edits
+binding transformation plus an exact reversible, fingerprinted local layout
+patch before emitting an `apply_patch` patch. The layout spans reproduce the
+reviewed Rust formatting without invoking a formatter at tool runtime; they
+do not generalize syntax transformations. Uniform LF and CRLF input retain
+their line endings, while mixed line endings are refused. The tool never edits
 upstream repositories or generator inputs. Run the tool without `--patch` to
 check canonical output, and run its stdlib Python unit tests separately. The
 Rust protocol suite independently checks the complete normalized source hashes

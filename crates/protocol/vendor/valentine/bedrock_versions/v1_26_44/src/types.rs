@@ -12186,9 +12186,7 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket137Field0Field7 {
                 None
             }
         };
-        Ok(Self {
-            reserved_field_0,
-        })
+        Ok(Self { reserved_field_0 })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -12267,7 +12265,10 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket137Field0Field9 {
             buf.copy_to_slice(&mut bytes);
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
-        Ok(Self { reserved_field_0, reserved_field_1 })
+        Ok(Self {
+            reserved_field_0,
+            reserved_field_1,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -12410,8 +12411,7 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket137Field0 {
             buf.copy_to_slice(&mut bytes);
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
-        let reserved_field_2 =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_2 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_3 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_4 = {
             let len =
@@ -12459,14 +12459,19 @@ impl crate::bedrock::codec::BedrockCodec for ReservedPacket137Field0 {
             }
         };
         let reserved_field_7 =
-            <ReservedPacket137Field0Field7 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let reserved_field_8 =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+            <ReservedPacket137Field0Field7 as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?;
+        let reserved_field_8 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_9 = {
             let present = u8::decode(buf, ())?;
             if present != 0 {
                 Some(
-                    <ReservedPacket137Field0Field9 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                    <ReservedPacket137Field0Field9 as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?,
                 )
             } else {
                 None
@@ -19854,9 +19859,7 @@ impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadCa
 pub struct ReservedPacket65Event18 {
     pub reserved_field_0: String,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ReservedPacket65Event18
-{
+impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event18 {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -19868,9 +19871,7 @@ impl crate::bedrock::codec::BedrockSized
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec
-    for ReservedPacket65Event18
-{
+impl crate::bedrock::codec::BedrockCodec for ReservedPacket65Event18 {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -19902,9 +19903,7 @@ impl crate::bedrock::codec::BedrockCodec
             buf.copy_to_slice(&mut bytes);
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
-        Ok(Self {
-            reserved_field_0,
-        })
+        Ok(Self { reserved_field_0 })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -19912,9 +19911,7 @@ pub struct ReservedPacket65Event19 {
     pub reserved_field_0: String,
     pub reserved_field_1: i32,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ReservedPacket65Event19
-{
+impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event19 {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -19929,9 +19926,7 @@ impl crate::bedrock::codec::BedrockSized
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec
-    for ReservedPacket65Event19
-{
+impl crate::bedrock::codec::BedrockCodec for ReservedPacket65Event19 {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -22551,8 +22546,7 @@ impl crate::bedrock::codec::BedrockCodec for LevelSettings {
             .0;
         let reserved_field_12 =
             <ReservedLevelSettingsField12 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let reserved_field_13 =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_13 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_14 = {
             let len =
                 (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
