@@ -157,6 +157,11 @@ impl CraftingAuthority {
         }
     }
 
+    /// The committed recipe catalog while it is available.
+    pub(super) fn catalog(&self) -> Option<&RecipeCatalog> {
+        (self.catalog.is_available() && !self.catalog_lost).then_some(&self.catalog)
+    }
+
     pub(super) fn preview(&self) -> Option<CraftingPreview<'_>> {
         self.preview.as_ref().map(|owner| match &owner.value {
             ManualCraftMatch::Unavailable => CraftingPreview::Unavailable,

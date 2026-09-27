@@ -65,6 +65,7 @@ fn apple_registry() -> ItemRegistryEvent {
             component_digest: [6; 32],
             negotiated_max_stack_size: Some(64),
             canonical_empty_component_data: false,
+            item_tags: std::sync::Arc::from([]),
         }]),
     }
 }
@@ -201,7 +202,7 @@ impl CursorGesture {
 }
 
 #[test]
-fn take_predicts_cursor_and_rejects_queued_gestures() {
+fn take_predicts_cursor_and_pipelines_a_follow_up_gesture() {
     let original = stack(5, 12, 44);
     let mut ledger = ready(Some(original.clone()), None);
     let request = ledger.begin_click(0).expect("take request");
@@ -212,12 +213,17 @@ fn take_predicts_cursor_and_rejects_queued_gestures() {
     assert!(ledger.displayed_stack(0).is_none());
     assert_eq!(ledger.cursor_stack(), Some(&original));
     assert!(ledger.displayed_stack(u8::MAX).is_none());
-    assert_eq!(ledger.begin_click(1), Err(InventoryGestureError::Busy));
+    assert_eq!(ledger.begin_click(1), Ok(-5));
+    assert_eq!(ledger.displayed_stack(1), Some(&original));
 
     assert!(ledger.mark_transport_enqueued(100));
     ledger.apply(&response(request, StackResponseStatus::Accepted));
-    assert_eq!(ledger.pending_state(), None);
-    assert_eq!(ledger.cursor_stack(), Some(&original));
+    assert_eq!(
+        ledger.pending_state(),
+        Some(InventoryPendingState::AwaitingTransport)
+    );
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.displayed_stack(1), Some(&original));
 }
 
 #[test]
@@ -253,7 +259,9 @@ fn admitted_request_timeout_fails_closed_without_unsafe_retransmission() {
     let request = ledger.begin_click(0).expect("take request");
     ledger.mark_transport_enqueued(10);
     assert!(!ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
-    assert!(ledger.pending_request_id().is_none());
+    // The prediction stays for a late response; nothing is retransmitted.
+    assert_eq!(ledger.pending_request_id(), Some(request));
+    assert!(ledger.pending_packet().unwrap().is_none());
     assert!(ledger.resync_required());
     assert_eq!(request, -3);
 }
@@ -523,7 +531,7 @@ fn place_and_swap_known_not_applied_paths_restore_the_base_cursor() {
 }
 
 #[test]
-fn place_and_swap_admitted_timeout_wait_for_player_and_cursor_authority() {
+fn place_and_swap_admitted_timeout_keep_prediction_until_full_authority() {
     for (index, gesture) in [CursorGesture::Place, CursorGesture::Swap]
         .into_iter()
         .enumerate()
@@ -532,15 +540,13 @@ fn place_and_swap_admitted_timeout_wait_for_player_and_cursor_authority() {
         let request = ledger.begin_click(target).unwrap();
         ledger.mark_transport_enqueued(10);
         ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-        assert_eq!(ledger.pending_request_id(), None);
-        assert_eq!(ledger.cursor_stack(), Some(&held));
-        assert_eq!(ledger.displayed_stack(target), occupied.as_ref());
+        assert_eq!(ledger.pending_request_id(), Some(request));
+        assert_eq!(ledger.cursor_stack(), occupied.as_ref());
+        assert_eq!(ledger.displayed_stack(target), Some(&held));
         assert!(ledger.resync_required());
 
-        ledger.apply(&response(request, StackResponseStatus::Accepted));
-        assert_eq!(ledger.cursor_stack(), Some(&held));
-        assert_eq!(ledger.displayed_stack(target), occupied.as_ref());
-
+        // A timed-out request with no response retires only after both
+        // touched surfaces are completely restated.
         let player = match gesture {
             CursorGesture::Place => complete_player_content(None, None),
             CursorGesture::Swap => complete_player_content(None, occupied.clone()),
@@ -555,7 +561,13 @@ fn place_and_swap_admitted_timeout_wait_for_player_and_cursor_authority() {
             ledger.apply(&player);
         }
         assert!(!ledger.resync_required());
+        assert_eq!(ledger.pending_request_id(), None);
         assert_eq!(ledger.cursor_stack(), Some(&held));
+
+        // A late acceptance of the retired request changes nothing.
+        ledger.apply(&response(request, StackResponseStatus::Accepted));
+        assert_eq!(ledger.cursor_stack(), Some(&held));
+        assert!(!ledger.resync_required());
     }
 }
 

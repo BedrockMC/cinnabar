@@ -18,33 +18,44 @@ use crate::acceptance::markers::FAST_TRANSFER_ACTION;
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
+use super::inventory_ledger::{CellGesture, DropSource, InventoryGestureError, InventoryTarget};
 use super::{PlatformClipboard, UiRuntime, presentation};
+use presentation::inventory_pointer::InventoryCellHit;
 
+/// Admits every ready inventory packet in queue order, stopping at the first
+/// transport refusal. Returns whether anything was admitted.
 pub fn flush_inventory_send<E>(
     runtime: &mut UiRuntime,
     now_millis: u64,
     mut send: impl FnMut(Packet) -> Result<(), E>,
 ) -> Result<bool, E> {
     runtime.poll_inventory_timeout(now_millis);
-    let Some(packet) = runtime
-        .inventory_ledger()
-        .pending_packet()
-        .expect("the ledger retains only validated protocol requests")
-    else {
-        return Ok(false);
-    };
-    if let Err(error) = send(packet) {
-        runtime
+    let mut admitted_any = false;
+    for _ in 0..MAX_INVENTORY_PACKETS_PER_FLUSH {
+        let Some(packet) = runtime
+            .inventory_ledger()
+            .pending_packet()
+            .expect("the ledger retains only validated protocol requests")
+        else {
+            break;
+        };
+        if let Err(error) = send(packet) {
+            runtime
+                .inventory_ledger_mut()
+                .note_transport_pressure(now_millis);
+            return Err(error);
+        }
+        let admitted = runtime
             .inventory_ledger_mut()
-            .note_transport_pressure(now_millis);
-        return Err(error);
+            .mark_transport_enqueued(now_millis);
+        debug_assert!(admitted, "only an awaiting request can be transported");
+        admitted_any = true;
     }
-    let admitted = runtime
-        .inventory_ledger_mut()
-        .mark_transport_enqueued(now_millis);
-    debug_assert!(admitted, "only an awaiting request can be transported");
-    Ok(true)
+    Ok(admitted_any)
 }
+
+/// Bounds one frame's inventory transport work.
+const MAX_INVENTORY_PACKETS_PER_FLUSH: usize = 32;
 
 pub(crate) fn flush_inventory_network(
     time: Res<Time<Real>>,
@@ -262,6 +273,35 @@ pub(crate) fn drive_chat_ui_actions(
     }
 }
 
+/// Inventory keyboard input captured before gameplay suppression resets the
+/// frame's key state: this frame's presses and the held modifiers.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct InventoryKeys {
+    presses: Vec<KeyCode>,
+    shift: bool,
+    control: bool,
+}
+
+impl InventoryKeys {
+    /// Bounds one frame's buffered presses.
+    const MAX_PRESSES: usize = 16;
+
+    fn track_modifier(&mut self, input: &KeyboardInput) {
+        let pressed = input.state == ButtonState::Pressed;
+        match input.key_code {
+            KeyCode::ShiftLeft | KeyCode::ShiftRight => self.shift = pressed,
+            KeyCode::ControlLeft | KeyCode::ControlRight => self.control = pressed,
+            _ => {}
+        }
+    }
+
+    fn press(&mut self, key: KeyCode) {
+        if self.presses.len() < Self::MAX_PRESSES {
+            self.presses.push(key);
+        }
+    }
+}
+
 pub(crate) fn drive_inventory_ui_actions(
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
@@ -269,6 +309,9 @@ pub(crate) fn drive_inventory_ui_actions(
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
+    // Presses are this frame's only; modifiers stay held across frames.
+    let presses = std::mem::take(&mut runtime.inventory_keys.presses);
+    let (shift, control) = (runtime.inventory_keys.shift, runtime.inventory_keys.control);
     if runtime.server_forms().owns_input() {
         return;
     }
@@ -296,50 +339,111 @@ pub(crate) fn drive_inventory_ui_actions(
     let physical_size = [window.physical_width(), window.physical_height()];
     let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
     runtime.set_inventory_pointer_gui(gui);
+    let screen = presentation::inventory_pointer::InventoryScreen::of(runtime.inventory_ledger());
     let hit = gui.and_then(|gui| {
-        presentation.inventory_cell_hit(
-            gui,
-            physical_size,
-            window.scale_factor(),
-            runtime.inventory_ledger().storage_slot_count(),
-        )
+        presentation.inventory_cell_hit(gui, physical_size, window.scale_factor(), screen)
     });
-    if let Some(slot) = hit {
-        let ledger = runtime.inventory_ledger_mut();
-        if primary_pressed {
-            // When both physical edges arrive together, preserve the existing
-            // primary operation as a deterministic local policy.
-            let _ = match slot {
-                presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
-                    ledger.begin_click(slot)
-                }
-                presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
-                    ledger.begin_storage_click(slot)
-                }
-            };
-        } else if secondary_pressed {
-            let cursor_occupied = ledger.cursor_stack().is_some();
-            let _ = match slot {
-                presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
-                    let target_count = ledger.displayed_stack(slot).map(|stack| stack.count);
-                    match (cursor_occupied, target_count) {
-                        (false, Some(count)) => ledger.begin_take_count(slot, count.div_ceil(2)),
-                        (true, _) => ledger.begin_place_count(slot, 1),
-                        _ => return,
-                    }
-                }
-                presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
-                    let target_count = ledger.storage_stack(slot).map(|stack| stack.count);
-                    match (cursor_occupied, target_count) {
-                        (false, Some(count)) => {
-                            ledger.begin_storage_take_count(slot, count.div_ceil(2))
-                        }
-                        (true, _) => ledger.begin_storage_place_count(slot, 1),
-                        _ => return,
-                    }
-                }
-            };
+    for key in presses {
+        let _ = dispatch_inventory_key(runtime.as_mut(), hit, key, control);
+    }
+    let Some(hit) = hit else {
+        // A held stack released outside the panel is dropped: all of it on a
+        // primary click, one item on a secondary click.
+        let outside = gui.is_some_and(|gui| {
+            !presentation.inventory_panel_contains(
+                gui,
+                physical_size,
+                window.scale_factor(),
+                screen,
+            )
+        });
+        if outside && (primary_pressed || secondary_pressed) {
+            let amount = (!primary_pressed).then_some(1);
+            let _ = runtime
+                .inventory_ledger_mut()
+                .begin_drop(DropSource::Cursor, amount);
         }
+        return;
+    };
+    // When both physical edges arrive together, the primary operation wins
+    // as a deterministic local policy.
+    if primary_pressed
+        && shift
+        && let Some(target) = gesture_target(hit)
+    {
+        let _ = runtime.inventory_ledger_mut().begin_quick_move(target);
+    } else if primary_pressed {
+        let _ = dispatch_inventory_click(runtime.as_mut(), hit, CellGesture::Click);
+    } else if secondary_pressed {
+        let ledger = runtime.inventory_ledger();
+        let Some(target) = gesture_target(hit) else {
+            return;
+        };
+        let gesture = match (ledger.cursor_stack(), ledger.target_stack(target)) {
+            (Some(_), _) => CellGesture::PlaceCount(1),
+            (None, Some(stack)) => CellGesture::TakeCount(stack.count.div_ceil(2)),
+            (None, None) => return,
+        };
+        let _ = dispatch_inventory_click(runtime.as_mut(), hit, gesture);
+    }
+}
+
+const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTarget> {
+    Some(match hit {
+        InventoryCellHit::Player(slot) => InventoryTarget::Player(slot),
+        InventoryCellHit::Storage(slot) => InventoryTarget::Storage(slot),
+        InventoryCellHit::Armor(slot) => InventoryTarget::Armor(slot),
+        InventoryCellHit::Offhand => InventoryTarget::Offhand,
+        InventoryCellHit::Craft(slot) => InventoryTarget::Craft(slot),
+        InventoryCellHit::CraftOutput => return None,
+    })
+}
+
+/// Keyboard gestures over the hovered cell: digits swap with that hotbar
+/// cell, Q drops one item and Control+Q the whole stack.
+pub(crate) fn dispatch_inventory_key(
+    runtime: &mut UiRuntime,
+    hit: Option<InventoryCellHit>,
+    key: KeyCode,
+    control: bool,
+) -> Option<Result<i32, InventoryGestureError>> {
+    let target = gesture_target(hit?)?;
+    let ledger = runtime.inventory_ledger_mut();
+    let hotbar = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ]
+    .iter()
+    .position(|digit| *digit == key);
+    match (hotbar, key) {
+        (Some(slot), _) => Some(ledger.begin_hotbar_swap(target, slot as u8)),
+        (None, KeyCode::KeyQ) => {
+            let amount = (!control).then_some(1);
+            Some(ledger.begin_drop(DropSource::Target(target), amount))
+        }
+        _ => None,
+    }
+}
+
+/// Routes one resolved pointer gesture; the output cell crafts once.
+pub(crate) fn dispatch_inventory_click(
+    runtime: &mut UiRuntime,
+    hit: InventoryCellHit,
+    gesture: CellGesture,
+) -> Result<i32, InventoryGestureError> {
+    match gesture_target(hit) {
+        Some(target) => runtime
+            .inventory_ledger_mut()
+            .begin_target_gesture(target, gesture),
+        None if gesture == CellGesture::Click => runtime.begin_crafting(),
+        None => Err(InventoryGestureError::InvalidRequest),
     }
 }
 
@@ -446,6 +550,7 @@ pub(crate) fn drive_chat_keyboard_input(
     let mut inventory_ownership_changed = false;
     let mut consumed_gameplay = runtime.ui_focused();
     for input in keyboard_messages.read() {
+        runtime.inventory_keys.track_modifier(input);
         if input.state != ButtonState::Pressed {
             continue;
         }
@@ -460,7 +565,7 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.close_inventory();
                     inventory_ownership_changed = true;
                 }
-                _ => {}
+                key => runtime.inventory_keys.press(key),
             }
             continue;
         }

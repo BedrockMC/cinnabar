@@ -9,7 +9,36 @@ const SLOT_SIZE: f32 = 18.0;
 pub(crate) enum InventoryCellHit {
     Player(u8),
     Storage(u8),
+    Armor(u8),
+    Offhand,
+    /// A crafting cell by UI inventory slot.
+    Craft(u8),
+    CraftOutput,
 }
+
+/// Which inventory screen is drawn.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum InventoryScreen {
+    Personal,
+    Workbench,
+    Storage(usize),
+}
+
+impl InventoryScreen {
+    pub(crate) fn of(ledger: &crate::ui_runtime::inventory_ledger::PlayerInventoryLedger) -> Self {
+        use crate::ui_runtime::inventory_ledger::CraftingGrid;
+        match (ledger.storage_slot_count(), ledger.crafting_grid()) {
+            (Some(count @ (27 | 54)), _) => Self::Storage(count),
+            (_, CraftingGrid::Workbench) => Self::Workbench,
+            _ => Self::Personal,
+        }
+    }
+}
+
+/// Provisional workbench layout pending independent measurement: grid origin
+/// and output cell relative to the panel.
+pub(crate) const WORKBENCH_GRID: [f32; 2] = [30.0, 17.0];
+pub(crate) const WORKBENCH_OUTPUT: [f32; 2] = [124.0, 35.0];
 
 impl UiPresentationRuntime {
     pub(crate) fn inventory_gui_point(
@@ -30,10 +59,7 @@ impl UiPresentationRuntime {
         dpi_scale: f32,
     ) -> Option<u8> {
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
-        cell_hit(gui, geometry, None).and_then(|hit| match hit {
-            InventoryCellHit::Player(slot) => Some(slot),
-            InventoryCellHit::Storage(_) => None,
-        })
+        slot_hit(gui, geometry)
     }
 
     pub(crate) fn inventory_cell_hit(
@@ -41,10 +67,35 @@ impl UiPresentationRuntime {
         gui: [f32; 2],
         physical_size: [u32; 2],
         dpi_scale: f32,
-        storage_slots: Option<usize>,
+        screen: InventoryScreen,
     ) -> Option<InventoryCellHit> {
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
-        cell_hit(gui, geometry, storage_slots)
+        cell_hit(gui, geometry, screen)
+    }
+
+    /// Whether a GUI point lies on the drawn inventory panel.
+    pub(crate) fn inventory_panel_contains(
+        &self,
+        gui: [f32; 2],
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+        screen: InventoryScreen,
+    ) -> bool {
+        let Some(geometry) = self.inventory_geometry(physical_size, dpi_scale) else {
+            return false;
+        };
+        let height = match screen {
+            InventoryScreen::Storage(count) => 114.0 + (count / 9) as f32 * SLOT_SIZE,
+            InventoryScreen::Personal | InventoryScreen::Workbench => PANEL_SIZE[1],
+        };
+        let origin = [
+            ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),
+            ((geometry.gui_height - height) * 0.5).floor(),
+        ];
+        gui[0] >= origin[0]
+            && gui[0] < origin[0] + PANEL_SIZE[0]
+            && gui[1] >= origin[1]
+            && gui[1] < origin[1] + height
     }
 
     fn inventory_geometry(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<HudGeometry> {
@@ -66,18 +117,18 @@ fn gui_point(point: UiPoint, geometry: HudGeometry, safe_area: ui::SafeArea) -> 
 
 #[cfg(test)]
 fn slot_hit(point: [f32; 2], geometry: HudGeometry) -> Option<u8> {
-    cell_hit(point, geometry, None).and_then(|hit| match hit {
+    match cell_hit(point, geometry, InventoryScreen::Personal)? {
         InventoryCellHit::Player(slot) => Some(slot),
-        InventoryCellHit::Storage(_) => None,
-    })
+        _ => None,
+    }
 }
 
 fn cell_hit(
     point: [f32; 2],
     geometry: HudGeometry,
-    storage_slots: Option<usize>,
+    screen: InventoryScreen,
 ) -> Option<InventoryCellHit> {
-    if let Some(count @ (27 | 54)) = storage_slots {
+    if let InventoryScreen::Storage(count) = screen {
         let rows = count / 9;
         let panel_height = 114.0 + rows as f32 * SLOT_SIZE;
         let origin = [
@@ -124,6 +175,10 @@ fn cell_hit(
         ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),
         ((geometry.gui_height - PANEL_SIZE[1]) * 0.5).floor(),
     ];
+    let at = |offset: [f32; 2]| [origin[0] + offset[0], origin[1] + offset[1]];
+    if let Some(hit) = upper_hit(point, screen, at) {
+        return Some(hit);
+    }
     for row in 0..3u8 {
         for column in 0..9u8 {
             let min = [
@@ -145,6 +200,40 @@ fn cell_hit(
         }
     }
     None
+}
+
+/// Cells above the player inventory: the grid the screen draws, its output,
+/// and on the personal screen the armor column and offhand.
+fn upper_hit(
+    point: [f32; 2],
+    screen: InventoryScreen,
+    at: impl Fn([f32; 2]) -> [f32; 2],
+) -> Option<InventoryCellHit> {
+    let (grid, width, first_slot, output) = match screen {
+        InventoryScreen::Workbench => (WORKBENCH_GRID, 3u8, 32u8, WORKBENCH_OUTPUT),
+        _ => ([98.0, 18.0], 2, 28, [152.0, 28.0]),
+    };
+    for index in 0..width * width {
+        let cell = [
+            grid[0] + f32::from(index % width) * SLOT_SIZE,
+            grid[1] + f32::from(index / width) * SLOT_SIZE,
+        ];
+        if point_in_slot(point, at(cell)) {
+            return Some(InventoryCellHit::Craft(first_slot + index));
+        }
+    }
+    if point_in_slot(point, at(output)) {
+        return Some(InventoryCellHit::CraftOutput);
+    }
+    if screen != InventoryScreen::Personal {
+        return None;
+    }
+    for row in 0..4u8 {
+        if point_in_slot(point, at([8.0, 8.0 + f32::from(row) * SLOT_SIZE])) {
+            return Some(InventoryCellHit::Armor(row));
+        }
+    }
+    point_in_slot(point, at([77.0, 62.0])).then_some(InventoryCellHit::Offhand)
 }
 
 fn point_in_slot(point: [f32; 2], min: [f32; 2]) -> bool {
@@ -217,7 +306,11 @@ mod tests {
                 ((geometry.gui_height - panel_height) * 0.5).floor(),
             ];
             assert_eq!(
-                cell_hit([origin[0] + 9.0, origin[1] + 19.0], geometry, Some(count)),
+                cell_hit(
+                    [origin[0] + 9.0, origin[1] + 19.0],
+                    geometry,
+                    InventoryScreen::Storage(count)
+                ),
                 Some(InventoryCellHit::Storage(0))
             );
             let last = count - 1;
@@ -228,7 +321,7 @@ mod tests {
                         origin[1] + 19.0 + (last / 9) as f32 * SLOT_SIZE,
                     ],
                     geometry,
-                    Some(count),
+                    InventoryScreen::Storage(count),
                 ),
                 Some(InventoryCellHit::Storage(last as u8))
             );
@@ -236,10 +329,64 @@ mod tests {
                 cell_hit(
                     [origin[0] + 9.0, origin[1] + 33.0 + rows as f32 * SLOT_SIZE],
                     geometry,
-                    Some(count),
+                    InventoryScreen::Storage(count),
                 ),
                 Some(InventoryCellHit::Player(9))
             );
         }
+    }
+
+    /// Grids, output, armor and offhand resolve to their own cells on each
+    /// screen; the workbench offers no equipment cells.
+    #[test]
+    fn crafting_and_equipment_cells_resolve_per_screen() {
+        let geometry = geometry([1280, 720], 1.0, SafeArea::ZERO);
+        let origin = [
+            ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),
+            ((geometry.gui_height - PANEL_SIZE[1]) * 0.5).floor(),
+        ];
+        let hit = |offset: [f32; 2], screen| {
+            cell_hit(
+                [origin[0] + offset[0] + 1.0, origin[1] + offset[1] + 1.0],
+                geometry,
+                screen,
+            )
+        };
+        let personal = InventoryScreen::Personal;
+        assert_eq!(
+            hit([98.0, 18.0], personal),
+            Some(InventoryCellHit::Craft(28))
+        );
+        assert_eq!(
+            hit([116.0, 36.0], personal),
+            Some(InventoryCellHit::Craft(31))
+        );
+        assert_eq!(
+            hit([152.0, 28.0], personal),
+            Some(InventoryCellHit::CraftOutput)
+        );
+        assert_eq!(hit([8.0, 62.0], personal), Some(InventoryCellHit::Armor(3)));
+        assert_eq!(hit([77.0, 62.0], personal), Some(InventoryCellHit::Offhand));
+        let workbench = InventoryScreen::Workbench;
+        assert_eq!(
+            hit(WORKBENCH_GRID, workbench),
+            Some(InventoryCellHit::Craft(32))
+        );
+        assert_eq!(
+            hit(
+                [WORKBENCH_GRID[0] + 36.0, WORKBENCH_GRID[1] + 36.0],
+                workbench
+            ),
+            Some(InventoryCellHit::Craft(40))
+        );
+        assert_eq!(
+            hit(WORKBENCH_OUTPUT, workbench),
+            Some(InventoryCellHit::CraftOutput)
+        );
+        assert_eq!(hit([8.0, 8.0], workbench), None);
+        assert_eq!(
+            hit([8.0, 84.0], workbench),
+            Some(InventoryCellHit::Player(9))
+        );
     }
 }

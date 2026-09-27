@@ -113,4 +113,38 @@ impl UiRuntime {
     pub fn crafting_preview(&self) -> Option<super::CraftingPreview<'_>> {
         self.crafting_authority.preview()
     }
+
+    /// The recipe the presented crafting grid forms against the committed
+    /// catalog; `Unavailable` without a catalog or known grid identities.
+    #[must_use]
+    pub fn crafting_match(&self) -> protocol::CraftGridMatch {
+        let ledger = self.inventory_ledger();
+        let (Some(catalog), Some(cells)) = (
+            self.crafting_authority.catalog(),
+            ledger.crafting_grid_cells(),
+        ) else {
+            return protocol::CraftGridMatch::Unavailable;
+        };
+        if cells.iter().all(Option::is_none) {
+            return protocol::CraftGridMatch::NoMatch;
+        }
+        let items: Vec<_> = cells
+            .iter()
+            .map(|cell| {
+                cell.as_ref()
+                    .map(super::inventory_ledger::CraftGridCell::item)
+            })
+            .collect();
+        protocol::match_crafting_grid(catalog, ledger.crafting_grid().width(), &items)
+    }
+
+    /// Crafts the grid's unique recipe once into the cursor.
+    pub fn begin_crafting(
+        &mut self,
+    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+        let protocol::CraftGridMatch::Unique(recipe) = self.crafting_match() else {
+            return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
+        };
+        self.inventory_ledger_mut().begin_craft(&recipe, 1)
+    }
 }

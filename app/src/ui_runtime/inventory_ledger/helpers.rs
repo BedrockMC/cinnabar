@@ -1,15 +1,6 @@
-﻿use super::{
-    Cell, CellSurface, ContainerIdentity, InventoryGestureError, StackRequestContainer,
-    StackRequestSlot, StorageWindow,
-};
+use protocol::{StackRequestContainer, StackRequestSlot};
 
-pub(super) const fn cell_surface(cell: Cell) -> CellSurface {
-    match cell {
-        Cell::Inventory(_) => CellSurface::Player,
-        Cell::Storage(_) => CellSurface::Storage,
-        Cell::Cursor => CellSurface::Cursor,
-    }
-}
+use super::{Cell, ContainerIdentity, InventoryGestureError, StorageWindow};
 
 pub(super) const fn valid_raw_window_id(window_id: i32) -> bool {
     matches!(window_id, -128..=255)
@@ -50,25 +41,28 @@ pub(super) fn request_slot(
     stack_network_id: i32,
     storage_identity: Option<ContainerIdentity>,
 ) -> Result<StackRequestSlot, InventoryGestureError> {
-    Ok(match cell {
-        Cell::Inventory(slot) => StackRequestSlot {
-            container: StackRequestContainer::PlayerInventory,
-            slot,
-            stack_network_id,
-        },
-        Cell::Cursor => StackRequestSlot {
-            container: StackRequestContainer::Cursor,
-            slot: 0,
-            stack_network_id,
-        },
-        Cell::Storage(slot) => StackRequestSlot {
-            container: StackRequestContainer::LevelEntity {
+    let (container, slot) = match cell {
+        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, slot),
+        Cell::Cursor => (StackRequestContainer::Cursor, 0),
+        Cell::Storage(slot) => (
+            StackRequestContainer::LevelEntity {
                 dynamic_id: storage_identity
                     .ok_or(InventoryGestureError::InvalidRequest)?
                     .dynamic_id,
             },
             slot,
-            stack_network_id,
-        },
+        ),
+        Cell::Armor(slot) => (StackRequestContainer::Armor, slot),
+        Cell::Offhand => (StackRequestContainer::Offhand, 1),
+        Cell::Craft(slot) => (StackRequestContainer::CraftingInput, slot),
+        Cell::CreatedOutput => (
+            StackRequestContainer::CreatedOutput,
+            protocol::CREATED_OUTPUT_SLOT,
+        ),
+    };
+    Ok(StackRequestSlot {
+        container,
+        slot,
+        stack_network_id,
     })
 }

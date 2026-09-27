@@ -1,20 +1,22 @@
 use valentine::bedrock::version::v1_26_44::{
-    ActorRuntimeId, ContainerClosePacket, EnumsContainerEnumName as FullContainerNameContainerName,
-    EnumsInteractPacketPayloadAction as InteractAction,
-    EnumsItemStackRequestActionType as ItemStackRequestCerealActionType,
-    EnumsTextProcessingEventOrigin, FullContainerName, InteractPacket,
-    ItemStackRequestCerealPlaceActionData, ItemStackRequestCerealSlotInfoData,
-    ItemStackRequestCerealSwapActionData, ItemStackRequestCerealTakeActionData,
-    ItemStackRequestPacket, ItemStackRequestPacketDataRequestData,
-    ItemStackRequestPacketDataRequestDataActionsItem,
-    TypedClientNetIdstructItemStackRequestIdTagint32T0,
+    ActorRuntimeId, ContainerClosePacket, EnumsInteractPacketPayloadAction as InteractAction,
+    EnumsTextProcessingEventOrigin, InteractPacket, ItemStackRequestPacket,
+    ItemStackRequestPacketDataRequestData, TypedClientNetIdstructItemStackRequestIdTagint32T0,
 };
 
 use super::InventoryPacketError;
+mod actions;
 pub(super) mod manual_craft;
 pub(super) mod mining;
 
-pub const PLAYER_INVENTORY_SLOTS: u8 = 36;
+pub use actions::{
+    ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
+    PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction, StackRequestContainer,
+    StackRequestSlot,
+};
+
+/// Actions one request may carry.
+pub const MAX_STACK_REQUEST_ACTIONS: usize = 100;
 
 pub fn open_inventory_packet(
     target_runtime_id: u64,
@@ -32,93 +34,38 @@ pub fn open_inventory_packet(
     .into())
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum StackRequestContainer {
-    PlayerInventory,
-    Cursor,
-    LevelEntity { dynamic_id: Option<u32> },
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct StackRequestSlot {
-    pub container: StackRequestContainer,
-    pub slot: u8,
-    pub stack_network_id: i32,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum StackRequestAction {
-    Take {
-        amount: u8,
-        source: StackRequestSlot,
-        destination: StackRequestSlot,
-    },
-    Place {
-        amount: u8,
-        source: StackRequestSlot,
-        destination: StackRequestSlot,
-    },
-    Swap {
-        source: StackRequestSlot,
-        destination: StackRequestSlot,
-    },
-}
-
+/// Builds one request. A negative stack id may only name this request's own
+/// created output, which vanilla identifies by the request id.
 pub fn item_stack_request_packet(
     request_id: i32,
-    action: StackRequestAction,
+    actions: &[StackRequestAction],
 ) -> Result<crate::Packet, InventoryPacketError> {
     if request_id >= -1 || request_id & 1 == 0 {
         return Err(InventoryPacketError::InvalidStackRequestId);
     }
-    let action = match action {
-        StackRequestAction::Take {
-            amount,
-            source,
-            destination,
-        } => {
-            validate_request_amount(amount)?;
-            ItemStackRequestPacketDataRequestDataActionsItem::TakeActionData(Box::new(
-                ItemStackRequestCerealTakeActionData {
-                    actiontype: ItemStackRequestCerealActionType::Take,
-                    amount,
-                    source: request_slot(source)?,
-                    destination: request_slot(destination)?,
-                },
-            ))
+    if actions.is_empty() || actions.len() > MAX_STACK_REQUEST_ACTIONS {
+        return Err(InventoryPacketError::InvalidStackRequestActionCount(
+            actions.len(),
+        ));
+    }
+    for slot in actions.iter().flat_map(action_slots) {
+        let created_output = slot.container == StackRequestContainer::CreatedOutput
+            && slot.stack_network_id == request_id;
+        if slot.stack_network_id < -1 && !created_output {
+            return Err(InventoryPacketError::InvalidRequestStackNetworkId(
+                slot.stack_network_id,
+            ));
         }
-        StackRequestAction::Place {
-            amount,
-            source,
-            destination,
-        } => {
-            validate_request_amount(amount)?;
-            ItemStackRequestPacketDataRequestDataActionsItem::PlaceActionData(Box::new(
-                ItemStackRequestCerealPlaceActionData {
-                    actiontype: ItemStackRequestCerealActionType::Place,
-                    amount,
-                    source: request_slot(source)?,
-                    destination: request_slot(destination)?,
-                },
-            ))
-        }
-        StackRequestAction::Swap {
-            source,
-            destination,
-        } => ItemStackRequestPacketDataRequestDataActionsItem::SwapActionData(
-            ItemStackRequestCerealSwapActionData {
-                actiontype: ItemStackRequestCerealActionType::Swap,
-                source: request_slot(source)?,
-                destination: request_slot(destination)?,
-            },
-        ),
-    };
+    }
     Ok(ItemStackRequestPacket {
         requests: vec![ItemStackRequestPacketDataRequestData {
             client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 {
                 id: request_id,
             },
-            actions: vec![action],
+            actions: actions
+                .iter()
+                .map(actions::encode)
+                .collect::<Result<_, _>>()?,
             strings_to_filter: Vec::new(),
             strings_to_filter_origin: EnumsTextProcessingEventOrigin::Unknown,
         }],
@@ -126,49 +73,28 @@ pub fn item_stack_request_packet(
     .into())
 }
 
-fn validate_request_amount(amount: u8) -> Result<(), InventoryPacketError> {
-    if amount == 0 {
-        return Err(InventoryPacketError::InvalidStackRequestAmount);
-    }
-    Ok(())
-}
-
-fn request_slot(
-    slot: StackRequestSlot,
-) -> Result<ItemStackRequestCerealSlotInfoData, InventoryPacketError> {
-    let container_name = match slot.container {
-        StackRequestContainer::PlayerInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
-            FullContainerNameContainerName::CombinedHotbarAndInventoryContainer
+fn action_slots(action: &StackRequestAction) -> impl Iterator<Item = StackRequestSlot> {
+    let (first, second) = match action {
+        StackRequestAction::Take {
+            source,
+            destination,
+            ..
         }
-        StackRequestContainer::Cursor if slot.slot == 0 => {
-            FullContainerNameContainerName::CursorContainer
+        | StackRequestAction::Place {
+            source,
+            destination,
+            ..
         }
-        StackRequestContainer::LevelEntity { .. } => {
-            FullContainerNameContainerName::LevelEntityContainer
-        }
-        _ => {
-            return Err(InventoryPacketError::InvalidStackRequestSlot {
-                container: slot.container,
-                slot: slot.slot,
-            });
-        }
+        | StackRequestAction::Swap {
+            source,
+            destination,
+        } => (Some(*source), Some(*destination)),
+        StackRequestAction::Drop { source, .. }
+        | StackRequestAction::Destroy { source, .. }
+        | StackRequestAction::Consume { source, .. } => (Some(*source), None),
+        _ => (None, None),
     };
-    if slot.stack_network_id < -1 {
-        return Err(InventoryPacketError::InvalidRequestStackNetworkId(
-            slot.stack_network_id,
-        ));
-    }
-    Ok(ItemStackRequestCerealSlotInfoData {
-        fullcontainername: FullContainerName {
-            container_name,
-            dynamic_id: match slot.container {
-                StackRequestContainer::LevelEntity { dynamic_id } => dynamic_id,
-                _ => None,
-            },
-        },
-        slot: slot.slot,
-        net_id_variant: slot.stack_network_id,
-    })
+    first.into_iter().chain(second)
 }
 
 pub fn container_close_packet(

@@ -1,7 +1,7 @@
 use super::{
     budget::{Credits, MAX_UPDATE_BYTES},
     grammar,
-    model::{Batch, Ingredient, Recipe, RecipeUpdate, Record},
+    model::{Batch, Ingredient, MAX_INGREDIENTS, Recipe, RecipeUpdate, Record},
     reader::{Reader, Refusal},
 };
 use std::{mem::size_of, sync::Arc};
@@ -16,11 +16,23 @@ fn decode_with_credits(
 ) -> Result<RecipeUpdate, super::super::InventoryPacketError> {
     let parse = || -> Result<RecipeUpdate, Refusal> {
         let mut reader = Reader::new(body)?;
-        let (clear, total) = grammar::walk(&mut reader, |_, _| Ok(()))?;
+        let mut retained_names = 0usize;
+        let (clear, total) = grammar::walk(&mut reader, |_, candidate| {
+            retained_names += candidate.map_or(0, |candidate| {
+                candidate
+                    .ingredients
+                    .iter()
+                    .filter(|item| item.count > 0)
+                    .count()
+            });
+            Ok(())
+        })?;
         // Conservative string allocation allowance includes per-string allocator
-        // metadata, Vec capacity, the batch and its Arc/permit metadata.
+        // metadata for each retained ingredient name, Vec capacity, the batch
+        // and its Arc/permit metadata.
         let charge = total
-            .checked_mul(size_of::<Record>() + 4 * 128)
+            .checked_mul(size_of::<Record>())
+            .and_then(|n| n.checked_add(retained_names.checked_mul(128)?))
             .and_then(|n| n.checked_add(reader.string_bytes()))
             .and_then(|n| n.checked_add(512))
             .ok_or(Refusal::Policy)?;
@@ -35,7 +47,8 @@ fn decode_with_credits(
         let mut reader = Reader::new(body)?;
         grammar::walk(&mut reader, |id, candidate| {
             let recipe = if let Some(candidate) = candidate {
-                let mut ingredients = [None, None, None, None];
+                let mut ingredients: [Option<Ingredient>; MAX_INGREDIENTS] =
+                    std::array::from_fn(|_| None);
                 for (index, item) in candidate.ingredients.into_iter().enumerate() {
                     if item.count == 0 {
                         continue;
@@ -46,6 +59,7 @@ fn decode_with_credits(
                     name.push_str(item.name);
                     ingredients[index] = Some(Ingredient {
                         name,
+                        tag: item.tag,
                         aux: item.aux as u16,
                         count: item.count as u8,
                     });
@@ -53,6 +67,9 @@ fn decode_with_credits(
                 Some(Recipe {
                     width: candidate.width,
                     height: candidate.height,
+                    shapeless: candidate.shapeless,
+                    mirror: candidate.mirror,
+                    priority: candidate.priority,
                     ingredients,
                     output: candidate.output,
                 })

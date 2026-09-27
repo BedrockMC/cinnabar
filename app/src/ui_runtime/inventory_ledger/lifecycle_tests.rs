@@ -3,8 +3,8 @@ use std::sync::Arc;
 use protocol::{
     CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR, ContainerCloseEvent,
     ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent,
-    ItemStackResponseEvent, NetworkItemStack, StackResponse, StackResponseContainer,
-    StackResponseSlot, StackResponseStatus,
+    ItemStackResponseEvent, NetworkItemStack, StackRequestAction, StackRequestContainer,
+    StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
 };
 use sha2::{Digest, Sha256};
 
@@ -88,12 +88,12 @@ fn personal_gesture_waits_for_open_admission_and_uses_empty_stack_id_zero() {
 
     assert!(ledger.mark_transport_enqueued(10));
     assert_eq!(ledger.begin_click(0).unwrap(), -3);
-    let pending = ledger.pending.as_ref().unwrap();
+    let pending = ledger.newest_request().unwrap();
     let StackRequestAction::Take {
         amount,
         source,
         destination,
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Take action");
     };
@@ -572,12 +572,12 @@ fn accepted_personal_response_reconciles_player_and_cursor_cells() {
     assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(32));
 
     assert_eq!(ledger.begin_click(9).unwrap(), -5);
-    let pending = ledger.pending.as_ref().unwrap();
+    let pending = ledger.newest_request().unwrap();
     let StackRequestAction::Place {
         amount,
         source,
         destination,
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Place action");
     };
@@ -640,18 +640,18 @@ fn admitted_local_close_ack_preserves_confirmed_cursor_for_the_next_window() {
     assert!(ledger.mark_transport_enqueued(40));
     ledger.apply(&InventoryEvent::Open(personal_open(3)));
     assert_eq!(ledger.begin_click(9).unwrap(), -5);
-    let pending = ledger.pending.as_ref().unwrap();
+    let pending = ledger.newest_request().unwrap();
     let StackRequestAction::Place {
         source,
         destination,
         ..
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Place action")
     };
     assert_eq!(source.stack_network_id, 9);
     assert_eq!(destination.stack_network_id, 0);
-    assert_eq!(pending.prediction.destination_overlay, Some(overlay));
+    assert_eq!(ledger.cursor_overlay(), Some(&overlay));
 }
 
 #[test]
@@ -660,7 +660,7 @@ fn admitted_mutation_remains_ambiguous_when_its_personal_window_closes() {
     acknowledge_personal_open(&mut ledger, 2);
     ledger.begin_click(0).unwrap();
     assert!(ledger.mark_transport_enqueued(20));
-    assert!(ledger.cursor.is_none());
+    assert!(ledger.confirmed_stack(Cell::Cursor).is_none());
     assert!(ledger.cursor_stack().is_some(), "the prediction is visible");
 
     ledger.request_personal_close();

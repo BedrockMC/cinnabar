@@ -622,8 +622,14 @@ fn same_frame_storage_open_and_content_drive_real_button_input_before_network_se
             (0..physical_size[0]).find_map(|x| {
                 let point = UiPoint::new(x as f32, y as f32).unwrap();
                 let gui = presentation.inventory_gui_point(point, physical_size, 1.0)?;
-                (presentation.inventory_cell_hit(gui, physical_size, 1.0, Some(27))
-                    == Some(InventoryCellHit::Storage(2)))
+                (presentation.inventory_cell_hit(
+                    gui,
+                    physical_size,
+                    1.0,
+                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Storage(
+                        27,
+                    ),
+                ) == Some(InventoryCellHit::Storage(2)))
                 .then_some(bevy::math::Vec2::new(x as f32, y as f32))
             })
         })
@@ -740,6 +746,7 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
                 component_digest: [6; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: false,
+                item_tags: std::sync::Arc::from([]),
             }]),
         }),
         inventory: vec![content(stack(6, 60, 60)), cursor_content(stack(6, 33, 33))],

@@ -136,20 +136,31 @@ fn normalized_signed_window_id_remains_a_supported_storage_identity() {
 }
 
 #[test]
-fn storage_gestures_share_the_single_pending_cursor_ledger() {
+fn storage_gestures_pipeline_through_the_shared_cursor() {
     let mut ledger = ready(27, 777);
-    let request = ledger.begin_storage_click(2).unwrap();
+    let take = ledger.begin_storage_click(2).unwrap();
     assert_eq!(
         ledger.pending_state(),
         Some(InventoryPendingState::AwaitingTransport)
     );
-    assert_eq!(ledger.begin_click(0), Err(InventoryGestureError::Busy));
     assert_eq!(ledger.cursor_stack().unwrap().count, 3);
     assert!(ledger.storage_stack(2).is_none());
+    let place = ledger.begin_storage_click(5).unwrap();
+    assert_eq!(ledger.pending_request_count(), 2);
+    assert_eq!(ledger.storage_stack(5).unwrap().count, 3);
+    assert!(ledger.cursor_stack().is_none());
 
     ledger.mark_transport_enqueued(10);
-    ledger.apply(&response(request, StackResponseStatus::Rejected));
+    ledger.mark_transport_enqueued(10);
+    ledger.apply(&response(take, StackResponseStatus::Rejected));
     assert!(ledger.cursor_stack().is_none());
+    assert!(
+        ledger.storage_stack(5).is_none(),
+        "the dependent place no longer applies"
+    );
+    assert_eq!(ledger.storage_stack(2).unwrap().count, 3);
+    ledger.apply(&response(place, StackResponseStatus::Rejected));
+    assert_eq!(ledger.pending_request_count(), 0);
     assert_eq!(ledger.storage_stack(2).unwrap().count, 3);
 }
 
@@ -315,21 +326,34 @@ fn close_and_channel_pressure_are_bounded() {
 }
 
 #[test]
-fn full_content_cancellation_recovers_only_the_touched_surfaces() {
+fn timed_out_prediction_retires_after_every_touched_surface_refreshes() {
     let mut player_request = ready(27, 600);
     player_request.apply(&player_content_with_first(stack(8, 2, 44)));
     player_request.begin_click(0).unwrap();
     player_request.mark_transport_enqueued(10);
     player_request.apply(&content(1, 600, 27));
+    assert!(
+        !player_request.resync_required(),
+        "content never cancels a prediction"
+    );
+    assert_eq!(player_request.pending_request_count(), 1);
+    player_request.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
     assert!(player_request.resync_required());
+    player_request.apply(&content(1, 600, 27));
+    assert!(
+        player_request.resync_required(),
+        "storage was never touched"
+    );
     player_request.apply(&player_content());
     assert!(player_request.resync_required(), "cursor is still touched");
     player_request.apply(&cursor_content());
     assert!(!player_request.resync_required());
+    assert_eq!(player_request.pending_request_count(), 0);
 
     let mut storage_request = ready(27, 601);
     storage_request.begin_storage_click(2).unwrap();
     storage_request.mark_transport_enqueued(10);
+    storage_request.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
     storage_request.apply(&player_content());
     assert!(storage_request.resync_required());
     storage_request.apply(&cursor_content());
@@ -339,6 +363,7 @@ fn full_content_cancellation_recovers_only_the_touched_surfaces() {
     );
     storage_request.apply(&content(1, 601, 27));
     assert!(!storage_request.resync_required());
+    assert_eq!(storage_request.pending_request_count(), 0);
 }
 
 #[test]
@@ -427,12 +452,15 @@ fn local_close_with_pending_prediction_retains_the_window_and_blocks_gestures() 
         "the local ContainerClose still transmits"
     );
 
-    // Every new gesture is blocked while the prediction awaits authority.
+    // Every new gesture is blocked while the closing window settles.
     assert_eq!(
         ledger.begin_storage_click(3),
-        Err(InventoryGestureError::Busy)
+        Err(InventoryGestureError::ResyncRequired)
     );
-    assert_eq!(ledger.begin_click(0), Err(InventoryGestureError::Busy));
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(InventoryGestureError::ResyncRequired)
+    );
 
     // A duplicate close gesture cannot restart or requeue the close.
     ledger.request_storage_close();
@@ -482,17 +510,24 @@ fn rejected_response_rolls_back_then_finishes_the_deferred_close() {
 }
 
 #[test]
-fn closing_state_cannot_outlive_its_timeout_authority() {
-    let (mut ledger, _request) = closing_with_pending(920);
+fn timed_out_closing_state_settles_on_the_server_close() {
+    let (mut ledger, request) = closing_with_pending(920);
     assert!(ledger.storage_generation().is_some());
 
     ledger.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-
-    assert_eq!(
-        ledger.storage_generation(),
-        None,
-        "the existing timeout recovery clears the closing window"
+    assert!(
+        ledger.storage_generation().is_some(),
+        "a timeout never rolls back"
     );
+    assert_eq!(ledger.pending_request_id(), Some(request));
+    assert!(ledger.resync_required());
+
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: false,
+    }));
+    assert_eq!(ledger.storage_generation(), None);
     assert!(ledger.pending_request_id().is_none());
     assert!(ledger.resync_required());
     ledger.apply(&player_content());
