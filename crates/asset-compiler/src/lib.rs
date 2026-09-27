@@ -1,6 +1,7 @@
 mod animation;
 mod atmosphere;
 mod audio;
+mod audio_pcm;
 mod biome;
 mod compiler;
 mod entity;
@@ -20,6 +21,9 @@ pub use atmosphere::{
 pub use audio::{
     AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, AudioCompileError, AudioCompileReport,
     CompiledAudioCarrier, PINNED_SOUND_DEFINITIONS_SHA256, compile_audio_assets,
+};
+pub use audio_pcm::{
+    AudioPcmCompileError, AudioPcmCompileReport, CompiledAudioPcmCarrier, compile_audio_pcm_assets,
 };
 pub use biome::compile_biome_assets;
 pub use compiler::{compile_pack, compile_pack_with_biomes, inspect_animation_inventory};
