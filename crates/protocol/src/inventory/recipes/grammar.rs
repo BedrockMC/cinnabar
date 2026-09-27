@@ -116,11 +116,16 @@ fn normal<'a>(
         && (1..=2).contains(&width)
         && (1..=2).contains(&height)
         && count == (width * height) as usize;
-    for index in 0..count {
+    for target in ingredients
+        .iter_mut()
+        .map(Some)
+        .chain(std::iter::repeat_with(|| None))
+        .take(count)
+    {
         let item = ingredient(reader)?;
         valid &= item.valid;
-        if index < 4 {
-            ingredients[index] = item;
+        if let Some(target) = target {
+            *target = item;
         }
     }
     valid &= ingredients.iter().any(|i| i.count > 0);
