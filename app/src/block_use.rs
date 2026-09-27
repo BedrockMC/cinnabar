@@ -309,10 +309,10 @@ fn verified_block_use_selection(
             let entry = ui
                 .inventory_ledger()
                 .negotiated_item_entry(stack.network_id)?;
-            // None is a known version, distinct from Unknown. Its block-use
-            // handling is unproven in this initial Legacy-only slice.
-            if entry.version != protocol::ItemRegistryVersion::Legacy
-                || entry.component_based
+            if !matches!(
+                entry.version,
+                protocol::ItemRegistryVersion::Legacy | protocol::ItemRegistryVersion::None
+            ) || entry.component_based
                 || !entry.canonical_empty_component_data
                 || stack.stack_network_id <= 0
                 || stack.block_runtime_id == 0
