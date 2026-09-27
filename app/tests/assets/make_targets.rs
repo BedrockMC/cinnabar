@@ -197,6 +197,9 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
         "UI_FONT_SOURCE_MANIFEST ?= assets/ui-font-source.json",
         "UI_FONT_DIR ?= .local/assets/ui-font/e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9",
         "UI_FONT_SOURCE ?= $(UI_FONT_DIR)/Monocraft.ttf",
+        "UI_FONT_FALLBACK_DIR ?= .local/assets/ui-font/f8d157532fbfaeda587e826d4cd5b21a49186f7c",
+        "UI_FONT_FALLBACK_SOURCE ?= $(UI_FONT_FALLBACK_DIR)/NotoSansCJKsc-Regular.otf",
+        "FONT_ASSET_NOTICES ?= $(dir $(FONT_ASSET_BLOB))ui-font-notices.txt",
         "FONT_ASSET_BLOB ?= .local/assets/compiled/ui-monocraft-v1.mcbefont",
         "FONT_ASSET_REPORT ?= .local/assets/compiled/ui-monocraft-font-assets.json",
         "LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont",
@@ -204,7 +207,8 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
         "FONT_PACK_DIR ?= .local/assets/font-source",
         concat!(
             "FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- outline-font-assets ",
-            "--font \"$(UI_FONT_SOURCE)\" --source-manifest \"$(UI_FONT_SOURCE_MANIFEST)\" ",
+            "--font \"$(UI_FONT_SOURCE)\" --fallback-font \"$(UI_FONT_FALLBACK_SOURCE)\" ",
+            "--source-manifest \"$(UI_FONT_SOURCE_MANIFEST)\" ",
             "--out \"$(FONT_ASSET_BLOB)\" --report \"$(FONT_ASSET_REPORT)\""
         ),
         concat!(
@@ -212,11 +216,12 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
             "--pack \"$(FONT_PACK_DIR)\" --source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" ",
             "--out \"$(LOCAL_FONT_ASSET_BLOB)\" --report \"$(LOCAL_FONT_ASSET_REPORT)\""
         ),
-        "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
+        "font-assets: $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES)",
         "font-assets-local:",
-        "$(UI_FONT_SOURCE): $(UI_FONT_SOURCE_MANIFEST)",
-        "$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE)",
+        "$(UI_FONT_SOURCE) $(UI_FONT_FALLBACK_SOURCE) $(UI_FONT_DIR)/LICENSE $(UI_FONT_FALLBACK_DIR)/LICENSE: $(UI_FONT_SOURCE_MANIFEST)",
+        "$(FONT_ASSET_BLOB): $(ASSET_COMPILER_INPUTS) $(UI_FONT_SOURCE_MANIFEST) $(UI_FONT_SOURCE) $(UI_FONT_FALLBACK_SOURCE) $(UI_FONT_DIR)/LICENSE $(UI_FONT_FALLBACK_DIR)/LICENSE",
         "$(FONT_ASSET_REPORT): $(FONT_ASSET_BLOB)",
+        "$(FONT_ASSET_NOTICES): | $(FONT_ASSET_BLOB)\n\t$(FONT_ASSET_COMPILE)",
         "assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT)",
     ] {
         assert!(
@@ -410,8 +415,15 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let block = fixture_file(&temporary, "block.bin");
     let light = fixture_file(&temporary, "light.bin");
     let biome = fixture_file(&temporary, "biome.bin");
-    let font_source = fixture_file(&temporary, "font.ttf");
     let font_manifest = fixture_file(&temporary, "font-source.json");
+    let font_dir = temporary.join("primary-font");
+    let fallback_dir = temporary.join("fallback-font");
+    fs::create_dir_all(&font_dir).unwrap();
+    fs::create_dir_all(&fallback_dir).unwrap();
+    let font_source = fixture_file(&font_dir, "font.ttf");
+    let fallback_source = fixture_file(&fallback_dir, "fallback.otf");
+    fixture_file(&font_dir, "LICENSE");
+    fixture_file(&fallback_dir, "LICENSE");
     let physics = fixture_file(&temporary, "physics.bin");
     let block_data_sentinel = fixture_file(&temporary, "protocol_info.json");
     let world = temporary.join("world.mcbea");
@@ -419,8 +431,11 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let atmosphere_report = temporary.join("atmosphere.json");
     let entity = temporary.join("entity.mcbeent");
     let entity_report = temporary.join("entity.json");
+    let actor = temporary.join("actor.mcbeact");
+    let actor_report = temporary.join("actor.json");
     let font = temporary.join("font.mcbefont");
     let font_report = temporary.join("font.json");
+    let font_notices = temporary.join("font-notices.txt");
     let hud = temporary.join("hud.mcbehud");
     let hud_report = temporary.join("hud.json");
     let lang = temporary.join("lang.mcbelang");
@@ -444,15 +459,18 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("ATMOSPHERE_REPORT={}", make_path(&atmosphere_report)),
         format!("ENTITY_ASSET_BLOB={}", make_path(&entity)),
         format!("ENTITY_ASSET_REPORT={}", make_path(&entity_report)),
+        format!("ACTOR_ASSET_BLOB={}", make_path(&actor)),
+        format!("ACTOR_ASSET_REPORT={}", make_path(&actor_report)),
+        format!("UI_FONT_DIR={}", make_path(&font_dir)),
+        format!("UI_FONT_FALLBACK_DIR={}", make_path(&fallback_dir)),
         format!("UI_FONT_SOURCE={}", make_path(&font_source)),
+        format!("UI_FONT_FALLBACK_SOURCE={}", make_path(&fallback_source)),
         format!("UI_FONT_SOURCE_MANIFEST={}", make_path(&font_manifest)),
         format!("FONT_ASSET_BLOB={}", make_path(&font)),
         format!("FONT_ASSET_REPORT={}", make_path(&font_report)),
+        format!("FONT_ASSET_NOTICES={}", make_path(&font_notices)),
         format!("HUD_ASSET_BLOB={}", make_path(&hud)),
-        format!(
-            "BLOCK_DATA_SENTINEL={}",
-            make_path(&block_data_sentinel)
-        ),
+        format!("BLOCK_DATA_SENTINEL={}", make_path(&block_data_sentinel)),
         format!("HUD_ASSET_REPORT={}", make_path(&hud_report)),
         format!("LANG_ASSET_BLOB={}", make_path(&lang)),
         format!("LANG_ASSET_REPORT={}", make_path(&lang_report)),
@@ -475,15 +493,21 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             &log,
             &[&entity, &entity_report],
         ),
-        producer_assignment("FONT_ASSET_COMPILE", "font", &log, &[&font, &font_report]),
+        producer_assignment(
+            "ACTOR_ASSET_COMPILE",
+            "actor",
+            &log,
+            &[&actor, &actor_report],
+        ),
+        producer_assignment(
+            "FONT_ASSET_COMPILE",
+            "font",
+            &log,
+            &[&font, &font_report, &font_notices],
+        ),
         producer_assignment("HUD_ASSET_COMPILE", "hud", &log, &[&hud, &hud_report]),
         producer_assignment("LANG_ASSET_COMPILE", "lang", &log, &[&lang, &lang_report]),
-        producer_assignment(
-            "ICON_ASSET_COMPILE",
-            "icon",
-            &log,
-            &[&icon, &icon_report],
-        ),
+        producer_assignment("ICON_ASSET_COMPILE", "icon", &log, &[&icon, &icon_report]),
         producer_assignment(
             "AUDIO_ASSET_COMPILE",
             "audio",
@@ -494,7 +518,10 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "PHYSICS_REGISTRY_COMPILE=echo generated > \"{}\"",
             make_path(&physics)
         ),
-        format!("PHYSICS_REGISTRY_CHECK=echo physics >> \"{}\"", make_path(&log)),
+        format!(
+            "PHYSICS_REGISTRY_CHECK=echo physics >> \"{}\"",
+            make_path(&log)
+        ),
         format!("CLIENT_RUN=echo launch >> \"{}\"", make_path(&log)),
     ];
 
@@ -519,7 +546,21 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         .map(str::to_owned)
         .collect();
     assert_eq!(
-        labels,
+        labels
+            .iter()
+            .filter(|label| label.as_str() == "actor")
+            .count(),
+        1
+    );
+    let position = |label: &str| labels.iter().position(|entry| entry == label).unwrap();
+    assert!(position("entity") < position("actor"));
+    assert!(position("actor") < position("launch"));
+    assert!(actor.is_file() && actor_report.is_file() && font_notices.is_file());
+    assert_eq!(
+        labels
+            .into_iter()
+            .filter(|label| label != "actor")
+            .collect::<Vec<_>>(),
         [
             "acquire",
             "world",
@@ -653,14 +694,8 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
         format!("ATMOSPHERE_BLOB={}", make_path(&atmosphere)),
         format!("ATMOSPHERE_REPORT={}", make_path(&report)),
         format!("ATMOSPHERE_COMPILE={producer}"),
-        format!(
-            "VANILLA_ASSET_FETCH=echo fetch >> \"{}\"",
-            make_path(&upstream)
-        ),
-        format!(
-            "WORLD_ASSET_COMPILE=echo world >> \"{}\"",
-            make_path(&upstream)
-        ),
+        format!("VANILLA_ASSET_FETCH=echo fetch >> \"{}\"", make_path(&upstream)),
+        format!("WORLD_ASSET_COMPILE=echo world >> \"{}\"", make_path(&upstream)),
     ];
 
     run_make_atmosphere(root, &assignments);
@@ -807,8 +842,14 @@ fn make_report_fallback_recovers_missing_and_stale_reports_with_quoted_arguments
         format!("ENTITY_ASSET_REPORT={}", make_path(&report)),
         "REGISTRYGEN_INPUTS=".to_owned(),
         format!("ENTITY_ASSET_COMPILE={producer}"),
-        format!("VANILLA_ASSET_FETCH=echo fetch >> \"{}\"", make_path(&upstream)),
-        format!("WORLD_ASSET_COMPILE=echo world >> \"{}\"", make_path(&upstream)),
+        format!(
+            "VANILLA_ASSET_FETCH=echo fetch >> \"{}\"",
+            make_path(&upstream)
+        ),
+        format!(
+            "WORLD_ASSET_COMPILE=echo world >> \"{}\"",
+            make_path(&upstream)
+        ),
     ];
 
     assert!(!report.exists());
