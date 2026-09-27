@@ -75,6 +75,7 @@ pub enum NetworkControlEvent {
         player_game_mode: PlayerGameMode,
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
+        server_authoritative_block_breaking: bool,
         resource_packs: resource_pack::PackAdmission,
         server_lang: Option<Arc<assets::ServerLangOverlay>>,
     },
@@ -579,6 +580,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let (resource_packs, server_lang) =
                     super::resource_packs::prepare_pack_application(handoff);
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
+                let server_authoritative_block_breaking =
+                    protocol::server_authoritative_block_breaking(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let custom_blocks = CustomBlocks::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
@@ -608,6 +611,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         player_game_mode,
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
+                        server_authoritative_block_breaking,
                         resource_packs,
                         server_lang,
                     },

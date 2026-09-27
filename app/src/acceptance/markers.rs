@@ -11,6 +11,7 @@ pub(crate) const ASSETS: &str = "RUST_MCBE_ASSETS";
 pub(crate) const USE_ON_IDENTITY_EVIDENCE: &str = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE";
 pub(crate) const AUDIO_WIRE_EVIDENCE: &str = "RUST_MCBE_AUDIO_WIRE_EVIDENCE";
 pub(crate) const FORM_SHAPE_PROBE: &str = "RUST_MCBE_FORM_SHAPE_PROBE";
+pub(crate) const CRAFT_OBSERVATION: &str = "RUST_MCBE_CRAFT_OBSERVATION";
 pub(crate) const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub(crate) const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
 pub(crate) const ERROR_COUNTERS: &str = "RUST_MCBE_ERROR_COUNTERS";
@@ -69,6 +70,7 @@ pub(crate) const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (ASSETS, MarkerContract::EnvironmentVariable),
     (AUDIO_WIRE_EVIDENCE, MarkerContract::EnvironmentVariable),
     (FORM_SHAPE_PROBE, MarkerContract::EnvironmentVariable),
+    (CRAFT_OBSERVATION, MarkerContract::EnvironmentVariable),
     (
         USE_ON_IDENTITY_EVIDENCE,
         MarkerContract::EnvironmentVariable,
@@ -254,7 +256,8 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 39);
+        assert_eq!(names.len(), 40);
+        assert!(EXPECTATIONS.contains(&(CRAFT_OBSERVATION, MarkerContract::EnvironmentVariable)));
         assert!(EXPECTATIONS.contains(&(FORM_SHAPE_PROBE, MarkerContract::EnvironmentVariable)));
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));

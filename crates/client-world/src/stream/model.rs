@@ -395,6 +395,12 @@ pub enum CommittedControlEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommittedUiEvent {
+    /// Evidence addressed to the bootstrap's persistent local actor identity.
+    LocalAbilities {
+        sequence: u64,
+        stream_identity: u64,
+        event: protocol::AbilitiesUpdate,
+    },
     /// Forms carry their committed dimension lifetime, even across a return
     /// to the same numeric dimension before the UI FIFO is drained.
     Form {

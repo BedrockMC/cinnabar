@@ -48,6 +48,8 @@ impl PlayerInputFlags {
     /// block-action list. Derived from payload presence by the encoder;
     /// callers never assert it directly.
     pub const PERFORM_BLOCK_ACTIONS: Self = Self(1 << 35);
+    /// Wire ordinal 36, derived only from an embedded stack request.
+    pub const PERFORM_ITEM_STACK_REQUEST: Self = Self(1 << 36);
     /// Wire ordinal 37 of the input-data list (`HandledTeleport`). The app
     /// asserts this flag on the first transmitted sample after a qualifying
     /// server teleport; see the movement `teleport_ack` module.
@@ -136,13 +138,24 @@ pub fn player_auth_input(
 /// Converts an app-owned movement snapshot plus the interactions of the same
 /// tick to the pinned protocol-2168 packet.
 ///
-/// The `PerformBlockActions` and `PerformItemInteraction` flags are derived
+/// The block-action, item-interaction, and stack-request flags are derived
 /// exclusively from payload presence so the flag list and the optional
-/// payloads can never disagree on the wire; a snapshot that asserts either
+/// payloads can never disagree on the wire; a snapshot that asserts a derived
 /// flag itself is rejected.
 pub fn player_auth_input_with_interactions(
     snapshot: PlayerAuthInputSnapshot,
     interactions: &PlayerAuthInputInteractions,
+) -> Result<Packet, PlayerAuthInputError> {
+    player_auth_input_with_mining_request(snapshot, interactions, None)
+}
+
+/// Encodes an optional bounded mining request without allocating its ID or
+/// establishing gameplay authority. An absent request remains independent of
+/// any block prediction action in the same input.
+pub fn player_auth_input_with_mining_request(
+    snapshot: PlayerAuthInputSnapshot,
+    interactions: &PlayerAuthInputInteractions,
+    mining_request: Option<crate::MineBlockRequest>,
 ) -> Result<Packet, PlayerAuthInputError> {
     let tick = snapshot.tick;
     let finite = snapshot
@@ -159,7 +172,8 @@ pub fn player_auth_input_with_interactions(
         return Err(PlayerAuthInputError::NonFiniteState);
     }
     let derived_flag_bits = PlayerInputFlags::PERFORM_ITEM_INTERACTION.bits()
-        | PlayerInputFlags::PERFORM_BLOCK_ACTIONS.bits();
+        | PlayerInputFlags::PERFORM_BLOCK_ACTIONS.bits()
+        | PlayerInputFlags::PERFORM_ITEM_STACK_REQUEST.bits();
     if snapshot.flags.bits() & derived_flag_bits != 0 {
         return Err(InteractionEncodeError::InconsistentInteractionFlags.into());
     }
@@ -177,6 +191,10 @@ pub fn player_auth_input_with_interactions(
             Some(interactions::packed_block_interaction(request.clone())?)
         }
     };
+    let item_stack_request = mining_request.map(|request| {
+        flags |= PlayerInputFlags::PERFORM_ITEM_STACK_REQUEST;
+        request.packed()
+    });
 
     Ok(PlayerAuthInputPacket {
         player_rotation: Vec2 {
@@ -211,7 +229,7 @@ pub fn player_auth_input_with_interactions(
         // here -- it is hardcoded true -- and the generated Option's own
         // presence byte is the inner flag that actually says "no payload".
         item_use_transaction: Some(item_use_transaction),
-        item_stack_request: Some(None),
+        item_stack_request: Some(item_stack_request),
         player_block_actions: Some(player_block_actions),
         vehicle_rotation: Some(None),
         client_predicted_vehicle: Some(None),
