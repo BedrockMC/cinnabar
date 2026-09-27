@@ -452,3 +452,323 @@ fn ui_only_headless_hand_adapter_keeps_the_cpu_path_without_gpu_resources() {
         )
         .unwrap();
 }
+
+fn cube_world_assets(
+    entities: &assets::RuntimeEntityAssets,
+) -> std::sync::Arc<assets::RuntimeAssets> {
+    use assets::*;
+    use sha2::{Digest, Sha256};
+    let count = entities.block_visual_count() as usize;
+    let mut visuals = vec![
+        BlockVisual {
+            faces: [1; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            support: VisualSupport::Exact,
+            contributor_role: ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        };
+        count
+    ];
+    visuals[0] = BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary);
+    let source = CompiledAssets {
+        visuals: visuals.into(),
+        light_properties: vec![LightProperties::default(); count].into(),
+        hashed: Box::new([]),
+        materials: vec![
+            Material {
+                texture: TextureRef::new(0, 0).unwrap(),
+                flags: 0,
+                animation: NO_ANIMATION
+            };
+            2
+        ]
+        .into(),
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: vec![TexturePage::new(TextureArray {
+            layers: 1,
+            mips: [16, 8, 4, 2, 1]
+                .into_iter()
+                .map(|size| TextureMip {
+                    size,
+                    rgba8: vec![255; size as usize * size as usize * 4].into(),
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        })]
+        .into(),
+        biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: BlobProvenance {
+            source_manifest_sha256: entities.source_manifest_sha256(),
+            block_registry_sha256: Sha256::digest(
+                crate::asset_startup::pinned_block_registry_bytes(),
+            )
+            .into(),
+            light_registry_sha256: [3; 32],
+            biome_registry_sha256: [4; 32],
+        },
+    };
+    std::sync::Arc::new(RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap())
+}
+
+#[test]
+fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rejection() {
+    use crate::ui_runtime::presentation::{
+        UiPresentationRuntime, refresh_hud_frame,
+        tests::{fixture_font, fixture_hud},
+    };
+    use crate::{
+        camera::FlyCamera,
+        presentation::viewmodel::{HandAdapter, HandFallback, ViewmodelPublish},
+        runtime::world::ClientWorld,
+    };
+    use bevy::{
+        camera::{Camera, ComputedCameraValues, RenderTarget, RenderTargetInfo},
+        ecs::system::RunSystemOnce,
+        prelude::*,
+    };
+    use protocol::{
+        ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
+        StandardSkin, WorldBootstrap, WorldEvent,
+    };
+    use std::sync::Arc;
+    let (_pack, geometry, entities) = hand_fixture();
+    let assets = cube_world_assets(&entities);
+    let mut stream = client_world::WorldStream::new_with_asset_sets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0., 64., 0.],
+            world_spawn_position: [0, 64, 0],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        assets.clone(),
+        entities.clone(),
+        [0., 64., 0.],
+        None,
+    );
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 1,
+                kind: ActorKind::Player {
+                    uuid: [1; 16],
+                    username: "test".into(),
+                },
+                position: [0., 64., 0.],
+                velocity: [0.; 3],
+                pitch: 30.,
+                yaw: 0.,
+                head_yaw: 0.,
+                body_yaw: 0.,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: vec![PlayerListEntry::Add {
+                    uuid: [1; 16],
+                    unique_id: 1,
+                    username: "test".into(),
+                    verified: true,
+                    skin: PlayerSkin::Standard(StandardSkin {
+                        width: 64,
+                        height: 64,
+                        rgba8: vec![255; 64 * 64 * 4].into(),
+                    }),
+                }]
+                .into(),
+            })),
+        )
+        .unwrap();
+    let mut world = ClientWorld::new_with_entity_assets(assets, entities);
+    world.stream = Some(stream);
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_local_runtime_id(1, 1).unwrap();
+    let item = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:dirt")
+        .unwrap()
+        .network_id;
+    let mut stack = NetworkItemStack::empty();
+    stack.network_id = item;
+    stack.count = 1;
+    let held = EquipmentEvent {
+        actor_runtime_id: 1,
+        stack,
+        inventory_slot: 0,
+        selected_slot: 0,
+        window_id: 0,
+        handedness: Some(ActorHandedness::Right),
+    };
+    runtime.retain_local_selected_equipment(1, held.clone());
+    runtime.retain_local_selected_equipment(2, equipment(1, NetworkItemStack::empty()));
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    presentation.set_player_preview_skin(Some(&vec![255; 64 * 64 * 4]), Default::default());
+    refresh_hud_frame(
+        &mut runtime,
+        &mut presentation,
+        world.stream.as_ref(),
+        &Default::default(),
+        0,
+    );
+    // Block-routed items are absent from the sprite-only icon catalog. The
+    // real right-hand carrier remains visible until current cube completion.
+    assert!(presentation.hud_frame().held_item_icon.is_none());
+    assert!(presentation.cpu_empty_hand_fallback().is_some());
+    presentation.hud_frame_mut().viewmodel_pitch_degrees = 30.;
+    let input = presentation
+        .build(&runtime, 0, [640, 480], ui::DpiScale::new(1.).unwrap())
+        .unwrap();
+    let empty = presentation.cpu_empty_hand_fallback();
+    let mut app = App::new();
+    app.insert_resource(runtime)
+        .insert_resource(world)
+        .insert_resource(geometry)
+        .init_resource::<HandAdapter>()
+        .init_resource::<render::ViewmodelScene>()
+        .init_resource::<render::ViewmodelCompletionGate>();
+    app.world_mut().spawn((
+        FlyCamera::default(),
+        Camera {
+            computed: ComputedCameraValues {
+                target_info: Some(RenderTargetInfo {
+                    physical_size: UVec2::new(640, 480),
+                    scale_factor: 1.,
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        RenderTarget::default(),
+        Msaa::Off,
+    ));
+    let observed_input = input.clone();
+    app.world_mut()
+        .run_system_once(
+            move |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                hand.bind_cpu_fallback(&observed_input, empty, None);
+            },
+        )
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
+    );
+    assert_eq!(
+        app.world().resource::<HandAdapter>().stats.mode,
+        Some(render::ViewmodelMode::OpaqueCubeNeutralStaticFallback)
+    );
+    assert!(
+        input
+            .vertices
+            .iter()
+            .any(|vertex| vertex.position[0] > 640.)
+    );
+    let mut bad = input.clone();
+    bad.viewport_size[0] += 1;
+    app.world_mut()
+        .run_system_once(move |mut hand: ViewmodelPublish| {
+            hand.bind_cpu_fallback(&bad, empty, None)
+        })
+        .unwrap();
+    assert!(
+        !app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
+    );
+    let mut mismatched = held.clone();
+    mismatched.stack.block_runtime_id = i32::MAX;
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .retain_local_selected_equipment(3, mismatched);
+    app.world_mut()
+        .run_system_once(
+            |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+            },
+        )
+        .unwrap();
+    assert!(
+        !app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
+    );
+    assert_eq!(
+        app.world().resource::<HandAdapter>().stats.fallback,
+        Some(HandFallback::ItemsUnknownOrHeld)
+    );
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .retain_local_selected_equipment(4, held.clone());
+    let recovered_input = input.clone();
+    app.world_mut()
+        .run_system_once(
+            move |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                hand.bind_cpu_fallback(&recovered_input, empty, None);
+            },
+        )
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
+    );
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .retain_local_selected_equipment(
+            5,
+            EquipmentEvent {
+                stack: NetworkItemStack::empty(),
+                ..held
+            },
+        );
+    app.world_mut()
+        .run_system_once(
+            |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        app.world().resource::<HandAdapter>().stats.mode,
+        Some(render::ViewmodelMode::EmptyHandNeutralStaticFallback)
+    );
+    app.world_mut().resource_mut::<UiRuntime>().begin_session(2);
+    app.world_mut()
+        .run_system_once(
+            |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+            },
+        )
+        .unwrap();
+    assert!(
+        !app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
+    );
+    assert_eq!(
+        app.world().resource::<HandAdapter>().stats.fallback,
+        Some(HandFallback::Ownership)
+    );
+}

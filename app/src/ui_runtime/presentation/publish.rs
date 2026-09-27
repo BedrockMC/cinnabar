@@ -206,7 +206,11 @@ pub(crate) fn publish_ui_runtime(
             return;
         }
     };
-    hand.bind_cpu_fallback(&input, presentation.cpu_empty_hand_fallback());
+    hand.bind_cpu_fallback(
+        &input,
+        presentation.cpu_empty_hand_fallback(),
+        presentation.hud_frame.held_item_icon,
+    );
     if let Err(error) = scene.publish(input, &stats) {
         hand.clear();
         record_fatal_error(
