@@ -3,11 +3,13 @@ mod budget;
 mod catalog;
 mod decode;
 mod grammar;
-mod model;
+mod matching;
+pub(super) mod model;
 mod reader;
 
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
+pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use model::{RecipeHandle, RecipeUpdate};
 
 pub fn decode_recipe_update(body: &[u8]) -> Result<RecipeUpdate, super::InventoryPacketError> {

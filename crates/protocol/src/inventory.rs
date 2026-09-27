@@ -29,6 +29,9 @@ pub use address::{
 pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
+mod registry_snapshot;
+pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
+pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
     PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
     container_close_packet, item_stack_request_packet, open_inventory_packet,
