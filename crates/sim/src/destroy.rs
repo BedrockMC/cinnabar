@@ -2,7 +2,8 @@
 //!
 //! Hardness is Bedrock-extracted; tool and harvest classes in the generated table
 //! are provisional (see its header). Rows without tool evidence take the slowest
-//! rate, and unknown blocks yield no rate, so a completion is never predicted early.
+//! rate and unknown blocks yield none, so neither predicts early; rows with
+//! provisional tool classes can still predict early where Bedrock differs.
 
 use std::sync::OnceLock;
 
