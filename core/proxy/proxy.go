@@ -438,7 +438,8 @@ func newUpstreamDialerForAdmission(
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,
 	}
-	if enableUpstreamClientCache || cacheTelemetry != nil || packAdmission != nil {
+	formProbe := processFormSchemaProbe()
+	if enableUpstreamClientCache || cacheTelemetry != nil || packAdmission != nil || formProbe != nil {
 		dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
 			if enableUpstreamClientCache && header.PacketID == packet.IDClientCacheStatus && len(payload) > 0 {
 				flipUpstreamClientCacheStatus(payload)
@@ -449,6 +450,7 @@ func newUpstreamDialerForAdmission(
 			if packAdmission != nil && header.PacketID == packet.IDResourcePacksInfo {
 				packAdmission.observeNegotiation()
 			}
+			formProbe.observe(header, payload, source, destination)
 		}
 	}
 	if tokenSource == nil {
