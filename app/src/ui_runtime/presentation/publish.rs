@@ -432,3 +432,20 @@ fn project_below_name_anchors(
         .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
         .collect()
 }
+
+impl UiPresentationRuntime {
+    /// Returns the previous frame when only the revision would differ, so the
+    /// renderer keeps its accepted publication and skips re-uploading.
+    pub(super) fn stabilize_revision(&mut self, mut input: UiRenderInput) -> UiRenderInput {
+        if let Some(previous) = &self.last_input {
+            input.revision = previous.revision;
+            if *previous == input {
+                return previous.clone();
+            }
+        }
+        self.revision = self.revision.saturating_add(1);
+        input.revision = self.revision;
+        self.last_input = Some(input.clone());
+        input
+    }
+}
