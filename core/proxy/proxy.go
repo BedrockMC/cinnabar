@@ -735,6 +735,8 @@ func pumpPacketsWithCacheTelemetry(
 			return nil
 		}
 		err := destination.WritePacketImmediate(outputBatch...)
+		// Drop references so relayed packets are collectable while the batch idles.
+		clear(outputBatch)
 		outputBatch = outputBatch[:0]
 		return attributeRelayError(err, fromDownstream)
 	}
