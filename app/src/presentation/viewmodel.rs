@@ -294,13 +294,7 @@ impl ViewmodelPublish<'_, '_> {
         let actor = stream
             .actor(stream.local_player_runtime_id())
             .ok_or(HandFallback::Ownership)?;
-        let rig = stream
-            .actor_rig(actor.runtime_id)
-            .ok_or(HandFallback::Ownership)?;
-        if rig.actor.session_id != stream.actor_session_id()
-            || rig.actor.spawn_revision != actor.spawn_revision
-            || rig.actor.runtime_id != actor.runtime_id
-            || runtime.session_id() == 0
+        if runtime.session_id() == 0
             || runtime.local_runtime_id() != Some(stream.local_player_runtime_id())
         {
             return Err(HandFallback::Ownership);
@@ -340,13 +334,22 @@ impl ViewmodelPublish<'_, '_> {
         {
             return Err(HandFallback::View);
         }
-        let geometry = self.geometry.as_ref().ok_or(HandFallback::Geometry)?;
-        if !geometry.accepts_rig(rig.rig.0) {
-            return Err(HandFallback::Geometry);
-        }
         let adapter = self.adapter.as_deref_mut().unwrap();
-        let (geometry, skin) = match selected.state {
+        let (geometry, skin, lifetime) = match selected.state {
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => {
+                let rig = stream
+                    .actor_rig(actor.runtime_id)
+                    .ok_or(HandFallback::Ownership)?;
+                if rig.actor.session_id != stream.actor_session_id()
+                    || rig.actor.spawn_revision != actor.spawn_revision
+                    || rig.actor.runtime_id != actor.runtime_id
+                {
+                    return Err(HandFallback::Ownership);
+                }
+                let geometry = self.geometry.as_ref().ok_or(HandFallback::Geometry)?;
+                if !geometry.accepts_rig(rig.rig.0) {
+                    return Err(HandFallback::Geometry);
+                }
                 if adapter.cube.take().is_some() {
                     adapter.advance_revision().ok_or(HandFallback::Geometry)?;
                 }
@@ -359,19 +362,32 @@ impl ViewmodelPublish<'_, '_> {
                 (
                     (**geometry).clone(),
                     adapter.skin(raw).ok_or(HandFallback::Skin)?,
+                    rig.actor,
                 )
             }
-            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => adapter
-                .cube(stack, selected.slot, world)
-                .ok_or(HandFallback::ItemsUnknownOrHeld)?,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+                let (geometry, skin) = adapter
+                    .cube(stack, selected.slot, world)
+                    .ok_or(HandFallback::ItemsUnknownOrHeld)?;
+                (
+                    geometry,
+                    skin,
+                    client_world::ActorLifetimeId {
+                        session_id: stream.actor_session_id(),
+                        dimension: stream.current_dimension(),
+                        runtime_id: actor.runtime_id,
+                        spawn_revision: actor.spawn_revision,
+                    },
+                )
+            }
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => {
                 return Err(HandFallback::ItemsUnknownOrHeld);
             }
         };
         let token = ViewmodelToken {
             session: runtime.session_id(),
-            actor_session: rig.actor.session_id,
-            dimension: rig.actor.dimension,
+            actor_session: lifetime.session_id,
+            dimension: lifetime.dimension,
             runtime: actor.runtime_id,
             spawn: actor.spawn_revision,
             owner,

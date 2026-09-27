@@ -537,7 +537,29 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         StandardSkin, WorldBootstrap, WorldEvent,
     };
     use std::sync::Arc;
-    let (_pack, geometry, entities) = hand_fixture();
+    let (pack, _geometry, _) = hand_fixture();
+    // Match the decoded carrier's unsupported player-controller route: retain
+    // the player symbol, authored geometry and item routes, but no resolved rig.
+    let mut compiled = asset_compiler::compile_entity_assets(
+        &pack.0,
+        include_bytes!("../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    compiled.rig_bindings = Box::new([]);
+    compiled.rig_geometries = Box::new([]);
+    compiled.rig_animations = Box::new([]);
+    compiled.rig_controllers = Box::new([]);
+    let entities = Arc::new(
+        assets::RuntimeEntityAssets::decode(&assets::encode_entity_blob(&compiled).unwrap())
+            .unwrap(),
+    );
+    assert!(
+        !entities
+            .geometry_candidates("geometry.humanoid.custom")
+            .is_empty()
+    );
+    assert!(entities.rig_bindings().is_empty());
+    assert!(entities.rig_geometries().is_empty());
     let assets = cube_world_assets(&entities);
     let mut stream = client_world::WorldStream::new_with_asset_sets(
         WorldBootstrap {
@@ -598,6 +620,8 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             })),
         )
         .unwrap();
+    assert!(stream.actor(1).is_some());
+    assert!(stream.actor_rig(1).is_none());
     let mut world = ClientWorld::new_with_entity_assets(assets, entities);
     world.stream = Some(stream);
     let mut runtime = UiRuntime::new(1);
@@ -641,10 +665,10 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut app = App::new();
     app.insert_resource(runtime)
         .insert_resource(world)
-        .insert_resource(geometry)
         .init_resource::<HandAdapter>()
         .init_resource::<render::ViewmodelScene>()
         .init_resource::<render::ViewmodelCompletionGate>();
+    assert!(!app.world().contains_resource::<render::ViewmodelGeometry>());
     app.world_mut().spawn((
         FlyCamera::default(),
         Camera {
@@ -740,7 +764,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             5,
             EquipmentEvent {
                 stack: NetworkItemStack::empty(),
-                ..held
+                ..held.clone()
             },
         );
     app.world_mut()
@@ -751,8 +775,31 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         )
         .unwrap();
     assert_eq!(
-        app.world().resource::<HandAdapter>().stats.mode,
-        Some(render::ViewmodelMode::EmptyHandNeutralStaticFallback)
+        app.world().resource::<HandAdapter>().stats.fallback,
+        Some(HandFallback::Ownership)
+    );
+    assert!(app.world().resource::<HandAdapter>().stats.mode.is_none());
+    assert!(
+        !app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
+    );
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .retain_local_selected_equipment(6, held.clone());
+    let resumed_input = input.clone();
+    app.world_mut()
+        .run_system_once(
+            move |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                hand.bind_cpu_fallback(&resumed_input, empty, None);
+            },
+        )
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
     );
     app.world_mut().resource_mut::<UiRuntime>().begin_session(2);
     app.world_mut()
@@ -770,5 +817,57 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     assert_eq!(
         app.world().resource::<HandAdapter>().stats.fallback,
         Some(HandFallback::Ownership)
+    );
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        runtime.publish_local_runtime_id(2, 1).unwrap();
+        runtime.retain_local_selected_equipment(1, held);
+        runtime.retain_local_selected_equipment(2, equipment(1, NetworkItemStack::empty()));
+    }
+    let current_input = input.clone();
+    app.world_mut()
+        .run_system_once(
+            move |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                hand.bind_cpu_fallback(&current_input, empty, None);
+            },
+        )
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
+    );
+    // Retiring the retained actor also withholds a cube even when the selected
+    // slot and camera remain present. No animation rig stands in for ownership.
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            3,
+            WorldEvent::Actor(ActorEvent::Remove(protocol::ActorRemoveEvent {
+                dimension: 0,
+                unique_id: 1,
+            })),
+        )
+        .unwrap();
+    app.world_mut()
+        .run_system_once(
+            |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                assert!(world.stream.as_ref().unwrap().actor(1).is_none());
+                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        app.world().resource::<HandAdapter>().stats.fallback,
+        Some(HandFallback::Ownership)
+    );
+    assert!(
+        !app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube()
     );
 }
