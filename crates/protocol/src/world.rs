@@ -106,6 +106,16 @@ pub struct WorldBootstrap {
     pub block_network_ids_are_hashes: bool,
 }
 
+/// The explicit StartGame block-breaking negotiation, separate from whether
+/// a caller currently has sufficient authority to mine any particular block.
+#[must_use]
+pub fn server_authoritative_block_breaking(game_data: &GameData) -> bool {
+    game_data
+        .start_game
+        .movement_settings
+        .server_authoritative_block_breaking
+}
+
 impl WorldBootstrap {
     #[must_use]
     pub fn from_game_data(game_data: &GameData) -> Self {

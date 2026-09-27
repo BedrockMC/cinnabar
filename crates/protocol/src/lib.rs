@@ -74,10 +74,14 @@ pub use inventory::{
     personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
 };
 pub use inventory::{
+    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
+};
+pub use inventory::{
     ManualCraftCell, ManualCraftMatch, ManualCraftPreview, RecipeRegistryError,
     RecipeRegistrySnapshot, match_manual_grid,
 };
 pub use inventory::{ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet};
+pub use inventory::{MineBlockRequest, MineBlockRequestError};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
@@ -94,7 +98,7 @@ pub use movement::{
     InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputError,
     PlayerAuthInputInteractions, PlayerAuthInputSnapshot, PlayerAuthInputTraceSample,
     PlayerInputFlags, PlayerInputMode, player_auth_input, player_auth_input_trace_sample,
-    player_auth_input_with_interactions,
+    player_auth_input_with_interactions, player_auth_input_with_mining_request,
 };
 pub use packet::Packet;
 pub use raw_text::{
@@ -131,5 +135,5 @@ pub use world::{
     SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
     WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
     WorldWireError, air_network_id, into_world_event, request_sub_chunk_column,
-    vanilla_dimension_range,
+    server_authoritative_block_breaking, vanilla_dimension_range,
 };

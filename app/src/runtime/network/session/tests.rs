@@ -10,6 +10,7 @@ use std::{
 };
 mod forms;
 mod language;
+mod mining_mode;
 mod queues;
 
 use protocol::{
@@ -923,6 +924,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             player_game_mode: PlayerGameMode::Survival,
             world_default_game_mode: PlayerGameMode::Survival,
             player_game_mode_uses_world_default: false,
+            server_authoritative_block_breaking: false,
             resource_packs: resource_pack::PackAdmission::None,
             server_lang: None,
         },

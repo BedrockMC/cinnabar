@@ -12,6 +12,7 @@ use valentine::bedrock::version::v1_26_44::{
 
 use super::InventoryPacketError;
 pub(super) mod manual_craft;
+pub(super) mod mining;
 
 pub const PLAYER_INVENTORY_SLOTS: u8 = 36;
 
