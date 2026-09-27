@@ -18,6 +18,7 @@ pub struct ActorMainWitness {
     pub frame_manifest: usize,
     pub skin_bytes: usize,
     pub rejects: ActorRigRejects,
+    pub unrigged_actors: usize, // tracked actors with no compiled rig, never drawn
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,7 +96,7 @@ impl ActorRuntimeWitness {
     pub fn observe_main(&self, observation: ActorMainWitness) {
         if self.changed(|state| &mut state.main, 0, observation) && !cfg!(test) {
             eprintln!(
-                "RUST_MCBE_ACTOR_WITNESS stage=main local_snapshot={} local_visible={} expected_runtime_id={} visibility_runtime_id={} selected_count={} local_route={:?} frame_instances={} frame_manifest={} skin_bytes={} rejects={:?}",
+                "RUST_MCBE_ACTOR_WITNESS stage=main local_snapshot={} local_visible={} expected_runtime_id={} visibility_runtime_id={} selected_count={} local_route={:?} frame_instances={} frame_manifest={} skin_bytes={} rejects={:?} unrigged_actors={}",
                 observation.local_snapshot,
                 observation.local_visible,
                 observation.expected_runtime_id,
@@ -106,6 +107,7 @@ impl ActorRuntimeWitness {
                 observation.frame_manifest,
                 observation.skin_bytes,
                 observation.rejects,
+                observation.unrigged_actors,
             );
         }
     }

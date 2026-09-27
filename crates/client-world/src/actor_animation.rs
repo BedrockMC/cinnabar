@@ -61,6 +61,7 @@ pub struct ActorAnimationStats {
     pub actor_budget_exhaustions: u64,
     pub world_budget_exhaustions: u64,
     pub frozen_actors: u64,
+    pub unrigged_spawns: u64, // spawns with entity assets loaded but no compiled rig
 }
 
 #[derive(Debug)]
@@ -216,6 +217,7 @@ impl ActorAnimationStore {
             spawn_revision: actor.spawn_revision,
         };
         let Some(mut state) = resolve_rig(&assets, actor, self.completed_tick) else {
+            self.stats.unrigged_spawns = self.stats.unrigged_spawns.saturating_add(1);
             return;
         };
         state.reset_generation = self.next_reset_generation;

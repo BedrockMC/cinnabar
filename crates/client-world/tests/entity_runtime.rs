@@ -453,6 +453,7 @@ fn missing_required_rig_produces_no_stale_snapshot() {
         .unwrap();
     assert!(stream.actor_rig(77).is_none());
     assert!(stream.actor_rigs().is_empty());
+    assert_eq!(stream.actor_animation_stats().unrigged_spawns, 1);
 }
 
 #[test]

@@ -88,46 +88,50 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local) = client_world
-        .stream
-        .as_ref()
-        .map(|stream| {
-            let local_runtime_id = stream.local_player_runtime_id();
-            let mut remotes = Vec::new();
-            let mut canonical_local = None;
-            for rig in stream.actor_rigs() {
-                let Some(actor) = stream.actor(rig.actor.runtime_id) else {
-                    continue;
-                };
-                let profile = stream.actor_player_profile(rig.actor.runtime_id);
-                let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
-                    actor_rig_presentation(&rig, actor, profile, step.partial_tick)
-                } else {
-                    crate::presentation::actors::entity_rig_presentation(
-                        &rig,
-                        actor,
-                        &artwork,
-                        step.partial_tick,
-                    )
-                };
-                let Some(presentation) = presentation else {
-                    continue;
-                };
-                if rig.actor.runtime_id == local_runtime_id {
-                    canonical_local = Some(presentation);
-                } else {
-                    remotes.push(presentation);
+    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| {
+                let local_runtime_id = stream.local_player_runtime_id();
+                let mut remotes = Vec::new();
+                let mut canonical_local = None;
+                let rigs = stream.actor_rigs();
+                let unrigged_actors = stream.actor_count().saturating_sub(rigs.len());
+                for rig in rigs {
+                    let Some(actor) = stream.actor(rig.actor.runtime_id) else {
+                        continue;
+                    };
+                    let profile = stream.actor_player_profile(rig.actor.runtime_id);
+                    let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
+                        actor_rig_presentation(&rig, actor, profile, step.partial_tick)
+                    } else {
+                        crate::presentation::actors::entity_rig_presentation(
+                            &rig,
+                            actor,
+                            &artwork,
+                            step.partial_tick,
+                        )
+                    };
+                    let Some(presentation) = presentation else {
+                        continue;
+                    };
+                    if rig.actor.runtime_id == local_runtime_id {
+                        canonical_local = Some(presentation);
+                    } else {
+                        remotes.push(presentation);
+                    }
                 }
-            }
-            (
-                local_runtime_id,
-                stream.actor_session_id(),
-                stream.current_dimension(),
-                remotes,
-                canonical_local,
-            )
-        })
-        .unwrap_or((0, 0, 0, Vec::new(), None));
+                (
+                    local_runtime_id,
+                    stream.actor_session_id(),
+                    stream.current_dimension(),
+                    remotes,
+                    canonical_local,
+                    unrigged_actors,
+                )
+            })
+            .unwrap_or((0, 0, 0, Vec::new(), None, 0));
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -180,5 +184,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         frame_manifest: frame.rig.manifest.len(),
         skin_bytes: frame.skins_rgba8.len(),
         rejects: frame.rig.rejects,
+        unrigged_actors,
     });
 }
