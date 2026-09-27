@@ -30,6 +30,12 @@ use crate::{
 
 /// Ticks between a completed destroy and the next start. Needs independent measurement.
 pub(crate) const DESTROY_DELAY_TICKS: u8 = 5;
+/// Progress at which a destroy completes, absorbing float accumulation. Needs
+/// independent measurement.
+const COMPLETION_THRESHOLD: f64 = 0.99999;
+/// Bedrock enchantment ids.
+const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;
+const EFFICIENCY_ENCHANTMENT_ID: i16 = 15;
 /// How long a predicted break suppresses restarting on the unchanged block.
 const PREDICTED_BREAK_HOLD_TICKS: u8 = 20;
 
@@ -63,15 +69,27 @@ pub(crate) struct DestroyTarget {
     /// Everything except `on_ground`, which is taken from each stepped tick.
     pub(crate) conditions: DestroyConditions,
     pub(crate) selection: FrozenMiningSelection,
+    /// The held tool's wear from a non-instant destroy, when it is predictable.
+    pub(crate) wear: Option<ToolWear>,
+}
+
+/// Held-tool damage before a destroy and the damage one destroy adds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ToolWear {
+    pub(crate) current_damage: i32,
+    pub(crate) break_damage: i32,
 }
 
 impl DestroyTarget {
-    fn rate(&self, on_ground: bool) -> Option<f32> {
+    fn rate(&self, on_ground: bool) -> f64 {
         let conditions = DestroyConditions {
             on_ground,
             ..self.conditions
         };
-        sim::destroy_progress_per_tick(self.block.as_ref()?, &conditions)
+        self.block
+            .as_ref()
+            .and_then(|block| sim::destroy_progress_per_tick(block, &conditions))
+            .map_or(0.0, f64::from)
     }
 }
 
@@ -82,11 +100,15 @@ pub(crate) struct SurvivalTickPayload {
     pub(crate) destroy: Option<DestroyTarget>,
     /// Holding attack on a block attempts a mining swing every tick.
     pub(crate) swing: bool,
+    /// `(slot, predicted damage, stack network id)` of a worn held tool.
+    pub(crate) wear: Option<(u8, i32, i32)>,
+    /// The request carrying `wear`, once a request id is allocated.
+    pub(crate) mine_block: Option<protocol::MineBlockRequest>,
 }
 
 impl SurvivalTickPayload {
     pub(crate) fn is_empty(&self) -> bool {
-        self.actions.is_empty() && self.destroy.is_none()
+        self.actions.is_empty() && self.destroy.is_none() && self.mine_block.is_none()
     }
 
     /// Faces, percents, hit offsets and slots are bounded at their sources, so
@@ -94,7 +116,10 @@ impl SurvivalTickPayload {
     pub(crate) fn into_interactions(
         self,
         player_position: [f32; 3],
-    ) -> PlayerAuthInputInteractions {
+    ) -> (
+        PlayerAuthInputInteractions,
+        Option<protocol::MineBlockRequest>,
+    ) {
         let block_interaction = self.destroy.map(|target| {
             BlockItemInteraction::Destroy(BlockUseRequest {
                 block_position: target.position,
@@ -106,10 +131,11 @@ impl SurvivalTickPayload {
                 block_runtime_id: u64::from(target.runtime_id),
             })
         });
-        PlayerAuthInputInteractions {
+        let interactions = PlayerAuthInputInteractions {
             block_actions: self.actions,
             block_interaction,
-        }
+        };
+        (interactions, self.mine_block)
     }
 
     fn push(&mut self, kind: BlockActionKind, position: [i32; 3], face: u8) {
@@ -134,7 +160,7 @@ pub(crate) enum DestroyInput<'a> {
 struct Destroying {
     position: [i32; 3],
     face: u8,
-    progress: f32,
+    progress: f64,
 }
 
 impl Destroying {
@@ -212,7 +238,8 @@ impl DestroyMachine {
                     face: target.face,
                     progress: 0.0,
                 });
-                if target.block.is_some_and(|block| block.hardness == 0.0) {
+                // A rate at the threshold breaks on the start tick, then delays.
+                if target.rate(on_ground) >= COMPLETION_THRESHOLD {
                     self.complete(&mut payload, target, authority, false);
                     self.delay = DESTROY_DELAY_TICKS;
                 } else if authority == BlockBreakingAuthority::Client {
@@ -220,9 +247,9 @@ impl DestroyMachine {
                 }
             }
             Some(destroying) if destroying.position == target.position => {
-                let rate = target.rate(on_ground).unwrap_or(0.0);
+                let rate = target.rate(on_ground);
                 let progress = destroying.progress + rate;
-                if progress >= 1.0 {
+                if progress >= COMPLETION_THRESHOLD {
                     self.complete(&mut payload, target, authority, true);
                     self.delay = if rate < 1.0 { DESTROY_DELAY_TICKS } else { 0 };
                 } else {
@@ -270,6 +297,7 @@ impl DestroyMachine {
     }
 
     /// The destroy stays active on the broken block, so the next target continues it.
+    /// Only a continued (non-instant) server-authoritative destroy wears the tool.
     fn complete(
         &mut self,
         payload: &mut SurvivalTickPayload,
@@ -279,6 +307,13 @@ impl DestroyMachine {
     ) {
         match authority {
             BlockBreakingAuthority::Server => {
+                payload.wear = target.wear.filter(|_| continued).map(|wear| {
+                    (
+                        target.selection.slot,
+                        wear.current_damage.saturating_add(wear.break_damage),
+                        target.selection.item.stack_network_id(),
+                    )
+                });
                 if continued {
                     payload.push(
                         BlockActionKind::ContinueDestroy,
@@ -327,6 +362,7 @@ impl SurvivalMiningRuntime {
         input: DestroyInput<'_>,
         authority: BlockBreakingAuthority,
         mut swing: impl FnMut(u64),
+        mut request_id: impl FnMut() -> Option<i32>,
     ) {
         let identity = ticker.interaction_authority_identity();
         if let Some((session, _)) = self
@@ -353,7 +389,10 @@ impl SurvivalMiningRuntime {
             return;
         }
         for (tick, on_ground) in ticks {
-            let payload = self.machine.step(input, on_ground, authority);
+            let mut payload = self.machine.step(input, on_ground, authority);
+            payload.mine_block = payload.wear.and_then(|(slot, damage, stack_network_id)| {
+                protocol::MineBlockRequest::new(request_id()?, slot, damage, stack_network_id).ok()
+            });
             self.latched_press = false;
             if payload.swing {
                 swing(tick);
@@ -370,7 +409,7 @@ impl SurvivalMiningRuntime {
 pub(crate) struct SurvivalMiningContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
-    ui: Res<'w, UiRuntime>,
+    ui: ResMut<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
@@ -382,11 +421,43 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
 
 /// Runs after committed world publication and before the movement flush.
 pub(crate) fn produce_survival_mining(
-    context: SurvivalMiningContext,
+    mut context: SurvivalMiningContext,
     mut runtime: ResMut<SurvivalMiningRuntime>,
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
 ) {
+    let authority = context
+        .ui
+        .server_authoritative_block_breaking()
+        .map(BlockBreakingAuthority::from_negotiation);
+    let focused =
+        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
+    let attack = context.input.phase(Action::Attack);
+    let target = match (authority, context.input.snapshot(), focused) {
+        (Some(_), Some(input), true) => {
+            runtime.latched_press |= attack.pressed;
+            (attack.held || runtime.latched_press).then(|| {
+                // An actor in front owns the press; the block behind it is not a target.
+                (!context.melee.actor_in_front())
+                    .then(|| {
+                        observe_destroy_target(
+                            &context,
+                            input.input_mode,
+                            (input.authority_generation, input.frame_sequence),
+                            movement.interaction_authority_identity().1,
+                        )
+                    })
+                    .flatten()
+            })
+        }
+        _ => {
+            runtime.latched_press = false;
+            None
+        }
+    };
+    let input = target.as_ref().map_or(DestroyInput::Released, |target| {
+        DestroyInput::Held(target.as_ref())
+    });
     let duration = swing_duration(context.effects.mining_effects());
     let local_runtime_id = context
         .client_world
@@ -394,55 +465,22 @@ pub(crate) fn produce_survival_mining(
         .as_ref()
         .map(|stream| stream.local_player_runtime_id());
     let network = &context.network;
-    let swing = |tick| {
-        if let Some(local_runtime_id) = local_runtime_id
-            && swings.try_swing(tick, duration)
-        {
-            let _ = network.send_inventory_packet(protocol::swing_arm_packet(
-                local_runtime_id,
-                protocol::SwingSource::Mine,
-            ));
-        }
-    };
-    let authority = context
-        .ui
-        .server_authoritative_block_breaking()
-        .map(BlockBreakingAuthority::from_negotiation);
-    let focused =
-        !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let (Some(authority), Some(input), true) = (authority, context.input.snapshot(), focused)
-    else {
-        runtime.latched_press = false;
-        runtime.step_ticks(
-            &mut movement,
-            DestroyInput::Released,
-            authority.unwrap_or(BlockBreakingAuthority::Server),
-            swing,
-        );
-        return;
-    };
-    let attack = context.input.phase(Action::Attack);
-    runtime.latched_press |= attack.pressed;
-    if !attack.held && !runtime.latched_press {
-        runtime.step_ticks(&mut movement, DestroyInput::Released, authority, swing);
-        return;
-    }
-    // An actor in front owns the press; the block behind it is not a target.
-    let target = (!context.melee.actor_in_front())
-        .then(|| {
-            observe_destroy_target(
-                &context,
-                input.input_mode,
-                (input.authority_generation, input.frame_sequence),
-                movement.interaction_authority_identity().1,
-            )
-        })
-        .flatten();
+    let ui = &mut context.ui;
     runtime.step_ticks(
         &mut movement,
-        DestroyInput::Held(target.as_ref()),
-        authority,
-        swing,
+        input,
+        authority.unwrap_or(BlockBreakingAuthority::Server),
+        |tick| {
+            if let Some(local_runtime_id) = local_runtime_id
+                && swings.try_swing(tick, duration)
+            {
+                let _ = network.send_inventory_packet(protocol::swing_arm_packet(
+                    local_runtime_id,
+                    protocol::SwingSource::Mine,
+                ));
+            }
+        },
+        || ui.allocate_item_stack_request_id(),
     );
 }
 
@@ -494,6 +532,15 @@ fn observe_destroy_target(
         stream.current_dimension(),
     );
     let effects = context.effects.mining_effects();
+    let helmet = ui.gameplay_hud().armor().map(|armor| &armor.helmet);
+    let wear = tool.and_then(|tool| {
+        (item.stack_network_id() > 0).then(|| ToolWear {
+            current_damage: protocol::item_extra_damage(item.extra_data())
+                .and_then(|damage| i32::try_from(damage).ok())
+                .unwrap_or(0),
+            break_damage: tool_break_damage(tool.kind),
+        })
+    });
     Some(DestroyTarget {
         position: observed.target.position,
         face: observed.target.face,
@@ -502,18 +549,36 @@ fn observe_destroy_target(
         block,
         conditions: DestroyConditions {
             tool,
-            // Enchantments are not decoded; omitting them only delays prediction.
-            efficiency_level: 0,
+            efficiency_level: protocol::item_enchantment_level(
+                item.extra_data(),
+                EFFICIENCY_ENCHANTMENT_ID,
+            )
+            .unwrap_or(0),
             haste_amplifier: effects.haste,
             conduit_power_amplifier: effects.conduit_power,
             mining_fatigue_amplifier: effects.mining_fatigue,
             on_ground: true,
+            // Local simulation has no flight and never reports starting to fly.
+            flying: false,
             riding: ui.gameplay_hud().mount_unique_id().is_some(),
             eyes_in_water: eyes_in_water(&world, observed.ray.origin),
-            aqua_affinity: false,
+            // Unknown armor reads as absent, which only slows prediction.
+            aqua_affinity: helmet.is_some_and(|helmet| {
+                protocol::item_enchantment_level(&helmet.extra_data, AQUA_AFFINITY_ENCHANTMENT_ID)
+                    .is_some_and(|level| level > 0)
+            }),
         },
         selection: observed.selection,
+        wear,
     })
+}
+
+/// Durability one destroy costs, per dragonfly's `item/*.go` durability info (MIT).
+const fn tool_break_damage(kind: sim::ToolKind) -> i32 {
+    match kind {
+        sim::ToolKind::Sword => 2,
+        _ => 1,
+    }
 }
 
 /// Unreadable eye blocks count as submerged, which only slows prediction.

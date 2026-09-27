@@ -136,6 +136,7 @@ impl FrozenCreativeMining {
         QueuedMiningInteraction {
             authority: Some(self),
             interactions,
+            mining_request: None,
         }
     }
 }
@@ -146,13 +147,18 @@ pub(crate) struct QueuedMiningInteraction {
     /// `None` for a survival tick already committed by its destroy state machine.
     authority: Option<FrozenCreativeMining>,
     pub(crate) interactions: PlayerAuthInputInteractions,
+    pub(crate) mining_request: Option<protocol::MineBlockRequest>,
 }
 
 impl QueuedMiningInteraction {
-    pub(crate) const fn survival(interactions: PlayerAuthInputInteractions) -> Self {
+    pub(crate) const fn survival(
+        interactions: PlayerAuthInputInteractions,
+        mining_request: Option<protocol::MineBlockRequest>,
+    ) -> Self {
         Self {
             authority: None,
             interactions,
+            mining_request,
         }
     }
 

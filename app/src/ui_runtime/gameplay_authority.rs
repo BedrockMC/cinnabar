@@ -150,6 +150,11 @@ impl UiRuntime {
         }
     }
 
+    /// A request id that cannot collide with an inventory gesture's.
+    pub(crate) fn allocate_item_stack_request_id(&mut self) -> Option<i32> {
+        self.inventory_ledger.allocate_request_id()
+    }
+
     pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
         self.player_game_mode
     }

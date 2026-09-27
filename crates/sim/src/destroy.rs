@@ -1,8 +1,8 @@
 //! Survival block-destroy progress per simulation tick.
 //!
 //! Hardness is Bedrock-extracted; tool and harvest classes in the generated table
-//! are provisional (see its header). Unknown blocks or tools yield no rate, so
-//! callers never predict a completion they cannot justify.
+//! are provisional (see its header). Rows without tool evidence take the slowest
+//! rate, and unknown blocks yield no rate, so a completion is never predicted early.
 
 use std::sync::OnceLock;
 
@@ -117,9 +117,17 @@ pub struct BlockDestroyInfo {
     /// Negative means indestructible.
     pub hardness: f32,
     effective: u8,
-    harvest: u8,
-    /// Minimum tool harvest level for drops; `None` when the hand suffices.
-    harvest_level: Option<u8>,
+    harvest_tools: u8,
+    harvest: HarvestRequirement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HarvestRequirement {
+    Hand,
+    /// One of the harvest tools at or above this tier level.
+    Tool(u8),
+    /// No tool evidence: nothing is assumed to harvest it or speed it up.
+    Unresolved,
 }
 
 impl BlockDestroyInfo {
@@ -127,19 +135,25 @@ impl BlockDestroyInfo {
         let mut fields = line.split('\t');
         let identifier = fields.next()?;
         let hardness = fields.next()?.parse::<f32>().ok()?;
-        let effective = tool_set(fields.next()?)?;
-        let harvest = tool_set(fields.next()?)?;
-        let harvest_level = match fields.next()? {
-            "-" => None,
-            level => Some(level.parse().ok()?),
-        };
+        let (effective, harvest_tools, harvest) =
+            match (fields.next()?, fields.next()?, fields.next()?) {
+                ("?", "?", "?") => (0, 0, HarvestRequirement::Unresolved),
+                (effective, harvest_tools, level) => (
+                    tool_set(effective)?,
+                    tool_set(harvest_tools)?,
+                    match level {
+                        "-" => HarvestRequirement::Hand,
+                        level => HarvestRequirement::Tool(level.parse().ok()?),
+                    },
+                ),
+            };
         (fields.next().is_none() && hardness.is_finite()).then_some((
             identifier,
             Self {
                 hardness,
                 effective,
+                harvest_tools,
                 harvest,
-                harvest_level,
             },
         ))
     }
@@ -149,13 +163,18 @@ impl BlockDestroyInfo {
     }
 
     fn harvestable_with(&self, tool: Option<HeldTool>) -> bool {
-        let Some(required) = self.harvest_level else {
-            return true;
-        };
-        tool.is_some_and(|tool| {
-            self.harvest & tool.kind.bit() != 0
-                && tool.tier.map_or(0, ToolTier::harvest_level) >= required
-        })
+        match self.harvest {
+            HarvestRequirement::Hand => true,
+            HarvestRequirement::Unresolved => false,
+            HarvestRequirement::Tool(required) => tool.is_some_and(|tool| {
+                self.harvests_with(tool.kind)
+                    && tool.tier.map_or(0, ToolTier::harvest_level) >= required
+            }),
+        }
+    }
+
+    fn harvests_with(&self, kind: ToolKind) -> bool {
+        self.harvest_tools & kind.bit() != 0
     }
 }
 
@@ -199,6 +218,7 @@ pub struct DestroyConditions {
     pub conduit_power_amplifier: Option<i32>,
     pub mining_fatigue_amplifier: Option<i32>,
     pub on_ground: bool,
+    pub flying: bool,
     pub riding: bool,
     pub eyes_in_water: bool,
     pub aqua_affinity: bool,
@@ -206,8 +226,10 @@ pub struct DestroyConditions {
 
 /// Destroy progress gained per tick; `None` for indestructible blocks.
 ///
-/// Zero hardness yields exactly one. Haste and fatigue scale both the tool
-/// speed and the final rate, matching documented server reimplementations.
+/// Zero hardness yields exactly one. The speed/hardness/30-or-100 base follows
+/// dragonfly's `block/break_info.go` (MIT); scaling both the tool speed and the
+/// final rate by Haste and Mining Fatigue is observed vanilla behavior that needs
+/// independent measurement.
 #[must_use]
 pub fn destroy_progress_per_tick(
     block: &BlockDestroyInfo,
@@ -249,7 +271,7 @@ pub fn destroy_progress_per_tick(
     if conditions.eyes_in_water && !conditions.aqua_affinity {
         speed /= 5.0;
     }
-    if !conditions.on_ground || conditions.riding {
+    if conditions.riding || (!conditions.on_ground && !conditions.flying) {
         speed /= 5.0;
     }
     let divisor = if block.harvestable_with(conditions.tool) {
@@ -265,7 +287,7 @@ fn tool_speed(block: &BlockDestroyInfo, tool: Option<HeldTool>) -> f32 {
         return 1.0;
     };
     let effective = block.effective_for(tool.kind);
-    let harvests = block.harvest & tool.kind.bit() != 0;
+    let harvests = block.harvests_with(tool.kind);
     match (tool.kind, tool.tier) {
         (ToolKind::Sword | ToolKind::Shears, _) if effective && harvests => 15.0,
         // Faster vanilla sword and shears targets are not distinguished by the
