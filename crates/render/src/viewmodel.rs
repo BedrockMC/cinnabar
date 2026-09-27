@@ -2,6 +2,7 @@
 //! supplied by this mode; it is deliberately not an idle-animation parity claim.
 use bevy::{prelude::*, render::extract_resource::ExtractResource};
 use std::sync::{Arc, Mutex};
+mod cube;
 mod geometry;
 #[cfg(test)]
 mod tests;
@@ -11,6 +12,7 @@ pub const MAX_VIEWMODEL_DEPTH_BYTES: u64 = 64 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ViewmodelMode {
     EmptyHandNeutralStaticFallback,
+    OpaqueCubeNeutralStaticFallback,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,6 +61,9 @@ pub struct ViewmodelSkin {
     pub(crate) identity: [u8; 32],
 }
 impl ViewmodelSkin {
+    pub fn identity(&self) -> [u8; 32] {
+        self.identity
+    }
     pub fn new(rgba8: Arc<[u8]>, identity: [u8; 32]) -> Option<Self> {
         (identity != [0; 32]
             && rgba8.len() == 64 * 64 * 4
@@ -82,6 +87,7 @@ pub struct ViewmodelGeometry {
     pub(crate) vertices: Arc<[HandVertex]>,
     pub(crate) identity: [u8; 32],
     allowed_rigs: Arc<[u32]>,
+    cube_origin: bool,
 }
 impl ViewmodelGeometry {
     pub fn from_runtime(
@@ -167,6 +173,35 @@ impl ViewmodelScene {
         uv: [u16; 4],
         gate: &ViewmodelCompletionGate,
     ) -> bool {
+        self.bind_fallback(input, page, uv, gate, false)
+    }
+    pub fn is_opaque_cube(&self) -> bool {
+        self.frame
+            .as_ref()
+            .is_some_and(|frame| frame.geometry.cube_origin)
+    }
+    /// Bind the original rotated held-item quad only for validated cube geometry.
+    pub fn bind_cube_cpu_fallback(
+        &mut self,
+        input: &crate::ui::UiRenderInput,
+        page: u32,
+        uv: [u16; 4],
+        gate: &ViewmodelCompletionGate,
+    ) -> bool {
+        if !self.is_opaque_cube() {
+            self.clear(gate);
+            return false;
+        }
+        self.bind_fallback(input, page, uv, gate, true)
+    }
+    fn bind_fallback(
+        &mut self,
+        input: &crate::ui::UiRenderInput,
+        page: u32,
+        uv: [u16; 4],
+        gate: &ViewmodelCompletionGate,
+        rotated: bool,
+    ) -> bool {
         if self.frame.is_none() {
             return false;
         }
@@ -210,12 +245,21 @@ impl ViewmodelScene {
                 else {
                     continue;
                 };
-                let rectangle = a.position[0] < b.position[0]
+                let axis_aligned = a.position[0] < b.position[0]
                     && a.position[1] < d.position[1]
                     && a.position[1] == b.position[1]
                     && b.position[0] == c.position[0]
                     && c.position[1] == d.position[1]
                     && d.position[0] == a.position[0];
+                let rectangle = if rotated {
+                    oriented_rectangle([a.position, b.position, c.position, d.position])
+                        && quad_intersects_scissor(
+                            [a.position, b.position, c.position, d.position],
+                            batch.scissor,
+                        )
+                } else {
+                    axis_aligned
+                };
                 let distinct = corners
                     .iter()
                     .enumerate()
@@ -249,6 +293,42 @@ impl ViewmodelScene {
     pub fn geometry_identity(geometry: &ViewmodelGeometry) -> [u8; 32] {
         geometry.identity
     }
+}
+
+fn oriented_rectangle([a, b, c, d]: [[f32; 2]; 4]) -> bool {
+    if [a, b, c, d]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.is_finite())
+    {
+        return false;
+    }
+    let u = Vec2::from(b) - Vec2::from(a);
+    let v = Vec2::from(d) - Vec2::from(a);
+    let lengths = u.length_squared() * v.length_squared();
+    if !lengths.is_finite() || lengths <= 0. || u.perp_dot(v) <= 0. {
+        return false;
+    }
+    let tolerance = 0.0001;
+    let closure = Vec2::from(c) - (Vec2::from(a) + u + v);
+    u.dot(v).abs() <= tolerance * lengths.sqrt()
+        && closure.length_squared()
+            <= tolerance * tolerance * u.length_squared().max(v.length_squared())
+}
+
+fn quad_intersects_scissor(points: [[f32; 2]; 4], scissor: crate::ui::UiScissor) -> bool {
+    let min = points
+        .into_iter()
+        .map(Vec2::from)
+        .fold(Vec2::splat(f32::INFINITY), Vec2::min);
+    let max = points
+        .into_iter()
+        .map(Vec2::from)
+        .fold(Vec2::splat(f32::NEG_INFINITY), Vec2::max);
+    min.x < (scissor.x + scissor.width) as f32
+        && max.x > scissor.x as f32
+        && min.y < (scissor.y + scissor.height) as f32
+        && max.y > scissor.y as f32
 }
 
 #[derive(Default, Debug)]

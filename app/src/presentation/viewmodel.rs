@@ -46,9 +46,93 @@ pub(crate) struct HandAdapter {
     skin_identity: [u8; 32],
     revision: u64,
     revision_exhausted: bool,
+    cube: Option<CubeCache>,
     pub(crate) stats: HandStats,
 }
+struct CubeCache {
+    stack: assets::ItemStackIdentity,
+    visual: assets::BlockVisualId,
+    identifier: Option<Arc<str>>,
+    slot: u8,
+    world: Arc<assets::RuntimeAssets>,
+    entities: Arc<assets::RuntimeEntityAssets>,
+    geometry: ViewmodelGeometry,
+    pixels: ViewmodelSkin,
+}
 impl HandAdapter {
+    fn advance_revision(&mut self) -> Option<()> {
+        match self.revision.checked_add(1) {
+            Some(next) if !self.revision_exhausted => {
+                self.revision = next;
+                Some(())
+            }
+            _ => {
+                self.revision_exhausted = true;
+                self.cube = None;
+                self.skin = None;
+                None
+            }
+        }
+    }
+    fn cube(
+        &mut self,
+        stack: &protocol::NetworkItemStack,
+        slot: u8,
+        world: &ClientWorld,
+    ) -> Option<(ViewmodelGeometry, ViewmodelSkin)> {
+        let stream = world.stream.as_ref()?;
+        let entities = world.entity_assets.as_ref()?;
+        let canonical = stream.canonical_item_stack(stack)?;
+        let assets::ItemVisualRoute::BlockItem(visual) = canonical.visual else {
+            return None;
+        };
+        if stack.nbt_digest != protocol::NetworkItemStack::empty().nbt_digest
+            || entities.source_manifest_sha256()
+                != world.runtime_assets.provenance().source_manifest_sha256
+            || entities.block_visual_count() as usize != world.runtime_assets.visual_count()
+        {
+            return None;
+        }
+        if stack.block_runtime_id != 0 {
+            let sequential = match stream.network_id_mode() {
+                assets::NetworkIdMode::Sequential => Some(stack.block_runtime_id as u32),
+                assets::NetworkIdMode::Hashed => world
+                    .runtime_assets
+                    .sequential_id_for_hash(stack.block_runtime_id as u32),
+            };
+            if sequential != Some(visual.0) {
+                return None;
+            }
+        }
+        if self.cube.as_ref().is_none_or(|old| {
+            old.stack != canonical.identity
+                || old.visual != visual
+                || old.identifier != canonical.identifier
+                || old.slot != slot
+                || !Arc::ptr_eq(&old.world, &world.runtime_assets)
+                || !Arc::ptr_eq(&old.entities, entities)
+        }) {
+            let registry: [u8; 32] =
+                Sha256::digest(crate::asset_startup::pinned_block_registry_bytes()).into();
+            if world.runtime_assets.provenance().block_registry_sha256 != registry {
+                return None;
+            }
+            let (geometry, pixels) = ViewmodelGeometry::opaque_cube(&world.runtime_assets, visual)?;
+            self.advance_revision()?;
+            self.cube = Some(CubeCache {
+                stack: canonical.identity,
+                visual,
+                identifier: canonical.identifier,
+                slot,
+                world: Arc::clone(&world.runtime_assets),
+                entities: Arc::clone(entities),
+                geometry,
+                pixels,
+            });
+        }
+        let cached = self.cube.as_ref()?;
+        Some((cached.geometry.clone(), cached.pixels.clone()))
+    }
     fn skin(&mut self, raw: &protocol::StandardSkin) -> Option<ViewmodelSkin> {
         if raw.width != 64
             || raw.height != 64
@@ -102,10 +186,20 @@ impl ViewmodelPublish<'_, '_> {
     pub(crate) fn bind_cpu_fallback(
         &mut self,
         input: &render::UiRenderInput,
-        icon: Option<crate::ui_runtime::presentation::IconRef>,
+        empty: Option<crate::ui_runtime::presentation::IconRef>,
+        held: Option<crate::ui_runtime::presentation::IconRef>,
     ) {
+        let cube = self
+            .scene
+            .as_ref()
+            .is_some_and(|scene| scene.is_opaque_cube());
+        let icon = if cube { held.or(empty) } else { empty };
         if let (Some(scene), Some(gate), Some(icon)) = (&mut self.scene, &self.gate, icon) {
-            scene.bind_cpu_fallback(input, u32::from(icon.page), icon.uv, gate);
+            if cube {
+                scene.bind_cube_cpu_fallback(input, u32::from(icon.page), icon.uv, gate);
+            } else {
+                scene.bind_cpu_fallback(input, u32::from(icon.page), icon.uv, gate);
+            }
         } else {
             self.clear();
         }
@@ -148,7 +242,11 @@ impl ViewmodelPublish<'_, '_> {
         let gate = self.gate.as_deref().unwrap();
         match result {
             Ok(token) => {
-                adapter.stats.mode = Some(ViewmodelMode::EmptyHandNeutralStaticFallback);
+                adapter.stats.mode = Some(if adapter.cube.is_some() {
+                    ViewmodelMode::OpaqueCubeNeutralStaticFallback
+                } else {
+                    ViewmodelMode::EmptyHandNeutralStaticFallback
+                });
                 adapter.stats.animation_parity_unavailable = true;
                 adapter.stats.lighting_parity_unavailable = true;
                 adapter.stats.avatar_model_identity_unavailable = true;
@@ -165,6 +263,7 @@ impl ViewmodelPublish<'_, '_> {
             }
             Err(reason) => {
                 self.scene.as_deref_mut().unwrap().clear(gate);
+                adapter.cube = None;
                 adapter.stats.fallback = Some(reason);
                 adapter.stats.cpu_fallback_requested_frames = adapter
                     .stats
@@ -226,13 +325,10 @@ impl ViewmodelPublish<'_, '_> {
         }) {
             return Err(HandFallback::Geometry);
         }
-        if !matches!(
-            runtime
-                .selected_stack_snapshot()
-                .map(|snapshot| snapshot.state),
-            Some(crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty)
-        ) || runtime.gameplay_hud().offhand_is_empty() != Some(true)
-        {
+        let selected = runtime
+            .selected_stack_snapshot()
+            .ok_or(HandFallback::ItemsUnknownOrHeld)?;
+        if runtime.gameplay_hud().offhand_is_empty() != Some(true) {
             return Err(HandFallback::ItemsUnknownOrHeld);
         }
         let (owner, camera, target, msaa, hdr) =
@@ -248,14 +344,30 @@ impl ViewmodelPublish<'_, '_> {
         if !geometry.accepts_rig(rig.rig.0) {
             return Err(HandFallback::Geometry);
         }
-        let profile = stream
-            .actor_player_profile(actor.runtime_id)
-            .ok_or(HandFallback::Skin)?;
-        let protocol::PlayerSkin::Standard(raw) = &profile.skin else {
-            return Err(HandFallback::Skin);
-        };
         let adapter = self.adapter.as_deref_mut().unwrap();
-        let skin = adapter.skin(raw).ok_or(HandFallback::Skin)?;
+        let (geometry, skin) = match selected.state {
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => {
+                if adapter.cube.take().is_some() {
+                    adapter.advance_revision().ok_or(HandFallback::Geometry)?;
+                }
+                let profile = stream
+                    .actor_player_profile(actor.runtime_id)
+                    .ok_or(HandFallback::Skin)?;
+                let protocol::PlayerSkin::Standard(raw) = &profile.skin else {
+                    return Err(HandFallback::Skin);
+                };
+                (
+                    (**geometry).clone(),
+                    adapter.skin(raw).ok_or(HandFallback::Skin)?,
+                )
+            }
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => adapter
+                .cube(stack, selected.slot, world)
+                .ok_or(HandFallback::ItemsUnknownOrHeld)?,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Unknown => {
+                return Err(HandFallback::ItemsUnknownOrHeld);
+            }
+        };
         let token = ViewmodelToken {
             session: runtime.session_id(),
             actor_session: rig.actor.session_id,
@@ -266,14 +378,14 @@ impl ViewmodelPublish<'_, '_> {
             viewport,
             samples: msaa.samples(),
             hdr: hdr.is_some(),
-            skin: adapter.skin_identity,
-            geometry: ViewmodelScene::geometry_identity(geometry),
+            skin: skin.identity(),
+            geometry: ViewmodelScene::geometry_identity(&geometry),
             revision: adapter.revision,
         };
         if !self.scene.as_deref_mut().unwrap().publish(
             token,
             &skin,
-            geometry,
+            &geometry,
             self.gate.as_deref().unwrap(),
         ) {
             return Err(HandFallback::View);
