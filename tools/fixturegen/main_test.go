@@ -199,6 +199,41 @@ func assertBlockUseTransaction(t *testing.T, transaction *packet.InventoryTransa
 	}
 }
 
+func TestMiningInputHasOneBoundedRequestAndIndependentOptionalPrediction(t *testing.T) {
+	out := t.TempDir()
+	if err := generate(out); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	for _, name := range []string{"player_auth_input_mine_block.bin", "player_auth_input_mine_block_and_predict.bin"} {
+		pk, ok := decodeClientPacket(t, filepath.Join(out, name)).(*packet.PlayerAuthInput)
+		if !ok {
+			t.Fatalf("%s is not PlayerAuthInput", name)
+		}
+		request, present := pk.ItemStackRequest.Value()
+		if !present || request.RequestID != -3 || len(request.Actions) != 1 || len(request.FilterStrings) != 0 || request.FilterCause != -1 {
+			t.Fatalf("%s request shape differs", name)
+		}
+		action, ok := request.Actions[0].(*protocol.MineBlockStackRequestAction)
+		if !ok || action.HotbarSlot != 2 || action.PredictedDurability != 7 || action.StackNetworkID != 12345 {
+			t.Fatalf("%s mining action differs", name)
+		}
+		var encoded bytes.Buffer
+		var stackAction protocol.StackRequestAction = action
+		protocol.NewWriter(&encoded, 0).StackRequestAction(&stackAction)
+		if encoded.Len() < 2 || !bytes.Equal(encoded.Bytes()[:2], []byte{9, 11}) {
+			t.Fatalf("%s outer/inner mining tags differ", name)
+		}
+		predict := name == "player_auth_input_mine_block_and_predict.bin"
+		if !pk.InputData.Load(packet.InputFlagPerformItemStackRequest) || pk.InputData.Load(packet.InputFlagPerformBlockActions) != predict {
+			t.Fatalf("%s derived flags differ", name)
+		}
+		actions, present := pk.BlockActions.Value()
+		if present != predict || (predict && (len(actions) != 1 || actions[0].Action != protocol.PlayerActionPredictDestroyBlock)) {
+			t.Fatalf("%s optional prediction differs", name)
+		}
+	}
+}
+
 func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 	firstDir := t.TempDir()
 	secondDir := t.TempDir()
@@ -232,6 +267,8 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"PlayerAuthInputBreakBlock",
 		"PlayerAuthInputUseBlock",
 		"PlayerAuthInputBlockActionsAndBreakBlock",
+		"PlayerAuthInputMineBlock",
+		"PlayerAuthInputMineBlockAndPredict",
 		"AddActor",
 		"Text",
 		"TextObjectRawText",
@@ -270,12 +307,14 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"ItemStackRequestManualCraft",
 		"ItemStackResponseManualCraft",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5, 52, 52, 52, 52, 147, 148}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5, 52, 52, 52, 52, 147, 148}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
 		{0xba, 0x48},
 		{0x93, 0x48},
+		{0x90, 0x49},
+		{0x90, 0x49},
 		{0x90, 0x49},
 		{0x90, 0x49},
 		{0x90, 0x49},

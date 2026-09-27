@@ -456,6 +456,11 @@ impl CollisionRegistry {
         )
     }
 
+    /// Drops every registration at or above `first_runtime_id`.
+    pub fn remove_runtime_ids_from(&mut self, first_runtime_id: u32) {
+        self.blocks.split_off(&first_runtime_id);
+    }
+
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
         self.blocks.get(&runtime_id)
     }

@@ -4,77 +4,13 @@ pub(super) fn chunk_commit_is_mutation_failure(error: &DecodeError) -> bool {
     matches!(error, DecodeError::CollisionRevision(_))
 }
 
-/// Finds malformed wire anywhere in one prepared packet before semantic gates or mutation.
-fn prepared_world_wire_error(event: &PreparedWorldEvent) -> Option<&'static str> {
-    match event {
-        PreparedWorldEvent::InlineLevelChunk { decoded, .. } => decoded
-            .as_ref()
-            .err()
-            .and_then(DecodeError::wire_error_reason),
-        PreparedWorldEvent::RequestLevelChunk { decoded, .. } => decoded
-            .as_ref()
-            .err()
-            .and_then(DecodeError::wire_error_reason),
-        PreparedWorldEvent::SubChunks { entries, .. } => entries.iter().find_map(|entry| {
-            let PreparedSubChunkResult::Decoded(Err(error)) = &entry.result else {
-                return None;
-            };
-            error.wire_error_reason()
-        }),
-        PreparedWorldEvent::BlockEntityUpdate { decoded, .. } => decoded
-            .as_ref()
-            .err()
-            .and_then(BlockEntityError::wire_error_reason),
-        PreparedWorldEvent::BlockUpdates { .. }
-        | PreparedWorldEvent::Immediate(_)
-        | PreparedWorldEvent::CommitOnly
-        | PreparedWorldEvent::NormalizationFailure => None,
-    }
-}
-
 impl WorldStream {
-    /// Latches the first FIFO-ordered malformed chunk payload as the session fatal.
-    fn record_chunk_decode_fatal(&mut self, sequence: u64, reason: &'static str) {
-        if self.fatal_decode_failure {
-            return;
-        }
-        self.fatal_decode_failure = true;
-        self.fatal_light_failure = true;
-        if self.fatal_error.is_none() {
-            self.fatal_error = Some(WorldStreamFatalError::ChunkDecode { sequence, reason });
-        }
-        self.pending_decode.clear();
-        self.ordered.ready.clear();
-        self.submitted.clear();
-        self.heavy_sequences.clear();
-        self.blocking_block_updates = None;
-        self.requests = RequestQueue::default();
-        self.requested_sub_chunks.clear();
-        self.request_collision_failures.clear();
-        self.sub_chunk_deadlines.clear();
-        self.correlated_sub_chunk_attempts.clear();
-        self.admitted_sub_chunk_replies.clear();
-        self.deferred_retries.clear();
-        self.deferred_retry_set.clear();
-        self.deferred_recovery_requests.clear();
-        self.committed_view_cohort = None;
-        self.required_columns.clear();
-        self.pending_mesh.clear();
-        self.pending_mesh_scan.clear();
-        self.pending_resident_mesh_deferred.clear();
-        self.pending_resident_mesh_ready.clear();
-        self.pending_mesh_removal_deferred.clear();
-        self.pending_mesh_removal_ready.clear();
-        self.mesh_scheduler_camera_cell = None;
-        self.mesh_changes.clear();
-    }
-
     pub(super) fn record_normalization_error(&mut self, reason: NormalizationErrorReason) {
         self.stats.normalization_errors = self.stats.normalization_errors.saturating_add(1);
         self.stats.normalization_reasons.record(reason);
     }
     pub(super) fn apply_ready(&mut self) {
-        if self.fatal_decode_failure || self.blocking_block_updates.is_some() {
+        if self.blocking_block_updates.is_some() {
             return;
         }
         while let Some(event) = self.ordered.pop_next() {
@@ -87,10 +23,11 @@ impl WorldStream {
                         self.heavy_sequences.remove(&sequence);
                         continue;
                     }
+                    let ids = self.decode_ids(self.current_dimension);
                     self.enqueue_decode_job(DecodeJob::BlockUpdates {
                         sequence,
                         batches,
-                        air_runtime_id: self.classifier.air_network_id(),
+                        ids,
                     });
                     self.blocking_block_updates = Some(sequence);
                     break;
@@ -99,9 +36,6 @@ impl WorldStream {
                     self.submitted.remove(&sequence);
                     self.heavy_sequences.remove(&sequence);
                     self.apply_prepared_with_sequence(event, Some(sequence));
-                    if self.fatal_decode_failure {
-                        break;
-                    }
                     self.cancel_request_reservation(sequence);
                 }
             }
@@ -115,16 +49,6 @@ impl WorldStream {
         event: PreparedWorldEvent,
         sequence: Option<u64>,
     ) {
-        if self.fatal_decode_failure {
-            return;
-        }
-        if let Some(reason) = prepared_world_wire_error(&event) {
-            self.record_chunk_decode_fatal(
-                sequence.expect("malformed prepared world packet has a network sequence"),
-                reason,
-            );
-            return;
-        }
         match event {
             PreparedWorldEvent::InlineLevelChunk {
                 event,
@@ -137,82 +61,66 @@ impl WorldStream {
                     self.record_normalization_error(NormalizationErrorReason::InactiveInlineChunk);
                     return;
                 }
-                match decoded {
-                    Ok(decoded) => {
-                        // Cohort membership follows the request-mode ordering
-                        // contract exactly: only after successful decode, the
-                        // data-interest gate above, and the submit-time
-                        // supported-dimension admission. Failed decodes below
-                        // never enter readiness.
-                        self.record_required_level_chunk(&event);
-                        let range = vanilla_dimension_range(event.dimension)
-                            .expect("inline events are range-checked before decode");
-                        let count = match event.mode {
-                            LevelChunkMode::Inline { count } => count,
-                            _ => unreachable!("prepared LevelChunk must be inline"),
-                        };
-                        let stored_keys = decoded
-                            .sub_chunks()
-                            .map(|(y, _)| SubChunkKey::from_chunk(key, y))
-                            .collect::<BTreeSet<_>>();
-                        let new_keys = (0..count)
-                            .map(|offset| {
-                                SubChunkKey::from_chunk(key, range.base_sub_chunk_y + offset as i32)
-                            })
-                            .collect::<BTreeSet<_>>();
-                        let air_keys = new_keys
-                            .difference(&stored_keys)
-                            .copied()
-                            .collect::<BTreeSet<_>>();
-                        let old_keys = self
-                            .resident
-                            .iter()
-                            .copied()
-                            .filter(|resident| resident.chunk() == key)
-                            .collect::<BTreeSet<_>>();
-                        let old_air = self
-                            .known_air
-                            .iter()
-                            .copied()
-                            .filter(|resident| resident.chunk() == key)
-                            .collect::<BTreeSet<_>>();
-                        let Ok(applied) = self.store.commit_level_chunk(key, decoded) else {
-                            self.record_normalization_error(
-                                NormalizationErrorReason::BlockMutationFailure,
-                            );
-                            return;
-                        };
-                        self.reconcile_block_crack_column(key);
-                        self.loaded_columns.insert(key);
-                        self.purge_sub_chunk_column_state(key);
-                        self.resident.retain(|resident| resident.chunk() != key);
-                        self.known_air.retain(|resident| resident.chunk() != key);
-                        for stale in old_keys.difference(&new_keys) {
-                            self.set_connectivity(*stale, None);
-                        }
-                        for no_longer_air in old_air.difference(&air_keys) {
-                            self.set_connectivity(*no_longer_air, None);
-                        }
-                        self.resident.extend(new_keys.iter().copied());
-                        for air in air_keys {
-                            self.record_known_air(air);
-                        }
-                        self.refresh_block_entity_visuals_for_chunk(key);
-                        let now = Instant::now();
-                        let preexpanded_dirty = applied.dirty;
-                        let mut changed_sources =
-                            applied.changed.into_iter().collect::<BTreeSet<_>>();
-                        changed_sources.extend(new_keys.difference(&old_keys).copied());
-                        changed_sources.extend(old_keys.difference(&new_keys).copied());
-                        self.mark_changed_sources_with_mesh_dirty(
-                            changed_sources,
-                            preexpanded_dirty,
-                            now,
-                        );
-                        self.stats.last_chunk_commit_at = Some(now);
-                    }
-                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
+                // Cohort membership follows the request-mode ordering
+                // contract exactly: only after the data-interest gate
+                // above and the submit-time supported-dimension
+                // admission.
+                self.record_required_level_chunk(&event);
+                let range = vanilla_dimension_range(event.dimension)
+                    .expect("inline events are range-checked before decode");
+                let stored_keys = decoded
+                    .sub_chunks()
+                    .map(|(y, _)| SubChunkKey::from_chunk(key, y))
+                    .collect::<BTreeSet<_>>();
+                // Vanilla reads every slot the payload left empty as air.
+                let new_keys = (0..range.sub_chunk_count)
+                    .map(|offset| {
+                        SubChunkKey::from_chunk(key, range.base_sub_chunk_y + offset as i32)
+                    })
+                    .collect::<BTreeSet<_>>();
+                let air_keys = new_keys
+                    .difference(&stored_keys)
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                let old_keys = self
+                    .resident
+                    .iter()
+                    .copied()
+                    .filter(|resident| resident.chunk() == key)
+                    .collect::<BTreeSet<_>>();
+                let old_air = self
+                    .known_air
+                    .iter()
+                    .copied()
+                    .filter(|resident| resident.chunk() == key)
+                    .collect::<BTreeSet<_>>();
+                let Ok(applied) = self.store.commit_level_chunk(key, decoded) else {
+                    self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+                    return;
+                };
+                self.reconcile_block_crack_column(key);
+                self.loaded_columns.insert(key);
+                self.purge_sub_chunk_column_state(key);
+                self.resident.retain(|resident| resident.chunk() != key);
+                self.known_air.retain(|resident| resident.chunk() != key);
+                for stale in old_keys.difference(&new_keys) {
+                    self.set_connectivity(*stale, None);
                 }
+                for no_longer_air in old_air.difference(&air_keys) {
+                    self.set_connectivity(*no_longer_air, None);
+                }
+                self.resident.extend(new_keys.iter().copied());
+                for air in air_keys {
+                    self.record_known_air(air);
+                }
+                self.refresh_block_entity_visuals_for_chunk(key);
+                let now = Instant::now();
+                let preexpanded_dirty = applied.dirty;
+                let mut changed_sources = applied.changed.into_iter().collect::<BTreeSet<_>>();
+                changed_sources.extend(new_keys.difference(&old_keys).copied());
+                changed_sources.extend(old_keys.difference(&new_keys).copied());
+                self.mark_changed_sources_with_mesh_dirty(changed_sources, preexpanded_dirty, now);
+                self.stats.last_chunk_commit_at = Some(now);
             }
             PreparedWorldEvent::RequestLevelChunk {
                 event,
@@ -220,10 +128,7 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
-                match decoded {
-                    Ok(decoded) => self.apply_request_level_chunk(event, decoded, sequence),
-                    Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
-                }
+                self.apply_request_level_chunk(event, decoded, sequence);
             }
             PreparedWorldEvent::SubChunks {
                 dimension,
@@ -259,7 +164,7 @@ impl WorldStream {
                     self.consume_confirmed_sub_chunk_attempt(key);
                     self.disarm_sub_chunk_deadline(key);
                     let (completed, committed) = match entry.result {
-                        PreparedSubChunkResult::Decoded(Ok(decoded)) => {
+                        PreparedSubChunkResult::Decoded(decoded) => {
                             self.stats.phase2_outcomes.success =
                                 self.stats.phase2_outcomes.success.saturating_add(1);
                             let decoded_air = decoded.sub_chunk().has_no_storages();
@@ -294,12 +199,6 @@ impl WorldStream {
                             };
                             (true, committed)
                         }
-                        PreparedSubChunkResult::Decoded(Err(_)) => {
-                            self.stats.phase2_outcomes.malformed =
-                                self.stats.phase2_outcomes.malformed.saturating_add(1);
-                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
-                            (self.retry_or_complete_sub_chunk(key), false)
-                        }
                         PreparedSubChunkResult::AllAir => {
                             self.stats.phase2_outcomes.all_air =
                                 self.stats.phase2_outcomes.all_air.saturating_add(1);
@@ -325,23 +224,6 @@ impl WorldStream {
                             self.stats.unavailable_sub_chunks =
                                 self.stats.unavailable_sub_chunks.saturating_add(1);
                             match unavailable {
-                                protocol::SubChunkUnavailable::YIndexOutOfBounds => {
-                                    match self.store.apply_all_air(key) {
-                                        Ok(changed) => {
-                                            let became_known = self.record_known_air(key);
-                                            if changed.is_some() || became_known {
-                                                self.mark_changed(key, Instant::now());
-                                            }
-                                            (true, true)
-                                        }
-                                        Err(_) => {
-                                            self.record_normalization_error(
-                                                NormalizationErrorReason::BlockMutationFailure,
-                                            );
-                                            (true, false)
-                                        }
-                                    }
-                                }
                                 protocol::SubChunkUnavailable::InvalidDimension => {
                                     self.record_normalization_error(
                                         NormalizationErrorReason::InvalidDimensionSubChunk,
@@ -351,6 +233,15 @@ impl WorldStream {
                                 protocol::SubChunkUnavailable::ChunkNotFound
                                 | protocol::SubChunkUnavailable::PlayerNotFound => {
                                     (self.retry_or_complete_sub_chunk(key), false)
+                                }
+                                // Vanilla writes nothing; an empty slot lights as air.
+                                protocol::SubChunkUnavailable::YIndexOutOfBounds => {
+                                    if self.store.sub_chunk(key).is_none()
+                                        && self.record_known_air(key)
+                                    {
+                                        self.mark_changed(key, Instant::now());
+                                    }
+                                    (true, true)
                                 }
                                 protocol::SubChunkUnavailable::Undefined
                                 | protocol::SubChunkUnavailable::Unknown(_) => (true, false),
@@ -455,9 +346,6 @@ impl WorldStream {
         }
     }
     pub(super) fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
-        if self.fatal_decode_failure {
-            return;
-        }
         match event {
             WorldEvent::BiomeDefinitions(event) => {
                 let live = event
@@ -786,6 +674,16 @@ impl WorldStream {
                 }
                 // Remote actors' effects have no owned presentation surface yet;
                 // the event is committed and dropped rather than retained.
+            }
+            WorldEvent::Abilities(event) => {
+                let sequence = sequence.expect("sequenced abilities commit through submit");
+                if event.actor_unique_id == self.local_player_unique_id {
+                    self.push_committed_ui(CommittedUiEvent::LocalAbilities {
+                        sequence,
+                        stream_identity: self.biome_tint_identity().stream(),
+                        event,
+                    });
+                }
             }
             WorldEvent::ArmorEquipment(event) => {
                 let sequence = sequence.expect("sequenced armor events commit through submit");

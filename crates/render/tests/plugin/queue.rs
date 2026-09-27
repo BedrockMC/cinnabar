@@ -242,7 +242,7 @@ fn rejected_mesh_is_eventually_delivered_after_the_capped_queue_drains() {
 fn solid_mesh(runtime_id: u32) -> meshing::ChunkMesh {
     let mut encoded = vec![9, 1, 0, 1];
     encoded.extend(zig_zag_i32(runtime_id as i32));
-    let sub_chunk = SubChunk::decode(&encoded).expect("uniform sub-chunk");
+    let sub_chunk = SubChunk::decode(&encoded, &RawBlockIds { air: AIR });
     mesh_sub_chunk(
         &BlockClassifier::new(AIR),
         runtime_assets(),
@@ -540,8 +540,7 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings(
 fn uniform_biome_record(tint_index: u32) -> PackedBiomeRecord {
     let mut encoded = vec![1];
     encoded.extend(zig_zag_i32(42));
-    let storage = DecodedBiomeColumn::decode(0, 1, &encoded)
-        .expect("uniform biome column")
+    let storage = DecodedBiomeColumn::decode(0, 1, &encoded, &RawBiomeIds { default_biome: 0 })
         .storage(0)
         .expect("uniform biome storage");
     PackedBiomeRecord::from_storage(&storage, |_| tint_index)

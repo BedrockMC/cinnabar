@@ -1,6 +1,10 @@
 use world::{
-    ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn, MAX_LEVEL_SUBCHUNKS, SubChunkKey,
+    ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedLevelChunk, DimensionSlots, RawBiomeIds,
+    RawBlockIds, SubChunkKey,
 };
+
+const IDS: RawBlockIds = RawBlockIds { air: 0 };
+const BIOMES: RawBiomeIds = RawBiomeIds { default_biome: 0 };
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -49,17 +53,17 @@ fn collision_revision_tracks_real_changes_and_never_reuses_an_evicted_identity()
     let loaded = store
         .collision_revision(chunk)
         .expect("the newly known column has an identity");
-    store.apply_sub_chunk(key, &first_payload).unwrap();
+    store.apply_sub_chunk(key, &first_payload, &IDS).unwrap();
     let first = store
         .collision_revision(chunk)
         .expect("the first retained collision state has an identity");
     assert!(first > loaded);
 
-    store.apply_sub_chunk(key, &first_payload).unwrap();
+    store.apply_sub_chunk(key, &first_payload, &IDS).unwrap();
     assert_eq!(store.collision_revision(chunk), Some(first));
 
     store
-        .apply_sub_chunk(key, &uniform(9, Some(-4), 11))
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 11), &IDS)
         .unwrap();
     let changed = store
         .collision_revision(chunk)
@@ -69,7 +73,7 @@ fn collision_revision_tracks_real_changes_and_never_reuses_an_evicted_identity()
     store.evict_chunk(chunk);
     assert_eq!(store.collision_revision(chunk), None);
     store.mark_chunk_loaded(chunk).unwrap();
-    store.apply_sub_chunk(key, &first_payload).unwrap();
+    store.apply_sub_chunk(key, &first_payload, &IDS).unwrap();
     let reloaded = store
         .collision_revision(chunk)
         .expect("a reloaded collision state has an identity");
@@ -89,13 +93,17 @@ fn collision_revision_marks_request_mode_load_once_and_full_column_noops_are_sta
     assert_eq!(store.collision_revision(chunk), Some(request_mode));
 
     let payload = uniform(9, Some(-4), 42);
-    store.apply_level_chunk(chunk, -4, 1, &payload).unwrap();
+    store
+        .apply_level_chunk(chunk, -4, 1, &payload, &IDS)
+        .unwrap();
     let replaced = store
         .collision_revision(chunk)
         .expect("the full-column replacement has an identity");
     assert!(replaced > request_mode);
 
-    store.apply_level_chunk(chunk, -4, 1, &payload).unwrap();
+    store
+        .apply_level_chunk(chunk, -4, 1, &payload, &IDS)
+        .unwrap();
     assert_eq!(store.collision_revision(chunk), Some(replaced));
 }
 
@@ -105,15 +113,18 @@ fn individual_sub_chunks_only_dirty_the_store_when_changed() {
     let key = SubChunkKey::new(0, 4, -4, -7);
     let first = uniform(9, Some(-4), 10);
 
-    assert_eq!(store.apply_sub_chunk(key, &first).unwrap(), Some(key));
-    assert_eq!(store.apply_sub_chunk(key, &first).unwrap(), None);
+    assert_eq!(store.apply_sub_chunk(key, &first, &IDS).unwrap(), Some(key));
+    assert_eq!(store.apply_sub_chunk(key, &first, &IDS).unwrap(), None);
     assert_eq!(
         store.sub_chunk(key).unwrap().runtime_id(0, 3, 4, 5),
         Some(10)
     );
 
     let changed = uniform(9, Some(-4), 11);
-    assert_eq!(store.apply_sub_chunk(key, &changed).unwrap(), Some(key));
+    assert_eq!(
+        store.apply_sub_chunk(key, &changed, &IDS).unwrap(),
+        Some(key)
+    );
     assert_eq!(
         store.sub_chunk(key).unwrap().runtime_id(0, 3, 4, 5),
         Some(11)
@@ -125,12 +136,12 @@ fn mesh_worker_arc_snapshots_survive_replacement() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(0, 4, -4, -7);
     store
-        .apply_sub_chunk(key, &uniform(9, Some(-4), 10))
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 10), &IDS)
         .unwrap();
     let old_snapshot = store.sub_chunk(key).expect("old snapshot");
 
     store
-        .apply_sub_chunk(key, &uniform(9, Some(-4), 11))
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 11), &IDS)
         .unwrap();
     assert_eq!(old_snapshot.runtime_id(0, 0, 0, 0), Some(10));
     assert_eq!(
@@ -145,7 +156,10 @@ fn individual_payload_accepts_trailing_block_entity_bytes() {
     let key = SubChunkKey::new(0, 1, -4, 2);
     let mut payload = uniform(9, Some(-4), 12);
     payload.extend_from_slice(&[0x0a, 0x00, 0x00, 0x00]);
-    assert_eq!(store.apply_sub_chunk(key, &payload).unwrap(), Some(key));
+    assert_eq!(
+        store.apply_sub_chunk(key, &payload, &IDS).unwrap(),
+        Some(key)
+    );
     assert_eq!(
         store.sub_chunk(key).unwrap().runtime_id(0, 0, 0, 0),
         Some(12)
@@ -157,7 +171,7 @@ fn all_air_responses_remove_stale_data_without_a_flat_storage() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(0, 1, -4, 2);
     store
-        .apply_sub_chunk(key, &uniform(9, Some(-4), 12))
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 12), &IDS)
         .unwrap();
 
     assert_eq!(store.apply_all_air(key).unwrap(), Some(key));
@@ -165,11 +179,11 @@ fn all_air_responses_remove_stale_data_without_a_flat_storage() {
     assert_eq!(store.apply_all_air(key).unwrap(), None);
 
     store
-        .apply_sub_chunk(key, &uniform(9, Some(-4), 12))
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 12), &IDS)
         .unwrap();
     let zero_storage = [9, 0, (-4_i8) as u8];
     assert_eq!(
-        store.apply_sub_chunk(key, &zero_storage).unwrap(),
+        store.apply_sub_chunk(key, &zero_storage, &IDS).unwrap(),
         Some(key)
     );
     assert!(store.sub_chunk(key).is_none());
@@ -180,10 +194,10 @@ fn biome_only_column_survives_all_air_subchunk_removal() {
     let mut store = ChunkStore::new();
     let chunk = ChunkKey::new(0, 1, 2);
     let key = SubChunkKey::from_chunk(chunk, -4);
-    let biomes = DecodedBiomeColumn::decode(-4, 1, &uniform_biome(42)).unwrap();
+    let biomes = DecodedBiomeColumn::decode(-4, 1, &uniform_biome(42), &BIOMES);
     store.commit_biome_column(chunk, biomes);
     store
-        .apply_sub_chunk(key, &uniform(9, Some(-4), 12))
+        .apply_sub_chunk(key, &uniform(9, Some(-4), 12), &IDS)
         .unwrap();
 
     assert_eq!(store.apply_all_air(key).unwrap(), Some(key));
@@ -197,7 +211,9 @@ fn external_key_supplies_the_y_index_for_legacy_sub_chunks() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(1, 2, 7, 3);
     assert_eq!(
-        store.apply_sub_chunk(key, &uniform(8, None, 45)).unwrap(),
+        store
+            .apply_sub_chunk(key, &uniform(8, None, 45), &IDS)
+            .unwrap(),
         Some(key)
     );
     assert_eq!(
@@ -207,21 +223,21 @@ fn external_key_supplies_the_y_index_for_legacy_sub_chunks() {
 }
 
 #[test]
-fn individual_version_nine_index_must_match_the_packet_key() {
+fn individual_payload_is_stored_at_the_requested_key_whatever_its_y_byte() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(0, 0, -4, 0);
     assert_eq!(
-        store.apply_sub_chunk(key, &uniform(9, Some(-3), 1)),
-        Err(DecodeError::SubChunkIndexMismatch {
-            expected: -4,
-            actual: -3,
-        })
+        store.apply_sub_chunk(key, &uniform(9, Some(-3), 1), &IDS),
+        Ok(Some(key))
     );
-    assert!(store.sub_chunk(key).is_none());
+    assert_eq!(
+        store.sub_chunk(key).unwrap().runtime_id(0, 0, 0, 0),
+        Some(1)
+    );
 }
 
 #[test]
-fn level_chunk_decode_is_atomic_and_reports_payload_consumption() {
+fn level_chunk_reports_block_consumption_and_truncated_reads_empty_their_slots() {
     let mut store = ChunkStore::new();
     let chunk_key = ChunkKey::new(0, 8, 9);
     let lower_key = SubChunkKey::from_chunk(chunk_key, -4);
@@ -233,7 +249,7 @@ fn level_chunk_decode_is_atomic_and_reports_payload_consumption() {
     payload.extend_from_slice(&[0xaa, 0xbb, 0xcc]); // Biomes follow block sub-chunks.
 
     let applied = store
-        .apply_level_chunk(chunk_key, -4, 2, &payload)
+        .apply_level_chunk(chunk_key, -4, 2, &payload, &IDS)
         .expect("apply full level chunk");
     assert_eq!(applied.bytes_consumed, consumed);
     assert_eq!(applied.dirty.len(), 12);
@@ -252,26 +268,28 @@ fn level_chunk_decode_is_atomic_and_reports_payload_consumption() {
         Some(30)
     );
 
-    let mut malformed = uniform(9, Some(-4), 99);
-    malformed.push(9); // A truncated second sub-chunk.
-    assert!(
-        store
-            .apply_level_chunk(chunk_key, -4, 2, &malformed)
-            .is_err()
-    );
+    let mut truncated = uniform(9, Some(-4), 99);
+    truncated.push(9);
+    store
+        .apply_level_chunk(chunk_key, -4, 2, &truncated, &IDS)
+        .unwrap();
     assert_eq!(
         store.sub_chunk(lower_key).unwrap().runtime_id(0, 0, 0, 0),
-        Some(20),
-        "a failed full decode must not partially replace the chunk"
+        Some(99)
     );
-    assert_eq!(
-        store.sub_chunk(upper_key).unwrap().runtime_id(0, 0, 0, 0),
-        Some(30)
-    );
+    assert!(store.sub_chunk(upper_key).is_none());
+}
+
+fn decode_inline(chunk: ChunkKey, slots: usize, count: usize, payload: &[u8]) -> DecodedLevelChunk {
+    let slots = DimensionSlots {
+        base_sub_chunk_y: -4,
+        count: slots,
+    };
+    DecodedLevelChunk::decode_inline(chunk, slots, count, payload, &IDS, &BIOMES)
 }
 
 #[test]
-fn inline_level_chunk_decodes_biomes_after_blocks_atomically() {
+fn inline_level_chunk_decodes_biomes_after_blocks() {
     let mut store = ChunkStore::new();
     let chunk = ChunkKey::new(0, 8, 9);
     let key = SubChunkKey::from_chunk(chunk, -4);
@@ -281,7 +299,7 @@ fn inline_level_chunk_decodes_biomes_after_blocks_atomically() {
     payload.push(0xff);
 
     let applied = store
-        .apply_level_chunk_with_biomes(chunk, -4, 1, -4, 2, &payload)
+        .commit_level_chunk(chunk, decode_inline(chunk, 2, 1, &payload))
         .unwrap();
     assert_eq!(applied.block_bytes_consumed, block.len());
     assert_eq!(applied.bytes_consumed, payload.len());
@@ -291,21 +309,53 @@ fn inline_level_chunk_decodes_biomes_after_blocks_atomically() {
         Some(7)
     );
 
-    let mut malformed = uniform(9, Some(-4), 99);
-    malformed.extend(uniform_biome(9));
-    malformed.push(0xff);
-    malformed.push(0xff); // Unexpected third storage is irrelevant; require a bad second instead.
-    malformed.truncate(block.len() + 1);
-    assert!(
-        store
-            .apply_level_chunk_with_biomes(chunk, -4, 1, -4, 2, &malformed)
-            .is_err()
-    );
+    // A biome payload cut after its header reads id 0 and extrudes it upwards.
+    let mut truncated = uniform(9, Some(-4), 99);
+    truncated.push(0x01);
+    store
+        .commit_level_chunk(chunk, decode_inline(chunk, 2, 1, &truncated))
+        .unwrap();
     assert_eq!(
         store.sub_chunk(key).unwrap().runtime_id(0, 0, 0, 0),
-        Some(20)
+        Some(99)
     );
-    assert_eq!(store.biome_id(key, 0, 0, 0), Some(7));
+    assert_eq!(store.biome_id(key, 0, 0, 0), Some(0));
+    assert_eq!(
+        store.biome_id(SubChunkKey::from_chunk(chunk, -3), 0, 0, 0),
+        Some(0)
+    );
+}
+
+#[test]
+fn inline_reads_past_the_dimension_slots_consume_nothing_and_wrap_by_low_byte() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let blocks = [uniform(9, Some(-4), 1), uniform(9, Some(-3), 2)].concat();
+    let mut payload = blocks.clone();
+    payload.extend(uniform_biome(7));
+    let decoded = decode_inline(chunk, 2, 3, &payload);
+    assert_eq!(decoded.block_bytes_consumed(), blocks.len());
+    assert_eq!(decoded.sub_chunks().len(), 2);
+    let mut store = ChunkStore::new();
+    store.commit_level_chunk(chunk, decoded).unwrap();
+    assert_eq!(
+        store.biome_id(SubChunkKey::from_chunk(chunk, -3), 0, 0, 0),
+        Some(7)
+    );
+
+    // Reads 256 and 257 land back in slots 0 and 1.
+    let wrapped = [
+        blocks.as_slice(),
+        &uniform(9, Some(-4), 3),
+        &uniform(9, Some(-3), 4),
+    ]
+    .concat();
+    let decoded = decode_inline(chunk, 2, 258, &wrapped);
+    assert_eq!(decoded.block_bytes_consumed(), wrapped.len());
+    let ids = decoded
+        .sub_chunks()
+        .map(|(y, sub_chunk)| (y, sub_chunk.runtime_id(0, 0, 0, 0)))
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [(-4, Some(3)), (-3, Some(4))]);
 }
 
 #[test]
@@ -315,13 +365,13 @@ fn identical_biome_snapshots_reuse_arcs() {
     let key = SubChunkKey::from_chunk(chunk, -4);
     store.commit_biome_column(
         chunk,
-        DecodedBiomeColumn::decode(-4, 1, &uniform_biome(5)).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &uniform_biome(5), &BIOMES),
     );
     let before = store.biome_storage(key).unwrap();
 
     let dirty = store.commit_biome_column(
         chunk,
-        DecodedBiomeColumn::decode(-4, 1, &uniform_biome(5)).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &uniform_biome(5), &BIOMES),
     );
     let after = store.biome_storage(key).unwrap();
     assert!(dirty.is_empty());
@@ -335,11 +385,13 @@ fn a_full_level_chunk_removes_stale_sub_chunks_and_marks_them_dirty() {
     let lower_key = SubChunkKey::from_chunk(chunk_key, -4);
     let upper_key = SubChunkKey::from_chunk(chunk_key, -3);
     let initial = [uniform(9, Some(-4), 20), uniform(9, Some(-3), 30)].concat();
-    store.apply_level_chunk(chunk_key, -4, 2, &initial).unwrap();
+    store
+        .apply_level_chunk(chunk_key, -4, 2, &initial, &IDS)
+        .unwrap();
 
     let replacement = uniform(9, Some(-4), 20);
     let applied = store
-        .apply_level_chunk(chunk_key, -4, 1, &replacement)
+        .apply_level_chunk(chunk_key, -4, 1, &replacement, &IDS)
         .unwrap();
     assert_eq!(
         applied.changed,
@@ -364,10 +416,14 @@ fn identical_full_level_chunk_reuses_arc_snapshots() {
     let chunk_key = ChunkKey::new(0, 1, 2);
     let sub_key = SubChunkKey::from_chunk(chunk_key, -4);
     let payload = uniform(9, Some(-4), 20);
-    store.apply_level_chunk(chunk_key, -4, 1, &payload).unwrap();
+    store
+        .apply_level_chunk(chunk_key, -4, 1, &payload, &IDS)
+        .unwrap();
     let before = store.sub_chunk(sub_key).unwrap();
 
-    let applied = store.apply_level_chunk(chunk_key, -4, 1, &payload).unwrap();
+    let applied = store
+        .apply_level_chunk(chunk_key, -4, 1, &payload, &IDS)
+        .unwrap();
     let after = store.sub_chunk(sub_key).unwrap();
     assert!(applied.dirty.is_empty());
     assert!(std::sync::Arc::ptr_eq(&before, &after));
@@ -379,19 +435,19 @@ fn all_air_full_level_chunks_do_not_leave_empty_columns() {
     let chunk_key = ChunkKey::new(0, 1, 2);
     let sub_key = SubChunkKey::from_chunk(chunk_key, -4);
     store
-        .apply_level_chunk(chunk_key, -4, 1, &uniform(9, Some(-4), 20))
+        .apply_level_chunk(chunk_key, -4, 1, &uniform(9, Some(-4), 20), &IDS)
         .unwrap();
 
     let zero_storage = [9, 0, (-4_i8) as u8];
     let applied = store
-        .apply_level_chunk(chunk_key, -4, 1, &zero_storage)
+        .apply_level_chunk(chunk_key, -4, 1, &zero_storage, &IDS)
         .unwrap();
     assert_eq!(applied.dirty.len(), 7);
     assert!(applied.dirty.contains(&sub_key));
     assert!(store.chunk(chunk_key).is_none());
 
     let repeated = store
-        .apply_level_chunk(chunk_key, -4, 1, &zero_storage)
+        .apply_level_chunk(chunk_key, -4, 1, &zero_storage, &IDS)
         .unwrap();
     assert!(repeated.dirty.is_empty());
     assert!(store.chunk(chunk_key).is_none());
@@ -405,7 +461,7 @@ fn level_chunk_residency_survives_sparse_all_air_storage_until_eviction() {
 
     assert!(!store.is_chunk_loaded(chunk_key));
     store
-        .apply_level_chunk(chunk_key, -4, 1, &zero_storage)
+        .apply_level_chunk(chunk_key, -4, 1, &zero_storage, &IDS)
         .unwrap();
     assert!(
         store.is_chunk_loaded(chunk_key),
@@ -451,38 +507,25 @@ fn mesh_dependents_cover_faces_and_handle_coordinate_edges() {
 }
 
 #[test]
-fn level_chunk_count_and_y_arithmetic_are_bounded() {
+fn level_chunk_counts_past_the_payload_read_as_empty_slots() {
     let mut store = ChunkStore::new();
     let key = ChunkKey::new(0, 0, 0);
-    assert_eq!(
-        store.apply_level_chunk(key, 0, MAX_LEVEL_SUBCHUNKS + 1, &[]),
-        Err(DecodeError::TooManySubChunks {
-            count: MAX_LEVEL_SUBCHUNKS + 1,
-            max: MAX_LEVEL_SUBCHUNKS,
-        })
-    );
-
-    let payload = [uniform(8, None, 1), uniform(8, None, 2)].concat();
-    assert_eq!(
-        store.apply_level_chunk(key, i32::MAX, 2, &payload),
-        Err(DecodeError::SubChunkYOverflow {
-            first: i32::MAX,
-            offset: 1,
-        })
-    );
+    let applied = store
+        .apply_level_chunk(key, 0, 1_000_000, &[], &IDS)
+        .unwrap();
+    assert_eq!(applied.bytes_consumed, 0);
+    assert!(store.is_chunk_loaded(key));
+    assert!(store.chunk(key).is_none());
 }
 
 #[test]
-fn level_chunk_version_nine_indices_must_match_their_sequence() {
+fn level_chunk_misplaced_version_nine_sub_chunk_leaves_its_slot_empty() {
     let mut store = ChunkStore::new();
     let key = ChunkKey::new(0, 0, 0);
     let payload = [uniform(9, Some(-4), 1), uniform(9, Some(-2), 2)].concat();
-    assert_eq!(
-        store.apply_level_chunk(key, -4, 2, &payload),
-        Err(DecodeError::SubChunkIndexMismatch {
-            expected: -3,
-            actual: -2,
-        })
-    );
-    assert!(store.chunk(key).is_none());
+    let applied = store.apply_level_chunk(key, -4, 2, &payload, &IDS).unwrap();
+    assert_eq!(applied.bytes_consumed, payload.len());
+    assert!(store.sub_chunk(SubChunkKey::from_chunk(key, -4)).is_some());
+    assert!(store.sub_chunk(SubChunkKey::from_chunk(key, -3)).is_none());
+    assert!(store.sub_chunk(SubChunkKey::from_chunk(key, -2)).is_none());
 }

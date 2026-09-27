@@ -395,6 +395,7 @@ fn render_plugin() -> RenderPlugin {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    UiRuntime::configure_crafting_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use world::{BlockUpdate, ChunkKey, ChunkStore, MAX_STORAGE_COUNT, MutationError, SubChunkKey};
+use world::{
+    BlockUpdate, ChunkKey, ChunkStore, MAX_STORAGE_COUNT, MutationError, RawBlockIds, SubChunkKey,
+};
 
 const AIR: u32 = 0;
 
@@ -125,7 +127,11 @@ fn mutation_grows_from_uniform_width_zero_and_honours_high_bit_air_ids() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(0, 1, -4, 2);
     store
-        .apply_sub_chunk(key, &uniform(-4, HASHED_AIR))
+        .apply_sub_chunk(
+            key,
+            &uniform(-4, HASHED_AIR),
+            &RawBlockIds { air: HASHED_AIR },
+        )
         .unwrap();
     assert_eq!(
         store.sub_chunk(key).unwrap().storages()[0].bits_per_index(),

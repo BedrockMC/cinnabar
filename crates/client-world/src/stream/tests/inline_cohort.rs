@@ -62,45 +62,28 @@ fn inline_only_server_reaches_an_exact_required_cohort() {
 }
 
 #[test]
-fn failed_inline_decode_never_joins_the_required_cohort() {
+fn malformed_inline_payload_joins_the_required_cohort_after_decode() {
     let mut stream = publisher_cohort_stream();
     let key = ChunkKey::new(0, 0, 0);
-
-    // A structurally complete but semantically unusable inline payload fails
-    // as survivable policy (established SubChunkYOverflow precedent) and must
-    // stay outside readiness without ending the session.
-    stream.accept_decode_completion(super::DecodeCompletion {
-        sequence: 2,
-        queue_wait: Duration::ZERO,
-        event: super::PreparedWorldEvent::InlineLevelChunk {
-            event: LevelChunkEvent {
+    stream
+        .submit(
+            2,
+            WorldEvent::LevelChunk(LevelChunkEvent {
                 dimension: 0,
                 x: 0,
                 z: 0,
                 mode: LevelChunkMode::Inline { count: 1 },
-                payload: Vec::new(),
-            },
-            decoded: Err(world::DecodeError::SubChunkYOverflow {
-                first: i32::MAX,
-                offset: 1,
+                payload: vec![0xff],
             }),
-            duration: Duration::ZERO,
-        },
-    });
-    stream.apply_ready();
+        )
+        .unwrap();
 
-    assert!(!stream.required_columns().contains(&key));
-    assert!(!stream.loaded_columns.contains(&key));
-    assert_eq!(stream.stats().decode_errors, 1);
-    assert!(stream.take_fatal_error().is_none());
-
-    // Ordering witness mirroring the request-mode contract: membership waits
-    // for decode completion, never the announcement itself, and the stream
-    // stays usable after the failed delivery.
-    stream.submit(3, inline_air_event(0)).unwrap();
+    // Membership waits for decode completion, never the announcement itself.
     assert!(!stream.required_columns().contains(&key));
     complete_pending_decode_jobs(&mut stream);
     assert!(stream.required_columns().contains(&key));
+    assert!(stream.loaded_columns.contains(&key));
+    assert!(stream.take_fatal_error().is_none());
 }
 
 #[test]

@@ -579,9 +579,15 @@ fn unsupported_additional_layer_fails_closed() {
 
 #[test]
 fn sixteen_storage_layers_resolve_without_flattening() {
-    let mut layers = vec![uniform_storage(AIR); world::MAX_STORAGE_COUNT - 1];
-    layers.push(packed_storage(1, &[AIR, OPAQUE_A], &[([8, 8, 8], 1)]));
-    let sub = sub_chunk(layers);
+    // The wire decoder reads at most two layers; block updates reach the deepest.
+    let key = world::SubChunkKey::new(0, 0, 0, 0);
+    let top = world::MAX_STORAGE_COUNT as u32 - 1;
+    let mut store = world::ChunkStore::new();
+    store
+        .update_sub_chunk_blocks(key, &[world::BlockUpdate::new(8, 8, 8, top, OPAQUE_A)], AIR)
+        .expect("deepest-layer update");
+    let sub = store.sub_chunk(key).expect("updated sub-chunk");
+    assert_eq!(sub.storages().len(), world::MAX_STORAGE_COUNT);
 
     let mesh = mesh(
         &classifier(),

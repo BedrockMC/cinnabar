@@ -1,6 +1,8 @@
 use std::sync::{Arc, mpsc};
 
-use world::{ChunkKey, ChunkStore, DecodeError, DecodedLevelChunk, SubChunk, SubChunkKey};
+use world::{ChunkKey, ChunkStore, DecodedLevelChunk, RawBlockIds, SubChunk, SubChunkKey};
+
+const IDS: RawBlockIds = RawBlockIds { air: 0 };
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -24,20 +26,6 @@ fn uniform(y: i8, runtime_id: u32) -> Vec<u8> {
     bytes
 }
 
-/// Builds one uniform biome storage for transaction-scanning tests.
-fn uniform_biome(runtime_id: u32) -> Vec<u8> {
-    let mut bytes = vec![1];
-    bytes.extend(zig_zag_i32(runtime_id as i32));
-    bytes
-}
-
-/// Builds one legacy uniform sub-chunk without an embedded Y index.
-fn legacy_uniform(runtime_id: u32) -> Vec<u8> {
-    let mut bytes = vec![1, 1];
-    bytes.extend(zig_zag_i32(runtime_id as i32));
-    bytes
-}
-
 #[test]
 fn public_prefix_decode_can_be_committed_without_redecoding() {
     let key = SubChunkKey::new(0, 4, -4, 7);
@@ -45,7 +33,7 @@ fn public_prefix_decode_can_be_committed_without_redecoding() {
     let mut payload = encoded.clone();
     payload.extend_from_slice(&[0x0a, 0x00, 0x00]);
 
-    let (decoded, consumed) = SubChunk::decode_prefix(&payload).expect("pure prefix decode");
+    let (decoded, consumed) = SubChunk::decode_prefix(&payload, &IDS);
     assert_eq!(consumed, encoded.len());
     assert_eq!(decoded.runtime_id(0, 0, 0, 0), Some(91));
 
@@ -67,13 +55,10 @@ fn level_chunk_decodes_on_a_rayon_worker_then_commits_atomically() {
     let (send, receive) = mpsc::sync_channel(1);
 
     rayon::spawn(move || {
-        send.send(DecodedLevelChunk::decode(-4, 2, &payload))
+        send.send(DecodedLevelChunk::decode(-4, 2, &payload, &IDS))
             .expect("send worker result");
     });
-    let decoded = receive
-        .recv()
-        .expect("receive worker result")
-        .expect("decode level chunk");
+    let decoded = receive.recv().expect("receive worker result");
 
     assert_eq!(decoded.bytes_consumed(), expected_consumed);
     assert_eq!(
@@ -98,137 +83,53 @@ fn level_chunk_decodes_on_a_rayon_worker_then_commits_atomically() {
 }
 
 #[test]
-fn later_malformed_sub_chunk_produces_no_committable_column() {
+fn truncated_level_chunk_decode_is_pure_until_committed() {
     let mut store = ChunkStore::new();
     let chunk_key = ChunkKey::new(0, 1, 2);
     let lower_key = SubChunkKey::from_chunk(chunk_key, -4);
     store
-        .apply_level_chunk(chunk_key, -4, 1, &uniform(-4, 7))
+        .apply_level_chunk(chunk_key, -4, 1, &uniform(-4, 7), &IDS)
         .unwrap();
     let before = store.sub_chunk(lower_key).unwrap();
 
-    let mut malformed = uniform(-4, 99);
-    malformed.push(9);
-    assert!(matches!(
-        DecodedLevelChunk::decode(-4, 2, &malformed),
-        Err(DecodeError::UnexpectedEof { .. })
-    ));
+    let mut truncated = uniform(-4, 99);
+    truncated.push(9);
+    let decoded = DecodedLevelChunk::decode(-4, 2, &truncated, &IDS);
+    assert_eq!(decoded.bytes_consumed(), truncated.len());
+    assert!(decoded.sub_chunk(-3).is_none());
+    assert!(Arc::ptr_eq(&before, &store.sub_chunk(lower_key).unwrap()));
 
-    let after = store.sub_chunk(lower_key).unwrap();
-    assert!(Arc::ptr_eq(&before, &after));
-    assert_eq!(after.runtime_id(0, 0, 0, 0), Some(7));
-}
-
-#[test]
-fn semantic_index_mismatch_cannot_hide_later_malformed_chunk_wire() {
-    let mut later_block_is_truncated = uniform(-3, 11);
-    later_block_is_truncated.push(9);
-    let block_error = DecodedLevelChunk::decode(-4, 2, &later_block_is_truncated).unwrap_err();
-    assert!(block_error.wire_error_reason().is_some());
-
-    let mut later_biome_is_truncated = uniform(-3, 11);
-    later_biome_is_truncated.push(1);
-    let biome_error =
-        DecodedLevelChunk::decode_with_biomes(-4, 1, -4, 1, &later_biome_is_truncated).unwrap_err();
-    assert!(biome_error.wire_error_reason().is_some());
-
-    let mut reserved_prefix_is_missing = uniform(-3, 11);
-    reserved_prefix_is_missing.extend(uniform_biome(4));
-    let tail_error = DecodedLevelChunk::decode_with_biomes_and_block_entities(
-        ChunkKey::new(0, 0, 0),
-        -4,
-        1,
-        -4,
-        1,
-        &reserved_prefix_is_missing,
-    )
-    .unwrap_err();
-    assert!(tail_error.wire_error_reason().is_some());
-}
-
-#[test]
-fn complete_index_mismatch_remains_survivable_decode_policy() {
-    let error = DecodedLevelChunk::decode(-4, 1, &uniform(-3, 11)).unwrap_err();
+    store.commit_level_chunk(chunk_key, decoded).unwrap();
     assert_eq!(
-        error,
-        DecodeError::SubChunkIndexMismatch {
-            expected: -4,
-            actual: -3,
-        }
+        store.sub_chunk(lower_key).unwrap().runtime_id(0, 0, 0, 0),
+        Some(99)
     );
-    assert!(error.wire_error_reason().is_none());
 }
 
 #[test]
-fn y_overflow_scans_remaining_declared_transaction_for_wire_errors() {
-    let first = legacy_uniform(5);
-    let mut truncated_second = first.clone();
-    truncated_second.push(1);
-    let second_error = DecodedLevelChunk::decode(i32::MAX, 2, &truncated_second).unwrap_err();
-    assert!(second_error.wire_error_reason().is_some());
-
-    let mut missing_tail = [first.clone(), legacy_uniform(6)].concat();
-    missing_tail.extend(uniform_biome(7));
-    let tail_error = DecodedLevelChunk::decode_with_biomes_and_block_entities(
-        ChunkKey::new(0, 0, 0),
-        i32::MAX,
-        2,
-        0,
-        1,
-        &missing_tail,
-    )
-    .unwrap_err();
-    assert!(tail_error.wire_error_reason().is_some());
+fn misplaced_version_nine_sub_chunk_decodes_to_an_empty_column() {
+    let payload = uniform(-3, 11);
+    let decoded = DecodedLevelChunk::decode(-4, 1, &payload, &IDS);
+    assert_eq!(decoded.sub_chunks().len(), 0);
+    assert_eq!(decoded.bytes_consumed(), payload.len());
 }
 
 #[test]
-fn complete_y_overflow_remains_survivable_decode_policy() {
-    let blocks = [legacy_uniform(5), legacy_uniform(6)].concat();
-    let error = DecodedLevelChunk::decode(i32::MAX, 2, &blocks).unwrap_err();
-    assert_eq!(
-        error,
-        DecodeError::SubChunkYOverflow {
-            first: i32::MAX,
-            offset: 1,
-        }
-    );
-    assert!(error.wire_error_reason().is_none());
-
-    let mut transaction = blocks;
-    transaction.extend(uniform_biome(7));
-    transaction.push(0);
-    let complete = DecodedLevelChunk::decode_with_biomes_and_block_entities(
-        ChunkKey::new(0, 0, 0),
-        i32::MAX,
-        2,
-        0,
-        1,
-        &transaction,
-    )
-    .unwrap_err();
-    assert!(matches!(complete, DecodeError::SubChunkYOverflow { .. }));
-    assert!(complete.wire_error_reason().is_none());
-}
-
-#[test]
-fn commit_reuses_equal_worker_snapshots_and_rejects_wrong_y_without_mutation() {
+fn commit_reuses_equal_worker_snapshots_and_ignores_the_y_byte() {
     let mut store = ChunkStore::new();
     let key = SubChunkKey::new(0, 3, -4, 5);
-    let (first, _) = SubChunk::decode_prefix(&uniform(-4, 12)).unwrap();
+    let (first, _) = SubChunk::decode_prefix(&uniform(-4, 12), &IDS);
     store.commit_sub_chunk(key, first).unwrap();
     let before = store.sub_chunk(key).unwrap();
 
-    let (equal, _) = SubChunk::decode_prefix(&uniform(-4, 12)).unwrap();
+    let (equal, _) = SubChunk::decode_prefix(&uniform(-4, 12), &IDS);
     assert_eq!(store.commit_sub_chunk(key, equal).unwrap(), None);
     assert!(Arc::ptr_eq(&before, &store.sub_chunk(key).unwrap()));
 
-    let (wrong_y, _) = SubChunk::decode_prefix(&uniform(-3, 99)).unwrap();
+    let (other_y, _) = SubChunk::decode_prefix(&uniform(-3, 99), &IDS);
+    assert_eq!(store.commit_sub_chunk(key, other_y), Ok(Some(key)));
     assert_eq!(
-        store.commit_sub_chunk(key, wrong_y),
-        Err(DecodeError::SubChunkIndexMismatch {
-            expected: -4,
-            actual: -3,
-        })
+        store.sub_chunk(key).unwrap().runtime_id(0, 0, 0, 0),
+        Some(99)
     );
-    assert!(Arc::ptr_eq(&before, &store.sub_chunk(key).unwrap()));
 }

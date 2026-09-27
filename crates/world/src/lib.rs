@@ -17,7 +17,7 @@ mod palette;
 mod store;
 mod sub_chunk;
 
-pub use biome::{BiomeStorage, DecodedBiomeColumn};
+pub use biome::{BiomeIds, BiomeStorage, DecodedBiomeColumn, RawBiomeIds};
 pub use block_entity::{
     BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockEntityNbtError, DecodedBlockEntities,
     DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITIES_PER_SUB_CHUNK,
@@ -41,7 +41,7 @@ pub use mesh_neighbourhood::{MeshDependencyMask, MeshNeighbourhood, MeshSample};
 pub use mutation::BlockUpdate;
 pub use palette::{BLOCKS_PER_SUB_CHUNK, Palette, PalettedStorage};
 pub use store::{
-    ApplyLevelChunk, ChunkCollisionRevision, ChunkStore, DecodedLevelChunk, MAX_LEVEL_SUBCHUNKS,
-    PreparedSubChunkMutation,
+    ApplyLevelChunk, ChunkCollisionRevision, ChunkStore, DecodedLevelChunk, DimensionSlots,
+    PreparedSubChunkMutation, decode_column_tail,
 };
-pub use sub_chunk::{MAX_PALETTE_ENTRIES, MAX_STORAGE_COUNT, SubChunk};
+pub use sub_chunk::{BlockIds, MAX_PALETTE_ENTRIES, MAX_STORAGE_COUNT, RawBlockIds, SubChunk};

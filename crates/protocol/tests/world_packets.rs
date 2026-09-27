@@ -700,8 +700,7 @@ fn rejects_malformed_or_cached_level_chunks() {
     );
 
     // A world taller than vanilla overworld is accepted: custom servers send
-    // standard dimension ids with taller columns. Only the absolute protocol
-    // bound is enforced.
+    // standard dimension ids with taller columns.
     let taller_than_overworld = LevelChunkPacket {
         dimension_id: DimensionType { value: 0 },
         subchunks_count: 25,
@@ -716,18 +715,22 @@ fn rejects_malformed_or_cached_level_chunks() {
     };
     assert_eq!(event.mode, LevelChunkMode::Inline { count: 25 });
 
-    let over_protocol_bound = LevelChunkPacket {
+    let over_request_bound = LevelChunkPacket {
         dimension_id: DimensionType { value: 0 },
         subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as u32,
         ..Default::default()
     };
+    let WorldEvent::LevelChunk(event) = into_world_event(over_request_bound.into(), 0)
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("expected LevelChunk event")
+    };
     assert_eq!(
-        into_world_event(over_protocol_bound.into(), 0),
-        Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
-            dimension: 0,
-            count: MAX_SUB_CHUNK_REQUESTS + 1,
-            max: MAX_SUB_CHUNK_REQUESTS,
-        })
+        event.mode,
+        LevelChunkMode::Inline {
+            count: MAX_SUB_CHUNK_REQUESTS + 1
+        }
     );
 }
 

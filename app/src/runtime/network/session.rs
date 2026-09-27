@@ -12,9 +12,9 @@ use std::{
 use bevy::prelude::Resource;
 use bytes::Bytes;
 use protocol::{
-    BlobCacheStats, ClientBlobCache, InventoryEvent, ItemRegistryEvent, LoginSequence, Packet,
-    PacketIdTraceSnapshot, PlayerGameMode, ServerDisconnectEvent, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent,
+    BlobCacheStats, ClientBlobCache, CustomBlocks, InventoryEvent, ItemRegistryEvent,
+    LoginSequence, Packet, PacketIdTraceSnapshot, PlayerGameMode, ServerDisconnectEvent,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
 };
 use tokio::sync::{mpsc, watch};
 use world::ChunkKey;
@@ -69,11 +69,13 @@ pub enum NetworkControlEvent {
         session_generation: u64,
         world: WorldBootstrap,
         environment: WorldEnvironmentBootstrap,
+        custom_blocks: CustomBlocks,
         inventory: InventoryEvent,
         item_registry: Option<ItemRegistryEvent>,
         player_game_mode: PlayerGameMode,
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
+        server_authoritative_block_breaking: bool,
         resource_packs: resource_pack::PackAdmission,
         server_lang: Option<Arc<assets::ServerLangOverlay>>,
     },
@@ -578,7 +580,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let (resource_packs, server_lang) =
                     super::resource_packs::prepare_pack_application(handoff);
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
+                let server_authoritative_block_breaking =
+                    protocol::server_authoritative_block_breaking(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
+                let custom_blocks = CustomBlocks::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
                 let item_registry = match start_game_item_registry(&game_data, bootstrap.dimension)
                 {
@@ -600,11 +605,13 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         session_generation,
                         world: bootstrap,
                         environment,
+                        custom_blocks,
                         inventory,
                         item_registry,
                         player_game_mode,
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
+                        server_authoritative_block_breaking,
                         resource_packs,
                         server_lang,
                     },

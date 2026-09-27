@@ -449,8 +449,8 @@ fn mesh_dispatch_waits_for_every_known_light_halo_slot() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(center.chunk(), decoded)
@@ -486,8 +486,8 @@ fn stale_light_value_mesh_is_requeued_but_provenance_identity_is_ignored() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(center.chunk(), decoded)
@@ -534,8 +534,8 @@ fn mid_flight_light_halo_load_rejects_preload_mesh_completion() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(center.chunk(), decoded)
@@ -684,8 +684,8 @@ fn mesh_dispatch_waits_for_current_light() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(key.chunk(), decoded)
