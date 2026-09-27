@@ -22,6 +22,7 @@ mod menu_status_tests;
 mod retained_hud_tests;
 mod safe_area_tests;
 mod tab_binding_tests;
+mod texture_pages;
 mod toast_tests;
 
 #[test]
@@ -380,7 +381,10 @@ fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
 
-    assert_eq!(active.textures.layers, font_page_count + 1);
+    assert_eq!(
+        active.textures.pages().len(),
+        font_page_count as usize + 1 + 9
+    );
     let panel_batch = active
         .batches
         .iter()
@@ -392,12 +396,9 @@ fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
         .iter()
         .map(|index| active.vertices[*index as usize])
         .collect::<Vec<_>>();
-    let layer_bytes = active.textures.width as usize
-        * active.textures.height as usize
-        * std::mem::size_of::<[u8; 4]>();
-    let solid_start = font_page_count as usize * layer_bytes;
     assert!(
-        active.textures.rgba8[solid_start..solid_start + layer_bytes]
+        active.textures.pages()[font_page_count as usize]
+            .pixels()
             .iter()
             .all(|byte| *byte == 255)
     );

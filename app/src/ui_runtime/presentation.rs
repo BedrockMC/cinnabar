@@ -181,8 +181,9 @@ impl std::error::Error for UiPresentationError {}
 #[derive(Resource)]
 pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
-    base_textures: Arc<UiRenderTextureArray>,
     textures: Arc<UiRenderTextureArray>,
+    texture_session: Option<u64>,
+    blank_dynamic_page: render::UiTexturePage,
     solid_texture_page: u16,
     hud_textures: Option<HudTexturePages>,
     icon_catalog: Option<Arc<RuntimeIconCatalog>>,
@@ -205,13 +206,12 @@ pub struct UiPresentationRuntime {
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// World-projected below-name score anchors for the current frame.
     below_name_anchors: Vec<BelowNameAnchor>,
-    /// Identity of the static font/HUD/item carrier before the optional
-    /// cached player-preview layer is appended.
-    base_texture_identity: [u8; 32],
+    /// Stable reserved logical page for the optional preview raster.
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
     player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
+    preview_dirty: bool,
     player_preview_icon: Option<IconRef>,
     left_hand_icon: Option<IconRef>,
     right_hand_icon: Option<IconRef>,
@@ -221,6 +221,7 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_icon: Option<IconRef>,
     menu_artwork_paths: Vec<String>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
+    menu_artwork_dirty: bool,
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
@@ -266,12 +267,12 @@ impl UiPresentationRuntime {
                 }
                 (hud, icons) => font_texture_array_with_hud_and_icons(&font, hud, icons)?,
             };
-        let base_texture_identity = textures.identity;
         let textures = Arc::new(textures);
         Ok(Self {
             font,
-            base_textures: Arc::clone(&textures),
+            blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
+            texture_session: None,
             solid_texture_page,
             hud_textures,
             icon_catalog: icons,
@@ -288,11 +289,11 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
-            base_texture_identity,
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
             player_preview_pixels: None,
+            preview_dirty: false,
             player_preview_icon: None,
             left_hand_icon: None,
             right_hand_icon: None,
@@ -302,6 +303,7 @@ impl UiPresentationRuntime {
             offhand_viewmodel_icon: None,
             menu_artwork_paths: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
+            menu_artwork_dirty: false,
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),
@@ -350,6 +352,7 @@ impl UiPresentationRuntime {
         });
         self.player_preview_source_hash = Some(source_hash);
         self.player_preview_pose = Some(pose);
+        self.preview_dirty = true;
         self.rebuild_dynamic_textures();
     }
 
@@ -370,6 +373,7 @@ impl UiPresentationRuntime {
             return;
         }
         self.menu_artwork_paths = paths;
+        self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
     }
 
@@ -439,6 +443,7 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        dynamic_textures::observe_session(self, runtime.session_id());
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =

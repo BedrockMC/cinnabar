@@ -27,9 +27,7 @@ const MAX_ARTWORKS: usize = 32;
 
 #[derive(Default)]
 pub(super) struct MenuArtworkAtlas {
-    pub(super) signature: [u8; 32],
-    pub(super) layers: u32,
-    pub(super) rgba8: Vec<u8>,
+    pub(super) pages: Vec<render::UiTexturePage>,
     pub(super) refs: HashMap<String, IconRef>,
 }
 
@@ -41,6 +39,10 @@ pub(super) fn load(
     max_layers: u32,
     max_bytes: usize,
 ) -> MenuArtworkAtlas {
+    // Dynamic reservations are fixed-size; callers cannot grow a second array.
+    if page_width != 256 || page_height != 256 {
+        return MenuArtworkAtlas::default();
+    }
     let cell_width = ARTWORK_WIDTH + GUTTER * 2;
     let cell_height = ARTWORK_HEIGHT + GUTTER * 2;
     let columns = page_width / cell_width;
@@ -51,24 +53,22 @@ pub(super) fn load(
         return MenuArtworkAtlas::default();
     }
     let byte_layers = max_bytes / layer_bytes;
-    let usable_layers = max_layers.min(u32::try_from(byte_layers).unwrap_or(u32::MAX));
+    let usable_layers = max_layers
+        .min(8)
+        .min(u32::try_from(byte_layers).unwrap_or(u32::MAX));
     if usable_layers == 0 {
         return MenuArtworkAtlas::default();
     }
 
     let mut unique = BTreeSet::new();
     let mut decoded = Vec::new();
-    let mut signature = Sha256::new();
-    signature.update(b"cinnabar-menu-artwork-v1");
     for path in paths.iter().take(MAX_ARTWORKS) {
         if path.is_empty() || !unique.insert(path.clone()) {
             continue;
         }
-        let Some((pixels, source_hash)) = decode(Path::new(path)) else {
+        let Some((pixels, _source_hash)) = decode(Path::new(path)) else {
             continue;
         };
-        signature.update(path.as_bytes());
-        signature.update(source_hash);
         decoded.push((path.clone(), pixels));
     }
     let capacity = usize::try_from(per_layer.saturating_mul(usable_layers)).unwrap_or(usize::MAX);
@@ -120,12 +120,14 @@ pub(super) fn load(
             },
         );
     }
-    MenuArtworkAtlas {
-        signature: signature.finalize().into(),
-        layers,
-        rgba8,
-        refs,
-    }
+    let pages = rgba8
+        .chunks_exact(layer_bytes)
+        .map(|pixels| {
+            render::UiTexturePage::owned([page_width, page_height], std::sync::Arc::from(pixels))
+                .expect("bounded artwork packing has exact checked page dimensions")
+        })
+        .collect();
+    MenuArtworkAtlas { pages, refs }
 }
 
 fn decode(path: &Path) -> Option<(Vec<u8>, [u8; 32])> {
