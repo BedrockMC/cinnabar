@@ -3,12 +3,14 @@ use std::sync::Arc;
 use bytes::Bytes;
 use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BedrockSession, BlockUsePacketError,
-    BlockUseRequest, InventoryPacketError, NetworkItemStack, VerifiedNetworkItemStack,
-    click_block_packet, decode_batch, destroy_block_packet, encode, use_actor_packet,
+    BlockUseRequest, InventoryPacketError, NetworkItemStack, SwingSource, VerifiedNetworkItemStack,
+    click_block_packet, decode_batch, destroy_block_packet, encode, swing_arm_packet,
+    use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_44::{
-    ContainerClosePacket, EnumsItemUseInventoryTransactionActionType,
+    ContainerClosePacket, EnumsAnimatePacketPayloadAction,
+    EnumsItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType, InventoryTransactionPacketTransaction,
@@ -558,4 +560,27 @@ fn actor_use_builder_preserves_finite_out_of_unit_hit_offsets() {
     assert_eq!(transaction.hit_position.x, request.hit_position[0]);
     assert_eq!(transaction.hit_position.y, request.hit_position[1]);
     assert_eq!(transaction.hit_position.z, request.hit_position[2]);
+}
+
+#[test]
+fn swing_arm_packet_round_trips_with_its_swing_source() {
+    for (source, name) in [
+        (SwingSource::Attack, "Attack"),
+        (SwingSource::Mine, "Mine"),
+        (SwingSource::Build, "Build"),
+    ] {
+        let packet = swing_arm_packet(0x1_0000_0001, source);
+        let bytes = encode(&packet, &session()).unwrap();
+        let decoded = decode_batch(bytes, &session()).unwrap().remove(0);
+        let McpePacketData::AnimatePacket(animate) = decoded.data else {
+            panic!("animate packet");
+        };
+        assert_eq!(animate.action, EnumsAnimatePacketPayloadAction::Swing);
+        assert_eq!(
+            animate.target_actor_runtime_id.actor_runtime_id,
+            0x1_0000_0001
+        );
+        assert_eq!(animate.data, 0.0);
+        assert_eq!(animate.swing_source.as_deref(), Some(name));
+    }
 }

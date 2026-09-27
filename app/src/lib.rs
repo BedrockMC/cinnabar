@@ -9,6 +9,7 @@ mod install_layout;
 mod interaction_authority;
 pub mod local_player;
 mod local_player_camera_receipt;
+mod melee;
 mod menu;
 pub mod metrics;
 mod mining;

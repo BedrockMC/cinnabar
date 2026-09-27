@@ -52,6 +52,8 @@ impl PlayerInputFlags {
     /// asserts this flag on the first transmitted sample after a qualifying
     /// server teleport; see the movement `teleport_ack` module.
     pub const HANDLED_TELEPORT: Self = Self(1 << 37);
+    /// Wire ordinal 39: an attack press hit neither an actor nor a block.
+    pub const MISSED_SWING: Self = Self(1 << 39);
     pub const HORIZONTAL_COLLISION: Self = Self(1 << 49);
     pub const VERTICAL_COLLISION: Self = Self(1 << 50);
     pub const DOWN_LEFT: Self = Self(1 << 51);

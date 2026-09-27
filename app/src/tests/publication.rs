@@ -13,6 +13,7 @@ use crate::block_use::produce_block_use;
 use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
+use crate::melee::produce_melee;
 use crate::menu::recover_menu_session_failure;
 use crate::mining::produce_creative_mining;
 use crate::movement::advance_local_physics;
@@ -146,9 +147,16 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, emit_phase3_evidence, "emit_phase3_evidence"),
+            system_node(graph, produce_melee, "produce_melee"),
+        ),
+        "the exact build/session/PREG/BREG identity marker must precede attack production",
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(graph, produce_melee, "produce_melee"),
             system_node(graph, produce_creative_mining, "produce_creative_mining"),
         ),
-        "the exact build/session/PREG/BREG identity marker must precede mining production",
+        "an attacked actor must veto mining the block behind it",
     );
     assert!(
         graph.dependency().graph().contains_edge(

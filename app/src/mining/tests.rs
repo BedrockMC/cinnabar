@@ -241,6 +241,7 @@ fn production_context_app(
         .insert_resource(fixture_registries())
         .insert_resource(runtime)
         .insert_resource(ticker)
+        .init_resource::<crate::melee::MeleeRuntime>()
         .add_systems(Update, super::produce_creative_mining);
     app
 }

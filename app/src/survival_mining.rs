@@ -19,10 +19,11 @@ use sim::{BlockDestroyInfo, DestroyConditions, HeldTool, PaletteWorld};
 use crate::{
     interaction_authority::observe_block,
     local_player::InteractionOriginSnapshot,
+    melee::{MeleeRuntime, SwingTracker, swing_duration},
     menu::MenuRuntime,
     mining::{FrozenMiningSelection, protocol_input_mode, survival_reach, verified_selection},
     movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
-    runtime::world::ClientWorld,
+    runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
     ui_runtime::UiRuntime,
 };
@@ -60,6 +61,8 @@ impl DestroyTarget {
 pub(crate) struct SurvivalTickPayload {
     pub(crate) actions: BlockActions,
     pub(crate) destroy: Option<DestroyTarget>,
+    /// Holding attack on a block attempts a mining swing every tick.
+    pub(crate) swing: bool,
 }
 
 impl SurvivalTickPayload {
@@ -163,7 +166,10 @@ impl DestroyMachine {
         let delayed = self.delay > 0;
         self.delay = self.delay.saturating_sub(1);
         let target = match input {
-            DestroyInput::Held(Some(target)) => target,
+            DestroyInput::Held(Some(target)) => {
+                payload.swing = true;
+                target
+            }
             DestroyInput::Released | DestroyInput::Held(None) => {
                 if let Some(destroying) = self.destroying.take() {
                     payload.push(
@@ -301,6 +307,7 @@ impl SurvivalMiningRuntime {
         ticker: &mut MovementTicker,
         input: DestroyInput<'_>,
         authority: BlockBreakingAuthority,
+        mut swing: impl FnMut(u64),
     ) {
         let identity = ticker.interaction_authority_identity();
         if let Some((session, _)) = self
@@ -329,6 +336,9 @@ impl SurvivalMiningRuntime {
         for (tick, on_ground) in ticks {
             let payload = self.machine.step(input, on_ground, authority);
             self.latched_press = false;
+            if payload.swing {
+                swing(tick);
+            }
             if !payload.is_empty() && !ticker.attach_survival_mining(tick, payload) {
                 // A tick that cannot carry its actions desynchronizes the server's view.
                 self.machine.interrupt();
@@ -347,14 +357,34 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
+    melee: Res<'w, MeleeRuntime>,
+    network: Res<'w, NetworkHandle>,
 }
 
 /// Runs after committed world publication and before the movement flush.
 pub(crate) fn produce_survival_mining(
     context: SurvivalMiningContext,
     mut runtime: ResMut<SurvivalMiningRuntime>,
+    mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
 ) {
+    let duration = swing_duration(context.effects.mining_effects());
+    let local_runtime_id = context
+        .client_world
+        .stream
+        .as_ref()
+        .map(|stream| stream.local_player_runtime_id());
+    let network = &context.network;
+    let swing = |tick| {
+        if let Some(local_runtime_id) = local_runtime_id
+            && swings.try_swing(tick, duration)
+        {
+            let _ = network.send_interaction_packet(protocol::swing_arm_packet(
+                local_runtime_id,
+                protocol::SwingSource::Mine,
+            ));
+        }
+    };
     let authority = context.ui.block_breaking_authority();
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
@@ -365,25 +395,32 @@ pub(crate) fn produce_survival_mining(
             &mut movement,
             DestroyInput::Released,
             authority.unwrap_or(BlockBreakingAuthority::Server),
+            swing,
         );
         return;
     };
     let attack = context.input.phase(Action::Attack);
     runtime.latched_press |= attack.pressed;
     if !attack.held && !runtime.latched_press {
-        runtime.step_ticks(&mut movement, DestroyInput::Released, authority);
+        runtime.step_ticks(&mut movement, DestroyInput::Released, authority, swing);
         return;
     }
-    let target = observe_destroy_target(
-        &context,
-        input.input_mode,
-        (input.authority_generation, input.frame_sequence),
-        movement.interaction_authority_identity().1,
-    );
+    // An actor in front owns the press; the block behind it is not a target.
+    let target = (!context.melee.actor_in_front())
+        .then(|| {
+            observe_destroy_target(
+                &context,
+                input.input_mode,
+                (input.authority_generation, input.frame_sequence),
+                movement.interaction_authority_identity().1,
+            )
+        })
+        .flatten();
     runtime.step_ticks(
         &mut movement,
         DestroyInput::Held(target.as_ref()),
         authority,
+        swing,
     );
 }
 

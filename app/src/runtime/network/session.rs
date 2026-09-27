@@ -403,6 +403,11 @@ impl NetworkHandle {
         self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
+    /// Queues a standalone swing or interaction packet ahead of this frame's movement.
+    pub(crate) fn send_interaction_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
+    }
+
     pub fn send_chat_packet(
         &self,
         session: u64,

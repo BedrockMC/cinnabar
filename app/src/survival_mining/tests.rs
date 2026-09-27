@@ -301,12 +301,27 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
     }
     let stone = target([0, 1, -3], "minecraft:stone", None);
     let mut runtime = SurvivalMiningRuntime::default();
-    runtime.step_ticks(&mut ticker, DestroyInput::Held(Some(&stone)), Server);
+    let mut swings = Vec::new();
+    runtime.step_ticks(
+        &mut ticker,
+        DestroyInput::Held(Some(&stone)),
+        Server,
+        |tick| {
+            swings.push(tick);
+        },
+    );
     // Re-running the frame must not step the same ticks again.
-    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server);
+    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server, |_| {});
     ticker.retain_creative_mining(None);
     ticker.enqueue_completed_physics(completed(103)).unwrap();
-    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server);
+    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server, |tick| {
+        swings.push(tick);
+    });
+    assert_eq!(
+        swings,
+        [101, 102],
+        "each held tick on a block attempts a swing"
+    );
 
     let mut packets = Vec::new();
     flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, packet| {
