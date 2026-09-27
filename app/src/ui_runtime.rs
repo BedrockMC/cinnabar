@@ -174,6 +174,7 @@ pub struct UiRuntime {
     block_cracks: crate::block_cracks::BlockCracks,
     inventory_authority: Option<InventoryAuthority>,
     player_game_mode: Option<PlayerGameMode>,
+    server_authoritative_block_breaking: Option<bool>,
     world_default_game_mode: Option<PlayerGameMode>,
     player_mode_from_default: bool,
     last_inventory_sequence: Option<u64>,
@@ -246,6 +247,7 @@ impl UiRuntime {
             block_cracks: crate::block_cracks::BlockCracks::default(),
             inventory_authority: None,
             player_game_mode: None,
+            server_authoritative_block_breaking: None,
             world_default_game_mode: None,
             player_mode_from_default: false,
             last_inventory_sequence: None,
@@ -686,6 +688,7 @@ impl UiRuntime {
         self.block_cracks = crate::block_cracks::BlockCracks::default();
         self.inventory_authority = None;
         self.player_game_mode = None;
+        self.server_authoritative_block_breaking = None;
         self.world_default_game_mode = None;
         self.player_mode_from_default = false;
         self.last_inventory_sequence = None;

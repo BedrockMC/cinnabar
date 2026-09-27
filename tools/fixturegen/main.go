@@ -228,6 +228,16 @@ func fixtures() []fixture {
 			pk:   playerAuthInputBlockActionsAndBreakBlockFixture(),
 		},
 		{
+			name: "PlayerAuthInputMineBlock",
+			file: "player_auth_input_mine_block.bin",
+			pk:   playerAuthInputMineBlockFixture(false),
+		},
+		{
+			name: "PlayerAuthInputMineBlockAndPredict",
+			file: "player_auth_input_mine_block_and_predict.bin",
+			pk:   playerAuthInputMineBlockFixture(true),
+		},
+		{
 			name: "AddActor",
 			file: "add_actor.bin",
 			pk: &packet.AddActor{
@@ -678,6 +688,27 @@ func playerAuthInputFixture() *packet.PlayerAuthInput {
 		CameraOrientation:  mgl32.Vec3{0.25, -0.5, -0.75},
 		RawMoveVector:      mgl32.Vec2{-1, 1},
 	}
+}
+
+// Independently authored codec coverage; no completion applicability is implied.
+func playerAuthInputMineBlockFixture(predict bool) *packet.PlayerAuthInput {
+	pk := playerAuthInputFixture()
+	pk.InputData.Set(packet.InputFlagPerformItemStackRequest)
+	pk.ItemStackRequest = protocol.Option(protocol.ItemStackRequest{
+		RequestID: -3,
+		Actions: []protocol.StackRequestAction{&protocol.MineBlockStackRequestAction{
+			HotbarSlot: 2, PredictedDurability: 7, StackNetworkID: 12345,
+		}},
+		FilterCause: -1,
+	})
+	if predict {
+		pk.InputData.Set(packet.InputFlagPerformBlockActions)
+		pk.BlockActions = protocol.Option([]protocol.PlayerBlockAction{{
+			Action:   protocol.PlayerActionPredictDestroyBlock,
+			BlockPos: protocol.BlockPos{13, 71, -29}, Face: 5,
+		}})
+	}
+	return pk
 }
 
 // playerAuthInputBlockActionsFixture is the movement fixture plus the

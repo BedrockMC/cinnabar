@@ -282,6 +282,7 @@ pub(crate) fn receive_network_events(
                 player_game_mode,
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
+                server_authoritative_block_breaking,
                 resource_packs,
                 server_lang,
             } => {
@@ -305,6 +306,7 @@ pub(crate) fn receive_network_events(
                     }
                 }
                 ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
@@ -446,6 +448,11 @@ pub(crate) fn receive_network_events(
                     server_lang,
                     client_world.fatal_error.is_none(),
                 );
+                ui_runtime.install_block_breaking_mode(
+                    session_generation,
+                    server_authoritative_block_breaking,
+                    client_world.fatal_error.is_none(),
+                );
             }
             NetworkControlEvent::SubChunkRequestSent {
                 chunk,
@@ -520,8 +527,10 @@ pub(crate) fn receive_network_events(
                 server_disconnect,
                 origin,
             } => {
+                UiRuntime::retire_crafting_observation();
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
                 // Only a receive-side termination is a remote-initiated close;
                 // latch it while the ticker still reports the live session.
                 if origin == NetworkFailureOrigin::Receive {
@@ -541,8 +550,10 @@ pub(crate) fn receive_network_events(
                 target: SessionTransferTarget { host, port },
                 decode_error_count,
             } => {
+                UiRuntime::retire_crafting_observation();
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
                 // The client chose to end this session, so this is not a
                 // remote-initiated transport failure and must not latch the
                 // remote-close movement classification.
@@ -557,8 +568,10 @@ pub(crate) fn receive_network_events(
                     Some(crate::runtime::world::TransferNotice { host, port });
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
+                UiRuntime::retire_crafting_observation();
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
+                ui_runtime.clear_block_breaking_mode();
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
