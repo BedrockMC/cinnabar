@@ -4,8 +4,8 @@ use std::{
 };
 
 use assets::{
-    CompiledMolangExpression, EntityAnimationInterpolation, EntityAnimationLoop,
-    EntityAnimationProperty, EntityAssetKind, EntityGeometryBone, EntityRigFallback, MolangOp,
+    EntityAnimationInterpolation, EntityAnimationLoop, EntityAssetKind,
+    EntityControllerAnimationTarget, EntityGeometryBone, EntityRigFallback, MolangOp,
     RuntimeEntityAssets, validate_entity_geometry_inheritance,
 };
 use protocol::{ActorKind, ActorMetadataValue};
@@ -53,6 +53,11 @@ pub struct ActorRigSnapshot<'a> {
     pub completed_tick: u64,
     pub reset_generation: u64,
     pub fallback: EntityRigFallback,
+    /// Authored uniform model scale about the feet origin.
+    pub scale: f32,
+    /// Body yaw in degrees at the previous and current completed tick.
+    pub previous_body_yaw: f32,
+    pub body_yaw: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -67,6 +72,7 @@ pub struct ActorAnimationStats {
 #[derive(Debug)]
 pub(crate) struct ActorAnimationStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
+    layout: Arc<VariableLayout>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     completed_tick: u64,
@@ -78,6 +84,7 @@ pub(crate) struct ActorAnimationStore {
 #[derive(Debug)]
 struct ActorRigState {
     rig: EntityRigId,
+    rig_binding: usize,
     geometry_binding: usize,
     bones: Vec<RuntimeBone>,
     controllers: Vec<ControllerState>,
@@ -94,6 +101,9 @@ struct ActorRigState {
     completed_tick: u64,
     fallback: EntityRigFallback,
     history: VecDeque<ActorTickInput>,
+    variables: MolangVariables,
+    initialized: bool,
+    motion: MotionState,
 }
 
 #[derive(Clone, Debug)]
@@ -109,20 +119,26 @@ struct ControllerState {
     state: u16,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 struct ActorTickInput {
+    position: [f32; 3],
+    position_delta: [f32; 3],
     velocity: [f32; 3],
     on_ground: bool,
     body_yaw: f32,
     head_yaw: f32,
     pitch: f32,
     is_riding: bool,
+    distance_moved: f32,
+    move_speed: f32,
 }
 
 struct EvaluatedState {
     pose: Vec<BoneTransform>,
     controllers: Vec<ControllerState>,
     history: VecDeque<ActorTickInput>,
+    variables: MolangVariables,
+    motion: MotionState,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -182,6 +198,12 @@ impl ActorAnimationStore {
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         Self {
+            layout: Arc::new(
+                assets
+                    .as_deref()
+                    .map(VariableLayout::new)
+                    .unwrap_or_default(),
+            ),
             assets,
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
@@ -216,7 +238,7 @@ impl ActorAnimationStore {
             runtime_id: actor.runtime_id,
             spawn_revision: actor.spawn_revision,
         };
-        let Some(mut state) = resolve_rig(&assets, actor, self.completed_tick) else {
+        let Some(mut state) = resolve_rig(&assets, &self.layout, actor, self.completed_tick) else {
             self.stats.unrigged_spawns = self.stats.unrigged_spawns.saturating_add(1);
             return;
         };
@@ -237,10 +259,20 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Restarts the arm swing whose progress feeds `variable.attack_time`.
+    pub(crate) fn start_swing(&mut self, runtime_id: u64) {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
+            return;
+        };
+        if let Some(state) = self.rigs.get_mut(lifetime) {
+            state.motion.start_swing();
+        }
+    }
+
     pub(crate) fn advance_tick(
         &mut self,
         actors: &HashMap<u64, ActorSnapshot>,
-        rider_to_ridden: &HashMap<i64, i64>,
+        context: impl Fn(&ActorSnapshot) -> ActorTickContext,
     ) {
         self.completed_tick = self.completed_tick.saturating_add(1);
         let Some(assets) = self.assets.clone() else {
@@ -306,9 +338,10 @@ impl ActorAnimationStore {
             };
             let result = evaluate_state(
                 &assets,
+                &self.layout,
                 state,
                 actor,
-                rider_to_ridden.contains_key(&actor.unique_id),
+                context(actor),
                 self.completed_tick,
                 &mut budget,
             );
@@ -320,6 +353,9 @@ impl ActorAnimationStore {
                 Ok(evaluated) => {
                     state.controllers = evaluated.controllers;
                     state.history = evaluated.history;
+                    state.variables = evaluated.variables;
+                    state.motion = evaluated.motion;
+                    state.initialized = true;
                     if state.reset_pending {
                         state.previous.clone_from(&evaluated.pose);
                         state.current = evaluated.pose;
@@ -388,6 +424,13 @@ impl ActorAnimationStore {
             completed_tick: state.completed_tick,
             reset_generation: state.reset_generation,
             fallback: state.fallback,
+            scale: self
+                .assets
+                .as_ref()
+                .and_then(|assets| assets.rig_bindings().get(state.rig_binding))
+                .map_or(1.0, |rig| rig.scale.get()),
+            previous_body_yaw: state.motion.previous_body_yaw,
+            body_yaw: state.motion.body_yaw,
         })
     }
 
@@ -405,6 +448,7 @@ impl ActorAnimationStore {
 
 fn resolve_rig(
     assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
     actor: &ActorSnapshot,
     completed_tick: u64,
 ) -> Option<ActorRigState> {
@@ -419,10 +463,11 @@ fn resolve_rig(
         .symbols()
         .iter()
         .position(|symbol| std::ptr::eq(symbol, entity_symbol))?;
-    let rig = assets
+    let rig_binding = assets
         .rig_bindings()
         .iter()
-        .find(|rig| rig.entity_symbol as usize == entity_symbol_index)?;
+        .position(|rig| rig.entity_symbol as usize == entity_symbol_index)?;
+    let rig = &assets.rig_bindings()[rig_binding];
     let first = rig.first_geometry as usize;
     let end = first.checked_add(rig.geometry_count as usize)?;
     let candidates = assets.rig_geometries().get(first..end)?;
@@ -435,18 +480,33 @@ fn resolve_rig(
         used: 0,
     };
     let mut candidate_offset = 0;
-    let empty_history = VecDeque::new();
+    let input = ActorTickInput {
+        position: actor.position,
+        velocity: actor.velocity,
+        on_ground: actor.on_ground.unwrap_or(false),
+        body_yaw: actor.body_yaw,
+        head_yaw: actor.head_yaw,
+        pitch: actor.pitch,
+        ..ActorTickInput::default()
+    };
+    let evaluator = Evaluator {
+        assets,
+        layout,
+        actor,
+        input: &input,
+        anim_tick: 0,
+        life_tick: 0,
+    };
+    let mut variables = layout.fresh();
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
-        let selected = evaluate_expression(
-            assets,
-            candidate.condition? as usize,
-            actor,
-            &empty_history,
-            0,
-            0,
-            &mut budget,
-        )
-        .ok()?;
+        let selected = evaluator
+            .run(
+                candidate.condition? as usize,
+                &mut variables,
+                0.0,
+                &mut budget,
+            )
+            .ok()?;
         if truthy(selected) {
             candidate_offset = offset;
             break;
@@ -463,22 +523,18 @@ fn resolve_rig(
     let current = compose_pose(&bones, &[])?;
     let controller_first = candidate.first_controller as usize;
     let controller_end = controller_first.checked_add(candidate.controller_count as usize)?;
-    let controllers = assets
+    let mut controllers = Vec::new();
+    for binding in assets
         .rig_controllers()
         .get(controller_first..controller_end)?
-        .iter()
-        .map(|binding| {
-            let controller = assets.controllers().get(binding.controller as usize)?;
-            Some(ControllerState {
-                controller: binding.controller as usize,
-                state: controller.initial_state,
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
+    {
+        collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
+    }
     Some(ActorRigState {
         // The renderer needs the resolved geometry candidate, not only the
         // entity-level binding that may contain several candidates.
         rig: EntityRigId(geometry_binding as u32),
+        rig_binding,
         geometry_binding,
         bones,
         controllers,
@@ -495,7 +551,49 @@ fn resolve_rig(
         completed_tick,
         fallback: rig.fallback,
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
+        variables,
+        initialized: false,
+        motion: MotionState::spawn(actor.body_yaw, actor.head_yaw),
     })
+}
+
+/// Adds one runtime state per controller reachable from a rig root, each once.
+fn collect_controllers(
+    assets: &RuntimeEntityAssets,
+    controller: usize,
+    depth: usize,
+    output: &mut Vec<ControllerState>,
+) -> Option<()> {
+    if depth >= assets::MAX_ENTITY_CONTROLLER_NESTING {
+        return None;
+    }
+    if output
+        .iter()
+        .any(|runtime| runtime.controller == controller)
+    {
+        return Some(());
+    }
+    let compiled = assets.controllers().get(controller)?;
+    output.push(ControllerState {
+        controller,
+        state: compiled.initial_state,
+    });
+    let states = assets.controller_states().get(
+        compiled.first_state as usize
+            ..compiled.first_state as usize + compiled.state_count as usize,
+    )?;
+    for state in states {
+        let animations = assets.controller_animations().get(
+            state.first_animation as usize
+                ..state.first_animation as usize + state.animation_count as usize,
+        )?;
+        for animation in animations {
+            if let EntityControllerAnimationTarget::Controller(nested) = animation.target {
+                collect_controllers(assets, nested as usize, depth + 1, output)?;
+            }
+        }
+    }
+    Some(())
 }
 
 fn resolve_bones(assets: &RuntimeEntityAssets, geometry_index: usize) -> Option<Vec<RuntimeBone>> {
@@ -587,356 +685,16 @@ fn scalars(values: Option<&[assets::EntityGeometryScalar; 3]>) -> [f32; 3] {
     values.map_or([0.0; 3], |values| values.map(|value| value.get()))
 }
 
-fn evaluate_state(
-    assets: &RuntimeEntityAssets,
-    state: &ActorRigState,
-    actor: &ActorSnapshot,
-    is_riding: bool,
-    tick: u64,
-    budget: &mut EvalBudget<'_>,
-) -> Result<EvaluatedState, EvalError> {
-    let animation_tick = if state.reset_pending {
-        0
-    } else {
-        tick.saturating_sub(state.animation_epoch)
-    };
-    let life_tick = tick.saturating_sub(state.lifetime_epoch);
-    let mut history = if state.reset_pending {
-        VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY)
-    } else {
-        state.history.clone()
-    };
-    if history.len() == MAX_ACTOR_ACTION_HISTORY {
-        history.pop_front();
-    }
-    history.push_back(ActorTickInput {
-        velocity: actor.velocity,
-        on_ground: actor.on_ground.unwrap_or(false),
-        body_yaw: actor.body_yaw,
-        head_yaw: actor.head_yaw,
-        pitch: actor.pitch,
-        is_riding,
-    });
-    let mut controllers = state.controllers.clone();
-    if state.reset_pending {
-        for runtime in &mut controllers {
-            runtime.state = assets
-                .controllers()
-                .get(runtime.controller)
-                .ok_or(EvalError::Invalid)?
-                .initial_state;
-        }
-    }
-    let mut weighted_clips = Vec::new();
-    let candidate = assets
-        .rig_geometries()
-        .get(state.geometry_binding)
-        .ok_or(EvalError::Invalid)?;
-    let direct_first = candidate.first_animation as usize;
-    let direct_end = direct_first
-        .checked_add(candidate.animation_count as usize)
-        .ok_or(EvalError::Invalid)?;
-    for binding in assets
-        .rig_animations()
-        .get(direct_first..direct_end)
-        .ok_or(EvalError::Invalid)?
-    {
-        budget.charge_work()?;
-        weighted_clips.push((binding.clip as usize, 1.0));
-    }
-    for runtime in &mut controllers {
-        budget.charge_work()?;
-        advance_controller(
-            assets,
-            runtime,
-            actor,
-            &history,
-            animation_tick,
-            life_tick,
-            budget,
-        )?;
-        let controller = assets
-            .controllers()
-            .get(runtime.controller)
-            .ok_or(EvalError::Invalid)?;
-        if runtime.state >= controller.state_count {
-            return Err(EvalError::Invalid);
-        }
-        let state_index = controller.first_state as usize + runtime.state as usize;
-        let controller_state = assets
-            .controller_states()
-            .get(state_index)
-            .ok_or(EvalError::Invalid)?;
-        let first = controller_state.first_animation as usize;
-        let end = first
-            .checked_add(controller_state.animation_count as usize)
-            .ok_or(EvalError::Invalid)?;
-        for animation in assets
-            .controller_animations()
-            .get(first..end)
-            .ok_or(EvalError::Invalid)?
-        {
-            budget.charge_work()?;
-            let weight = animation.weight.map_or(Ok(1.0), |expression| {
-                evaluate_expression(
-                    assets,
-                    expression as usize,
-                    actor,
-                    &history,
-                    animation_tick,
-                    life_tick,
-                    budget,
-                )
-            })?;
-            if weight.is_finite() && weight != 0.0 {
-                weighted_clips.push((animation.clip as usize, weight));
-            }
-        }
-    }
-    let local = sample_clips(
-        assets,
-        state.bones.len(),
-        &weighted_clips,
-        animation_tick,
-        budget,
-    )?;
-    compose_pose(&state.bones, &local)
-        .map(|pose| EvaluatedState {
-            pose,
-            controllers,
-            history,
-        })
-        .ok_or(EvalError::Invalid)
-}
-
-fn advance_controller(
-    assets: &RuntimeEntityAssets,
-    runtime: &mut ControllerState,
-    actor: &ActorSnapshot,
-    history: &VecDeque<ActorTickInput>,
-    tick: u64,
-    life_tick: u64,
-    budget: &mut EvalBudget<'_>,
-) -> Result<(), EvalError> {
-    let controller = assets
-        .controllers()
-        .get(runtime.controller)
-        .ok_or(EvalError::Invalid)?;
-    loop {
-        if runtime.state >= controller.state_count {
-            return Err(EvalError::Invalid);
-        }
-        let state_index = controller.first_state as usize + runtime.state as usize;
-        let state = assets
-            .controller_states()
-            .get(state_index)
-            .ok_or(EvalError::Invalid)?;
-        let first = state.first_transition as usize;
-        let end = first
-            .checked_add(state.transition_count as usize)
-            .ok_or(EvalError::Invalid)?;
-        let mut target = None;
-        for transition in assets
-            .controller_transitions()
-            .get(first..end)
-            .ok_or(EvalError::Invalid)?
-        {
-            budget.charge_work()?;
-            let condition = evaluate_expression(
-                assets,
-                transition.condition as usize,
-                actor,
-                history,
-                tick,
-                life_tick,
-                budget,
-            )?;
-            if truthy(condition) {
-                target = Some(transition.target_state);
-                break;
-            }
-        }
-        let Some(target) = target else {
-            return Ok(());
-        };
-        if !budget.take_transition() {
-            return Ok(());
-        }
-        if target >= controller.state_count {
-            return Err(EvalError::Invalid);
-        }
-        if let Some(expression) = state.on_exit {
-            evaluate_expression(
-                assets,
-                expression as usize,
-                actor,
-                history,
-                tick,
-                life_tick,
-                budget,
-            )?;
-        }
-        runtime.state = target;
-        let target_state = assets
-            .controller_states()
-            .get(controller.first_state as usize + target as usize)
-            .ok_or(EvalError::Invalid)?;
-        if let Some(expression) = target_state.on_entry {
-            evaluate_expression(
-                assets,
-                expression as usize,
-                actor,
-                history,
-                tick,
-                life_tick,
-                budget,
-            )?;
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct LocalDelta {
-    translation: [f32; 3],
-    rotation: [f32; 3],
-    scale: [f32; 3],
-}
-
-impl Default for LocalDelta {
-    fn default() -> Self {
-        Self {
-            translation: [0.0; 3],
-            rotation: [0.0; 3],
-            scale: [1.0; 3],
-        }
-    }
-}
-
-fn sample_clips(
-    assets: &RuntimeEntityAssets,
-    bone_count: usize,
-    clips: &[(usize, f32)],
-    tick: u64,
-    budget: &mut EvalBudget<'_>,
-) -> Result<Vec<LocalDelta>, EvalError> {
-    let mut local = vec![LocalDelta::default(); bone_count];
-    for &(clip_index, weight) in clips {
-        budget.charge_work()?;
-        let clip = assets
-            .animation_clips()
-            .get(clip_index)
-            .ok_or(EvalError::Invalid)?;
-        let length = clip.length_seconds.get();
-        let raw_time = tick as f32 * 0.05;
-        let time = match clip.loop_mode {
-            EntityAnimationLoop::Loop if length > 0.0 => raw_time.rem_euclid(length),
-            EntityAnimationLoop::Once | EntityAnimationLoop::HoldOnLastFrame => {
-                raw_time.clamp(0.0, length)
-            }
-            EntityAnimationLoop::Loop => 0.0,
-        };
-        let first = clip.first_channel as usize;
-        let end = first
-            .checked_add(clip.channel_count as usize)
-            .ok_or(EvalError::Invalid)?;
-        for channel in assets
-            .animation_channels()
-            .get(first..end)
-            .ok_or(EvalError::Invalid)?
-        {
-            budget.charge_work()?;
-            let bone = local
-                .get_mut(channel.bone as usize)
-                .ok_or(EvalError::Invalid)?;
-            let value =
-                sample_channel(assets, channel.first_keyframe, channel.keyframe_count, time)?;
-            match channel.property {
-                EntityAnimationProperty::Translation => {
-                    for (axis, value) in value.into_iter().enumerate() {
-                        bone.translation[axis] += value * weight;
-                    }
-                }
-                EntityAnimationProperty::Rotation => {
-                    for (axis, value) in value.into_iter().enumerate() {
-                        bone.rotation[axis] += value * weight;
-                    }
-                }
-                EntityAnimationProperty::Scale => {
-                    for (axis, value) in value.into_iter().enumerate() {
-                        bone.scale[axis] *= 1.0 + (value - 1.0) * weight;
-                    }
-                }
-            }
-        }
-    }
-    Ok(local)
-}
-
-fn sample_channel(
-    assets: &RuntimeEntityAssets,
-    first: u32,
-    count: u32,
-    time: f32,
-) -> Result<[f32; 3], EvalError> {
-    let first = first as usize;
-    let frames = assets
-        .animation_keyframes()
-        .get(
-            first
-                ..first
-                    .checked_add(count as usize)
-                    .ok_or(EvalError::Invalid)?,
-        )
-        .ok_or(EvalError::Invalid)?;
-    let first_frame = frames.first().ok_or(EvalError::Invalid)?;
-    if time < first_frame.time_seconds.get() {
-        return Ok(first_frame.value.map(|value| value.get()));
-    }
-    let exact_end = frames.partition_point(|frame| frame.time_seconds.get() <= time);
-    if exact_end > 0 && frames[exact_end - 1].time_seconds.get() == time {
-        return Ok(frames[exact_end - 1].value.map(|value| value.get()));
-    }
-    if exact_end == frames.len() {
-        return Ok(frames[frames.len() - 1].value.map(|value| value.get()));
-    }
-    let left_index = exact_end - 1;
-    let right_index = exact_end;
-    let left = &frames[left_index];
-    let right = &frames[right_index];
-    let left_time = left.time_seconds.get();
-    let right_time = right.time_seconds.get();
-    let amount = ((time - left_time) / (right_time - left_time)).clamp(0.0, 1.0);
-    let left_value = left.value.map(|value| value.get());
-    let right_value = right.value.map(|value| value.get());
-    match left.interpolation {
-        EntityAnimationInterpolation::Step => Ok(left_value),
-        EntityAnimationInterpolation::Linear => Ok(lerp3(left_value, right_value, amount)),
-        EntityAnimationInterpolation::CatmullRom => {
-            let previous = frames
-                .get(left_index.saturating_sub(1))
-                .unwrap_or(left)
-                .value
-                .map(|value| value.get());
-            let next = frames
-                .get(right_index + 1)
-                .unwrap_or(right)
-                .value
-                .map(|value| value.get());
-            Ok(std::array::from_fn(|axis| {
-                catmull(
-                    previous[axis],
-                    left_value[axis],
-                    right_value[axis],
-                    next[axis],
-                    amount,
-                )
-            }))
-        }
-    }
-}
-
 mod evaluation;
-use evaluation::*;
+mod motion;
+mod pose;
+mod query;
+mod tick;
+use evaluation::{Evaluator, MolangVariables, VariableLayout, truthy};
+use motion::{MotionInput, MotionState};
+use pose::{compose_pose, sample_clips};
+pub(crate) use tick::ActorTickContext;
+use tick::evaluate_state;
 
 #[cfg(test)]
 mod tests;

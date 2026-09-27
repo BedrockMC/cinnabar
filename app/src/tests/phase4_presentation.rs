@@ -114,6 +114,9 @@ fn rig<'a>(
         completed_tick: 11,
         reset_generation: 5,
         fallback: EntityRigFallback::GeometryOnly,
+        scale: 1.0,
+        previous_body_yaw: 0.0,
+        body_yaw: 0.0,
     }
 }
 

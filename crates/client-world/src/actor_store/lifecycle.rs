@@ -365,8 +365,26 @@ impl ActorStore {
                 }
                 actor.set_current_pose(next);
             }
-            self.animation
-                .advance_tick(&self.actors, &self.rider_to_ridden);
+            let (session_id, dimension) = (self.session_id, self.dimension);
+            let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
+            self.animation.advance_tick(&self.actors, |actor| {
+                let lifetime = ActorLifetimeId {
+                    session_id,
+                    dimension,
+                    runtime_id: actor.runtime_id,
+                    spawn_revision: actor.spawn_revision,
+                };
+                let holding = |hand| {
+                    items
+                        .get_in_hand(lifetime, hand)
+                        .is_some_and(|equipment| equipment.item.identity.network_id != 0)
+                };
+                crate::actor_animation::ActorTickContext {
+                    is_riding: rider_to_ridden.contains_key(&actor.unique_id),
+                    holding_right: holding(protocol::ActorHandedness::Right),
+                    holding_left: holding(protocol::ActorHandedness::Left),
+                }
+            });
             self.actions.advance_tick();
         }
     }
@@ -586,9 +604,13 @@ impl ActorStore {
                 let mut accepted = false;
                 for (lifetime, rig) in targets {
                     let source_tick = ActorSourceTick::IngressSequence(sequence);
-                    accepted |= self
+                    let applied = self
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
+                    if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
+                        self.animation.start_swing(lifetime.runtime_id);
+                    }
+                    accepted |= applied;
                 }
                 if accepted {
                     ActorApplyResult::Updated
