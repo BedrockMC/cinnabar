@@ -1016,3 +1016,48 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
         ]
     );
 }
+
+/// Layer conflicts must resolve to the same diagnostic/primary/liquid winners.
+#[test]
+fn conflicting_layer_mesh_output_is_golden() {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let ids = [
+        AIR,
+        SOLID,
+        CROSS,
+        WATER_SOURCE,
+        WATER_SOURCE + 2,
+        OTHER_LIQUID,
+    ];
+    let chunks = (0..27)
+        .map(|_| {
+            let layers = (0..3)
+                .map(|_| {
+                    let placements = (0..4096_u32)
+                        .filter_map(|i| {
+                            let id = ids[(next() % ids.len() as u64) as usize];
+                            let position = [(i >> 8) as u8, (i & 15) as u8, ((i >> 4) & 15) as u8];
+                            (id != AIR).then_some((position, ids.iter().position(|&v| v == id)?))
+                        })
+                        .collect::<Vec<_>>();
+                    packed_storage(3, &ids, &placements)
+                })
+                .collect();
+            sub_chunk(layers)
+        })
+        .collect::<Vec<_>>();
+    let mesh = mesh_mixed(&chunks);
+    let digest = format!("{mesh:?}")
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+    assert!(!mesh.cube_quads().is_empty());
+    assert_eq!(digest, 6_650_782_414_319_392_370);
+}
