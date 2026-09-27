@@ -45,7 +45,8 @@ impl StackIdentity {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 struct Identity {
-    slot: u8,
+    /// Current client-resolved selection; this is not a server selection confirmation.
+    client_selected_slot: u8,
     item_version_wire_value: i32,
     component_based: bool,
     canonical_empty_component_data: bool,
@@ -186,7 +187,8 @@ impl UiRuntime {
         {
             return;
         }
-        // Never substitute equipment/bootstrap or predicted snapshots for ledger authority.
+        // Selection is client intent, not server confirmation or transport success.
+        // Never substitute equipment/bootstrap or predicted stacks for ledger authority.
         let Some(PlayerInventorySlot::Present(stack)) = self.inventory_ledger.slot_state(slot)
         else {
             return;
@@ -223,7 +225,7 @@ impl UiRuntime {
             ItemRegistryVersion::Unknown(value) => value,
         };
         let identity = Identity {
-            slot,
+            client_selected_slot: slot,
             item_version_wire_value: version,
             component_based: entry.component_based,
             canonical_empty_component_data: entry.canonical_empty_component_data,

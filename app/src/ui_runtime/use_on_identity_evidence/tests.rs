@@ -285,6 +285,8 @@ fn serialization_contains_only_fixed_identity_fields_and_normalized_digests() {
     }
     let value: serde_json::Value = serde_json::from_str(&encoded).unwrap();
     assert_eq!(value["identifier"], TARGET);
+    assert_eq!(value["identity"]["client_selected_slot"], 0);
+    assert!(value["identity"].get("slot").is_none());
     assert_eq!(
         value["identity"]["normalized_component_sha256"],
         serde_json::to_value([7_u8; 32]).unwrap()
