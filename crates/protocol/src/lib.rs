@@ -13,6 +13,7 @@ mod item_capacity;
 mod login;
 mod movement;
 mod packet;
+mod permissions;
 mod raw_text;
 mod socket_transport;
 mod transfer;
@@ -101,6 +102,10 @@ pub use movement::{
     player_auth_input_with_interactions, player_auth_input_with_mining_request,
 };
 pub use packet::Packet;
+pub use permissions::{
+    AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence, MAX_ABILITY_LAYERS,
+    decode_abilities_update,
+};
 pub use raw_text::{
     MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,

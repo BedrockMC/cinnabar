@@ -1138,5 +1138,6 @@ mod cases_11;
 mod forced_remesh;
 mod inline_cohort;
 mod inventory_commit_fence;
+mod local_abilities;
 mod render_distance;
 mod wire_preemption;

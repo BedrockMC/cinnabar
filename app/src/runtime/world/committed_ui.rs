@@ -15,6 +15,16 @@ pub(crate) fn drain_committed_ui_before_authority(
     time: Res<Time<Real>>,
 ) {
     let session = clock.session_generation();
+    let ability_stream = client_world
+        .stream
+        .as_ref()
+        .filter(|stream| {
+            client_world.fatal_error.is_none()
+                && client_world.transfer_notice.is_none()
+                && stream.inventory_committed_through().is_some()
+        })
+        .map(|stream| stream.biome_tint_identity().stream());
+    ui_runtime.synchronize_local_abilities(session, ability_stream);
     let craft_identity = client_world
         .stream
         .as_ref()
@@ -48,6 +58,16 @@ pub(crate) fn drain_committed_ui_before_authority(
     }
     for committed in committed_ui {
         let result = match committed {
+            CommittedUiEvent::LocalAbilities {
+                sequence,
+                stream_identity,
+                event,
+            } => {
+                if Some(stream_identity) == ability_stream {
+                    ui_runtime.apply_local_abilities(session, stream_identity, sequence, event);
+                }
+                Ok(())
+            }
             CommittedUiEvent::Form {
                 sequence,
                 dimension_epoch: event_epoch,
@@ -126,6 +146,7 @@ pub(crate) fn drain_committed_ui_before_authority(
             }
         };
         if let Err(error) = result {
+            ui_runtime.clear_local_abilities();
             record_fatal_error(
                 &mut client_world.fatal_error,
                 format!("committed UI/gameplay event rejected: {error:?}"),

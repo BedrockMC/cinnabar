@@ -787,6 +787,16 @@ impl WorldStream {
                 // Remote actors' effects have no owned presentation surface yet;
                 // the event is committed and dropped rather than retained.
             }
+            WorldEvent::Abilities(event) => {
+                let sequence = sequence.expect("sequenced abilities commit through submit");
+                if event.actor_unique_id == self.local_player_unique_id {
+                    self.push_committed_ui(CommittedUiEvent::LocalAbilities {
+                        sequence,
+                        stream_identity: self.biome_tint_identity().stream(),
+                        event,
+                    });
+                }
+            }
             WorldEvent::ArmorEquipment(event) => {
                 let sequence = sequence.expect("sequenced armor events commit through submit");
                 if event.actor_runtime_id == self.local_player_runtime_id {
