@@ -356,7 +356,8 @@ pub(crate) struct SurvivalMiningRuntime {
 }
 
 impl SurvivalMiningRuntime {
-    /// Steps every unsent tick once, attaching nonempty payloads to their samples.
+    /// Steps every unsent tick once, attaching nonempty payloads to their
+    /// samples, and returns the mining request ids no tick carried.
     pub(crate) fn step_ticks(
         &mut self,
         ticker: &mut MovementTicker,
@@ -364,7 +365,8 @@ impl SurvivalMiningRuntime {
         authority: BlockBreakingAuthority,
         mut swing: impl FnMut(u64),
         mut request_id: impl FnMut(u8, i32) -> Option<i32>,
-    ) {
+    ) -> Vec<i32> {
+        let mut unsent = Vec::new();
         let identity = ticker.interaction_authority_identity();
         if let Some((session, _)) = self
             .position_authority
@@ -381,34 +383,45 @@ impl SurvivalMiningRuntime {
         self.position_authority = Some(identity);
         let ticks = ticker.unstepped_interaction_ticks(self.last_stepped_tick);
         let Some(&(newest, _)) = ticks.last() else {
-            return;
+            return unsent;
         };
         self.last_stepped_tick = Some(newest);
         if !ticker.accepts_creative_mining() {
             // Withheld ticks never reach the server, so neither may their actions.
             self.machine.interrupt();
-            return;
+            return unsent;
         }
         for (tick, on_ground) in ticks {
             let mut payload = self.machine.step(input, on_ground, authority);
-            payload.mine_block = payload.wear.and_then(|(slot, damage, stack_network_id)| {
-                protocol::MineBlockRequest::new(
-                    request_id(slot, damage)?,
-                    slot,
-                    damage,
-                    stack_network_id,
-                )
-                .ok()
-            });
+            payload.mine_block = payload
+                .wear
+                .filter(|&(slot, damage, stack_network_id)| {
+                    slot <= 8 && damage >= 0 && stack_network_id > 0
+                })
+                .and_then(|(slot, damage, stack_network_id)| {
+                    protocol::MineBlockRequest::new(
+                        request_id(slot, damage)?,
+                        slot,
+                        damage,
+                        stack_network_id,
+                    )
+                    .ok()
+                });
             self.latched_press = false;
             if payload.swing {
                 swing(tick);
             }
+            let mine_block = payload
+                .mine_block
+                .as_ref()
+                .map(|request| request.request_id());
             if !payload.is_empty() && !ticker.attach_survival_mining(tick, payload) {
                 // A tick that cannot carry its actions desynchronizes the server's view.
                 self.machine.interrupt();
+                unsent.extend(mine_block);
             }
         }
+        unsent
     }
 }
 
@@ -473,7 +486,7 @@ pub(crate) fn produce_survival_mining(
         .map(|stream| stream.local_player_runtime_id());
     let network = &context.network;
     let ui = &mut context.ui;
-    runtime.step_ticks(
+    let unsent = runtime.step_ticks(
         &mut movement,
         input,
         authority.unwrap_or(BlockBreakingAuthority::Server),
@@ -489,6 +502,9 @@ pub(crate) fn produce_survival_mining(
         },
         |slot, damage| ui.begin_mining_request(slot, damage),
     );
+    for request_id in unsent {
+        ui.cancel_mining_request(request_id);
+    }
 }
 
 fn observe_destroy_target(

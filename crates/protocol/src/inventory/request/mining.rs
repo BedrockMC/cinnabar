@@ -29,6 +29,11 @@ pub enum MineBlockRequestError {
 }
 
 impl MineBlockRequest {
+    #[must_use]
+    pub const fn request_id(&self) -> i32 {
+        self.request_id
+    }
+
     pub fn new(
         request_id: i32,
         hotbar_slot: u8,

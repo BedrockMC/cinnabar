@@ -144,6 +144,18 @@ impl PlayerInventoryLedger {
             })
     }
 
+    pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {
+        let before = self.queue.len();
+        self.queue.retain(|request| {
+            request.request_id != request_id
+                || request.mining.is_none()
+                || request.accepted.is_some()
+        });
+        if self.queue.len() != before {
+            self.settle_accepted_heads();
+        }
+    }
+
     /// Promotes accepted requests strictly from the queue head, so a later
     /// acceptance never commits ahead of an unanswered predecessor.
     pub(super) fn settle_accepted_heads(&mut self) {
@@ -303,8 +315,9 @@ impl PlayerInventoryLedger {
                 .is_some_and(|deadline| now_millis >= deadline)
         };
         let before = self.queue.len();
-        self.queue
-            .retain(|request| request.mining.is_none() || !overdue(request));
+        self.queue.retain(|request| {
+            request.mining.is_none() || request.accepted.is_some() || !overdue(request)
+        });
         let mut changed = self.queue.len() != before;
         for request in &mut self.queue {
             // An accepted request only waits for its predecessors to settle.
@@ -368,7 +381,14 @@ impl PlayerInventoryLedger {
             .map(|(index, _)| index)
             .collect();
         if mining.len() >= MAX_OUTSTANDING_MINING_REQUESTS {
-            self.queue.remove(mining[0]);
+            // Evict the oldest unanswered request; accepted ones still carry corrections.
+            let evicted = mining
+                .iter()
+                .copied()
+                .find(|&index| self.queue[index].accepted.is_none())
+                .unwrap_or(mining[0]);
+            self.queue.remove(evicted);
+            self.settle_accepted_heads();
         }
         let position = self
             .queue

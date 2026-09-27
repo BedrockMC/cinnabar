@@ -156,6 +156,10 @@ impl UiRuntime {
             .begin_mining_request(slot, predicted_damage)
     }
 
+    pub(crate) fn cancel_mining_request(&mut self, request_id: i32) {
+        self.inventory_ledger.cancel_mining_request(request_id);
+    }
+
     pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
         self.player_game_mode
     }
