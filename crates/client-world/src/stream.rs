@@ -29,14 +29,14 @@ use protocol::{
 };
 use thiserror::Error;
 use world::{
-    BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockPos, BlockUpdate,
-    BoundaryLightSample, ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn,
+    BiomeIds, BiomeStorage, BlockEntityError, BlockEntityKey, BlockEntityNbt, BlockIds, BlockPos,
+    BlockUpdate, BoundaryLightSample, ChunkKey, ChunkStore, DecodeError, DecodedBiomeColumn,
     DecodedBlockEntities, DecodedLevelChunk, DecodedSubChunk, DimensionLightProfile,
-    LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
+    DimensionSlots, LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
     LightProperties as SolverLightProperties, LightReadAccess, LightSolveError, LightSolveOutput,
     LightStore, LightStoreSnapshot, LightSubChunkKind, MeshDependencyMask, MeshNeighbourhood,
     MutationError, PreparedSubChunkMutation, SolverLimits, SubChunk, SubChunkKey, SubChunkLight,
-    chunk_in_view, solve_light,
+    chunk_in_view, decode_column_tail, solve_light,
 };
 
 use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
@@ -72,6 +72,7 @@ mod residency;
 mod retries;
 mod sequencing;
 
+use decode::{DecodeIds, dimension_slots};
 use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
@@ -233,6 +234,7 @@ pub struct WorldStream {
     classifier: BlockClassifier,
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
+    custom_block_ids: std::ops::Range<u32>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
     resolved_biome_tints: Arc<ResolvedBiomeTints>,
     biome_tint_stream_id: u64,
@@ -272,7 +274,6 @@ pub struct WorldStream {
     last_dispatched_light_batch: HashMap<SubChunkKey, u64>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     fatal_light_failure: bool,
-    fatal_decode_failure: bool,
     fatal_error: Option<WorldStreamFatalError>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,

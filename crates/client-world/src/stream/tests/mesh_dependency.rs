@@ -209,8 +209,8 @@ fn inline_full_column_change_invalidates_registered_corner_dependency() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &super::RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(source.chunk(), decoded)
@@ -249,8 +249,8 @@ fn known_air_removal_replaces_stale_mask_and_skips_later_diagonal_change() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &super::RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(target.chunk(), decoded)

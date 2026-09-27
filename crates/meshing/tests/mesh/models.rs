@@ -24,7 +24,7 @@ use meshing::{
     PackedQuadLighting, debug_color, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
     mesh_sub_chunk_with_lighting,
 };
-use world::{MeshNeighbourhood, SubChunk};
+use world::{MeshNeighbourhood, RawBlockIds, SubChunk};
 
 const AIR: u32 = 12_530;
 const OPAQUE_A: u32 = 7;

@@ -135,7 +135,10 @@ func (writer *failedSchemaWriter) Close() error {
 }
 
 func TestFormSchemaExclusiveLocalFileAndWriteFailure(t *testing.T) {
-	parent := t.TempDir()
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	output := filepath.Join(parent, "record.txt")
 	for _, invalid := range []string{"", "relative.txt", `\\server\share\record.txt`, `\\?\C:\record.txt`, filepath.Join(parent, "NUL"), filepath.Join(parent, "missing", "record.txt"), filepath.Join(parent, "record.txt:") + "stream"} {
 		if formSchemaOutput(invalid) != "" {
@@ -178,7 +181,11 @@ func TestFormSchemaExclusiveLocalFileAndWriteFailure(t *testing.T) {
 
 func TestFormSchemaFreshProcessConfiguration(t *testing.T) {
 	for _, mode := range []string{"disabled", "missing-output", "enabled"} {
-		output := filepath.Join(t.TempDir(), "schema.txt")
+		parent, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		output := filepath.Join(parent, "schema.txt")
 		command := exec.Command(os.Args[0], "-test.run=^TestFormSchemaProcessChild$")
 		for _, entry := range os.Environ() {
 			if !strings.HasPrefix(entry, "RUST_MCBE_FORM_SHAPE_PROBE=") && !strings.HasPrefix(entry, "RUST_MCBE_FORM_SCHEMA_OUTPUT=") && !strings.HasPrefix(entry, "FORM_SCHEMA_TEST_CHILD=") {

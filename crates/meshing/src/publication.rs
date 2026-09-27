@@ -55,10 +55,14 @@ mod tests {
 
     #[test]
     fn empty_mesh_is_always_a_zero_byte_publication() {
-        let storage = world::DecodedBiomeColumn::decode(0, 1, &[1, 2])
-            .unwrap()
-            .storage(0)
-            .unwrap();
+        let storage = world::DecodedBiomeColumn::decode(
+            0,
+            1,
+            &[1, 2],
+            &world::RawBiomeIds { default_biome: 0 },
+        )
+        .storage(0)
+        .unwrap();
         let non_fallback = PackedBiomeRecord::from_storage(&storage, |id| id);
         assert!(!non_fallback.is_fallback());
         assert_eq!(

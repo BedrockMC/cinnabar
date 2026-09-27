@@ -63,6 +63,20 @@
     "sha256": "a03477e262b56d3c0dc9984333f7aa42c47b4f7d214dddbbb1a1a7017ab9bfed"
   },
   {
+    "name": "PlayerAuthInputMineBlock",
+    "file": "player_auth_input_mine_block.bin",
+    "id": 144,
+    "byte_length": 121,
+    "sha256": "52b965ef0b1640f146d982ee8e8e7a691abf54bda8cb6c8e589fce909394bae1"
+  },
+  {
+    "name": "PlayerAuthInputMineBlockAndPredict",
+    "file": "player_auth_input_mine_block_and_predict.bin",
+    "id": 144,
+    "byte_length": 129,
+    "sha256": "faf36a08e7fc9a133b2c5d589d2f6372ac52394d6c0e18df5a2b26f7e169fac7"
+  },
+  {
     "name": "AddActor",
     "file": "add_actor.bin",
     "id": 13,

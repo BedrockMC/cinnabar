@@ -5,12 +5,16 @@ mod decode;
 mod grammar;
 mod matching;
 pub(super) mod model;
+mod observation;
 mod reader;
 
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
 pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use model::{RecipeHandle, RecipeUpdate};
+pub use observation::{
+    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
+};
 
 pub fn decode_recipe_update(body: &[u8]) -> Result<RecipeUpdate, super::InventoryPacketError> {
     decode::decode(body)

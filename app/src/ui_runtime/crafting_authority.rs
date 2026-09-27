@@ -1,5 +1,6 @@
 //! Inactive, committed crafting projection. This owns no request, journal or UI.
 mod budget;
+mod observation;
 mod projection;
 
 use projection::{Observation, Queue, Record, RegistryOwner, StackOwner};
@@ -92,6 +93,7 @@ impl CraftingAuthority {
     }
 
     fn clear_cells(&mut self) {
+        observation::clear_cells();
         self.grid = std::array::from_fn(|_| None);
         self.cursor = None;
         self.changed_cells();
@@ -108,6 +110,7 @@ impl CraftingAuthority {
     }
 
     fn lose(&mut self, incoming: u64, domain: u8) {
+        observation::loss();
         let mut domains = domain;
         let mut barrier = self
             .barrier
@@ -169,6 +172,7 @@ impl CraftingAuthority {
     }
 
     pub(super) fn synchronize(&mut self, identity: Option<(u64, u64, Option<u64>)>) {
+        observation::synchronize(self.session, identity);
         let Some((stream, epoch, Some(through))) = identity else {
             self.through = None;
             self.lose(self.observed, 7);
@@ -235,6 +239,7 @@ impl CraftingAuthority {
         self.cache_key = None;
         if retired {
             self.changed_cells();
+            observation::forget_absent_cells(self);
         }
     }
 
@@ -254,6 +259,7 @@ impl CraftingAuthority {
         }
         self.registry = registry.and_then(|event| self.registry_owner(event));
         self.authority = Some(authority);
+        observation::bootstrap(self.session, self.registry.is_some());
     }
 
     pub(super) fn observe(&mut self, session: u64, sequence: u64, event: &InventoryAuthorityEvent) {
@@ -354,7 +360,10 @@ impl CraftingAuthority {
             &self.credits,
         );
         match replacement {
-            Some(queue) => self.queue = Some(queue),
+            Some(queue) => {
+                self.queue = Some(queue);
+                observation::stage(session, sequence, event);
+            }
             None => self.lose(sequence, domain),
         }
     }
@@ -378,16 +387,21 @@ impl CraftingAuthority {
         for record in &queue.records[..split] {
             self.consumed = self.consumed.max(record.sequence);
             if record.sequence <= self.barrier {
+                observation::discard(record.sequence);
                 continue;
             }
             match &record.observation {
                 Observation::Registry(registry) => {
                     self.replace_registry(registry.clone());
+                    observation::registry(record.sequence);
                 }
                 Observation::Recipes(update) => {
                     if !self.catalog_lost || update.clears_catalog() {
-                        self.catalog.apply(self.session, record.sequence, update);
+                        let applied = self.catalog.apply(self.session, record.sequence, update);
                         self.catalog_lost = !self.catalog.is_available();
+                        if applied {
+                            observation::recipe(record.sequence, self.catalog.is_available());
+                        }
                     }
                 }
                 Observation::Authority(authority) if record.sequence > self.authority_loss => {
@@ -399,21 +413,25 @@ impl CraftingAuthority {
                 {
                     self.grid[*index] = Some(Arc::clone(stack));
                     self.changed_cells();
+                    observation::cells(self.session, record.sequence, self.epoch, 1 << *index);
                 }
                 Observation::Grid(grid)
                     if record.sequence > self.epoch.max(self.authority_loss) =>
                 {
                     self.grid = grid.each_ref().map(|stack| Some(Arc::clone(stack)));
                     self.changed_cells();
+                    observation::cells(self.session, record.sequence, self.epoch, 15);
                 }
                 Observation::Cursor(stack)
                     if record.sequence > self.epoch.max(self.authority_loss) =>
                 {
                     self.cursor = Some(Arc::clone(stack));
                     self.changed_cells();
+                    observation::cells(self.session, record.sequence, self.epoch, 16);
                 }
                 Observation::Grid(_) | Observation::Cell { .. } | Observation::Cursor(_) => {}
             }
+            observation::discard(record.sequence);
         }
         if split < queue.records.len() {
             self.queue = Queue::replace(

@@ -33,9 +33,11 @@ use crate::{
     },
 };
 
+mod custom_blocks;
 mod events;
 mod game_mode;
 mod requests;
+pub use self::custom_blocks::{CustomBlock, CustomBlocks, block_name_sort_key};
 pub use self::events::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
     BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent,
@@ -104,6 +106,16 @@ pub struct WorldBootstrap {
     pub world_spawn_position: [i32; 3],
     pub air_network_id: u32,
     pub block_network_ids_are_hashes: bool,
+}
+
+/// The explicit StartGame block-breaking negotiation, separate from whether
+/// a caller currently has sufficient authority to mine any particular block.
+#[must_use]
+pub fn server_authoritative_block_breaking(game_data: &GameData) -> bool {
+    game_data
+        .start_game
+        .movement_settings
+        .server_authoritative_block_breaking
 }
 
 impl WorldBootstrap {
@@ -268,13 +280,6 @@ pub enum WorldPacketError {
     #[error("limited LevelChunk omitted HighestSubChunk")]
     MissingHighestSubChunk,
 
-    #[error("inline LevelChunk count {count} exceeds dimension {dimension} maximum {max}")]
-    InlineSubChunkCountExceedsDimension {
-        dimension: i32,
-        count: usize,
-        max: usize,
-    },
-
     #[error("client cache chunk blobs are disabled in the phase-zero client")]
     CachedChunksUnsupported,
 
@@ -349,6 +354,9 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::UpdateAbilitiesPacket(packet) => {
+            WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
+        }
         McpePacketData::TextPacket(packet) => WorldEvent::Ui(normalize_text(*packet)?),
         McpePacketData::CommandOutputPacket(packet) => {
             WorldEvent::Ui(crate::ui::normalize_command_output(*packet)?)
@@ -535,7 +543,6 @@ pub fn into_world_event(
             let mode = level_chunk_mode(
                 packet.client_request_sub_chunk_limit,
                 packet.subchunks_count,
-                packet.dimension_id.value,
             )?;
             WorldEvent::LevelChunk(LevelChunkEvent {
                 dimension: packet.dimension_id.value,
@@ -804,7 +811,6 @@ pub fn into_world_event(
 fn level_chunk_mode(
     request_limit: Option<i32>,
     subchunks_count: u32,
-    dimension: i32,
 ) -> Result<LevelChunkMode, WorldPacketError> {
     match request_limit {
         Some(-1) => Ok(LevelChunkMode::LimitlessRequests),
@@ -815,13 +821,7 @@ fn level_chunk_mode(
         None => {
             let count = usize::try_from(subchunks_count)
                 .map_err(|_| WorldPacketError::InvalidSubChunkCount(i32::MAX))?;
-            if count > MAX_SUB_CHUNK_REQUESTS {
-                return Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
-                    dimension,
-                    count,
-                    max: MAX_SUB_CHUNK_REQUESTS,
-                });
-            }
+            // Vanilla bounds the inline count only while decoding the payload.
             Ok(LevelChunkMode::Inline { count })
         }
     }
@@ -836,7 +836,6 @@ pub(crate) fn normalize_borrowed_level_chunk(
     let mode = level_chunk_mode(
         packet.client_request_sub_chunk_limit,
         packet.subchunks_count,
-        packet.dimension_id.value,
     )?;
     let payload = packet.serialized_chunk_data;
     Ok((

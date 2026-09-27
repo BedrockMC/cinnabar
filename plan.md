@@ -3,6 +3,18 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
+lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
+null biome slots, per-entity tail skips, unknown ids to air/default biome, inline
+slots `i & 0xff`, unsent inline slots known air). Provisional, labeled incomplete:
+legacy sub-chunk versions 0/2–7 decode as air (no legacy id table), persistent
+palette entries resolve to air (no name/state lookup), and block-entity id and
+block-actor-type checks are not emulated. StartGame custom blocks are known only
+when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
+they collide as full cubes with stone's surface facts and render as diagnostic
+cubes until runtime pack application lands. Interleaved or hashed custom blocks
+remain unsupported. No vanilla acceptance gate is closed by this change.
+
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
 The reviewed ordered-batch dependency is published on `resource-pack-changes` at
@@ -785,6 +797,15 @@ Current implementation state:
   those transactions yet: target selection and hit testing, gameplay reach, packet-position
   provenance, ability authority, selected-stack correlation, and live evidence must close
   before wiring app senders.
+- Bounded `UpdateAbilities` evidence now follows the sequenced world commit into
+  the accepted local player's session binding. Unknown, received-empty, and
+  unavailable evidence remain distinct; layer order, raw masks, and float bits
+  are retained without assigning effective permission semantics. Terminal and
+  replacement-session paths retire the binding, and stale setup cannot replace
+  current evidence. Fresh protocol/client-world tests and the application suite
+  cover raw framing, FIFO ordering, local identity, and lifecycle guards. This is
+  passive retention, not effective permissions, Survival admission, or a mining
+  sender; end-to-end handshake and native permission acceptance remain open.
 - Supervised first-run device-code authentication and cached-account validation have landed;
   token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
   first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
