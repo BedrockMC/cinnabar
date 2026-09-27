@@ -30,6 +30,7 @@ fn model_bone(translation: [f32; 3]) -> BoneTransform {
     BoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [translation[0], translation[1], translation[2], 1.0],
+        axis_scale: [1.0; 3],
     }
 }
 
@@ -37,6 +38,7 @@ fn render_bone() -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
+        axis_scale: render::UNIT_AXIS_SCALE,
     }
 }
 
@@ -114,6 +116,9 @@ fn rig<'a>(
         completed_tick: 11,
         reset_generation: 5,
         fallback: EntityRigFallback::GeometryOnly,
+        scale: 1.0,
+        previous_body_yaw: 0.0,
+        body_yaw: 0.0,
     }
 }
 
@@ -147,6 +152,8 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
         },
         skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
         artwork: None,
+        model_scale: 1.0,
+        head_over_body: 0.0,
     }
 }
 
@@ -276,6 +283,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
         8,
         Some(canonical.clone()),
         Some(mismatched_visibility),
+        0.0,
     );
     let batch = select_actor_presentations(7, true, local, [render_owned(7, 31)]);
     assert!(batch.submissions.is_empty());
@@ -293,6 +301,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
             7,
             Some(canonical.clone()),
             Some(matching_visibility.clone()),
+            0.0,
         );
         let batch = select_actor_presentations(
             7,
@@ -513,4 +522,19 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         Some(subject_eye)
     );
     assert_eq!(authoritative_local_actor_eye(None, None), None);
+}
+
+#[test]
+fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
+    let mut canonical = render_owned(7, 31);
+    canonical.head_over_body = 30.0;
+    let diagnostic = local_diagnostic_presentation(7, 0, 7, 5, [4.0, 64.0, 2.0], 90.0, 0.0)
+        .expect("finite local carrier converts");
+    let local =
+        local_actor_presentation_for_visibility(7, 7, Some(canonical), Some(diagnostic), 90.0)
+            .expect("canonical local rig is kept");
+    assert_eq!(
+        local.submission.world_from_actor,
+        crate::presentation::actors::rig_world_from_actor([4.0, 64.0, 2.0], 60.0, 1.0)
+    );
 }

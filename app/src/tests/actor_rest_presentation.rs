@@ -35,7 +35,7 @@ impl Drop for Pack {
 }
 
 fn fixture() -> (Pack, ActorArtworkPages, Arc<RuntimeEntityAssets>) {
-    weighted_fixture("query.modified_move_speed", 1)
+    weighted_fixture("query.ground_speed", 1)
 }
 
 fn weighted_fixture(
@@ -115,8 +115,9 @@ fn inherited_rotated_rest_is_drawn_instead_of_animated_pose_and_survives_replace
     let mut world = stream(entities.clone());
     world.submit(1, spawn(-1)).unwrap();
     let rest = world.actor_rig(42).unwrap().rest.to_vec();
-    assert!((rest[1].translation_scale[0] - 1.0).abs() < 1e-5);
-    assert!((rest[1].translation_scale[1] - 2.0).abs() < 1e-5);
+    // The rig frame mirrors authored X, so the root's +90 Z turn swings the tail down.
+    assert!((rest[1].translation_scale[0] + 1.0).abs() < 1e-5);
+    assert!((rest[1].translation_scale[1] + 2.0).abs() < 1e-5);
     world.advance_actor_interpolation_ticks(5);
     let rig = world.actor_rig(42).unwrap();
     assert_eq!(rig.rest, rest);
@@ -189,7 +190,7 @@ fn absent_nonfinite_or_wrong_length_rest_is_nodraw_without_pose_substitution() {
 #[test]
 fn static_clock_survives_invalid_first_eval_but_requires_real_tick_after_reset_or_spawn() {
     let (_pack, artwork, entities) =
-        weighted_fixture("math.clamp(query.modified_move_speed,2,1)", 1);
+        weighted_fixture("math.sqrt(query.modified_move_speed - 1)", 1);
     let mut world = stream(entities.clone());
     world.advance_actor_interpolation_ticks(3);
     world.submit(1, spawn(-1)).unwrap();

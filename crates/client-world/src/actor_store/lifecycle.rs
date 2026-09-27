@@ -204,12 +204,8 @@ impl ActorStore {
                     actor.previous_pose = received;
                     actor.set_current_pose(received);
                     actor.interpolation_ticks_remaining = 0;
-                } else if matches!(actor.kind, ActorKind::Player { .. }) {
-                    actor.interpolation_ticks_remaining = PLAYER_POSITION_INTERPOLATION_TICKS;
                 } else {
-                    actor.previous_pose = received;
-                    actor.set_current_pose(received);
-                    actor.interpolation_ticks_remaining = 0;
+                    actor.interpolation_ticks_remaining = ACTOR_INTERPOLATION_TICKS;
                 }
                 actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
@@ -352,21 +348,71 @@ impl ActorStore {
                 let current = actor.current_pose();
                 actor.previous_pose = current;
                 let mut next = actor.received_pose;
-                if matches!(actor.kind, ActorKind::Player { .. })
-                    && actor.interpolation_ticks_remaining > 0
-                {
+                // The final step lands exactly on the target.
+                if actor.interpolation_ticks_remaining > 1 {
+                    // Each step closes 1/n of the remaining gap; angles take the short way.
                     let divisor = f32::from(actor.interpolation_ticks_remaining);
+                    let target = actor.received_pose;
                     next.position = std::array::from_fn(|axis| {
                         current.position[axis]
-                            + (actor.received_pose.position[axis] - current.position[axis])
-                                / divisor
+                            + (target.position[axis] - current.position[axis]) / divisor
                     });
-                    actor.interpolation_ticks_remaining -= 1;
+                    let step = |from: f32, to: f32| from + wrap_degrees(to - from) / divisor;
+                    next.pitch = step(current.pitch, target.pitch);
+                    next.yaw = step(current.yaw, target.yaw);
+                    next.head_yaw = step(current.head_yaw, target.head_yaw);
                 }
+                actor.interpolation_ticks_remaining =
+                    actor.interpolation_ticks_remaining.saturating_sub(1);
                 actor.set_current_pose(next);
             }
-            self.animation
-                .advance_tick(&self.actors, &self.rider_to_ridden);
+            let (session_id, dimension) = (self.session_id, self.dimension);
+            let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
+            let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
+            self.animation.advance_tick(actors, |actor| {
+                let lifetime = ActorLifetimeId {
+                    session_id,
+                    dimension,
+                    runtime_id: actor.runtime_id,
+                    spawn_revision: actor.spawn_revision,
+                };
+                let held = |hand| {
+                    items
+                        .get_in_hand(lifetime, hand)
+                        .filter(|equipment| equipment.item.identity.network_id != 0)
+                        .and_then(|equipment| equipment.item.identifier.clone())
+                };
+                let kind_of = |unique_id: &i64| {
+                    unique_to_runtime
+                        .get(unique_id)
+                        .and_then(|runtime_id| actors.get(runtime_id))
+                        .map(|actor| &actor.kind)
+                };
+                let riders = rider_to_ridden
+                    .iter()
+                    .filter(|(_, ridden)| **ridden == actor.unique_id)
+                    .map(|(rider, _)| kind_of(rider));
+                let mut has_rider = false;
+                let mut has_player_rider = false;
+                for rider in riders {
+                    has_rider = true;
+                    has_player_rider |= matches!(rider, Some(ActorKind::Player { .. }));
+                }
+                crate::actor_animation::ActorTickContext {
+                    is_riding: rider_to_ridden.contains_key(&actor.unique_id),
+                    main_hand: held(protocol::ActorHandedness::Right),
+                    off_hand: held(protocol::ActorHandedness::Left),
+                    ridden: rider_to_ridden
+                        .get(&actor.unique_id)
+                        .and_then(kind_of)
+                        .map(|kind| match kind {
+                            ActorKind::Player { .. } => std::sync::Arc::from("minecraft:player"),
+                            ActorKind::Entity { identifier } => std::sync::Arc::clone(identifier),
+                        }),
+                    has_rider,
+                    has_player_rider,
+                }
+            });
             self.actions.advance_tick();
         }
     }
@@ -586,9 +632,13 @@ impl ActorStore {
                 let mut accepted = false;
                 for (lifetime, rig) in targets {
                     let source_tick = ActorSourceTick::IngressSequence(sequence);
-                    accepted |= self
+                    let applied = self
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
+                    if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
+                        self.animation.start_swing(lifetime.runtime_id);
+                    }
+                    accepted |= applied;
                 }
                 if accepted {
                     ActorApplyResult::Updated
@@ -613,4 +663,8 @@ impl ActorStore {
             spawn_revision: actor.spawn_revision,
         }
     }
+}
+
+fn wrap_degrees(degrees: f32) -> f32 {
+    (degrees + 180.0).rem_euclid(360.0) - 180.0
 }

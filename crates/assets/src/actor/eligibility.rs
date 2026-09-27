@@ -19,6 +19,7 @@ pub fn neutral_actor_pose_mode(
         if clip.loop_mode != crate::EntityAnimationLoop::Loop {
             return None;
         }
+        expression |= clip_has_expressions(assets, clip)?;
     }
     for binding in assets.rig_controllers().get(
         candidate.first_controller as usize
@@ -39,14 +40,14 @@ pub fn neutral_actor_pose_mode(
                 state.first_animation as usize
                     ..state.first_animation as usize + usize::from(state.animation_count),
             )? {
-                if assets
-                    .animation_clips()
-                    .get(animation.clip as usize)?
-                    .loop_mode
-                    != crate::EntityAnimationLoop::Loop
-                {
+                let crate::EntityControllerAnimationTarget::Clip(clip) = animation.target else {
+                    return None;
+                };
+                let clip = assets.animation_clips().get(clip as usize)?;
+                if clip.loop_mode != crate::EntityAnimationLoop::Loop {
                     return None;
                 }
+                expression |= clip_has_expressions(assets, clip)?;
                 if let Some(weight) = animation.weight {
                     let program = assets.molang_expressions().get(weight as usize)?;
                     let ops = assets.molang_ops().get(
@@ -64,6 +65,28 @@ pub fn neutral_actor_pose_mode(
     } else {
         super::ActorPoseMode::CompiledLiteral
     })
+}
+
+fn clip_has_expressions(
+    assets: &crate::RuntimeEntityAssets,
+    clip: &crate::EntityAnimationClip,
+) -> Option<bool> {
+    let channels = assets.animation_channels().get(
+        clip.first_channel as usize..clip.first_channel as usize + clip.channel_count as usize,
+    )?;
+    for channel in channels {
+        let keyframes = assets.animation_keyframes().get(
+            channel.first_keyframe as usize
+                ..channel.first_keyframe as usize + channel.keyframe_count as usize,
+        )?;
+        if keyframes
+            .iter()
+            .any(|keyframe| keyframe.expressions.iter().any(Option::is_some))
+        {
+            return Some(true);
+        }
+    }
+    Some(false)
 }
 
 pub fn neutral_actor_geometry_uvs_are_supported(
