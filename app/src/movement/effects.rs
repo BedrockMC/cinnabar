@@ -7,6 +7,10 @@ use super::physics::MovementEffectSource;
 const JUMP_BOOST_EFFECT_ID: i32 = 8;
 const LEVITATION_EFFECT_ID: i32 = 24;
 const SLOW_FALLING_EFFECT_ID: i32 = 27;
+const HASTE_EFFECT_ID: i32 = 3;
+const MINING_FATIGUE_EFFECT_ID: i32 = 4;
+const CONDUIT_POWER_EFFECT_ID: i32 = 26;
+const TRACKED_EFFECT_COUNT: usize = 6;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
 // 51.25 blocks/tick at this bound, so it cannot poison the following tick.
@@ -14,18 +18,24 @@ const SLOW_FALLING_EFFECT_ID: i32 = 27;
 const MAX_SUPPORTED_MOVEMENT_EFFECT_AMPLIFIER: i32 = 1_024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum VerticalEffect {
+enum TrackedEffect {
     JumpBoost,
     Levitation,
     SlowFalling,
+    Haste,
+    MiningFatigue,
+    ConduitPower,
 }
 
-impl VerticalEffect {
+impl TrackedEffect {
     const fn from_protocol_id(id: i32) -> Option<Self> {
         match id {
             JUMP_BOOST_EFFECT_ID => Some(Self::JumpBoost),
             LEVITATION_EFFECT_ID => Some(Self::Levitation),
             SLOW_FALLING_EFFECT_ID => Some(Self::SlowFalling),
+            HASTE_EFFECT_ID => Some(Self::Haste),
+            MINING_FATIGUE_EFFECT_ID => Some(Self::MiningFatigue),
+            CONDUIT_POWER_EFFECT_ID => Some(Self::ConduitPower),
             _ => None,
         }
     }
@@ -35,7 +45,14 @@ impl VerticalEffect {
             Self::JumpBoost => 0,
             Self::Levitation => 1,
             Self::SlowFalling => 2,
+            Self::Haste => 3,
+            Self::MiningFatigue => 4,
+            Self::ConduitPower => 5,
         }
+    }
+
+    const fn uses_vertical_safety_limit(self) -> bool {
+        matches!(self, Self::JumpBoost | Self::Levitation | Self::SlowFalling)
     }
 }
 
@@ -61,11 +78,13 @@ pub(crate) struct MovementEffectDiagnostics {
 /// only when local fixed-step prediction successfully commits a tick. Packet
 /// ticks remain correlation metadata and deliberately do not schedule or
 /// expire an effect in the local prediction clock.
+/// Haste, Mining Fatigue, and Conduit Power are retained without interpreting
+/// their signed amplifiers or applying any mining or movement calculation.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct LocalMovementEffectTimeline {
     session_generation: u64,
     last_sequence: Option<u64>,
-    active: [Option<ActiveEffect>; 3],
+    active: [Option<ActiveEffect>; TRACKED_EFFECT_COUNT],
     diagnostics: MovementEffectDiagnostics,
 }
 
@@ -73,7 +92,7 @@ impl LocalMovementEffectTimeline {
     pub(crate) fn begin_session(&mut self, session_generation: u64) {
         self.session_generation = session_generation;
         self.last_sequence = None;
-        self.active = [None; 3];
+        self.active = [None; TRACKED_EFFECT_COUNT];
         self.diagnostics = MovementEffectDiagnostics::default();
     }
 
@@ -94,7 +113,7 @@ impl LocalMovementEffectTimeline {
         }
         self.last_sequence = Some(sequence);
 
-        let Some(effect) = VerticalEffect::from_protocol_id(event.effect_id) else {
+        let Some(effect) = TrackedEffect::from_protocol_id(event.effect_id) else {
             self.diagnostics.unknown_effect_or_action =
                 self.diagnostics.unknown_effect_or_action.saturating_add(1);
             return;
@@ -102,9 +121,10 @@ impl LocalMovementEffectTimeline {
         match event.action {
             ActorEffectAction::Remove => self.active[effect.index()] = None,
             ActorEffectAction::Add | ActorEffectAction::Update => {
-                if !(-MAX_SUPPORTED_MOVEMENT_EFFECT_AMPLIFIER
-                    ..=MAX_SUPPORTED_MOVEMENT_EFFECT_AMPLIFIER)
-                    .contains(&event.amplifier)
+                if effect.uses_vertical_safety_limit()
+                    && !(-MAX_SUPPORTED_MOVEMENT_EFFECT_AMPLIFIER
+                        ..=MAX_SUPPORTED_MOVEMENT_EFFECT_AMPLIFIER)
+                        .contains(&event.amplifier)
                 {
                     self.diagnostics.unsupported_amplifier =
                         self.diagnostics.unsupported_amplifier.saturating_add(1);
@@ -133,11 +153,11 @@ impl LocalMovementEffectTimeline {
 
     fn current_snapshot(&self) -> MovementEffects {
         MovementEffects {
-            jump_boost: self.active[VerticalEffect::JumpBoost.index()]
+            jump_boost: self.active[TrackedEffect::JumpBoost.index()]
                 .map(|effect| effect.amplifier),
-            levitation: self.active[VerticalEffect::Levitation.index()]
+            levitation: self.active[TrackedEffect::Levitation.index()]
                 .map(|effect| effect.amplifier),
-            slow_falling: self.active[VerticalEffect::SlowFalling.index()].is_some(),
+            slow_falling: self.active[TrackedEffect::SlowFalling.index()].is_some(),
         }
     }
 
@@ -166,7 +186,7 @@ impl LocalMovementEffectTimeline {
         &self,
         effect_id: i32,
     ) -> Option<(u64, u64, Option<u32>)> {
-        let effect = VerticalEffect::from_protocol_id(effect_id)?;
+        let effect = TrackedEffect::from_protocol_id(effect_id)?;
         self.active[effect.index()]
             .map(|active| (active.sequence, active.server_tick, active.remaining_ticks))
     }
@@ -181,3 +201,7 @@ impl MovementEffectSource for LocalMovementEffectTimeline {
         self.consume_successful_tick();
     }
 }
+
+#[cfg(test)]
+#[path = "mining_effects_tests.rs"]
+mod mining_effects_tests;
