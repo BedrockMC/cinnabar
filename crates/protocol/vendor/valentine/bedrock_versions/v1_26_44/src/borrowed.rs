@@ -9975,7 +9975,8 @@ impl ReservedPacket170Field0View {
         crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)
             .encode(buf)?;
         buf.put_slice((&self.reserved_field_0).as_bytes());
-        crate::bedrock::codec::VarUInt(((&self.reserved_field_1).as_bytes().len()) as u32).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_1).as_bytes().len()) as u32)
+            .encode(buf)?;
         buf.put_slice((&self.reserved_field_1).as_bytes());
         Ok(())
     }
@@ -9997,13 +9998,11 @@ impl crate::bedrock::codec::BedrockSized for ReservedPacket137Field0Field7View {
     fn encoded_size(&self) -> usize {
         0usize
             + 1usize
-            + (&self.reserved_field_0)
-                .as_ref()
-                .map_or(0usize, |_value| {
-                    crate::bedrock::codec::BedrockSized::encoded_size(
-                        &crate::bedrock::codec::VarUInt(((_value).as_bytes().len()) as u32),
-                    ) + (_value).as_bytes().len()
-                })
+            + (&self.reserved_field_0).as_ref().map_or(0usize, |_value| {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    ((_value).as_bytes().len()) as u32,
+                )) + (_value).as_bytes().len()
+            })
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket137Field0Field7View {
@@ -10014,15 +10013,12 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket137Field0Fi
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let reserved_field_0 =
-            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
-            } else {
-                None
-            };
-        Ok(Self {
-            reserved_field_0,
-        })
+        let reserved_field_0 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+            Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
+        } else {
+            None
+        };
+        Ok(Self { reserved_field_0 })
     }
 }
 impl ReservedPacket137Field0Field7View {
@@ -10076,7 +10072,10 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket137Field0Fi
         let _ = _args;
         let reserved_field_0 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         let reserved_field_1 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        Ok(Self { reserved_field_0, reserved_field_1 })
+        Ok(Self {
+            reserved_field_0,
+            reserved_field_1,
+        })
     }
 }
 impl ReservedPacket137Field0Field9View {
@@ -10085,7 +10084,8 @@ impl ReservedPacket137Field0Field9View {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)
+            .encode(buf)?;
         buf.put_slice((&self.reserved_field_0).as_bytes());
         crate::bedrock::codec::VarUInt(((&self.reserved_field_1).as_bytes().len()) as u32)
             .encode(buf)?;
@@ -10137,19 +10137,15 @@ impl crate::bedrock::codec::BedrockSized for ReservedPacket137Field0View {
             ))
             + (&self.reserved_field_5).as_bytes().len()
             + 1usize
-            + (&self.reserved_field_6)
-                .as_ref()
-                .map_or(0usize, |_value| {
-                    crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                })
+            + (&self.reserved_field_6).as_ref().map_or(0usize, |_value| {
+                crate::bedrock::codec::BedrockSized::encoded_size(_value)
+            })
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.reserved_field_7)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.reserved_field_8)
             + 1usize
-            + (&self.reserved_field_9)
-                .as_ref()
-                .map_or(0usize, |_value| {
-                    crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                })
+            + (&self.reserved_field_9).as_ref().map_or(0usize, |_value| {
+                crate::bedrock::codec::BedrockSized::encoded_size(_value)
+            })
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket137Field0View {
@@ -10162,14 +10158,11 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket137Field0Vi
         let _ = _args;
         let reserved_field_0 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         let reserved_field_1 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let reserved_field_2 =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_2 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_3 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_4 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let reserved_field_5 =
-            crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let reserved_field_6 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-        {
+        let reserved_field_5 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        let reserved_field_6 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
             Some(<bool as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
@@ -10181,12 +10174,8 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket137Field0Vi
             buf,
             (),
         )?;
-        let reserved_field_8 =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let reserved_field_9 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )? {
+        let reserved_field_8 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_9 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
             Some(
                 <ReservedPacket137Field0Field9View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                     buf,
@@ -10227,10 +10216,8 @@ impl ReservedPacket137Field0View {
         crate::bedrock::codec::VarUInt(((&self.reserved_field_4).as_bytes().len()) as u32)
             .encode(buf)?;
         buf.put_slice((&self.reserved_field_4).as_bytes());
-        crate::bedrock::codec::VarUInt(
-            ((&self.reserved_field_5).as_bytes().len()) as u32,
-        )
-        .encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_5).as_bytes().len()) as u32)
+            .encode(buf)?;
         buf.put_slice((&self.reserved_field_5).as_bytes());
         (&self.reserved_field_6).is_some().encode(buf)?;
         if let Some(value) = &self.reserved_field_6 {
@@ -10249,16 +10236,12 @@ impl From<ReservedPacket137Field0View> for ReservedPacket137Field0 {
     fn from(value: ReservedPacket137Field0View) -> Self {
         let _ = &value;
         Self {
-            reserved_field_0: (value.reserved_field_0)
-                .to_string_lossy()
-                .into_owned(),
+            reserved_field_0: (value.reserved_field_0).to_string_lossy().into_owned(),
             reserved_field_1: (value.reserved_field_1).to_string_lossy().into_owned(),
             reserved_field_2: value.reserved_field_2,
             reserved_field_3: value.reserved_field_3,
             reserved_field_4: (value.reserved_field_4).to_string_lossy().into_owned(),
-            reserved_field_5: (value.reserved_field_5)
-                .to_string_lossy()
-                .into_owned(),
+            reserved_field_5: (value.reserved_field_5).to_string_lossy().into_owned(),
             reserved_field_6: (value.reserved_field_6).map(|value| value),
             reserved_field_7: (value.reserved_field_7).into(),
             reserved_field_8: value.reserved_field_8,
@@ -12321,9 +12304,7 @@ impl crate::bedrock::codec::BedrockSized for ReservedStackRequestAction9View {
         0usize + crate::bedrock::codec::BedrockSized::encoded_size(&self.reserved_field_0)
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ReservedStackRequestAction9View
-{
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedStackRequestAction9View {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -12349,9 +12330,7 @@ impl ReservedStackRequestAction9View {
         Ok(())
     }
 }
-impl From<ReservedStackRequestAction9View>
-    for ReservedStackRequestAction9
-{
+impl From<ReservedStackRequestAction9View> for ReservedStackRequestAction9 {
     fn from(value: ReservedStackRequestAction9View) -> Self {
         let _ = &value;
         Self {
@@ -13769,9 +13748,7 @@ impl From<LegacyTelemetryEventPacketPayloadCauldronUsedView>
 pub struct ReservedPacket65Event18View {
     pub reserved_field_0: crate::bedrock::borrowed::BorrowedStr,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ReservedPacket65Event18View
-{
+impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event18View {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -13780,9 +13757,7 @@ impl crate::bedrock::codec::BedrockSized
             + (&self.reserved_field_0).as_bytes().len()
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ReservedPacket65Event18View
-{
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket65Event18View {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -13790,11 +13765,8 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let reserved_field_0 =
-            crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        Ok(Self {
-            reserved_field_0,
-        })
+        let reserved_field_0 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        Ok(Self { reserved_field_0 })
     }
 }
 impl ReservedPacket65Event18View {
@@ -13803,23 +13775,17 @@ impl ReservedPacket65Event18View {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::VarUInt(
-            ((&self.reserved_field_0).as_bytes().len()) as u32,
-        )
-        .encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)
+            .encode(buf)?;
         buf.put_slice((&self.reserved_field_0).as_bytes());
         Ok(())
     }
 }
-impl From<ReservedPacket65Event18View>
-    for ReservedPacket65Event18
-{
+impl From<ReservedPacket65Event18View> for ReservedPacket65Event18 {
     fn from(value: ReservedPacket65Event18View) -> Self {
         let _ = &value;
         Self {
-            reserved_field_0: (value.reserved_field_0)
-                .to_string_lossy()
-                .into_owned(),
+            reserved_field_0: (value.reserved_field_0).to_string_lossy().into_owned(),
         }
     }
 }
@@ -13828,9 +13794,7 @@ pub struct ReservedPacket65Event19View {
     pub reserved_field_0: crate::bedrock::borrowed::BorrowedStr,
     pub reserved_field_1: i32,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ReservedPacket65Event19View
-{
+impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event19View {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -13842,9 +13806,7 @@ impl crate::bedrock::codec::BedrockSized
             ))
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ReservedPacket65Event19View
-{
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket65Event19View {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -13878,9 +13840,7 @@ impl ReservedPacket65Event19View {
         Ok(())
     }
 }
-impl From<ReservedPacket65Event19View>
-    for ReservedPacket65Event19
-{
+impl From<ReservedPacket65Event19View> for ReservedPacket65Event19 {
     fn from(value: ReservedPacket65Event19View) -> Self {
         let _ = &value;
         Self {
@@ -26643,13 +26603,11 @@ impl CraftingDataPacketView {
         for item in &self.user_data_shapeless_recipes {
             (item).encode(buf)?;
         }
-        crate::bedrock::codec::VarUInt(((&self.reserved_field_4).len()) as u32)
-            .encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_4).len()) as u32).encode(buf)?;
         for item in &self.reserved_field_4 {
             (item).encode(buf)?;
         }
-        crate::bedrock::codec::VarUInt(((&self.reserved_field_5).len()) as u32)
-            .encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_5).len()) as u32).encode(buf)?;
         for item in &self.reserved_field_5 {
             (item).encode(buf)?;
         }
@@ -30397,10 +30355,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket109View {
         let _ = &buf;
         let _ = _args;
         let reserved_field_0 =
-            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
+            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let reserved_field_1 =
             <BlockPosView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                 buf,
@@ -31922,9 +31877,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket137View {
             buf,
             (),
         )?;
-        Ok(Self {
-            reserved_field_0,
-        })
+        Ok(Self { reserved_field_0 })
     }
 }
 impl ReservedPacket137View {
@@ -32598,7 +32551,8 @@ impl ReservedPacket150View {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)
+            .encode(buf)?;
         buf.put_slice((&self.reserved_field_0).as_bytes());
         (&self.reserved_field_1).encode(buf)?;
         Ok(())
@@ -33931,9 +33885,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket170View {
             buf,
             (),
         )?;
-        Ok(Self {
-            reserved_field_0,
-        })
+        Ok(Self { reserved_field_0 })
     }
 }
 impl ReservedPacket170View {
@@ -34307,18 +34259,12 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket178View {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let reserved_field_0 = <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let reserved_field_1 = <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
-        let reserved_field_2 = <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(
-            buf,
-            (),
-        )?;
+        let reserved_field_0 =
+            <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_1 =
+            <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let reserved_field_2 =
+            <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
             reserved_field_0,
             reserved_field_1,
@@ -34558,10 +34504,12 @@ impl ReservedPacket181View {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)
+            .encode(buf)?;
         buf.put_slice((&self.reserved_field_0).as_bytes());
         (&self.reserved_field_1).encode(buf)?;
-        crate::bedrock::codec::VarUInt(((&self.reserved_field_2).as_bytes().len()) as u32).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.reserved_field_2).as_bytes().len()) as u32)
+            .encode(buf)?;
         buf.put_slice((&self.reserved_field_2).as_bytes());
         Ok(())
     }
@@ -39278,7 +39226,9 @@ impl BorrowedMcpePacketData {
             Self::SetDisplayObjectivePacket(view) => Ok(
                 crate::McpePacketData::SetDisplayObjectivePacket(Box::new(view.into())),
             ),
-            Self::ReservedPacket109(view) => Ok(crate::McpePacketData::ReservedPacket109(view.into())),
+            Self::ReservedPacket109(view) => {
+                Ok(crate::McpePacketData::ReservedPacket109(view.into()))
+            }
             Self::UpdateBlockSyncedPacket(view) => Ok(
                 crate::McpePacketData::UpdateBlockSyncedPacket(Box::new(view.into())),
             ),
@@ -39339,9 +39289,9 @@ impl BorrowedMcpePacketData {
             Self::ClientCacheMissResponsePacket(view) => Ok(
                 crate::McpePacketData::ClientCacheMissResponsePacket(view.into()),
             ),
-            Self::ReservedPacket137(view) => Ok(
-                crate::McpePacketData::ReservedPacket137(Box::new(view.into())),
-            ),
+            Self::ReservedPacket137(view) => Ok(crate::McpePacketData::ReservedPacket137(
+                Box::new(view.into()),
+            )),
             Self::EmotePacket(view) => {
                 Ok(crate::McpePacketData::EmotePacket(Box::new(view.into())))
             }
