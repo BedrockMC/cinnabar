@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "upstream_revision": "870bb549c701a0c03472c66441449c4b70a8454a",
+  "packet_ids": [109, 137, 150, 170, 178, 181, 183, 304],
+  "field_ordinals": {"CraftingDataPacket": [4, 5, 10], "LevelSettings": [12, 13, 14, 44]},
+  "enum_values": {"EnumsContainerEnumName": [35, 36, 37, 38, 39, 40], "EnumsItemStackRequestActionType": [9], "EnumsLegacyTelemetryEventPacketPayloadType": [8, 9, 26, 27], "EnumsPlayStatus": [5, 6], "EnumsConnectionDisconnectFailReason": [11, 131, 132], "EnumsActorType": [78, 107, 312, 318, 4194410], "EnumsActorEvent": [36, 71, 73], "EnumsPhotoType": [0, 1]},
+  "action_unions": ["ItemStackRequestCerealRequestDataActionsItem", "ItemStackRequestPacketDataRequestDataActionsItem"],
+  "action_union_discriminator": 7,
+  "reserved_unions": [
+    {"owner":"LegacyTelemetryEventPacketEventData","discriminator":18,"neutral":"ReservedPacket65Event18","field_types":["String"]},
+    {"owner":"LegacyTelemetryEventPacketEventData","discriminator":19,"neutral":"ReservedPacket65Event19","field_types":["String","i32"]}
+  ],
+  "supporting_records": [
+    {"packet":109,"path":[0],"neutral":"ReservedPacket109Field0"},
+    {"packet":109,"path":[2],"neutral":"ReservedPacket109Field2"},
+    {"packet":137,"path":[0],"neutral":"ReservedPacket137Field0"},
+    {"packet":137,"path":[0,7],"neutral":"ReservedPacket137Field0Field7"},
+    {"packet":137,"path":[0,9],"neutral":"ReservedPacket137Field0Field9"},
+    {"packet":170,"path":[0],"neutral":"ReservedPacket170Field0"},
+    {"packet":178,"path":[0],"neutral":"ReservedPacket178Field0"},
+    {"packet":178,"path":[1],"neutral":"ReservedPacket178Field1"},
+    {"packet":178,"path":[2],"neutral":"ReservedPacket178Field2"},
+    {"packet":181,"path":[1],"neutral":"ReservedPacket181Field1"},
+    {"packet":304,"path":[0],"neutral":"ReservedPacket304Field0"},
+    {"owner":"CraftingDataPacket","path":[10],"neutral":"ReservedCraftingVector10Entry"},
+    {"owner":"CraftingDataPacket","path":[10,1],"neutral":"ReservedCraftingVector10EntryField1"},
+    {"owner":"LevelSettings","path":[12],"neutral":"ReservedLevelSettingsField12"}
+  ],
+  "shared_incoming_fields": [["CraftingDataPacket",10],["LevelSettings",12],["LevelSettings",44]],
+  "input_sha256": {
+    "common.rs":"f3bffd9fa5ec9e9f2a1031ba509d6e77d3ff5db6ced3d3126a97863a7f439fcf",
+    "mcpe.rs":"6b7aa1ff0f82207350311b079621d14503f2697dff0f03682e1cb8dca2dce2e5",
+    "proto.rs":"13adb5f89423cbd13bb34a9953262a95f0415b635d5741c89e113ccb4a18d7e3",
+    "types.rs":"1ca0d06a54287477769344188e316462df22a0a4ec9b1e2e65a3d4d11c0f8bbe",
+    "borrowed.rs":"88ae114b80b0ed85a1f01c623f5bc9c969df79364da8fd3850b2926083dd626b"
+  },
+  "normalized_sha256": {
+    "common.rs":"14a27b7da0279b4799c6eff86a84583ce1ffce8ed6915e50c1596fe750e61767",
+    "mcpe.rs":"d2881264fcea06a480d9edaf8f9bdb6e3e8f897cced531287e551a3ca9087941",
+    "proto.rs":"83a9a41baaf7fb8a156e606e8209dd88dcd05a33879c3b276ebf91d0d795881d",
+    "types.rs":"4ccf39cc8d588fad256467aeda41e1b0e614107a0d3a6c31a8246c9c70973d10",
+    "borrowed.rs":"18e9364d7229418d3c0acb4ca4d064a8385fd1ee68a1053064d4fe8e5716ecd1"
+  }
+}
