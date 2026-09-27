@@ -1,14 +1,34 @@
+use std::sync::Arc;
+
 use bevy::prelude::Resource;
 use resource_pack::{LayeredPackView, PackAdmission};
 
+use super::block_overlay::{CompiledBlockOverlay, compile_block_overlay};
+
+/// Everything the session applies from its server pack stack.
+#[derive(Debug)]
+pub struct PackApplication {
+    pub(crate) admission: PackAdmission,
+    pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
+    pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
+}
+
+impl Default for PackApplication {
+    fn default() -> Self {
+        Self {
+            admission: PackAdmission::None,
+            server_lang: None,
+            block_overlay: None,
+        }
+    }
+}
+
 pub(super) fn prepare_pack_application(
     handoff: protocol::ResourcePackHandoff,
-) -> (
-    PackAdmission,
-    Option<std::sync::Arc<assets::ServerLangOverlay>>,
-) {
+    custom_blocks: &protocol::CustomBlocks,
+) -> PackApplication {
     if handoff.is_empty() {
-        return (PackAdmission::None, None);
+        return PackApplication::default();
     }
     let stack = resource_pack::validate_handoff(handoff);
     for rejection in stack.rejections() {
@@ -18,9 +38,54 @@ pub(super) fn prepare_pack_application(
             "server resource pack dropped"
         );
     }
-    let view = LayeredPackView::new(std::sync::Arc::clone(&stack));
-    let overlay = merged_server_lang(&view);
-    (PackAdmission::Validated(stack), overlay)
+    let view = LayeredPackView::new(Arc::clone(&stack));
+    let block_overlay = compile_block_overlay(&view, custom_blocks).map(Arc::new);
+    if let Some(compiled) = &block_overlay
+        && compiled.gaps != Default::default()
+    {
+        bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
+    }
+    PackApplication {
+        server_lang: merged_server_lang(&view),
+        admission: PackAdmission::Validated(stack),
+        block_overlay,
+    }
+}
+
+/// Returns the carrier extended with this session's custom block visuals, or the
+/// carrier itself when there is nothing to apply or the overlay does not fit.
+pub(super) fn session_runtime_assets(
+    base: &Arc<assets::RuntimeAssets>,
+    custom_ids: Option<&std::ops::Range<u32>>,
+    compiled: Option<&CompiledBlockOverlay>,
+) -> Arc<assets::RuntimeAssets> {
+    let (Some(ids), Some(compiled)) = (custom_ids, compiled) else {
+        return Arc::clone(base);
+    };
+    if compiled.overlay.visuals.len() != ids.len() {
+        bevy::log::warn!("server block visuals do not match the custom block ids");
+        return Arc::clone(base);
+    }
+    match base.with_block_overlay(ids.start, &compiled.overlay) {
+        Ok(assets) => Arc::new(assets),
+        Err(error) => {
+            bevy::log::warn!(%error, "server block visuals were not applied");
+            Arc::clone(base)
+        }
+    }
+}
+
+/// Points the chunk renderer at the session's assets. Every switch takes a
+/// fresh revision so the GPU tables re-upload even if an allocation is reused.
+pub(super) fn install_chunk_textures(
+    textures: &mut render::ChunkTextureAssets,
+    assets: &Arc<assets::RuntimeAssets>,
+) {
+    static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    if !Arc::ptr_eq(textures.assets(), assets) {
+        let revision = REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        *textures = render::ChunkTextureAssets::with_revision(Arc::clone(assets), revision);
+    }
 }
 
 /// The client requests `en_US` at login, so that is the only locale merged.
@@ -29,7 +94,7 @@ const SERVER_LANG_PATH: &str = "texts/en_US.lang";
 /// Merges every pack's language file so a higher-precedence pack overrides a
 /// key and keys it does not define still come from lower packs. Lowest layers
 /// are dropped first if the merged text would exceed the overlay input bound.
-fn merged_server_lang(view: &LayeredPackView) -> Option<std::sync::Arc<assets::ServerLangOverlay>> {
+fn merged_server_lang(view: &LayeredPackView) -> Option<Arc<assets::ServerLangOverlay>> {
     let mut kept = Vec::new();
     let mut total = 0usize;
     for layer in view.read_layers(SERVER_LANG_PATH).into_iter().rev() {
@@ -166,21 +231,24 @@ mod tests {
 
     #[test]
     fn absent_or_rejected_application_preserves_optional_admission() {
-        let (admission, overlay) =
-            super::prepare_pack_application(protocol::ResourcePackHandoff::default());
-        assert!(matches!(admission, PackAdmission::None));
-        assert!(overlay.is_none());
+        let application = super::prepare_pack_application(
+            protocol::ResourcePackHandoff::default(),
+            &protocol::CustomBlocks::default(),
+        );
+        assert!(matches!(application.admission, PackAdmission::None));
+        assert!(application.server_lang.is_none());
         let pack = protocol::ResourcePackArchive::unencrypted(
             "11111111-2222-3333-4444-555555555555".parse().unwrap(),
             "1.2.3".into(),
             String::new(),
             vec![0; 32],
         );
-        let (admission, overlay) =
-            super::prepare_pack_application(protocol::ResourcePackHandoff::from_archives(vec![
-                pack,
-            ]));
-        let PackAdmission::Validated(stack) = admission else {
+        let application = super::prepare_pack_application(
+            protocol::ResourcePackHandoff::from_archives(vec![pack]),
+            &protocol::CustomBlocks::default(),
+        );
+        let overlay = application.server_lang;
+        let PackAdmission::Validated(stack) = application.admission else {
             panic!("a dropped pack still yields an admitted stack");
         };
         assert!(stack.packs().is_empty());
@@ -223,8 +291,9 @@ mod tests {
             lang_pack(1, b"shared=top\ntop.only=T"),
             lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
         ]);
-        let (_, overlay) = super::prepare_pack_application(handoff);
-        let overlay = overlay.expect("merged overlay");
+        let application =
+            super::prepare_pack_application(handoff, &protocol::CustomBlocks::default());
+        let overlay = application.server_lang.expect("merged overlay");
         assert_eq!(overlay.lookup("shared"), Some("top"));
         assert_eq!(overlay.lookup("top.only"), Some("T"));
         assert_eq!(overlay.lookup("bottom.only"), Some("B"));

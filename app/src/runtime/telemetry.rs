@@ -502,7 +502,7 @@ pub(crate) fn record_metrics_and_title(
     metrics.0.record_frame(frame_time);
     sampling.rolling_fps.record(frame_time);
     metrics.0.record_asset_counters(
-        client_world.runtime_assets.missing_count(),
+        client_world.missing_asset_count(),
         diagnostic_quads.0.total(),
     );
     if let Some(marker) = refresh_diagnostic_attribution(
