@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use valentine::bedrock::codec::BedrockCodec;
 use valentine::bedrock::version::v1_26_44::types::{
     BookEditActionAddPage, BookEditActionReplacePage, EnumsActorEvent, EnumsContainerEnumName,
-    EnumsItemStackRequestActionType, EnumsPlayStatus,
+    EnumsItemStackRequestActionType, EnumsLegacyTelemetryEventPacketPayloadType, EnumsPlayStatus,
     ResourcePackClientResponsePacketPayloadCancel,
     ResourcePackClientResponsePacketPayloadDownloading,
     ResourcePackClientResponsePacketPayloadDownloadingFinished,
@@ -35,6 +35,12 @@ fn generated_unknown_enum_values_keep_their_wire_numbers() {
     assert_wire(EnumsContainerEnumName::Unknown(250), &[250]);
     assert_wire(EnumsItemStackRequestActionType::Unknown(250), &[250]);
     assert_wire(EnumsPlayStatus::Unknown(10), &[0, 0, 0, 10]);
+}
+
+#[test]
+fn reserved_telemetry_values_keep_their_wire_numbers() {
+    assert_wire(EnumsLegacyTelemetryEventPacketPayloadType::Reserved8, &[16]);
+    assert_wire(EnumsLegacyTelemetryEventPacketPayloadType::Reserved9, &[18]);
 }
 
 #[test]
