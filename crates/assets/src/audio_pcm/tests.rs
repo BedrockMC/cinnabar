@@ -1,4 +1,5 @@
 use super::*;
+use crate::RuntimeAudioCatalog;
 
 pub(super) fn fixture() -> (AudioPcmExpectedIdentity, RuntimeAudioCatalog, Vec<u8>) {
     let samples = [1_i16, -2, 3, -4];

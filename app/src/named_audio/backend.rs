@@ -184,7 +184,7 @@ impl AudioDevice {
     }
     /// Only replaces hardware transport; admission and source ownership are real.
     #[cfg(test)]
-    pub(super) fn test_mixer() -> (Self, rodio::dynamic_mixer::DynamicMixer<f32>) {
+    fn test_mixer() -> (Self, rodio::dynamic_mixer::DynamicMixer<f32>) {
         let (controller, mixer) = rodio::dynamic_mixer::mixer::<f32>(2, 48000);
         (
             Self {
