@@ -5,9 +5,9 @@
 //! a destroy travel as the block-action list of the movement tick in which
 //! they happened (`PerformBlockActions`), and the creative instant destroy
 //! travels as the embedded break-block item-use transaction
-//! (`PerformItemInteraction`). The provisional empty-hand block-use path uses
-//! that same mutually exclusive carrier. This module owns those bounded
-//! payloads; the movement snapshot itself stays a pure movement record.
+//! (`PerformItemInteraction`). Block placement is a standalone transaction.
+//! This module owns those bounded payloads; the movement snapshot itself stays
+//! a pure movement record.
 
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_44::{
@@ -172,9 +172,7 @@ impl BlockActions {
 
 /// The one item-use transaction attached to a movement tick.
 ///
-/// `Use` is the bounded empty-hand block-use carrier currently exercised by
-/// the app. Its wider item behavior and optional input envelope remain
-/// intentionally unspecified.
+/// The client uses `Destroy`; `Use` stays encodable for wire fixtures.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockItemInteraction {
     Use(BlockUseRequest),

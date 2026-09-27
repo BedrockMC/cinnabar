@@ -671,6 +671,14 @@ impl<'a> PaletteWorld<'a> {
         WorldCollisionIdentity::new(self.registry.identity(), revisions)
     }
 
+    /// Whether every layer of a loaded block is air.
+    pub fn is_air(&self, block: [i32; 3]) -> Result<bool, WorldQueryError> {
+        Ok(self
+            .runtime_ids_at(block)?
+            .into_iter()
+            .all(|runtime_id| runtime_id == self.registry.air_runtime_id))
+    }
+
     fn runtime_ids_at(&self, block: [i32; 3]) -> Result<Vec<u32>, WorldQueryError> {
         let [x, y, z] = block;
         let chunk = ChunkKey::new(self.dimension, x >> 4, z >> 4);

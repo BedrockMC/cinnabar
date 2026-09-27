@@ -68,40 +68,16 @@ pub(crate) fn still_authorized_by(
         && target.identity == next_target.identity
 }
 
-impl FrozenBlockObservation {
-    pub(crate) fn still_authorized_by(&self, current: &Self) -> bool {
-        still_authorized_by(
-            (
-                &self.frame,
-                &self.ray,
-                self.reach,
-                self.input_mode,
-                &self.selection,
-                &self.target,
-            ),
-            (
-                &current.frame,
-                &current.ray,
-                current.reach,
-                current.input_mode,
-                &current.selection,
-                &current.target,
-            ),
-        )
-    }
-}
-
-impl From<crate::mining::FrozenCreativeMining> for FrozenBlockObservation {
-    fn from(value: crate::mining::FrozenCreativeMining) -> Self {
-        Self {
-            frame: value.frame,
-            ray: value.ray,
-            reach: value.reach,
-            input_mode: value.input_mode,
-            selection: value.selection,
-            target: value.target,
-        }
-    }
+/// Vanilla limits a pick by the eye-to-block-centre distance, not the ray length.
+pub(crate) fn within_pick_range(observed: &FrozenBlockObservation) -> bool {
+    let distance_squared = observed
+        .target
+        .position
+        .into_iter()
+        .zip(observed.ray.origin)
+        .map(|(block, eye)| (f64::from(block) + 0.5 - f64::from(eye)).powi(2))
+        .sum::<f64>();
+    distance_squared <= observed.reach * observed.reach
 }
 
 pub(crate) fn observe_block(

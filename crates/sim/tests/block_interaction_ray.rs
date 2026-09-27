@@ -796,3 +796,21 @@ fn maximum_distance_full_halo_query_stays_within_the_inspected_block_budget() {
             .is_none()
     );
 }
+
+#[test]
+fn air_query_requires_every_layer_empty_and_a_loaded_block() {
+    let (mut store, registry, _) = fixture(7);
+    set_block(&mut store, [1, 0, 0], 1, 7);
+    let world = PaletteWorld::new(&store, &registry, 0);
+    assert_eq!(world.is_air([0, 1, 0]), Ok(true));
+    assert_eq!(world.is_air([0, 0, 0]), Ok(false));
+    assert_eq!(
+        world.is_air([1, 0, 0]),
+        Ok(false),
+        "a filled second layer is not air"
+    );
+    assert!(matches!(
+        world.is_air([0, 200, 0]),
+        Err(WorldQueryError::UnloadedChunk(_))
+    ));
+}

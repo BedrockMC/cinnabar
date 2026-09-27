@@ -98,6 +98,47 @@ pub fn click_block_packet(
     )
 }
 
+/// What fired a click-block transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemUseTrigger {
+    /// The use press itself.
+    PlayerInput,
+    /// A repeat while the use button stays held.
+    SimulationTick,
+}
+
+/// Builds a standalone click-block transaction carrying its trigger and whether the
+/// local use succeeded.
+pub fn click_block_transaction_packet(
+    request: BlockUseRequest,
+    trigger: ItemUseTrigger,
+    predicted_success: bool,
+) -> Result<crate::Packet, BlockUsePacketError> {
+    let mut transaction = item_use_transaction(
+        request,
+        ItemUseInventoryTransactionActionType::Place,
+        Some(Vec::new()),
+    )?;
+    transaction.trigger_type = match trigger {
+        ItemUseTrigger::PlayerInput => ItemUseInventoryTransactionTriggerType::PlayerInput,
+        ItemUseTrigger::SimulationTick => ItemUseInventoryTransactionTriggerType::SimulationTick,
+    };
+    if predicted_success {
+        transaction.client_interact_prediction =
+            ItemUseInventoryTransactionClientInteractPrediction::Success;
+    }
+    Ok(InventoryTransactionPacket {
+        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+        legacy_set_item_slots: None,
+        transaction: Some(
+            InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+                transaction,
+            )),
+        ),
+    }
+    .into())
+}
+
 /// Builds a protocol-2168 player-input destroy-block transaction.
 ///
 /// The packet carries no legacy slot records and no inventory actions. Its wire action is the

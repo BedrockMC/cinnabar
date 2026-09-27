@@ -17,7 +17,7 @@ use semantic_input::Action;
 use sim::{BlockDestroyInfo, DestroyConditions, HeldTool, PaletteWorld};
 
 use crate::{
-    interaction_authority::observe_block,
+    interaction_authority::{observe_block, within_pick_range},
     local_player::InteractionOriginSnapshot,
     melee::{MeleeRuntime, SwingTracker, swing_duration},
     menu::MenuRuntime,
@@ -449,15 +449,7 @@ fn observe_destroy_target(
             position_authority_generation,
         ),
     )?;
-    // Vanilla limits the pick by the eye-to-block-centre distance, not the ray length.
-    let centre_distance_squared = observed
-        .target
-        .position
-        .into_iter()
-        .zip(observed.ray.origin)
-        .map(|(block, eye)| (f64::from(block) + 0.5 - f64::from(eye)).powi(2))
-        .sum::<f64>();
-    if centre_distance_squared > observed.reach * observed.reach {
+    if !within_pick_range(&observed) {
         return None;
     }
     let stream = context.client_world.stream.as_ref()?;

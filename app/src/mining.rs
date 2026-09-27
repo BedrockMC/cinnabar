@@ -15,7 +15,6 @@ use semantic_input::{Action, InputMode};
 use sim::WorldCollisionIdentity;
 
 use crate::{
-    block_use::mining_edge_authorized,
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
     movement::{MovementTicker, PhysicsCollisionRegistries},
@@ -390,6 +389,10 @@ const fn creative_mining_ui_ability(
     } else {
         creative_mining_ability(game_mode)
     }
+}
+
+const fn mining_edge_authorized(attack_pressed: bool, use_pressed: bool) -> bool {
+    attack_pressed && !use_pressed
 }
 
 const fn creative_mining_input_authorized(menu_visible: bool, window_focused: bool) -> bool {
