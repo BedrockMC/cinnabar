@@ -114,3 +114,46 @@ fn audio_admission_refusal_preserves_existing_order_and_named_stop() {
         COMMITTED_AUDIO_CAPACITY as u64
     );
 }
+
+#[test]
+fn every_camera_family_including_clear_and_shake_stop_sets_the_lifetime_latch() {
+    for event in [
+        protocol::CameraEvent::Switch(protocol::CameraSwitchEvent {
+            camera_unique_id: 1,
+            target_player_unique_id: 1,
+        }),
+        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent::default()),
+        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+            clear: Some(true),
+            ..Default::default()
+        }),
+        protocol::CameraEvent::Instruction(protocol::CameraInstructionEvent {
+            clear: Some(false),
+            ..Default::default()
+        }),
+        protocol::CameraEvent::Shake(protocol::CameraShakeEvent {
+            intensity: 0.1,
+            duration_seconds: 0.1,
+            shake_type: protocol::CameraShakeType::Positional,
+            action: protocol::CameraShakeAction::Add,
+        }),
+        protocol::CameraEvent::Shake(protocol::CameraShakeEvent {
+            intensity: 0.0,
+            duration_seconds: 0.0,
+            shake_type: protocol::CameraShakeType::Rotational,
+            action: protocol::CameraShakeAction::Stop,
+        }),
+    ] {
+        let mut stream = audio_stream();
+        assert!(stream.audio_default_camera_eligible());
+        stream.submit(1, WorldEvent::Camera(event)).unwrap();
+        assert!(!stream.audio_default_camera_eligible());
+        assert!(stream.stats().audio_nondefault_camera_observed);
+        assert_eq!(stream.take_committed_camera().len(), 1);
+        stream.begin_timed_session();
+        stream.submit(2, dimension(1)).unwrap();
+        stream.submit(3, dimension(0)).unwrap();
+        assert!(!stream.audio_default_camera_eligible());
+        assert!(audio_stream().audio_default_camera_eligible());
+    }
+}
