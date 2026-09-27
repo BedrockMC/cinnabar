@@ -59,6 +59,12 @@ pub use inventory::recipes::{
     RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeUpdate, decode_recipe_update,
 };
 pub use inventory::{
+    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
+    CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
+    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, StackItemDescriptor, container_window,
+    is_personal_ui_inventory,
+};
+pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY,
     CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent, ContainerDataEvent,

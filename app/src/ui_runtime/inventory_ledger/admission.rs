@@ -15,7 +15,7 @@ use protocol::{
     NetworkItemStack, SlotIdentity, project_container_cell,
 };
 
-use super::cells::Held;
+use super::cells::{ARMOR_CELLS, FIRST_CRAFT_SLOT, Held};
 use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
     Cell, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT, NO_CONTAINER_WINDOW_TYPE,
@@ -135,10 +135,39 @@ impl PlayerInventoryLedger {
                     self.note_unrouted_container();
                 }
             }
-            // Armor and offhand rewrites resolve canonically but this ledger
-            // retains neither surface yet, so they stay counted skips.
+            Some(CanonicalCell::Armor(_)) => {
+                for (slot, stack) in content.slots.iter().take(ARMOR_CELLS).enumerate() {
+                    self.confirmed
+                        .set(Cell::Armor(slot as u8), Held::new(stack));
+                }
+                if content.slots.len() >= ARMOR_CELLS - 1 {
+                    self.armor_resync_required = false;
+                    self.drop_refreshed_timeouts();
+                }
+            }
+            Some(CanonicalCell::Offhand) => {
+                if let [stack] = content.slots.as_ref() {
+                    self.confirmed.set(Cell::Offhand, Held::new(stack));
+                    self.offhand_resync_required = false;
+                    self.drop_refreshed_timeouts();
+                } else {
+                    self.note_unrouted_container();
+                }
+            }
+            None if protocol::is_personal_ui_inventory(&content.container)
+                && content.slots.len() == UI_INVENTORY_SLOT_COUNT =>
+            {
+                for slot in protocol::CRAFTING_INPUT_SLOTS {
+                    let stack = &content.slots[usize::from(slot)];
+                    self.confirmed.set(Cell::Craft(slot), Held::new(stack));
+                }
+                self.crafting_resync_required = false;
+                self.drop_refreshed_timeouts();
+            }
             Some(
-                CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_),
+                CanonicalCell::CraftInput(_)
+                | CanonicalCell::TableCraftInput(_)
+                | CanonicalCell::CreatedOutput,
             )
             | None => {
                 self.note_unrouted_container();
@@ -167,8 +196,12 @@ impl PlayerInventoryLedger {
             Some(CanonicalCell::Cursor) => "cursor",
             Some(CanonicalCell::Armor(_)) => "armor",
             Some(CanonicalCell::Offhand) => "offhand",
-            Some(CanonicalCell::CraftInput(_)) => "unrouted",
-            None => "unrouted",
+            Some(
+                CanonicalCell::CraftInput(_)
+                | CanonicalCell::TableCraftInput(_)
+                | CanonicalCell::CreatedOutput,
+            )
+            | None => "unrouted",
         };
         let (open_window_id, open_generation) =
             self.storage.as_ref().map_or((None, None), |storage| {
@@ -209,12 +242,20 @@ impl PlayerInventoryLedger {
             None if bare_storage_window_matches(self.storage.as_ref(), &identity.container) => {
                 self.apply_storage_slot(identity.container, identity.slot, stack);
             }
-            Some(
-                CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_),
-            )
-            | None => {
-                self.note_unrouted_container();
+            None if protocol::is_personal_ui_inventory(&identity.container)
+                && u8::try_from(identity.slot)
+                    .is_ok_and(|slot| protocol::CRAFTING_INPUT_SLOTS.contains(&slot)) =>
+            {
+                self.confirmed
+                    .set(Cell::Craft(identity.slot as u8), Held::new(stack));
             }
+            Some(canonical) => match fixed_cell(canonical) {
+                Some(cell) => {
+                    self.confirmed.set(cell, Held::new(stack));
+                }
+                None => self.note_unrouted_container(),
+            },
+            None => self.note_unrouted_container(),
         }
     }
 
@@ -234,7 +275,7 @@ impl PlayerInventoryLedger {
                 let cell = Cell::Storage(u8::try_from(slot).ok()?);
                 self.confirmed.contains(cell).then_some(cell)
             }
-            CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_) => None,
+            canonical => fixed_cell(canonical),
         }
     }
 
@@ -376,4 +417,21 @@ impl PlayerInventoryLedger {
             self.confirmed.set(Cell::Storage(slot), Held::new(stack));
         }
     }
+}
+
+/// The personal UI inventory's full content length.
+const UI_INVENTORY_SLOT_COUNT: usize = 54;
+
+/// Maps a fixed armor, offhand or crafting canonical cell onto its ledger cell.
+fn fixed_cell(canonical: CanonicalCell) -> Option<Cell> {
+    Some(match canonical {
+        CanonicalCell::Armor(slot) => Cell::Armor(slot),
+        CanonicalCell::Offhand => Cell::Offhand,
+        CanonicalCell::CraftInput(index) => Cell::Craft(FIRST_CRAFT_SLOT + index),
+        CanonicalCell::TableCraftInput(index) => Cell::Craft(FIRST_CRAFT_SLOT + 4 + index),
+        CanonicalCell::CreatedOutput => Cell::CreatedOutput,
+        CanonicalCell::PlayerInventory(_)
+        | CanonicalCell::Cursor
+        | CanonicalCell::GenericStorage { .. } => return None,
+    })
 }

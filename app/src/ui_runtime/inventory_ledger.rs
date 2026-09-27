@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
 mod cells;
+#[cfg(test)]
+mod fixed_window_tests;
 mod gesture;
 #[cfg(test)]
 mod gesture_tests;
@@ -26,6 +28,7 @@ mod registry;
 mod response;
 
 use cells::{Cell, CellSurface, Cells};
+pub use gesture::{CellGesture, InventoryTarget};
 use personal::PersonalWindow;
 pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
@@ -161,6 +164,9 @@ pub struct PlayerInventoryLedger {
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
     cursor_resync_required: bool,
+    armor_resync_required: bool,
+    offhand_resync_required: bool,
+    crafting_resync_required: bool,
     storage_content_traces_remaining: u8,
     /// Well-formed authoritative inventory traffic whose container identity
     /// did not resolve onto a retained canonical ledger cell. Typed counted
@@ -186,6 +192,9 @@ impl Default for PlayerInventoryLedger {
             pending_closes: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
+            armor_resync_required: false,
+            offhand_resync_required: false,
+            crafting_resync_required: false,
             storage_content_traces_remaining: MAX_STORAGE_CONTENT_TRACES,
             skipped_unknown_containers: 0,
         }
@@ -226,6 +235,18 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn storage_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
         self.view_stack(Cell::Storage(slot))
+    }
+
+    /// The presented stack in any gesture target, including armor, offhand
+    /// and crafting cells.
+    #[must_use]
+    pub fn target_stack(&self, target: InventoryTarget) -> Option<&NetworkItemStack> {
+        self.view_stack(target.cell())
+    }
+
+    #[must_use]
+    pub fn created_output_stack(&self) -> Option<&NetworkItemStack> {
+        self.view_stack(Cell::CreatedOutput)
     }
 
     fn view_stack(&self, cell: Cell) -> Option<&NetworkItemStack> {
@@ -283,12 +304,30 @@ impl PlayerInventoryLedger {
 
     #[must_use]
     pub fn resync_required(&self) -> bool {
-        self.player_resync_required
-            || self.cursor_resync_required
-            || self
+        [
+            CellSurface::Player,
+            CellSurface::Cursor,
+            CellSurface::Storage,
+            CellSurface::Armor,
+            CellSurface::Offhand,
+            CellSurface::Crafting,
+        ]
+        .into_iter()
+        .any(|surface| self.surface_flagged(surface))
+    }
+
+    fn surface_flagged(&self, surface: CellSurface) -> bool {
+        match surface {
+            CellSurface::Player => self.player_resync_required,
+            CellSurface::Cursor => self.cursor_resync_required,
+            CellSurface::Storage => self
                 .storage
                 .as_ref()
-                .is_some_and(|storage| storage.resync_required)
+                .is_some_and(|storage| storage.resync_required),
+            CellSurface::Armor => self.armor_resync_required,
+            CellSurface::Offhand => self.offhand_resync_required,
+            CellSurface::Crafting => self.crafting_resync_required,
+        }
     }
 
     /// How many well-formed authoritative events resolved onto no retained
@@ -322,7 +361,7 @@ impl PlayerInventoryLedger {
         }
         self.first_unsent()
             .map(|pending| {
-                item_stack_request_packet(pending.request_id, pending.action)
+                item_stack_request_packet(pending.request_id, &pending.actions)
                     .map_err(|_| InventoryGestureError::InvalidRequest)
             })
             .transpose()
@@ -589,6 +628,9 @@ impl PlayerInventoryLedger {
                     storage.resync_required = true;
                 }
             }
+            CellSurface::Armor => self.armor_resync_required = true,
+            CellSurface::Offhand => self.offhand_resync_required = true,
+            CellSurface::Crafting => self.crafting_resync_required = true,
         }
     }
 }

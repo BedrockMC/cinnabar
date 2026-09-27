@@ -305,7 +305,7 @@ fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invali
     assert!(
         item_stack_request_packet(
             -3,
-            StackRequestAction::Take {
+            &[StackRequestAction::Take {
                 amount: 1,
                 source: StackRequestSlot {
                     container: StackRequestContainer::PlayerInventory,
@@ -317,7 +317,7 @@ fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invali
                     slot: 0,
                     stack_network_id: 0
                 },
-            }
+            }]
         )
         .is_err()
     );

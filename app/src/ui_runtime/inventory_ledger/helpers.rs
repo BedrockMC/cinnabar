@@ -41,25 +41,28 @@ pub(super) fn request_slot(
     stack_network_id: i32,
     storage_identity: Option<ContainerIdentity>,
 ) -> Result<StackRequestSlot, InventoryGestureError> {
-    Ok(match cell {
-        Cell::Inventory(slot) => StackRequestSlot {
-            container: StackRequestContainer::PlayerInventory,
-            slot,
-            stack_network_id,
-        },
-        Cell::Cursor => StackRequestSlot {
-            container: StackRequestContainer::Cursor,
-            slot: 0,
-            stack_network_id,
-        },
-        Cell::Storage(slot) => StackRequestSlot {
-            container: StackRequestContainer::LevelEntity {
+    let (container, slot) = match cell {
+        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, slot),
+        Cell::Cursor => (StackRequestContainer::Cursor, 0),
+        Cell::Storage(slot) => (
+            StackRequestContainer::LevelEntity {
                 dynamic_id: storage_identity
                     .ok_or(InventoryGestureError::InvalidRequest)?
                     .dynamic_id,
             },
             slot,
-            stack_network_id,
-        },
+        ),
+        Cell::Armor(slot) => (StackRequestContainer::Armor, slot),
+        Cell::Offhand => (StackRequestContainer::Offhand, 1),
+        Cell::Craft(slot) => (StackRequestContainer::CraftingInput, slot),
+        Cell::CreatedOutput => (
+            StackRequestContainer::CreatedOutput,
+            protocol::CREATED_OUTPUT_SLOT,
+        ),
+    };
+    Ok(StackRequestSlot {
+        container,
+        slot,
+        stack_network_id,
     })
 }

@@ -93,7 +93,7 @@ fn personal_gesture_waits_for_open_admission_and_uses_empty_stack_id_zero() {
         amount,
         source,
         destination,
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Take action");
     };
@@ -577,7 +577,7 @@ fn accepted_personal_response_reconciles_player_and_cursor_cells() {
         amount,
         source,
         destination,
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Place action");
     };
@@ -645,7 +645,7 @@ fn admitted_local_close_ack_preserves_confirmed_cursor_for_the_next_window() {
         source,
         destination,
         ..
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Place action")
     };
