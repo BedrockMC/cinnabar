@@ -1,5 +1,5 @@
-use bytes::BytesMut;
 use ::protocol::{RecipeCatalog, decode_recipe_update};
+use bytes::BytesMut;
 use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
 
 fn recipe(id: u32) -> ShapedRecipePayload {
