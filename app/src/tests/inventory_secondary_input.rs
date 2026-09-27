@@ -184,8 +184,10 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
         .pending_request_id();
     press(&mut busy, MouseButton::Right);
     busy.update();
+    // The unsettled split shares one server id, so it cannot be named yet.
     let busy_ledger = busy.world().resource::<UiRuntime>().inventory_ledger();
     assert_eq!(busy_ledger.pending_request_id(), first_request);
+    assert_eq!(busy_ledger.pending_request_count(), 1);
     assert_eq!(busy_ledger.cursor_stack().map(|stack| stack.count), Some(5));
 
     let mut unknown = UiRuntime::new(1);
@@ -231,9 +233,13 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
         .world()
         .resource::<UiRuntime>()
         .inventory_ledger();
+    // The timed-out prediction stays and blocks new gestures until refresh.
     assert!(recovering_ledger.resync_required());
-    assert_eq!(recovering_ledger.pending_state(), None);
-    assert_eq!(recovering_ledger.cursor_stack(), None);
+    assert_eq!(recovering_ledger.pending_request_count(), 1);
+    assert_eq!(
+        recovering_ledger.cursor_stack().map(|stack| stack.count),
+        Some(5)
+    );
 
     for runtime in [
         personal_runtime(None, None),

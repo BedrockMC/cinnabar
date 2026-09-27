@@ -1,15 +1,6 @@
-﻿use super::{
-    Cell, CellSurface, ContainerIdentity, InventoryGestureError, StackRequestContainer,
-    StackRequestSlot, StorageWindow,
-};
+use protocol::{StackRequestContainer, StackRequestSlot};
 
-pub(super) const fn cell_surface(cell: Cell) -> CellSurface {
-    match cell {
-        Cell::Inventory(_) => CellSurface::Player,
-        Cell::Storage(_) => CellSurface::Storage,
-        Cell::Cursor => CellSurface::Cursor,
-    }
-}
+use super::{Cell, ContainerIdentity, InventoryGestureError, StorageWindow};
 
 pub(super) const fn valid_raw_window_id(window_id: i32) -> bool {
     matches!(window_id, -128..=255)
