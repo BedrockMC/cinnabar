@@ -53,6 +53,81 @@ mod tests {
     use super::*;
 
     #[test]
+    fn complete_grid_reserves_before_cloning_and_releases_all_four_permits_once() {
+        use super::super::projection::StackOwner;
+        let credits = Arc::new(Credits {
+            maximum: MAX_RETAINED_BYTES,
+            used: AtomicUsize::new(0),
+        });
+        let stack = protocol::NetworkItemStack {
+            extra_data: Arc::from([0u8; 10]),
+            ..protocol::NetworkItemStack::empty()
+        };
+        let charge = std::mem::size_of::<StackOwner>() + stack.extra_data.len() + 64;
+        let held = credits.reserve(MAX_RETAINED_BYTES - charge * 3).unwrap();
+        let before = Arc::strong_count(&stack.extra_data);
+        assert!(StackOwner::grid_with_credits([&stack; 4], &credits).is_none());
+        assert_eq!(
+            Arc::strong_count(&stack.extra_data),
+            before,
+            "no clone before fourth permit"
+        );
+        assert_eq!(
+            credits.used.load(Ordering::Acquire),
+            MAX_RETAINED_BYTES - charge * 3
+        );
+        drop(held);
+        let grid = StackOwner::grid_with_credits([&stack; 4], &credits).unwrap();
+        assert_eq!(credits.used.load(Ordering::Acquire), charge * 4);
+        let old = grid.clone();
+        drop(grid);
+        assert_eq!(credits.used.load(Ordering::Acquire), charge * 4);
+        assert_eq!(Arc::strong_count(&stack.extra_data), before + 4);
+        drop(old);
+        assert_eq!(credits.used.load(Ordering::Acquire), 0);
+        assert_eq!(Arc::strong_count(&stack.extra_data), before);
+    }
+
+    #[test]
+    fn grid_queue_refusal_rolls_back_owners_and_keeps_ordinary_drain() {
+        use super::super::projection::StackOwner;
+        let credits = Arc::new(Credits {
+            maximum: MAX_RETAINED_BYTES,
+            used: AtomicUsize::new(0),
+        });
+        let stack = protocol::NetworkItemStack::empty();
+        let charge = std::mem::size_of::<StackOwner>() + stack.extra_data.len() + 64;
+        // Four owners fit exactly, but the separately charged queue cannot.
+        let held = credits.reserve(MAX_RETAINED_BYTES - charge * 4).unwrap();
+        let mut runtime = crate::ui_runtime::UiRuntime::new(1);
+        runtime.crafting_authority =
+            super::super::CraftingAuthority::with_credits(1, Arc::clone(&credits));
+        let event = protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: protocol::ContainerIdentity {
+                window_id: Some(124),
+                slot_type: Some(0),
+                dynamic_id: None,
+            },
+            slots: vec![stack; 54].into(),
+            storage_item: protocol::NetworkItemStack::empty(),
+        });
+        runtime.enqueue_inventory_event(1, 1, event).unwrap();
+        runtime.synchronize_crafting_frontier(1, Some((1, 0, Some(1))));
+        runtime.drain_pending_inventory();
+        assert!(runtime.pending_inventory.is_empty());
+        assert!(runtime.crafting_authority.queue.is_none());
+        assert!(runtime.crafting_authority.grid.iter().all(Option::is_none));
+        assert_eq!(runtime.crafting_authority.barrier, 1);
+        assert_eq!(
+            credits.used.load(Ordering::Acquire),
+            MAX_RETAINED_BYTES - charge * 4
+        );
+        drop(runtime);
+        drop(held);
+        assert_eq!(credits.used.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
     fn immutable_owners_keep_credit_until_final_drop_and_refusal_cannot_remint() {
         let credits = Arc::new(Credits {
             maximum: 8,
