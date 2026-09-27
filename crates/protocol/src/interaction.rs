@@ -1,6 +1,6 @@
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_44::{
-    ActorRuntimeId, BlockPos,
+    ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction,
     EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
@@ -268,4 +268,39 @@ pub fn use_actor_packet(
         ),
     }
     .into())
+}
+
+/// Why the local arm swung, as carried by an outbound swing animation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwingSource {
+    Build,
+    Mine,
+    Interact,
+    Attack,
+}
+
+impl SwingSource {
+    // Vanilla's exact casing is unconfirmed; gophertunnel reads it case-insensitively.
+    const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Build => "Build",
+            Self::Mine => "Mine",
+            Self::Interact => "Interact",
+            Self::Attack => "Attack",
+        }
+    }
+}
+
+/// Builds the local player's arm-swing animation packet.
+#[must_use]
+pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Packet {
+    AnimatePacket {
+        action: EnumsAnimatePacketPayloadAction::Swing,
+        target_actor_runtime_id: ActorRuntimeId {
+            actor_runtime_id: local_runtime_id,
+        },
+        data: 0.0,
+        swing_source: Some(source.wire_name().to_owned()),
+    }
+    .into()
 }

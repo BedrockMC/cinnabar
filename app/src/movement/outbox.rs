@@ -296,6 +296,26 @@ impl MovementTicker {
             .collect()
     }
 
+    /// The newest unsent tick and its reported player position.
+    pub(crate) fn newest_unsent_sample(&self) -> Option<(u64, [f32; 3])> {
+        self.outbox
+            .back()
+            .map(|sample| (sample.snapshot.tick, sample.snapshot.position))
+    }
+
+    /// Flags an attack press that hit nothing on its exact unsent tick.
+    pub(crate) fn mark_missed_swing(&mut self, tick: u64) -> bool {
+        let Some(sample) = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick)
+        else {
+            return false;
+        };
+        sample.snapshot.flags |= protocol::PlayerInputFlags::MISSED_SWING;
+        true
+    }
+
     /// Attaches one survival destroy tick to its exact unsent sample.
     pub(crate) fn attach_survival_mining(
         &mut self,

@@ -26,7 +26,7 @@ pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsA
 pub use collision_registries::PhysicsCollisionRegistries;
 pub(crate) use correction_shape::reconcile_committed_correction;
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
-pub(crate) use effects::LocalMovementEffectTimeline;
+pub(crate) use effects::{LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};

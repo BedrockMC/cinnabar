@@ -49,6 +49,7 @@ use crate::{
         LocalPlayerFrameSet, publish_interaction_origin, publish_local_player_frame,
         resolve_camera_pose,
     },
+    melee::{MeleeRuntime, SwingTracker, produce_melee},
     menu::{
         CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
         follow_server_transfer, recover_menu_session_failure, spawn_core_for_address,
@@ -153,6 +154,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.init_resource::<MiningRuntime>()
         .init_resource::<BlockUseRuntime>()
         .init_resource::<SurvivalMiningRuntime>()
+        .init_resource::<MeleeRuntime>()
+        .init_resource::<SwingTracker>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
@@ -238,6 +241,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             (
                 flush_inventory_network,
                 emit_phase3_evidence,
+                produce_melee,
                 produce_creative_mining,
                 produce_survival_mining,
                 produce_block_use,

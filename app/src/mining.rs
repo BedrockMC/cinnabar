@@ -257,6 +257,7 @@ pub(crate) struct CreativeMiningContext<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
+    melee: Res<'w, crate::melee::MeleeRuntime>,
 }
 
 /// Produces at most one instant creative break per fresh attack press.
@@ -290,8 +291,10 @@ pub(crate) fn produce_creative_mining(
         movement.retain_creative_mining(None);
         return;
     }
-    let attack_pressed =
-        !position_authority_changed && mining_edge_authorized(raw_attack_pressed, use_pressed);
+    // A press on an actor in front of the block is an attack, not a break.
+    let attack_pressed = !position_authority_changed
+        && !context.melee.actor_in_front()
+        && mining_edge_authorized(raw_attack_pressed, use_pressed);
     if !attack_pressed && runtime.pending_press.is_none() && !movement.has_queued_creative_mining()
     {
         return;
@@ -408,7 +411,7 @@ pub(crate) const fn survival_reach(input_mode: PlayerInputMode) -> f64 {
     }
 }
 
-const fn creative_reach(input_mode: PlayerInputMode) -> f64 {
+pub(crate) const fn creative_reach(input_mode: PlayerInputMode) -> f64 {
     match input_mode {
         PlayerInputMode::Mouse => CREATIVE_MOUSE_REACH_BLOCKS,
         PlayerInputMode::GamePad => CREATIVE_GAMEPAD_REACH_BLOCKS,
