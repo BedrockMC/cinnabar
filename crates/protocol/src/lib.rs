@@ -54,6 +54,9 @@ pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     click_block_packet, destroy_block_packet, use_actor_packet,
 };
+pub use inventory::recipes::{
+    RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeUpdate, decode_recipe_update,
+};
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR,
     CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
@@ -69,6 +72,7 @@ pub use inventory::{
     normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
     project_container_cell, validate_item_nbt_size,
 };
+pub use inventory::{ManualCraftError, ManualCraftInput, ManualCraftPlan, manual_craft_packet};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,

@@ -480,7 +480,8 @@ impl GameplayHudState {
             | InventoryEvent::Response(_)
             | InventoryEvent::Open(_)
             | InventoryEvent::Close(_)
-            | InventoryEvent::Data(_) => {
+            | InventoryEvent::Data(_)
+            | InventoryEvent::Recipes(_) => {
                 self.diagnostics.dropped_inventory_events =
                     self.diagnostics.dropped_inventory_events.saturating_add(1);
             }

@@ -226,8 +226,14 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"DisconnectVisible",
 		"DisconnectFiltered",
 		"DisconnectHidden",
+		"CraftingDataManualNamed1x1",
+		"CraftingDataManualNamed1x2",
+		"CraftingDataManualUnsupportedReplacement",
+		"CraftingDataManualClearEmpty",
+		"ItemStackRequestManualCraft",
+		"ItemStackResponseManualCraft",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5, 52, 52, 52, 52, 147, 148}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -264,6 +270,15 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0x85, 0x48},
 		{0x85, 0x48},
 		{0x85, 0x48},
+		{0xb4, 0x48},
+		{0xb4, 0x48},
+		{0xb4, 0x48},
+		{0xb4, 0x48},
+		{0x93, 0x49},
+		{0x94, 0x49},
+	}
+	if len(wantNames) != len(wantIDs) || len(wantNames) != len(wantHeaders) {
+		t.Fatalf("expected corpus cardinality differs: names=%d IDs=%d headers=%d", len(wantNames), len(wantIDs), len(wantHeaders))
 	}
 	if len(manifest) != len(wantNames) {
 		t.Fatalf("manifest entries = %d, want %d", len(manifest), len(wantNames))
@@ -297,7 +312,10 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		if int(declared) != payload.Len() {
 			t.Fatalf("%s declared entry length = %d, remaining = %d", entry.Name, declared, payload.Len())
 		}
-		if got := payload.Bytes()[:2]; !reflect.DeepEqual(got, wantHeaders[i]) {
+		if payload.Len() < len(wantHeaders[i]) {
+			t.Fatalf("%s truncated packet header: %d bytes, want at least %d", entry.Name, payload.Len(), len(wantHeaders[i]))
+		}
+		if got := payload.Bytes()[:len(wantHeaders[i])]; !reflect.DeepEqual(got, wantHeaders[i]) {
 			t.Fatalf("%s header bytes = %x, want %x", entry.Name, got, wantHeaders[i])
 		}
 		if entry.Name == "AvailableCommandsLive356513" {

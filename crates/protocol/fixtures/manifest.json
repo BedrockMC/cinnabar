@@ -276,5 +276,47 @@
     "id": 5,
     "byte_length": 6,
     "sha256": "831ce5579d3d16f3eb455725dd811c2b5ee98a8a1abc60fd9932b6fb2fee8d12"
+  },
+  {
+    "name": "CraftingDataManualNamed1x1",
+    "file": "crafting_data_manual_named_1x1.bin",
+    "id": 52,
+    "byte_length": 109,
+    "sha256": "88361768ac60e29684ddd46ba7406e8828fda9bb7cab4fba079e39f76ff28844"
+  },
+  {
+    "name": "CraftingDataManualNamed1x2",
+    "file": "crafting_data_manual_named_1x2.bin",
+    "id": 52,
+    "byte_length": 136,
+    "sha256": "aad4cefde1d88ebc8743ae9b42d7068bfef126c9ddb92eab01d513cca4421be8"
+  },
+  {
+    "name": "CraftingDataManualUnsupportedReplacement",
+    "file": "crafting_data_manual_unsupported_replacement.bin",
+    "id": 52,
+    "byte_length": 162,
+    "sha256": "90fc98eea646fd2037f51a5bc7310baa891df843ef2b3e6199da44434d150704"
+  },
+  {
+    "name": "CraftingDataManualClearEmpty",
+    "file": "crafting_data_manual_clear_empty.bin",
+    "id": 52,
+    "byte_length": 16,
+    "sha256": "61e4b72b47c74e26dbef4a61ce819cefa10a3b505f14e30694611f3c0696b8b9"
+  },
+  {
+    "name": "ItemStackRequestManualCraft",
+    "file": "item_stack_request_manual_craft.bin",
+    "id": 147,
+    "byte_length": 85,
+    "sha256": "93660ca2ed6a2659af72f05dc7c9c37ad4aabaae4a3e2944285f2778cd3e6669"
+  },
+  {
+    "name": "ItemStackResponseManualCraft",
+    "file": "item_stack_response_manual_craft.bin",
+    "id": 148,
+    "byte_length": 38,
+    "sha256": "6dddd859494383a6bab083ba8757534b17ea5a459803f79670e44f2b41bf201c"
   }
 ]
