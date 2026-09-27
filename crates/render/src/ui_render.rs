@@ -8,7 +8,7 @@ use bevy::{
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
     ecs::{
         query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::SRes},
+        system::{SystemChangeTick, SystemParamItem, lifetimeless::SRes},
     },
     mesh::VertexBufferLayout,
     prelude::*,
@@ -39,7 +39,7 @@ use bytemuck::{Pod, Zeroable};
 
 #[path = "ui_render/textures.rs"]
 mod textures;
-use textures::UiGpuTextures;
+use textures::{DeviceObservation, UiGpuTextures};
 
 use crate::ui::{
     MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
@@ -104,6 +104,7 @@ struct UiViewportUniform {
 #[derive(Resource)]
 pub(crate) struct UiGpu {
     device: wgpu::Device,
+    device_observation: DeviceObservation,
     vertex_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>,
     vertex_capacity: usize,
@@ -127,7 +128,7 @@ pub(crate) struct UiGpu {
     invert_pipeline: Option<CachedRenderPipelineId>,
 }
 
-fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
+fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: SystemChangeTick) {
     let viewport_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("shared UI viewport uniform"),
         contents: bytemuck::bytes_of(&UiViewportUniform {
@@ -148,6 +149,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
     });
     commands.insert_resource(UiGpu {
         device: render_device.wgpu_device().clone(),
+        device_observation: DeviceObservation::new(tick.this_run()),
         vertex_buffer: None,
         index_buffer: None,
         vertex_capacity: 0,
@@ -173,7 +175,12 @@ pub(crate) fn prepare_ui_resources(
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStats>,
+    tick: SystemChangeTick,
 ) {
+    let same_device = &gpu.device == render_device.wgpu_device();
+    let device_valid =
+        gpu.device_observation
+            .observe(render_device.last_changed(), tick.this_run(), same_device);
     let Some(input) = scene.input.as_ref() else {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
@@ -183,7 +190,7 @@ pub(crate) fn prepare_ui_resources(
         });
         return;
     };
-    if &gpu.device != render_device.wgpu_device() {
+    if !device_valid {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
         record_render_rejection(
