@@ -95,7 +95,8 @@ use crate::{
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, flush_chat_network, flush_inventory_network,
+        drive_inventory_ui_actions, drive_server_form_input, flush_chat_network,
+        flush_inventory_network, flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
     },
@@ -127,6 +128,9 @@ impl ClientBlobCacheOwner {
         true
     }
 }
+
+mod authority;
+pub(crate) use authority::configure_client_authority_systems;
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ClientFrameSet {
@@ -164,51 +168,17 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
-    app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
-        .init_resource::<MiningRuntime>()
+    configure_client_authority_systems(app);
+    app.init_resource::<MiningRuntime>()
         .init_resource::<BlockUseRuntime>()
-        .init_resource::<WorldStreamFramePoll>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
         .add_systems(
             Update,
-            (drive_gameplay_touch_targets, collect_raw_input)
-                .chain()
-                .in_set(ClientFrameSet::RawInput),
-        )
-        .add_systems(
-            Update,
-            route_semantic_input.in_set(ClientFrameSet::SemanticSample),
-        )
-        .add_systems(
-            Update,
-            (
-                drive_chat_ui_actions,
-                drain_inventory_authority,
-                drive_chat_keyboard_input,
-                drive_menu_input,
-                drive_inventory_ui_actions,
-                drive_menu_connection,
-                synchronize_semantic_input_authority,
-            )
-                .chain()
-                .in_set(ClientFrameSet::UiAuthority),
-        )
-        .add_systems(
-            Update,
-            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
-        )
-        .add_systems(
-            Update,
             receive_network_events
+                .before(drive_server_form_input)
                 .before(drain_inventory_authority)
-                .before(ClientFrameSet::Physics),
-        )
-        .add_systems(
-            Update,
-            reconcile_world_stream_before_physics
-                .after(receive_network_events)
                 .before(ClientFrameSet::Physics),
         )
         // The session-audio reader consumes exactly what the world-stream
@@ -327,6 +297,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
             (
                 exit_on_window_close_requested,
                 flush_chat_network,
+                flush_server_form_network.in_set(ClientFrameSet::NetworkSend),
                 exit_on_fatal_runtime_error,
                 poll_transparent_witness_request,
                 poll_model_witness_request,

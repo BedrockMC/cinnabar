@@ -118,6 +118,7 @@ impl WorldStream {
             biome_tint_stream_id,
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,
+            form_dimension_epoch: 0,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_unique_id: bootstrap.local_player_unique_id,
             ordered: SequenceBuffer::new(first_sequence),

@@ -112,6 +112,34 @@
     "sha256": "6969d1e79e6a639b307cd814d4a8e618e334a48f24df26fa7324a45b658a076c"
   },
   {
+    "name": "ModalFormTextMenu",
+    "file": "modal_form_text_menu.bin",
+    "id": 100,
+    "byte_length": 124,
+    "sha256": "140d0f3e2da28b89fe4d1cb4ff7a08feae9ac3d0131d0b820ee2f3a1329630c4"
+  },
+  {
+    "name": "ModalFormResponseButton",
+    "file": "modal_form_response_button.bin",
+    "id": 101,
+    "byte_length": 9,
+    "sha256": "7f03491c9c39214c52fc608799a4f5694da9f9b7eece50d298d481ab86912001"
+  },
+  {
+    "name": "ModalFormResponseClosed",
+    "file": "modal_form_response_closed.bin",
+    "id": 101,
+    "byte_length": 8,
+    "sha256": "6ef1f8a17c958d97c05db320e561623593f4f1461a7511006caf46b0f56d010e"
+  },
+  {
+    "name": "ModalFormResponseBusy",
+    "file": "modal_form_response_busy.bin",
+    "id": 101,
+    "byte_length": 8,
+    "sha256": "282a779298e8e90b64f791d283a66307e65654a562bf476a1b9b15fb96793861"
+  },
+  {
     "name": "AvailableCommands",
     "file": "available_commands.bin",
     "id": 76,

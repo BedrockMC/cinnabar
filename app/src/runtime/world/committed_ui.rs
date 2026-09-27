@@ -1,0 +1,127 @@
+//! The sole FIFO committed-UI drain, before frame input authority.
+use super::{ClientWorld, WorldClock, record_fatal_error};
+use crate::block_cracks::consume_committed_block_crack;
+use crate::ui_runtime::{SequencedLocalAttributes, SequencedUiEvent, UiRuntime};
+use bevy::{
+    prelude::{Res, ResMut, Time},
+    time::Real,
+};
+use client_world::CommittedUiEvent;
+
+pub(crate) fn drain_committed_ui_before_authority(
+    mut client_world: ResMut<ClientWorld>,
+    clock: Res<WorldClock>,
+    mut ui_runtime: ResMut<UiRuntime>,
+    time: Res<Time<Real>>,
+) {
+    let Some(stream) = client_world.stream.as_mut() else {
+        return;
+    };
+    ui_runtime.note_stream_dimension(stream.current_dimension());
+    let session = clock.session_generation();
+    let dimension_epoch = stream.form_dimension_epoch();
+    ui_runtime
+        .server_forms_mut()
+        .synchronize_epoch(session, dimension_epoch);
+    let committed_ui = stream.take_committed_ui();
+    let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if !committed_ui.is_empty() {
+        // Rawtext score owners and selectors resolve against the stream's
+        // authoritative actor names and player list as of this drain.
+        let known_player_names = stream.player_list_usernames();
+        ui_runtime.refresh_raw_text_identities(
+            |unique_id| stream.actor_display_name(unique_id),
+            known_player_names,
+        );
+    }
+    for committed in committed_ui {
+        let result = match committed {
+            CommittedUiEvent::Form {
+                sequence,
+                dimension_epoch: event_epoch,
+                event,
+            } => {
+                if event_epoch != dimension_epoch {
+                    continue;
+                }
+                ui_runtime
+                    .apply(SequencedUiEvent {
+                        session_id: session,
+                        fifo_sequence: sequence,
+                        local_millis,
+                        server_tick: None,
+                        event: protocol::UiEvent::Form(event),
+                    })
+                    .map(|_| ())
+            }
+            // A generic UI entry must never bypass the form lifetime fence.
+            CommittedUiEvent::Ui {
+                event: protocol::UiEvent::Form(_),
+                ..
+            } => continue,
+            CommittedUiEvent::Ui { sequence, event } => ui_runtime
+                .apply(SequencedUiEvent {
+                    session_id: clock.session_generation(),
+                    fifo_sequence: sequence,
+                    local_millis,
+                    server_tick: None,
+                    event,
+                })
+                .map(|_| ()),
+            CommittedUiEvent::BlockCrack {
+                sequence,
+                dimension,
+                event,
+            } => consume_committed_block_crack(
+                &mut ui_runtime,
+                clock.session_generation(),
+                sequence,
+                dimension,
+                event,
+            ),
+            CommittedUiEvent::LocalAttributes {
+                sequence,
+                server_tick,
+                attributes,
+            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
+                session_id: clock.session_generation(),
+                fifo_sequence: sequence,
+                local_millis,
+                server_tick,
+                attributes,
+            }),
+            CommittedUiEvent::LocalMetadata {
+                sequence, metadata, ..
+            } => ui_runtime.apply_local_metadata(
+                clock.session_generation(),
+                sequence,
+                metadata.as_ref(),
+            ),
+            CommittedUiEvent::LocalEffect { sequence, event } => ui_runtime.apply_local_effect(
+                clock.session_generation(),
+                sequence,
+                event,
+                local_millis,
+            ),
+            CommittedUiEvent::LocalArmor { sequence, event } => {
+                ui_runtime.apply_local_armor(clock.session_generation(), sequence, &event)
+            }
+            CommittedUiEvent::LocalMount {
+                sequence,
+                ridden_unique_id,
+            } => {
+                ui_runtime.apply_local_mount(clock.session_generation(), sequence, ridden_unique_id)
+            }
+        };
+        if let Err(error) = result {
+            record_fatal_error(
+                &mut client_world.fatal_error,
+                format!("committed UI/gameplay event rejected: {error:?}"),
+            );
+            return;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

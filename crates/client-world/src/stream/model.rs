@@ -395,6 +395,13 @@ pub enum CommittedControlEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommittedUiEvent {
+    /// Forms carry their committed dimension lifetime, even across a return
+    /// to the same numeric dimension before the UI FIFO is drained.
+    Form {
+        sequence: u64,
+        dimension_epoch: u64,
+        event: protocol::FormRequestEvent,
+    },
     Ui {
         sequence: u64,
         event: UiEvent,

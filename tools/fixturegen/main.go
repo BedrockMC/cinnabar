@@ -317,6 +317,29 @@ func fixtures() []fixture {
 			},
 		},
 		{
+			name: "ModalFormTextMenu",
+			file: "modal_form_text_menu.bin",
+			pk: &packet.ModalFormRequest{
+				FormID:   92,
+				FormData: []byte(`{"type":"form","title":"Choose 世界","content":"Pick one\nα β","buttons":[{"text":"First ✓"},{"text":"第二"}]}`),
+			},
+		},
+		{
+			name: "ModalFormResponseButton",
+			file: "modal_form_response_button.bin",
+			pk:   &packet.ModalFormResponse{FormID: 92, ResponseData: protocol.Option([]byte("1"))},
+		},
+		{
+			name: "ModalFormResponseClosed",
+			file: "modal_form_response_closed.bin",
+			pk:   &packet.ModalFormResponse{FormID: 92, CancelReason: protocol.Option(uint8(packet.ModalFormCancelReasonUserClosed))},
+		},
+		{
+			name: "ModalFormResponseBusy",
+			file: "modal_form_response_busy.bin",
+			pk:   &packet.ModalFormResponse{FormID: 92, CancelReason: protocol.Option(uint8(packet.ModalFormCancelReasonUserBusy))},
+		},
+		{
 			name: "AvailableCommands",
 			file: "available_commands.bin",
 			pk:   availableCommandsFixture(),

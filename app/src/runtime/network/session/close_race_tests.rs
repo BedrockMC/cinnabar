@@ -50,6 +50,7 @@ fn closed_command_predicate_catches_terminal_queued_after_precheck() {
     let (physics_reanchor, _physics_reanchor_rx) = watch::channel(0);
     let (shutdown, _shutdown_rx) = watch::channel(false);
     let handle = NetworkHandle {
+        session_generation: 0,
         control_events,
         world_events,
         commands,

@@ -357,9 +357,18 @@ pub(crate) fn drive_menu_input(
     presentation: Res<UiPresentationRuntime>,
     mut clipboard: ResMut<MenuClipboard>,
     mut menu: ResMut<MenuRuntime>,
+    runtime: Option<Res<crate::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    if runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.server_forms().owns_input())
+        && !menu.is_visible()
+    {
+        keyboard_messages.clear();
+        return;
+    }
     menu.pressed = None;
     if !window.focused {
         *modifiers = MenuModifiers::default();

@@ -238,6 +238,7 @@ pub struct WorldStream {
     biome_tint_stream_id: u64,
     biome_tint_revision: u64,
     current_dimension: i32,
+    form_dimension_epoch: u64,
     local_player_runtime_id: u64,
     local_player_unique_id: i64,
     ordered: SequenceBuffer<PreparedWorldEvent>,

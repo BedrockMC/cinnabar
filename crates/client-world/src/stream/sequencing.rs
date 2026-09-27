@@ -577,6 +577,7 @@ impl WorldStream {
                     self.actors
                         .reset_dimension(self.actor_session_id, sequence, change.dimension);
                 self.current_dimension = change.dimension;
+                self.form_dimension_epoch = sequence;
                 self.local_movement_speed = None;
                 self.publish_local_mount_change(sequence, previous_mount);
                 let resolved = resolve_server_position(
@@ -797,7 +798,15 @@ impl WorldStream {
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
-                self.push_committed_ui(CommittedUiEvent::Ui { sequence, event });
+                let committed = match event {
+                    UiEvent::Form(event) => CommittedUiEvent::Form {
+                        sequence,
+                        dimension_epoch: self.form_dimension_epoch,
+                        event,
+                    },
+                    event => CommittedUiEvent::Ui { sequence, event },
+                };
+                self.push_committed_ui(committed);
             }
             WorldEvent::BlockCrack(event) => {
                 let sequence = sequence.expect("sequenced block cracks commit through submit");

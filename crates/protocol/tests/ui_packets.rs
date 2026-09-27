@@ -452,6 +452,135 @@ fn form_event(json: &str) -> Result<protocol::FormRequestEvent, UiPacketError> {
 }
 
 #[test]
+fn text_button_form_model_preserves_unicode_and_wire_indices() {
+    let event = form_event(r#"{"type":"form","title":"Choose 世界","content":"Pick one\nα β","buttons":[{"text":"First ✓"},{"text":"第二"}]}"#).unwrap();
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("expected supported text-only menu")
+    };
+    assert_eq!(menu.title.as_ref(), "Choose 世界");
+    assert_eq!(menu.content.as_ref(), "Pick one\nα β");
+    assert_eq!(menu.buttons.len(), 2);
+    assert_eq!(menu.buttons[1].as_ref(), "第二");
+}
+
+#[test]
+fn pinned_text_menu_and_response_fixtures_match_exact_wire_payloads() {
+    let UiEvent::Form(form) =
+        decode_ui_fixture(include_bytes!("../fixtures/modal_form_text_menu.bin"))
+    else {
+        panic!("expected form")
+    };
+    let protocol::ServerFormModel::TextMenu(menu) = form.model else {
+        panic!("expected text-only menu")
+    };
+    assert_eq!(form.form_id, 92);
+    assert_eq!(menu.buttons[1].as_ref(), "第二");
+    for (fixture, mut expected) in [
+        (
+            include_bytes!("../fixtures/modal_form_response_button.bin").as_slice(),
+            modal_form_submit_response(92, ModalFormResponseSelection::ButtonIndex(1)),
+        ),
+        (
+            include_bytes!("../fixtures/modal_form_response_closed.bin").as_slice(),
+            modal_form_cancel_response(92),
+        ),
+        (
+            include_bytes!("../fixtures/modal_form_response_busy.bin").as_slice(),
+            protocol::modal_form_busy_response(92),
+        ),
+    ] {
+        expected.header.from_subclient = 1;
+        expected.header.to_subclient = 2;
+        assert_eq!(
+            protocol::encode(&expected, &BedrockSession { shield_item_id: 0 })
+                .unwrap()
+                .as_ref(),
+            fixture
+        );
+        let decoded = decode_batch(
+            fixture.to_vec().into(),
+            &BedrockSession { shield_item_id: 0 },
+        )
+        .unwrap();
+        assert_eq!(decoded, vec![expected]);
+    }
+}
+
+#[test]
+fn unsupported_form_controls_are_nonfatal_and_never_fake_text_buttons() {
+    for json in [
+        r#"{"type":"modal","title":"Question"}"#,
+        r#"{"type":"custom_form","content":[{"type":"toggle"}]}"#,
+        r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"unknown","data":"ignored"}}]}"#,
+        r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"url","data":5}}]}"#,
+        r#"{"type":"form","buttons":[{"text":"Icon","image":null}]}"#,
+        r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"path","data":"ignored","extra":true}}]}"#,
+        r#"{"type":"form","buttons":[{"text":{"rawtext":[{"text":"Rich"}]}}]}"#,
+    ] {
+        assert!(matches!(
+            form_event(json).unwrap().model,
+            protocol::ServerFormModel::Unsupported(_)
+        ));
+    }
+}
+
+#[test]
+fn valid_button_images_are_omitted_without_retaining_uri_or_changing_indexes() {
+    let json = serde_json::json!({
+        "type": "form", "content": "x".repeat(MAX_UI_TEXT_BYTES),
+        "buttons": [
+            {"text": "First", "image": {"type": "url", "data": "https://example.invalid/private-decoration"}},
+            {"text": "第二", "image": {"type": "path", "data": "textures/private-decoration"}},
+        ],
+    }).to_string();
+    let event = form_event(&json).unwrap();
+    assert!(!format!("{:?}", event.model).contains("private-decoration"));
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("valid text buttons must remain playable")
+    };
+    assert_eq!(menu.omitted_images, 2);
+    assert_eq!(menu.content.len(), MAX_UI_TEXT_BYTES);
+    assert_eq!(
+        menu.buttons
+            .iter()
+            .map(|text| text.as_ref())
+            .collect::<Vec<_>>(),
+        ["First", "第二"]
+    );
+    let response =
+        modal_form_submit_response(event.form_id, ModalFormResponseSelection::ButtonIndex(1));
+    let McpePacketData::ModalFormResponsePacket(response) = response.data else {
+        panic!("response packet")
+    };
+    assert_eq!(response.json_response.as_deref(), Some("1"));
+}
+
+#[test]
+fn text_button_form_model_refuses_count_and_string_overflow_without_truncating_indices() {
+    let buttons = std::iter::repeat_n(r#"{"text":"x"}"#, protocol::MAX_FORM_BUTTONS + 1)
+        .collect::<Vec<_>>()
+        .join(",");
+    let event = form_event(&format!(r#"{{"type":"form","buttons":[{buttons}]}}"#)).unwrap();
+    assert!(matches!(
+        event.model,
+        protocol::ServerFormModel::Unsupported(_)
+    ));
+    let text = "x".repeat(MAX_UI_TEXT_BYTES + 1);
+    for json in [
+        format!(r#"{{"type":"form","content":"{text}","buttons":[]}}"#),
+        format!(r#"{{"type":"form","buttons":[{{"text":"{text}"}}]}}"#),
+        format!(
+            r#"{{"type":"form","buttons":[{{"text":"Icon","image":{{"type":"url","data":"{text}"}}}}]}}"#
+        ),
+    ] {
+        assert!(matches!(
+            form_event(&json).unwrap().model,
+            protocol::ServerFormModel::Unsupported(_)
+        ));
+    }
+}
+
+#[test]
 fn server_form_families_classify_from_the_type_member() {
     let modal = form_event(r#"{"type":"modal","title":"Yes?","content":"Pick one"}"#).unwrap();
     assert_eq!(modal.kind, FormKind::Modal);
