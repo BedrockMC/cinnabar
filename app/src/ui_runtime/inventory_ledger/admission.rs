@@ -139,7 +139,10 @@ impl PlayerInventoryLedger {
             }
             // Armor and offhand rewrites resolve canonically but this ledger
             // retains neither surface yet, so they stay counted skips.
-            Some(CanonicalCell::Armor(_) | CanonicalCell::Offhand) | None => {
+            Some(
+                CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_),
+            )
+            | None => {
                 self.note_unrouted_container();
             }
         }
@@ -166,6 +169,7 @@ impl PlayerInventoryLedger {
             Some(CanonicalCell::Cursor) => "cursor",
             Some(CanonicalCell::Armor(_)) => "armor",
             Some(CanonicalCell::Offhand) => "offhand",
+            Some(CanonicalCell::CraftInput(_)) => "unrouted",
             None => "unrouted",
         };
         let (open_window_id, open_generation) =
@@ -213,7 +217,10 @@ impl PlayerInventoryLedger {
             None if bare_storage_window_matches(self.storage.as_ref(), &identity.container) => {
                 self.apply_storage_slot(identity.container, identity.slot, stack);
             }
-            Some(CanonicalCell::Armor(_) | CanonicalCell::Offhand) | None => {
+            Some(
+                CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_),
+            )
+            | None => {
                 self.note_unrouted_container();
             }
         }
@@ -237,7 +244,7 @@ impl PlayerInventoryLedger {
                 }
                 Some(Cell::Storage(u8::try_from(slot).ok()?))
             }
-            CanonicalCell::Armor(_) | CanonicalCell::Offhand => None,
+            CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_) => None,
         }
     }
 

@@ -12,6 +12,7 @@ pub(crate) fn publish_bootstrap_inventory(
     let InventoryEvent::Authority(authority) = inventory else {
         return false;
     };
+    runtime.publish_crafting_bootstrap(registry.as_ref(), authority);
     if let Some(registry) = registry {
         runtime.inventory_ledger_mut().apply_registry(&registry);
     }

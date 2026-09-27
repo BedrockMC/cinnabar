@@ -1,5 +1,7 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod crafting_authority;
+pub use crafting_authority::CraftingPreview;
 mod event_apply;
 mod forms;
 mod gameplay_authority;
@@ -176,6 +178,7 @@ pub struct UiRuntime {
     player_mode_from_default: bool,
     last_inventory_sequence: Option<u64>,
     pending_inventory: VecDeque<SequencedInventoryEvent>,
+    crafting_authority: crafting_authority::CraftingAuthority,
     equipment_router: InventoryEquipmentRouter,
     local_selected_equipment: Option<SequencedLocalEquipment>,
     local_selected_slot: Option<u8>,
@@ -246,6 +249,7 @@ impl UiRuntime {
             player_mode_from_default: false,
             last_inventory_sequence: None,
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
+            crafting_authority: crafting_authority::CraftingAuthority::new(session_id),
             equipment_router: InventoryEquipmentRouter::new(session_id),
             local_selected_equipment: None,
             local_selected_slot: None,
@@ -683,6 +687,7 @@ impl UiRuntime {
         self.player_mode_from_default = false;
         self.last_inventory_sequence = None;
         self.pending_inventory.clear();
+        self.crafting_authority = crafting_authority::CraftingAuthority::new(session_id);
         self.equipment_router.begin_session(session_id);
         self.local_selected_equipment = None;
         self.local_selected_slot = None;
