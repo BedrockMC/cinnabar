@@ -13,6 +13,7 @@ assets/block-entity-renderers-v*.json text eol=lf
 crates/assets/data/block-entities-v*.json text eol=lf
 crates/assets/data/block-item-routes-v*.json text eol=lf
 crates/assets/data/default-sprite-bindings-*.json text eol=lf
+crates/assets/data/neutral-actor-materials-v1.json text eol=lf
 crates/assets/data/*.sha256 text eol=lf
 docs/block-entity-coverage-v*-report.json text eol=lf
 docs/evidence/block-entity-render-evidence-v*.json text eol=lf

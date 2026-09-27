@@ -92,8 +92,11 @@ pub struct LoadedFontAssets {
     diagnostic: bool,
 }
 
+mod actor_carrier;
 mod audio_carrier;
 mod audio_pcm_carrier;
+pub(crate) use actor_carrier::require_actor_artwork;
+pub use actor_carrier::{ACTOR_ASSETS_FILENAME, actor_asset_path, require_actor_assets};
 pub(crate) use audio_pcm_carrier::load_audio_pcm_assets;
 mod hud_carrier;
 mod icon_carrier;
@@ -262,6 +265,14 @@ pub enum AssetStartupError {
         "invalid local finite PCM carrier at {path}: {detail}; rebuild with make audio-pcm-assets"
     )]
     AudioPcm { path: PathBuf, detail: String },
+    #[error(
+        "required neutral actor carrier at {path} is unavailable or invalid: {detail}\nrebuild with: {rebuild_command}"
+    )]
+    ActorAssets {
+        path: PathBuf,
+        detail: Box<str>,
+        rebuild_command: String,
+    },
     #[error("could not read compiled asset blob at {path}: {source}")]
     Read {
         path: PathBuf,

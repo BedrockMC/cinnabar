@@ -18,6 +18,8 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[path = "assetc/actor_command.rs"]
+mod actor_command;
 #[path = "assetc/audio_command.rs"]
 mod audio_command;
 #[path = "assetc/audio_pcm_command.rs"]
@@ -116,6 +118,17 @@ enum Command {
     /// Compile the pinned pack's sprite-routed item icons into the bounded
     /// icon carrier.
     IconAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile unconditional neutral binary-alpha actor artwork.
+    ActorAssets {
         #[arg(long)]
         pack: PathBuf,
         #[arg(long)]
@@ -364,6 +377,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::ActorAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            actor_command::compile_actor_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::IconAssets {
             pack,

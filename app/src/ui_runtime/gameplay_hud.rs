@@ -191,6 +191,12 @@ impl GameplayHudState {
         self.offhand.as_ref().filter(|stack| !stack.is_empty())
     }
 
+    /// None is unobserved, not an empty stack. Preserve the unfiltered retained
+    /// authority for consumers that must not admit unknown equipment.
+    pub(crate) fn offhand_is_empty(&self) -> Option<bool> {
+        self.offhand.as_ref().map(NetworkItemStack::is_empty)
+    }
+
     #[must_use]
     pub const fn armor(&self) -> Option<&ArmorSlots> {
         self.armor.as_ref()

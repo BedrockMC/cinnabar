@@ -2,6 +2,26 @@
 use super::*;
 use crate::runtime::world::drain_committed_ui_before_authority;
 
+pub(crate) fn configure_client_frame_schedule(app: &mut App) {
+    app.configure_sets(
+        Update,
+        (
+            ClientFrameSet::RawInput,
+            ClientFrameSet::SemanticSample,
+            ClientFrameSet::UiAuthority,
+            ClientFrameSet::SemanticFinalize,
+            ClientFrameSet::Physics,
+            ClientFrameSet::Camera,
+            ClientFrameSet::Interaction,
+            ClientFrameSet::WorldPublication,
+            ClientFrameSet::ActorPublication,
+            ClientFrameSet::UiPublication,
+            ClientFrameSet::NetworkSend,
+        )
+            .chain(),
+    );
+}
+
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()

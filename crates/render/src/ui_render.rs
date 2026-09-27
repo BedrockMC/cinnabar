@@ -5,30 +5,21 @@ use std::{
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
-    ecs::{
-        query::ROQueryItem,
-        system::{SystemChangeTick, SystemParamItem, lifetimeless::SRes},
-    },
+    ecs::system::SystemChangeTick,
     mesh::VertexBufferLayout,
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
-        render_phase::{
-            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
-        },
         render_resource::{
             AddressMode, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
             BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
             Buffer, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferSize,
             BufferUsages, CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
-            CompareFunction, DepthStencilState, FilterMode, FragmentState, PipelineCache,
-            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TextureFormat,
-            TextureSampleType, TextureViewDimension, Variants, VertexAttribute, VertexFormat,
-            VertexState, VertexStepMode,
+            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
+            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
+            SpecializerKey, TextureFormat, TextureSampleType, TextureViewDimension, Variants,
+            VertexAttribute, VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -39,7 +30,12 @@ use bytemuck::{Pod, Zeroable};
 
 #[path = "ui_render/textures.rs"]
 mod textures;
-use textures::{DeviceObservation, UiGpuTextures};
+pub(crate) use textures::DeviceObservation;
+use textures::UiGpuTextures;
+#[path = "ui_render/overlay.rs"]
+pub(crate) mod overlay;
+use overlay::queue_ui_overlay;
+pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, install_overlay_graph};
 
 use crate::ui::{
     MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
@@ -73,6 +69,7 @@ fn install_ui_render(app: &mut App) {
         return;
     };
     if render_app.world().contains_resource::<UiRenderInstalled>() {
+        install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
         return;
     }
     let stats = app.world().resource::<UiRenderStats>().clone();
@@ -82,7 +79,7 @@ fn install_ui_render(app: &mut App) {
         .insert_resource(UiRenderInstalled)
         .init_resource::<UiPipeline>()
         .insert_resource(stats)
-        .add_render_command::<Transparent3d, DrawUiCommands>()
+        .init_resource::<UiHandCoverage>()
         .add_systems(RenderStartup, init_ui_gpu)
         .add_systems(
             Render,
@@ -92,6 +89,7 @@ fn install_ui_render(app: &mut App) {
                 queue_ui_overlay.in_set(RenderSystems::Queue),
             ),
         );
+    install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
 }
 
 #[repr(C)]
@@ -120,12 +118,9 @@ pub(crate) struct UiGpu {
     // Admission watermark survives every draw rejection, even after payload drop.
     last_admitted_revision: Option<u64>,
     last_admitted_publication: Weak<UiRenderInput>,
-    /// Specialized pipelines for the frame's view: the shared alpha pipeline
-    /// and the crosshair invert variant. Written by `queue_ui_overlay` (the
-    /// overlay renders through the single primary view) and read by
-    /// `DrawUiBatches` to switch blends between batches.
-    alpha_pipeline: Option<CachedRenderPipelineId>,
-    invert_pipeline: Option<CachedRenderPipelineId>,
+    index_count: usize,
+    view_pipelines:
+        std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
 }
 
 fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: SystemChangeTick) {
@@ -164,8 +159,8 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         accepted_revision: None,
         last_admitted_revision: None,
         last_admitted_publication: Weak::new(),
-        alpha_pipeline: None,
-        invert_pipeline: None,
+        index_count: 0,
+        view_pipelines: std::collections::BTreeMap::new(),
     });
 }
 
@@ -176,11 +171,15 @@ pub(crate) fn prepare_ui_resources(
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStats>,
     tick: SystemChangeTick,
+    coverage: Option<Res<UiHandCoverage>>,
 ) {
     let same_device = &gpu.device == render_device.wgpu_device();
     let device_valid =
         gpu.device_observation
             .observe(render_device.last_changed(), tick.this_run(), same_device);
+    if let Some(coverage) = coverage {
+        coverage.clear();
+    }
     let Some(input) = scene.input.as_ref() else {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
@@ -293,6 +292,7 @@ pub(crate) fn prepare_ui_resources(
     gpu.viewport_size = input.viewport_size;
 
     gpu.batches = Arc::clone(&input.batches);
+    gpu.index_count = input.indices.len();
     gpu.accepted_revision = Some(input.revision);
     gpu.last_admitted_revision = Some(input.revision);
     gpu.last_admitted_publication = Arc::downgrade(input);
@@ -475,18 +475,7 @@ pub(crate) fn ui_pipeline_descriptor(
             })],
             ..default()
         }),
-        // Queued into Transparent3d, whose pass carries a Depth32Float
-        // depth attachment, so the pipeline must declare a matching
-        // depth-stencil state. The overlay ignores scene depth entirely
-        // (the shader emits z=0.0, the reverse-Z far plane) and never writes
-        // depth, so it always draws on top without disturbing the buffer.
-        depth_stencil: Some(DepthStencilState {
-            format: CORE_3D_DEPTH_FORMAT,
-            depth_write_enabled: false,
-            depth_compare: CompareFunction::Always,
-            stencil: default(),
-            bias: default(),
-        }),
+        depth_stencil: None,
         ..default()
     }
 }
@@ -530,7 +519,7 @@ fn prepare_ui_bind_group(
     pipeline: Res<UiPipeline>,
     mut gpu: ResMut<UiGpu>,
 ) {
-    if &gpu.device != render_device.wgpu_device() {
+    if gpu.accepted_revision.is_none() || &gpu.device != render_device.wgpu_device() {
         return;
     }
     let viewport = gpu.viewport_buffer.clone();
@@ -560,92 +549,6 @@ fn prepare_ui_bind_group(
     }
 }
 
-fn queue_ui_overlay(
-    pipeline_cache: Res<PipelineCache>,
-    mut pipeline: ResMut<UiPipeline>,
-    mut gpu: ResMut<UiGpu>,
-    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
-    draw_functions: Res<DrawFunctions<Transparent3d>>,
-    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
-) {
-    if gpu.batches.is_empty()
-        || gpu.textures.buckets.iter().any(|b| b.bind_group.is_none())
-        || gpu.vertex_buffer.is_none()
-        || gpu.index_buffer.is_none()
-    {
-        return;
-    }
-    let draw_function = draw_functions.read().id::<DrawUiCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
-        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
-            continue;
-        };
-        let Ok(pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            UiPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                invert_blend: false,
-            },
-        ) else {
-            continue;
-        };
-        let Ok(invert_pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            UiPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                invert_blend: true,
-            },
-        ) else {
-            continue;
-        };
-        gpu.alpha_pipeline = Some(pipeline_id);
-        gpu.invert_pipeline = Some(invert_pipeline_id);
-        phase.add(Transparent3d {
-            entity: (view_entity, *main_entity),
-            pipeline: pipeline_id,
-            draw_function,
-            distance: f32::MAX,
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: true,
-        });
-    }
-}
-
-type DrawUiCommands = (SetItemPipeline, SetUiBindGroup<0>, DrawUiBatches);
-
-struct SetUiBindGroup<const I: usize>;
-
-impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetUiBindGroup<I> {
-    type Param = SRes<UiGpu>;
-    type ViewQuery = ();
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        _view: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        gpu: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let Some(bind_group) = gpu
-            .into_inner()
-            .textures
-            .buckets
-            .first()
-            .and_then(|b| b.bind_group.as_ref())
-        else {
-            return RenderCommandResult::Skip;
-        };
-        pass.set_bind_group(I, bind_group, &[]);
-        RenderCommandResult::Success
-    }
-}
-
-struct DrawUiBatches;
-
 /// Resolve the entire ordered frame before emitting any batch command.
 fn resolved_batches<'a>(
     accepted_revision: Option<u64>,
@@ -674,92 +577,115 @@ fn resolved_batches<'a>(
     )
 }
 
-impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
-    type Param = (SRes<UiGpu>, SRes<PipelineCache>);
-    type ViewQuery = ();
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        _view: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        (gpu, pipeline_cache): SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let gpu = gpu.into_inner();
-        let pipeline_cache = pipeline_cache.into_inner();
-        if gpu.textures.buckets.len() != gpu.textures.allocated_buckets().len() {
-            return RenderCommandResult::Skip;
-        }
-        let Some(batches) = resolved_batches(
-            gpu.accepted_revision,
-            &gpu.batches,
-            &gpu.textures.locations,
-            gpu.textures.allocated_buckets(),
-        ) else {
-            return RenderCommandResult::Skip;
-        };
-        if gpu
-            .textures
-            .buckets
-            .iter()
-            .any(|bucket| bucket.bind_group.is_none())
-        {
-            return RenderCommandResult::Skip;
-        }
-        let (Some(vertices), Some(indices)) = (&gpu.vertex_buffer, &gpu.index_buffer) else {
-            return RenderCommandResult::Skip;
-        };
-        pass.set_vertex_buffer(0, vertices.slice(..));
-        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-        // SetItemPipeline already bound the alpha pipeline; track transitions
-        // so consecutive same-blend batches never rebind.
-        let mut invert_bound = false;
-        for (_, batch, location) in batches {
-            let Some(bind_group) = gpu
-                .textures
-                .buckets
-                .get(location.bucket)
-                .and_then(|b| b.bind_group.as_ref())
-            else {
-                return RenderCommandResult::Skip;
-            };
-            pass.set_bind_group(0, bind_group, &[]);
-            let wants_invert = batch.blend_mode == UI_BLEND_INVERT;
-            if wants_invert != invert_bound {
-                let id = if wants_invert {
-                    gpu.invert_pipeline
-                } else {
-                    gpu.alpha_pipeline
-                };
-                let Some(pipeline) = id.and_then(|id| pipeline_cache.get_render_pipeline(id))
-                else {
-                    // The invert variant is still compiling; skip its batches
-                    // this frame rather than drawing them with the wrong blend.
-                    if wants_invert {
-                        continue;
-                    }
-                    return RenderCommandResult::Skip;
-                };
-                pass.set_render_pipeline(pipeline);
-                invert_bound = wants_invert;
-            }
-            let scissor = batch.scissor;
-            pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
-            pass.draw_indexed(
-                batch.first_index..batch.first_index + batch.index_count,
-                0,
-                location.layer..location.layer + 1,
-            );
-        }
-        pass.set_scissor_rect(0, 0, gpu.viewport_size[0], gpu.viewport_size[1]);
-        RenderCommandResult::Success
-    }
-}
-
 #[cfg(test)]
 mod ordered_command_tests {
     use super::*;
+
+    fn binding_world() -> World {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::render::renderer::{RenderAdapter, WgpuWrapper};
+        use std::{
+            future::Future,
+            pin::pin,
+            task::{Context, Poll, Waker},
+        };
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::NOOP,
+            backend_options: wgpu::BackendOptions {
+                noop: wgpu::NoopBackendOptions { enable: true },
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let mut context = Context::from_waker(Waker::noop());
+        let Poll::Ready(Ok(adapter)) =
+            pin!(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .poll(&mut context)
+        else {
+            panic!("noop adapter must be immediate");
+        };
+        let Poll::Ready(Ok((device, queue))) =
+            pin!(adapter.request_device(&wgpu::DeviceDescriptor::default())).poll(&mut context)
+        else {
+            panic!("noop device must be immediate");
+        };
+        let device = RenderDevice::from(device);
+        let adapter = RenderAdapter(Arc::new(WgpuWrapper::new(adapter)));
+        let mut world = World::new();
+        world.insert_resource(PipelineCache::new(device.clone(), adapter, true));
+        world.insert_resource(device);
+        world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+        world.init_resource::<UiPipeline>();
+        world.init_resource::<UiRenderStats>();
+        world.init_resource::<UiRenderScene>();
+        world.run_system_once(init_ui_gpu).unwrap();
+        world
+    }
+
+    #[test]
+    fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = binding_world();
+        let input = UiRenderInput {
+            revision: 1,
+            viewport_size: [64, 64],
+            safe_area: [0; 4],
+            vertices: Arc::from([]),
+            indices: Arc::from([]),
+            batches: Arc::from([]),
+            textures: Arc::new(
+                crate::UiTextureCatalog::new(
+                    vec![crate::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
+                    1,
+                )
+                .unwrap(),
+            ),
+        };
+        let mut scene = UiRenderScene::default();
+        scene
+            .publish(input.clone(), world.resource::<UiRenderStats>())
+            .unwrap();
+        world.insert_resource(scene.clone());
+        world.run_system_once(prepare_ui_resources).unwrap();
+        assert_eq!(world.resource::<UiGpu>().textures.buckets.len(), 1);
+        let mut invalid = input.clone();
+        invalid.indices = Arc::from([u32::MAX]);
+        scene.input = Some(Arc::new(invalid));
+        world.insert_resource(scene.clone());
+        world.run_system_once(prepare_ui_resources).unwrap();
+        world.run_system_once(prepare_ui_bind_group).unwrap();
+        assert!(
+            world.resource::<UiGpu>().textures.buckets[0]
+                .bind_group
+                .is_none()
+        );
+        assert!(world.resource::<UiGpu>().accepted_revision.is_none());
+        scene.input = None;
+        world.insert_resource(scene);
+        world.run_system_once(prepare_ui_resources).unwrap();
+        world.run_system_once(prepare_ui_bind_group).unwrap();
+        assert!(
+            world.resource::<UiGpu>().textures.buckets[0]
+                .bind_group
+                .is_none()
+        );
+        // Actual initialization drops withheld resident resources and resets the
+        // publication lifetime. Re-admit through the real publication path.
+        world.run_system_once(init_ui_gpu).unwrap();
+        let mut recovered = UiRenderScene::default();
+        recovered
+            .publish(input, world.resource::<UiRenderStats>())
+            .unwrap();
+        world.insert_resource(recovered);
+        world.run_system_once(prepare_ui_resources).unwrap();
+        world.run_system_once(prepare_ui_bind_group).unwrap();
+        assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(1));
+        assert!(
+            world.resource::<UiGpu>().textures.buckets[0]
+                .bind_group
+                .is_some()
+        );
+    }
 
     #[test]
     fn resolved_commands_keep_bucket_layer_blend_scissor_and_index_order() {

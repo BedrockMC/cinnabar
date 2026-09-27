@@ -7,8 +7,14 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
+#[path = "actor/artwork.rs"]
+mod artwork;
 #[path = "actor/geometry.rs"]
 mod geometry;
+pub use artwork::{
+    ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, MAX_ACTOR_GPU_PIXEL_BYTES,
+    MAX_ACTOR_TEXTURE_PAGES,
+};
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
 #[path = "actor/rig.rs"]
@@ -103,6 +109,8 @@ pub struct ActorRenderFrame {
     pub instance_revision: u64,
     pub skin_revision: u64,
     pub rig: ActorRigRenderFrame,
+    pub(crate) artwork: Arc<ActorArtworkPages>,
+    pub(crate) instance_pages: Arc<[u8]>,
 }
 
 impl Default for ActorRenderFrame {
@@ -113,6 +121,8 @@ impl Default for ActorRenderFrame {
             instance_revision: 0,
             skin_revision: 0,
             rig: ActorRigRenderFrame::default(),
+            artwork: Arc::new(ActorArtworkPages::default()),
+            instance_pages: Arc::from([]),
         }
     }
 }
@@ -160,6 +170,10 @@ impl Default for ActorRenderScene {
 }
 
 impl ActorRenderScene {
+    pub fn configure_artwork(&mut self, artwork: ActorArtworkPages) {
+        self.reset();
+        self.frame.artwork = Arc::new(artwork);
+    }
     pub fn with_runtime_entity_assets(
         assets: &assets::RuntimeEntityAssets,
     ) -> Result<Self, ActorRigGeometryError> {
@@ -180,6 +194,7 @@ impl ActorRenderScene {
     }
 
     pub fn reset(&mut self) {
+        self.frame.instance_pages = Arc::from([]);
         if !self.frame.instances.is_empty() {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from([]);
@@ -314,6 +329,7 @@ impl ActorRenderScene {
             self.frame.skins_rgba8 = Arc::from(skins);
         }
         self.frame.rig = self.rig_builder.build(1.0, None, rig_submissions);
+        self.frame.instance_pages = vec![0; self.frame.rig.instances.len()].into();
         &self.frame
     }
 
@@ -324,13 +340,47 @@ impl ActorRenderScene {
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
         skins_rgba8: Arc<[u8]>,
     ) -> &ActorRenderFrame {
+        self.update_rigs_with_artwork(
+            partial_tick,
+            view,
+            submissions,
+            skins_rgba8,
+            &std::collections::BTreeMap::new(),
+        )
+    }
+
+    pub fn update_rigs_with_artwork(
+        &mut self,
+        partial_tick: f32,
+        view: Option<ActorCullView>,
+        submissions: impl IntoIterator<Item = ActorRigSubmission>,
+        skins_rgba8: Arc<[u8]>,
+        assignments: &std::collections::BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
+    ) -> &ActorRenderFrame {
         let rig = self.rig_builder.build(partial_tick, view, submissions);
         let skin_payload_is_aligned = skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES);
         let skin_layer_count = skins_rgba8.len() / STANDARD_SKIN_BYTES;
-        let invalid_skin_layer = rig
-            .instances
+        let instance_pages: Vec<_> = rig
+            .manifest
             .iter()
-            .any(|instance| instance.texture_layer as usize >= skin_layer_count);
+            .map(|entry| {
+                assignments
+                    .get(&entry.identity)
+                    .map_or(0, |location| location.page)
+            })
+            .collect();
+        let invalid_skin_layer =
+            rig.instances
+                .iter()
+                .zip(rig.manifest.iter())
+                .any(|(instance, entry)| {
+                    if let Some(location) = assignments.get(&entry.identity) {
+                        !self.frame.artwork.valid(entry.rig, *location)
+                            || instance.texture_layer != location.layer
+                    } else {
+                        instance.texture_layer as usize >= skin_layer_count
+                    }
+                });
         if !skin_payload_is_aligned || skin_layer_count > MAX_RENDERED_PLAYERS || invalid_skin_layer
         {
             let rejects = rig.rejects;
@@ -346,6 +396,7 @@ impl ActorRenderScene {
                 ..ActorRigRenderFrame::default()
             };
             self.frame.instances = Arc::from([]);
+            self.frame.instance_pages = Arc::from([]);
             self.frame.skins_rgba8 = Arc::from([]);
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
@@ -377,6 +428,7 @@ impl ActorRenderScene {
             self.frame.skins_rgba8 = skins_rgba8;
         }
         self.frame.rig = rig;
+        self.frame.instance_pages = instance_pages.into();
         &self.frame
     }
 

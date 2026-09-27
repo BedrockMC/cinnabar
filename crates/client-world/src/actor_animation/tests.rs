@@ -1,6 +1,19 @@
 use super::*;
 use crate::ActorPose;
 
+#[test]
+fn static_generation_exhaustion_fails_closed_without_consuming_animated_generation() {
+    let mut store = ActorAnimationStore::diagnostic();
+    let animated = store.next_reset_generation;
+    store.next_rest_reset_generation = u64::MAX - 1;
+    assert_eq!(store.take_rest_generation(), Some(u64::MAX - 1));
+    assert_eq!(store.take_rest_generation(), None);
+    assert_eq!(store.take_rest_generation(), None);
+    assert_eq!(store.next_reset_generation, animated);
+    store.clear();
+    assert_eq!(store.take_rest_generation(), None);
+}
+
 fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnapshot {
     let pose = ActorPose {
         position: [0.0; 3],

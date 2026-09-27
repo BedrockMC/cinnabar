@@ -1,3 +1,4 @@
+mod actor;
 mod animation;
 mod atmosphere;
 mod audio;
@@ -13,6 +14,10 @@ mod image;
 mod lang;
 mod pack;
 
+pub use actor::{
+    ActorCompileReport, ActorFallback, ActorTextureEvidence, CompiledActorCarrier,
+    compile_actor_assets,
+};
 pub use animation::AnimationInventory;
 pub use assets::BlockFace;
 pub use atmosphere::{

@@ -130,7 +130,7 @@ impl ClientBlobCacheOwner {
 }
 
 mod authority;
-pub(crate) use authority::configure_client_authority_systems;
+pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ClientFrameSet {
@@ -145,26 +145,6 @@ pub(crate) enum ClientFrameSet {
     ActorPublication,
     UiPublication,
     NetworkSend,
-}
-
-pub(crate) fn configure_client_frame_schedule(app: &mut App) {
-    app.configure_sets(
-        Update,
-        (
-            ClientFrameSet::RawInput,
-            ClientFrameSet::SemanticSample,
-            ClientFrameSet::UiAuthority,
-            ClientFrameSet::SemanticFinalize,
-            ClientFrameSet::Physics,
-            ClientFrameSet::Camera,
-            ClientFrameSet::Interaction,
-            ClientFrameSet::WorldPublication,
-            ClientFrameSet::ActorPublication,
-            ClientFrameSet::UiPublication,
-            ClientFrameSet::NetworkSend,
-        )
-            .chain(),
-    );
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
@@ -461,6 +441,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.entities.startup_summary());
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
+    let actor_artwork = crate::asset_startup::require_actor_artwork(
+        &loaded_assets.selected_path,
+        &loaded_assets.entities,
+    )
+    .context("load exact entity-linked neutral actor artwork")?;
+    let hand_geometry = render::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
     let hud_assets = require_hud_assets(&loaded_assets.selected_path)
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
@@ -527,12 +513,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
-    let actor_render_scene = ActorRenderScene::with_runtime_entity_assets(&entity_runtime)
+    let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets(&entity_runtime)
         .map_err(|error| {
             anyhow::anyhow!(
                 "prepare validated runtime entity geometry for actor rendering: {error:?}"
             )
         })?;
+    actor_render_scene.configure_artwork(actor_artwork.clone());
     // One shared authority drives both startup registry gates: the
     // world-carrier provenance pins and this physics binding both derive
     // their protocol expectation from it, so a partially flipped carrier set
@@ -670,6 +657,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(client_blob_cache)
         .insert_resource(network)
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(actor_artwork)
         .insert_resource(ClientWorld::new_with_entity_assets(
             Arc::clone(&runtime_assets),
             entity_runtime,
@@ -760,7 +748,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             args.auto_fly || args.freecam || args.phase3_candidate_physics,
         ),
         UiRenderPlugin,
+        render::ViewmodelRenderPlugin,
     ));
+    app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
+    if let Some(geometry) = hand_geometry {
+        app.insert_resource(geometry);
+    }
     if let Some(identity) = phase3_identity_source {
         app.insert_resource(identity);
     }

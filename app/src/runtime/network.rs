@@ -7,20 +7,19 @@ use bevy::{
     camera::Projection,
     ecs::system::SystemParam,
     log::{debug, error, info, warn},
-    prelude::{Local, Query, Res, ResMut, Time, Transform, With},
-    time::Real,
+    prelude::{Query, Res, ResMut, Transform, With},
 };
 #[cfg(test)]
 use client_world::{ActorSnapshot, PlayerProfile};
 use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
 use protocol::WorldEvent;
-use render::{
-    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRuntimeWitness,
-    ChunkUploadAcknowledgements, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, RuntimeStage,
-    RuntimeStageProfiler,
-};
 #[cfg(test)]
-use render::{ActorRenderSource, ActorSkinPixels};
+use render::{
+    ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
+};
+use render::{
+    ActorRuntimeWitness, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler,
+};
 
 use crate::{
     acceptance::{
@@ -38,16 +37,12 @@ use crate::{
         LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
     },
     movement::{LocalPhysicsController, MovementSource, MovementTicker, PhysicsAuthorityGate},
-    presentation::actors::{
-        actor_rig_presentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
-    },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::PublicationController,
         shutdown::record_fatal_error,
         visibility::AppMetrics,
-        world::{AppWorldState, ClientWorld},
+        world::AppWorldState,
     },
     ui_runtime::{
         UiRuntime,
@@ -288,6 +283,7 @@ pub(crate) fn receive_network_events(
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
                 resource_packs,
+                server_lang,
             } => {
                 match classify_bootstrap_generation(
                     ui_runtime.session_id(),
@@ -308,6 +304,7 @@ pub(crate) fn receive_network_events(
                         continue;
                     }
                 }
+                ui_runtime.set_server_lang(None);
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
@@ -443,6 +440,12 @@ pub(crate) fn receive_network_events(
                         break;
                     }
                 }
+                resource_packs::install_server_language(
+                    &mut ui_runtime,
+                    session_generation,
+                    server_lang,
+                    client_world.fatal_error.is_none(),
+                );
             }
             NetworkControlEvent::SubChunkRequestSent {
                 chunk,
@@ -518,6 +521,7 @@ pub(crate) fn receive_network_events(
                 origin,
             } => {
                 resource_pack_admission.clear_current();
+                ui_runtime.set_server_lang(None);
                 // Only a receive-side termination is a remote-initiated close;
                 // latch it while the ticker still reports the live session.
                 if origin == NetworkFailureOrigin::Receive {
@@ -538,6 +542,7 @@ pub(crate) fn receive_network_events(
                 decode_error_count,
             } => {
                 resource_pack_admission.clear_current();
+                ui_runtime.set_server_lang(None);
                 // The client chose to end this session, so this is not a
                 // remote-initiated transport failure and must not latch the
                 // remote-close movement classification.
@@ -553,6 +558,7 @@ pub(crate) fn receive_network_events(
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
                 resource_pack_admission.clear_current();
+                ui_runtime.set_server_lang(None);
                 movement.deactivate();
                 local_physics.deactivate();
                 avatar.clear();
@@ -835,149 +841,12 @@ pub(crate) fn update_actor_render_scene<'a>(
     scene.update_with_local(partial_tick, cull_view, remote_sources, local)
 }
 
-pub(crate) fn publish_actor_render_frame(
-    mut client_world: ResMut<ClientWorld>,
-    time: Res<Time<Real>>,
-    mut scene: ResMut<ActorRenderScene>,
-    mut frame: ResMut<ActorRenderFrame>,
-    mut published_session: Local<Option<u64>>,
-    mut actor_clock: Local<ActorFrameClock>,
-    presentation: ActorPresentationState,
-) {
-    let ActorPresentationState {
-        avatar,
-        mut local_visibility,
-        settings,
-        view,
-        local_physics,
-        witness,
-        camera,
-    } = presentation;
-    let session_id = client_world
-        .stream
-        .as_ref()
-        .map(WorldStream::actor_session_id);
-    if *published_session != session_id {
-        scene.reset();
-        actor_clock.reset();
-        *published_session = session_id;
-    }
-    let step = actor_clock.advance(time.delta());
-    if let Some(stream) = client_world.stream.as_mut() {
-        stream.advance_actor_interpolation_ticks(step.ticks);
-    }
-    let authoritative_subject_eye = authoritative_local_actor_eye(
-        local_physics.render_eye_position(),
-        client_world
-            .stream
-            .as_ref()
-            .map(|stream| stream.resolved_server_position().position),
-    );
-    publish_local_actor_visibility(
-        &avatar,
-        settings.perspective(),
-        authoritative_subject_eye,
-        view.rotation(),
-        &mut local_visibility,
-    );
-    let cull_view = camera
-        .single()
-        .ok()
-        .map(|(transform, projection)| ActorCullView {
-            clip_from_world: projection.get_clip_from_view() * transform.to_matrix().inverse(),
-            camera_position: transform.translation,
-            max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-        });
-    let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local) = client_world
-        .stream
-        .as_ref()
-        .map(|stream| {
-            let local_runtime_id = stream.local_player_runtime_id();
-            let mut remotes = Vec::new();
-            let mut canonical_local = None;
-            for rig in stream.actor_rigs() {
-                let Some(actor) = stream.actor(rig.actor.runtime_id) else {
-                    continue;
-                };
-                let profile = stream.actor_player_profile(rig.actor.runtime_id);
-                let Some(presentation) =
-                    actor_rig_presentation(&rig, actor, profile, step.partial_tick)
-                else {
-                    continue;
-                };
-                if rig.actor.runtime_id == local_runtime_id {
-                    canonical_local = Some(presentation);
-                } else {
-                    remotes.push(presentation);
-                }
-            }
-            (
-                local_runtime_id,
-                stream.actor_session_id(),
-                stream.current_dimension(),
-                remotes,
-                canonical_local,
-            )
-        })
-        .unwrap_or((0, 0, 0, Vec::new(), None));
-    let visibility_snapshot = local_visibility.snapshot().copied();
-    let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
-        if visibility.runtime_id() != local_runtime_id {
-            return (false, None);
-        }
-        let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
-        let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-        let pitch_degrees = -pitch.to_degrees();
-        let mut position = visibility.eye();
-        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-        let diagnostic = local_diagnostic_presentation(
-            actor_session_id,
-            dimension,
-            visibility.runtime_id(),
-            visibility.pose_generation(),
-            position.to_array(),
-            yaw_degrees,
-            pitch_degrees,
-        );
-        let local = local_actor_presentation_for_visibility(
-            local_runtime_id,
-            visibility.runtime_id(),
-            canonical_local,
-            diagnostic,
-        );
-        (visibility.visible(), local)
-    });
-    let batch = select_actor_presentations_for_view(
-        local_runtime_id,
-        local_visible,
-        local,
-        remotes,
-        cull_view,
-    );
-    let selected_count = batch.submissions.len();
-    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
-    witness.observe_main(ActorMainWitness {
-        local_snapshot: visibility_snapshot.is_some(),
-        local_visible,
-        expected_runtime_id: local_runtime_id,
-        visibility_runtime_id: visibility_snapshot.map_or(0, |snapshot| snapshot.runtime_id()),
-        selected_count,
-        local_route: frame
-            .rig
-            .manifest
-            .iter()
-            .find(|entry| entry.identity.runtime_id == local_runtime_id)
-            .map(|entry| entry.route),
-        frame_instances: frame.rig.instances.len(),
-        frame_manifest: frame.rig.manifest.len(),
-        skin_bytes: frame.skins_rgba8.len(),
-        rejects: frame.rig.rejects,
-    });
-}
+mod actor_publication;
 mod drain;
 mod inventory;
 mod resource_packs;
 pub(crate) mod session;
+pub(crate) use actor_publication::publish_actor_render_frame;
 
 #[cfg(test)]
 pub(crate) use drain::drain_network_ingress;

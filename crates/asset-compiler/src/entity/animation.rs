@@ -14,6 +14,7 @@ use super::{SourcePayloads, invalid, molang::MolangCompiler};
 mod clip;
 mod environment;
 mod outcome;
+pub(crate) mod roots;
 
 use clip::{
     ClipCompileError, compile_clip_for_geometry, has_string_leaf, looks_like_expression, read_json,
@@ -777,11 +778,18 @@ fn compile_rigs(
         }
         let animation_aliases = parse_aliases(description.get("animations"))?;
         let controller_aliases = parse_aliases(description.get("animation_controllers"))?;
+        let roots = roots::authored_roots(&value);
         let mut pending_geometries = Vec::new();
         for (candidate_geometry, condition) in geometry_candidates {
             let mut animation_bindings: Vec<(Box<str>, u32)> = Vec::new();
             let mut controller_bindings: Vec<(Box<str>, Box<str>)> = Vec::new();
             for (name, target) in &animation_aliases {
+                if roots.as_ref().is_some_and(|roots| {
+                    !roots.clips.contains(name.as_ref())
+                        && !roots.controllers.contains(name.as_ref())
+                }) {
+                    continue;
+                }
                 names.push(name.clone());
                 if target.starts_with("controller.animation.") {
                     if controller_symbols
@@ -813,6 +821,12 @@ fn compile_rigs(
                 }
             }
             for (name, target) in &controller_aliases {
+                if roots
+                    .as_ref()
+                    .is_some_and(|roots| !roots.controllers.contains(name.as_ref()))
+                {
+                    continue;
+                }
                 names.push(name.clone());
                 if controller_symbols
                     .get(target.as_ref())

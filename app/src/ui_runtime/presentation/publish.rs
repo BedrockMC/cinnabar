@@ -33,18 +33,23 @@ pub(crate) fn publish_ui_runtime(
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    frame_poll: Res<WorldStreamFramePoll>,
     time: Res<Time<Real>>,
-    menu_runtime: Res<crate::menu::MenuRuntime>,
+    (frame_poll, menu_runtime): (Res<WorldStreamFramePoll>, Res<crate::menu::MenuRuntime>),
+    mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
-    let Ok(window) = windows.single() else { return };
+    let Ok(window) = windows.single() else {
+        hand.clear();
+        return;
+    };
     let physical_size = [window.physical_width(), window.physical_height()];
     if physical_size.contains(&0) {
+        hand.clear();
         return;
     }
     let logical_width = physical_size[0] as f32 / window.scale_factor();
     let logical_height = physical_size[1] as f32 / window.scale_factor();
     let Ok(dpi_scale) = DpiScale::new(window.scale_factor()) else {
+        hand.clear();
         record_fatal_error(
             &mut client_world.fatal_error,
             "primary window reported an unsupported UI DPI scale".to_owned(),
@@ -144,6 +149,13 @@ pub(crate) fn publish_ui_runtime(
         &camera_settings,
         now_millis,
     );
+    hand.observe(
+        &runtime,
+        &client_world,
+        presentation.hud_frame.first_person,
+        menu_runtime.is_visible() || presentation.loading_message.is_some(),
+        physical_size,
+    );
     let anchors = client_world
         .stream
         .as_ref()
@@ -189,11 +201,14 @@ pub(crate) fn publish_ui_runtime(
     let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
         Ok(input) => input,
         Err(error) => {
+            hand.clear();
             record_fatal_error(&mut client_world.fatal_error, error.to_string());
             return;
         }
     };
+    hand.bind_cpu_fallback(&input, presentation.cpu_empty_hand_fallback());
     if let Err(error) = scene.publish(input, &stats) {
+        hand.clear();
         record_fatal_error(
             &mut client_world.fatal_error,
             UiPresentationError::Render(error).to_string(),

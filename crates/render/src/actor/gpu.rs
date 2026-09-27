@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     sync::{Arc, Mutex},
     time::Instant,
 };
@@ -13,6 +13,9 @@ pub(crate) const MAX_ACTOR_PRESENTATION_CALLBACKS: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActorDrawFrame {
+    pub artwork_identity: [u8; 32],
+    pub skin_revision: u64,
+    pub geometry_revision: u64,
     pub frame_generation: u64,
     pub draw_generation: u64,
     pub manifest: Arc<[ActorDrawManifestEntry]>,
@@ -41,6 +44,9 @@ impl ActorDrawFrame {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActorPresentedFrameAck {
+    pub artwork_identity: [u8; 32],
+    pub skin_revision: u64,
+    pub geometry_revision: u64,
     pub frame_sequence: u64,
     pub frame_generation: u64,
     pub draw_generation: u64,
@@ -54,6 +60,9 @@ impl ActorPresentedFrameAck {
     pub fn is_exact(&self) -> bool {
         self.frame_sequence != 0
             && ActorDrawFrame {
+                artwork_identity: self.artwork_identity,
+                skin_revision: self.skin_revision,
+                geometry_revision: self.geometry_revision,
                 frame_generation: self.frame_generation,
                 draw_generation: self.draw_generation,
                 manifest: Arc::clone(&self.manifest),
@@ -67,6 +76,9 @@ impl ActorPresentedFrameAck {
         self.is_exact()
             && next.is_exact()
             && self.frame_sequence.checked_add(1) == Some(next.frame_sequence)
+            && self.artwork_identity == next.artwork_identity
+            && self.skin_revision == next.skin_revision
+            && self.geometry_revision == next.geometry_revision
             && self.draw_generation < next.draw_generation
             && self.gpu_completed_at <= next.gpu_completed_at
     }
@@ -141,6 +153,9 @@ impl ActorPresentationGate {
             return false;
         }
         let acknowledgement = ActorPresentedFrameAck {
+            artwork_identity: token.draw.artwork_identity,
+            skin_revision: token.draw.skin_revision,
+            geometry_revision: token.draw.geometry_revision,
             frame_sequence: token.frame_sequence,
             frame_generation: token.draw.frame_generation,
             draw_generation: token.draw.draw_generation,
@@ -182,7 +197,16 @@ pub(crate) struct ActorDrawTracker {
 #[derive(Clone)]
 struct PendingActorDraw {
     draw: ActorDrawFrame,
-    drawn: bool,
+    view: u64,
+    expected: BTreeSet<ActorDrawSpan>,
+    received: BTreeSet<ActorDrawSpan>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) struct ActorDrawSpan {
+    pub page: u8,
+    pub first: u32,
+    pub count: u32,
 }
 
 impl ActorDrawTracker {
@@ -193,27 +217,48 @@ impl ActorDrawTracker {
             .unwrap_or_else(|poison| poison.into_inner()) = None;
     }
 
-    pub(crate) fn begin(&self, draw: ActorDrawFrame) -> bool {
-        if draw.frame_generation == 0 || draw.draw_generation == 0 || draw.manifest.is_empty() {
+    pub(crate) fn begin(&self, draw: ActorDrawFrame, view: u64, spans: &[ActorDrawSpan]) -> bool {
+        let mut next = 0;
+        let valid_spans = spans.iter().all(|span| {
+            let valid = span.first == next
+                && span.count != 0
+                && usize::from(span.page) < super::MAX_ACTOR_TEXTURE_PAGES;
+            next = span.first.saturating_add(span.count);
+            valid
+        });
+        if draw.frame_generation == 0
+            || draw.draw_generation == 0
+            || draw.manifest.is_empty()
+            || draw.manifest.len() > super::MAX_RENDERED_PLAYERS
+            || spans.len() > super::MAX_RENDERED_PLAYERS
+            || !valid_spans
+            || next as usize != draw.manifest.len()
+        {
             self.clear();
             return false;
         }
         *self
             .pending
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) =
-            Some(PendingActorDraw { draw, drawn: false });
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(PendingActorDraw {
+            draw,
+            view,
+            expected: spans.iter().copied().collect(),
+            received: BTreeSet::new(),
+        });
         true
     }
 
-    pub(crate) fn record_draw(&self) {
+    pub(crate) fn record_draw(&self, view: u64, span: ActorDrawSpan) {
         if let Some(pending) = self
             .pending
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .as_mut()
+            && pending.view == view
+            && pending.expected.contains(&span)
         {
-            pending.drawn = true;
+            pending.received.insert(span);
         }
     }
 
@@ -222,7 +267,7 @@ impl ActorDrawTracker {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .take()
-            .filter(|pending| pending.drawn)
+            .filter(|pending| pending.expected == pending.received)
             .map(|pending| pending.draw)
     }
 }
@@ -236,6 +281,9 @@ mod tests {
 
     fn draw(generation: u64) -> ActorDrawFrame {
         ActorDrawFrame {
+            artwork_identity: [0; 32],
+            skin_revision: 1,
+            geometry_revision: 1,
             frame_generation: generation,
             draw_generation: generation,
             manifest: Arc::from([ActorDrawManifestEntry {
@@ -264,11 +312,47 @@ mod tests {
     #[test]
     fn draw_tracker_requires_actual_draw_execution() {
         let tracker = ActorDrawTracker::default();
-        assert!(tracker.begin(draw(1)));
+        let span = ActorDrawSpan {
+            page: 0,
+            first: 0,
+            count: 1,
+        };
+        assert!(tracker.begin(draw(1), 9, &[span]));
         assert!(tracker.take_drawn().is_none());
-        assert!(tracker.begin(draw(2)));
-        tracker.record_draw();
+        assert!(tracker.begin(draw(2), 9, &[span]));
+        tracker.record_draw(9, span);
         assert_eq!(tracker.take_drawn(), Some(draw(2)));
+    }
+
+    #[test]
+    fn page_ack_requires_every_span_in_one_intended_view() {
+        let tracker = ActorDrawTracker::default();
+        let mut frame = draw(3);
+        let mut second = frame.manifest[0].clone();
+        second.instance_index = 1;
+        frame.manifest = Arc::from([frame.manifest[0].clone(), second]);
+        let spans = [
+            ActorDrawSpan {
+                page: 0,
+                first: 0,
+                count: 1,
+            },
+            ActorDrawSpan {
+                page: 1,
+                first: 1,
+                count: 1,
+            },
+        ];
+        assert!(tracker.begin(frame.clone(), 8, &spans));
+        tracker.record_draw(8, spans[0]);
+        tracker.record_draw(8, spans[0]);
+        tracker.record_draw(9, spans[1]);
+        assert!(tracker.take_drawn().is_none());
+        assert!(tracker.begin(frame.clone(), 8, &spans));
+        for span in spans {
+            tracker.record_draw(8, span);
+        }
+        assert_eq!(tracker.take_drawn(), Some(frame));
     }
 
     #[test]

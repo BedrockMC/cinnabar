@@ -8,7 +8,7 @@ use assets::{AssetError, MAX_ENTITY_SOURCE_BYTES};
 
 use super::invalid;
 
-pub(super) fn read_bounded_source(root: &Path, path: &Path) -> Result<Vec<u8>, AssetError> {
+pub(crate) fn read_bounded_source(root: &Path, path: &Path) -> Result<Vec<u8>, AssetError> {
     let file = open_source_handle(root, path).map_err(|source| AssetError::Io {
         path: path.to_path_buf(),
         source,

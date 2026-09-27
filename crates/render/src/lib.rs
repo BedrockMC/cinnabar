@@ -17,6 +17,14 @@ pub use ui_textures::{
     UiTexturePlan,
 };
 mod ui_render;
+mod viewmodel;
+mod viewmodel_render;
+
+pub use viewmodel::{
+    MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,
+    ViewmodelScene, ViewmodelSkin, ViewmodelToken, viewmodel_depth_bytes,
+};
+pub use viewmodel_render::ViewmodelRenderPlugin;
 mod visibility_diagnostics;
 
 use meshing::{
@@ -25,15 +33,16 @@ use meshing::{
 };
 
 pub use actor::{
-    ACTOR_BONE_MATRIX_BYTES, ActorCullView, ActorDrawFrame, ActorDrawManifestEntry,
-    ActorGpuInstance, ActorMainWitness, ActorPresentationGate, ActorPresentedFrameAck,
-    ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance, ActorRenderScene,
-    ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError,
-    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels, ActorVertex,
-    DEFAULT_SKIN_PROVENANCE, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES,
+    ACTOR_BONE_MATRIX_BYTES, ActorArtworkLocation, ActorArtworkPages, ActorCullView,
+    ActorDrawFrame, ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness,
+    ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
+    ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
+    ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex,
+    ActorRuntimeWitness, ActorSkinPixels, ActorTexturePage, ActorVertex, DEFAULT_SKIN_PROVENANCE,
+    EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, normalize_actor_skin,
     standard_biped_overlay_vertices, standard_biped_vertices,

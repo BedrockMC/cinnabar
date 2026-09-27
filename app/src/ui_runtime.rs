@@ -198,6 +198,7 @@ pub struct UiRuntime {
     /// Startup-loaded localization catalog; survives session replacement
     /// because it is local pinned data, not server state.
     lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
+    server_lang: Option<Arc<assets::ServerLangOverlay>>,
     /// Authoritative display names of real player/entity score owners,
     /// refreshed from the world stream before committed events apply.
     score_owner_names: std::collections::BTreeMap<i64, Arc<str>>,
@@ -266,6 +267,7 @@ impl UiRuntime {
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
             lang_catalog: None,
+            server_lang: None,
         }
     }
 
@@ -656,6 +658,7 @@ impl UiRuntime {
             return;
         }
         self.session_id = session_id;
+        self.server_lang = None;
         self.last_fifo_sequence = None;
         self.last_block_crack_sequence = None;
         self.last_local_millis = None;

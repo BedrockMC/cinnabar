@@ -331,6 +331,8 @@ fn resolves_inherited_rig_and_publishes_adjacent_completed_tick_palettes() {
     assert_eq!(initial.actor.runtime_id, 42);
     assert_eq!(initial.actor.spawn_revision, 1);
     assert_eq!(initial.previous, initial.current);
+    assert_eq!(initial.rest, initial.current);
+    let rest = initial.rest.to_vec();
     assert_eq!(initial.current.len(), 2);
     assert_eq!(initial.completed_tick, 0);
     assert_eq!(initial.current[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
@@ -341,6 +343,22 @@ fn resolves_inherited_rig_and_publishes_adjacent_completed_tick_palettes() {
     assert_eq!(tick.previous[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
     assert_eq!(tick.current[1].translation_scale[0..3], [1.0, 2.0, 0.0]);
     assert_eq!(tick.current[1].translation_scale[3], 1.0);
+    assert_eq!(tick.rest, rest);
+    assert_ne!(tick.rest, tick.current);
+}
+
+#[test]
+fn cached_rest_uses_resolved_rotated_inheritance_not_the_latest_animation() {
+    let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
+    compiled.geometries[0].bones[0].rotation = Some([scalar(0.0), scalar(0.0), scalar(90.0)]);
+    let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
+    stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
+    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
+    stream.advance_actor_interpolation_ticks(2);
+    let rig = stream.actor_rig(42).unwrap();
+    assert_eq!(rig.rest, rest);
+    assert_ne!(rig.current, rest);
+    assert_ne!(rest[0].rotation, [0.0, 0.0, 0.0, 1.0]);
 }
 
 #[test]
@@ -360,6 +378,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
     stream.advance_actor_interpolation_ticks(1);
     let generation = stream.actor_rig(42).unwrap().reset_generation;
+    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
 
     stream
         .submit(
@@ -383,6 +402,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     let teleported = stream.actor_rig(42).unwrap();
     assert!(teleported.reset_generation > generation);
     assert_eq!(teleported.previous, teleported.current);
+    assert_eq!(teleported.rest, rest);
     let generation = teleported.reset_generation;
 
     for (sequence, value) in [
@@ -406,6 +426,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     let metadata_reset = stream.actor_rig(42).unwrap();
     assert!(metadata_reset.reset_generation > generation);
     assert_eq!(metadata_reset.previous, metadata_reset.current);
+    assert_eq!(metadata_reset.rest, rest);
     let old_lifetime = metadata_reset.actor;
     let metadata_reset_generation = metadata_reset.reset_generation;
 
@@ -414,6 +435,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
     assert_ne!(replacement.actor, old_lifetime);
     assert!(replacement.reset_generation > metadata_reset_generation);
     assert_eq!(replacement.previous, replacement.current);
+    assert_eq!(replacement.rest, rest);
 }
 
 #[test]
@@ -561,8 +583,11 @@ fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
 
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
+    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
     stream.advance_actor_interpolation_ticks(1);
     assert_eq!(stream.actor_rig(42).unwrap().completed_tick, 0);
+    assert_eq!(stream.actor_rig(42).unwrap().rest_completed_tick, 1);
+    assert_eq!(stream.actor_rig(42).unwrap().rest, rest);
     assert_eq!(stream.actor_animation_stats().frozen_actors, 1);
 }
 
