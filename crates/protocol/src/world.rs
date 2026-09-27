@@ -108,6 +108,16 @@ pub struct WorldBootstrap {
     pub block_network_ids_are_hashes: bool,
 }
 
+/// The explicit StartGame block-breaking negotiation, separate from whether
+/// a caller currently has sufficient authority to mine any particular block.
+#[must_use]
+pub fn server_authoritative_block_breaking(game_data: &GameData) -> bool {
+    game_data
+        .start_game
+        .movement_settings
+        .server_authoritative_block_breaking
+}
+
 impl WorldBootstrap {
     #[must_use]
     pub fn from_game_data(game_data: &GameData) -> Self {
@@ -344,6 +354,9 @@ pub fn into_world_event(
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event = match packet.data {
+        McpePacketData::UpdateAbilitiesPacket(packet) => {
+            WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
+        }
         McpePacketData::TextPacket(packet) => WorldEvent::Ui(normalize_text(*packet)?),
         McpePacketData::CommandOutputPacket(packet) => {
             WorldEvent::Ui(crate::ui::normalize_command_output(*packet)?)

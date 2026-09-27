@@ -880,4 +880,5 @@ mod forced_remesh;
 mod inline_cohort;
 mod inventory_commit_fence;
 mod lenient_decode;
+mod local_abilities;
 mod render_distance;

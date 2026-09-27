@@ -31,6 +31,27 @@ const MILLIS_PER_SERVER_TICK: u64 = 50;
 const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
+    pub(crate) fn clear_block_breaking_mode(&mut self) {
+        self.server_authoritative_block_breaking = None;
+    }
+
+    pub(crate) fn install_block_breaking_mode(
+        &mut self,
+        session_generation: u64,
+        mode: bool,
+        setup_succeeded: bool,
+    ) {
+        if self.session_id() == session_generation && setup_succeeded {
+            self.server_authoritative_block_breaking = Some(mode);
+        }
+    }
+
+    /// Retained negotiation only; this does not authorize a mining request.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) const fn server_authoritative_block_breaking(&self) -> Option<bool> {
+        self.server_authoritative_block_breaking
+    }
+
     /// Predicts a physical hotbar selection and retains the latest slot until its packet is sent.
     pub(crate) fn queue_local_hotbar_selection(&mut self, slot: u8) {
         if self.selected_hotbar_slot() == Some(slot) && self.pending_hotbar_selection.is_none() {
@@ -382,6 +403,7 @@ impl UiRuntime {
             );
         }
         self.crafting_authority.advance();
+        self.sample_crafting_observation();
     }
 
     pub fn apply_local_attributes(
