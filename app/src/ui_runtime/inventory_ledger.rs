@@ -313,6 +313,11 @@ impl PlayerInventoryLedger {
         self.enqueue_mining(slot, predicted_damage)
     }
 
+    /// Forgets a mining request whose input never left, so it cannot hold back later answers.
+    pub fn cancel_mining_request(&mut self, request_id: i32) {
+        self.remove_unanswered_mining(request_id);
+    }
+
     /// The newest outstanding mining prediction for `slot`, else its last
     /// accepted damage.
     #[must_use]

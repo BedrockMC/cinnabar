@@ -3,6 +3,16 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
+(pipelined in-order requests, prediction groups, vanilla container addressing),
+with 2x2 and crafting-table crafting, creative take, number-key swap and drops;
+not live-accepted. Provisional, labeled incomplete: item tag membership comes
+from Dragonfly's table and registry-declared tags are read from
+`components.item_tags` without a live capture; the workbench layout, shift-click
+destinations, drop bindings and CraftResultsDeprecated contents need
+independent confirmation; armor/offhand placement is server-decided;
+drag-distribute, double-click collect and workstation windows are missing.
+
 2026-09-28 actor animation: remote players and mobs animate through the vanilla
 controllers with full Molang evaluation; not visually accepted (facing, box-UV
 side faces and limb swing need a native capture). Provisional, labeled

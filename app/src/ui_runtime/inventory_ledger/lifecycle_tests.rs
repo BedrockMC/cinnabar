@@ -881,3 +881,33 @@ fn outstanding_mining_requests_are_bounded() {
     );
     assert_eq!(ledger.predicted_slot_damage(0), Some(39));
 }
+
+#[test]
+fn cancelled_mining_request_leaves_no_prediction_behind() {
+    let mut ledger = ledger_with_slot_zero();
+    let id = ledger.begin_mining_request(0, 4).unwrap();
+    ledger.cancel_mining_request(id);
+    assert_eq!(ledger.predicted_slot_damage(0), None);
+    assert_eq!(ledger.begin_mining_request(0, 4), Some(id - 2));
+}
+
+#[test]
+fn accepted_mining_behind_an_expired_head_still_corrects_the_slot() {
+    let mut ledger = ledger_with_slot_zero();
+    let _unanswered = ledger.begin_mining_request(0, 4).unwrap();
+    let answered = ledger.begin_mining_request(0, 5).unwrap();
+    ledger.poll_timeout(0);
+    ledger.apply(&mining_response(
+        answered,
+        StackResponseStatus::Accepted,
+        5,
+        88,
+    ));
+    ledger.poll_timeout(super::INVENTORY_REQUEST_TIMEOUT_MILLIS + 1);
+    assert_eq!(
+        ledger
+            .displayed_stack(0)
+            .map(|stack| stack.stack_network_id),
+        Some(88)
+    );
+}
