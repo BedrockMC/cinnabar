@@ -270,6 +270,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/asset_startup.rs"
 
 [[markers]]
+literal = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/ui_runtime/use_on_identity_evidence.rs"
+
+[[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
