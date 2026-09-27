@@ -9,6 +9,9 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
 mod cells;
+mod crafting;
+#[cfg(test)]
+mod crafting_tests;
 #[cfg(test)]
 mod fixed_window_tests;
 mod gesture;
@@ -28,6 +31,7 @@ mod registry;
 mod response;
 
 use cells::{Cell, CellSurface, Cells};
+pub use crafting::{CraftGridCell, CraftingGrid};
 pub use gesture::{CellGesture, InventoryTarget};
 use personal::PersonalWindow;
 pub use queue::MAX_PENDING_REQUESTS;
@@ -51,6 +55,8 @@ const MAX_PENDING_CLOSES: usize = 8;
 /// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
 pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
+/// The crafting-table window; its 3x3 grid lives in UI slots 32..=40.
+pub const WORKBENCH_WINDOW_TYPE: i8 = 1;
 pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
 /// A close acknowledgement sent after the addressed window no longer exists.
 const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
@@ -82,6 +88,8 @@ pub enum PlayerInventorySlot<'a> {
 #[derive(Debug, Clone)]
 struct StorageWindow {
     window_id: i32,
+    /// Generic storage or workbench.
+    window_type: i8,
     generation: u64,
     identity: Option<ContainerIdentity>,
     resync_required: bool,
@@ -507,12 +515,9 @@ impl PlayerInventoryLedger {
             // predictions; further close gestures stay blocked.
             return;
         }
-        let (window_id, generation) = (storage.window_id, storage.generation);
-        self.queue_close(
-            window_id,
-            GENERIC_STORAGE_WINDOW_TYPE,
-            PendingCloseOwner::Storage,
-        );
+        let (window_id, window_type, generation) =
+            (storage.window_id, storage.window_type, storage.generation);
+        self.queue_close(window_id, window_type, PendingCloseOwner::Storage);
         self.abandon_requests(|pending| {
             pending.storage_generation == Some(generation)
                 && pending.state == InventoryPendingState::AwaitingTransport

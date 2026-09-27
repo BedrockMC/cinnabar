@@ -984,3 +984,51 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
     }
     assert_eq!(transfer(false), transfer(true));
 }
+
+/// The committed catalog and the ledger's grid drive a real craft request
+/// from the output cell.
+#[test]
+fn output_click_crafts_the_unique_recipe_through_the_ledger() {
+    use crate::ui_runtime::{
+        dispatch_inventory_click,
+        inventory_ledger::{CellGesture, PERSONAL_INVENTORY_WINDOW_TYPE},
+        presentation::inventory_pointer::InventoryCellHit,
+    };
+    let mut app = app();
+    registry_ingress(&mut app, 1, named_registry("minecraft:oak_log"));
+    let fixture =
+        include_bytes!("../../../crates/protocol/fixtures/crafting_data_manual_named_1x1.bin");
+    ingress(
+        &mut app,
+        2,
+        InventoryEvent::Recipes(protocol::decode_recipe_update(&fixture[4..]).unwrap()),
+    );
+    ingress(&mut app, 3, contextual_grid(true));
+    ingress(&mut app, 4, empty_slot(59, 0));
+    app.update();
+    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    let ledger = runtime.inventory_ledger_mut();
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(0));
+    ledger.apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+        container: ContainerIdentity::window(2),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+    assert!(matches!(
+        runtime.crafting_match(),
+        protocol::CraftGridMatch::Unique(_)
+    ));
+    let request = dispatch_inventory_click(
+        &mut runtime,
+        InventoryCellHit::CraftOutput,
+        CellGesture::Click,
+    )
+    .unwrap();
+    let ledger = runtime.inventory_ledger();
+    assert_eq!(ledger.pending_request_id(), Some(request));
+    let held = ledger.cursor_stack().unwrap();
+    assert_eq!((held.network_id, held.count), (7, 4));
+    assert!(ledger.pending_packet().unwrap().is_some());
+}

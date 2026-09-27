@@ -33,16 +33,15 @@ fn catalog(count: usize) -> RecipeCatalog {
                     recipe: Some(Recipe {
                         width: 1,
                         height: 1,
-                        ingredients: [
-                            Some(Ingredient {
+                        shapeless: false,
+                        ingredients: std::array::from_fn(|index| {
+                            (index == 0).then(|| Ingredient {
                                 name: "minecraft:oak_log".into(),
+                                tag: false,
                                 aux: 0,
                                 count: 1,
-                            }),
-                            None,
-                            None,
-                            None,
-                        ],
+                            })
+                        }),
                         output: Output {
                             id: 7,
                             aux: 0,

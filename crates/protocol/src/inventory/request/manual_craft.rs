@@ -82,6 +82,9 @@ pub(in crate::inventory) fn validate_grid<'a>(
     grid: &[Option<&VerifiedNetworkItemStack>; 4],
     lookup: impl Fn(i32) -> Result<&'a ItemRegistryEntry, ManualCraftError>,
 ) -> Result<(&'a ItemRegistryEntry, [Option<u8>; 4]), ManualCraftError> {
+    if !recipe.is_personal_named() {
+        return Err(ManualCraftError::Unsupported);
+    }
     let mut counts = [None; 4];
     for (index, input) in grid.iter().enumerate() {
         let cell = index / 2 * usize::from(recipe.width) + index % 2;

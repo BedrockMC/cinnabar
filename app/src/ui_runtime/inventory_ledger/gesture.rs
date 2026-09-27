@@ -248,23 +248,7 @@ impl PlayerInventoryLedger {
         target: Cell,
         gesture: CellGesture,
     ) -> Result<i32, InventoryGestureError> {
-        if self.authority != Some(protocol::InventoryAuthority::Server) {
-            return Err(InventoryGestureError::AuthorityUnavailable);
-        }
-        // A locally closing window only waits out its admitted requests.
-        if self.resync_required() || self.storage.as_ref().is_some_and(|storage| storage.closing) {
-            return Err(InventoryGestureError::ResyncRequired);
-        }
-        self.ensure_queue_capacity()?;
-        let personal_generation = if matches!(target, Cell::Inventory(_)) && self.storage.is_none()
-        {
-            Some(
-                self.personal_generation_for_gesture()
-                    .ok_or(InventoryGestureError::PersonalInventoryUnavailable)?,
-            )
-        } else {
-            None
-        };
+        let personal_generation = self.gesture_preflight(!matches!(target, Cell::Storage(_)))?;
         match target {
             Cell::Inventory(slot) => {
                 let index = usize::from(slot);
@@ -423,15 +407,53 @@ impl PlayerInventoryLedger {
                 }
             }
         };
-        let request_id = self.next_request_id;
-        self.next_request_id = self
-            .next_request_id
-            .checked_sub(2)
-            .ok_or(InventoryGestureError::InvalidRequest)?;
-        self.enqueue(PendingRequest {
-            request_id,
+        self.submit(Submission {
             actions: vec![built.action],
             groups: vec![built.group],
+            personal_generation,
+            requires_distinct_stack_ids: built.requires_distinct_stack_ids,
+            registry_bound_merge: built.registry_bound_merge,
+        })
+    }
+
+    /// Checks everything a new request needs and returns the personal window
+    /// generation it binds to, if any.
+    pub(super) fn gesture_preflight(
+        &self,
+        personal_cells: bool,
+    ) -> Result<Option<u64>, InventoryGestureError> {
+        if self.authority != Some(protocol::InventoryAuthority::Server) {
+            return Err(InventoryGestureError::AuthorityUnavailable);
+        }
+        // A locally closing window only waits out its admitted requests.
+        if self.resync_required() || self.storage.as_ref().is_some_and(|storage| storage.closing) {
+            return Err(InventoryGestureError::ResyncRequired);
+        }
+        self.ensure_queue_capacity()?;
+        if personal_cells && self.storage.is_none() {
+            return self
+                .personal_generation_for_gesture()
+                .map(Some)
+                .ok_or(InventoryGestureError::PersonalInventoryUnavailable);
+        }
+        Ok(None)
+    }
+
+    /// The id the next submitted request will carry.
+    pub(super) fn peek_request_id(&self) -> Result<i32, InventoryGestureError> {
+        self.next_request_id
+            .checked_sub(2)
+            .map(|_| self.next_request_id)
+            .ok_or(InventoryGestureError::InvalidRequest)
+    }
+
+    pub(super) fn submit(&mut self, submission: Submission) -> Result<i32, InventoryGestureError> {
+        let request_id = self.peek_request_id()?;
+        self.next_request_id -= 2;
+        self.enqueue(PendingRequest {
+            request_id,
+            actions: submission.actions,
+            groups: submission.groups,
             state: InventoryPendingState::AwaitingTransport,
             transport_deadline_millis: None,
             deadline_millis: None,
@@ -439,12 +461,21 @@ impl PlayerInventoryLedger {
             accepted: None,
             session_generation: self.session_generation,
             storage_generation: self.storage.as_ref().map(|storage| storage.generation),
-            personal_generation,
-            storage_identity,
-            requires_distinct_stack_ids: built.requires_distinct_stack_ids,
-            registry_bound_merge: built.registry_bound_merge,
+            personal_generation: submission.personal_generation,
+            storage_identity: self.storage_identity(),
+            requires_distinct_stack_ids: submission.requires_distinct_stack_ids,
+            registry_bound_merge: submission.registry_bound_merge,
             predicted: Vec::new(),
         });
         Ok(request_id)
     }
+}
+
+/// A fully built request awaiting its id.
+pub(super) struct Submission {
+    pub(super) actions: Vec<StackRequestAction>,
+    pub(super) groups: Vec<DeltaGroup>,
+    pub(super) personal_generation: Option<u64>,
+    pub(super) requires_distinct_stack_ids: bool,
+    pub(super) registry_bound_merge: bool,
 }

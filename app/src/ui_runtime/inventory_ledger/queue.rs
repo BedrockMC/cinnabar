@@ -98,16 +98,20 @@ impl PlayerInventoryLedger {
         self.refold();
     }
 
-    /// Whether a stack cannot be named in a new request yet: an unsettled
-    /// split presents two halves under one server id.
+    /// Whether a stack cannot be named in a new request yet: crafted output
+    /// still carries its request id, and an unsettled split presents two
+    /// halves under one server id.
     pub(super) fn awaiting_identity(&self, held: &Held) -> bool {
-        !self.queue.is_empty()
-            && self
-                .view()
-                .occupied()
-                .filter(|(_, other)| other.stack.stack_network_id == held.stack.stack_network_id)
-                .count()
-                > 1
+        held.stack.stack_network_id < -1
+            || !self.queue.is_empty()
+                && self
+                    .view()
+                    .occupied()
+                    .filter(|(_, other)| {
+                        other.stack.stack_network_id == held.stack.stack_network_id
+                    })
+                    .count()
+                    > 1
     }
 
     pub(super) fn request_is_current(&self, request: &PendingRequest) -> bool {

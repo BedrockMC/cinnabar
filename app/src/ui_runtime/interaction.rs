@@ -18,7 +18,9 @@ use crate::acceptance::markers::FAST_TRANSFER_ACTION;
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
+use super::inventory_ledger::{CellGesture, InventoryGestureError, InventoryTarget};
 use super::{PlatformClipboard, UiRuntime, presentation};
+use presentation::inventory_pointer::InventoryCellHit;
 
 /// Admits every ready inventory packet in queue order, stopping at the first
 /// transport refusal. Returns whether anything was admitted.
@@ -305,50 +307,54 @@ pub(crate) fn drive_inventory_ui_actions(
     let physical_size = [window.physical_width(), window.physical_height()];
     let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
     runtime.set_inventory_pointer_gui(gui);
+    let screen = presentation::inventory_pointer::InventoryScreen::of(runtime.inventory_ledger());
     let hit = gui.and_then(|gui| {
-        presentation.inventory_cell_hit(
-            gui,
-            physical_size,
-            window.scale_factor(),
-            runtime.inventory_ledger().storage_slot_count(),
-        )
+        presentation.inventory_cell_hit(gui, physical_size, window.scale_factor(), screen)
     });
-    if let Some(slot) = hit {
-        let ledger = runtime.inventory_ledger_mut();
-        if primary_pressed {
-            // When both physical edges arrive together, preserve the existing
-            // primary operation as a deterministic local policy.
-            let _ = match slot {
-                presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
-                    ledger.begin_click(slot)
-                }
-                presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
-                    ledger.begin_storage_click(slot)
-                }
-            };
-        } else if secondary_pressed {
-            let cursor_occupied = ledger.cursor_stack().is_some();
-            let _ = match slot {
-                presentation::inventory_pointer::InventoryCellHit::Player(slot) => {
-                    let target_count = ledger.displayed_stack(slot).map(|stack| stack.count);
-                    match (cursor_occupied, target_count) {
-                        (false, Some(count)) => ledger.begin_take_count(slot, count.div_ceil(2)),
-                        (true, _) => ledger.begin_place_count(slot, 1),
-                        _ => return,
-                    }
-                }
-                presentation::inventory_pointer::InventoryCellHit::Storage(slot) => {
-                    let target_count = ledger.storage_stack(slot).map(|stack| stack.count);
-                    match (cursor_occupied, target_count) {
-                        (false, Some(count)) => {
-                            ledger.begin_storage_take_count(slot, count.div_ceil(2))
-                        }
-                        (true, _) => ledger.begin_storage_place_count(slot, 1),
-                        _ => return,
-                    }
-                }
-            };
-        }
+    let Some(hit) = hit else {
+        return;
+    };
+    // When both physical edges arrive together, the primary operation wins
+    // as a deterministic local policy.
+    if primary_pressed {
+        let _ = dispatch_inventory_click(runtime.as_mut(), hit, CellGesture::Click);
+    } else if secondary_pressed {
+        let ledger = runtime.inventory_ledger();
+        let Some(target) = gesture_target(hit) else {
+            return;
+        };
+        let gesture = match (ledger.cursor_stack(), ledger.target_stack(target)) {
+            (Some(_), _) => CellGesture::PlaceCount(1),
+            (None, Some(stack)) => CellGesture::TakeCount(stack.count.div_ceil(2)),
+            (None, None) => return,
+        };
+        let _ = dispatch_inventory_click(runtime.as_mut(), hit, gesture);
+    }
+}
+
+const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTarget> {
+    Some(match hit {
+        InventoryCellHit::Player(slot) => InventoryTarget::Player(slot),
+        InventoryCellHit::Storage(slot) => InventoryTarget::Storage(slot),
+        InventoryCellHit::Armor(slot) => InventoryTarget::Armor(slot),
+        InventoryCellHit::Offhand => InventoryTarget::Offhand,
+        InventoryCellHit::Craft(slot) => InventoryTarget::Craft(slot),
+        InventoryCellHit::CraftOutput => return None,
+    })
+}
+
+/// Routes one resolved pointer gesture; the output cell crafts once.
+pub(crate) fn dispatch_inventory_click(
+    runtime: &mut UiRuntime,
+    hit: InventoryCellHit,
+    gesture: CellGesture,
+) -> Result<i32, InventoryGestureError> {
+    match gesture_target(hit) {
+        Some(target) => runtime
+            .inventory_ledger_mut()
+            .begin_target_gesture(target, gesture),
+        None if gesture == CellGesture::Click => runtime.begin_crafting(),
+        None => Err(InventoryGestureError::InvalidRequest),
     }
 }
 

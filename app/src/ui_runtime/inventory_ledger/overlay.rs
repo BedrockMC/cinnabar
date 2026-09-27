@@ -29,14 +29,12 @@ pub(super) enum DeltaGroup {
         destination_id: i32,
     },
     /// Removes `amount` from `source` (consume, destroy, drop).
-    #[allow(dead_code, reason = "drop and crafting consumption build this group")]
     Shrink {
         source: Cell,
         amount: u16,
         source_id: i32,
     },
     /// Writes a created stack (crafting and creative output).
-    #[allow(dead_code, reason = "crafting and creative output build this group")]
     Set { cell: Cell, held: Held },
 }
 

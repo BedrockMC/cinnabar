@@ -1,9 +1,14 @@
 use super::budget::Permit;
 use std::sync::Arc;
 
+/// Grid cells a crafting-table recipe may address.
+pub(in crate::inventory) const MAX_INGREDIENTS: usize = 9;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::inventory) struct Ingredient {
+    /// An item identifier, or a tag when `tag` is set.
     pub(in crate::inventory) name: String,
+    pub(in crate::inventory) tag: bool,
     pub(in crate::inventory) aux: u16,
     pub(in crate::inventory) count: u8,
 }
@@ -19,10 +24,28 @@ pub(in crate::inventory) struct Output {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::inventory) struct Recipe {
+    /// Zero for a shapeless recipe.
     pub(in crate::inventory) width: u8,
     pub(in crate::inventory) height: u8,
-    pub(in crate::inventory) ingredients: [Option<Ingredient>; 4],
+    pub(in crate::inventory) shapeless: bool,
+    /// Row-major shaped cells, or the shapeless ingredient list.
+    pub(in crate::inventory) ingredients: [Option<Ingredient>; MAX_INGREDIENTS],
     pub(in crate::inventory) output: Output,
+}
+
+impl Recipe {
+    /// The shaped, name-only, fits-in-two-by-two domain the manual craft
+    /// builder and passive observations were written for.
+    pub(in crate::inventory) fn is_personal_named(&self) -> bool {
+        !self.shapeless
+            && self.width <= 2
+            && self.height <= 2
+            && self
+                .ingredients
+                .iter()
+                .flatten()
+                .all(|ingredient| !ingredient.tag)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

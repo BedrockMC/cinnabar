@@ -288,10 +288,12 @@ fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invali
             "../fixtures/crafting_data_manual_unsupported_replacement.bin"
         )),
     );
-    assert!(catalog.recipe(17).is_none());
+    // The catalog retains the three-wide replacement for the table grid, but
+    // the personal two-by-two builder refuses it.
+    assert_eq!(catalog.recipe(17).unwrap().dimensions(), (3, 1));
     assert_eq!(
         request(&catalog, 17, inputs(), &registry(), -3, &cursor()).unwrap_err(),
-        ManualCraftError::Unavailable
+        ManualCraftError::Unsupported
     );
     catalog.apply(
         1,

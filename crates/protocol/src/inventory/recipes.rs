@@ -1,6 +1,7 @@
 //! Bounded recipe admission. Limits are client policy, not server maxima.
 mod budget;
 mod catalog;
+mod crafting;
 mod decode;
 mod grammar;
 mod matching;
@@ -10,6 +11,7 @@ mod reader;
 
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
+pub use crafting::{CraftGridItem, CraftGridMatch, RecipeOutput, match_crafting_grid};
 pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use model::{RecipeHandle, RecipeUpdate};
 pub use observation::{
