@@ -464,6 +464,78 @@ fn text_button_form_model_preserves_unicode_and_wire_indices() {
 }
 
 #[test]
+fn element_button_form_model_preserves_unicode_and_wire_indices() {
+    let event = form_event(r#"{"type":"form","title":"Menu 世界","content":"Select α β","elements":[{"type":"button","text":"First ✓","image":null},{"type":"button","text":"第二","image":null}]}"#).unwrap();
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("element buttons must normalize as a supported text menu")
+    };
+    assert_eq!(menu.title.as_ref(), "Menu 世界");
+    assert_eq!(menu.content.as_ref(), "Select α β");
+    assert_eq!(
+        menu.buttons
+            .iter()
+            .map(|label| label.as_ref())
+            .collect::<Vec<_>>(),
+        ["First ✓", "第二"]
+    );
+    assert_eq!(menu.omitted_images, 0);
+}
+
+#[test]
+fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbering() {
+    for json in [
+        r#"{"type":"form","buttons":[],"elements":[]}"#,
+        r#"{"type":"form","buttons":null,"elements":[]}"#,
+        r#"{"type":"form","elements":null}"#,
+        r#"{"type":"form","elements":{}}"#,
+        r#"{"type":"form","elements":["button"]}"#,
+        r#"{"type":"form","elements":[{"text":"A","image":null}]}"#,
+        r#"{"type":"form","elements":[{"type":7,"text":"A","image":null}]}"#,
+        r#"{"type":"form","elements":[{"type":"button","text":"A"}]}"#,
+        r#"{"type":"form","elements":[{"type":"button","image":null}]}"#,
+        r#"{"type":"form","elements":[{"type":"button","text":7,"image":null}]}"#,
+        r#"{"type":"form","elements":[{"type":"button","text":"A","image":{"type":"path","data":"ignored"}}]}"#,
+        r#"{"type":"form","elements":[{"type":"button","text":"A","image":null,"unknown":true}]}"#,
+        r#"{"type":"form","elements":[{"type":"button","text":"A","image":null},{"type":"label","text":"B","image":null},{"type":"button","text":"C","image":null}]}"#,
+    ] {
+        assert_eq!(
+            form_event(json).unwrap().model,
+            protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls)
+        );
+    }
+}
+
+#[test]
+fn element_button_forms_keep_the_existing_count_and_text_limits() {
+    let buttons = std::iter::repeat_n(
+        r#"{"type":"button","text":"x","image":null}"#,
+        protocol::MAX_FORM_BUTTONS,
+    )
+    .collect::<Vec<_>>()
+    .join(",");
+    let event = form_event(&format!(r#"{{"type":"form","elements":[{buttons}]}}"#)).unwrap();
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("bounded element menu")
+    };
+    assert_eq!(menu.buttons.len(), protocol::MAX_FORM_BUTTONS);
+    let overflow = format!(
+        r#"{{"type":"form","elements":[{buttons},{{"type":"button","text":"x","image":null}}]}}"#
+    );
+    let long = "x".repeat(MAX_UI_TEXT_BYTES + 1);
+    for json in [
+        overflow,
+        format!(
+            r#"{{"type":"form","elements":[{{"type":"button","text":"{long}","image":null}}]}}"#
+        ),
+    ] {
+        assert_eq!(
+            form_event(&json).unwrap().model,
+            protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Limit)
+        );
+    }
+}
+
+#[test]
 fn pinned_text_menu_and_response_fixtures_match_exact_wire_payloads() {
     let UiEvent::Form(form) =
         decode_ui_fixture(include_bytes!("../fixtures/modal_form_text_menu.bin"))

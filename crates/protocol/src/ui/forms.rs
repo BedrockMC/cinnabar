@@ -110,15 +110,20 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
     if object.get("type").and_then(serde_json::Value::as_str) != Some("form") {
         return unsupported(UnsupportedForm::Family);
     }
+    // A menu has one controls representation. Never combine arrays or drop
+    // unsupported elements, since either would change response indexes.
+    let (controls, element_controls) = match (object.get("buttons"), object.get("elements")) {
+        (Some(buttons), None) => (buttons, false),
+        (None, Some(elements)) => (elements, true),
+        _ => return unsupported(UnsupportedForm::Controls),
+    };
     let text = |key: &str| match object.get(key) {
         None => Some(""),
         Some(value) => value.as_str(),
     };
-    let (Some(title), Some(content), Some(buttons)) = (
-        text("title"),
-        text("content"),
-        object.get("buttons").and_then(serde_json::Value::as_array),
-    ) else {
+    let (Some(title), Some(content), Some(buttons)) =
+        (text("title"), text("content"), controls.as_array())
+    else {
         return unsupported(UnsupportedForm::Controls);
     };
     if title.len() > MAX_UI_TEXT_BYTES
@@ -133,10 +138,19 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
         let Some(button) = button.as_object() else {
             return unsupported(UnsupportedForm::Controls);
         };
-        if button.keys().any(|key| key != "text" && key != "image") {
+        if button
+            .keys()
+            .any(|key| key != "text" && key != "image" && (!element_controls || key != "type"))
+        {
             return unsupported(UnsupportedForm::Controls);
         }
-        if let Some(image) = button.get("image") {
+        if element_controls
+            && (button.get("type").and_then(serde_json::Value::as_str) != Some("button")
+                || button.get("image") != Some(&serde_json::Value::Null))
+        {
+            return unsupported(UnsupportedForm::Controls);
+        }
+        if !element_controls && let Some(image) = button.get("image") {
             let Some(image) = image.as_object() else {
                 return unsupported(UnsupportedForm::Controls);
             };
