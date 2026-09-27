@@ -6,7 +6,8 @@ use std::{
 use super::ChunkStore;
 use crate::{
     BlockUpdate, ChunkCollisionRevision, ChunkKey, CollisionRevisionError, DecodeError,
-    DecodedLevelChunk, MutationError, SubChunkKey, collision_revision::CollisionRevisionAllocator,
+    DecodedLevelChunk, MutationError, RawBlockIds, SubChunkKey,
+    collision_revision::CollisionRevisionAllocator,
 };
 
 #[test]
@@ -102,7 +103,7 @@ fn mutation_overflow_is_typed_and_transactional() {
 fn full_column_overflow_is_typed_and_transactional() {
     let chunk = ChunkKey::new(1, 0, 0);
     let mut store = exhausted_loaded_store(chunk);
-    let decoded = DecodedLevelChunk::decode(0, 1, &[9, 1, 0, 1, 2]).unwrap();
+    let decoded = DecodedLevelChunk::decode(0, 1, &[9, 1, 0, 1, 2], &RawBlockIds { air: 0 });
     assert_eq!(
         store.commit_level_chunk(chunk, decoded),
         Err(DecodeError::CollisionRevision(
@@ -118,7 +119,7 @@ fn sub_chunk_overflow_does_not_leave_an_empty_sparse_column() {
     let chunk = ChunkKey::new(2, 0, 0);
     let key = SubChunkKey::from_chunk(chunk, 0);
     let mut store = exhausted_loaded_store(chunk);
-    let decoded = crate::SubChunk::decode(&[9, 1, 0, 1, 2]).unwrap();
+    let decoded = crate::SubChunk::decode(&[9, 1, 0, 1, 2], &RawBlockIds { air: 0 });
     assert_eq!(
         store.commit_sub_chunk(key, decoded),
         Err(DecodeError::CollisionRevision(

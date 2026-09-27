@@ -480,8 +480,8 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
@@ -542,8 +542,8 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(key.chunk(), decoded)
@@ -655,8 +655,8 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(real.chunk(), decoded)
@@ -870,7 +870,7 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
     let chunk = ChunkKey::new(0, 2, -3);
     let key = SubChunkKey::from_chunk(chunk, -4);
     let payload = [9, 0, (-4_i8) as u8];
-    let decoded = DecodedLevelChunk::decode(-4, 1, &payload).unwrap();
+    let decoded = DecodedLevelChunk::decode(-4, 1, &payload, &RAW_IDS);
     stream.apply_prepared(super::PreparedWorldEvent::InlineLevelChunk {
         event: LevelChunkEvent {
             dimension: 0,
@@ -879,7 +879,7 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
             mode: LevelChunkMode::Inline { count: 1 },
             payload: payload.to_vec(),
         },
-        decoded: Ok(decoded),
+        decoded,
         duration: std::time::Duration::ZERO,
     });
 
@@ -981,7 +981,7 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
         env!("CARGO_MANIFEST_DIR"),
         "/../world/fixtures/uniform_non_air.bin"
     ));
-    let decoded = DecodedLevelChunk::decode(-4, 1, payload).unwrap();
+    let decoded = DecodedLevelChunk::decode(-4, 1, payload, &RAW_IDS);
     stream.apply_prepared(super::PreparedWorldEvent::InlineLevelChunk {
         event: LevelChunkEvent {
             dimension: 0,
@@ -990,7 +990,7 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
             mode: LevelChunkMode::Inline { count: 1 },
             payload: payload.to_vec(),
         },
-        decoded: Ok(decoded),
+        decoded,
         duration: std::time::Duration::ZERO,
     });
 

@@ -3,6 +3,18 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
+lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
+null biome slots, per-entity tail skips, unknown ids to air/default biome, inline
+slots `i & 0xff`, unsent inline slots known air). Provisional, labeled incomplete:
+legacy sub-chunk versions 0/2–7 decode as air (no legacy id table), persistent
+palette entries resolve to air (no name/state lookup), and block-entity id and
+block-actor-type checks are not emulated. StartGame custom blocks are known only
+when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
+they collide as full cubes with stone's surface facts and render as diagnostic
+cubes until runtime pack application lands. Interleaved or hashed custom blocks
+remain unsupported. No vanilla acceptance gate is closed by this change.
+
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
 The reviewed ordered-batch dependency is published on `resource-pack-changes` at

@@ -1057,23 +1057,16 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
     let super::DecodeJob::InlineLevelChunk {
         event,
         payload,
-        base_sub_chunk_y,
+        slots,
         count,
-        biome_storage_count,
+        ids,
         ..
     } = stream.pending_decode.pop_front().unwrap().job
     else {
         panic!("expected inline decode job")
     };
     let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-    let decoded = DecodedLevelChunk::decode_with_biomes_and_block_entities(
-        chunk,
-        base_sub_chunk_y,
-        count,
-        base_sub_chunk_y,
-        biome_storage_count,
-        &payload,
-    );
+    let decoded = DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
     stream
         .ordered
         .insert(
@@ -1141,23 +1134,16 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
     let super::DecodeJob::InlineLevelChunk {
         event,
         payload,
-        base_sub_chunk_y,
+        slots,
         count,
-        biome_storage_count,
+        ids,
         ..
     } = stream.pending_decode.pop_front().unwrap().job
     else {
         panic!("expected inline decode job")
     };
     let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-    let decoded = DecodedLevelChunk::decode_with_biomes_and_block_entities(
-        chunk,
-        base_sub_chunk_y,
-        count,
-        base_sub_chunk_y,
-        biome_storage_count,
-        &payload,
-    );
+    let decoded = DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
     stream
         .ordered
         .insert(

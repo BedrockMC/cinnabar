@@ -918,6 +918,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             session_generation: 7,
             world: bootstrap,
             environment,
+            custom_blocks: protocol::CustomBlocks::default(),
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),
             item_registry: None,
             player_game_mode: PlayerGameMode::Survival,

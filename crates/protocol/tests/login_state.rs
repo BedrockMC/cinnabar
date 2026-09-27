@@ -524,16 +524,15 @@ impl ServerScript {
                         | CachePlayScript::TrailingLevelChunk => unreachable!(),
                     }
                 } else {
-                    // A malformed world packet (invalid sub-chunk count) must be
-                    // skipped, not disconnect the session; the following SetTime
-                    // still arrives in order. A negative count is no longer a
-                    // request-mode sentinel in 1.26.40, so it is simply invalid.
+                    // A semantically invalid world packet (negative request limit)
+                    // must be skipped, not disconnect the session; the following
+                    // SetTime still arrives in order.
                     // Latency probes ride the same batch: only the from-server
                     // probe is answered, with its creation time provisionally
                     // scaled (x 1_000_000) and never with its flag set.
                     let mut traffic = vec![
                         McpePacket::from(LevelChunkPacket {
-                            subchunks_count: u32::MAX,
+                            client_request_sub_chunk_limit: Some(-3),
                             ..Default::default()
                         }),
                         McpePacket::from(LevelChunkPacket {

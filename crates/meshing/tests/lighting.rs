@@ -11,7 +11,7 @@ use meshing::{
     PackedQuadLighting, bake_quad_lighting, bake_quad_lighting_with_sampler,
     bake_template_lighting, bake_template_lighting_with_sampler, mesh_dependency_mask,
 };
-use world::{MeshNeighbourhood, SubChunk};
+use world::{MeshNeighbourhood, RawBlockIds, SubChunk};
 
 const AIR: u32 = 0;
 const SOLID: u32 = 1;
@@ -54,7 +54,7 @@ fn packed_storage(palette: &[u32], placements: &[[u8; 3]]) -> Vec<u8> {
 fn blocks(placements: &[[u8; 3]]) -> SubChunk {
     let mut bytes = vec![9, 1, 0];
     bytes.extend(packed_storage(&[AIR, SOLID], placements));
-    SubChunk::decode(&bytes).expect("decode lighting fixture")
+    SubChunk::decode(&bytes, &RawBlockIds { air: AIR })
 }
 
 fn uniform_storage(runtime_id: u32) -> Vec<u8> {
@@ -68,7 +68,7 @@ fn layered_uniform(runtime_ids: &[u32]) -> SubChunk {
     for &runtime_id in runtime_ids {
         bytes.extend(uniform_storage(runtime_id));
     }
-    SubChunk::decode(&bytes).expect("decode layered lighting fixture")
+    SubChunk::decode(&bytes, &RawBlockIds { air: AIR })
 }
 
 fn full_corner() -> [[i16; 3]; 4] {

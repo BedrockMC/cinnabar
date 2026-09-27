@@ -205,8 +205,8 @@ fn newer_update_waits_for_older_decode_and_wins() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     let mut ordered = SequenceBuffer::new(1);
     ordered.insert(2, Action::Update).unwrap();
     assert!(ordered.pop_next().is_none(), "sequence two must wait");
@@ -417,15 +417,15 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(key.chunk(), decoded)
         .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     let source = stream.store.sub_chunk(key).unwrap();
     let biome_source = stream.store.biome_storage(key).unwrap();
@@ -485,13 +485,13 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     let source = stream.store.sub_chunk(key).unwrap();
     let old_biome = stream.store.biome_storage(key).unwrap();
@@ -508,7 +508,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
 
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 86]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 86], &RAW_BIOMES),
     );
     let tint_identity = stream.biome_tint_identity();
     stream.accept_mesh_completion(MeshCompletion {
@@ -553,14 +553,14 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     for (chunk, id) in [(key.chunk(), 42), (ChunkKey::new(0, 1, 0), 43)] {
         stream.store.commit_biome_column(
             chunk,
-            DecodedBiomeColumn::decode(-4, 1, &[1, id * 2]).unwrap(),
+            DecodedBiomeColumn::decode(-4, 1, &[1, id * 2], &RAW_BIOMES),
         );
     }
     let source = stream.store.sub_chunk(key).unwrap();
@@ -579,7 +579,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
 
     stream.store.commit_biome_column(
         ChunkKey::new(0, 1, 0),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 88]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 88], &RAW_BIOMES),
     );
     stream.accept_mesh_completion(MeshCompletion {
         key,
@@ -619,8 +619,8 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(ChunkKey::new(0, 0, 0), decoded)
@@ -1034,15 +1034,20 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
 
 #[test]
 fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        local_player_unique_id: 1,
-        dimension: 0,
-        local_player_runtime_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 12_530,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(block_entity_visual_assets()),
+        [0.0, crate::server_position::SAFE_SERVER_HEIGHT, 0.0],
+        None,
+    );
     let mut updates = (0..4_095)
         .map(|linear| BlockUpdateEvent {
             dimension: 0,
@@ -1055,7 +1060,7 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
         dimension: 0,
         position: [0, 0, 0],
         layer: 0,
-        network_id: 99_999,
+        network_id: 15_000,
     });
     let movement = MovePlayerEvent {
         runtime_id: 1,
@@ -1083,7 +1088,7 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
         .store
         .sub_chunk(SubChunkKey::new(0, 0, 0, 0))
         .unwrap();
-    assert_eq!(committed.runtime_id(0, 0, 0, 0), Some(99_999));
+    assert_eq!(committed.runtime_id(0, 0, 0, 0), Some(15_000));
     assert_eq!(committed.runtime_id(0, 15, 14, 15), Some(4_095));
     let key = SubChunkKey::new(0, 0, 0, 0);
     assert!(stream.block_generations.contains_key(&key));

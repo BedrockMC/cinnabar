@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{ChunkKey, DecodeError, SubChunk, SubChunkKey};
+use crate::{BlockIds, ChunkKey, SubChunk, SubChunkKey};
 
 /// Maximum encoded size retained for one block entity.
 pub const MAX_BLOCK_ENTITY_NBT_BYTES: usize = 1024 * 1024;
@@ -14,7 +14,7 @@ pub const MAX_NBT_COLLECTION_LENGTH: usize = 16_384;
 pub const MAX_NBT_STRING_BYTES: usize = 64 * 1024;
 /// Maximum aggregate tag payload visits in one block entity.
 pub const MAX_NBT_TAGS: usize = 16_384;
-/// Maximum encoded block-entity tail accepted in one chunk/subchunk payload.
+/// Aggregate block-entity byte budget; see `MAX_BLOCK_ENTITY_BYTES_PER_CHUNK`.
 pub const MAX_BLOCK_ENTITY_TAIL_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum aggregate exact NBT bytes retained in one sparse chunk column.
 pub const MAX_BLOCK_ENTITY_BYTES_PER_CHUNK: usize = MAX_BLOCK_ENTITY_TAIL_BYTES;
@@ -252,7 +252,7 @@ impl BlockEntityNbt {
     }
 }
 
-/// Fully validated sparse block-entity replacement for one packet scope.
+/// Sparse block-entity replacement decoded for one packet scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedBlockEntities {
     entities: BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>,
@@ -260,37 +260,23 @@ pub struct DecodedBlockEntities {
 }
 
 impl DecodedBlockEntities {
-    /// Decodes the one-byte LevelChunk reserved-entry count followed by zero or
-    /// more concatenated NetworkLittleEndian compounds.
-    pub fn decode_level_chunk_tail(
-        chunk: ChunkKey,
-        payload: &[u8],
-    ) -> Result<Self, BlockEntityError> {
-        ensure_tail_size(payload)?;
-        let (&reserved_entry_count, entities) = payload
-            .split_first()
-            .ok_or(BlockEntityError::MissingReservedEntryCount)?;
-        if reserved_entry_count != 0 {
-            return Err(BlockEntityError::UnsupportedReservedEntries {
-                count: reserved_entry_count,
-            });
-        }
+    /// Decodes the border-block list and every block entity after it, keeping
+    /// entities vanilla would place and skipping the rest.
+    pub fn decode_level_chunk_tail(chunk: ChunkKey, y_range: Range<i32>, payload: &[u8]) -> Self {
+        let mut reader = crate::sub_chunk::Reader::new(payload);
+        let border_blocks = usize::from(reader.read_u8());
+        reader.read_exact(border_blocks);
         let mut decoded = decode_scoped_entities(
-            BlockEntityScope::Chunk(chunk),
-            entities,
+            BlockEntityScope::Chunk { chunk, y_range },
+            reader.remaining(),
             MAX_BLOCK_ENTITIES_PER_CHUNK,
-        )?;
-        decoded.bytes_consumed += 1;
-        Ok(decoded)
+        );
+        decoded.bytes_consumed = payload.len();
+        decoded
     }
 
-    /// Decodes every concatenated block-entity compound after one successful
-    /// serialized subchunk.
-    pub fn decode_sub_chunk_tail(
-        sub_chunk: SubChunkKey,
-        payload: &[u8],
-    ) -> Result<Self, BlockEntityError> {
-        ensure_tail_size(payload)?;
+    /// Decodes every block entity after one serialized SubChunkPacket entry.
+    pub fn decode_sub_chunk_tail(sub_chunk: SubChunkKey, payload: &[u8]) -> Self {
         decode_scoped_entities(
             BlockEntityScope::SubChunk(sub_chunk),
             payload,
@@ -360,34 +346,14 @@ pub struct DecodedSubChunk {
 }
 
 impl DecodedSubChunk {
-    pub fn decode(key: SubChunkKey, payload: &[u8]) -> Result<Self, DecodeError> {
-        let (sub_chunk, consumed) = SubChunk::decode_prefix(payload)?;
-        let semantic_error = if let Some(actual) = sub_chunk.y_index() {
-            let actual = i32::from(actual);
-            if actual != key.y {
-                Some(DecodeError::SubChunkIndexMismatch {
-                    expected: key.y,
-                    actual,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        let block_entities =
-            match DecodedBlockEntities::decode_sub_chunk_tail(key, &payload[consumed..]) {
-                Ok(decoded) => decoded,
-                Err(error) if error.wire_error_reason().is_some() => return Err(error.into()),
-                Err(error) => return Err(semantic_error.unwrap_or_else(|| error.into())),
-            };
-        if let Some(error) = semantic_error {
-            return Err(error);
-        }
-        Ok(Self {
+    /// Vanilla stores the entry at the requested Y whatever the payload's Y byte says.
+    pub fn decode(key: SubChunkKey, payload: &[u8], ids: &dyn BlockIds) -> Self {
+        let (sub_chunk, consumed) = SubChunk::decode_prefix(payload, ids);
+        let block_entities = DecodedBlockEntities::decode_sub_chunk_tail(key, &payload[consumed..]);
+        Self {
             sub_chunk,
             block_entities,
-        })
+        }
     }
 
     #[must_use]
@@ -400,119 +366,85 @@ impl DecodedSubChunk {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum BlockEntityScope {
-    Chunk(ChunkKey),
-    SubChunk(SubChunkKey),
-}
-
-fn ensure_tail_size(payload: &[u8]) -> Result<(), BlockEntityError> {
-    if payload.len() > MAX_BLOCK_ENTITY_TAIL_BYTES {
-        Err(BlockEntityError::TailTooLarge {
-            len: payload.len(),
-            max: MAX_BLOCK_ENTITY_TAIL_BYTES,
-        })
-    } else {
-        Ok(())
+/// Bytes vanilla's lenient NBT read consumes for one root at the start of
+/// `input`: one byte for a non-compound root, the rest of the input when a
+/// compound is malformed.
+pub(crate) fn lenient_nbt_len(input: &[u8]) -> usize {
+    match input.first() {
+        Some(&COMPOUND_TAG) => {
+            BlockEntityNbt::scan_prefix(input).map_or(input.len(), |(_, consumed, _)| consumed)
+        }
+        Some(_) => 1,
+        None => 0,
     }
 }
 
+const COMPOUND_TAG: u8 = 10;
+
+#[derive(Debug, Clone)]
+enum BlockEntityScope {
+    Chunk {
+        chunk: ChunkKey,
+        y_range: Range<i32>,
+    },
+    SubChunk(SubChunkKey),
+}
+
+/// Reads roots until the payload ends, as vanilla does, skipping malformed
+/// NBT and entities outside the scope or at an already taken position.
 fn decode_scoped_entities(
     scope: BlockEntityScope,
     payload: &[u8],
     max_entities: usize,
-) -> Result<DecodedBlockEntities, BlockEntityError> {
+) -> DecodedBlockEntities {
     let mut entities = BTreeMap::new();
     let mut consumed = 0;
-    let mut scanned_entities = 0;
-    let mut semantic_error = None;
-    while consumed < payload.len() {
-        if scanned_entities == max_entities {
-            return Err(
-                semantic_error.unwrap_or(BlockEntityError::TooManyEntities { max: max_entities })
-            );
+    while consumed < payload.len() && entities.len() < max_entities {
+        let input = &payload[consumed..];
+        if input[0] != COMPOUND_TAG {
+            consumed += 1;
+            continue;
         }
-        let scan = BlockEntityNbt::scan_prefix(&payload[consumed..]);
-        let (nbt, used, nbt_semantic_error) = match scan {
-            Ok(scan) => scan,
-            Err(error) if error.wire_error_reason().is_some() => return Err(error.into()),
-            Err(error) => return Err(semantic_error.unwrap_or_else(|| error.into())),
+        let Ok((nbt, used, semantic_error)) = BlockEntityNbt::scan_prefix(input) else {
+            break;
         };
-        scanned_entities += 1;
         consumed += used;
-        if let Some(error) = nbt_semantic_error {
-            semantic_error.get_or_insert(error.into());
+        if semantic_error.is_some() {
             continue;
         }
-        let Some(position) = nbt.embedded_position() else {
-            semantic_error.get_or_insert(BlockEntityError::MissingPosition);
+        let Some([x, y, z]) = nbt.embedded_position() else {
             continue;
         };
-        let dimension = match scope {
-            BlockEntityScope::Chunk(key) => key.dimension,
-            BlockEntityScope::SubChunk(key) => key.dimension,
+        let (dimension, in_scope) = match &scope {
+            BlockEntityScope::Chunk { chunk, y_range } => (
+                chunk.dimension,
+                ChunkKey::new(chunk.dimension, x >> 4, z >> 4) == *chunk && y_range.contains(&y),
+            ),
+            BlockEntityScope::SubChunk(key) => (
+                key.dimension,
+                BlockEntityKey::new(key.dimension, x, y, z).sub_chunk() == *key,
+            ),
         };
-        let key = BlockEntityKey::new(dimension, position[0], position[1], position[2]);
-        match scope {
-            BlockEntityScope::Chunk(expected) if key.chunk() != expected => {
-                semantic_error.get_or_insert(BlockEntityError::OutsideChunk {
-                    expected,
-                    actual: key,
-                });
-                continue;
-            }
-            BlockEntityScope::SubChunk(expected) if key.sub_chunk() != expected => {
-                semantic_error.get_or_insert(BlockEntityError::OutsideSubChunk {
-                    expected,
-                    actual: key,
-                });
-                continue;
-            }
-            BlockEntityScope::Chunk(_) | BlockEntityScope::SubChunk(_) => {}
+        if in_scope {
+            entities
+                .entry(BlockEntityKey::new(dimension, x, y, z))
+                .or_insert_with(|| Arc::new(nbt));
         }
-        if entities.contains_key(&key) {
-            semantic_error.get_or_insert(BlockEntityError::DuplicatePosition { key });
-            continue;
-        }
-        entities.insert(key, Arc::new(nbt));
     }
-    if let Some(error) = semantic_error {
-        return Err(error);
-    }
-    Ok(DecodedBlockEntities {
+    DecodedBlockEntities {
         entities,
-        bytes_consumed: consumed,
-    })
+        bytes_consumed: payload.len(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BlockEntityError {
     #[error(transparent)]
     Nbt(#[from] BlockEntityNbtError),
-    #[error("LevelChunk block-entity tail is missing the reserved-entry count")]
-    MissingReservedEntryCount,
-    #[error("LevelChunk uses {count} unsupported reserved entries")]
-    UnsupportedReservedEntries { count: u8 },
-    #[error("block-entity tail has {len} bytes, exceeding {max}")]
-    TailTooLarge { len: usize, max: usize },
     #[error("block-entity tail exceeds {max} sparse records")]
     TooManyEntities { max: usize },
     #[error("chunk block entities retain {len} NBT bytes, exceeding {max}")]
     ChunkEntityBytesTooLarge { len: usize, max: usize },
-    #[error("chunk/subchunk block entity is missing its complete x/y/z position")]
-    MissingPosition,
-    #[error("duplicate block entity at {key:?}")]
-    DuplicatePosition { key: BlockEntityKey },
-    #[error("block entity {actual:?} is outside chunk {expected:?}")]
-    OutsideChunk {
-        expected: ChunkKey,
-        actual: BlockEntityKey,
-    },
-    #[error("block entity {actual:?} is outside subchunk {expected:?}")]
-    OutsideSubChunk {
-        expected: SubChunkKey,
-        actual: BlockEntityKey,
-    },
     #[error("live block-entity position mismatch: expected {expected:?}, got {actual:?}")]
     PositionMismatch {
         expected: [i32; 3],
@@ -520,21 +452,6 @@ pub enum BlockEntityError {
     },
     #[error("live block-entity NBT has {remaining} trailing bytes")]
     TrailingBytes { remaining: usize },
-}
-
-impl BlockEntityError {
-    /// Returns a stable malformed-wire reason while leaving bounded policy and
-    /// semantically invalid block-entity shapes survivable.
-    #[must_use]
-    pub const fn wire_error_reason(&self) -> Option<&'static str> {
-        match self {
-            Self::MissingReservedEntryCount | Self::TrailingBytes { .. } => {
-                Some("malformed block-entity wire")
-            }
-            Self::Nbt(error) => error.wire_error_reason(),
-            _ => None,
-        }
-    }
 }
 
 /// Lets later malformed wire override a deferred semantic error while preserving first policy.

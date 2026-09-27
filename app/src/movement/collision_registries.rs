@@ -5,7 +5,7 @@
 //! unchanged (`crate::movement::PhysicsCollisionRegistries` re-exports this).
 
 use std::path::{Path, PathBuf};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
 use assets::RegistryRecord;
 use bevy::prelude::Resource;
@@ -15,6 +15,16 @@ use sim::{
 use thiserror::Error;
 
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
+const FULL_CUBE: assets::CollisionBox = assets::CollisionBox {
+    min_x: 0,
+    min_y: 0,
+    min_z: 0,
+    max_x: 100_000_000,
+    max_y: 100_000_000,
+    max_z: 100_000_000,
+};
+/// Registry records whose names the carrier deliberately withholds.
+const RESERVED_RECORD_NAME: &str = "cinnabar:reserved";
 
 /// Runtime-ID collision registries for both Bedrock palette identity modes.
 ///
@@ -31,6 +41,18 @@ pub struct PhysicsCollisionRegistries {
     breg_sha256: [u8; 32],
     interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
     hashed_interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
+    max_vanilla_sort_key: u64,
+    custom_block_physics: Option<CustomBlockPhysics>,
+}
+
+/// Provisional movement facts for server-defined blocks: stone's surface facts.
+#[derive(Debug, Clone, Copy)]
+struct CustomBlockPhysics {
+    friction: f64,
+    horizontal_speed: f64,
+    vertical_speed: f64,
+    flags: u8,
+    surface_response: u8,
 }
 
 #[derive(Debug, Error)]
@@ -120,6 +142,8 @@ impl PhysicsCollisionRegistries {
         let mut hashed = CollisionRegistry::with_identity(hashed_identity);
         let mut interaction_blocks = BTreeMap::new();
         let mut hashed_interaction_blocks = BTreeMap::new();
+        let mut max_vanilla_sort_key = 0;
+        let mut custom_block_physics = None;
         for record in records {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
@@ -132,15 +156,7 @@ impl PhysicsCollisionRegistries {
                 .collect::<Vec<_>>();
             let full_cube = record.model_family == assets::ModelFamily::Cube
                 && fact.boxes.len() == 1
-                && fact.boxes[0]
-                    == assets::CollisionBox {
-                        min_x: 0,
-                        min_y: 0,
-                        min_z: 0,
-                        max_x: 100_000_000,
-                        max_y: 100_000_000,
-                        max_z: 100_000_000,
-                    };
+                && fact.boxes[0] == FULL_CUBE;
             let binding = (Arc::from(record.name.as_ref()), full_cube);
             interaction_blocks.insert(record.sequential_id, binding.clone());
             hashed_interaction_blocks.insert(record.network_hash, binding);
@@ -162,6 +178,21 @@ impl PhysicsCollisionRegistries {
                 sequential.set_air_runtime_id(record.sequential_id);
                 hashed.set_air_runtime_id(record.network_hash);
             }
+            if record.name.as_ref() == "minecraft:stone" {
+                custom_block_physics.get_or_insert(CustomBlockPhysics {
+                    friction: f64::from(fact.friction_q1e8) * COLLISION_COORDINATE_SCALE,
+                    horizontal_speed: f64::from(fact.horizontal_speed_q1e8)
+                        * COLLISION_COORDINATE_SCALE,
+                    vertical_speed: f64::from(fact.vertical_speed_q1e8)
+                        * COLLISION_COORDINATE_SCALE,
+                    flags: fact.flags.bits(),
+                    surface_response: fact.surface_response as u8,
+                });
+            }
+            if record.name.as_ref() != RESERVED_RECORD_NAME {
+                max_vanilla_sort_key =
+                    max_vanilla_sort_key.max(protocol::block_name_sort_key(&record.name));
+            }
         }
         let available_record_count = physics.len();
         let preg_sha256 = physics.sha256();
@@ -176,7 +207,50 @@ impl PhysicsCollisionRegistries {
             breg_sha256,
             interaction_blocks,
             hashed_interaction_blocks,
+            max_vanilla_sort_key,
+            custom_block_physics,
         })
+    }
+
+    /// Registers this session's StartGame custom blocks at the sequential ids
+    /// after the vanilla palette and returns that id range. Returns `None` when
+    /// a custom name sorts among vanilla blocks, which shifts vanilla ids and is
+    /// not supported yet.
+    pub fn begin_session_custom_blocks(
+        &mut self,
+        custom: &protocol::CustomBlocks,
+    ) -> Option<Range<u32>> {
+        let first = u32::try_from(self.sequential_count).ok()?;
+        self.sequential.remove_runtime_ids_from(first);
+        if custom
+            .blocks
+            .iter()
+            .any(|block| block.sort_key() <= self.max_vanilla_sort_key)
+        {
+            return None;
+        }
+        let physics = self.custom_block_physics?;
+        let full_cube = collision_box_to_aabb(FULL_CUBE);
+        let mut next = first;
+        for block in custom.blocks.iter() {
+            for _ in 0..block.state_count {
+                let boxes = block.collides.then_some(full_cube);
+                self.sequential
+                    .register_primitives(
+                        next,
+                        boxes,
+                        physics.friction,
+                        physics.horizontal_speed,
+                        physics.vertical_speed,
+                        0.0,
+                        physics.flags,
+                        physics.surface_response,
+                    )
+                    .ok()?;
+                next = next.checked_add(1)?;
+            }
+        }
+        Some(first..next)
     }
 
     pub(crate) fn interaction_cube(
@@ -316,6 +390,46 @@ mod tests {
             Path::new("installed/assets/world.mcbea"),
             expected_protocol,
         )
+    }
+
+    fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
+        protocol::CustomBlock {
+            name: name.into(),
+            state_count,
+            collides: true,
+        }
+    }
+
+    /// Custom states take the ids after vanilla, reset per session, and refuse id shifts.
+    #[test]
+    fn session_custom_blocks_append_after_vanilla_ids() {
+        let records =
+            assets::read_registry_for_protocol(BREG_V2168, active_content_registry_protocol())
+                .unwrap();
+        let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2168, &records);
+        let mut registries = bind(BREG_V2168, &preg, active_content_registry_protocol()).unwrap();
+        let first = u32::try_from(records.len()).unwrap();
+        let appended = protocol::CustomBlocks {
+            blocks: vec![
+                custom_block("lifeboat:lucky_block_9nnvjzz", 1),
+                custom_block("lifeboat:coal_ore_generator_a451ess", 4),
+            ]
+            .into(),
+            skipped: 0,
+        };
+        assert_eq!(
+            registries.begin_session_custom_blocks(&appended),
+            Some(first..first + 5)
+        );
+        assert_eq!(
+            registries.begin_session_custom_blocks(&protocol::CustomBlocks::default()),
+            Some(first..first)
+        );
+        let interleaved = protocol::CustomBlocks {
+            blocks: vec![custom_block("minecraft:stone", 1)].into(),
+            skipped: 0,
+        };
+        assert_eq!(registries.begin_session_custom_blocks(&interleaved), None);
     }
 
     /// The live LBSG aliasing mechanism: a byte-valid PREG whose stamped
