@@ -94,6 +94,7 @@ impl PlayerInventoryLedger {
                 self.apply_slot_update(update.identity, &update.stack);
             }
             InventoryEvent::Response(event) => self.apply_response(event),
+            InventoryEvent::Creative(content) => self.creative = Some(content.clone()),
             _ => {}
         }
     }

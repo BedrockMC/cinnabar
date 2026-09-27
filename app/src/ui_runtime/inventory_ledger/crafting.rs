@@ -41,6 +41,14 @@ impl CraftingGrid {
     }
 }
 
+/// Where a creative take lands.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CreativeDestination {
+    Cursor,
+    /// An empty player cell.
+    Player(u8),
+}
+
 /// One presented grid cell resolved through the session item registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CraftGridCell {
@@ -218,6 +226,96 @@ impl PlayerInventoryLedger {
             groups,
             personal_generation,
             // The crafted stack must settle under a real server id.
+            requires_distinct_stack_ids: true,
+            registry_bound_merge: false,
+        })
+    }
+
+    /// The server's current creative catalog.
+    #[must_use]
+    pub fn creative_catalog(&self) -> Option<&protocol::CreativeContentEvent> {
+        self.creative.as_ref()
+    }
+
+    /// Takes a full stack of one creative entry into an empty destination:
+    /// CraftCreative, CraftResultsDeprecated, then a transfer from created
+    /// output named by this request's id.
+    pub fn begin_creative_take(
+        &mut self,
+        creative_network_id: u32,
+        destination: CreativeDestination,
+    ) -> Result<i32, InventoryGestureError> {
+        let personal_generation = self.gesture_preflight(true)?;
+        let item = self
+            .creative
+            .as_ref()
+            .and_then(|catalog| catalog.item(creative_network_id))
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        // The client takes a full stack even though entries advertise one.
+        let full = self
+            .negotiated_item_entry(item.stack.network_id)
+            .and_then(entry_capacity)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let target = match destination {
+            CreativeDestination::Cursor => Cell::Cursor,
+            CreativeDestination::Player(slot) => {
+                if !self.known.get(usize::from(slot)).copied().unwrap_or(false) {
+                    return Err(InventoryGestureError::UnknownSlot(slot));
+                }
+                Cell::Inventory(slot)
+            }
+        };
+        if self.view().get(target).is_some() {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        let request_id = self.peek_request_id()?;
+        let mut stack = item.stack.clone();
+        stack.count = u16::from(full);
+        stack.stack_network_id = request_id;
+        let source = helpers::request_slot(Cell::CreatedOutput, request_id, None)?;
+        let destination_slot = helpers::request_slot(target, 0, None)?;
+        let transfer = match destination {
+            CreativeDestination::Cursor => StackRequestAction::Take {
+                amount: full,
+                source,
+                destination: destination_slot,
+            },
+            CreativeDestination::Player(_) => StackRequestAction::Place {
+                amount: full,
+                source,
+                destination: destination_slot,
+            },
+        };
+        self.submit(Submission {
+            actions: vec![
+                StackRequestAction::CraftCreative {
+                    creative_item_network_id: creative_network_id,
+                    crafts: 1,
+                },
+                StackRequestAction::CraftResultsDeprecated {
+                    results: Arc::from([]),
+                    crafts: 1,
+                },
+                transfer,
+            ],
+            groups: vec![
+                DeltaGroup::Set {
+                    cell: Cell::CreatedOutput,
+                    held: Held {
+                        stack,
+                        overlay: None,
+                    },
+                },
+                DeltaGroup::Transfer {
+                    source: Cell::CreatedOutput,
+                    destination: target,
+                    amount: u16::from(full),
+                    source_id: request_id,
+                    destination_id: None,
+                    capacity: None,
+                },
+            ],
+            personal_generation,
             requires_distinct_stack_ids: true,
             registry_bound_merge: false,
         })

@@ -389,3 +389,95 @@ fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
         storage_item: NetworkItemStack::default(),
     })
 }
+
+fn creative(ledger: &mut PlayerInventoryLedger) {
+    ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+        groups: Arc::from([]),
+        items: Arc::from([protocol::CreativeItem {
+            creative_network_id: 44,
+            stack: stack(COBBLE, -1, 1),
+            group: 0,
+        }]),
+        skipped: 0,
+    }));
+}
+
+/// A creative take crafts the entry and transfers a full stack out of created
+/// output, named by the request id.
+#[test]
+fn creative_take_moves_a_full_stack_into_the_cursor() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    creative(&mut ledger);
+    let request = ledger
+        .begin_creative_take(44, CreativeDestination::Cursor)
+        .unwrap();
+    let actions = &ledger.newest_request().unwrap().actions;
+    assert!(matches!(
+        actions[0],
+        StackRequestAction::CraftCreative {
+            creative_item_network_id: 44,
+            crafts: 1
+        }
+    ));
+    assert!(matches!(
+        &actions[1],
+        StackRequestAction::CraftResultsDeprecated { results, crafts: 1 } if results.is_empty()
+    ));
+    let StackRequestAction::Take {
+        amount,
+        source,
+        destination,
+    } = actions[2]
+    else {
+        panic!("take into the cursor");
+    };
+    assert_eq!(
+        (amount, source.slot, source.stack_network_id),
+        (64, 50, request)
+    );
+    assert_eq!(destination.container, StackRequestContainer::Cursor);
+    assert!(ledger.pending_packet().unwrap().is_some());
+    let held = ledger.cursor_stack().unwrap();
+    assert_eq!((held.network_id, held.count), (COBBLE, 64));
+
+    assert!(ledger.mark_transport_enqueued(10));
+    respond(&mut ledger, request, &[(CONTAINER_NAME_CURSOR, 0, 64, 700)]);
+    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 700);
+    assert!(!ledger.resync_required());
+}
+
+/// Unknown entries and occupied destinations send nothing.
+#[test]
+fn creative_take_refuses_unknown_entries_and_occupied_destinations() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    assert_eq!(
+        ledger.begin_creative_take(44, CreativeDestination::Cursor),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    creative(&mut ledger);
+    assert_eq!(
+        ledger.begin_creative_take(45, CreativeDestination::Cursor),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(0),
+            slot: 3,
+        },
+        stack: stack(LOG, 90, 1),
+        storage_item: None,
+    }));
+    assert_eq!(
+        ledger.begin_creative_take(44, CreativeDestination::Player(3)),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    assert_eq!(ledger.pending_request_count(), 0);
+    let request = ledger
+        .begin_creative_take(44, CreativeDestination::Player(4))
+        .unwrap();
+    assert!(matches!(
+        ledger.newest_request().unwrap().actions[2],
+        StackRequestAction::Place { amount: 64, .. }
+    ));
+    assert_eq!(ledger.displayed_stack(4).unwrap().stack_network_id, request);
+}

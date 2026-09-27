@@ -826,6 +826,7 @@ fn decode_world_raw_with(
             | McpePacketName::SetPlayerGameTypePacket
             | McpePacketName::SetDefaultGameTypePacket
             | McpePacketName::InventoryContentPacket
+            | McpePacketName::CreativeContentPacket
             | McpePacketName::InventorySlotPacket
             | McpePacketName::PlayerHotbarPacket
             | McpePacketName::ItemStackResponsePacket

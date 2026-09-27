@@ -31,7 +31,7 @@ mod registry;
 mod response;
 
 use cells::{Cell, CellSurface, Cells};
-pub use crafting::{CraftGridCell, CraftingGrid};
+pub use crafting::{CraftGridCell, CraftingGrid, CreativeDestination};
 pub use gesture::{CellGesture, InventoryTarget};
 use personal::PersonalWindow;
 pub use queue::MAX_PENDING_REQUESTS;
@@ -162,6 +162,7 @@ pub struct PlayerInventoryLedger {
     view: Option<Cells>,
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
     item_registry: Option<BTreeMap<i32, ItemRegistryEntry>>,
+    creative: Option<protocol::CreativeContentEvent>,
     queue: VecDeque<PendingRequest>,
     next_request_id: i32,
     session_generation: u64,
@@ -190,6 +191,7 @@ impl Default for PlayerInventoryLedger {
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
             item_registry: None,
+            creative: None,
             queue: VecDeque::new(),
             next_request_id: -3,
             session_generation: 0,
