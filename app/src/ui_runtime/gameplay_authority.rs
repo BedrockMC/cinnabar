@@ -316,6 +316,11 @@ impl UiRuntime {
     /// container store takes over this drain.
     pub(crate) fn drain_pending_inventory(&mut self) {
         while let Some(sequenced) = self.pending_inventory.pop_front() {
+            self.crafting_authority.observe(
+                sequenced.session_generation,
+                sequenced.fifo_sequence,
+                &sequenced.event,
+            );
             let event = match sequenced.event {
                 super::InventoryAuthorityEvent::Inventory(event) => event,
                 super::InventoryAuthorityEvent::Registry(registry) => {
@@ -376,6 +381,7 @@ impl UiRuntime {
                 &super::InventoryAuthorityEvent::Inventory(event),
             );
         }
+        self.crafting_authority.advance();
     }
 
     pub fn apply_local_attributes(
