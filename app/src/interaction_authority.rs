@@ -68,16 +68,65 @@ pub(crate) fn still_authorized_by(
         && target.identity == next_target.identity
 }
 
-/// Vanilla limits a pick by the eye-to-block-centre distance, not the ray length.
+/// Server-side pick checks measure to the block's minimum corner with this slack
+/// over the survival pick range. Needs independent measurement.
+const SERVER_PICK_SLACK: f64 = 0.5;
+const SURVIVAL_SERVER_PICK_RANGE: f64 = 6.7;
+
+/// Vanilla limits a pick by the eye-to-block-centre distance, not the ray length;
+/// picks the server would reject at the block corner are dropped too.
 pub(crate) fn within_pick_range(observed: &FrozenBlockObservation) -> bool {
-    let distance_squared = observed
-        .target
-        .position
-        .into_iter()
-        .zip(observed.ray.origin)
-        .map(|(block, eye)| (f64::from(block) + 0.5 - f64::from(eye)).powi(2))
-        .sum::<f64>();
-    distance_squared <= observed.reach * observed.reach
+    let distance_squared = |offset: f64| {
+        observed
+            .target
+            .position
+            .into_iter()
+            .zip(observed.ray.origin)
+            .map(|(block, eye)| (f64::from(block) + offset - f64::from(eye)).powi(2))
+            .sum::<f64>()
+    };
+    let corner_limit = observed.reach.max(SURVIVAL_SERVER_PICK_RANGE) + SERVER_PICK_SLACK;
+    distance_squared(0.5) <= observed.reach * observed.reach
+        && distance_squared(0.0) <= corner_limit * corner_limit
+}
+
+#[cfg(test)]
+impl FrozenBlockObservation {
+    /// A top-face hit on `position` holding `item` in slot 2.
+    pub(crate) fn fixture(
+        position: [i32; 3],
+        face: u8,
+        item: protocol::VerifiedNetworkItemStack,
+    ) -> Self {
+        let identity = sim::CollisionQuery::synthetic(()).identity;
+        Self {
+            frame: FrozenMiningFrame {
+                session_generation: 7,
+                position_authority_generation: 0,
+                input_authority_generation: NonZeroU64::MIN,
+                input_frame_sequence: 1,
+                fifo_sequence: 1,
+                physics_tick: 101,
+                pose_generation: 1,
+            },
+            ray: FrozenMiningRay {
+                origin: [0.5, 65.62, 0.5],
+                direction: [0.0, -1.0, 0.0],
+                movement_world_identity: identity.clone(),
+                world_identity: identity.clone(),
+            },
+            reach: 5.7,
+            input_mode: PlayerInputMode::Mouse,
+            selection: FrozenMiningSelection { slot: 2, item },
+            target: FrozenMiningTarget {
+                position,
+                face,
+                relative_hit: [0.5, 1.0, 0.5],
+                runtime_id: 9,
+                identity,
+            },
+        }
+    }
 }
 
 pub(crate) fn observe_block(

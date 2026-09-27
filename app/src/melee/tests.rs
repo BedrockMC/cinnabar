@@ -130,3 +130,144 @@ fn haste_shortens_and_fatigue_lengthens_the_swing() {
     assert_eq!(swing_duration(effects(Some(1), Some(1))), 4);
     assert_eq!(swing_duration(effects(Some(40), None)), 1);
 }
+
+fn press(input_mode: PlayerInputMode) -> PressContext {
+    let stack = protocol::NetworkItemStack::empty();
+    PressContext {
+        tick: 101,
+        player_position: [0.5, 2.620_01, 0.5],
+        input_mode,
+        local_runtime_id: 42,
+        selection: Some(crate::mining::FrozenMiningSelection {
+            slot: 3,
+            item: protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+                .unwrap(),
+        }),
+        swing_duration: 6,
+        now_millis: 1_000,
+    }
+}
+
+fn kinds(packets: &[protocol::Packet]) -> Vec<String> {
+    packets
+        .iter()
+        .map(|packet| format!("{:?}", packet.header.id))
+        .collect()
+}
+
+const ZOMBIE: Crosshair = Crosshair::Actor(ActorHit {
+    runtime_id: 9,
+    distance: 2.0,
+    point: [0.0, 1.5, -2.0],
+});
+
+#[test]
+fn one_press_attacks_once_with_the_swing_first_and_held_frames_do_nothing() {
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    assert!(runtime.observe_input(true, true));
+    let outcome = runtime.resolve(ZOMBIE, &press(PlayerInputMode::Mouse), &mut swings);
+    assert_eq!(
+        kinds(&outcome.packets),
+        ["AnimatePacket", "InventoryTransactionPacket"]
+    );
+    assert!(!outcome.missed_swing);
+    assert!(runtime.actor_in_front());
+    assert!(runtime.blocks_use_at(1_199) && !runtime.blocks_use_at(1_200));
+    for _ in 0..5 {
+        assert!(runtime.observe_input(false, true));
+        let held = runtime.resolve(ZOMBIE, &press(PlayerInputMode::Mouse), &mut swings);
+        assert!(held.packets.is_empty() && !held.missed_swing);
+    }
+}
+
+#[test]
+fn misses_flag_the_tick_and_only_non_touch_misses_swing() {
+    for (mode, swing) in [
+        (PlayerInputMode::Mouse, true),
+        (PlayerInputMode::Touch, false),
+    ] {
+        let mut runtime = MeleeRuntime::default();
+        runtime.observe_input(true, false);
+        let outcome = runtime.resolve(Crosshair::Miss, &press(mode), &mut SwingTracker::default());
+        assert!(outcome.missed_swing, "{mode:?}");
+        assert_eq!(!outcome.packets.is_empty(), swing, "{mode:?}");
+    }
+    let mut runtime = MeleeRuntime::default();
+    runtime.observe_input(true, false);
+    let block = runtime.resolve(
+        Crosshair::Block,
+        &press(PlayerInputMode::Mouse),
+        &mut SwingTracker::default(),
+    );
+    assert_eq!(kinds(&block.packets), ["AnimatePacket"]);
+    assert!(!block.missed_swing && !runtime.actor_in_front());
+}
+
+#[test]
+fn a_position_authority_change_drops_a_latched_press() {
+    let mut runtime = MeleeRuntime::default();
+    runtime.synchronize((7, 0));
+    runtime.observe_input(true, false);
+    runtime.synchronize((8, 0));
+    let outcome = runtime.resolve(
+        ZOMBIE,
+        &press(PlayerInputMode::Mouse),
+        &mut SwingTracker::default(),
+    );
+    assert!(outcome.packets.is_empty());
+}
+
+#[test]
+fn standalone_attack_packets_precede_their_tick_player_auth_input() {
+    let (network, mut captured) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    let mut ticker = crate::survival_mining::tests::ticker_with_ticks(1);
+    for (crosshair, expected) in [
+        (
+            ZOMBIE,
+            vec![
+                "AnimatePacket",
+                "InventoryTransactionPacket",
+                "PlayerAuthInputPacket",
+            ],
+        ),
+        (
+            Crosshair::Miss,
+            vec!["AnimatePacket", "PlayerAuthInputPacket"],
+        ),
+    ] {
+        let mut runtime = MeleeRuntime::default();
+        runtime.observe_input(true, false);
+        let tick = ticker.newest_unsent_sample().unwrap().tick;
+        let outcome = runtime.resolve(
+            crosshair,
+            &PressContext {
+                tick,
+                ..press(PlayerInputMode::Mouse)
+            },
+            &mut SwingTracker::default(),
+        );
+        for packet in outcome.packets {
+            network.send_inventory_packet(packet).unwrap();
+        }
+        if outcome.missed_swing {
+            ticker.mark_missed_swing(tick);
+        }
+        crate::movement::flush_player_auth_inputs_guarded(
+            &mut ticker,
+            8,
+            Some(crate::survival_mining::tests::evidence()),
+            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        )
+        .unwrap();
+        let packets = captured.drain();
+        assert_eq!(kinds(&packets), expected);
+        let flags = protocol::player_auth_input_trace_sample(packets.last().unwrap())
+            .unwrap()
+            .flag_names;
+        assert_eq!(flags.contains(&"MissedSwing"), crosshair == Crosshair::Miss);
+        ticker
+            .enqueue_completed_physics(crate::survival_mining::tests::completed(tick + 1))
+            .unwrap();
+    }
+}

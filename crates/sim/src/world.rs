@@ -684,6 +684,11 @@ impl<'a> PaletteWorld<'a> {
             .all(|runtime_id| runtime_id == self.registry.air_runtime_id))
     }
 
+    /// The first-layer runtime id of a loaded block.
+    pub fn primary_runtime_id(&self, block: [i32; 3]) -> Result<u32, WorldQueryError> {
+        Ok(self.runtime_ids_at(block)?[0])
+    }
+
     fn runtime_ids_at(&self, block: [i32; 3]) -> Result<Vec<u32>, WorldQueryError> {
         let [x, y, z] = block;
         let chunk = ChunkKey::new(self.dimension, x >> 4, z >> 4);

@@ -594,4 +594,4 @@ fn eyes_in_water(world: &PaletteWorld<'_>, eye: [f32; 3]) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

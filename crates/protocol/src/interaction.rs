@@ -321,7 +321,7 @@ pub enum SwingSource {
 }
 
 impl SwingSource {
-    // Vanilla's exact casing is unconfirmed; gophertunnel reads it case-insensitively.
+    // Vanilla binds the capitalised names; gophertunnel writes lowercase and reads either.
     const fn wire_name(self) -> &'static str {
         match self {
             Self::Build => "Build",
