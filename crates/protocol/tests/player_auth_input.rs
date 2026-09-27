@@ -209,6 +209,23 @@ fn handled_teleport_flag_serializes_in_ascending_list_position() {
 }
 
 #[test]
+fn missed_swing_flag_serializes_as_its_wire_ordinal() {
+    let mut input = snapshot();
+    input.flags = PlayerInputFlags::HANDLED_TELEPORT | PlayerInputFlags::MISSED_SWING;
+    let McpePacketData::PlayerAuthInputPacket(input) = player_auth_input(input).unwrap().data
+    else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert_eq!(
+        input.input_data,
+        Some(vec![
+            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport,
+            EnumsPlayerAuthInputPacketPayloadInputData::MissedSwing,
+        ])
+    );
+}
+
+#[test]
 fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
     let session = BedrockSession { shield_item_id: 0 };
     let mut baseline = snapshot();

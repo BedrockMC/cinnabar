@@ -322,3 +322,57 @@ fn world_bootstrap_carries_the_local_player_unique_id() {
     assert_eq!(bootstrap.local_player_unique_id, -3);
     assert_eq!(bootstrap.local_player_runtime_id, 3);
 }
+
+#[test]
+fn item_stack_enchantment_level_reads_the_root_ench_list() {
+    fn named(tag: u8, name: &[u8], out: &mut Vec<u8>) {
+        out.push(tag);
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(name);
+    }
+    let mut encoded = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00];
+    named(0x03, b"Damage", &mut encoded);
+    encoded.extend_from_slice(&4i32.to_le_bytes());
+    // ench: [ { id: short 15, lvl: short 3 }, { lvl: short 1, id: short 8 } ]
+    named(0x09, b"ench", &mut encoded);
+    encoded.push(0x0a);
+    encoded.extend_from_slice(&2i32.to_le_bytes());
+    for entry in [
+        [(&b"id"[..], 15i16), (b"lvl", 3)],
+        [(b"lvl", 1), (b"id", 8)],
+    ] {
+        for (name, value) in entry {
+            named(0x02, name, &mut encoded);
+            encoded.extend_from_slice(&value.to_le_bytes());
+        }
+        encoded.push(0x00);
+    }
+    encoded.push(0x00);
+    let stack = protocol::NetworkItemStack {
+        network_id: 5,
+        metadata: 0,
+        stack_network_id: -1,
+        count: 1,
+        nbt_digest: [0; 32],
+        block_runtime_id: 0,
+        extra_data: encoded.into(),
+    };
+    assert_eq!(
+        protocol::item_enchantment_level(&stack.extra_data, 15),
+        Some(3)
+    );
+    assert_eq!(
+        protocol::item_enchantment_level(&stack.extra_data, 8),
+        Some(1)
+    );
+    assert_eq!(
+        protocol::item_enchantment_level(&stack.extra_data, 17),
+        None
+    );
+    assert_eq!(protocol::item_stack_damage(&stack), Some(4));
+    let empty = protocol::NetworkItemStack::empty();
+    assert_eq!(
+        protocol::item_enchantment_level(&empty.extra_data, 15),
+        None
+    );
+}
