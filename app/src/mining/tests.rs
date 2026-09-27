@@ -241,6 +241,7 @@ fn production_context_app(
         .insert_resource(fixture_registries())
         .insert_resource(runtime)
         .insert_resource(ticker)
+        .init_resource::<crate::melee::MeleeRuntime>()
         .add_systems(Update, super::produce_creative_mining);
     app
 }
@@ -935,4 +936,50 @@ fn correction_cancellation_does_not_retry_an_accepted_stale_break() {
         .unwrap(),
         0
     );
+}
+
+#[test]
+fn creative_revocation_keeps_queued_and_admitted_survival_ticks() {
+    let mut ticker = ticker_with_ticks(3);
+    assert_eq!(
+        ticker.attach_creative_mining(observation(101, [0, 1, -3], 2)),
+        Some(101)
+    );
+    let mut survival = crate::survival_mining::SurvivalTickPayload::default();
+    survival
+        .actions
+        .push(protocol::BlockAction {
+            kind: protocol::BlockActionKind::StartDestroy,
+            position: [4, 1, 4],
+            face: 1,
+        })
+        .unwrap();
+    assert!(ticker.attach_survival_mining(102, survival.clone()));
+    assert!(ticker.attach_survival_mining(103, survival));
+    let mut guards = Vec::new();
+    flush_player_auth_inputs_guarded(&mut ticker, 2, Some(evidence()), |_, _, guard| {
+        guards.push(guard.expect("both admitted ticks carry interactions"));
+        Ok::<_, ()>(())
+    })
+    .unwrap();
+    // A gamemode change revokes the creative break only.
+    ticker.retain_creative_mining(None);
+    assert!(!guards[0].is_current());
+    assert!(
+        guards[1].is_current(),
+        "the admitted survival tick must still send"
+    );
+    assert!(!ticker.has_queued_creative_mining());
+    let mut carried = Vec::new();
+    flush_player_auth_inputs(&mut ticker, 1, Some(evidence()), |_, packet| {
+        carried.push(
+            protocol::player_auth_input_trace_sample(&packet)
+                .unwrap()
+                .flag_names
+                .contains(&"PerformBlockActions"),
+        );
+        Ok::<_, ()>(())
+    })
+    .unwrap();
+    assert_eq!(carried, [true]);
 }

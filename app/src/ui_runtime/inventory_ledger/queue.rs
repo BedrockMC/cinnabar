@@ -8,7 +8,7 @@ use protocol::{
     StackResponseSlot, project_container_cell,
 };
 
-use super::cells::{Cell, Cells, Held};
+use super::cells::{Cell, CellSurface, Cells, Held};
 use super::overlay::DeltaGroup;
 use super::response::merge_response_overlay;
 use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
@@ -29,6 +29,8 @@ pub(super) struct PendingRequest {
     /// No response arrived in time: the prediction stays until a response or a
     /// complete refresh of every surface it touched settles it.
     pub(super) timed_out: bool,
+    /// Surfaces a timed-out request still needs a complete refresh of.
+    pub(super) awaiting_refresh: Vec<CellSurface>,
     /// Accepted corrections waiting for every predecessor to settle first.
     pub(super) accepted: Option<Arc<[StackResponseContainer]>>,
     pub(super) session_generation: u64,
@@ -42,7 +44,19 @@ pub(super) struct PendingRequest {
     /// Predicted values of touched cells, restoring item data when a response
     /// corrects a cell that a server push emptied first.
     pub(super) predicted: Vec<(Cell, Held)>,
+    /// A mine-block request riding PlayerAuthInput rather than its own packet.
+    pub(super) mining: Option<MiningPrediction>,
 }
+
+/// The durability a mine-block request predicts for one hotbar slot.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) struct MiningPrediction {
+    pub(super) slot: u8,
+    pub(super) damage: i32,
+}
+
+/// Bounds outstanding mining predictions; the oldest is forgotten first.
+const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
 
 impl PendingRequest {
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> + '_ {
@@ -179,7 +193,10 @@ impl PlayerInventoryLedger {
                     self.note_unrouted_container();
                     continue;
                 };
-                if !stale.contains(&cell) || self.confirmed.get(cell).is_none() {
+                // A mining correction never touches a cell a later gesture owns.
+                let owned =
+                    request.mining.is_some() && self.queue.iter().any(|later| later.touches(cell));
+                if !owned && (!stale.contains(&cell) || self.confirmed.get(cell).is_none()) {
                     self.apply_correction(request, cell, correction);
                 }
             }
@@ -220,8 +237,13 @@ impl PlayerInventoryLedger {
     }
 
     fn split_is_distinct(&self, request: &PendingRequest) -> bool {
+        let mut cells: Vec<Cell> = Vec::new();
         let mut ids: Vec<i32> = Vec::new();
         for cell in request.touched() {
+            if cells.contains(&cell) {
+                continue;
+            }
+            cells.push(cell);
             if let Some(held) = self.confirmed.get(cell) {
                 let id = held.stack.stack_network_id;
                 if id <= 0 || ids.contains(&id) {
@@ -267,45 +289,115 @@ impl PlayerInventoryLedger {
     /// Marks every overdue admitted request timed out. Predictions stay: the
     /// server may still apply and answer them.
     pub(super) fn expire_overdue_requests(&mut self, now_millis: u64) {
-        let mut expired = Vec::new();
+        // A mining request's clock starts at the first poll after it rides an
+        // input; an unanswered one is simply forgotten.
         for request in &mut self.queue {
-            if request.state == InventoryPendingState::AwaitingResponse
-                && !request.timed_out
-                && request
-                    .deadline_millis
-                    .is_some_and(|deadline| now_millis >= deadline)
-            {
-                request.timed_out = true;
-                expired.extend(request.groups.iter().flat_map(DeltaGroup::touched));
+            if request.mining.is_some() && request.deadline_millis.is_none() {
+                request.deadline_millis =
+                    Some(now_millis.saturating_add(super::INVENTORY_REQUEST_TIMEOUT_MILLIS));
             }
         }
-        for cell in expired {
-            self.mark_cell_recovery(cell);
+        let overdue = |request: &PendingRequest| {
+            request
+                .deadline_millis
+                .is_some_and(|deadline| now_millis >= deadline)
+        };
+        let before = self.queue.len();
+        self.queue
+            .retain(|request| request.mining.is_none() || !overdue(request));
+        let mut changed = self.queue.len() != before;
+        for request in &mut self.queue {
+            // An accepted request only waits for its predecessors to settle.
+            if request.state == InventoryPendingState::AwaitingResponse
+                && request.mining.is_none()
+                && request.accepted.is_none()
+                && !request.timed_out
+                && overdue(request)
+            {
+                request.timed_out = true;
+                request.awaiting_refresh = request.touched().map(Cell::surface).collect();
+                request.awaiting_refresh.dedup();
+                changed = true;
+            }
         }
-        self.refold();
+        if changed {
+            self.settle_accepted_heads();
+            self.refold();
+        }
     }
 
-    /// Retires timed-out requests once complete content refreshed every
-    /// surface they touched.
-    pub(super) fn drop_refreshed_timeouts(&mut self) {
-        let retired: Vec<i32> = self
+    /// Records a complete refresh of `surface`, retiring timed-out requests
+    /// once every surface they touched has been refreshed.
+    pub(super) fn surface_refreshed(&mut self, surface: CellSurface) {
+        let mut retired = false;
+        self.queue.retain_mut(|request| {
+            request
+                .awaiting_refresh
+                .retain(|pending| *pending != surface);
+            let done = request.timed_out && request.awaiting_refresh.is_empty();
+            retired |= done;
+            !done
+        });
+        if retired {
+            self.settle_accepted_heads();
+            self.refold();
+        }
+    }
+
+    /// Whether a timed-out request still leaves `surface` unverified.
+    pub(super) fn surface_awaiting_refresh(&self, surface: CellSurface) -> bool {
+        self.queue
+            .iter()
+            .any(|request| request.awaiting_refresh.contains(&surface))
+    }
+
+    /// Queues a mine-block prediction at its wire position: after every
+    /// admitted request, ahead of unsent ones. `None` when the queue is full,
+    /// so the break goes out without a request.
+    pub(super) fn enqueue_mining(&mut self, slot: u8, damage: i32) -> Option<i32> {
+        if self.queue.len() >= MAX_PENDING_REQUESTS {
+            return None;
+        }
+        let request_id = self.next_request_id;
+        self.next_request_id = request_id.checked_sub(2)?;
+        let mining: Vec<usize> = self
             .queue
             .iter()
-            .filter(|request| {
-                request.timed_out
-                    && request
-                        .touched()
-                        .all(|cell| !self.surface_flagged(cell.surface()))
-            })
-            .map(|request| request.request_id)
+            .enumerate()
+            .filter(|(_, request)| request.mining.is_some())
+            .map(|(index, _)| index)
             .collect();
-        if retired.is_empty() {
-            return;
+        if mining.len() >= MAX_OUTSTANDING_MINING_REQUESTS {
+            self.queue.remove(mining[0]);
         }
-        self.queue
-            .retain(|request| !retired.contains(&request.request_id));
-        self.settle_accepted_heads();
-        self.refold();
+        let position = self
+            .queue
+            .iter()
+            .position(|request| request.state == InventoryPendingState::AwaitingTransport)
+            .unwrap_or(self.queue.len());
+        self.queue.insert(
+            position,
+            PendingRequest {
+                request_id,
+                actions: Vec::new(),
+                groups: Vec::new(),
+                state: InventoryPendingState::AwaitingResponse,
+                transport_deadline_millis: None,
+                deadline_millis: None,
+                timed_out: false,
+                awaiting_refresh: Vec::new(),
+                accepted: None,
+                session_generation: self.session_generation,
+                storage_generation: None,
+                personal_generation: None,
+                storage_identity: None,
+                requires_distinct_stack_ids: false,
+                registry_bound_merge: false,
+                predicted: Vec::new(),
+                mining: Some(MiningPrediction { slot, damage }),
+            },
+        );
+        Some(request_id)
     }
 }
 

@@ -22,6 +22,7 @@ pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYT
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
 const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
 const NAMETAG_METADATA_KEY: u32 = 4;
+const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
@@ -136,6 +137,24 @@ impl ActorSnapshot {
         self.pitch = pose.pitch;
         self.yaw = pose.yaw;
         self.head_yaw = pose.head_yaw;
+    }
+
+    /// Feet-anchored `(min, max)` box from the width and height metadata.
+    #[must_use]
+    pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
+        let dimension = |key| match self.metadata.get(&key) {
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
+                Some(*value)
+            }
+            _ => None,
+        };
+        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY)? * 0.5;
+        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY)?;
+        let [x, y, z] = self.position;
+        Some((
+            [x - half_width, y, z - half_width],
+            [x + half_width, y + height, z + half_width],
+        ))
     }
 
     fn network_position_offset(&self) -> f32 {

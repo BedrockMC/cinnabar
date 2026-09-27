@@ -37,6 +37,7 @@ impl PlayerInventoryLedger {
             return Err(InventoryGestureError::InvalidRequest);
         }
         let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
+        self.check_surfaces([source, destination])?;
         let from = self.movable(source)?;
         let to = self.movable(destination)?;
         let identity = self.storage_identity();
@@ -60,6 +61,7 @@ impl PlayerInventoryLedger {
             DropSource::Cursor => Cell::Cursor,
         };
         let personal_generation = self.gesture_preflight(!matches!(cell, Cell::Storage(_)))?;
+        self.check_surfaces([cell])?;
         let held = match cell {
             Cell::Cursor => self.named(self.view().get(Cell::Cursor).cloned())?,
             cell => self.movable(cell)?,
@@ -96,6 +98,7 @@ impl PlayerInventoryLedger {
     ) -> Result<i32, InventoryGestureError> {
         let source = target.cell();
         let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
+        self.check_surfaces([source])?;
         let from = self
             .movable(source)?
             .ok_or(InventoryGestureError::EmptyGesture)?;

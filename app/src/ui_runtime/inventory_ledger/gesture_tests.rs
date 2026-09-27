@@ -494,8 +494,8 @@ fn rejection_deletes_prediction_and_timeout_keeps_it_pending_refresh() {
     assert_eq!(timed_out.pending_request_count(), 0);
     assert_eq!(timed_out.displayed_stack(0).unwrap().stack_network_id, 45);
     assert!(
-        timed_out.resync_required(),
-        "only a full refresh clears recovery"
+        !timed_out.resync_required(),
+        "a clean late settle clears the timeout's recovery"
     );
 }
 

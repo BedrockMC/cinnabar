@@ -288,18 +288,42 @@ impl PlayerInventoryLedger {
     /// The state of the oldest unresolved request.
     #[must_use]
     pub fn pending_state(&self) -> Option<InventoryPendingState> {
-        self.queue.front().map(|pending| pending.state)
+        self.gestures().next().map(|pending| pending.state)
+    }
+
+    /// Queued gesture requests; mining requests ride player input instead.
+    fn gestures(&self) -> impl Iterator<Item = &PendingRequest> {
+        self.queue.iter().filter(|pending| pending.mining.is_none())
     }
 
     /// The oldest unresolved request id.
     #[must_use]
     pub fn pending_request_id(&self) -> Option<i32> {
-        self.queue.front().map(|pending| pending.request_id)
+        self.gestures().next().map(|pending| pending.request_id)
     }
 
     #[must_use]
     pub fn pending_request_count(&self) -> usize {
-        self.queue.len()
+        self.gestures().count()
+    }
+
+    /// Queues a mine-block prediction for hotbar `slot` and returns the id its
+    /// PlayerAuthInput carries; `None` sends the break without a request.
+    pub fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
+        self.enqueue_mining(slot, predicted_damage)
+    }
+
+    /// The newest outstanding mining prediction for `slot`, else its last
+    /// accepted damage.
+    #[must_use]
+    pub fn predicted_slot_damage(&self, slot: u8) -> Option<i32> {
+        self.queue
+            .iter()
+            .rev()
+            .filter_map(|pending| pending.mining)
+            .find(|mining| mining.slot == slot)
+            .map(|mining| mining.damage)
+            .or_else(|| self.slot_overlay(slot)?.durability_correction)
     }
 
     #[must_use]
@@ -330,7 +354,12 @@ impl PlayerInventoryLedger {
         .any(|surface| self.surface_flagged(surface))
     }
 
+    /// Whether gestures touching `surface` must wait for authority.
     fn surface_flagged(&self, surface: CellSurface) -> bool {
+        self.surface_awaiting_refresh(surface) || self.surface_recovering(surface)
+    }
+
+    fn surface_recovering(&self, surface: CellSurface) -> bool {
         match surface {
             CellSurface::Player => self.player_resync_required,
             CellSurface::Cursor => self.cursor_resync_required,
@@ -561,6 +590,7 @@ impl PlayerInventoryLedger {
     fn discard_storage(&mut self) {
         self.storage = None;
         self.confirmed.clear_storage();
+        self.clear_crafting();
         if self.confirmed.get(Cell::Cursor).is_some() {
             self.player_resync_required = true;
             self.cursor_resync_required = true;
@@ -582,10 +612,22 @@ impl PlayerInventoryLedger {
             retain_confirmed_cursor && self.queue.is_empty() && !self.cursor_resync_required;
         self.abandon_requests(|pending| pending.personal_generation == Some(generation));
         self.personal = None;
+        self.clear_crafting();
         if !retain_confirmed_cursor {
             self.drop_confirmed_cursor();
         }
         self.refold();
+    }
+
+    /// Closing a crafting screen returns its grid server-side; the cells are
+    /// known empty until the server restates them.
+    fn clear_crafting(&mut self) {
+        for slot in protocol::CRAFTING_INPUT_SLOTS {
+            self.confirmed.set(Cell::Craft(slot), None);
+        }
+        self.confirmed.set(Cell::CreatedOutput, None);
+        self.crafting_resync_required = false;
+        self.surface_refreshed(CellSurface::Crafting);
     }
 
     fn queue_close(&mut self, window_id: i32, window_type: i8, owner: PendingCloseOwner) {
