@@ -49,7 +49,116 @@ pub(crate) struct HandAdapter {
     cube: Option<CubeCache>,
     cube_observation: [i128; 4],
     cube_reason: u8,
+    owner: Option<HandOwner>,
+    // Retain the stream/UI association across Empty and failed owner changes.
+    // Stream IDs are globally allocated with checked monotonic progression.
+    local_stream_session: Option<(u64, u64)>,
     pub(crate) stats: HandStats,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HandOwner {
+    Actor(client_world::ActorLifetimeId),
+    Local {
+        session: u64,
+        actor_session: u64,
+        dimension: i32,
+        runtime: u64,
+        epoch: u64,
+    },
+}
+fn plain_cube_extra(extra: &[u8]) -> bool {
+    // Nonshield plain item: no compound, no placement or breaking restrictions.
+    // The zero-byte representation remains a supported legacy observation.
+    extra.is_empty() || extra == [0; 10]
+}
+fn extra_shape_flags(extra: &[u8]) -> i128 {
+    i128::from(extra.is_empty())
+        | (i128::from(plain_cube_extra(extra)) << 1)
+        | (i128::from(extra.len() == 10) << 2)
+        | (i128::from(extra.get(..2) == Some(&[0; 2])) << 3)
+        | (i128::from(extra.get(2..6) == Some(&[0; 4])) << 4)
+        | (i128::from(extra.get(6..10) == Some(&[0; 4])) << 5)
+        | ((extra.len() as i128) << 8)
+}
+#[cfg(test)]
+mod local_owner_tests {
+    use super::*;
+    #[test]
+    fn plain_frame_requires_complete_empty_compound_and_restriction_shape() {
+        assert!(plain_cube_extra(&[]));
+        assert!(plain_cube_extra(&[0; 10]));
+        for length in [1, 2, 9, 11] {
+            assert!(!plain_cube_extra(&vec![0; length]));
+        }
+        for offset in 0..10 {
+            let mut extra = [0; 10];
+            extra[offset] = 1;
+            assert!(!plain_cube_extra(&extra));
+        }
+        assert!(!plain_cube_extra(&[255, 255, 1, 10, 0, 0, 0]));
+    }
+    #[test]
+    fn owner_domains_and_incarnations_change_revision_but_pose_does_not() {
+        let mut adapter = HandAdapter::default();
+        let local = HandOwner::Local {
+            session: 1,
+            actor_session: 1,
+            dimension: 0,
+            runtime: 1,
+            epoch: 1,
+        };
+        adapter.select_owner(local).unwrap();
+        let revision = adapter.revision;
+        for _ in 0..10 {
+            adapter.select_owner(local).unwrap();
+            assert_eq!(adapter.revision, revision);
+        }
+        adapter
+            .select_owner(HandOwner::Actor(client_world::ActorLifetimeId {
+                session_id: 1,
+                dimension: 0,
+                runtime_id: 1,
+                spawn_revision: 1,
+            }))
+            .unwrap();
+        assert!(adapter.revision > revision);
+        assert!(
+            adapter
+                .select_owner(HandOwner::Local {
+                    session: 2,
+                    actor_session: 1,
+                    dimension: 0,
+                    runtime: 1,
+                    epoch: 1,
+                })
+                .is_none()
+        );
+        adapter.select_owner(local).unwrap();
+        let revision = adapter.revision;
+        adapter
+            .select_owner(HandOwner::Local {
+                session: 1,
+                actor_session: 1,
+                dimension: 0,
+                runtime: 1,
+                epoch: 2,
+            })
+            .unwrap();
+        assert!(adapter.revision > revision);
+        assert!(adapter.select_owner(local).is_none());
+        adapter.revision = u64::MAX;
+        assert!(
+            adapter
+                .select_owner(HandOwner::Actor(client_world::ActorLifetimeId {
+                    session_id: 1,
+                    dimension: 0,
+                    runtime_id: 1,
+                    spawn_revision: 2
+                }))
+                .is_none()
+        );
+        assert!(adapter.revision_exhausted);
+    }
 }
 struct CubeCache {
     stack: assets::ItemStackIdentity,
@@ -62,6 +171,55 @@ struct CubeCache {
     pixels: ViewmodelSkin,
 }
 impl HandAdapter {
+    fn select_owner(&mut self, owner: HandOwner) -> Option<()> {
+        if let HandOwner::Local {
+            session,
+            actor_session,
+            ..
+        } = owner
+            && self
+                .local_stream_session
+                .is_some_and(|(previous_session, previous_stream)| {
+                    actor_session < previous_stream
+                        || (session != previous_session && actor_session == previous_stream)
+                })
+        {
+            return None;
+        }
+        if let (
+            Some(HandOwner::Local {
+                session: old_session,
+                actor_session: old_stream,
+                epoch: old_epoch,
+                ..
+            }),
+            HandOwner::Local {
+                session,
+                actor_session,
+                epoch,
+                ..
+            },
+        ) = (self.owner, owner)
+            && old_session == session
+            && old_stream == actor_session
+            && epoch < old_epoch
+        {
+            return None;
+        }
+        if self.owner != Some(owner) {
+            self.advance_revision()?;
+            self.owner = Some(owner);
+        }
+        if let HandOwner::Local {
+            session,
+            actor_session,
+            ..
+        } = owner
+        {
+            self.local_stream_session = Some((session, actor_session));
+        }
+        Some(())
+    }
     fn advance_revision(&mut self) -> Option<()> {
         match self.revision.checked_add(1) {
             Some(next) if !self.revision_exhausted => {
@@ -100,22 +258,21 @@ impl HandAdapter {
             self.cube_observation = [1, i128::from(visual.0), 0, 0];
             self.cube_reason = 3;
         }
-        if stack.nbt_digest != protocol::NetworkItemStack::empty().nbt_digest
+        if !plain_cube_extra(&stack.extra_data)
             || entities.source_manifest_sha256()
                 != world.runtime_assets.provenance().source_manifest_sha256
             || entities.block_visual_count() as usize != world.runtime_assets.visual_count()
         {
             if diagnostic {
-                self.cube_reason =
-                    if stack.nbt_digest != protocol::NetworkItemStack::empty().nbt_digest {
-                        3
-                    } else if entities.source_manifest_sha256()
-                        != world.runtime_assets.provenance().source_manifest_sha256
-                    {
-                        8
-                    } else {
-                        9
-                    };
+                self.cube_reason = if !plain_cube_extra(&stack.extra_data) {
+                    3
+                } else if entities.source_manifest_sha256()
+                    != world.runtime_assets.provenance().source_manifest_sha256
+                {
+                    8
+                } else {
+                    9
+                };
             }
             return None;
         }
@@ -222,6 +379,8 @@ pub(crate) struct ViewmodelPublish<'w, 's> {
     gate: Option<Res<'w, ViewmodelCompletionGate>>,
     adapter: Option<ResMut<'w, HandAdapter>>,
     geometry: Option<Res<'w, ViewmodelGeometry>>,
+    movement: Option<Res<'w, crate::movement::MovementTicker>>,
+    local_visibility: Option<Res<'w, crate::local_player::LocalAvatarVisibilityCarrier>>,
     cameras: ViewmodelCameras<'w, 's>,
 }
 impl ViewmodelPublish<'_, '_> {
@@ -363,6 +522,17 @@ impl ViewmodelPublish<'_, '_> {
     ) -> (u8, [i128; 32]) {
         let mut values = [0; 32];
         values[0] = i128::from(runtime.session_id());
+        values[20] = i128::from(
+            runtime
+                .hud()
+                .health()
+                .is_some_and(|health| health.current() == 0),
+        ) | (i128::from(
+            runtime
+                .gameplay_hud()
+                .air_ticks()
+                .is_some_and(|(air, max)| air < max),
+        ) << 1);
         values[14] = runtime
             .gameplay_hud()
             .offhand_is_empty()
@@ -374,8 +544,7 @@ impl ViewmodelPublish<'_, '_> {
             if let Some(actor) = stream.actor(stream.local_player_runtime_id()) {
                 values[4] = 1;
                 values[5] = i128::from(actor.spawn_revision);
-                values[20] = i128::from(stream.actor_health_by_unique(actor.unique_id).is_some_and(|(health, _)| health <= 0.))
-                    | (i128::from(runtime.gameplay_hud().air_ticks().is_some_and(|(air, max)| air < max)) << 1)
+                values[20] |= i128::from(stream.actor_health_by_unique(actor.unique_id).is_some_and(|(health, _)| health <= 0.))
                     | (i128::from(matches!(actor.metadata.get(&0), Some(protocol::ActorMetadataValue::Flags(flags)) if flags & ((1 << 4) | (1 << 5)) != 0)) << 2)
                     | (i128::from(actor.metadata.get(&38).is_some_and(|value| !matches!(value, protocol::ActorMetadataValue::Float(scale) if *scale == 1.0))) << 3);
             }
@@ -398,9 +567,7 @@ impl ViewmodelPublish<'_, '_> {
                         i128::from(stack.metadata),
                         i128::from(stack.block_runtime_id),
                         i128::from(stack.stack_network_id),
-                        i128::from(
-                            stack.nbt_digest == protocol::NetworkItemStack::empty().nbt_digest,
-                        ),
+                        extra_shape_flags(&stack.extra_data),
                     ]);
                 }
             }
@@ -465,32 +632,37 @@ impl ViewmodelPublish<'_, '_> {
             return Err(HandFallback::Hidden);
         }
         let stream = world.stream.as_ref().ok_or(HandFallback::Ownership)?;
-        let actor = stream
-            .actor(stream.local_player_runtime_id())
-            .ok_or(HandFallback::Ownership)?;
+        let actor = stream.actor(stream.local_player_runtime_id());
         if runtime.session_id() == 0
             || runtime.local_runtime_id() != Some(stream.local_player_runtime_id())
         {
             return Err(HandFallback::Ownership);
         }
-        if stream
-            .actor_health_by_unique(actor.unique_id)
+        if actor
+            .and_then(|actor| stream.actor_health_by_unique(actor.unique_id))
             .is_some_and(|(health, _)| health <= 0.)
+            || runtime
+                .hud()
+                .health()
+                .is_some_and(|health| health.current() == 0)
             || runtime
                 .gameplay_hud()
                 .air_ticks()
                 .is_some_and(|(air, max)| air < max)
-            || matches!(actor.metadata.get(&0), Some(protocol::ActorMetadataValue::Flags(flags))
+            || matches!(actor.and_then(|actor| actor.metadata.get(&0)), Some(protocol::ActorMetadataValue::Flags(flags))
                 if flags & ((1 << 4) | (1 << 5)) != 0)
         {
             return Err(HandFallback::KnownActive);
         }
         // The retained scale field is a wire observation, not a fresh clock or
-        // an inferred animation state. This profile supplies only ordinary scale.
-        if actor.metadata.get(&38).is_some_and(|value| {
-            !matches!(value,
+        // an inferred animation state. Reject a known nonordinary scale.
+        if actor
+            .and_then(|actor| actor.metadata.get(&38))
+            .is_some_and(|value| {
+                !matches!(value,
             protocol::ActorMetadataValue::Float(scale) if *scale == 1.0)
-        }) {
+            })
+        {
             return Err(HandFallback::Geometry);
         }
         let selected = runtime
@@ -508,9 +680,50 @@ impl ViewmodelPublish<'_, '_> {
         {
             return Err(HandFallback::View);
         }
+        let local_owner = if matches!(
+            selected.state,
+            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+        ) {
+            let movement = self.movement.as_deref().ok_or(HandFallback::Ownership)?;
+            let visibility = self
+                .local_visibility
+                .as_deref()
+                .and_then(|carrier| carrier.snapshot())
+                .ok_or(HandFallback::Ownership)?;
+            let (session, epoch) = movement.interaction_authority_identity();
+            if !movement.physics_is_authorized()
+                || session != runtime.session_id()
+                || visibility.session_generation() != session
+                || visibility.runtime_id() != stream.local_player_runtime_id()
+                || epoch == 0
+                || epoch == u64::MAX
+            {
+                return Err(HandFallback::Ownership);
+            }
+            Some(HandOwner::Local {
+                session,
+                actor_session: stream.actor_session_id(),
+                dimension: stream.current_dimension(),
+                runtime: visibility.runtime_id(),
+                epoch,
+            })
+        } else {
+            None
+        };
         let adapter = self.adapter.as_deref_mut().unwrap();
+        let owner_identity =
+            local_owner.unwrap_or(HandOwner::Actor(client_world::ActorLifetimeId {
+                session_id: stream.actor_session_id(),
+                dimension: stream.current_dimension(),
+                runtime_id: actor.map_or(0, |actor| actor.runtime_id),
+                spawn_revision: actor.map_or(0, |actor| actor.spawn_revision),
+            }));
+        adapter
+            .select_owner(owner_identity)
+            .ok_or(HandFallback::Geometry)?;
         let (geometry, skin, lifetime) = match selected.state {
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty => {
+                let actor = actor.ok_or(HandFallback::Ownership)?;
                 let rig = stream
                     .actor_rig(actor.runtime_id)
                     .ok_or(HandFallback::Ownership)?;
@@ -540,6 +753,16 @@ impl ViewmodelPublish<'_, '_> {
                 )
             }
             crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(stack) => {
+                let Some(HandOwner::Local {
+                    actor_session,
+                    dimension,
+                    runtime,
+                    epoch,
+                    ..
+                }) = local_owner
+                else {
+                    return Err(HandFallback::Ownership);
+                };
                 let (geometry, skin) = adapter
                     .cube(stack, selected.slot, world)
                     .ok_or(HandFallback::ItemsUnknownOrHeld)?;
@@ -547,10 +770,12 @@ impl ViewmodelPublish<'_, '_> {
                     geometry,
                     skin,
                     client_world::ActorLifetimeId {
-                        session_id: stream.actor_session_id(),
-                        dimension: stream.current_dimension(),
-                        runtime_id: actor.runtime_id,
-                        spawn_revision: actor.spawn_revision,
+                        session_id: actor_session,
+                        dimension,
+                        runtime_id: runtime,
+                        // Local position-authority incarnation; owner domain is
+                        // separately fenced by the checked adapter revision.
+                        spawn_revision: epoch,
                     },
                 )
             }
@@ -562,8 +787,8 @@ impl ViewmodelPublish<'_, '_> {
             session: runtime.session_id(),
             actor_session: lifetime.session_id,
             dimension: lifetime.dimension,
-            runtime: actor.runtime_id,
-            spawn: actor.spawn_revision,
+            runtime: lifetime.runtime_id,
+            spawn: lifetime.spawn_revision,
             owner,
             viewport,
             samples: msaa.samples(),
