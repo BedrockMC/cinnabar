@@ -1,4 +1,7 @@
-use std::{mem::size_of, sync::Arc};
+use std::{
+    mem::size_of,
+    sync::{Arc, Weak},
+};
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -38,11 +41,11 @@ mod textures;
 use textures::UiGpuTextures;
 
 use crate::ui::{
-    MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderRejectReason,
-    UiRenderScene, UiRenderStats, UiRenderVertex,
+    MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
+    UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex,
 };
 #[cfg(test)]
-use crate::ui::{UiRenderInput, UiRenderReject, UiScissor};
+use crate::ui::{UiRenderReject, UiScissor};
 
 const UI_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7cfb904c-c8cf-4dd2-9214-7d208ce454e7");
 
@@ -112,6 +115,7 @@ pub(crate) struct UiGpu {
     sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
+    accepted_publication: Weak<UiRenderInput>,
     /// Specialized pipelines for the frame's view: the shared alpha pipeline
     /// and the crosshair invert variant. Written by `queue_ui_overlay` (the
     /// overlay renders through the single primary view) and read by
@@ -153,6 +157,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sampler,
         batches: Arc::from([]),
         accepted_revision: None,
+        accepted_publication: Weak::new(),
         alpha_pipeline: None,
         invert_pipeline: None,
     });
@@ -184,7 +189,25 @@ pub(crate) fn prepare_ui_resources(
         );
         return;
     }
+    if let Err(reason) = input.validate() {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        record_render_rejection(&stats, input.revision, reason);
+        return;
+    }
     if gpu.accepted_revision == Some(input.revision) {
+        if !gpu.accepted_publication.ptr_eq(&Arc::downgrade(input)) {
+            gpu.accepted_revision = None;
+            gpu.batches = Arc::from([]);
+            record_render_rejection(
+                &stats,
+                input.revision,
+                UiRenderRejectReason::RevisionConflict {
+                    revision: input.revision,
+                },
+            );
+            return;
+        }
         if !gpu.textures.resident(&input.textures)
             || (!input.vertices.is_empty() && gpu.vertex_buffer.is_none())
             || (!input.indices.is_empty() && gpu.index_buffer.is_none())
@@ -197,12 +220,6 @@ pub(crate) fn prepare_ui_resources(
                 UiRenderRejectReason::InvalidTextureExtent,
             );
         }
-        return;
-    }
-    if let Err(reason) = input.validate() {
-        gpu.accepted_revision = None;
-        gpu.batches = Arc::from([]);
-        record_render_rejection(&stats, input.revision, reason);
         return;
     }
     if let Err(reason) = gpu
@@ -256,6 +273,7 @@ pub(crate) fn prepare_ui_resources(
 
     gpu.batches = Arc::clone(&input.batches);
     gpu.accepted_revision = Some(input.revision);
+    gpu.accepted_publication = Arc::downgrade(input);
     stats.update(|stats| {
         stats.accepted_revision = Some(input.revision);
         stats.uploaded_vertices = input.vertices.len() as u32;
@@ -606,6 +624,33 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetUiBindGroup<I> {
 
 struct DrawUiBatches;
 
+/// Resolve the entire ordered frame before emitting any batch command.
+fn resolved_batches<'a>(
+    accepted_revision: Option<u64>,
+    batches: &'a [UiRenderBatch],
+    locations: &'a [crate::UiTextureLocation],
+    bucket_count: usize,
+) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, crate::UiTextureLocation)>> {
+    if accepted_revision.is_none()
+        || batches.iter().any(|batch| {
+            locations
+                .get(batch.texture_page as usize)
+                .is_none_or(|location| {
+                    location.bucket >= bucket_count
+                        || location.layer >= crate::ui::MAX_UI_TEXTURE_LAYERS
+                })
+        })
+    {
+        return None;
+    }
+    Some(
+        batches
+            .iter()
+            .enumerate()
+            .map(move |(index, batch)| (index, batch, locations[batch.texture_page as usize])),
+    )
+}
+
 impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
     type Param = (SRes<UiGpu>, SRes<PipelineCache>);
     type ViewQuery = ();
@@ -620,6 +665,22 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
     ) -> RenderCommandResult {
         let gpu = gpu.into_inner();
         let pipeline_cache = pipeline_cache.into_inner();
+        let Some(batches) = resolved_batches(
+            gpu.accepted_revision,
+            &gpu.batches,
+            &gpu.textures.locations,
+            gpu.textures.buckets.len(),
+        ) else {
+            return RenderCommandResult::Skip;
+        };
+        if gpu
+            .textures
+            .buckets
+            .iter()
+            .any(|bucket| bucket.bind_group.is_none())
+        {
+            return RenderCommandResult::Skip;
+        }
         let (Some(vertices), Some(indices)) = (&gpu.vertex_buffer, &gpu.index_buffer) else {
             return RenderCommandResult::Skip;
         };
@@ -628,10 +689,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
         // SetItemPipeline already bound the alpha pipeline; track transitions
         // so consecutive same-blend batches never rebind.
         let mut invert_bound = false;
-        for batch in gpu.batches.iter() {
-            let Some(location) = gpu.textures.locations.get(batch.texture_page as usize) else {
-                return RenderCommandResult::Skip;
-            };
+        for (_, batch, location) in batches {
             let Some(bind_group) = gpu
                 .textures
                 .buckets
@@ -670,6 +728,71 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
         }
         pass.set_scissor_rect(0, 0, gpu.viewport_size[0], gpu.viewport_size[1]);
         RenderCommandResult::Success
+    }
+}
+
+#[cfg(test)]
+mod ordered_command_tests {
+    use super::*;
+
+    #[test]
+    fn resolved_commands_keep_bucket_layer_blend_scissor_and_index_order() {
+        let plan =
+            crate::UiTexturePlan::new(&[[1024, 1024], [2048, 2048], [256, 256], [2048, 2048]])
+                .unwrap();
+        let batches = [2, 0, 3, 1, 2]
+            .into_iter()
+            .enumerate()
+            .map(|(index, page)| {
+                UiRenderBatch::new(
+                    page,
+                    UiScissor::new(index as u32, 2, 30, 40),
+                    index as u32 * 6,
+                    6,
+                    if index == 2 { UI_BLEND_INVERT } else { 0 },
+                )
+            })
+            .collect::<Vec<_>>();
+        let trace = resolved_batches(Some(7), &batches, plan.locations(), plan.buckets().len())
+            .unwrap()
+            .map(|(index, batch, location)| {
+                (
+                    index,
+                    location.bucket,
+                    location.layer,
+                    batch.blend_mode,
+                    batch.scissor,
+                    batch.first_index..batch.first_index + batch.index_count,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            trace,
+            vec![
+                (0, 2, 0, 0, UiScissor::new(0, 2, 30, 40), 0..6),
+                (1, 0, 0, 0, UiScissor::new(1, 2, 30, 40), 6..12),
+                (
+                    2,
+                    1,
+                    1,
+                    UI_BLEND_INVERT,
+                    UiScissor::new(2, 2, 30, 40),
+                    12..18
+                ),
+                (3, 1, 0, 0, UiScissor::new(3, 2, 30, 40), 18..24),
+                (4, 2, 0, 0, UiScissor::new(4, 2, 30, 40), 24..30),
+            ]
+        );
+        assert!(
+            resolved_batches(None, &batches, plan.locations(), plan.buckets().len()).is_none(),
+            "rejected frame emits no commands"
+        );
+        let mut malformed = batches;
+        malformed.last_mut().unwrap().texture_page = 99;
+        assert!(
+            resolved_batches(Some(7), &malformed, plan.locations(), plan.buckets().len()).is_none(),
+            "invalid late mapping must not emit a partial prefix"
+        );
     }
 }
 

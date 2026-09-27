@@ -27,6 +27,7 @@ fn independent_font(sides: &[u32]) -> Arc<RuntimeFontCatalog> {
     let mut glyphs = vec![
         GlyphMetrics {
             codepoint: 'A',
+            uv: [16, 0, 24, 16],
             ..glyph
         },
         glyph,
@@ -35,6 +36,7 @@ fn independent_font(sides: &[u32]) -> Arc<RuntimeFontCatalog> {
         glyphs.push(GlyphMetrics {
             codepoint: '一',
             page: 1,
+            uv: [32, 0, 40, 16],
             ..glyph
         });
     }
@@ -95,16 +97,42 @@ fn mixed_font_shadow_and_fill_keep_logical_page_order() {
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
-    let pages = input
-        .batches
-        .iter()
-        .filter(|b| b.texture_page < 2)
-        .map(|b| b.texture_page)
+    let glyphs = input
+        .indices
+        .chunks_exact(6)
+        .enumerate()
+        .filter_map(|(quad, indices)| {
+            let vertex = input.vertices[indices[0] as usize];
+            let first = (quad * 6) as u32;
+            let batch = input
+                .batches
+                .iter()
+                .find(|b| first >= b.first_index && first < b.first_index + b.index_count)
+                .unwrap();
+            if batch.texture_page >= 2 || !matches!(vertex.uv, [16, 0] | [32, 0]) {
+                return None;
+            }
+            Some((batch.texture_page, vertex.color, vertex.position))
+        })
         .collect::<Vec<_>>();
-    assert!(
-        pages.windows(5).any(|w| w == [0, 1, 0, 1, 0]),
-        "shadow then fill retain alternating font pages, even if adjacent page0 spans merge: {pages:?}"
+    assert_eq!(
+        glyphs.iter().map(|g| g.0).collect::<Vec<_>>(),
+        [0, 1, 0, 0, 1, 0]
     );
+    let shadow_offset = java_gui_scale([800, 600], None) as f32;
+    for index in 0..3 {
+        for channel in 0..3 {
+            assert_eq!(glyphs[index].1[channel], glyphs[index + 3].1[channel] / 4);
+        }
+        assert_eq!(glyphs[index].1[3], glyphs[index + 3].1[3]);
+        assert_eq!(
+            glyphs[index].2,
+            [
+                glyphs[index + 3].2[0] + shadow_offset,
+                glyphs[index + 3].2[1] + shadow_offset
+            ]
+        );
+    }
     for batch in input.batches.iter() {
         let logical = batch.texture_page as usize;
         let physical = input.textures.plan().locations()[logical];
@@ -127,6 +155,35 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
         let page = &presentation.textures.pages()[index];
         assert_eq!(page.dimensions(), [source.width, source.height]);
         assert_eq!(page.pixels().as_ptr(), source.rgba8.as_ptr());
+    }
+}
+
+#[test]
+fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity_joined() {
+    use bevy::render::extract_resource::ExtractResource;
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
+    let runtime = UiRuntime::new(1);
+    let stats = UiRenderStats::default();
+    let mut scene = UiRenderScene::default();
+    let mut previous_revision = 0;
+    for _ in 0..100 {
+        let input = presentation
+            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        assert!(
+            input.revision > previous_revision,
+            "actual producer assigns a new revision to each built frame"
+        );
+        previous_revision = input.revision;
+        scene.publish(input.clone(), &stats).unwrap();
+        let publication = Arc::clone(scene.input.as_ref().unwrap());
+        scene.publish(input, &stats).unwrap();
+        assert!(
+            Arc::ptr_eq(scene.input.as_ref().unwrap(), &publication),
+            "equivalent republish preserves accepted Arc"
+        );
+        let extracted = UiRenderScene::extract_resource(&scene);
+        assert!(Arc::ptr_eq(extracted.input.as_ref().unwrap(), &publication));
     }
 }
 

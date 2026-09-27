@@ -248,7 +248,7 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
         .run_system_once(prepare_ui_resources)
         .unwrap();
     assert_eq!(stats.snapshot().accepted_revision, Some(1));
-    let mut invalid = fixture_draw_list(2);
+    let mut invalid = fixture_draw_list(1);
     invalid.indices = vec![u32::MAX].into();
     scene.input = Some(Arc::new(invalid));
     render_app.world_mut().insert_resource(scene);
@@ -276,6 +276,57 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
         .unwrap();
     assert_eq!(stats.snapshot().accepted_revision, None);
     assert_eq!(stats.snapshot().draw_calls, 0);
+}
+
+#[test]
+fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
+    use bevy::render::extract_resource::ExtractResource;
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(UiRenderPlugin);
+    app.finish();
+    let stats = app.world().resource::<UiRenderStats>().clone();
+    let render_app = app.sub_app_mut(RenderApp);
+    render_app.world_mut().run_schedule(RenderStartup);
+    let mut scene = UiRenderScene::default();
+    scene.publish(fixture_draw_list(1), &stats).unwrap();
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    let accepted = stats.snapshot();
+    for _ in 0..10 {
+        let publication = Arc::clone(scene.input.as_ref().unwrap());
+        scene.publish(fixture_draw_list(1), &stats).unwrap();
+        assert!(Arc::ptr_eq(scene.input.as_ref().unwrap(), &publication));
+        render_app
+            .world_mut()
+            .insert_resource(UiRenderScene::extract_resource(&scene));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(
+            stats.snapshot(),
+            accepted,
+            "same immutable publication is a no-op"
+        );
+    }
+    let mut conflicting = scene.input.as_deref().unwrap().clone();
+    conflicting.viewport_size = [65, 64];
+    conflicting.validate().unwrap();
+    scene.input = Some(Arc::new(conflicting));
+    render_app.world_mut().insert_resource(scene);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, None);
+    assert_eq!(stats.snapshot().draw_calls, 0);
+    assert_eq!(
+        stats.snapshot().rejected_reason,
+        Some(UiRenderRejectReason::RevisionConflict { revision: 1 })
+    );
 }
 
 fn fixture_draw_list(revision: u64) -> UiRenderInput {
