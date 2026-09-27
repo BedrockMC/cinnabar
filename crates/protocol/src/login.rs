@@ -783,6 +783,11 @@ fn decode_world_raw_with(
     current_dimension: i32,
     decode: impl FnOnce(RawPacket) -> Result<Packet, JolyneError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
+    if raw.id == McpePacketName::UpdateAbilitiesPacket {
+        return crate::decode_abilities_update(raw.body())
+            .map(WorldEvent::Abilities)
+            .map(Some);
+    }
     if raw.id == McpePacketName::CraftingDataPacket {
         let update = crate::decode_recipe_update(raw.body())
             .map_err(crate::world::WorldPacketError::from)?;
@@ -988,3 +993,6 @@ mod recipe_ingress_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod ability_ingress_tests;

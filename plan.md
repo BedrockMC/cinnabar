@@ -797,6 +797,15 @@ Current implementation state:
   those transactions yet: target selection and hit testing, gameplay reach, packet-position
   provenance, ability authority, selected-stack correlation, and live evidence must close
   before wiring app senders.
+- Bounded `UpdateAbilities` evidence now follows the sequenced world commit into
+  the accepted local player's session binding. Unknown, received-empty, and
+  unavailable evidence remain distinct; layer order, raw masks, and float bits
+  are retained without assigning effective permission semantics. Terminal and
+  replacement-session paths retire the binding, and stale setup cannot replace
+  current evidence. Fresh protocol/client-world tests and the application suite
+  cover raw framing, FIFO ordering, local identity, and lifecycle guards. This is
+  passive retention, not effective permissions, Survival admission, or a mining
+  sender; end-to-end handshake and native permission acceptance remain open.
 - Supervised first-run device-code authentication and cached-account validation have landed;
   token bytes remain Go-owned. A cached-account authenticated Lifeboat join is evidenced; native
   first-run/device-code UX acceptance remains open. Bounded named PlaySound, StopSound, and LevelSoundEvent ingress now reaches
