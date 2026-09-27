@@ -158,7 +158,7 @@ fn gestures_pipeline_in_wire_order_over_the_folded_view() {
         assert!(ledger.mark_transport_enqueued(10));
     }
     assert_eq!(ledger.pending_packet().unwrap(), None);
-    let StackRequestAction::Place { destination, .. } = ledger.queue[1].action else {
+    let StackRequestAction::Place { destination, .. } = ledger.queue[1].actions[0] else {
         panic!("second gesture places the held stack");
     };
     assert_eq!(destination.slot, 5);

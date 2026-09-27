@@ -8,11 +8,36 @@ use super::{
     PendingRequest, PlayerInventoryLedger, StackResponseOverlay,
 };
 
+/// One pointer gesture against a single cell and the cursor.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum CellGesture {
+pub enum CellGesture {
+    /// Take, place, merge or swap the whole stack.
     Click,
     TakeCount(u16),
     PlaceCount(u16),
+}
+
+/// A cell a player gesture may target.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum InventoryTarget {
+    Player(u8),
+    Storage(u8),
+    Armor(u8),
+    Offhand,
+    /// A crafting cell by UI inventory slot, 28..=40.
+    Craft(u8),
+}
+
+impl InventoryTarget {
+    pub(super) const fn cell(self) -> Cell {
+        match self {
+            Self::Player(slot) => Cell::Inventory(slot),
+            Self::Storage(slot) => Cell::Storage(slot),
+            Self::Armor(slot) => Cell::Armor(slot),
+            Self::Offhand => Cell::Offhand,
+            Self::Craft(slot) => Cell::Craft(slot),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -169,6 +194,15 @@ fn has_meaningful_overlay(overlay: Option<&StackResponseOverlay>) -> bool {
 }
 
 impl PlayerInventoryLedger {
+    /// Queues one gesture on any retained target cell.
+    pub fn begin_target_gesture(
+        &mut self,
+        target: InventoryTarget,
+        gesture: CellGesture,
+    ) -> Result<i32, InventoryGestureError> {
+        self.begin_cell_gesture(target.cell(), gesture)
+    }
+
     pub fn begin_click(&mut self, slot: u8) -> Result<i32, InventoryGestureError> {
         self.begin_cell_gesture(Cell::Inventory(slot), CellGesture::Click)
     }
@@ -253,7 +287,14 @@ impl PlayerInventoryLedger {
                     return Err(InventoryGestureError::InvalidStorageSlot(slot));
                 }
             }
-            Cell::Cursor => unreachable!("cursor is not a click target"),
+            Cell::Armor(_) | Cell::Offhand | Cell::Craft(_) => {
+                if !self.confirmed.contains(target) {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+            }
+            Cell::Cursor | Cell::CreatedOutput => {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
         }
         let target_held = self.view().get(target).cloned();
         let cursor_held = self.view().get(Cell::Cursor).cloned();
@@ -389,7 +430,7 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         self.enqueue(PendingRequest {
             request_id,
-            action: built.action,
+            actions: vec![built.action],
             groups: vec![built.group],
             state: InventoryPendingState::AwaitingTransport,
             transport_deadline_millis: None,

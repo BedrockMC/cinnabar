@@ -141,7 +141,7 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
     assert_eq!(take.begin_take_count(0, 5).unwrap(), -3);
     let pending = take.newest_request().unwrap();
     assert!(matches!(
-        pending.action,
+        pending.actions[0],
         StackRequestAction::Take {
             amount: 5,
             source: protocol::StackRequestSlot {
@@ -169,7 +169,7 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
     assert_eq!(place.begin_place_count(0, 5).unwrap(), -3);
     let pending = place.newest_request().unwrap();
     assert!(matches!(
-        pending.action,
+        pending.actions[0],
         StackRequestAction::Place {
             amount: 5,
             source: protocol::StackRequestSlot {
@@ -201,8 +201,8 @@ fn full_count_operations_match_existing_take_and_place_predictions() {
     explicit_take.begin_take_count(0, 12).unwrap();
     click_take.begin_click(0).unwrap();
     assert_eq!(
-        explicit_take.newest_request().unwrap().action,
-        click_take.newest_request().unwrap().action
+        explicit_take.newest_request().unwrap().actions,
+        click_take.newest_request().unwrap().actions
     );
     assert_eq!(
         explicit_take.displayed_stack(0),
@@ -215,8 +215,8 @@ fn full_count_operations_match_existing_take_and_place_predictions() {
     explicit_place.begin_place_count(0, 12).unwrap();
     click_place.begin_click(0).unwrap();
     assert_eq!(
-        explicit_place.newest_request().unwrap().action,
-        click_place.newest_request().unwrap().action
+        explicit_place.newest_request().unwrap().actions,
+        click_place.newest_request().unwrap().actions
     );
     assert_eq!(
         explicit_place.displayed_stack(0),

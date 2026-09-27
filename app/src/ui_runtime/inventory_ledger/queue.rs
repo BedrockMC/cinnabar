@@ -8,7 +8,7 @@ use protocol::{
     StackResponseSlot, project_container_cell,
 };
 
-use super::cells::{Cell, CellSurface, Cells, Held};
+use super::cells::{Cell, Cells, Held};
 use super::overlay::DeltaGroup;
 use super::response::merge_response_overlay;
 use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
@@ -21,7 +21,7 @@ pub const MAX_PENDING_REQUESTS: usize = 256;
 #[derive(Debug, Clone)]
 pub(super) struct PendingRequest {
     pub(super) request_id: i32,
-    pub(super) action: StackRequestAction,
+    pub(super) actions: Vec<StackRequestAction>,
     pub(super) groups: Vec<DeltaGroup>,
     pub(super) state: InventoryPendingState,
     pub(super) transport_deadline_millis: Option<u64>,
@@ -284,19 +284,14 @@ impl PlayerInventoryLedger {
     /// Retires timed-out requests once complete content refreshed every
     /// surface they touched.
     pub(super) fn drop_refreshed_timeouts(&mut self) {
-        let flagged = |ledger: &Self, surface: CellSurface| match surface {
-            CellSurface::Player => ledger.player_resync_required,
-            CellSurface::Cursor => ledger.cursor_resync_required,
-            CellSurface::Storage => ledger
-                .storage
-                .as_ref()
-                .is_some_and(|storage| storage.resync_required),
-        };
         let retired: Vec<i32> = self
             .queue
             .iter()
             .filter(|request| {
-                request.timed_out && request.touched().all(|cell| !flagged(self, cell.surface()))
+                request.timed_out
+                    && request
+                        .touched()
+                        .all(|cell| !self.surface_flagged(cell.surface()))
             })
             .map(|request| request.request_id)
             .collect();
@@ -324,7 +319,7 @@ fn storage_identity_mismatch(
 #[cfg(test)]
 impl PlayerInventoryLedger {
     pub(super) fn newest_action(&self) -> Option<StackRequestAction> {
-        self.queue.back().map(|pending| pending.action)
+        self.queue.back()?.actions.first().cloned()
     }
 
     pub(super) fn newest_request(&self) -> Option<&PendingRequest> {

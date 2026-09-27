@@ -4,11 +4,22 @@ use protocol::NetworkItemStack;
 
 use super::{PLAYER_INVENTORY_SLOT_COUNT, StackResponseOverlay};
 
+/// Armor cells including the body slot.
+pub(super) const ARMOR_CELLS: usize = protocol::ARMOR_SLOTS as usize;
+/// UI inventory slot of the first crafting cell.
+pub(super) const FIRST_CRAFT_SLOT: u8 = *protocol::CRAFTING_INPUT_SLOTS.start();
+const CRAFT_CELLS: usize = 13;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(super) enum Cell {
     Inventory(u8),
     Storage(u8),
     Cursor,
+    Armor(u8),
+    Offhand,
+    /// One crafting cell addressed by its UI inventory slot, 28..=40.
+    Craft(u8),
+    CreatedOutput,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -16,6 +27,10 @@ pub(super) enum CellSurface {
     Player,
     Storage,
     Cursor,
+    Armor,
+    Offhand,
+    /// Crafting cells and created output: the rest of the UI inventory.
+    Crafting,
 }
 
 impl Cell {
@@ -24,6 +39,9 @@ impl Cell {
             Self::Inventory(_) => CellSurface::Player,
             Self::Storage(_) => CellSurface::Storage,
             Self::Cursor => CellSurface::Cursor,
+            Self::Armor(_) => CellSurface::Armor,
+            Self::Offhand => CellSurface::Offhand,
+            Self::Craft(_) | Self::CreatedOutput => CellSurface::Crafting,
         }
     }
 }
@@ -50,6 +68,10 @@ pub(super) struct Cells {
     player: [Option<Held>; PLAYER_INVENTORY_SLOT_COUNT],
     cursor: Option<Held>,
     storage: Vec<Option<Held>>,
+    armor: [Option<Held>; ARMOR_CELLS],
+    offhand: Option<Held>,
+    craft: [Option<Held>; CRAFT_CELLS],
+    created_output: Option<Held>,
 }
 
 impl Default for Cells {
@@ -58,6 +80,10 @@ impl Default for Cells {
             player: std::array::from_fn(|_| None),
             cursor: None,
             storage: Vec::new(),
+            armor: std::array::from_fn(|_| None),
+            offhand: None,
+            craft: std::array::from_fn(|_| None),
+            created_output: None,
         }
     }
 }
@@ -68,6 +94,10 @@ impl Cells {
             Cell::Inventory(slot) => self.player.get(usize::from(slot))?.as_ref(),
             Cell::Storage(slot) => self.storage.get(usize::from(slot))?.as_ref(),
             Cell::Cursor => self.cursor.as_ref(),
+            Cell::Armor(slot) => self.armor.get(usize::from(slot))?.as_ref(),
+            Cell::Offhand => self.offhand.as_ref(),
+            Cell::Craft(slot) => self.craft.get(craft_index(slot)?)?.as_ref(),
+            Cell::CreatedOutput => self.created_output.as_ref(),
         }
     }
 
@@ -80,7 +110,9 @@ impl Cells {
         match cell {
             Cell::Inventory(slot) => usize::from(slot) < PLAYER_INVENTORY_SLOT_COUNT,
             Cell::Storage(slot) => usize::from(slot) < self.storage.len(),
-            Cell::Cursor => true,
+            Cell::Armor(slot) => usize::from(slot) < ARMOR_CELLS,
+            Cell::Craft(slot) => craft_index(slot).is_some(),
+            Cell::Cursor | Cell::Offhand | Cell::CreatedOutput => true,
         }
     }
 
@@ -104,6 +136,10 @@ impl Cells {
             Cell::Inventory(slot) => self.player.get_mut(usize::from(slot)),
             Cell::Storage(slot) => self.storage.get_mut(usize::from(slot)),
             Cell::Cursor => Some(&mut self.cursor),
+            Cell::Armor(slot) => self.armor.get_mut(usize::from(slot)),
+            Cell::Offhand => Some(&mut self.offhand),
+            Cell::Craft(slot) => self.craft.get_mut(craft_index(slot)?),
+            Cell::CreatedOutput => Some(&mut self.created_output),
         }
     }
 
@@ -132,6 +168,31 @@ impl Cells {
             .iter()
             .enumerate()
             .filter_map(|(slot, held)| Some((Cell::Storage(slot as u8), held.as_ref()?)));
-        player.chain(cursor).chain(storage)
+        let armor = self
+            .armor
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, held)| Some((Cell::Armor(slot as u8), held.as_ref()?)));
+        let offhand = self.offhand.as_ref().map(|held| (Cell::Offhand, held));
+        let craft = self.craft.iter().enumerate().filter_map(|(index, held)| {
+            Some((Cell::Craft(FIRST_CRAFT_SLOT + index as u8), held.as_ref()?))
+        });
+        let output = self
+            .created_output
+            .as_ref()
+            .map(|held| (Cell::CreatedOutput, held));
+        player
+            .chain(cursor)
+            .chain(storage)
+            .chain(armor)
+            .chain(offhand)
+            .chain(craft)
+            .chain(output)
     }
+}
+
+fn craft_index(slot: u8) -> Option<usize> {
+    protocol::CRAFTING_INPUT_SLOTS
+        .contains(&slot)
+        .then(|| usize::from(slot - FIRST_CRAFT_SLOT))
 }
