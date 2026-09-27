@@ -163,3 +163,64 @@ fn table_header_pins_manifest_sources() {
         );
     }
 }
+
+const EVERY_TOOL: [&str; 9] = [
+    "minecraft:netherite_pickaxe",
+    "minecraft:golden_pickaxe",
+    "minecraft:netherite_axe",
+    "minecraft:golden_shovel",
+    "minecraft:netherite_hoe",
+    "minecraft:golden_sword",
+    "minecraft:shears",
+    "minecraft:diamond_sword",
+    "minecraft:stick",
+];
+
+#[test]
+fn rows_without_tool_evidence_take_the_slowest_rate_for_every_tool() {
+    let unresolved = table()
+        .iter()
+        .filter(|(_, info)| info.harvest == HarvestRequirement::Unresolved && info.hardness > 0.0)
+        .collect::<Vec<_>>();
+    for name in [
+        "minecraft:crafter",
+        "minecraft:glowingobsidian",
+        "minecraft:trial_spawner",
+    ] {
+        assert!(
+            unresolved.iter().any(|(identifier, _)| *identifier == name),
+            "{name}"
+        );
+    }
+    for (identifier, info) in unresolved {
+        let slowest = 1.0 / info.hardness / 100.0;
+        for tool in EVERY_TOOL {
+            let conditions = DestroyConditions {
+                tool: HeldTool::from_identifier(tool),
+                on_ground: true,
+                ..DestroyConditions::default()
+            };
+            assert_eq!(
+                destroy_progress_per_tick(info, &conditions),
+                Some(slowest),
+                "{identifier} with {tool}"
+            );
+        }
+    }
+}
+
+#[test]
+fn flying_is_exempt_from_the_airborne_penalty_but_riding_is_not() {
+    let base = grounded(Some("minecraft:wooden_pickaxe"));
+    let flying = DestroyConditions {
+        on_ground: false,
+        flying: true,
+        ..base
+    };
+    assert_eq!(ticks("minecraft:stone", flying), Some(23));
+    let riding_flight = DestroyConditions {
+        riding: true,
+        ..flying
+    };
+    assert_eq!(ticks("minecraft:stone", riding_flight), Some(113));
+}

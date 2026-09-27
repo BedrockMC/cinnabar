@@ -34,6 +34,7 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
             )
             .unwrap(),
         },
+        wear: None,
     }
 }
 
@@ -53,54 +54,95 @@ fn held(
     machine.step(DestroyInput::Held(Some(target)), true, authority)
 }
 
+/// Held ticks after the start tick until completion, from the documented per-tick rate.
+fn expected_completion_ticks(hardness: f64, speed: f64, divisor: f64) -> usize {
+    let rate = speed / hardness / divisor;
+    (0.99999 / rate).ceil() as usize
+}
+
 #[test]
 fn server_authority_is_silent_while_cracking_and_completes_with_continue_then_predict() {
     let dirt = target([1, 2, 3], "minecraft:dirt", None);
-    let rate = dirt.rate(true).unwrap();
+    let expected = expected_completion_ticks(0.5, 1.0, 30.0);
+    assert_eq!(expected, 15, "dirt by hand takes 0.75 s");
     let mut machine = DestroyMachine::default();
     assert_eq!(
         kinds(&held(&mut machine, &dirt, Server)),
         [(StartDestroy, [1, 2, 3], 1)]
     );
-    let mut progress = 0.0_f32;
-    loop {
-        progress += rate;
+    for tick in 1..=expected {
         let payload = held(&mut machine, &dirt, Server);
-        if progress >= 1.0 {
-            assert_eq!(
-                kinds(&payload),
-                [
-                    (ContinueDestroy, [1, 2, 3], 1),
-                    (PredictDestroy, [1, 2, 3], 1)
-                ]
+        if tick < expected {
+            assert!(
+                payload.is_empty(),
+                "tick {tick}: no crack actions under server authority"
             );
-            assert_eq!(payload.destroy, None);
-            break;
+            continue;
         }
-        assert!(
-            payload.is_empty(),
-            "no crack actions under server authority"
+        assert_eq!(
+            kinds(&payload),
+            [
+                (ContinueDestroy, [1, 2, 3], 1),
+                (PredictDestroy, [1, 2, 3], 1)
+            ]
         );
+        assert_eq!(payload.destroy, None);
     }
+    let next = target([1, 1, 3], "minecraft:dirt", None);
     for _ in 0..DESTROY_DELAY_TICKS {
-        assert!(
-            held(
-                &mut machine,
-                &target([1, 1, 3], "minecraft:dirt", None),
-                Server
-            )
-            .is_empty()
-        );
+        assert!(held(&mut machine, &next, Server).is_empty());
     }
     // The destroy stays active on the broken block, so the next block continues it.
     assert_eq!(
-        kinds(&held(
-            &mut machine,
-            &target([1, 1, 3], "minecraft:dirt", None),
-            Server
-        )),
+        kinds(&held(&mut machine, &next, Server)),
         [(ContinueDestroy, [1, 1, 3], 1)]
     );
+}
+
+#[test]
+fn completion_never_lands_a_tick_late_for_documented_tool_rates() {
+    for (block, tool, hardness, speed, divisor) in [
+        (
+            "minecraft:stone",
+            Some("minecraft:wooden_pickaxe"),
+            1.5,
+            2.0,
+            30.0,
+        ),
+        ("minecraft:stone", None, 1.5, 1.0, 100.0),
+        (
+            "minecraft:oak_log",
+            Some("minecraft:stone_axe"),
+            2.0,
+            4.0,
+            30.0,
+        ),
+        (
+            "minecraft:obsidian",
+            Some("minecraft:diamond_pickaxe"),
+            35.0,
+            8.0,
+            30.0,
+        ),
+    ] {
+        let destroyed = target([0, 0, 0], block, tool);
+        let mut machine = DestroyMachine::default();
+        held(&mut machine, &destroyed, Server);
+        let mut ticks = 0;
+        while !kinds(&held(&mut machine, &destroyed, Server)).contains(&(
+            PredictDestroy,
+            [0, 0, 0],
+            1,
+        )) {
+            ticks += 1;
+            assert!(ticks < 10_000, "{block}");
+        }
+        assert_eq!(
+            ticks + 1,
+            expected_completion_ticks(hardness, speed, divisor),
+            "{block}"
+        );
+    }
 }
 
 #[test]
@@ -122,17 +164,13 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
         kinds(&held(&mut machine, &second, Server)),
         [(ContinueDestroy, [0, 0, 1], 1)]
     );
-    let rate = second.rate(true).unwrap();
-    let mut progress = 0.0_f32;
     for _ in 0..75 {
         held(&mut machine, &second, Server);
-        progress += rate;
     }
-    let percent = (progress * 100.0) as u8;
-    assert!((40..60).contains(&percent));
+    // 75 ticks of 1/150 per tick is half the block.
     assert_eq!(
         kinds(&machine.step(DestroyInput::Released, true, Server)),
-        [(AbortDestroy, [0, 0, 1], percent)]
+        [(AbortDestroy, [0, 0, 1], 50)]
     );
     assert!(
         machine
@@ -151,30 +189,29 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
 
 #[test]
 fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transaction() {
-    let leaves = target(
-        [4, 5, 6],
-        "minecraft:oak_leaves",
-        Some("minecraft:golden_hoe"),
-    );
-    assert!(leaves.rate(true).unwrap() >= 1.0);
+    let dirt = target([4, 5, 6], "minecraft:dirt", None);
     let mut machine = DestroyMachine::default();
     assert_eq!(
-        kinds(&held(&mut machine, &leaves, Client)),
+        kinds(&held(&mut machine, &dirt, Client)),
         [(StartDestroy, [4, 5, 6], 1), (CrackBlock, [4, 5, 6], 1)]
     );
-    let done = held(&mut machine, &leaves, Client);
+    for _ in 1..expected_completion_ticks(0.5, 1.0, 30.0) {
+        assert_eq!(
+            kinds(&held(&mut machine, &dirt, Client)),
+            [(CrackBlock, [4, 5, 6], 1)]
+        );
+    }
+    let done = held(&mut machine, &dirt, Client);
     assert_eq!(kinds(&done), [(StopDestroy, [0, 0, 0], 0)]);
-    assert_eq!(
-        done.destroy.as_ref().map(|target| target.position),
-        Some([4, 5, 6])
-    );
-    let interactions = done.into_interactions([0.5, 64.0, 0.5]);
+    let (interactions, _) = done.into_interactions([0.5, 64.0, 0.5]);
     assert!(matches!(
         interactions.block_interaction,
         Some(protocol::BlockItemInteraction::Destroy(ref request))
             if request.block_position == [4, 5, 6] && request.selected_slot == 2
     ));
-    // A rate at or above one breaks without a following delay.
+    for _ in 0..DESTROY_DELAY_TICKS {
+        held(&mut machine, &dirt, Client);
+    }
     let other = target([4, 5, 7], "minecraft:stone", None);
     assert_eq!(
         kinds(&held(&mut machine, &other, Client)),
@@ -187,48 +224,89 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
 }
 
 #[test]
-fn zero_hardness_breaks_on_the_start_tick_and_then_delays() {
-    let torch = target([2, 2, 2], "minecraft:torch", None);
-    let mut machine = DestroyMachine::default();
-    assert_eq!(
-        kinds(&held(&mut machine, &torch, Server)),
-        [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)]
-    );
-    let next = target([2, 1, 2], "minecraft:torch", None);
-    for _ in 0..DESTROY_DELAY_TICKS {
-        assert!(held(&mut machine, &next, Server).is_empty());
+fn a_rate_at_the_threshold_breaks_on_the_start_tick_and_then_delays() {
+    // Zero hardness, and a hoe on leaves at twice the needed rate.
+    for (block, tool) in [
+        ("minecraft:torch", None),
+        ("minecraft:oak_leaves", Some("minecraft:golden_hoe")),
+    ] {
+        let instant = target([2, 2, 2], block, tool);
+        let mut machine = DestroyMachine::default();
+        assert_eq!(
+            kinds(&held(&mut machine, &instant, Server)),
+            [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)],
+            "{block}"
+        );
+        let next = target([2, 1, 2], block, tool);
+        for _ in 0..DESTROY_DELAY_TICKS {
+            assert!(held(&mut machine, &next, Server).is_empty());
+        }
+        assert!(!held(&mut machine, &next, Server).is_empty());
     }
-    assert!(!held(&mut machine, &next, Server).is_empty());
+    let leaves = target(
+        [2, 2, 2],
+        "minecraft:oak_leaves",
+        Some("minecraft:golden_hoe"),
+    );
+    let done = held(&mut DestroyMachine::default(), &leaves, Client);
+    assert_eq!(
+        kinds(&done),
+        [(StartDestroy, [2, 2, 2], 1), (StopDestroy, [0, 0, 0], 0)]
+    );
+    assert!(done.destroy.is_some());
+}
+
+#[test]
+fn only_a_continued_server_destroy_predicts_tool_wear() {
+    let worn = |block| DestroyTarget {
+        wear: Some(ToolWear {
+            current_damage: 4,
+            break_damage: 2,
+        }),
+        ..target([0, 0, 0], block, Some("minecraft:iron_sword"))
+    };
+    let mut machine = DestroyMachine::default();
+    let dirt = worn("minecraft:dirt");
+    assert_eq!(held(&mut machine, &dirt, Server).wear, None);
+    let done = loop {
+        let payload = held(&mut machine, &dirt, Server);
+        if !payload.is_empty() {
+            break payload;
+        }
+    };
+    assert_eq!(done.wear, Some((2, 6, -1)));
+    // Instant breaks and client-authoritative breaks never wear through this path.
+    let torch = worn("minecraft:torch");
+    assert_eq!(
+        held(&mut DestroyMachine::default(), &torch, Server).wear,
+        None
+    );
+    let mut client = DestroyMachine::default();
+    held(&mut client, &dirt, Client);
+    for _ in 0..20 {
+        assert_eq!(held(&mut client, &dirt, Client).wear, None);
+    }
 }
 
 #[test]
 fn a_predicted_break_waits_for_its_block_update() {
-    let leaves = target(
-        [0, 3, 0],
-        "minecraft:oak_leaves",
-        Some("minecraft:golden_hoe"),
-    );
+    // A golden shovel removes 0.8 of dirt per tick: two held ticks after the start.
+    let dirt = target([0, 3, 0], "minecraft:dirt", Some("minecraft:golden_shovel"));
+    let completion = [
+        (ContinueDestroy, [0, 3, 0], 1),
+        (PredictDestroy, [0, 3, 0], 1),
+    ];
     let mut machine = DestroyMachine::default();
-    held(&mut machine, &leaves, Server);
-    assert_eq!(
-        kinds(&held(&mut machine, &leaves, Server)),
-        [
-            (ContinueDestroy, [0, 3, 0], 1),
-            (PredictDestroy, [0, 3, 0], 1)
-        ]
-    );
+    held(&mut machine, &dirt, Server);
+    assert!(held(&mut machine, &dirt, Server).is_empty());
+    assert_eq!(kinds(&held(&mut machine, &dirt, Server)), completion);
     // The unchanged block is locally gone: no restart and no abort while held.
     for _ in 0..PREDICTED_BREAK_HOLD_TICKS - 1 {
-        assert!(held(&mut machine, &leaves, Server).is_empty());
+        assert!(held(&mut machine, &dirt, Server).is_empty());
     }
     // Without an update the hold expires and destroying resumes on it.
-    assert_eq!(
-        kinds(&held(&mut machine, &leaves, Server)),
-        [
-            (ContinueDestroy, [0, 3, 0], 1),
-            (PredictDestroy, [0, 3, 0], 1)
-        ]
-    );
+    assert!(held(&mut machine, &dirt, Server).is_empty());
+    assert_eq!(kinds(&held(&mut machine, &dirt, Server)), completion);
 }
 
 #[test]
@@ -308,17 +386,20 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         &mut ticker,
         DestroyInput::Held(Some(&stone)),
         Server,
-        |tick| {
-            swings.push(tick);
-        },
+        |tick| swings.push(tick),
+        || None,
     );
     // Re-running the frame must not step the same ticks again.
-    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server, |_| {});
+    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server, |_| {}, || None);
     ticker.retain_creative_mining(None);
     ticker.enqueue_completed_physics(completed(103)).unwrap();
-    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server, |tick| {
-        swings.push(tick);
-    });
+    runtime.step_ticks(
+        &mut ticker,
+        DestroyInput::Released,
+        Server,
+        |tick| swings.push(tick),
+        || None,
+    );
     assert_eq!(
         swings,
         [101, 102],
@@ -342,4 +423,63 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         .collect::<Vec<_>>();
     // Start on the first tick, silence while held, abort once released.
     assert_eq!(carries_actions, [true, false, true]);
+}
+
+#[test]
+fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.testing_lift_spawn_settle_gate();
+    let stack = NetworkItemStack {
+        network_id: 5,
+        stack_network_id: 41,
+        count: 1,
+        ..NetworkItemStack::empty()
+    };
+    let dirt = DestroyTarget {
+        selection: FrozenMiningSelection {
+            slot: 2,
+            item: VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap(),
+        },
+        wear: Some(ToolWear {
+            current_damage: 3,
+            break_damage: 1,
+        }),
+        ..target(
+            [0, 1, -3],
+            "minecraft:dirt",
+            Some("minecraft:golden_shovel"),
+        )
+    };
+    let mut runtime = SurvivalMiningRuntime::default();
+    let mut ids = [-7, -9].into_iter();
+    for tick in 101..=103 {
+        ticker.enqueue_completed_physics(completed(tick)).unwrap();
+        runtime.step_ticks(
+            &mut ticker,
+            DestroyInput::Held(Some(&dirt)),
+            Server,
+            |_| {},
+            || ids.next(),
+        );
+    }
+    let mut packets = Vec::new();
+    flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, packet| {
+        packets.push(packet);
+        Ok::<_, ()>(())
+    })
+    .unwrap();
+    let requests = packets
+        .iter()
+        .map(|packet| {
+            protocol::player_auth_input_trace_sample(packet)
+                .unwrap()
+                .flag_names
+                .contains(&"PerformItemStackRequest")
+        })
+        .collect::<Vec<_>>();
+    // Start, crack, then completion with the first allocated id.
+    assert_eq!(requests, [false, false, true]);
+    assert_eq!(ids.next(), Some(-9), "only the completion allocates an id");
 }

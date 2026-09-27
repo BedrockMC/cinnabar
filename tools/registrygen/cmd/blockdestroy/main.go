@@ -1,7 +1,9 @@
 // Command blockdestroy joins pinned block-data sources into the block destroy table.
 //
 // Hardness comes from the Bedrock-extracted pmmp properties table. Tool and harvest
-// classes come from PrismarineJS material/harvest data and are provisional.
+// classes come from PrismarineJS material/harvest data and are provisional; rows
+// with no tool evidence are written as unresolved (`?`) so the client takes the
+// slowest rate instead of assuming the hand harvests them.
 package main
 
 import (
@@ -72,8 +74,10 @@ var materialTools = map[string][]string{
 	"coweb":                 {"sword", "shears"},
 	"wool":                  {"shears"},
 	"sword_instantly_mines": {"sword"},
-	"vine_or_glow_lichen":   {"shears"},
 }
+
+// Materials whose tool effectiveness may not carry over to Bedrock; they contribute none.
+var unverifiedMaterials = map[string]bool{"plant": true, "vine_or_glow_lichen": true}
 
 type prismarineBlock struct {
 	Name         string          `json:"name"`
@@ -87,6 +91,7 @@ type row struct {
 	effective    []string
 	harvestTools []string
 	harvestLevel int // -1 when no tool is required for drops
+	unresolved   bool
 }
 
 func main() {
@@ -138,12 +143,15 @@ func run(manifestPath, bundle, output string) error {
 	fmt.Fprintf(&out, "# tools (provisional): %s@%s %s sha256=%s\n", prismarineSourceID, prismarine.commit, prismarineFile, prismarine.sha256)
 	out.WriteString("# identifier\thardness\teffective_tools\tharvest_tools\tharvest_level\n")
 	for _, r := range rows {
-		level := "-"
+		effective, harvest, level := list(r.effective), list(r.harvestTools), "-"
 		if r.harvestLevel >= 0 {
 			level = strconv.Itoa(r.harvestLevel)
 		}
+		if r.unresolved {
+			effective, harvest, level = "?", "?", "?"
+		}
 		fmt.Fprintf(&out, "%s\t%s\t%s\t%s\t%s\n", r.identifier,
-			strconv.FormatFloat(float64(r.hardness), 'g', -1, 32), list(r.effective), list(r.harvestTools), level)
+			strconv.FormatFloat(float64(r.hardness), 'g', -1, 32), effective, harvest, level)
 	}
 	return os.WriteFile(output, out.Bytes(), 0o644)
 }
@@ -221,6 +229,7 @@ func build(pmmpBytes, prismarineBytes []byte) ([]row, error) {
 				return nil, fmt.Errorf("%s: %w", identifier, err)
 			}
 		}
+		r.unresolved = len(r.effective) == 0 && len(r.harvestTools) == 0
 		rows = append(rows, r)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].identifier < rows[j].identifier })
@@ -229,7 +238,14 @@ func build(pmmpBytes, prismarineBytes []byte) ([]row, error) {
 
 func classify(block prismarineBlock) (effective, harvest []string, level int, err error) {
 	tools := map[string]bool{}
-	for _, part := range strings.Split(block.Material, ";") {
+	parts := strings.Split(block.Material, ";")
+	for _, part := range parts {
+		if unverifiedMaterials[part] {
+			parts = nil
+			break
+		}
+	}
+	for _, part := range parts {
 		for _, tool := range materialTools[part] {
 			tools[tool] = true
 		}

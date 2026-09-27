@@ -318,6 +318,13 @@ impl PlayerInventoryLedger {
         self.pending.as_ref().map(|pending| pending.request_id)
     }
 
+    /// Takes the next id from the counter shared by every client item-stack request.
+    pub fn allocate_request_id(&mut self) -> Option<i32> {
+        let request_id = self.next_request_id;
+        self.next_request_id = request_id.checked_sub(2)?;
+        Some(request_id)
+    }
+
     #[must_use]
     pub fn slot_pending(&self, slot: u8) -> bool {
         let cell = Cell::Inventory(slot);
