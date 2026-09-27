@@ -7,6 +7,14 @@ use protocol::{
     InventorySlotEvent, NetworkItemStack, SlotIdentity,
 };
 
+fn assert_cube_scene(app: &bevy::prelude::App, expected: bool) {
+    assert_eq!(
+        app.world()
+            .resource::<render::ViewmodelScene>()
+            .is_opaque_cube(),
+        expected
+    );
+}
 fn container(window: i32) -> ContainerIdentity {
     ContainerIdentity {
         window_id: Some(window),
@@ -532,10 +540,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         ecs::system::RunSystemOnce,
         prelude::*,
     };
-    use protocol::{
-        ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-        StandardSkin, WorldBootstrap, WorldEvent,
-    };
+    use protocol::WorldBootstrap;
     use std::sync::Arc;
     let (pack, _geometry, _) = hand_fixture();
     // Match the decoded carrier's unsupported player-controller route: retain
@@ -561,66 +566,23 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     assert!(entities.rig_bindings().is_empty());
     assert!(entities.rig_geometries().is_empty());
     let assets = cube_world_assets(&entities);
-    let mut stream = client_world::WorldStream::new_with_asset_sets(
-        WorldBootstrap {
-            local_player_unique_id: 1,
-            dimension: 0,
-            local_player_runtime_id: 1,
-            player_position: [0., 64., 0.],
-            world_spawn_position: [0, 64, 0],
-            air_network_id: 0,
-            block_network_ids_are_hashes: false,
-        },
+    let bootstrap = WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0., 64., 0.],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    };
+    let stream = client_world::WorldStream::new_with_asset_sets(
+        bootstrap,
         assets.clone(),
         entities.clone(),
         [0., 64., 0.],
         None,
     );
-    stream
-        .submit(
-            1,
-            WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
-                dimension: 0,
-                unique_id: 1,
-                runtime_id: 1,
-                kind: ActorKind::Player {
-                    uuid: [1; 16],
-                    username: "test".into(),
-                },
-                position: [0., 64., 0.],
-                velocity: [0.; 3],
-                pitch: 30.,
-                yaw: 0.,
-                head_yaw: 0.,
-                body_yaw: 0.,
-                held_item: Default::default(),
-                metadata: Arc::from([]),
-                attributes: Arc::from([]),
-                properties: Arc::from([]),
-                links: Arc::from([]),
-            })),
-        )
-        .unwrap();
-    stream
-        .submit(
-            2,
-            WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
-                entries: vec![PlayerListEntry::Add {
-                    uuid: [1; 16],
-                    unique_id: 1,
-                    username: "test".into(),
-                    verified: true,
-                    skin: PlayerSkin::Standard(StandardSkin {
-                        width: 64,
-                        height: 64,
-                        rgba8: vec![255; 64 * 64 * 4].into(),
-                    }),
-                }]
-                .into(),
-            })),
-        )
-        .unwrap();
-    assert!(stream.actor(1).is_some());
+    assert!(stream.actor(1).is_none());
     assert!(stream.actor_rig(1).is_none());
     let mut world = ClientWorld::new_with_entity_assets(assets, entities);
     world.stream = Some(stream);
@@ -634,9 +596,31 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut stack = NetworkItemStack::empty();
     stack.network_id = item;
     stack.count = 1;
+    stack.stack_network_id = 2;
+    stack.extra_data = Arc::from([0; 10]);
+    stack.nbt_digest = {
+        use sha2::Digest;
+        sha2::Sha256::digest(&stack.extra_data).into()
+    };
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    let wire = protocol::encode(
+        &protocol::select_hotbar_slot_packet(1, 0, &stack).unwrap(),
+        &session,
+    )
+    .unwrap();
+    let decoded = protocol::decode_batch(wire, &session)
+        .unwrap()
+        .pop()
+        .unwrap();
+    let Some(protocol::WorldEvent::Equipment(decoded)) =
+        protocol::into_world_event(decoded, 0).unwrap()
+    else {
+        panic!("expected selected equipment");
+    };
+    assert_eq!(decoded.stack, stack);
     let held = EquipmentEvent {
         actor_runtime_id: 1,
-        stack,
+        stack: decoded.stack,
         inventory_slot: 0,
         selected_slot: 0,
         window_id: 0,
@@ -663,8 +647,37 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .unwrap();
     let empty = presentation.cpu_empty_hand_fallback();
     let mut app = App::new();
+    let mut movement = crate::movement::MovementTicker::default();
+    let mut physics = crate::movement::LocalPhysicsController::default();
+    crate::runtime::network::reset_start_game_prediction(
+        &mut movement,
+        &mut physics,
+        1,
+        [0., 64., 0.],
+    );
+    movement.set_source(crate::movement::MovementSource::Physics);
+    let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+    let mut view = crate::local_player::LocalViewPose::default();
+    let mut settings = crate::camera::CameraSettingsAuthority::default();
+    crate::local_player::reset_local_player_session(
+        1,
+        1,
+        [0., 64., 0.],
+        &mut settings,
+        &mut view,
+        &mut avatar,
+    );
+    let mut visibility = crate::local_player::LocalAvatarVisibilityCarrier::default();
+    avatar.publish_view_visibility(
+        semantic_input::PerspectiveMode::FirstPerson,
+        Vec3::new(0., 64., 0.),
+        Quat::IDENTITY,
+        &mut visibility,
+    );
     app.insert_resource(runtime)
         .insert_resource(world)
+        .insert_resource(movement)
+        .insert_resource(visibility)
         .init_resource::<HandAdapter>()
         .init_resource::<render::ViewmodelScene>()
         .init_resource::<render::ViewmodelCompletionGate>();
@@ -693,7 +706,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
                 let (reason, values) =
                     hand.diagnostic_snapshot(&runtime, &world, true, false, [640, 480], false);
                 assert_eq!(reason, 0);
-                assert_eq!(values[4], 1);
+                assert_eq!(values[4], 0);
                 assert_eq!(values[6], 2);
                 assert_eq!(values[8], i128::from(item));
                 assert_eq!(values[9], 1);
@@ -704,15 +717,119 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             },
         )
         .unwrap();
-    assert!(
-        app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, true);
     assert_eq!(
         app.world().resource::<HandAdapter>().stats.mode,
         Some(render::ViewmodelMode::OpaqueCubeNeutralStaticFallback)
     );
+    // Exercise the real committed-control reconciliation, not a fabricated
+    // actor spawn counter. The free-camera correction branch anchors without
+    // requiring loaded collision chunks; cube admission resumes only afterward.
+    let mut clock = crate::environment::WorldClock::default();
+    let mut weather = crate::environment::WeatherState::default();
+    crate::environment::bind_session_generation(&mut clock, &mut weather, 1);
+    let breg = crate::asset_startup::pinned_block_registry_bytes();
+    let records = assets::read_registry_for_protocol(breg, 2168).unwrap();
+    let collisions = crate::movement::PhysicsCollisionRegistries::from_assets(
+        breg,
+        &records,
+        include_bytes!("../../../crates/assets/data/block-physics-v2168.bin"),
+        2168,
+    )
+    .unwrap();
+    app.insert_resource(clock)
+        .insert_resource(weather)
+        .insert_resource(collisions)
+        .insert_resource(physics)
+        .insert_resource(crate::acceptance::AcceptanceRun::new(
+            Some(900),
+            None,
+            false,
+            false,
+        ))
+        .insert_resource(crate::acceptance::model_witness::ModelWitnessFileSource::new(None))
+        .init_resource::<crate::movement::LocalMovementEffectTimeline>()
+        .init_resource::<crate::movement::LocalMovementSpeedAuthority>()
+        .init_resource::<Time<bevy::time::Real>>()
+        .init_resource::<render::ChunkUploadBudget>()
+        .init_resource::<crate::camera::CameraSettingsAuthority>()
+        .init_resource::<crate::local_player::LocalViewPose>()
+        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
+        .init_resource::<crate::runtime::phase3_evidence::Phase3EvidenceEmitter>()
+        .init_resource::<crate::runtime::world::WorldStreamFramePoll>()
+        .init_resource::<crate::server_camera::ServerCameraInstructions>()
+        .add_message::<crate::runtime::audio::SequencedAudioEvent>();
+    let controls = [
+        protocol::WorldEvent::Respawn(protocol::RespawnEvent {
+            position: [1., 64., 0.],
+            state: 1,
+            runtime_entity_id: 1,
+        }),
+        protocol::WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+            runtime_id: 1,
+            position: [2., 64., 0.],
+            teleported: true,
+            ..Default::default()
+        }),
+        protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+            dimension: 1,
+            position: [3., 64., 0.],
+        }),
+        protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+            dimension: 0,
+            position: [4., 64., 0.],
+        }),
+    ];
+    for (index, event) in controls.into_iter().enumerate() {
+        app.world_mut()
+            .resource_mut::<crate::movement::MovementTicker>()
+            .set_source(crate::movement::MovementSource::FreeCamera);
+        let before = app
+            .world()
+            .resource::<crate::movement::MovementTicker>()
+            .interaction_authority_identity();
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(index as u64 + 1, event)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(crate::runtime::world::reconcile_world_stream_before_physics)
+            .unwrap();
+        let after = app
+            .world()
+            .resource::<crate::movement::MovementTicker>()
+            .interaction_authority_identity();
+        assert_eq!(before.0, after.0);
+        assert!(after.1 > before.1);
+        app.world_mut()
+            .run_system_once(
+                |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
+                    assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                },
+            )
+            .unwrap();
+        assert_cube_scene(&app, false);
+        app.world_mut()
+            .resource_mut::<crate::movement::MovementTicker>()
+            .set_source(crate::movement::MovementSource::Physics);
+        let input = input.clone();
+        app.world_mut()
+            .run_system_once(
+                move |mut hand: ViewmodelPublish,
+                      runtime: Res<UiRuntime>,
+                      world: Res<ClientWorld>| {
+                    assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                    hand.bind_cpu_fallback(&input, empty, None);
+                },
+            )
+            .unwrap();
+        assert_cube_scene(&app, true);
+        assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    }
     assert!(
         input
             .vertices
@@ -726,11 +843,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             hand.bind_cpu_fallback(&bad, empty, None)
         })
         .unwrap();
-    assert!(
-        !app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, false);
     let mut mismatched = held.clone();
     mismatched.stack.block_runtime_id = i32::MAX;
     app.world_mut()
@@ -743,11 +856,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             },
         )
         .unwrap();
-    assert!(
-        !app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, false);
     assert_eq!(
         app.world().resource::<HandAdapter>().stats.fallback,
         Some(HandFallback::ItemsUnknownOrHeld)
@@ -764,11 +873,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             },
         )
         .unwrap();
-    assert!(
-        app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, true);
     app.world_mut()
         .resource_mut::<UiRuntime>()
         .retain_local_selected_equipment(
@@ -790,11 +895,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         Some(HandFallback::Ownership)
     );
     assert!(app.world().resource::<HandAdapter>().stats.mode.is_none());
-    assert!(
-        !app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, false);
     app.world_mut()
         .resource_mut::<UiRuntime>()
         .retain_local_selected_equipment(6, held.clone());
@@ -807,11 +908,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             },
         )
         .unwrap();
-    assert!(
-        app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, true);
     app.world_mut().resource_mut::<UiRuntime>().begin_session(2);
     app.world_mut()
         .run_system_once(
@@ -820,11 +917,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             },
         )
         .unwrap();
-    assert!(
-        !app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, false);
     assert_eq!(
         app.world().resource::<HandAdapter>().stats.fallback,
         Some(HandFallback::Ownership)
@@ -835,35 +928,51 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         runtime.retain_local_selected_equipment(1, held);
         runtime.retain_local_selected_equipment(2, equipment(1, NetworkItemStack::empty()));
     }
-    let current_input = input.clone();
     app.world_mut()
-        .run_system_once(
-            move |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
-                assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
-                hand.bind_cpu_fallback(&current_input, empty, None);
-            },
-        )
-        .unwrap();
-    assert!(
-        app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
+        .resource_mut::<crate::movement::MovementTicker>()
+        .reset(2, 0, [0., 64., 0.]);
+    let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+    avatar.begin_session(2, 1);
+    avatar.publish_view_visibility(
+        semantic_input::PerspectiveMode::FirstPerson,
+        Vec3::new(0., 64., 0.),
+        Quat::IDENTITY,
+        &mut app
+            .world_mut()
+            .resource_mut::<crate::local_player::LocalAvatarVisibilityCarrier>(),
     );
-    // Retiring the retained actor also withholds a cube even when the selected
-    // slot and camera remain present. No animation rig stands in for ownership.
+    for fresh_stream in [false, true] {
+        if fresh_stream {
+            let mut world = app.world_mut().resource_mut::<ClientWorld>();
+            let fresh = client_world::WorldStream::new_with_asset_sets(
+                bootstrap,
+                world.runtime_assets.clone(),
+                world.entity_assets.clone().unwrap(),
+                bootstrap.player_position,
+                None,
+            );
+            assert!(fresh.actor_session_id() > world.stream.as_ref().unwrap().actor_session_id());
+            assert!(fresh.actor(1).is_none());
+            world.stream = Some(fresh);
+        }
+        let current_input = input.clone();
+        app.world_mut()
+            .run_system_once(
+                move |mut hand: ViewmodelPublish,
+                      runtime: Res<UiRuntime>,
+                      world: Res<ClientWorld>| {
+                    assert!(!hand.observe(&runtime, &world, true, false, [640, 480]));
+                    hand.bind_cpu_fallback(&current_input, empty, None);
+                },
+            )
+            .unwrap();
+        assert_cube_scene(&app, fresh_stream);
+    }
+    // Retiring genuine local authority withholds the cube; no remote spawn was
+    // ever installed, and a visibility snapshot alone cannot grant admission.
     app.world_mut()
-        .resource_mut::<ClientWorld>()
-        .stream
-        .as_mut()
-        .unwrap()
-        .submit(
-            3,
-            WorldEvent::Actor(ActorEvent::Remove(protocol::ActorRemoveEvent {
-                dimension: 0,
-                unique_id: 1,
-            })),
-        )
-        .unwrap();
+        .resource_mut::<crate::movement::MovementTicker>()
+        .deactivate();
     app.world_mut()
         .run_system_once(
             |mut hand: ViewmodelPublish, runtime: Res<UiRuntime>, world: Res<ClientWorld>| {
@@ -881,9 +990,5 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         app.world().resource::<HandAdapter>().stats.fallback,
         Some(HandFallback::Ownership)
     );
-    assert!(
-        !app.world()
-            .resource::<render::ViewmodelScene>()
-            .is_opaque_cube()
-    );
+    assert_cube_scene(&app, false);
 }
