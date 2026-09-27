@@ -27,6 +27,7 @@ impl super::UiPresentationRuntime {
         }
         self.held_viewmodel_source = main;
         self.offhand_viewmodel_source = offhand;
+        self.preview_dirty = true;
         self.rebuild_dynamic_textures();
     }
 
@@ -54,23 +55,21 @@ pub(crate) fn render(
 ) -> Option<Vec<u8>> {
     let width = usize::from(icon.uv[2].checked_sub(icon.uv[0])?);
     let height = usize::from(icon.uv[3].checked_sub(icon.uv[1])?);
-    if width == 0 || height == 0 || u32::from(icon.page) >= textures.layers {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let page = textures.pages().get(usize::from(icon.page))?;
+    let [page_width, page_height] = page.dimensions();
+    if u32::from(icon.uv[2]) > page_width || u32::from(icon.uv[3]) > page_height {
         return None;
     }
     let mut source = vec![[0u8; 4]; width.checked_mul(height)?];
-    let layer_stride = usize::try_from(textures.width)
-        .ok()?
-        .checked_mul(textures.height as usize)?
-        .checked_mul(4)?;
-    let layer_start = usize::from(icon.page).checked_mul(layer_stride)?;
     for y in 0..height {
         for x in 0..width {
-            let offset = layer_start
-                + ((usize::from(icon.uv[1]) + y) * textures.width as usize
-                    + usize::from(icon.uv[0])
-                    + x)
+            let offset =
+                ((usize::from(icon.uv[1]) + y) * page_width as usize + usize::from(icon.uv[0]) + x)
                     * 4;
-            source[y * width + x] = textures.rgba8.get(offset..offset + 4)?.try_into().ok()?;
+            source[y * width + x] = page.pixels().get(offset..offset + 4)?.try_into().ok()?;
         }
     }
 

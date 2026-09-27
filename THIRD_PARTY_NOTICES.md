@@ -49,6 +49,19 @@ SOFTWARE.
   `f69c147003e052dbc9d96c40a9f73647e72766cfda95a597b94ed827fe25acb1`
 - Full license: `assets/licenses/Monocraft-OFL-1.1.txt`
 
+## Noto Sans CJK SC Regular
+
+- Source: https://github.com/notofonts/noto-cjk
+- Commit: `f8d157532fbfaeda587e826d4cd5b21a49186f7c`
+- Copyright: © 2014-2021 Adobe (http://www.adobe.com/).
+- License: OFL-1.1
+- Exact upstream license SHA-256:
+  `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2`
+- Full license: `assets/licenses/NotoSansCJK-OFL-1.1.txt`
+- The generated UI carrier's accompanying `ui-font-notices.txt` includes
+  both source fonts' full licenses and copyright notices. Source fonts remain
+  unmodified in the local cache; upstream family names identify attribution.
+
 ## PMMP BedrockData
 
 - Source: https://github.com/pmmp/BedrockData

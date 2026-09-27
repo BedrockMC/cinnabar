@@ -1,5 +1,10 @@
 #[path = "../src/ui.rs"]
 pub mod ui;
+#[path = "../src/ui_textures.rs"]
+pub mod ui_textures;
+pub use ui_textures::{
+    UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan,
+};
 #[path = "../src/ui_render.rs"]
 pub mod ui_render;
 
@@ -86,10 +91,10 @@ fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
 }
 
 #[test]
-fn oversized_or_invalid_publication_retains_last_valid_scene_with_attribution() {
+fn oversized_or_invalid_publication_withholds_scene_with_attribution() {
     let mut harness = UiRenderHarness::new();
     harness.publish(fixture_draw_list(7)).unwrap();
-    let accepted = harness.prepare().unwrap();
+    harness.prepare().unwrap();
 
     let mut oversized = fixture_draw_list(8);
     oversized.indices = vec![0; MAX_UI_INDICES + 1].into();
@@ -104,7 +109,7 @@ fn oversized_or_invalid_publication_retains_last_valid_scene_with_attribution() 
     assert_eq!(harness.scene().revision, 7);
     assert_eq!(harness.stats().rejected_revision, Some(8));
     assert_eq!(harness.stats().rejected_reason, Some(rejection.reason));
-    assert_eq!(harness.prepare().unwrap(), accepted);
+    assert!(harness.prepare().is_err());
 
     let mut invalid = fixture_draw_list(9);
     let mut batches = invalid.batches.to_vec();
@@ -116,7 +121,7 @@ fn oversized_or_invalid_publication_retains_last_valid_scene_with_attribution() 
         UiRenderRejectReason::BatchIndexRangeInvalid { batch: 1 }
     );
     assert_eq!(harness.scene().revision, 7);
-    assert_eq!(harness.prepare().unwrap(), accepted);
+    assert!(harness.prepare().is_err());
 }
 
 #[test]
@@ -158,40 +163,47 @@ fn same_revision_is_an_identical_noop_and_conflicting_content_fails_closed() {
         UiRenderRejectReason::RevisionConflict { revision: 12 }
     );
     assert_eq!(harness.scene().revision, 12);
-    assert_eq!(harness.prepare().unwrap(), prepared);
+    assert!(harness.prepare().is_err());
+    assert!(
+        harness.publish(fixture_draw_list(12)).is_err(),
+        "rejected revision cannot regrant an old accepted draw"
+    );
+    harness.publish(fixture_draw_list(13)).unwrap();
+    assert_eq!(harness.prepare().unwrap().revision, 13);
 }
 
 #[test]
-fn later_revision_cannot_reuse_texture_identity_for_different_content() {
+fn later_revision_cannot_replace_static_catalog_or_dimensions() {
     let mut harness = UiRenderHarness::new();
     harness.publish(fixture_draw_list(30)).unwrap();
-    let accepted = harness.prepare().unwrap();
-
+    harness.prepare().unwrap();
     let mut conflicting = fixture_draw_list(31);
-    let mut texture = (*conflicting.textures).clone();
-    texture.rgba8 = vec![0; texture.rgba8.len()].into();
-    conflicting.textures = Arc::new(texture);
-
-    let rejection = harness.publish(conflicting).unwrap_err();
+    conflicting.textures = Arc::new(
+        UiRenderTextureArray::new(
+            vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap(); 2],
+            2,
+        )
+        .unwrap(),
+    );
+    let identity = conflicting.textures.identity();
     assert_eq!(
-        rejection.reason,
-        UiRenderRejectReason::TextureIdentityConflict { identity: [3; 32] }
+        harness.publish(conflicting).unwrap_err().reason,
+        UiRenderRejectReason::TextureIdentityConflict { identity }
     );
     assert_eq!(harness.scene().revision, 30);
-    assert_eq!(harness.prepare().unwrap(), accepted);
-
-    let mut extent_conflicting = fixture_draw_list(32);
-    let mut texture = (*extent_conflicting.textures).clone();
-    texture.width = 2;
-    texture.rgba8 = vec![255; 16].into();
-    extent_conflicting.textures = Arc::new(texture);
-    let rejection = harness.publish(extent_conflicting).unwrap_err();
-    assert_eq!(
-        rejection.reason,
-        UiRenderRejectReason::TextureIdentityConflict { identity: [3; 32] }
+    assert!(harness.prepare().is_err());
+    // Restoring an original valid candidate does not permit shape migration.
+    harness.publish(fixture_draw_list(32)).unwrap();
+    let mut changed_shape = fixture_draw_list(33);
+    changed_shape.textures = Arc::new(
+        UiRenderTextureArray::new(
+            vec![UiTexturePage::owned([2, 1], vec![255; 8].into()).unwrap(); 2],
+            2,
+        )
+        .unwrap(),
     );
-    assert_eq!(harness.scene().revision, 30);
-    assert_eq!(harness.prepare().unwrap(), accepted);
+    assert!(harness.publish(changed_shape).is_err());
+    assert!(harness.prepare().is_err());
 }
 
 #[test]
@@ -220,6 +232,249 @@ fn render_preparation_updates_main_world_observable_stats() {
     assert_eq!(observed.uploaded_indices, 18);
     assert_eq!(observed.draw_calls, 3);
     assert!(observed.retained_gpu_bytes > 0);
+}
+
+#[test]
+fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(UiRenderPlugin);
+    app.finish();
+    let stats = app.world().resource::<UiRenderStats>().clone();
+    let render_app = app.sub_app_mut(RenderApp);
+    render_app.world_mut().run_schedule(RenderStartup);
+    let mut scene = UiRenderScene::default();
+    scene.publish(fixture_draw_list(1), &stats).unwrap();
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, Some(1));
+    let mut invalid = fixture_draw_list(1);
+    invalid.indices = vec![u32::MAX].into();
+    scene.input = Some(Arc::new(invalid));
+    render_app.world_mut().insert_resource(scene);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, None);
+    assert_eq!(stats.snapshot().draw_calls, 0);
+    let mut scene = UiRenderScene::default();
+    scene.publish(fixture_draw_list(3), &stats).unwrap();
+    render_app.world_mut().insert_resource(scene);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, Some(3));
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    render_app
+        .world_mut()
+        .insert_resource(RenderDevice::from(device));
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, None);
+    assert_eq!(stats.snapshot().draw_calls, 0);
+    for _ in 0..3 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+    }
+    render_app
+        .world_mut()
+        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    render_app.world_mut().run_schedule(RenderStartup);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(3),
+        "paired device/queue and real renderer startup may recover"
+    );
+}
+
+#[test]
+fn cloned_device_resource_replacement_on_empty_frame_stays_invalid_until_startup() {
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(UiRenderPlugin);
+    app.finish();
+    let stats = app.world().resource::<UiRenderStats>().clone();
+    let render_app = app.sub_app_mut(RenderApp);
+    render_app.world_mut().run_schedule(RenderStartup);
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderScene::default());
+    let device = render_app.world().resource::<RenderDevice>().clone();
+    render_app.world_mut().increment_change_tick();
+    render_app.world_mut().insert_resource(device);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    let mut scene = UiRenderScene::default();
+    scene.publish(fixture_draw_list(1), &stats).unwrap();
+    render_app.world_mut().insert_resource(scene);
+    for _ in 0..10 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+        assert_eq!(stats.snapshot().draw_calls, 0);
+    }
+    render_app.world_mut().run_schedule(RenderStartup);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, Some(1));
+}
+
+#[test]
+fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
+    use bevy::render::extract_resource::ExtractResource;
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(UiRenderPlugin);
+    app.finish();
+    let stats = app.world().resource::<UiRenderStats>().clone();
+    let render_app = app.sub_app_mut(RenderApp);
+    render_app.world_mut().run_schedule(RenderStartup);
+    let mut scene = UiRenderScene::default();
+    scene.publish(fixture_draw_list(1), &stats).unwrap();
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    let accepted = stats.snapshot();
+    for _ in 0..10 {
+        let publication = Arc::clone(scene.input.as_ref().unwrap());
+        scene.publish(fixture_draw_list(1), &stats).unwrap();
+        assert!(Arc::ptr_eq(scene.input.as_ref().unwrap(), &publication));
+        render_app
+            .world_mut()
+            .insert_resource(UiRenderScene::extract_resource(&scene));
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(
+            stats.snapshot(),
+            accepted,
+            "same immutable publication is a no-op"
+        );
+    }
+    let original = Arc::clone(scene.input.as_ref().unwrap());
+    let mut malformed = original.as_ref().clone();
+    malformed.indices = vec![u32::MAX].into();
+    scene.input = Some(Arc::new(malformed));
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, None);
+    let mut conflicting = original.as_ref().clone();
+    conflicting.viewport_size = [65, 64];
+    conflicting.validate().unwrap();
+    scene.input = Some(Arc::new(conflicting));
+    render_app.world_mut().insert_resource(scene.clone());
+    for _ in 0..10 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+        assert_eq!(stats.snapshot().draw_calls, 0);
+        assert_eq!(
+            stats.snapshot().rejected_reason,
+            Some(UiRenderRejectReason::RevisionConflict { revision: 1 })
+        );
+    }
+    let conflict = Arc::clone(scene.input.as_ref().unwrap());
+    scene.input = Some(Arc::clone(&original));
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(1),
+        "exact admitted publication may recover after transient refusal"
+    );
+    let expired = Arc::downgrade(&original);
+    drop(original);
+    scene.input = Some(conflict);
+    render_app.world_mut().insert_resource(scene.clone());
+    assert!(
+        expired.upgrade().is_none(),
+        "no pixel publication history is retained by renderer"
+    );
+    for _ in 0..10 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+        assert_eq!(stats.snapshot().draw_calls, 0);
+    }
+    scene.input = None;
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    scene.input = Some(Arc::new(fixture_draw_list(0)));
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, None);
+    assert_eq!(
+        stats.snapshot().rejected_reason,
+        Some(UiRenderRejectReason::StaleRevision {
+            current: 1,
+            rejected: 0
+        })
+    );
+    scene.publish(fixture_draw_list(2), &stats).unwrap();
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderScene::extract_resource(&scene));
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(2),
+        "fresh revision legitimately recovers"
+    );
+    assert_eq!(stats.snapshot().draw_calls, 3);
+    render_app.world_mut().run_schedule(RenderStartup);
+    let mut fresh_scene = UiRenderScene::default();
+    fresh_scene.publish(fixture_draw_list(1), &stats).unwrap();
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderScene::extract_resource(&fresh_scene));
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(1),
+        "only actual renderer and publisher recreation starts a fresh revision lifetime"
+    );
 }
 
 fn fixture_draw_list(revision: u64) -> UiRenderInput {
@@ -264,13 +519,13 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
         vertices,
         indices,
         batches,
-        textures: Arc::new(UiRenderTextureArray {
-            identity: [3; 32],
-            width: 1,
-            height: 1,
-            layers: 2,
-            rgba8: vec![255; 8].into(),
-        }),
+        textures: Arc::new(
+            UiRenderTextureArray::new(
+                vec![UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap(); 2],
+                2,
+            )
+            .unwrap(),
+        ),
     }
 }
 

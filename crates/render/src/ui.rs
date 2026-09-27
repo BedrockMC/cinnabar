@@ -83,14 +83,7 @@ impl UiRenderBatch {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UiRenderTextureArray {
-    pub identity: [u8; 32],
-    pub width: u32,
-    pub height: u32,
-    pub layers: u32,
-    pub rgba8: Arc<[u8]>,
-}
+pub type UiRenderTextureArray = crate::ui_textures::UiTextureCatalog;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiRenderInput {
@@ -138,7 +131,8 @@ impl UiRenderInput {
             return Err(UiRenderRejectReason::VertexIndexOutOfBounds);
         }
         validate_draw_bytes(self)?;
-        validate_textures(&self.textures)?;
+        // Texture catalogs have private fields and checked constructors; no
+        // raster hashing or immutable byte traversal occurs during publication.
         validate_batches(self)?;
         Ok(())
     }
@@ -191,6 +185,7 @@ impl std::error::Error for UiRenderReject {}
 pub struct UiRenderScene {
     pub revision: u64,
     pub input: Option<Arc<UiRenderInput>>,
+    rejected_since_publish: bool,
 }
 
 impl UiRenderScene {
@@ -201,7 +196,9 @@ impl UiRenderScene {
     ) -> Result<(), UiRenderReject> {
         let revision = input.revision;
         let result = input.validate().and_then(|()| {
-            if self.input.is_some() && revision < self.revision {
+            if revision < self.revision
+                || (self.rejected_since_publish && revision == self.revision)
+            {
                 Err(UiRenderRejectReason::StaleRevision {
                     current: self.revision,
                     rejected: revision,
@@ -214,18 +211,21 @@ impl UiRenderScene {
             {
                 Err(UiRenderRejectReason::RevisionConflict { revision })
             } else if self.input.as_deref().is_some_and(|current| {
-                current.textures.identity == input.textures.identity
-                    && current.textures.as_ref() != input.textures.as_ref()
+                current.textures.static_identity() != input.textures.static_identity()
+                    || current.textures.plan() != input.textures.plan()
             }) {
                 Err(UiRenderRejectReason::TextureIdentityConflict {
-                    identity: input.textures.identity,
+                    identity: input.textures.identity(),
                 })
             } else {
                 Ok(())
             }
         });
         if let Err(reason) = result {
+            self.input = None;
+            self.rejected_since_publish = true;
             stats.update(|snapshot| {
+                snapshot.accepted_revision = None;
                 snapshot.rejected_revision = Some(revision);
                 snapshot.rejected_reason = Some(reason);
                 snapshot.rejection_count = snapshot.rejection_count.saturating_add(1);
@@ -240,6 +240,7 @@ impl UiRenderScene {
             return Ok(());
         }
         self.revision = revision;
+        self.rejected_since_publish = false;
         self.input = Some(Arc::new(input));
         stats.update(|snapshot| {
             snapshot.rejected_revision = None;
@@ -328,37 +329,6 @@ fn validate_draw_bytes(input: &UiRenderInput) -> Result<(), UiRenderRejectReason
     Ok(())
 }
 
-fn validate_textures(textures: &UiRenderTextureArray) -> Result<(), UiRenderRejectReason> {
-    if textures.width == 0
-        || textures.height == 0
-        || textures.layers == 0
-        || textures.width > MAX_UI_TEXTURE_SIDE
-        || textures.height > MAX_UI_TEXTURE_SIDE
-        || textures.layers > MAX_UI_TEXTURE_LAYERS
-    {
-        return Err(UiRenderRejectReason::InvalidTextureExtent);
-    }
-    let expected = usize::try_from(textures.width)
-        .ok()
-        .and_then(|width| width.checked_mul(textures.height as usize))
-        .and_then(|pixels| pixels.checked_mul(textures.layers as usize))
-        .and_then(|pixels| pixels.checked_mul(4))
-        .unwrap_or(usize::MAX);
-    if expected > MAX_UI_TEXTURE_BYTES {
-        return Err(UiRenderRejectReason::TextureByteLimitExceeded {
-            actual: expected,
-            limit: MAX_UI_TEXTURE_BYTES,
-        });
-    }
-    if textures.rgba8.len() != expected {
-        return Err(UiRenderRejectReason::TextureByteLengthInvalid {
-            actual: textures.rgba8.len(),
-            expected,
-        });
-    }
-    Ok(())
-}
-
 fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
     let mut expected_first = 0usize;
     for (batch_index, batch) in input.batches.iter().enumerate() {
@@ -374,7 +344,7 @@ fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
         if end > input.indices.len() {
             return Err(UiRenderRejectReason::BatchIndexRangeInvalid { batch: batch_index });
         }
-        if batch.texture_page >= input.textures.layers {
+        if batch.texture_page as usize >= input.textures.pages().len() {
             return Err(UiRenderRejectReason::TexturePageOutOfBounds { batch: batch_index });
         }
         if batch.blend_mode > UI_BLEND_INVERT {
