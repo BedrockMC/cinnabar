@@ -585,11 +585,17 @@ fn geometry_from_runtime_assets(
             }
         }
     }
+    // Pivots share the vertices' rig frame, where authored X is mirrored.
     let bone_pivots = bones
         .iter()
         .map(|bone| {
-            bone.pivot
-                .map_or([0.0; 3], |pivot| pivot.map(|value| value.get() / 16.0))
+            bone.pivot.map_or([0.0; 3], |pivot| {
+                [
+                    -pivot[0].get() / 16.0,
+                    pivot[1].get() / 16.0,
+                    pivot[2].get() / 16.0,
+                ]
+            })
         })
         .collect::<Vec<_>>();
     ActorRigGeometry::new(

@@ -647,7 +647,7 @@ fn resolve_bones(assets: &RuntimeEntityAssets, geometry_index: usize) -> Option<
                     Some(None) => return None,
                     None => None,
                 },
-                pivot: scalars(bone.pivot.as_ref()),
+                pivot: mirror_x(scalars(bone.pivot.as_ref())),
                 rotation: scalars(bone.rotation.as_ref()),
             })
         })
@@ -679,6 +679,11 @@ fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
     if !child.cubes.is_empty() {
         base.cubes.clone_from(&child.cubes);
     }
+}
+
+/// Maps authored geometry coordinates into the rig frame, whose X axis is mirrored.
+fn mirror_x(point: [f32; 3]) -> [f32; 3] {
+    [-point[0], point[1], point[2]]
 }
 
 fn scalars(values: Option<&[assets::EntityGeometryScalar; 3]>) -> [f32; 3] {

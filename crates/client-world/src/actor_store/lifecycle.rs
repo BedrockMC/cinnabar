@@ -204,12 +204,8 @@ impl ActorStore {
                     actor.previous_pose = received;
                     actor.set_current_pose(received);
                     actor.interpolation_ticks_remaining = 0;
-                } else if matches!(actor.kind, ActorKind::Player { .. }) {
-                    actor.interpolation_ticks_remaining = PLAYER_POSITION_INTERPOLATION_TICKS;
                 } else {
-                    actor.previous_pose = received;
-                    actor.set_current_pose(received);
-                    actor.interpolation_ticks_remaining = 0;
+                    actor.interpolation_ticks_remaining = ACTOR_INTERPOLATION_TICKS;
                 }
                 actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
@@ -352,17 +348,22 @@ impl ActorStore {
                 let current = actor.current_pose();
                 actor.previous_pose = current;
                 let mut next = actor.received_pose;
-                if matches!(actor.kind, ActorKind::Player { .. })
-                    && actor.interpolation_ticks_remaining > 0
-                {
+                // The final step lands exactly on the target.
+                if actor.interpolation_ticks_remaining > 1 {
+                    // Each step closes 1/n of the remaining gap; angles take the short way.
                     let divisor = f32::from(actor.interpolation_ticks_remaining);
+                    let target = actor.received_pose;
                     next.position = std::array::from_fn(|axis| {
                         current.position[axis]
-                            + (actor.received_pose.position[axis] - current.position[axis])
-                                / divisor
+                            + (target.position[axis] - current.position[axis]) / divisor
                     });
-                    actor.interpolation_ticks_remaining -= 1;
+                    let step = |from: f32, to: f32| from + wrap_degrees(to - from) / divisor;
+                    next.pitch = step(current.pitch, target.pitch);
+                    next.yaw = step(current.yaw, target.yaw);
+                    next.head_yaw = step(current.head_yaw, target.head_yaw);
                 }
+                actor.interpolation_ticks_remaining =
+                    actor.interpolation_ticks_remaining.saturating_sub(1);
                 actor.set_current_pose(next);
             }
             let (session_id, dimension) = (self.session_id, self.dimension);
@@ -635,4 +636,8 @@ impl ActorStore {
             spawn_revision: actor.spawn_revision,
         }
     }
+}
+
+fn wrap_degrees(degrees: f32) -> f32 {
+    (degrees + 180.0).rem_euclid(360.0) - 180.0
 }

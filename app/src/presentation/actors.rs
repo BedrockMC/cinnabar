@@ -15,6 +15,7 @@ pub(crate) struct ActorRigPresentation {
     pub(crate) submission: ActorRigSubmission,
     pub(crate) skin_rgba8: Option<Arc<[u8]>>,
     pub(crate) artwork: Option<ActorArtworkLocation>,
+    pub(crate) model_scale: f32,
 }
 
 #[derive(Debug)]
@@ -139,11 +140,10 @@ fn actor_rig_presentation_inner(
     };
     let alpha = partial_tick.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
-    let yaw = lerp_degrees(actor.previous_pose.yaw, actor.yaw, alpha);
-    if !yaw.is_finite() {
+    let yaw = lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha);
+    if !yaw.is_finite() || !rig.scale.is_finite() || rig.scale <= 0.0 {
         return None;
     }
-    let (sine, cosine) = yaw.to_radians().sin_cos();
     let identity = ActorRenderIdentity {
         session_id: rig.actor.session_id,
         dimension: rig.actor.dimension,
@@ -169,16 +169,13 @@ fn actor_rig_presentation_inner(
                 completed_tick: rig.completed_tick,
                 reset_generation: rig.reset_generation,
             },
-            world_from_actor: [
-                [cosine, 0.0, sine, position[0]],
-                [0.0, 1.0, 0.0, position[1]],
-                [-sine, 0.0, cosine, position[2]],
-            ],
+            world_from_actor: rig_world_from_actor(position, yaw, rig.scale),
             texture_layer: u32::MAX,
             route,
         },
         skin_rgba8,
         artwork: None,
+        model_scale: rig.scale,
     })
 }
 
@@ -244,6 +241,7 @@ pub(crate) fn local_diagnostic_presentation(
         },
         skin_rgba8: Some(default_actor_skin_rgba8()),
         artwork: None,
+        model_scale: 1.0,
     })
 }
 
@@ -252,6 +250,7 @@ pub(crate) fn local_actor_presentation_for_visibility(
     visibility_runtime_id: u64,
     canonical: Option<ActorRigPresentation>,
     diagnostic: Option<ActorRigPresentation>,
+    yaw_degrees: f32,
 ) -> Option<ActorRigPresentation> {
     if local_runtime_id == 0 || visibility_runtime_id != local_runtime_id {
         return None;
@@ -263,7 +262,9 @@ pub(crate) fn local_actor_presentation_for_visibility(
         Some(mut canonical)
             if canonical.submission.input.identity.runtime_id == local_runtime_id =>
         {
-            canonical.submission.world_from_actor = diagnostic.submission.world_from_actor;
+            let feet = diagnostic.submission.world_from_actor.map(|row| row[3]);
+            canonical.submission.world_from_actor =
+                rig_world_from_actor(feet, yaw_degrees, canonical.model_scale);
             Some(canonical)
         }
         Some(_) => None,
@@ -373,6 +374,21 @@ fn convert_bones(bones: &[client_world::BoneTransform]) -> Option<Arc<[RenderBon
         .map(|bone| RenderBoneTransform::from_model_space(bone.rotation, bone.translation_scale))
         .collect::<Option<Vec<_>>>()
         .map(Arc::from)
+}
+
+/// Places a rig-frame model, which faces -Z with its right side at +X, so it faces the
+/// Minecraft `yaw_degrees` direction at `position`, scaled about the feet.
+pub(crate) fn rig_world_from_actor(
+    position: [f32; 3],
+    yaw_degrees: f32,
+    scale: f32,
+) -> [[f32; 4]; 3] {
+    let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
+    [
+        [-cosine * scale, 0.0, sine * scale, position[0]],
+        [0.0, scale, 0.0, position[1]],
+        [-sine * scale, 0.0, -cosine * scale, position[2]],
+    ]
 }
 
 fn interpolated_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<[f32; 3]> {

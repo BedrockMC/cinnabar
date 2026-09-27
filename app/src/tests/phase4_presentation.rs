@@ -150,6 +150,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
         },
         skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
         artwork: None,
+        model_scale: 1.0,
     }
 }
 
@@ -279,6 +280,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
         8,
         Some(canonical.clone()),
         Some(mismatched_visibility),
+        0.0,
     );
     let batch = select_actor_presentations(7, true, local, [render_owned(7, 31)]);
     assert!(batch.submissions.is_empty());
@@ -296,6 +298,7 @@ fn local_visibility_identity_gates_all_perspective_routes() {
             7,
             Some(canonical.clone()),
             Some(matching_visibility.clone()),
+            0.0,
         );
         let batch = select_actor_presentations(
             7,

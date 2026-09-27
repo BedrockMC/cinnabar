@@ -255,3 +255,67 @@ fn sneaking_flag_overrides_the_root_tilt_through_this() {
     let angle = 2.0 * root.rotation[3].clamp(-1.0, 1.0).acos().to_degrees();
     assert!((angle - 28.0).abs() < 1.0e-3, "root tilt {angle}");
 }
+
+fn rotate(rotation: [f32; 4], vector: [f32; 3]) -> [f32; 3] {
+    let quat = bevy::math::Quat::from_xyzw(rotation[0], rotation[1], rotation[2], rotation[3]);
+    (quat * bevy::math::Vec3::from_array(vector)).to_array()
+}
+
+#[test]
+fn head_faces_the_reported_head_yaw_and_pitch_in_the_world() {
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    world.submit(1, spawn_player()).unwrap();
+    world.submit(2, move_player(0.0, 40.0, 20.0, 1)).unwrap();
+    // Rotation reaches the packet target over the three interpolation steps.
+    world.advance_actor_interpolation_ticks(3);
+    let rig = world.actor_rig(42).unwrap();
+    assert!(rig.body_yaw.abs() < 40.0, "the body lags the head");
+    let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], rig.body_yaw, 1.0);
+    let forward = rotate(bone(&world, &entities, "head").rotation, [0.0, 0.0, -1.0]);
+    let world_forward: [f32; 3] =
+        std::array::from_fn(|row| (0..3).map(|axis| model[row][axis] * forward[axis]).sum());
+    let (yaw, pitch) = (40.0_f32.to_radians(), 20.0_f32.to_radians());
+    let expected = [
+        -yaw.sin() * pitch.cos(),
+        -pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    ];
+    for axis in 0..3 {
+        assert!(
+            (world_forward[axis] - expected[axis]).abs() < 1.0e-3,
+            "{world_forward:?} vs {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn rig_frame_front_faces_the_yaw_and_its_right_side_faces_the_models_right() {
+    let at = |yaw: f32, vector: [f32; 3]| {
+        let model = crate::presentation::actors::rig_world_from_actor([0.0; 3], yaw, 2.0);
+        std::array::from_fn::<f32, 3, _>(|row| {
+            (0..3)
+                .map(|axis| model[row][axis] * vector[axis])
+                .sum::<f32>()
+        })
+    };
+    let close = |left: [f32; 3], right: [f32; 3]| {
+        left.iter().zip(right).all(|(a, b)| (a - b).abs() < 1.0e-5)
+    };
+    assert!(
+        close(at(0.0, [0.0, 0.0, -1.0]), [0.0, 0.0, 2.0]),
+        "yaw 0 faces south"
+    );
+    assert!(
+        close(at(0.0, [1.0, 0.0, 0.0]), [-2.0, 0.0, 0.0]),
+        "right side is west"
+    );
+    assert!(
+        close(at(90.0, [0.0, 0.0, -1.0]), [-2.0, 0.0, 0.0]),
+        "yaw 90 faces west"
+    );
+    assert!(
+        close(at(0.0, [0.0, 1.0, 0.0]), [0.0, 2.0, 0.0]),
+        "scaled about the feet"
+    );
+}

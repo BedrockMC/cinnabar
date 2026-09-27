@@ -156,6 +156,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             visibility.runtime_id(),
             canonical_local,
             diagnostic,
+            yaw_degrees,
         );
         (visibility.visible(), local)
     });
