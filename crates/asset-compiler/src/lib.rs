@@ -4,6 +4,7 @@ mod audio;
 mod biome;
 mod compiler;
 mod entity;
+mod fadpcm;
 mod font;
 mod hud;
 mod icon;
@@ -26,6 +27,7 @@ pub use entity::{
     CompileReferenceOutcome, EntityAssetCompilation, FallbackReason, RejectReason,
     compile_entity_assets, compile_entity_assets_with_report,
 };
+pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
     CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, OutlineFontConfig,
     compile_fonts, compile_outline_font,
