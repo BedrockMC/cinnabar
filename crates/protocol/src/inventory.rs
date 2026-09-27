@@ -4,7 +4,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
-    codec::{BedrockCodec, Nbt},
+    codec::BedrockCodec,
     version::v1_26_44::{
         ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
         EnumsContainerEnumName as FullContainerNameContainerName,
@@ -18,16 +18,25 @@ use valentine::protocol::wire;
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
 mod address;
+pub mod recipes;
 mod request;
+mod validation;
 pub use address::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR,
     CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
     OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, project_container_cell,
 };
+pub use request::manual_craft::{
+    ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
+};
+mod registry_snapshot;
+pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
+pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
     PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
     container_close_packet, item_stack_request_packet, open_inventory_packet,
 };
+use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
 pub const MAX_ITEM_NBT_BYTES: usize = 1_048_576;
 pub const MAX_STACK_RESPONSES: usize = 512;
@@ -146,6 +155,7 @@ pub struct ContainerDataEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
+    Recipes(recipes::RecipeUpdate),
     Authority(InventoryAuthority),
     Content(InventoryContentEvent),
     Slot(InventorySlotEvent),
@@ -837,46 +847,6 @@ fn validate_stack_shape(stack: &NetworkItemStack) -> Result<(), InventoryPacketE
         ));
     }
     Ok(())
-}
-
-/// Bounds an item's user-data buffer and checks the compound it may carry.
-///
-/// 1.26.40 hands this over as opaque bytes, so the header is read exactly as
-/// gophertunnel's `Writer.itemUserData` writes it
-/// (`minecraft/protocol/writer.go`): an `int16` of `-1` introduces a `uint8`
-/// version and a fixed little-endian compound, `0` means no compound. The
-/// trailing canPlaceOn/canBreak lists and shield blocking tick are carried
-/// through verbatim and never re-encoded field-by-field, which is what made the
-/// protocol-1001 per-string length checks necessary.
-fn validate_item_user_data(extra: &[u8]) -> Result<(), InventoryPacketError> {
-    if extra.len() > MAX_ITEM_NBT_BYTES {
-        return Err(InventoryPacketError::ItemExtraTooLarge {
-            bytes: extra.len(),
-            max: MAX_ITEM_NBT_BYTES,
-        });
-    }
-    if extra.is_empty() {
-        return Ok(());
-    }
-    let header = extra
-        .get(..2)
-        .ok_or(InventoryPacketError::InvalidItemExtra)?;
-    match i16::from_le_bytes([header[0], header[1]]) {
-        0 => Ok(()),
-        -1 => {
-            let version = *extra.get(2).ok_or(InventoryPacketError::InvalidItemExtra)?;
-            if version != 1 {
-                return Err(InventoryPacketError::UnsupportedItemNbtVersion(version));
-            }
-            // Only the compound is validated; the lists that follow it in the
-            // same buffer mean trailing bytes are expected here.
-            let mut bytes = Bytes::copy_from_slice(&extra[3..]);
-            Nbt::decode_little_endian(&mut bytes)
-                .map_err(|_| InventoryPacketError::InvalidItemExtra)?;
-            Ok(())
-        }
-        _ => Err(InventoryPacketError::InvalidItemExtra),
-    }
 }
 
 /// Recovers the wire code behind an unrecognised item-stack response result.

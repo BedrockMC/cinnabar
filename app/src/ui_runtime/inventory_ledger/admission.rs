@@ -25,6 +25,8 @@ use super::{
 impl PlayerInventoryLedger {
     pub fn apply(&mut self, event: &InventoryEvent) {
         match event {
+            // Recipe execution is not activated by protocol admission alone.
+            InventoryEvent::Recipes(_) => {}
             InventoryEvent::Authority(authority) => {
                 self.authority = Some(*authority);
                 if *authority != InventoryAuthority::Server {
