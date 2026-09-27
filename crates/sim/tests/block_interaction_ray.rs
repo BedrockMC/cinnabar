@@ -811,6 +811,8 @@ fn air_query_requires_every_layer_empty_and_a_loaded_block() {
         Ok(false),
         "a filled second layer is not air"
     );
+    assert_eq!(world.primary_runtime_id([0, 0, 0]), Ok(7));
+    assert_eq!(world.primary_runtime_id([1, 0, 0]), Ok(0));
     assert!(matches!(
         world.is_air([0, 200, 0]),
         Err(WorldQueryError::UnloadedChunk(_))

@@ -5,7 +5,7 @@
 
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Query, Res, ResMut, Resource, Window, With},
+    prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
 use client_world::ActorSnapshot;
@@ -18,7 +18,10 @@ use crate::{
     interaction_authority::observe_block,
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
-    mining::{creative_reach, protocol_input_mode, survival_reach, verified_selection},
+    mining::{
+        FrozenMiningSelection, creative_reach, protocol_input_mode, survival_reach,
+        verified_selection,
+    },
     movement::{
         LocalMovementEffectTimeline, MiningEffects, MovementTicker, PhysicsCollisionRegistries,
     },
@@ -35,8 +38,9 @@ const CREATIVE_ATTACK_REACH: f64 = 7.0;
 const ACTOR_PICK_RADIUS: f64 = 0.1;
 /// Documented default swing length of 0.3 seconds.
 const DEFAULT_SWING_TICKS: i32 = 6;
-/// Ticks after an attack during which block use is suppressed. Needs independent measurement.
-const ATTACK_BUILD_BLOCK_TICKS: u64 = 4;
+/// Wall-clock time after an attack during which block use is suppressed. Needs
+/// independent measurement.
+const ATTACK_BUILD_BLOCK_MILLIS: u64 = 200;
 
 /// Actors vanilla cannot pick: drops, orbs, projectiles and effect carriers.
 const UNPICKABLE_ACTORS: &[&str] = &[
@@ -117,6 +121,11 @@ pub(crate) fn pick_actor<'a>(
             })
         })
         .min_by(|left, right| left.distance.total_cmp(&right.distance))
+}
+
+/// Drops, orbs, projectiles and effect carriers never block a placement either.
+pub(crate) fn obstructs_placement(actor: &ActorSnapshot) -> bool {
+    pickable(actor)
 }
 
 fn pickable(actor: &ActorSnapshot) -> bool {
@@ -204,12 +213,32 @@ impl SwingTracker {
     }
 }
 
+/// The unsent tick and local state one attack press resolves against.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PressContext {
+    pub(crate) tick: u64,
+    pub(crate) player_position: [f32; 3],
+    pub(crate) input_mode: PlayerInputMode,
+    pub(crate) local_runtime_id: u64,
+    pub(crate) selection: Option<FrozenMiningSelection>,
+    pub(crate) swing_duration: i32,
+    pub(crate) now_millis: u64,
+}
+
+/// Standalone packets in send order, plus whether the tick reports a missed swing.
+#[derive(Debug, Default)]
+pub(crate) struct MeleeOutcome {
+    pub(crate) packets: Vec<protocol::Packet>,
+    pub(crate) missed_swing: bool,
+}
+
 /// Attack-press state; `actor_in_front` vetoes mining behind a targeted actor.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct MeleeRuntime {
     latched_press: bool,
     actor_in_front: bool,
-    last_attack_tick: Option<u64>,
+    last_attack_millis: Option<u64>,
+    position_authority: Option<(u64, u64)>,
 }
 
 impl MeleeRuntime {
@@ -217,10 +246,92 @@ impl MeleeRuntime {
         self.actor_in_front
     }
 
-    /// Whether a recent attack still suppresses block use on `tick`.
-    pub(crate) fn blocks_use_at(&self, tick: u64) -> bool {
-        self.last_attack_tick
-            .is_some_and(|attack| tick >= attack && tick - attack < ATTACK_BUILD_BLOCK_TICKS)
+    /// Whether a recent attack still suppresses block use.
+    pub(crate) fn blocks_use_at(&self, now_millis: u64) -> bool {
+        self.last_attack_millis.is_some_and(|attack| {
+            now_millis >= attack && now_millis - attack < ATTACK_BUILD_BLOCK_MILLIS
+        })
+    }
+
+    /// Drops a latched press when the session or position authority changes.
+    pub(crate) fn synchronize(&mut self, authority: (u64, u64)) {
+        if self
+            .position_authority
+            .is_some_and(|previous| previous != authority)
+        {
+            self.latched_press = false;
+            self.last_attack_millis = None;
+        }
+        self.position_authority = Some(authority);
+    }
+
+    /// Records this frame's attack input; returns whether a press is waiting.
+    pub(crate) fn observe_input(&mut self, pressed: bool, held: bool) -> bool {
+        self.latched_press |= pressed;
+        self.latched_press || held
+    }
+
+    fn observe_crosshair(&mut self, crosshair: Crosshair) {
+        self.actor_in_front = !matches!(crosshair, Crosshair::Block);
+    }
+
+    pub(crate) fn cancel(&mut self) {
+        self.latched_press = false;
+        self.actor_in_front = false;
+    }
+
+    /// Resolves at most one latched press into packets; a held button never re-attacks.
+    pub(crate) fn resolve(
+        &mut self,
+        crosshair: Crosshair,
+        press: &PressContext,
+        swings: &mut SwingTracker,
+    ) -> MeleeOutcome {
+        self.observe_crosshair(crosshair);
+        let mut outcome = MeleeOutcome::default();
+        if !std::mem::take(&mut self.latched_press) {
+            return outcome;
+        }
+        let mut swing = |outcome: &mut MeleeOutcome, source| {
+            if swings.try_swing(press.tick, press.swing_duration) {
+                outcome
+                    .packets
+                    .push(protocol::swing_arm_packet(press.local_runtime_id, source));
+            }
+        };
+        match crosshair {
+            Crosshair::Actor(hit) => {
+                swing(&mut outcome, SwingSource::Attack);
+                self.last_attack_millis = Some(press.now_millis);
+                let Some(selection) = press.selection.clone() else {
+                    return outcome;
+                };
+                // The item descriptor no longer reads session state.
+                let session = BedrockSession { shield_item_id: 0 };
+                if let Ok(packet) = protocol::use_actor_packet(
+                    ActorUseRequest {
+                        actor_runtime_id: hit.runtime_id,
+                        action: ActorUseAction::Attack,
+                        selected_slot: selection.slot,
+                        selected_item: selection.item,
+                        player_position: press.player_position,
+                        hit_position: hit.point,
+                    },
+                    &session,
+                ) {
+                    outcome.packets.push(packet);
+                }
+            }
+            Crosshair::Block => swing(&mut outcome, SwingSource::Mine),
+            Crosshair::Miss => {
+                // Touch skips the early swing on a miss but still reports it.
+                if press.input_mode != PlayerInputMode::Touch {
+                    swing(&mut outcome, SwingSource::Attack);
+                }
+                outcome.missed_swing = true;
+            }
+        }
+        outcome
     }
 }
 
@@ -235,6 +346,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
     network: Res<'w, NetworkHandle>,
+    time: Res<'w, Time<Real>>,
 }
 
 /// Runs before the mining producers so they can defer to a targeted actor.
@@ -244,11 +356,10 @@ pub(crate) fn produce_melee(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
 ) {
-    runtime.actor_in_front = false;
+    runtime.synchronize(movement.interaction_authority_identity());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let game_mode = context.ui.player_game_mode();
-    let attack_reach = match game_mode {
+    let attack_reach = match context.ui.player_game_mode() {
         Some(PlayerGameMode::Survival | PlayerGameMode::Adventure) => SURVIVAL_ATTACK_REACH,
         Some(PlayerGameMode::Creative) => CREATIVE_ATTACK_REACH,
         _ => 0.0,
@@ -259,77 +370,48 @@ pub(crate) fn produce_melee(
             && !context.ui.ui_focused()
             && movement.accepts_creative_mining()
     }) else {
-        runtime.latched_press = false;
+        runtime.cancel();
         return;
     };
     let attack = context.input.phase(Action::Attack);
-    runtime.latched_press |= attack.pressed;
-    if !runtime.latched_press && !attack.held {
+    if !runtime.observe_input(attack.pressed, attack.held) {
+        runtime.cancel();
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
-    let Some(crosshair) = resolve_crosshair(
-        &context,
-        input_mode,
-        attack_reach,
-        (input.authority_generation, input.frame_sequence),
-        movement.interaction_authority_identity().1,
+    let (Some(crosshair), Some(stream)) = (
+        resolve_crosshair(
+            &context,
+            input_mode,
+            attack_reach,
+            (input.authority_generation, input.frame_sequence),
+            movement.interaction_authority_identity().1,
+        ),
+        context.client_world.stream.as_ref(),
     ) else {
-        runtime.latched_press = false;
+        runtime.cancel();
         return;
     };
-    runtime.actor_in_front = !matches!(crosshair, Crosshair::Block);
-    if !runtime.latched_press {
-        return;
-    }
+    runtime.observe_crosshair(crosshair);
+    // Frames between physics ticks have no unsent tick; the press waits for one.
     let Some(sample) = movement.newest_unsent_sample() else {
         return;
     };
-    let (tick, player_position) = (sample.tick, sample.position);
-    runtime.latched_press = false;
-    let Some(stream) = context.client_world.stream.as_ref() else {
-        return;
+    let press = PressContext {
+        tick: sample.tick,
+        player_position: sample.position,
+        input_mode,
+        local_runtime_id: stream.local_player_runtime_id(),
+        selection: verified_selection(&context.ui),
+        swing_duration: swing_duration(context.effects.mining_effects()),
+        now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
-    let local_runtime_id = stream.local_player_runtime_id();
-    let duration = swing_duration(context.effects.mining_effects());
-    let mut swing = |source| {
-        if swings.try_swing(tick, duration) {
-            let _ = context
-                .network
-                .send_inventory_packet(protocol::swing_arm_packet(local_runtime_id, source));
-        }
-    };
-    match crosshair {
-        Crosshair::Actor(hit) => {
-            swing(SwingSource::Attack);
-            runtime.last_attack_tick = Some(tick);
-            let Some(selection) = verified_selection(&context.ui) else {
-                return;
-            };
-            // The item descriptor no longer reads session state.
-            let session = BedrockSession { shield_item_id: 0 };
-            if let Ok(packet) = protocol::use_actor_packet(
-                ActorUseRequest {
-                    actor_runtime_id: hit.runtime_id,
-                    action: ActorUseAction::Attack,
-                    selected_slot: selection.slot,
-                    selected_item: selection.item,
-                    player_position,
-                    hit_position: hit.point,
-                },
-                &session,
-            ) {
-                let _ = context.network.send_inventory_packet(packet);
-            }
-        }
-        Crosshair::Block => swing(SwingSource::Mine),
-        Crosshair::Miss => {
-            // Touch misses neither swing nor flag.
-            if input_mode != PlayerInputMode::Touch {
-                swing(SwingSource::Attack);
-                movement.mark_missed_swing(tick);
-            }
-        }
+    let outcome = runtime.resolve(crosshair, &press, &mut swings);
+    for packet in outcome.packets {
+        let _ = context.network.send_inventory_packet(packet);
+    }
+    if outcome.missed_swing {
+        movement.mark_missed_swing(sample.tick);
     }
 }
 

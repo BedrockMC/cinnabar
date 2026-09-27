@@ -327,7 +327,7 @@ fn interruption_aborts_on_the_next_step_only() {
     }
 }
 
-fn completed(tick: u64) -> PhysicsMovementSample {
+pub(crate) fn completed(tick: u64) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position: [0.5, 2.620_01, 0.5],
@@ -353,7 +353,7 @@ fn completed(tick: u64) -> PhysicsMovementSample {
     }
 }
 
-fn evidence() -> PhysicsTickEvidenceContext {
+pub(crate) fn evidence() -> PhysicsTickEvidenceContext {
     PhysicsTickEvidenceContext {
         fifo_sequence: 19,
         pose_generation: 23,
@@ -368,6 +368,18 @@ fn evidence() -> PhysicsTickEvidenceContext {
         outbox_drops: 0,
         free_camera_packet_count: 0,
     }
+}
+
+/// A physics-authorized ticker holding `ticks` unsent samples from tick 101.
+pub(crate) fn ticker_with_ticks(ticks: u64) -> MovementTicker {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.testing_lift_spawn_settle_gate();
+    for tick in 101..101 + ticks {
+        ticker.enqueue_completed_physics(completed(tick)).unwrap();
+    }
+    ticker
 }
 
 #[test]
