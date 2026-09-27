@@ -257,7 +257,7 @@ fn a_rate_at_the_threshold_breaks_on_the_start_tick_and_then_delays() {
 }
 
 #[test]
-fn only_a_continued_server_destroy_predicts_tool_wear() {
+fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
     let worn = |block| DestroyTarget {
         wear: Some(ToolWear {
             current_damage: 4,
@@ -275,11 +275,23 @@ fn only_a_continued_server_destroy_predicts_tool_wear() {
         }
     };
     assert_eq!(done.wear, Some((2, 6, -1)));
-    // Instant breaks and client-authoritative breaks never wear through this path.
+    // Zero-hardness and client-authoritative breaks never wear through this path.
     let torch = worn("minecraft:torch");
     assert_eq!(
         held(&mut DestroyMachine::default(), &torch, Server).wear,
         None
+    );
+    // An instant start-tick break of a block with hardness still wears.
+    let leaves = DestroyTarget {
+        conditions: DestroyConditions {
+            tool: HeldTool::from_identifier("minecraft:golden_hoe"),
+            ..DestroyConditions::default()
+        },
+        ..worn("minecraft:oak_leaves")
+    };
+    assert_eq!(
+        held(&mut DestroyMachine::default(), &leaves, Server).wear,
+        Some((2, 6, -1))
     );
     let mut client = DestroyMachine::default();
     held(&mut client, &dirt, Client);
@@ -399,10 +411,16 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         DestroyInput::Held(Some(&stone)),
         Server,
         |tick| swings.push(tick),
-        || None,
+        |_, _| None,
     );
     // Re-running the frame must not step the same ticks again.
-    runtime.step_ticks(&mut ticker, DestroyInput::Released, Server, |_| {}, || None);
+    runtime.step_ticks(
+        &mut ticker,
+        DestroyInput::Released,
+        Server,
+        |_| {},
+        |_, _| None,
+    );
     ticker.retain_creative_mining(None);
     ticker.enqueue_completed_physics(completed(103)).unwrap();
     runtime.step_ticks(
@@ -410,7 +428,7 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         DestroyInput::Released,
         Server,
         |tick| swings.push(tick),
-        || None,
+        |_, _| None,
     );
     assert_eq!(
         swings,
@@ -473,7 +491,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
             DestroyInput::Held(Some(&dirt)),
             Server,
             |_| {},
-            || ids.next(),
+            |_, _| ids.next(),
         );
     }
     let mut packets = Vec::new();

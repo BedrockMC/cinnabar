@@ -194,6 +194,7 @@ pub struct PlayerInventoryLedger {
     item_registry: Option<BTreeMap<i32, ItemRegistryEntry>>,
     next_authority_revision: u64,
     pending: Option<PendingRequest>,
+    mining_requests: VecDeque<response::MiningRequest>,
     next_request_id: i32,
     session_generation: u64,
     next_open_generation: u64,
@@ -226,6 +227,7 @@ impl Default for PlayerInventoryLedger {
             item_registry: None,
             next_authority_revision: 1,
             pending: None,
+            mining_requests: VecDeque::new(),
             next_request_id: -3,
             session_generation: 0,
             next_open_generation: 1,
@@ -316,13 +318,6 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn pending_request_id(&self) -> Option<i32> {
         self.pending.as_ref().map(|pending| pending.request_id)
-    }
-
-    /// Takes the next id from the counter shared by every client item-stack request.
-    pub fn allocate_request_id(&mut self) -> Option<i32> {
-        let request_id = self.next_request_id;
-        self.next_request_id = request_id.checked_sub(2)?;
-        Some(request_id)
     }
 
     #[must_use]

@@ -297,7 +297,7 @@ impl DestroyMachine {
     }
 
     /// The destroy stays active on the broken block, so the next target continues it.
-    /// Only a continued (non-instant) server-authoritative destroy wears the tool.
+    /// A server-authoritative destroy of a block with hardness wears the tool.
     fn complete(
         &mut self,
         payload: &mut SurvivalTickPayload,
@@ -307,7 +307,8 @@ impl DestroyMachine {
     ) {
         match authority {
             BlockBreakingAuthority::Server => {
-                payload.wear = target.wear.filter(|_| continued).map(|wear| {
+                let worn = target.block.is_some_and(|block| block.hardness > 0.0);
+                payload.wear = target.wear.filter(|_| worn).map(|wear| {
                     (
                         target.selection.slot,
                         wear.current_damage.saturating_add(wear.break_damage),
@@ -362,7 +363,7 @@ impl SurvivalMiningRuntime {
         input: DestroyInput<'_>,
         authority: BlockBreakingAuthority,
         mut swing: impl FnMut(u64),
-        mut request_id: impl FnMut() -> Option<i32>,
+        mut request_id: impl FnMut(u8, i32) -> Option<i32>,
     ) {
         let identity = ticker.interaction_authority_identity();
         if let Some((session, _)) = self
@@ -391,7 +392,13 @@ impl SurvivalMiningRuntime {
         for (tick, on_ground) in ticks {
             let mut payload = self.machine.step(input, on_ground, authority);
             payload.mine_block = payload.wear.and_then(|(slot, damage, stack_network_id)| {
-                protocol::MineBlockRequest::new(request_id()?, slot, damage, stack_network_id).ok()
+                protocol::MineBlockRequest::new(
+                    request_id(slot, damage)?,
+                    slot,
+                    damage,
+                    stack_network_id,
+                )
+                .ok()
             });
             self.latched_press = false;
             if payload.swing {
@@ -480,7 +487,7 @@ pub(crate) fn produce_survival_mining(
                 ));
             }
         },
-        || ui.allocate_item_stack_request_id(),
+        |slot, damage| ui.begin_mining_request(slot, damage),
     );
 }
 
@@ -535,8 +542,14 @@ fn observe_destroy_target(
     let helmet = ui.gameplay_hud().armor().map(|armor| &armor.helmet);
     let wear = tool.and_then(|tool| {
         (item.stack_network_id() > 0).then(|| ToolWear {
-            current_damage: protocol::item_extra_damage(item.extra_data())
-                .and_then(|damage| i32::try_from(damage).ok())
+            // Outstanding and corrected predictions outrank the stack's own tag.
+            current_damage: ui
+                .inventory_ledger()
+                .predicted_slot_damage(observed.selection.slot)
+                .or_else(|| {
+                    protocol::item_extra_damage(item.extra_data())
+                        .and_then(|damage| i32::try_from(damage).ok())
+                })
                 .unwrap_or(0),
             break_damage: tool_break_damage(tool.kind),
         })

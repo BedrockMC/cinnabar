@@ -293,7 +293,8 @@ impl BlockUseRuntime {
         (clock.now_millis > due).then_some((ItemUseTrigger::SimulationTick, due))
     }
 
-    /// Records an attempt; a failed repeat keeps its schedule and retries next tick.
+    /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
+    /// retries (and resends its transaction) on the next tick.
     pub(crate) fn record(
         &mut self,
         trigger: ItemUseTrigger,

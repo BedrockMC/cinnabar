@@ -69,12 +69,13 @@ pub(crate) fn still_authorized_by(
 }
 
 /// Server-side pick checks measure to the block's minimum corner with this slack
-/// over the survival pick range. Needs independent measurement.
+/// over the game-mode pick range. Needs independent measurement.
 const SERVER_PICK_SLACK: f64 = 0.5;
-const SURVIVAL_SERVER_PICK_RANGE: f64 = 6.7;
 
-/// Vanilla limits a pick by the eye-to-block-centre distance, not the ray length;
-/// picks the server would reject at the block corner are dropped too.
+/// Vanilla limits a pick by the eye-to-block-centre distance, not the ray length.
+///
+/// Only touch reach (6.7 survival, 12 creative) equals the server's range, so only
+/// touch picks can exceed its corner check; those are dropped too.
 pub(crate) fn within_pick_range(observed: &FrozenBlockObservation) -> bool {
     let distance_squared = |offset: f64| {
         observed
@@ -85,9 +86,10 @@ pub(crate) fn within_pick_range(observed: &FrozenBlockObservation) -> bool {
             .map(|(block, eye)| (f64::from(block) + offset - f64::from(eye)).powi(2))
             .sum::<f64>()
     };
-    let corner_limit = observed.reach.max(SURVIVAL_SERVER_PICK_RANGE) + SERVER_PICK_SLACK;
+    let corner_limit = observed.reach + SERVER_PICK_SLACK;
     distance_squared(0.5) <= observed.reach * observed.reach
-        && distance_squared(0.0) <= corner_limit * corner_limit
+        && (observed.input_mode != PlayerInputMode::Touch
+            || distance_squared(0.0) <= corner_limit * corner_limit)
 }
 
 #[cfg(test)]
@@ -193,4 +195,47 @@ pub(crate) fn observe_block(
             identity: hit.identity,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(position: [i32; 3], input_mode: PlayerInputMode, reach: f64) -> FrozenBlockObservation {
+        let stack = protocol::NetworkItemStack::empty();
+        let item =
+            protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
+        FrozenBlockObservation {
+            input_mode,
+            reach,
+            ..FrozenBlockObservation::fixture(position, 1, item)
+        }
+    }
+
+    #[test]
+    fn touch_picks_past_the_server_corner_limit_are_dropped() {
+        // Eye at (0.5, 65.62, 0.5); a block down the negative axes is centre-near, corner-far.
+        let far_corner = [-5, 62, -3];
+        assert!(!within_pick_range(&at(
+            far_corner,
+            PlayerInputMode::Touch,
+            6.7
+        )));
+        assert!(within_pick_range(&at(
+            [-4, 63, -2],
+            PlayerInputMode::Touch,
+            6.7
+        )));
+        // Mouse reach cannot reach the corner limit, so only the centre rule applies.
+        assert!(within_pick_range(&at(
+            [-4, 63, -1],
+            PlayerInputMode::Mouse,
+            5.7
+        )));
+        assert!(!within_pick_range(&at(
+            [-6, 63, 0],
+            PlayerInputMode::Mouse,
+            5.7
+        )));
+    }
 }

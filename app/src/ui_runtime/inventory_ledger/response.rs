@@ -26,6 +26,17 @@ use protocol::{
 
 use super::{Cell, PlayerInventoryLedger};
 
+/// Bounds mining predictions awaiting a response; the oldest is forgotten first.
+const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
+
+/// One mine-block request awaiting its item-stack response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct MiningRequest {
+    request_id: i32,
+    slot: u8,
+    predicted_damage: i32,
+}
+
 /// Authoritative presentation facts an accepted server correction attached
 /// to one inventory cell: custom display names plus the exact durability
 /// damage. Every field is `None` while unstated, so absent facts stay
@@ -80,11 +91,82 @@ impl PlayerInventoryLedger {
         storage.overlays.get(usize::from(slot))?.as_ref()
     }
 
+    /// Allocates an id from the shared request counter for a mine-block prediction
+    /// on `slot`, retained until its response.
+    pub fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
+        let request_id = self.next_request_id;
+        self.next_request_id = request_id.checked_sub(2)?;
+        if self.mining_requests.len() == MAX_OUTSTANDING_MINING_REQUESTS {
+            self.mining_requests.pop_front();
+        }
+        self.mining_requests.push_back(MiningRequest {
+            request_id,
+            slot,
+            predicted_damage,
+        });
+        Some(request_id)
+    }
+
+    /// The newest outstanding mining prediction for `slot`, else its last accepted damage.
+    #[must_use]
+    pub fn predicted_slot_damage(&self, slot: u8) -> Option<i32> {
+        self.mining_requests
+            .iter()
+            .rev()
+            .find(|request| request.slot == slot)
+            .map(|request| request.predicted_damage)
+            .or_else(|| self.slot_overlay(slot)?.durability_correction)
+    }
+
     pub(super) fn apply_response(&mut self, event: &ItemStackResponseEvent) {
+        self.reconcile_mining_responses(event);
         self.reconcile_response(event);
         // Whatever the outcome, the consuming path may have settled the last
         // retained prediction of a locally closing window.
         self.finish_closing();
+    }
+
+    /// Accepted mining responses correct player-inventory cells a pending gesture
+    /// does not own; rejected ones only retire their prediction.
+    fn reconcile_mining_responses(&mut self, event: &ItemStackResponseEvent) {
+        for response in event.responses.iter() {
+            let Some(index) = self
+                .mining_requests
+                .iter()
+                .position(|request| request.request_id == response.request_id)
+            else {
+                continue;
+            };
+            self.mining_requests.remove(index);
+            if response.status != StackResponseStatus::Accepted {
+                continue;
+            }
+            for container in response.containers.iter() {
+                for correction in container.slots.iter() {
+                    let cell = self
+                        .retained_response_cell(&container.container, u16::from(correction.slot));
+                    let Some(cell @ Cell::Inventory(slot)) = cell else {
+                        self.note_unrouted_container();
+                        continue;
+                    };
+                    if self.slot_pending(slot) {
+                        continue;
+                    }
+                    if correction.count == 0 {
+                        self.set_cell(cell, None);
+                    } else if self.correct_stack_count(
+                        cell,
+                        correction.count,
+                        correction.item_stack_id,
+                    ) {
+                        self.merge_cell_overlay(cell, correction);
+                    } else {
+                        self.mark_cell_recovery(cell);
+                    }
+                    self.bump_cell_revision(cell);
+                }
+            }
+        }
     }
 
     fn reconcile_response(&mut self, event: &ItemStackResponseEvent) {

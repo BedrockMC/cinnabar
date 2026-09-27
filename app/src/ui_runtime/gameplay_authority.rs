@@ -150,9 +150,10 @@ impl UiRuntime {
         }
     }
 
-    /// A request id that cannot collide with an inventory gesture's.
-    pub(crate) fn allocate_item_stack_request_id(&mut self) -> Option<i32> {
-        self.inventory_ledger.allocate_request_id()
+    /// Registers a mine-block prediction and returns its request id.
+    pub(crate) fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
+        self.inventory_ledger
+            .begin_mining_request(slot, predicted_damage)
     }
 
     pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
