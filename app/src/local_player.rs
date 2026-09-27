@@ -1,5 +1,6 @@
-use bevy::prelude::{
-    Entity, Quat, Res, ResMut, Resource, Single, SystemSet, Transform, Vec3, With,
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Entity, Quat, Res, ResMut, Resource, Single, SystemSet, Transform, Vec3, With},
 };
 use semantic_input::PerspectiveMode;
 use sim::WorldCollisionIdentity;
@@ -522,17 +523,27 @@ pub fn reset_local_player_session(
     avatar.begin_session(session_generation, runtime_id);
 }
 
+#[derive(SystemParam)]
+pub(crate) struct CameraPublicationContext<'w> {
+    clock: Res<'w, WorldClock>,
+    physics: Res<'w, LocalPhysicsController>,
+    receipt: ResMut<'w, crate::local_player_camera_receipt::CameraPublicationAttempt>,
+}
+
 pub(crate) fn resolve_camera_pose(
     client_world: Res<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
     mut published: ResMut<CameraPose>,
-    clock: Res<WorldClock>,
-    physics: Res<LocalPhysicsController>,
-    mut receipt: ResMut<crate::local_player_camera_receipt::CameraPublicationAttempt>,
+    publication: CameraPublicationContext,
     mut camera_transform: Single<(Entity, &mut Transform), With<FlyCamera>>,
 ) {
+    let CameraPublicationContext {
+        clock,
+        physics,
+        mut receipt,
+    } = publication;
     let perspective = settings.perspective();
     let transform = if let Some(stream) = client_world.stream.as_ref() {
         let collision_world = sim::PaletteWorld::new(
@@ -577,14 +588,17 @@ pub(crate) fn publish_interaction_origin(
 
 pub(crate) fn publish_local_player_frame(
     client_world: Res<ClientWorld>,
-    clock: Res<WorldClock>,
-    local_physics: Res<LocalPhysicsController>,
+    publication: CameraPublicationContext,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
     camera: Res<CameraPose>,
-    mut receipt: ResMut<crate::local_player_camera_receipt::CameraPublicationAttempt>,
     mut carrier: ResMut<LocalPlayerFrameCarrier>,
 ) {
+    let CameraPublicationContext {
+        clock,
+        physics: local_physics,
+        mut receipt,
+    } = publication;
     let Some(stream) = client_world.stream.as_ref() else {
         carrier.reset(LocalPlayerFrameReset::Session);
         return;
