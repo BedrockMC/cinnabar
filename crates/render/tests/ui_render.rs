@@ -312,20 +312,109 @@ fn same_revision_requires_exact_accepted_publication_not_equivalent_catalog() {
             "same immutable publication is a no-op"
         );
     }
-    let mut conflicting = scene.input.as_deref().unwrap().clone();
-    conflicting.viewport_size = [65, 64];
-    conflicting.validate().unwrap();
-    scene.input = Some(Arc::new(conflicting));
-    render_app.world_mut().insert_resource(scene);
+    let original = Arc::clone(scene.input.as_ref().unwrap());
+    let mut malformed = original.as_ref().clone();
+    malformed.indices = vec![u32::MAX].into();
+    scene.input = Some(Arc::new(malformed));
+    render_app.world_mut().insert_resource(scene.clone());
     render_app
         .world_mut()
         .run_system_once(prepare_ui_resources)
         .unwrap();
     assert_eq!(stats.snapshot().accepted_revision, None);
-    assert_eq!(stats.snapshot().draw_calls, 0);
+    let mut conflicting = original.as_ref().clone();
+    conflicting.viewport_size = [65, 64];
+    conflicting.validate().unwrap();
+    scene.input = Some(Arc::new(conflicting));
+    render_app.world_mut().insert_resource(scene.clone());
+    for _ in 0..10 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+        assert_eq!(stats.snapshot().draw_calls, 0);
+        assert_eq!(
+            stats.snapshot().rejected_reason,
+            Some(UiRenderRejectReason::RevisionConflict { revision: 1 })
+        );
+    }
+    let conflict = Arc::clone(scene.input.as_ref().unwrap());
+    scene.input = Some(Arc::clone(&original));
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(1),
+        "exact admitted publication may recover after transient refusal"
+    );
+    let expired = Arc::downgrade(&original);
+    drop(original);
+    scene.input = Some(conflict);
+    render_app.world_mut().insert_resource(scene.clone());
+    assert!(
+        expired.upgrade().is_none(),
+        "no pixel publication history is retained by renderer"
+    );
+    for _ in 0..10 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+        assert_eq!(stats.snapshot().draw_calls, 0);
+    }
+    scene.input = None;
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    scene.input = Some(Arc::new(fixture_draw_list(0)));
+    render_app.world_mut().insert_resource(scene.clone());
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, None);
     assert_eq!(
         stats.snapshot().rejected_reason,
-        Some(UiRenderRejectReason::RevisionConflict { revision: 1 })
+        Some(UiRenderRejectReason::StaleRevision {
+            current: 1,
+            rejected: 0
+        })
+    );
+    scene.publish(fixture_draw_list(2), &stats).unwrap();
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderScene::extract_resource(&scene));
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(2),
+        "fresh revision legitimately recovers"
+    );
+    assert_eq!(stats.snapshot().draw_calls, 3);
+    render_app.world_mut().run_schedule(RenderStartup);
+    let mut fresh_scene = UiRenderScene::default();
+    fresh_scene.publish(fixture_draw_list(1), &stats).unwrap();
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderScene::extract_resource(&fresh_scene));
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(1),
+        "only actual renderer and publisher recreation starts a fresh revision lifetime"
     );
 }
 
