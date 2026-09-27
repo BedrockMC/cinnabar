@@ -6,6 +6,8 @@ use crate::session_audio::{AudioOutcome, SessionAudio};
 fn event(session: u64, sequence: u64) -> SequencedAudioEvent {
     SequencedAudioEvent {
         origin_stream_session_id: session,
+        dimension: 0,
+        dimension_epoch: 0,
         sequence,
         event: protocol::AudioEvent::Play(protocol::PlayAudioEvent {
             name: Arc::from(TARGET),

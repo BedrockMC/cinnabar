@@ -445,6 +445,8 @@ pub enum CommittedUiEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommittedAudioEvent {
     pub sequence: u64,
+    pub dimension: i32,
+    pub dimension_epoch: u64,
     pub event: AudioEvent,
 }
 
@@ -592,6 +594,8 @@ impl WorldStreamNormalizationStats {
 /// Cumulative diagnostics and current bounded-work gauges.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WorldStreamStats {
+    /// Monotonic lifetime fact, unaffected by diagnostic drains or timing resets.
+    pub audio_nondefault_camera_observed: bool,
     pub phase2_stages: PublicationStageCounters,
     pub phase2_outcomes: SubChunkOutcomeCounters,
     pub decode_errors: u64,
@@ -655,6 +659,15 @@ impl WorldStreamStats {
 
     pub(super) fn observe_mesh_queue_wait(&mut self, queue_wait: Duration) {
         self.max_mesh_queue_wait = self.max_mesh_queue_wait.max(queue_wait);
+    }
+}
+
+impl super::WorldStream {
+    /// Any committed camera command conservatively disables the ordinary-listener
+    /// audio lane for this entire stream. Only fresh bootstrap re-enables it.
+    #[must_use]
+    pub const fn audio_default_camera_eligible(&self) -> bool {
+        !self.stats.audio_nondefault_camera_observed
     }
 }
 

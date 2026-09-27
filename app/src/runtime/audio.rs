@@ -8,6 +8,8 @@ pub(crate) struct SequencedAudioEvent {
     /// Immutable local WorldStream lifetime, not a sampled clock or account identity.
     pub(crate) origin_stream_session_id: u64,
     pub(crate) sequence: u64,
+    pub(crate) dimension: i32,
+    pub(crate) dimension_epoch: u64,
     pub(crate) event: protocol::AudioEvent,
 }
 
@@ -20,6 +22,8 @@ pub(crate) fn drain_committed_audio(
         forward(SequencedAudioEvent {
             origin_stream_session_id,
             sequence: committed.sequence,
+            dimension: committed.dimension,
+            dimension_epoch: committed.dimension_epoch,
             event: committed.event,
         });
     }
