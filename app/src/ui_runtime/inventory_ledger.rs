@@ -22,6 +22,9 @@ mod helpers;
 mod lifecycle_tests;
 #[cfg(test)]
 mod merge_tests;
+mod moves;
+#[cfg(test)]
+mod moves_tests;
 mod overlay;
 #[cfg(test)]
 mod overlay_tests;
@@ -33,6 +36,7 @@ mod response;
 use cells::{Cell, CellSurface, Cells};
 pub use crafting::{CraftGridCell, CraftingGrid, CreativeDestination};
 pub use gesture::{CellGesture, InventoryTarget};
+pub use moves::DropSource;
 use personal::PersonalWindow;
 pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;

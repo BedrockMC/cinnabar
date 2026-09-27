@@ -41,17 +41,17 @@ impl InventoryTarget {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum StackRequestActionKind {
+pub(super) enum StackRequestActionKind {
     Take,
     Place,
 }
 
 /// A built request before it receives an id.
-struct Built {
-    action: StackRequestAction,
-    group: DeltaGroup,
-    requires_distinct_stack_ids: bool,
-    registry_bound_merge: bool,
+pub(super) struct Built {
+    pub(super) action: StackRequestAction,
+    pub(super) group: DeltaGroup,
+    pub(super) requires_distinct_stack_ids: bool,
+    pub(super) registry_bound_merge: bool,
 }
 
 fn transfer_action(
@@ -79,7 +79,7 @@ fn transfer_action(
 }
 
 /// Moves `requested` (or the whole stack) into an empty destination.
-fn counted_transfer(
+pub(super) fn counted_transfer(
     kind: StackRequestActionKind,
     source: Cell,
     destination: Cell,
@@ -114,7 +114,7 @@ fn counted_transfer(
 
 /// Merges `amount` into an occupied compatible destination.
 #[allow(clippy::too_many_arguments)]
-fn counted_merge(
+pub(super) fn counted_merge(
     kind: StackRequestActionKind,
     source: Cell,
     destination: Cell,
@@ -158,7 +158,7 @@ fn counted_merge(
     })
 }
 
-fn swap(
+pub(super) fn swap(
     source: Cell,
     destination: Cell,
     source_stack: &NetworkItemStack,
@@ -185,7 +185,7 @@ fn swap(
     })
 }
 
-fn has_meaningful_overlay(overlay: Option<&StackResponseOverlay>) -> bool {
+pub(super) fn has_meaningful_overlay(overlay: Option<&StackResponseOverlay>) -> bool {
     overlay.is_some_and(|overlay| {
         overlay.custom_name.is_some()
             || overlay.filtered_custom_name.is_some()
@@ -249,37 +249,7 @@ impl PlayerInventoryLedger {
         gesture: CellGesture,
     ) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(!matches!(target, Cell::Storage(_)))?;
-        match target {
-            Cell::Inventory(slot) => {
-                let index = usize::from(slot);
-                if index >= PLAYER_INVENTORY_SLOT_COUNT {
-                    return Err(InventoryGestureError::InvalidSlot(slot));
-                }
-                if !self.known[index] {
-                    return Err(InventoryGestureError::UnknownSlot(slot));
-                }
-            }
-            Cell::Storage(slot) => {
-                let storage = self
-                    .storage
-                    .as_ref()
-                    .ok_or(InventoryGestureError::InvalidStorageSlot(slot))?;
-                if storage.identity.is_none() || storage.resync_required {
-                    return Err(InventoryGestureError::ResyncRequired);
-                }
-                if !self.confirmed.contains(target) {
-                    return Err(InventoryGestureError::InvalidStorageSlot(slot));
-                }
-            }
-            Cell::Armor(_) | Cell::Offhand | Cell::Craft(_) => {
-                if !self.confirmed.contains(target) {
-                    return Err(InventoryGestureError::InvalidRequest);
-                }
-            }
-            Cell::Cursor | Cell::CreatedOutput => {
-                return Err(InventoryGestureError::InvalidRequest);
-            }
-        }
+        self.check_target(target)?;
         let target_held = self.view().get(target).cloned();
         let cursor_held = self.view().get(Cell::Cursor).cloned();
         if [target_held.as_ref(), cursor_held.as_ref()]
@@ -414,6 +384,42 @@ impl PlayerInventoryLedger {
             requires_distinct_stack_ids: built.requires_distinct_stack_ids,
             registry_bound_merge: built.registry_bound_merge,
         })
+    }
+
+    /// Validates one gesture target cell against current authority.
+    pub(super) fn check_target(&self, target: Cell) -> Result<(), InventoryGestureError> {
+        match target {
+            Cell::Inventory(slot) => {
+                let index = usize::from(slot);
+                if index >= PLAYER_INVENTORY_SLOT_COUNT {
+                    return Err(InventoryGestureError::InvalidSlot(slot));
+                }
+                if !self.known[index] {
+                    return Err(InventoryGestureError::UnknownSlot(slot));
+                }
+            }
+            Cell::Storage(slot) => {
+                let storage = self
+                    .storage
+                    .as_ref()
+                    .ok_or(InventoryGestureError::InvalidStorageSlot(slot))?;
+                if storage.identity.is_none() || storage.resync_required {
+                    return Err(InventoryGestureError::ResyncRequired);
+                }
+                if !self.confirmed.contains(target) {
+                    return Err(InventoryGestureError::InvalidStorageSlot(slot));
+                }
+            }
+            Cell::Armor(_) | Cell::Offhand | Cell::Craft(_) => {
+                if !self.confirmed.contains(target) {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+            }
+            Cell::Cursor | Cell::CreatedOutput => {
+                return Err(InventoryGestureError::InvalidRequest);
+            }
+        }
+        Ok(())
     }
 
     /// Checks everything a new request needs and returns the personal window

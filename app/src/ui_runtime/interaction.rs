@@ -18,7 +18,7 @@ use crate::acceptance::markers::FAST_TRANSFER_ACTION;
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
-use super::inventory_ledger::{CellGesture, InventoryGestureError, InventoryTarget};
+use super::inventory_ledger::{CellGesture, DropSource, InventoryGestureError, InventoryTarget};
 use super::{PlatformClipboard, UiRuntime, presentation};
 use presentation::inventory_pointer::InventoryCellHit;
 
@@ -273,6 +273,35 @@ pub(crate) fn drive_chat_ui_actions(
     }
 }
 
+/// Inventory keyboard input captured before gameplay suppression resets the
+/// frame's key state: this frame's presses and the held modifiers.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct InventoryKeys {
+    presses: Vec<KeyCode>,
+    shift: bool,
+    control: bool,
+}
+
+impl InventoryKeys {
+    /// Bounds one frame's buffered presses.
+    const MAX_PRESSES: usize = 16;
+
+    fn track_modifier(&mut self, input: &KeyboardInput) {
+        let pressed = input.state == ButtonState::Pressed;
+        match input.key_code {
+            KeyCode::ShiftLeft | KeyCode::ShiftRight => self.shift = pressed,
+            KeyCode::ControlLeft | KeyCode::ControlRight => self.control = pressed,
+            _ => {}
+        }
+    }
+
+    fn press(&mut self, key: KeyCode) {
+        if self.presses.len() < Self::MAX_PRESSES {
+            self.presses.push(key);
+        }
+    }
+}
+
 pub(crate) fn drive_inventory_ui_actions(
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
@@ -280,6 +309,9 @@ pub(crate) fn drive_inventory_ui_actions(
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
+    // Presses are this frame's only; modifiers stay held across frames.
+    let presses = std::mem::take(&mut runtime.inventory_keys.presses);
+    let (shift, control) = (runtime.inventory_keys.shift, runtime.inventory_keys.control);
     if runtime.server_forms().owns_input() {
         return;
     }
@@ -311,12 +343,36 @@ pub(crate) fn drive_inventory_ui_actions(
     let hit = gui.and_then(|gui| {
         presentation.inventory_cell_hit(gui, physical_size, window.scale_factor(), screen)
     });
+    for key in presses {
+        let _ = dispatch_inventory_key(runtime.as_mut(), hit, key, control);
+    }
     let Some(hit) = hit else {
+        // A held stack released outside the panel is dropped: all of it on a
+        // primary click, one item on a secondary click.
+        let outside = gui.is_some_and(|gui| {
+            !presentation.inventory_panel_contains(
+                gui,
+                physical_size,
+                window.scale_factor(),
+                screen,
+            )
+        });
+        if outside && (primary_pressed || secondary_pressed) {
+            let amount = (!primary_pressed).then_some(1);
+            let _ = runtime
+                .inventory_ledger_mut()
+                .begin_drop(DropSource::Cursor, amount);
+        }
         return;
     };
     // When both physical edges arrive together, the primary operation wins
     // as a deterministic local policy.
-    if primary_pressed {
+    if primary_pressed
+        && shift
+        && let Some(target) = gesture_target(hit)
+    {
+        let _ = runtime.inventory_ledger_mut().begin_quick_move(target);
+    } else if primary_pressed {
         let _ = dispatch_inventory_click(runtime.as_mut(), hit, CellGesture::Click);
     } else if secondary_pressed {
         let ledger = runtime.inventory_ledger();
@@ -341,6 +397,39 @@ const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTarget> {
         InventoryCellHit::Craft(slot) => InventoryTarget::Craft(slot),
         InventoryCellHit::CraftOutput => return None,
     })
+}
+
+/// Keyboard gestures over the hovered cell: digits swap with that hotbar
+/// cell, Q drops one item and Control+Q the whole stack.
+pub(crate) fn dispatch_inventory_key(
+    runtime: &mut UiRuntime,
+    hit: Option<InventoryCellHit>,
+    key: KeyCode,
+    control: bool,
+) -> Option<Result<i32, InventoryGestureError>> {
+    let target = gesture_target(hit?)?;
+    let ledger = runtime.inventory_ledger_mut();
+    let hotbar = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ]
+    .iter()
+    .position(|digit| *digit == key);
+    match (hotbar, key) {
+        (Some(slot), _) => Some(ledger.begin_hotbar_swap(target, slot as u8)),
+        (None, KeyCode::KeyQ) => {
+            let amount = (!control).then_some(1);
+            Some(ledger.begin_drop(DropSource::Target(target), amount))
+        }
+        _ => None,
+    }
 }
 
 /// Routes one resolved pointer gesture; the output cell crafts once.
@@ -461,6 +550,7 @@ pub(crate) fn drive_chat_keyboard_input(
     let mut inventory_ownership_changed = false;
     let mut consumed_gameplay = runtime.ui_focused();
     for input in keyboard_messages.read() {
+        runtime.inventory_keys.track_modifier(input);
         if input.state != ButtonState::Pressed {
             continue;
         }
@@ -475,7 +565,7 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.close_inventory();
                     inventory_ownership_changed = true;
                 }
-                _ => {}
+                key => runtime.inventory_keys.press(key),
             }
             continue;
         }
