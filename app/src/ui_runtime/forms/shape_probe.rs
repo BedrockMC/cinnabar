@@ -16,8 +16,9 @@ use serde::{
 pub(super) fn observe(event: &FormRequestEvent) {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     static CLAIMED: AtomicBool = AtomicBool::new(false);
-    let enabled = *ENABLED
-        .get_or_init(|| opted_in(std::env::var_os("RUST_MCBE_FORM_SHAPE_PROBE").as_deref()));
+    let enabled = *ENABLED.get_or_init(|| {
+        opted_in(std::env::var_os(crate::acceptance::markers::FORM_SHAPE_PROBE).as_deref())
+    });
     if let Some(summary) = inspect(enabled, &CLAIMED, event) {
         bevy::log::warn!(target: "bedrock_client::form_shape_probe", "form shape probe: {summary:?}");
     }

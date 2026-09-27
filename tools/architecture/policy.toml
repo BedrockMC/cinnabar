@@ -282,6 +282,12 @@ producer = "app/src/acceptance/markers.rs"
 consumer = "app/src/session_audio/wire_evidence.rs"
 
 [[markers]]
+literal = "RUST_MCBE_FORM_SHAPE_PROBE"
+kind = "environment_variable"
+producer = "app/src/acceptance/markers.rs"
+consumer = "app/src/ui_runtime/forms/shape_probe.rs"
+
+[[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
