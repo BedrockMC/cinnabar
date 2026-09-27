@@ -1,5 +1,7 @@
 use std::{num::NonZeroU64, sync::Arc};
 
+mod authoritative_use;
+
 use assets::{BlockPhysicsFlags, RegistryRecord, read_registry_for_protocol};
 use bevy::{
     prelude::{App, Update, Window},
@@ -12,10 +14,7 @@ use protocol::{
 use sha2::{Digest, Sha256};
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
-use super::{
-    BlockUseRuntime, FrozenEmptyHandBlockUse, block_use_edge_authorized, mining_edge_authorized,
-    verified_empty_hand_selection,
-};
+use super::{BlockUseRuntime, FrozenBlockUse, block_use_edge_authorized, mining_edge_authorized};
 use crate::{
     mining::{
         CreativeMiningAbility, FrozenCreativeMining, FrozenMiningFrame, FrozenMiningRay,
@@ -188,6 +187,15 @@ fn fixture_registries() -> PhysicsCollisionRegistries {
     .unwrap()
 }
 
+fn verified_empty_hand_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
+    super::verified_block_use_selection(
+        ui,
+        &fixture_registries(),
+        assets::NetworkIdMode::Sequential,
+    )
+    .filter(|selected| selected.item.network_id() == 0)
+}
+
 fn production_context_app(
     menu_visible: bool,
     window_focused: bool,
@@ -214,7 +222,7 @@ fn production_context_app(
         .insert_resource(fixture_registries())
         .insert_resource(runtime)
         .insert_resource(ticker)
-        .add_systems(Update, super::produce_empty_hand_block_use);
+        .add_systems(Update, super::produce_block_use);
     app
 }
 
@@ -282,11 +290,52 @@ fn only_one_uncontested_pressed_edge_is_authorized() {
 
 #[test]
 fn only_mouse_creative_empty_hand_observation_enters_the_provisional_path() {
-    assert!(FrozenEmptyHandBlockUse::from_observation(observation(101, 0)).is_some());
-    assert!(FrozenEmptyHandBlockUse::from_observation(observation(101, 2)).is_none());
+    assert!(FrozenBlockUse::from_observation(observation(101, 0)).is_some());
+    assert!(FrozenBlockUse::from_observation(observation(101, 2)).is_none());
     let mut gamepad = observation(101, 0);
     gamepad.input_mode = PlayerInputMode::GamePad;
-    assert!(FrozenEmptyHandBlockUse::from_observation(gamepad).is_none());
+    assert!(FrozenBlockUse::from_observation(gamepad).is_none());
+}
+
+#[test]
+fn server_known_filled_block_use_retains_exact_stack_and_clicked_target() {
+    let mut candidate = observation(101, 2);
+    let mut stack = network_item(2);
+    stack.count = 37;
+    stack.metadata = 3;
+    stack.block_runtime_id = 9;
+    stack.extra_data = Arc::from([0; 10]);
+    stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+    candidate.selection.item =
+        VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
+    let frozen = FrozenBlockUse::from_observation(candidate.clone())
+        .expect("server-known filled block use must retain the selected stack");
+    let queued = frozen.into_tick_payload(completed(101).position);
+    let Some(BlockItemInteraction::Use(request)) = queued.interactions.block_interaction else {
+        panic!("expected one embedded Use request");
+    };
+    assert_eq!(request.selected_item, candidate.selection.item);
+    assert_eq!(request.selected_slot, candidate.selection.slot);
+    assert_eq!(request.block_position, candidate.target.position);
+    assert_eq!(request.face, candidate.target.face);
+    assert_eq!(request.relative_hit, candidate.target.relative_hit);
+    assert!(queued.interactions.block_actions.is_empty());
+}
+
+#[test]
+fn filled_block_use_preserves_signed_runtime_id_wire_bits() {
+    let mut candidate = observation(101, 2);
+    let mut stack = network_item(2);
+    stack.block_runtime_id = i32::from_ne_bytes(0x8765_4321_u32.to_ne_bytes());
+    candidate.selection.item =
+        VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
+    let frozen = FrozenBlockUse::from_observation(candidate.clone())
+        .expect("signed storage must not reject a valid runtime hash");
+    let queued = frozen.into_tick_payload(completed(101).position);
+    let Some(BlockItemInteraction::Use(request)) = queued.interactions.block_interaction else {
+        panic!("expected embedded Use");
+    };
+    assert_eq!(request.selected_item, candidate.selection.item);
 }
 
 #[test]
@@ -346,7 +395,7 @@ fn unknown_nonempty_and_inventory_pending_selection_fail_closed() {
 
 #[test]
 fn one_edge_attaches_one_use_to_the_exact_pai_tick_without_repeat() {
-    let frozen = FrozenEmptyHandBlockUse::from_observation(observation(101, 0)).unwrap();
+    let frozen = FrozenBlockUse::from_observation(observation(101, 0)).unwrap();
     let mut ticker = ticker_with_tick();
     let mut runtime = BlockUseRuntime::default();
     assert_eq!(
@@ -385,7 +434,7 @@ fn one_edge_attaches_one_use_to_the_exact_pai_tick_without_repeat() {
 
 #[test]
 fn transport_retry_is_byte_identical_and_revocation_sanitizes_to_movement_only() {
-    let frozen = FrozenEmptyHandBlockUse::from_observation(observation(101, 0)).unwrap();
+    let frozen = FrozenBlockUse::from_observation(observation(101, 0)).unwrap();
     let mut ticker = ticker_with_tick();
     let mut runtime = BlockUseRuntime::default();
     runtime.update_press(true, NonZeroU64::new(5).unwrap(), Some(frozen), &mut ticker);
@@ -435,7 +484,7 @@ fn transport_retry_is_byte_identical_and_revocation_sanitizes_to_movement_only()
 
 #[test]
 fn queued_use_is_stripped_when_inventory_enters_authoritative_recovery() {
-    let frozen = FrozenEmptyHandBlockUse::from_observation(observation(101, 0)).unwrap();
+    let frozen = FrozenBlockUse::from_observation(observation(101, 0)).unwrap();
     let mut ticker = ticker_with_tick();
     let mut runtime = BlockUseRuntime::default();
     runtime.update_press(true, NonZeroU64::new(5).unwrap(), Some(frozen), &mut ticker);
@@ -484,7 +533,7 @@ fn queued_use_is_stripped_when_inventory_enters_authoritative_recovery() {
 #[test]
 fn production_pause_or_focus_loss_sanitizes_an_admitted_use() {
     for (menu_visible, window_focused) in [(true, true), (false, false)] {
-        let frozen = FrozenEmptyHandBlockUse::from_observation(observation(101, 0)).unwrap();
+        let frozen = FrozenBlockUse::from_observation(observation(101, 0)).unwrap();
         let mut ticker = ticker_with_tick();
         let mut runtime = BlockUseRuntime::default();
         runtime.update_press(true, NonZeroU64::new(5).unwrap(), Some(frozen), &mut ticker);
@@ -518,7 +567,7 @@ fn production_pause_or_focus_loss_sanitizes_an_admitted_use() {
 
 #[test]
 fn use_payload_is_mutually_exclusive_with_destroy() {
-    let frozen = FrozenEmptyHandBlockUse::from_observation(observation(101, 0)).unwrap();
+    let frozen = FrozenBlockUse::from_observation(observation(101, 0)).unwrap();
     let payload = frozen.into_tick_payload(completed(101).position);
     assert!(payload.interactions.block_actions.is_empty());
     assert!(matches!(
@@ -529,7 +578,7 @@ fn use_payload_is_mutually_exclusive_with_destroy() {
 
 #[test]
 fn changed_target_or_position_authority_revokes_queued_use() {
-    let frozen = FrozenEmptyHandBlockUse::from_observation(observation(101, 0)).unwrap();
+    let frozen = FrozenBlockUse::from_observation(observation(101, 0)).unwrap();
     let mut ticker = ticker_with_tick();
     assert_eq!(ticker.attach_block_use(frozen.clone()), Some(101));
     assert!(ticker.has_queued_block_use());

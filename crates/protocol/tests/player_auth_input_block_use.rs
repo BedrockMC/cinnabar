@@ -129,3 +129,79 @@ fn provisional_use_reuses_bounded_block_request_validation() {
         )),
     );
 }
+
+#[test]
+fn filled_use_matches_independent_pinned_movement_fixture() {
+    use sha2::{Digest, Sha256};
+    use std::sync::Arc;
+    let fixture = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/fixtures/player_auth_input_use_block.bin"
+    ))
+    .expect("generate the pinned embedded filled Use fixture before verification");
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    let packets = protocol::decode_batch(bytes::Bytes::from(fixture.clone()), &session).unwrap();
+    let decoded = &packets[0];
+    let McpePacketData::PlayerAuthInputPacket(input) = &decoded.data else {
+        panic!("expected PAI");
+    };
+    let packed = input
+        .item_use_transaction
+        .as_ref()
+        .and_then(Option::as_ref)
+        .unwrap();
+    let transaction = packed.item_use_transaction.as_ref().unwrap();
+    assert_eq!(transaction.item.id, 5);
+    assert_eq!(transaction.item.stacksize, 37);
+    assert_eq!(transaction.item.net_id_variant, Some(41));
+    assert_eq!(transaction.item.block_runtime_id, 0x8765_4321);
+    assert_eq!(transaction.actions.actions, None);
+    let extra: Arc<[u8]> = Arc::from(transaction.item.user_data_buffer.clone());
+    let digest = Sha256::digest(&extra).into();
+    let selected = NetworkItemStack {
+        network_id: 5,
+        metadata: 3,
+        stack_network_id: 41,
+        count: 37,
+        nbt_digest: digest,
+        block_runtime_id: i32::from_ne_bytes(0x8765_4321_u32.to_ne_bytes()),
+        extra_data: extra,
+    };
+    let interactions = PlayerAuthInputInteractions {
+        block_actions: protocol::BlockActions::new(),
+        block_interaction: Some(BlockItemInteraction::Use(BlockUseRequest {
+            block_position: [13, 71, -29],
+            face: 5,
+            selected_slot: 7,
+            selected_item: VerifiedNetworkItemStack::try_new(selected, digest).unwrap(),
+            player_position: [13.25, 72.625, -28.75],
+            relative_hit: [0.125, 0.875, 0.625],
+            block_runtime_id: 123456,
+        })),
+    };
+    let snapshot = PlayerAuthInputSnapshot {
+        tick: 1234,
+        position: [1.25, 64.0, -2.5],
+        delta: [0.25, 0.0, -0.5],
+        move_vector: [-1.0, 1.0],
+        analogue_move_vector: [-1.0, 1.0],
+        raw_move_vector: [-1.0, 1.0],
+        pitch: 10.5,
+        yaw: 20.25,
+        head_yaw: 30.75,
+        camera_orientation: [0.25, -0.5, -0.75],
+        flags: PlayerInputFlags::UP
+            | PlayerInputFlags::LEFT
+            | PlayerInputFlags::JUMPING
+            | PlayerInputFlags::SPRINTING,
+        input_mode: PlayerInputMode::Mouse,
+    };
+    let mut rebuilt =
+        protocol::player_auth_input_with_interactions(snapshot, &interactions).unwrap();
+    rebuilt.header.from_subclient = 1;
+    rebuilt.header.to_subclient = 2;
+    assert_eq!(
+        protocol::encode(&rebuilt, &session).unwrap().as_ref(),
+        fixture
+    );
+}

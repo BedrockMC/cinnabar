@@ -87,6 +87,38 @@ func TestInteractionFixturesCrossDecodeWithPinnedGophertunnel(t *testing.T) {
 	}
 }
 
+func TestEmbeddedFilledUseHasExactStackAndNoPredictedInventoryActions(t *testing.T) {
+	out := t.TempDir()
+	if err := generate(out); err != nil {
+		t.Fatal(err)
+	}
+	decoded := decodeClientPacket(t, filepath.Join(out, "player_auth_input_use_block.bin"))
+	pk, ok := decoded.(*packet.PlayerAuthInput)
+	if !ok {
+		t.Fatalf("decoded %T, want PlayerAuthInput", decoded)
+	}
+	data, present := pk.ItemInteractionData.Value()
+	if !present {
+		t.Fatal("missing embedded item interaction")
+	}
+	if _, present := pk.BlockActions.Value(); present {
+		t.Fatal("unexpected block actions")
+	}
+	if _, present := data.Actions.Value(); present {
+		t.Fatal("unexpected inventory prediction")
+	}
+	if data.ActionType != protocol.UseItemActionClickBlock || data.TriggerType != protocol.TriggerTypePlayerInput ||
+		data.BlockPosition != (protocol.BlockPos{13, 71, -29}) || data.BlockFace != 5 || data.HotBarSlot != 7 ||
+		data.Position != (mgl32.Vec3{13.25, 72.625, -28.75}) || data.ClickedPosition != (mgl32.Vec3{0.125, 0.875, 0.625}) ||
+		data.BlockRuntimeID != 123456 || data.ClientPrediction != protocol.ClientPredictionFailure || data.ClientCooldownState != protocol.ClientCooldownStateOff {
+		t.Fatalf("unexpected Use data: %+v", data)
+	}
+	assertFixtureItem(t, data.HeldItem, 5, 37, 41)
+	if uint32(data.HeldItem.Stack.BlockRuntimeID) != 0x87654321 || data.HeldItem.Stack.MetadataValue != 3 || data.HeldItem.Stack.NBTData["fixture"] != int32(1) {
+		t.Fatalf("held stack identity/data changed: %+v", data.HeldItem)
+	}
+}
+
 func assertActorUseTransaction(t *testing.T, transaction *packet.InventoryTransaction, runtimeID uint64,
 	action, slot int32, player, hit mgl32.Vec3) {
 	t.Helper()
@@ -198,6 +230,7 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"PlayerAuthInput",
 		"PlayerAuthInputBlockActions",
 		"PlayerAuthInputBreakBlock",
+		"PlayerAuthInputUseBlock",
 		"PlayerAuthInputBlockActionsAndBreakBlock",
 		"AddActor",
 		"Text",
@@ -231,12 +264,13 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"DisconnectFiltered",
 		"DisconnectHidden",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
 		{0xba, 0x48},
 		{0x93, 0x48},
+		{0x90, 0x49},
 		{0x90, 0x49},
 		{0x90, 0x49},
 		{0x90, 0x49},
