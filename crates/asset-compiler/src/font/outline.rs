@@ -214,11 +214,7 @@ fn rasterize_checked(
             || metrics.advance_width.to_bits() != expected.advance_width.to_bits()
             || metrics.advance_height.to_bits() != expected.advance_height.to_bits()
             || metrics.bounds != expected.bounds
-            || bitmap.len()
-                != expected
-                    .width
-                    .checked_mul(expected.height)
-                    .unwrap_or(usize::MAX))
+            || bitmap.len() != expected.width.saturating_mul(expected.height))
     {
         return Err(invalid("outline raster differs from its admitted metrics"));
     }
