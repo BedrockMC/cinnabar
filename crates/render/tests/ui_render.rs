@@ -2,7 +2,9 @@
 pub mod ui;
 #[path = "../src/ui_textures.rs"]
 pub mod ui_textures;
-pub use ui_textures::{UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan};
+pub use ui_textures::{
+    UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan,
+};
 #[path = "../src/ui_render.rs"]
 pub mod ui_render;
 
