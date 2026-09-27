@@ -3,6 +3,18 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-28 survival interaction: hold-to-mine (both block-breaking authority
+modes), MineBlock wear with reconciled responses, standalone ClickBlock
+placement, and melee with swings and missed-swing reporting are implemented but
+not live-accepted. Provisional, labeled incomplete: tool/harvest classes are
+Java-derived (PrismarineJS) and may predict early on Bedrock-specific tool rules;
+unresolved rows use the slowest rate; hardness is 1.26.30 data; flying is never
+detected; Unbreaking is not modelled; the destroy delay, completion threshold,
+pick ranges, server pick slack, entity pick radius, swing adjustments, placement
+repeat timings, attack-to-use block and bridging rule need independent
+measurement; replaceable, interactive and unpickable-entity lists are local
+choices. A vanilla packet capture must still confirm the attack swing count.
+
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
 lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
 null biome slots, per-entity tail skips, unknown ids to air/default biome, inline
