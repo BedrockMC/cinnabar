@@ -61,6 +61,27 @@ fn clear_merge_unsupported_replacement_and_fifo_are_authoritative() {
 }
 
 #[test]
+fn cloned_catalog_is_an_immutable_authority_snapshot() {
+    let mut current = RecipeCatalog::default();
+    current.begin_session(1);
+    current.apply(1, 1, &update(vec![recipe(1)], true));
+    let old = current.clone();
+    let revision = old.revision();
+    let mut replacement = recipe(1);
+    replacement.width = 2;
+    replacement
+        .ingredients
+        .push(replacement.ingredients[0].clone());
+    current.apply(1, 2, &update(vec![replacement], true));
+    assert_eq!(current.recipe(1).unwrap().dimensions(), (2, 1));
+    assert_eq!(old.recipe(1).unwrap().dimensions(), (1, 1));
+    assert_eq!(old.revision(), revision);
+    current.begin_session(2);
+    assert!(!current.is_available());
+    assert!(old.is_available());
+}
+
+#[test]
 fn unsupported_only_clear_and_duplicate_ids_never_keep_old_execution() {
     for reverse in [false, true] {
         let mut catalog = RecipeCatalog::default();

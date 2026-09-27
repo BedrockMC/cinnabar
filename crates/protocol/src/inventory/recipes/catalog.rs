@@ -10,14 +10,19 @@ struct Entry {
     handle: Option<RecipeHandle>,
 }
 
+#[derive(Debug)]
+struct CatalogEntries {
+    entries: Vec<Entry>,
+    _permit: Permit,
+}
+
 /// Pure protocol state; this tranche does not activate an app recipe consumer.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RecipeCatalog {
     session: u64,
     sequence: u64,
     revision: u64,
-    entries: Vec<Entry>,
-    permit: Option<Permit>,
+    storage: Option<Arc<CatalogEntries>>,
     available: bool,
     exhausted: bool,
 }
@@ -29,8 +34,7 @@ impl RecipeCatalog {
         self.retire();
     }
     fn retire(&mut self) {
-        self.entries = Vec::new();
-        self.permit = None;
+        self.storage = None;
         self.available = false;
         match self.revision.checked_add(1) {
             Some(next) => self.revision = next,
@@ -47,11 +51,15 @@ impl RecipeCatalog {
         self.available
     }
     pub fn recipe(&self, id: u32) -> Option<RecipeHandle> {
-        let index = self
-            .entries
-            .binary_search_by_key(&id, |entry| entry.id)
-            .ok()?;
-        self.entries[index].handle.clone()
+        let entries = &self.storage.as_ref()?.entries;
+        let index = entries.binary_search_by_key(&id, |entry| entry.id).ok()?;
+        entries[index].handle.clone()
+    }
+    pub(super) fn supported_recipes(&self) -> impl Iterator<Item = &super::model::Recipe> {
+        self.storage
+            .iter()
+            .flat_map(|storage| &storage.entries)
+            .filter_map(|entry| entry.handle.as_ref().map(RecipeHandle::recipe))
     }
     /// Every accepted FIFO update advances authority, including unavailable-only
     /// replacements. A policy refusal retires the complete previous catalog.
@@ -80,7 +88,9 @@ impl RecipeCatalog {
         let old = if batch.clear {
             &[][..]
         } else {
-            &self.entries[..]
+            self.storage
+                .as_ref()
+                .map_or(&[][..], |storage| &storage.entries[..])
         };
         let capacity = match old.len().checked_add(batch.records.len()) {
             Some(n) if n <= MAX_RECORDS * 2 => n,
@@ -131,8 +141,10 @@ impl RecipeCatalog {
             self.retire();
             return true;
         }
-        self.entries = merged;
-        self.permit = Some(permit);
+        self.storage = Some(Arc::new(CatalogEntries {
+            entries: merged,
+            _permit: permit,
+        }));
         self.available = true;
         self.revision += 1; // checked exhaustion above, before any new authority.
         true
@@ -182,6 +194,70 @@ mod tests {
         assert_eq!(owner.used(), 512);
         assert_eq!(handle.network_id(), 17);
         drop(handle);
+        assert_eq!(owner.used(), 0);
+    }
+
+    #[test]
+    fn cloned_catalogs_share_structural_and_batch_credit_without_shared_mutation() {
+        let owner = Credits::isolated(4096);
+        let mut current = RecipeCatalog::default();
+        current.begin_session(1);
+        let first = update(&owner, true);
+        current.apply_with_credits(1, 1, &first, &owner);
+        drop(first);
+        let old = current.clone();
+        let last_old = old.clone();
+        let charge = 512 + size_of::<Entry>() + 128;
+        assert_eq!(owner.used(), charge);
+        assert!(Arc::ptr_eq(
+            current.storage.as_ref().unwrap(),
+            old.storage.as_ref().unwrap()
+        ));
+        let mut replacement = update(&owner, true);
+        Arc::get_mut(replacement.batch.as_mut().unwrap())
+            .unwrap()
+            .records[0]
+            .recipe
+            .as_mut()
+            .unwrap()
+            .output
+            .count = 2;
+        current.apply_with_credits(1, 2, &replacement, &owner);
+        drop(replacement);
+        assert_eq!(owner.used(), charge * 2);
+        assert_eq!(current.recipe(17).unwrap().recipe().output.count, 2);
+        assert_eq!(old.recipe(17).unwrap().recipe().output.count, 4);
+        drop(current);
+        assert_eq!(owner.used(), charge);
+        drop(old);
+        assert_eq!(owner.used(), charge);
+        drop(last_old);
+        assert_eq!(owner.used(), 0);
+    }
+
+    #[test]
+    fn refused_replacement_does_not_remint_or_retire_a_retained_clone() {
+        let owner = Credits::isolated(4096);
+        let mut current = RecipeCatalog::default();
+        current.begin_session(1);
+        let first = update(&owner, true);
+        current.apply_with_credits(1, 1, &first, &owner);
+        drop(first);
+        let old = current.clone();
+        let charge = 512 + size_of::<Entry>() + 128;
+        let replacement = update(&owner, true);
+        let occupied = owner.reserve(4096 - owner.used()).unwrap();
+        current.apply_with_credits(1, 2, &replacement, &owner);
+        assert!(!current.is_available());
+        assert!(old.recipe(17).is_some());
+        assert_eq!(owner.used(), 4096);
+        drop(occupied);
+        assert_eq!(owner.used(), charge + 512);
+        drop(replacement);
+        assert_eq!(owner.used(), charge);
+        drop(current);
+        assert_eq!(owner.used(), charge);
+        drop(old);
         assert_eq!(owner.used(), 0);
     }
 

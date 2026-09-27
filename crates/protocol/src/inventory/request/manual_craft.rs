@@ -59,13 +59,61 @@ fn binding(
 ) -> Result<&ItemRegistryEntry, ManualCraftError> {
     let mut matches = registry.iter().filter(|entry| entry.network_id == id);
     let entry = matches.next().ok_or(ManualCraftError::Unsupported)?;
-    if matches.next().is_some()
-        || (entry.component_based && !entry.canonical_empty_component_data)
+    if matches.next().is_some() {
+        return Err(ManualCraftError::Unsupported);
+    }
+    binding_entry(entry)
+}
+
+pub(in crate::inventory) fn binding_entry(
+    entry: &ItemRegistryEntry,
+) -> Result<&ItemRegistryEntry, ManualCraftError> {
+    if (entry.component_based && !entry.canonical_empty_component_data)
         || !super::super::recipes::valid_identifier(&entry.identifier)
     {
         return Err(ManualCraftError::Unsupported);
     }
     Ok(entry)
+}
+
+/// Shared value validation. Request cell/stack identities are a separate gate.
+pub(in crate::inventory) fn validate_grid<'a>(
+    recipe: &super::super::recipes::model::Recipe,
+    grid: &[Option<&VerifiedNetworkItemStack>; 4],
+    lookup: impl Fn(i32) -> Result<&'a ItemRegistryEntry, ManualCraftError>,
+) -> Result<(&'a ItemRegistryEntry, [Option<u8>; 4]), ManualCraftError> {
+    let mut counts = [None; 4];
+    for (index, input) in grid.iter().enumerate() {
+        let cell = index / 2 * usize::from(recipe.width) + index % 2;
+        let expected =
+            if index % 2 < usize::from(recipe.width) && index / 2 < usize::from(recipe.height) {
+                recipe.ingredients[cell].as_ref()
+            } else {
+                None
+            };
+        match (expected, input) {
+            (None, None) => {}
+            (Some(expected), Some(stack)) => {
+                if stack.count() < u16::from(expected.count)
+                    || stack.metadata() != u32::from(expected.aux)
+                    || !super::super::recipes::empty_extra(stack.extra_data())
+                    || lookup(stack.network_id())?.identifier.as_ref() != expected.name
+                {
+                    return Err(ManualCraftError::Unsupported);
+                }
+                counts[index] = Some(expected.count);
+            }
+            _ => return Err(ManualCraftError::Unsupported),
+        }
+    }
+    let output = lookup(recipe.output.id)?;
+    if output
+        .negotiated_max_stack_size
+        .is_none_or(|capacity| recipe.output.count > capacity)
+    {
+        return Err(ManualCraftError::Unsupported);
+    }
+    Ok((output, counts))
 }
 
 impl ManualCraftPlan {
@@ -87,49 +135,21 @@ impl ManualCraftPlan {
         let handle = catalog
             .recipe(recipe_id)
             .ok_or(ManualCraftError::Unavailable)?;
-        let recipe = handle.recipe();
-        let output = binding(registry, recipe.output.id)?;
-        if output
-            .negotiated_max_stack_size
-            .is_none_or(|capacity| recipe.output.count > capacity)
-        {
-            return Err(ManualCraftError::Unsupported);
-        }
+        let grid = std::array::from_fn(|index| inputs[index].as_ref().map(|input| &input.stack));
+        let (output, counts) = validate_grid(handle.recipe(), &grid, |id| binding(registry, id))?;
         let mut consume: [Option<(u8, u8, i32)>; 4] = [None; 4];
         for (index, input) in inputs.into_iter().enumerate() {
-            // Recipe rows are compact in the packet; the personal grid has stride 2.
-            let cell = index / 2 * usize::from(recipe.width) + index % 2;
-            let expected = if index % 2 < usize::from(recipe.width)
-                && index / 2 < usize::from(recipe.height)
-            {
-                recipe.ingredients[cell].as_ref()
-            } else {
-                None
-            };
-            match (expected, input) {
-                (None, None) => {}
-                (Some(expected), Some(input)) => {
-                    let stack = &input.stack;
-                    if input.slot != 28 + index as u8
-                        || stack.stack_network_id() <= 0
-                        || stack.count() < u16::from(expected.count)
-                        || stack.metadata() != u32::from(expected.aux)
-                        || !super::super::recipes::empty_extra(stack.extra_data())
-                        || binding(registry, stack.network_id())?.identifier.as_ref()
-                            != expected.name
-                    {
-                        return Err(ManualCraftError::Unsupported);
-                    }
-                    if consume
+            if let (Some(count), Some(input)) = (counts[index], input) {
+                if input.slot != 28 + index as u8
+                    || input.stack.stack_network_id() <= 0
+                    || consume
                         .iter()
                         .flatten()
-                        .any(|(_, _, id)| *id == stack.stack_network_id())
-                    {
-                        return Err(ManualCraftError::Unsupported);
-                    }
-                    consume[index] = Some((input.slot, expected.count, stack.stack_network_id()));
+                        .any(|(_, _, id)| *id == input.stack.stack_network_id())
+                {
+                    return Err(ManualCraftError::Unsupported);
                 }
-                _ => return Err(ManualCraftError::Unsupported),
+                consume[index] = Some((input.slot, count, input.stack.stack_network_id()));
             }
         }
         Ok(Self {
