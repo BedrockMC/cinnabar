@@ -326,12 +326,12 @@ pub fn sample_camera_medium(
     }
 }
 
-pub(crate) fn mesh_liquids<S: crate::lighting::MeshLightSampler + ?Sized>(
+pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     classifier: BlockClassifier,
     assets: &RuntimeAssets,
     mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
-    light_sampler: &S,
+    lighting_inputs: &L,
 ) -> (Vec<PackedLiquidQuad>, Vec<PackedQuadLighting>) {
     let center = neighbourhood
         .sub_chunk([0, 0, 0])
@@ -446,12 +446,8 @@ pub(crate) fn mesh_liquids<S: crate::lighting::MeshLightSampler + ?Sized>(
     for quad in transparent_quads {
         let index = lighting.len() as u32;
         let block = quad.origin().map(i32::from);
-        lighting.push(crate::lighting::bake_quad_lighting_with_sampler(
-            &classifier,
-            assets,
-            mode,
-            neighbourhood,
-            light_sampler,
+        lighting.push(crate::lighting::bake_quad(
+            lighting_inputs,
             block,
             quad.face(),
             lighting_positions(quad.face(), quad.heights()),

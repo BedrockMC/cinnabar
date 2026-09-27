@@ -906,3 +906,113 @@ fn varint(mut value: i32) -> Vec<u8> {
         }
     }
 }
+
+/// Deterministic dense 3x3x3 fixture shared by the mesh-output golden digests.
+fn mixed_neighbourhood_chunks(seed: u64, density: u64) -> Vec<SubChunk> {
+    let mut state = seed | 1;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let ids = [
+        SOLID,
+        GLASS,
+        CROSS,
+        WATER_SOURCE,
+        WATER_SOURCE + 3,
+        WATER_SOURCE + 9,
+        WATER_ALIAS,
+        OTHER_LIQUID,
+        FACED_LIQUID,
+        FACED_DEPTH_7,
+        NON_WATER_LIQUID,
+    ];
+    (0..27)
+        .map(|_| {
+            let mut primary = Vec::new();
+            let mut waterlogged = Vec::new();
+            for x in 0..16_u8 {
+                for y in 0..16_u8 {
+                    for z in 0..16_u8 {
+                        if next() % 100 >= density {
+                            continue;
+                        }
+                        let id = ids[(next() % ids.len() as u64) as usize];
+                        primary.push((id, [x, y, z]));
+                        if id == CROSS && next() % 2 == 0 {
+                            waterlogged.push(([x, y, z], 1));
+                        }
+                    }
+                }
+            }
+            let mut palette = vec![AIR];
+            let placements = primary
+                .iter()
+                .map(|&(id, pos)| {
+                    let index = palette.iter().position(|&v| v == id).unwrap_or_else(|| {
+                        palette.push(id);
+                        palette.len() - 1
+                    });
+                    (pos, index)
+                })
+                .collect::<Vec<_>>();
+            sub_chunk(vec![
+                packed_storage(5, &palette, &placements),
+                packed_storage(1, &[AIR, WATER_SOURCE], &waterlogged),
+            ])
+        })
+        .collect()
+}
+
+fn mesh_mixed(chunks: &[SubChunk]) -> meshing::ChunkMesh {
+    let mut neighbourhood = MeshNeighbourhood::new(&chunks[13]);
+    let mut index = 0;
+    for x in -1..=1_i8 {
+        for y in -1..=1_i8 {
+            for z in -1..=1_i8 {
+                if [x, y, z] != [0, 0, 0] {
+                    assert!(neighbourhood.insert([x, y, z], &chunks[index]));
+                }
+                index += 1;
+            }
+        }
+    }
+    let sampler = |[x, y, z]: [i32; 3]| {
+        let hash = (x.wrapping_mul(73_856_093)
+            ^ y.wrapping_mul(19_349_663)
+            ^ z.wrapping_mul(83_492_791)) as u32;
+        MeshLightSample::try_new((hash & 15) as u8, ((hash >> 4) & 15) as u8).unwrap()
+    };
+    mesh_sub_chunk_in_neighbourhood_with_lighting(
+        &BlockClassifier::new(AIR),
+        runtime_assets(),
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &sampler,
+    )
+}
+
+/// Mesh output for dense mixed cube/model/liquid scenes must stay byte-identical.
+#[test]
+fn mixed_neighbourhood_mesh_output_is_golden() {
+    let digests = [(1_u64, 8_u64), (2, 30), (3, 70), (4, 95)].map(|(seed, density)| {
+        let mesh = mesh_mixed(&mixed_neighbourhood_chunks(seed, density));
+        assert!(!mesh.cube_quads().is_empty() && !mesh.liquid_quads().is_empty());
+        format!("{mesh:?}")
+            .bytes()
+            .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+            })
+    });
+    assert_eq!(
+        digests,
+        [
+            15_847_214_303_004_695_188,
+            4_766_889_440_949_635_443,
+            578_659_367_938_113_741,
+            15_230_510_185_437_010_504
+        ]
+    );
+}
