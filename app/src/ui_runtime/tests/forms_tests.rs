@@ -41,6 +41,62 @@ fn drain(runtime: &mut UiRuntime) -> Vec<Vec<u8>> {
 }
 
 #[test]
+fn decoded_element_button_form_selects_index_one_and_cancels_without_duplicate_response() {
+    let json = r#"{"type":"form","title":"Menu 世界","content":"Select α β","elements":[{"type":"button","text":"First ✓","image":null},{"type":"button","text":"第二","image":null}]}"#;
+    let varuint = |mut value: usize, output: &mut Vec<u8>| {
+        while value >= 128 {
+            output.push((value as u8) | 128);
+            value >>= 7;
+        }
+        output.push(value as u8);
+    };
+    // The existing pinned form fixture uses header 100, then form id and
+    // length-prefixed JSON. This independent packet exercises actual decode.
+    let mut packet = vec![100, 29];
+    varuint(json.len(), &mut packet);
+    packet.extend_from_slice(json.as_bytes());
+    let mut encoded = vec![0xfe];
+    varuint(packet.len(), &mut encoded);
+    encoded.extend_from_slice(&packet);
+    let mut decoded = protocol::decode_batch(
+        encoded.into(),
+        &protocol::BedrockSession { shield_item_id: 0 },
+    )
+    .unwrap();
+    let Some(protocol::WorldEvent::Ui(event)) =
+        protocol::into_world_event(decoded.pop().unwrap(), 0).unwrap()
+    else {
+        panic!("decoded form UI event")
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(envelope(1, 1, event.clone())).unwrap();
+    let ServerFormModel::TextMenu(menu) = &runtime.server_forms().active().unwrap().model else {
+        panic!("decoded element menu must retain actionable buttons")
+    };
+    assert_eq!(menu.buttons[1].as_ref(), "第二");
+    runtime
+        .respond_to_server_form(identity(&runtime), LocalFormAction::SubmitButton(1))
+        .unwrap();
+    assert_eq!(
+        drain(&mut runtime),
+        vec![bytes(protocol::modal_form_submit_response(
+            29,
+            protocol::ModalFormResponseSelection::ButtonIndex(1)
+        ))]
+    );
+    assert!(drain(&mut runtime).is_empty());
+    runtime.apply(envelope(1, 2, event)).unwrap();
+    runtime
+        .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
+        .unwrap();
+    assert_eq!(
+        drain(&mut runtime),
+        vec![bytes(protocol::modal_form_cancel_response(29))]
+    );
+    assert!(drain(&mut runtime).is_empty());
+}
+
+#[test]
 fn different_id_overlap_is_busy_not_fifo_display_and_queue_is_bounded() {
     let mut runtime = UiRuntime::new(1);
     runtime.apply(retained(1, 1)).unwrap();
