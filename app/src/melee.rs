@@ -35,6 +35,8 @@ const CREATIVE_ATTACK_REACH: f64 = 7.0;
 const ACTOR_PICK_RADIUS: f64 = 0.1;
 /// Documented default swing length of 0.3 seconds.
 const DEFAULT_SWING_TICKS: i32 = 6;
+/// Ticks after an attack during which block use is suppressed. Needs independent measurement.
+const ATTACK_BUILD_BLOCK_TICKS: u64 = 4;
 
 /// Actors vanilla cannot pick: drops, orbs, projectiles and effect carriers.
 const UNPICKABLE_ACTORS: &[&str] = &[
@@ -207,11 +209,18 @@ impl SwingTracker {
 pub(crate) struct MeleeRuntime {
     latched_press: bool,
     actor_in_front: bool,
+    last_attack_tick: Option<u64>,
 }
 
 impl MeleeRuntime {
     pub(crate) const fn actor_in_front(&self) -> bool {
         self.actor_in_front
+    }
+
+    /// Whether a recent attack still suppresses block use on `tick`.
+    pub(crate) fn blocks_use_at(&self, tick: u64) -> bool {
+        self.last_attack_tick
+            .is_some_and(|attack| tick >= attack && tick - attack < ATTACK_BUILD_BLOCK_TICKS)
     }
 }
 
@@ -273,9 +282,10 @@ pub(crate) fn produce_melee(
     if !runtime.latched_press {
         return;
     }
-    let Some((tick, player_position)) = movement.newest_unsent_sample() else {
+    let Some(sample) = movement.newest_unsent_sample() else {
         return;
     };
+    let (tick, player_position) = (sample.tick, sample.position);
     runtime.latched_press = false;
     let Some(stream) = context.client_world.stream.as_ref() else {
         return;
@@ -292,6 +302,7 @@ pub(crate) fn produce_melee(
     match crosshair {
         Crosshair::Actor(hit) => {
             swing(SwingSource::Attack);
+            runtime.last_attack_tick = Some(tick);
             let Some(selection) = verified_selection(&context.ui) else {
                 return;
             };

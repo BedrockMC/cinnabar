@@ -3,9 +3,9 @@ use std::sync::Arc;
 use bytes::Bytes;
 use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BedrockSession, BlockUsePacketError,
-    BlockUseRequest, InventoryPacketError, NetworkItemStack, SwingSource, VerifiedNetworkItemStack,
-    click_block_packet, decode_batch, destroy_block_packet, encode, swing_arm_packet,
-    use_actor_packet,
+    BlockUseRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack, SwingSource,
+    VerifiedNetworkItemStack, click_block_packet, click_block_transaction_packet, decode_batch,
+    destroy_block_packet, encode, swing_arm_packet, use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_44::{
@@ -582,5 +582,70 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         );
         assert_eq!(animate.data, 0.0);
         assert_eq!(animate.swing_source.as_deref(), Some(name));
+    }
+}
+
+#[test]
+fn click_block_transaction_carries_trigger_and_prediction() {
+    let decoded = decode_one(CLICK_BLOCK, McpePacketName::InventoryTransactionPacket);
+    let McpePacketData::InventoryTransactionPacket(fixture) = &decoded.data else {
+        panic!("inventory transaction");
+    };
+    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(fixture)) =
+        &fixture.transaction
+    else {
+        panic!("item use");
+    };
+    let request = BlockUseRequest {
+        block_position: [fixture.position.x, fixture.position.y, fixture.position.z],
+        face: fixture.face,
+        selected_slot: fixture.slot as u8,
+        selected_item: VerifiedNetworkItemStack::try_new(
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty().nbt_digest,
+        )
+        .unwrap(),
+        player_position: [
+            fixture.from_position.x,
+            fixture.from_position.y,
+            fixture.from_position.z,
+        ],
+        relative_hit: [0.5, 1.0, 0.25],
+        block_runtime_id: u64::from(fixture.target_block_id),
+    };
+    for (trigger, success, wire_trigger, wire_prediction) in [
+        (
+            ItemUseTrigger::PlayerInput,
+            false,
+            EnumsItemUseInventoryTransactionTriggerType::PlayerInput,
+            EnumsItemUseInventoryTransactionPredictedResult::Failure,
+        ),
+        (
+            ItemUseTrigger::SimulationTick,
+            true,
+            EnumsItemUseInventoryTransactionTriggerType::SimulationTick,
+            EnumsItemUseInventoryTransactionPredictedResult::Success,
+        ),
+    ] {
+        let packet = click_block_transaction_packet(request.clone(), trigger, success).unwrap();
+        let bytes = encode(&packet, &session()).unwrap();
+        let McpePacketData::InventoryTransactionPacket(built) =
+            decode_batch(bytes, &session()).unwrap().remove(0).data
+        else {
+            panic!("inventory transaction");
+        };
+        let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built)) =
+            built.transaction
+        else {
+            panic!("item use");
+        };
+        assert_eq!(
+            built.action_type,
+            EnumsItemUseInventoryTransactionActionType::Place
+        );
+        assert_eq!(built.trigger_type, wire_trigger);
+        assert_eq!(built.client_interact_prediction, wire_prediction);
+        assert_eq!(built.target_block_id, fixture.target_block_id);
+        assert_eq!(built.click_position.z, 0.25);
     }
 }

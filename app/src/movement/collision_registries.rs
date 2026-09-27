@@ -29,8 +29,8 @@ pub struct PhysicsCollisionRegistries {
     hashed_count: usize,
     preg_sha256: [u8; 32],
     breg_sha256: [u8; 32],
-    interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
-    hashed_interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
+    block_identifiers: BTreeMap<u32, Arc<str>>,
+    hashed_block_identifiers: BTreeMap<u32, Arc<str>>,
 }
 
 #[derive(Debug, Error)]
@@ -118,8 +118,8 @@ impl PhysicsCollisionRegistries {
         };
         let mut sequential = CollisionRegistry::with_identity(sequential_identity);
         let mut hashed = CollisionRegistry::with_identity(hashed_identity);
-        let mut interaction_blocks = BTreeMap::new();
-        let mut hashed_interaction_blocks = BTreeMap::new();
+        let mut block_identifiers = BTreeMap::new();
+        let mut hashed_block_identifiers = BTreeMap::new();
         for record in records {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
@@ -130,20 +130,9 @@ impl PhysicsCollisionRegistries {
                 .copied()
                 .map(collision_box_to_aabb)
                 .collect::<Vec<_>>();
-            let full_cube = record.model_family == assets::ModelFamily::Cube
-                && fact.boxes.len() == 1
-                && fact.boxes[0]
-                    == assets::CollisionBox {
-                        min_x: 0,
-                        min_y: 0,
-                        min_z: 0,
-                        max_x: 100_000_000,
-                        max_y: 100_000_000,
-                        max_z: 100_000_000,
-                    };
-            let binding = (Arc::from(record.name.as_ref()), full_cube);
-            interaction_blocks.insert(record.sequential_id, binding.clone());
-            hashed_interaction_blocks.insert(record.network_hash, binding);
+            let binding: Arc<str> = Arc::from(record.name.as_ref());
+            block_identifiers.insert(record.sequential_id, binding.clone());
+            hashed_block_identifiers.insert(record.network_hash, binding);
             let register = |registry: &mut CollisionRegistry, runtime_id, boxes: Vec<Aabb>| {
                 registry.register_primitives(
                     runtime_id,
@@ -174,22 +163,9 @@ impl PhysicsCollisionRegistries {
             hashed_count: physics.len(),
             preg_sha256,
             breg_sha256,
-            interaction_blocks,
-            hashed_interaction_blocks,
+            block_identifiers,
+            hashed_block_identifiers,
         })
-    }
-
-    pub(crate) fn interaction_cube(
-        &self,
-        mode: assets::NetworkIdMode,
-        runtime_id: u32,
-    ) -> Option<&str> {
-        let map = match mode {
-            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
-            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
-        };
-        let (identifier, full_cube) = map.get(&runtime_id)?;
-        full_cube.then_some(identifier.as_ref())
     }
 
     pub(crate) fn block_identifier(
@@ -198,11 +174,10 @@ impl PhysicsCollisionRegistries {
         runtime_id: u32,
     ) -> Option<&str> {
         let map = match mode {
-            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
-            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+            assets::NetworkIdMode::Sequential => &self.block_identifiers,
+            assets::NetworkIdMode::Hashed => &self.hashed_block_identifiers,
         };
-        map.get(&runtime_id)
-            .map(|(identifier, _)| identifier.as_ref())
+        map.get(&runtime_id).map(AsRef::as_ref)
     }
 
     #[must_use]

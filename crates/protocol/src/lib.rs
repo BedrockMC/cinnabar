@@ -52,7 +52,8 @@ pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    SwingSource, click_block_packet, destroy_block_packet, swing_arm_packet, use_actor_packet,
+    ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
+    destroy_block_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeUpdate, decode_recipe_update,
