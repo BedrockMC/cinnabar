@@ -3,6 +3,18 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-28 actor animation: remote players and mobs animate through the vanilla
+controllers with full Molang evaluation; not visually accepted (facing, box-UV
+side faces and limb swing need a native capture). Provisional, labeled
+incomplete: motion-model constants, the 6-tick swing, the look clamp, gliding
+divisor, baby leg-speed factor, seeded variables and Molang math tolerances need
+independent measurement; `loop` is capped at 1024 (vanilla has no cap); undefined
+variables read 0; non-uniform parent scale over rotated children is approximated
+without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
+transitions, render-controller part visibility and per-axis rotation objects are
+missing; queries without retained data read idle values; held items and most mob
+artwork are deferred.
+
 2026-09-28 survival interaction: hold-to-mine (both block-breaking authority
 modes), MineBlock wear with reconciled responses, standalone ClickBlock
 placement, and melee with swings and missed-swing reporting are implemented but

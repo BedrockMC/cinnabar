@@ -189,7 +189,7 @@ pub fn molang_call(function: MolangFunction, args: &[f32], random: &mut dyn FnMu
             let (low, high) = ordered(b.floor(), c.floor());
             let integer = function == MolangFunction::DieRollInteger;
             let mut sum = 0.0;
-            // Bounded by the caller's operation budget per die, not by the dice count.
+            // One call is charged one op; only `MAX_DICE` bounds the loop.
             for _ in 0..(dice.min(MAX_DICE) as u32) {
                 let roll = random().clamp(0.0, 1.0);
                 sum += if integer {
