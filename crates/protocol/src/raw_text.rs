@@ -12,6 +12,10 @@ pub const MAX_RAW_TEXT_NODES: usize = 768;
 pub const MAX_RAW_TEXT_DEPTH: usize = 16;
 pub const MAX_RAW_TEXT_COMPONENTS: usize = 256;
 pub const MAX_RAW_TEXT_OUTPUT_BYTES: usize = 8_192;
+// One extra scalar preserves the existing parent's exact truncation decision.
+const MAX_FORMATTED_PREFIX_BYTES: usize = MAX_RAW_TEXT_OUTPUT_BYTES + 4;
+// Sign + 309 integer digits + decimal point + precision 0..9 for finite f64.
+const MAX_FIXED_FLOAT_BYTES: usize = 320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawTextDocument {
@@ -192,7 +196,7 @@ fn resolve_component(
 /// escapes one percent sign; an out-of-range reference keeps its literal
 /// form, and a non-numeric argument for `%.Nf` presents verbatim.
 fn format_translation(template: &str, arguments: &[String]) -> String {
-    let mut output = String::with_capacity(template.len());
+    let mut output = TranslationPrefix::new();
     let mut sequential = 0usize;
     let mut chars = template.char_indices().peekable();
     while let Some((_, current)) = chars.next() {
@@ -226,7 +230,12 @@ fn format_translation(template: &str, arguments: &[String]) -> String {
                         if let Some(argument) = arguments.get(sequential) {
                             match argument.trim().parse::<f64>() {
                                 Ok(value) if value.is_finite() => {
-                                    output.push_str(&format!("{value:.precision$}"));
+                                    use std::fmt::Write as _;
+                                    let mut number = FixedFloatText::default();
+                                    write!(&mut number, "{value:.precision$}").expect(
+                                        "finite f64 with precision 0..9 fits the fixed buffer",
+                                    );
+                                    output.push_str(number.as_str());
                                 }
                                 _ => output.push_str(argument),
                             }
@@ -259,7 +268,74 @@ fn format_translation(template: &str, arguments: &[String]) -> String {
             _ => output.push('%'),
         }
     }
-    output
+    output.text
+}
+
+struct TranslationPrefix {
+    text: String,
+    sealed: bool,
+}
+
+impl TranslationPrefix {
+    fn new() -> Self {
+        Self {
+            text: String::with_capacity(MAX_FORMATTED_PREFIX_BYTES),
+            sealed: false,
+        }
+    }
+
+    fn push(&mut self, character: char) {
+        let mut bytes = [0; 4];
+        self.push_str(character.encode_utf8(&mut bytes));
+    }
+
+    fn push_str(&mut self, text: &str) {
+        if self.sealed {
+            return;
+        }
+        let remaining = MAX_FORMATTED_PREFIX_BYTES - self.text.len();
+        if text.len() <= remaining {
+            self.text.push_str(text);
+            return;
+        }
+        let mut end = remaining;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        self.text.push_str(&text[..end]);
+        // Discard the entire suffix, including later smaller ASCII scalars.
+        self.sealed = true;
+    }
+}
+
+struct FixedFloatText {
+    bytes: [u8; MAX_FIXED_FLOAT_BYTES],
+    len: usize,
+}
+
+impl Default for FixedFloatText {
+    fn default() -> Self {
+        Self {
+            bytes: [0; MAX_FIXED_FLOAT_BYTES],
+            len: 0,
+        }
+    }
+}
+
+impl FixedFloatText {
+    fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..self.len]).expect("formatter writes valid UTF-8")
+    }
+}
+
+impl std::fmt::Write for FixedFloatText {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        let end = self.len.checked_add(text.len()).ok_or(std::fmt::Error)?;
+        let destination = self.bytes.get_mut(self.len..end).ok_or(std::fmt::Error)?;
+        destination.copy_from_slice(text.as_bytes());
+        self.len = end;
+        Ok(())
+    }
 }
 
 fn push_bounded(resolved: &mut ResolvedRawText, text: &str) {
@@ -700,4 +776,81 @@ struct WireScore {
 #[serde(deny_unknown_fields)]
 struct WireSelector {
     selector: String,
+}
+
+#[cfg(test)]
+mod formatting_tests {
+    use super::*;
+
+    #[test]
+    fn repeated_translation_argument_has_a_bounded_intermediate_prefix() {
+        let template = "%1".repeat(128);
+        let argument = "a".repeat(MAX_RAW_TEXT_OUTPUT_BYTES);
+        let formatted = format_translation(&template, &[argument]);
+        assert!(formatted.len() <= MAX_RAW_TEXT_OUTPUT_BYTES + 4);
+        assert_eq!(&formatted[..MAX_RAW_TEXT_OUTPUT_BYTES], "a".repeat(8192));
+    }
+
+    #[test]
+    fn short_translation_keeps_text_but_reserves_the_fixed_prefix_capacity() {
+        let formatted = format_translation("hello", &[]);
+        assert_eq!(formatted, "hello");
+        assert!(formatted.capacity() >= MAX_FORMATTED_PREFIX_BYTES);
+    }
+
+    #[test]
+    fn formatted_prefix_seals_at_the_first_omitted_scalar() {
+        for scalar in ["é", "世", "🌍"] {
+            for remaining in 0..scalar.len() {
+                let initial = "a".repeat(MAX_FORMATTED_PREFIX_BYTES - remaining);
+                let template = format!("{initial}{scalar}Z");
+                assert_eq!(format_translation(&template, &[]), initial);
+            }
+        }
+    }
+
+    #[test]
+    fn finite_fixed_precision_uses_the_same_standard_formatting() {
+        let values = [
+            f64::MAX,
+            -f64::MAX,
+            f64::MIN_POSITIVE,
+            f64::from_bits(1),
+            -f64::from_bits(1),
+            0.0,
+            -0.0,
+            9.9999999999,
+            -9.9999999999,
+            1.5,
+            2.5,
+        ];
+        for precision in 0..=9 {
+            for value in values {
+                let expected = format!("{value:.precision$}");
+                assert!(expected.len() <= MAX_FIXED_FLOAT_BYTES);
+                assert_eq!(
+                    format_translation(&format!("%.{precision}f"), &[value.to_string()]),
+                    expected
+                );
+            }
+            for argument in ["NaN", "inf", "-inf", "not a number"] {
+                assert_eq!(
+                    format_translation(&format!("%.{precision}f"), &[argument.into()]),
+                    argument
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_float_buffer_refuses_overflow_without_mutating_its_prefix() {
+        use std::fmt::Write as _;
+        let mut number = FixedFloatText::default();
+        number
+            .write_str(&"a".repeat(MAX_FIXED_FLOAT_BYTES))
+            .unwrap();
+        assert!(number.write_str("b").is_err());
+        assert_eq!(number.len, MAX_FIXED_FLOAT_BYTES);
+        assert_eq!(number.as_str(), "a".repeat(MAX_FIXED_FLOAT_BYTES));
+    }
 }

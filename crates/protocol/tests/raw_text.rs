@@ -627,3 +627,86 @@ fn selectors_resolve_from_lent_authority_and_otherwise_count_as_skipped() {
     assert_eq!(resolved.text, "Reader | Reader, Steve | ");
     assert_eq!(resolved.skipped_selectors, 1);
 }
+
+fn resolve_translation_template(
+    template: &str,
+    arguments: &[&str],
+    prefix: &str,
+) -> protocol::ResolvedRawText {
+    let arguments: Vec<_> = arguments
+        .iter()
+        .map(|text| serde_json::json!({"text": text}))
+        .collect();
+    let json = serde_json::json!({"rawtext": [
+        {"text": prefix},
+        {"translate": "test.template", "with": arguments}
+    ]});
+    let document = parse_raw_text(&json.to_string()).unwrap();
+    let translate = |key: &str| (key == "test.template").then(|| Arc::from(template));
+    document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    })
+}
+
+#[test]
+fn bounded_translation_keeps_ordinary_placeholder_and_malformed_semantics() {
+    let cases = [
+        ("%s:%d:%s", "first:second:"),
+        ("%2 %1 %1$s %2$d", "second first first second"),
+        ("%% %10 %0 %9$s", "% first0 %0 %9"),
+        ("%1$x %3$d", "firstx %3"),
+        ("%.f %.12f %.xf %", "%.f %.12f %.xf %"),
+    ];
+    for (template, expected) in cases {
+        let result = resolve_translation_template(template, &["first", "second"], "");
+        assert_eq!(result.text, expected);
+        assert!(!result.truncated);
+        assert_eq!(result.unknown_translations, 0);
+    }
+}
+
+#[test]
+fn bounded_translation_preserves_complete_prefix_and_exact_truncation() {
+    for length in [8191, 8192, 8193] {
+        let template = "a".repeat(length);
+        let result = resolve_translation_template(&template, &[], "");
+        assert_eq!(
+            result.text,
+            "a".repeat(length.min(MAX_RAW_TEXT_OUTPUT_BYTES))
+        );
+        assert_eq!(result.truncated, length > MAX_RAW_TEXT_OUTPUT_BYTES);
+    }
+    for scalar in ["é", "世", "🌍"] {
+        for remaining in 0..scalar.len() {
+            let prefix = "p".repeat(MAX_RAW_TEXT_OUTPUT_BYTES - remaining);
+            let template = format!("{scalar}Z");
+            let result = resolve_translation_template(&template, &[], &prefix);
+            assert_eq!(result.text, prefix);
+            assert!(result.truncated);
+        }
+    }
+    let argument = "a".repeat(MAX_RAW_TEXT_OUTPUT_BYTES);
+    let result = resolve_translation_template(&"%1".repeat(128), &[&argument], "");
+    assert_eq!(result.text, argument);
+    assert!(result.truncated);
+}
+
+#[test]
+fn bounded_translation_still_resolves_unused_nested_arguments_and_counters() {
+    let document = parse_raw_text(r#"{"rawtext":[{"translate":"test.template","with":[{"text":"first"},{"translate":"unknown"},{"score":{"name":"Reader","objective":"missing"}},{"selector":"@e"}]}]}"#).unwrap();
+    let translate = |key: &str| (key == "test.template").then(|| Arc::from("%1"));
+    let result = document.resolve(&protocol::RawTextResolver {
+        reader_name: "Reader",
+        translate: &translate,
+        score: &|_, _| None,
+        selector: &|_| None,
+    });
+    assert_eq!(result.text, "first");
+    assert_eq!(result.unknown_translations, 1);
+    assert_eq!(result.unresolved_scores, 1);
+    assert_eq!(result.skipped_selectors, 1);
+    assert!(!result.truncated);
+}
