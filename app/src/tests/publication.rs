@@ -30,6 +30,7 @@ use crate::semantic_controls::{
     collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
     synchronize_semantic_input_authority,
 };
+use crate::survival_mining::produce_survival_mining;
 use crate::ui_runtime::presentation::publish_ui_runtime;
 use client_world::{PublicationServiceConfig, WorldMeshChange};
 
@@ -152,6 +153,13 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, produce_creative_mining, "produce_creative_mining"),
+            system_node(graph, produce_survival_mining, "produce_survival_mining"),
+        ),
+        "creative arbitration must precede survival destroy stepping",
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            system_node(graph, produce_survival_mining, "produce_survival_mining"),
             system_node(graph, produce_block_use, "produce_block_use"),
         ),
         "mining arbitration must precede provisional block-use production",
