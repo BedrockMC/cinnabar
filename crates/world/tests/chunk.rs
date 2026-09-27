@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use world::{MeshNeighbourhood, MeshSample, SubChunk, SubChunkKey};
+use world::{MeshNeighbourhood, MeshSample, RawBlockIds, SubChunk, SubChunkKey};
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -21,7 +21,7 @@ fn zig_zag_i32(value: i32) -> Vec<u8> {
 fn uniform(runtime_id: u32) -> SubChunk {
     let mut bytes = vec![9, 1, 0, 1];
     bytes.extend(zig_zag_i32(runtime_id as i32));
-    SubChunk::decode(&bytes).expect("decode uniform test sub-chunk")
+    SubChunk::decode(&bytes, &RawBlockIds { air: 0 })
 }
 
 #[test]

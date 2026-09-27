@@ -696,7 +696,9 @@ fn stale_identity_and_unloaded_data_before_a_candidate_are_rejected() {
 
     let chunk = ChunkKey::new(0, 0, 0);
     let mut partial = ChunkStore::new();
-    partial.apply_level_chunk(chunk, 0, 1, &uniform(0)).unwrap();
+    partial
+        .apply_level_chunk(chunk, 0, 1, &uniform(0), &world::RawBlockIds { air: 0 })
+        .unwrap();
     let expected =
         WorldCollisionIdentity::new(identity(), [partial.collision_revision(chunk).unwrap()])
             .unwrap();

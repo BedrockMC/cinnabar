@@ -227,7 +227,7 @@ fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
     let key = SubChunkKey::new(0, 0, -4, 0);
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     let resolved_storage = stream.store.biome_storage(key).unwrap();
     let resolved = stream.resolved_biome_tints_snapshot();
@@ -240,7 +240,7 @@ fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
 
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 86]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 86], &RAW_BIOMES),
     );
     let missing_storage = stream.store.biome_storage(key).unwrap();
     let missing = super::pack_biome_record(
@@ -293,13 +293,13 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
                     env!("CARGO_MANIFEST_DIR"),
                     "/../world/fixtures/uniform_non_air.bin"
                 )),
-            )
-            .unwrap(),
+                &RAW_IDS,
+            ),
         )
         .unwrap();
     stream.store.commit_biome_column(
         key.chunk(),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     stream.resident.insert(key);
     let source = stream.store.sub_chunk(key).unwrap();
@@ -558,7 +558,7 @@ fn camera_environment_context_exposes_palette_biome_and_effective_block_radius()
     );
     stream.store.commit_biome_column(
         ChunkKey::new(0, 0, 0),
-        DecodedBiomeColumn::decode(-4, 1, &[1, 84]).unwrap(),
+        DecodedBiomeColumn::decode(-4, 1, &[1, 84], &RAW_BIOMES),
     );
     stream.chunk_radius = Some(16);
 
@@ -867,6 +867,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_request_mode_nbt_replace
 #[test]
 fn request_mode_changed_biome_keeps_destructive_column_replacement() {
     let mut stream = block_entity_visual_stream();
+    define_custom_biomes(&mut stream, [1, 2]);
     let position = [1, -63, 2];
     let key = SubChunkKey::new(0, 0, -4, 0);
     let initial = block_entity_nbt("Jukebox", position);

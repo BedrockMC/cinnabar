@@ -2,12 +2,14 @@ use protocol::{
     BlockActionKind::{
         AbortDestroy, ContinueDestroy, CrackBlock, PredictDestroy, StartDestroy, StopDestroy,
     },
-    BlockBreakingAuthority::{Client, Server},
     NetworkItemStack, PlayerInputMode, VerifiedNetworkItemStack,
 };
 use sim::{DestroyConditions, HeldTool};
 
-use super::*;
+use super::{
+    BlockBreakingAuthority::{Client, Server},
+    *,
+};
 use crate::movement::{
     MovementSource, MovementTicker, PhysicsMovementSample, PhysicsTickEvidenceContext,
     ProcessedMovementState, flush_player_auth_inputs,

@@ -2,7 +2,9 @@ use sim::{
     Aabb, CollisionRegistry, CollisionWorld, MovementInput, PaletteWorld, PlayerState,
     RegistryError, Simulator, Vec3, WorldQueryError,
 };
-use world::{BlockUpdate, ChunkKey, ChunkStore, SubChunkKey};
+use world::{BlockUpdate, ChunkKey, ChunkStore, RawBlockIds, SubChunkKey};
+
+const AIR_IDS: RawBlockIds = RawBlockIds { air: 0 };
 
 fn registry_identity() -> sim::CollisionRegistryIdentity {
     sim::CollisionRegistryIdentity {
@@ -40,12 +42,18 @@ fn loaded_uniform_store(chunk: ChunkKey, runtime_id: u32) -> ChunkStore {
     for x in (chunk.x - 1)..=(chunk.x + 1) {
         for z in (chunk.z - 1)..=(chunk.z + 1) {
             store
-                .apply_level_chunk(ChunkKey::new(chunk.dimension, x, z), 0, 1, &zero_storage)
+                .apply_level_chunk(
+                    ChunkKey::new(chunk.dimension, x, z),
+                    0,
+                    1,
+                    &zero_storage,
+                    &AIR_IDS,
+                )
                 .unwrap();
         }
     }
     store
-        .apply_level_chunk(chunk, 0, 1, &uniform(runtime_id))
+        .apply_level_chunk(chunk, 0, 1, &uniform(runtime_id), &AIR_IDS)
         .unwrap();
     store
 }

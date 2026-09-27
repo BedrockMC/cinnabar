@@ -296,7 +296,7 @@ pub(crate) fn produce_melee(
         if swings.try_swing(tick, duration) {
             let _ = context
                 .network
-                .send_interaction_packet(protocol::swing_arm_packet(local_runtime_id, source));
+                .send_inventory_packet(protocol::swing_arm_packet(local_runtime_id, source));
         }
     };
     match crosshair {
@@ -319,7 +319,7 @@ pub(crate) fn produce_melee(
                 },
                 &session,
             ) {
-                let _ = context.network.send_interaction_packet(packet);
+                let _ = context.network.send_inventory_packet(packet);
             }
         }
         Crosshair::Block => swing(SwingSource::Mine),

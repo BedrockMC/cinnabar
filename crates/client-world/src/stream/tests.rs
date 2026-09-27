@@ -23,11 +23,29 @@ use protocol::{
 };
 use world::{
     BlockEntityKey, BlockUpdate, ChunkKey, ChunkStore, DecodedBiomeColumn, DecodedBlockEntities,
-    DecodedLevelChunk, MeshDependencyMask, SubChunk, SubChunkKey, SubChunkLight,
+    DecodedLevelChunk, MeshDependencyMask, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey,
+    SubChunkLight,
 };
 
 use super::*;
 use crate::server_position;
+
+/// Decode registries that keep every id, for fixtures committed straight to the store.
+const RAW_IDS: RawBlockIds = RawBlockIds { air: 12_530 };
+const RAW_BIOMES: RawBiomeIds = RawBiomeIds { default_biome: 0 };
+
+fn test_decode_ids() -> super::DecodeIds {
+    WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    })
+    .decode_ids(0)
+}
 
 #[test]
 fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
@@ -64,295 +82,6 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
         panic!("inline LevelChunk must enqueue one decode job")
     };
     assert_eq!(payload.as_ptr(), pointer);
-}
-
-#[test]
-fn malformed_inline_level_chunk_becomes_a_fifo_fatal() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    stream
-        .submit(
-            1,
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: LevelChunkMode::Inline { count: 1 },
-                payload: vec![0xff],
-            }),
-        )
-        .expect("admit malformed opaque payload");
-    stream
-        .submit(2, WorldEvent::SetTime(protocol::SetTimeEvent { time: 7 }))
-        .expect("admit valid FIFO successor");
-
-    complete_pending_decode_jobs(&mut stream);
-
-    assert!(stream.take_committed_controls().is_empty());
-    assert!(matches!(
-        stream.take_fatal_error(),
-        Some(WorldStreamFatalError::ChunkDecode { sequence: 1, .. })
-    ));
-}
-
-#[test]
-fn malformed_retained_level_chunk_bytes_become_a_typed_fatal() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    stream
-        .submit_level_chunk_bytes(
-            9,
-            LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: LevelChunkMode::Inline { count: 1 },
-                payload: Vec::new(),
-            },
-            bytes::Bytes::from_static(&[0xff]),
-        )
-        .expect("admit retained malformed payload");
-    for sequence in 1..9 {
-        stream
-            .commit(sequence)
-            .expect("fill the FIFO positions before the retained payload");
-    }
-
-    complete_pending_decode_jobs(&mut stream);
-
-    assert!(matches!(
-        stream.take_fatal_error(),
-        Some(WorldStreamFatalError::ChunkDecode { sequence: 9, .. })
-    ));
-}
-
-#[test]
-fn malformed_sub_chunk_payload_is_fatal_but_unknown_result_is_survivable() {
-    let (mut stream, key) = stream_with_one_expected_sub_chunk();
-    stream
-        .submit(
-            2,
-            WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: 0,
-                entries: vec![SubChunkEntryEvent {
-                    position: [key.x, key.y, key.z],
-                    result: SubChunkResult::Unavailable(SubChunkUnavailable::Unknown(0xfe)),
-                }],
-            }),
-        )
-        .expect("unknown result is a semantic control");
-    complete_pending_decode_jobs(&mut stream);
-    assert!(stream.take_fatal_error().is_none());
-
-    let (mut stream, key) = stream_with_one_expected_sub_chunk();
-    stream
-        .submit(
-            2,
-            WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: 0,
-                entries: vec![SubChunkEntryEvent {
-                    position: [key.x, key.y, key.z],
-                    result: SubChunkResult::Success {
-                        payload: vec![0xff],
-                    },
-                }],
-            }),
-        )
-        .expect("admit malformed opaque sub-chunk payload");
-    complete_pending_decode_jobs(&mut stream);
-    assert!(matches!(
-        stream.take_fatal_error(),
-        Some(WorldStreamFatalError::ChunkDecode { sequence: 2, .. })
-    ));
-    assert!(
-        stream.take_requests().is_empty(),
-        "fatal wire must not retry"
-    );
-}
-
-#[test]
-fn extreme_sub_chunk_y_overflow_is_survivable_decode_policy() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    stream.accept_decode_completion(DecodeCompletion {
-        sequence: 1,
-        event: PreparedWorldEvent::InlineLevelChunk {
-            event: LevelChunkEvent {
-                dimension: 0,
-                x: 0,
-                z: 0,
-                mode: LevelChunkMode::Inline { count: 0 },
-                payload: Vec::new(),
-            },
-            decoded: Err(world::DecodeError::SubChunkYOverflow {
-                first: i32::MAX,
-                offset: 1,
-            }),
-            duration: std::time::Duration::ZERO,
-        },
-        queue_wait: std::time::Duration::ZERO,
-    });
-    stream.apply_ready();
-
-    assert!(stream.take_fatal_error().is_none());
-    assert_eq!(stream.stats().decode_errors, 1);
-    assert_eq!(stream.pending_decode.len(), 0);
-}
-
-#[test]
-fn malformed_live_block_entity_wire_is_fifo_fatal() {
-    for payload in [vec![10, 1, 0xff], vec![10, 1]] {
-        let mut stream = WorldStream::new(WorldBootstrap {
-            dimension: 0,
-            local_player_runtime_id: 1,
-            local_player_unique_id: 1,
-            player_position: [0.0; 3],
-            world_spawn_position: [0; 3],
-            air_network_id: 12_530,
-            block_network_ids_are_hashes: false,
-        });
-        stream
-            .submit(
-                1,
-                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
-                    dimension: 0,
-                    position: [0, 0, 0],
-                    nbt: payload,
-                }),
-            )
-            .expect("admit malformed live block-entity payload");
-        stream
-            .submit(2, WorldEvent::SetTime(SetTimeEvent { time: 7 }))
-            .expect("admit FIFO successor");
-
-        complete_pending_decode_jobs(&mut stream);
-
-        assert!(matches!(
-            stream.take_fatal_error(),
-            Some(WorldStreamFatalError::ChunkDecode { sequence: 1, .. })
-        ));
-        assert!(stream.take_committed_controls().is_empty());
-    }
-}
-
-#[test]
-fn semantic_live_block_entity_shape_remains_survivable() {
-    let mut stream = WorldStream::new(WorldBootstrap {
-        dimension: 0,
-        local_player_runtime_id: 1,
-        local_player_unique_id: 1,
-        player_position: [0.0; 3],
-        world_spawn_position: [0; 3],
-        air_network_id: 12_530,
-        block_network_ids_are_hashes: false,
-    });
-    stream
-        .submit(
-            1,
-            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
-                dimension: 0,
-                position: [0, 0, 0],
-                nbt: vec![1, 0, 0],
-            }),
-        )
-        .expect("admit semantic block-entity shape");
-    stream
-        .submit(2, WorldEvent::SetTime(SetTimeEvent { time: 7 }))
-        .expect("admit FIFO successor");
-
-    complete_pending_decode_jobs(&mut stream);
-
-    assert!(stream.take_fatal_error().is_none());
-    assert_eq!(stream.stats().decode_errors, 1);
-    assert!(matches!(
-        stream.take_committed_controls().as_slice(),
-        [CommittedControlEvent::SetTime {
-            sequence: 2,
-            update: SetTimeEvent { time: 7 }
-        }]
-    ));
-}
-
-#[test]
-fn decode_fatal_stays_terminal_across_later_polls() {
-    let (mut stream, keys, request) = stream_with_unsent_sub_chunks(1);
-    let target = ViewCohort::from_publisher(0, [0, 64, 0], 16);
-    stream.committed_view_cohort = Some(target);
-    stream.required_columns = BTreeSet::from([keys[0].chunk()]);
-    stream.loaded_columns.insert(keys[0].chunk());
-    assert!(stream.cohort_status(target).target_is_complete());
-
-    acknowledge_request_sent(
-        &mut stream,
-        &request,
-        Instant::now() - super::SUB_CHUNK_RESPONSE_TIMEOUT,
-    );
-    let ready_chunk = ChunkKey::new(0, 1, 0);
-    stream.requests.push_ready(
-        PendingSubChunkRequest {
-            packet: request_sub_chunk_column(0, ready_chunk.x, ready_chunk.z, -4, 1)
-                .expect("build ready terminality witness"),
-            dimension: 0,
-            chunk: ready_chunk,
-            base_sub_chunk_y: -4,
-            count: 1,
-        },
-        false,
-    );
-    stream
-        .submit(
-            2,
-            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
-                dimension: 0,
-                position: [0, 0, 0],
-                nbt: vec![10, 1],
-            }),
-        )
-        .expect("admit fatal live block-entity payload");
-    stream
-        .submit(3, WorldEvent::SetTime(SetTimeEvent { time: 9 }))
-        .expect("admit queued FIFO successor");
-    complete_pending_decode_jobs(&mut stream);
-    assert!(stream.fatal_decode_failure);
-    let retries_before = stream.stats().sub_chunk_retries_scheduled;
-
-    stream.poll([0.0; 3], 0);
-
-    assert!(stream.take_committed_controls().is_empty());
-    assert!(stream.take_requests().is_empty());
-    assert_eq!(stream.stats().sub_chunk_retries_scheduled, retries_before);
-    assert!(stream.sub_chunk_deadlines.is_empty());
-    assert!(!stream.cohort_status(target).target_is_complete());
-    assert!(
-        !stream
-            .phase2_publication_snapshot(keys[0].chunk())
-            .required_cohort_stable
-    );
-    assert!(matches!(
-        stream.take_fatal_error(),
-        Some(WorldStreamFatalError::ChunkDecode { sequence: 2, .. })
-    ));
 }
 
 mod block_cracks;
@@ -437,7 +166,7 @@ fn zig_zag_i32(value: i32) -> Vec<u8> {
 fn uniform_sub_chunk(runtime_id: u32) -> SubChunk {
     let mut bytes = vec![8, 1, 1];
     bytes.extend(zig_zag_i32(runtime_id as i32));
-    SubChunk::decode(&bytes).expect("decode uniform test subchunk")
+    SubChunk::decode(&bytes, &RawBlockIds { air: 0 })
 }
 
 fn camera_medium_assets() -> RuntimeAssets {
@@ -536,6 +265,26 @@ fn biome_payload(dimension: i32, biome_id: i32) -> Vec<u8> {
     payload.extend(std::iter::repeat_n(0xff, storage_count - 1));
     payload.push(0); // border-block count
     payload
+}
+
+fn define_custom_biomes(stream: &mut WorldStream, ids: impl IntoIterator<Item = u16>) {
+    let definitions = ids
+        .into_iter()
+        .map(|id| BiomeDefinitionEvent {
+            biome_id: Some(id),
+            name: Arc::from(format!("test:biome_{id}")),
+            temperature: 0.8,
+            downfall: 0.4,
+            snow_foliage: 0.0,
+            map_water_color: 0,
+        })
+        .collect::<Vec<_>>();
+    stream.apply_immediate(
+        WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
+            definitions: Arc::from(definitions),
+        }),
+        None,
+    );
 }
 
 fn biome_neighbourhood_with_center(
@@ -740,22 +489,17 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
                 sequence,
                 event,
                 payload,
-                base_sub_chunk_y,
+                slots,
                 count,
-                biome_storage_count,
+                ids,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
                 (
                     sequence,
                     super::PreparedWorldEvent::InlineLevelChunk {
                         event,
-                        decoded: DecodedLevelChunk::decode_with_biomes_and_block_entities(
-                            chunk,
-                            base_sub_chunk_y,
-                            count,
-                            base_sub_chunk_y,
-                            biome_storage_count,
-                            &payload,
+                        decoded: DecodedLevelChunk::decode_inline(
+                            chunk, slots, count, &payload, &ids, &ids,
                         ),
                         duration: std::time::Duration::ZERO,
                     },
@@ -765,53 +509,50 @@ fn complete_pending_decode_jobs(stream: &mut WorldStream) {
                 sequence,
                 event,
                 payload,
-                biome_base_sub_chunk_y,
-                biome_storage_count,
+                slots,
+                ids,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
                 (
                     sequence,
                     super::PreparedWorldEvent::RequestLevelChunk {
                         event,
-                        decoded: world::DecodedBiomeColumn::decode(
-                            biome_base_sub_chunk_y,
-                            biome_storage_count,
-                            &payload,
-                        )
-                        .and_then(|biomes| {
-                            let block_entities = DecodedBlockEntities::decode_level_chunk_tail(
-                                chunk,
-                                &payload[biomes.bytes_consumed()..],
-                            )?;
-                            Ok((biomes, block_entities))
-                        }),
+                        decoded: world::decode_column_tail(chunk, slots, &payload, &ids),
                         duration: std::time::Duration::ZERO,
                     },
                 )
             }
-            super::DecodeJob::SubChunks { sequence, batch } => (
+            super::DecodeJob::SubChunks {
+                sequence,
+                batch,
+                ids,
+            } => (
                 sequence,
                 super::PreparedWorldEvent::SubChunks {
                     dimension: batch.dimension,
-                    entries: super::prepare_sub_chunks(batch),
+                    entries: super::prepare_sub_chunks(batch, &ids),
                     duration: std::time::Duration::ZERO,
                 },
             ),
             super::DecodeJob::BlockUpdates {
                 sequence,
                 batches,
-                air_runtime_id,
+                ids,
             } => (
                 sequence,
                 super::PreparedWorldEvent::BlockUpdates {
                     result: batches
                         .into_iter()
-                        .map(|batch| {
+                        .map(|mut batch| {
+                            for update in &mut batch.updates {
+                                update.runtime_id =
+                                    world::BlockIds::resolve(&ids, update.runtime_id);
+                            }
                             ChunkStore::prepare_sub_chunk_blocks(
                                 batch.key,
                                 batch.previous.as_deref(),
                                 &batch.updates,
-                                air_runtime_id,
+                                world::BlockIds::air(&ids),
                             )
                         })
                         .collect(),
@@ -932,7 +673,7 @@ fn cave_test_slab(runtime_id: u8) -> SubChunk {
         encoded.extend_from_slice(&word.to_le_bytes());
     }
     encoded.extend([4, 0, runtime_id << 1]);
-    SubChunk::decode(&encoded).expect("decode cave-connectivity slab")
+    SubChunk::decode(&encoded, &RawBlockIds { air: 0 })
 }
 
 fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
@@ -1138,5 +879,6 @@ mod cases_11;
 mod forced_remesh;
 mod inline_cohort;
 mod inventory_commit_fence;
+mod lenient_decode;
+mod local_abilities;
 mod render_distance;
-mod wire_preemption;

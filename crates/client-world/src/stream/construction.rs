@@ -113,6 +113,7 @@ impl WorldStream {
             classifier: BlockClassifier::new(air_network_id),
             network_id_mode,
             runtime_assets,
+            custom_block_ids: 0..0,
             biome_definitions: Arc::from([]),
             resolved_biome_tints,
             biome_tint_stream_id,
@@ -152,7 +153,6 @@ impl WorldStream {
             last_dispatched_light_batch: HashMap::new(),
             light_waiters: HashMap::new(),
             fatal_light_failure: false,
-            fatal_decode_failure: false,
             fatal_error: None,
             revisions: RevisionTracker::default(),
             applied_mesh_generations: HashMap::new(),
@@ -350,24 +350,23 @@ impl WorldStream {
                     ..
                 },
             ) => {
-                let Some(range) = vanilla_dimension_range(event.dimension)
-                    .filter(|range| count <= range.sub_chunk_count)
-                else {
+                let Some(range) = vanilla_dimension_range(event.dimension) else {
                     self.heavy_sequences.remove(&sequence);
                     self.ordered
                         .insert(sequence, PreparedWorldEvent::NormalizationFailure)?;
                     self.apply_ready();
                     return Ok(());
                 };
+                let ids = self.decode_ids(event.dimension);
                 self.enqueue_decode_job(DecodeJob::InlineLevelChunk {
                     sequence,
                     payload: level_chunk_payload
                         .take()
                         .unwrap_or_else(|| Bytes::from(std::mem::take(&mut event.payload))),
                     event,
-                    base_sub_chunk_y: range.base_sub_chunk_y,
+                    slots: dimension_slots(range),
                     count,
-                    biome_storage_count: range.sub_chunk_count,
+                    ids,
                 });
             }
             WorldEvent::LevelChunk(
@@ -383,14 +382,15 @@ impl WorldStream {
                     self.apply_ready();
                     return Ok(());
                 };
+                let ids = self.decode_ids(event.dimension);
                 self.enqueue_decode_job(DecodeJob::RequestLevelChunk {
                     sequence,
                     payload: level_chunk_payload
                         .take()
                         .unwrap_or_else(|| Bytes::from(std::mem::take(&mut event.payload))),
                     event,
-                    biome_base_sub_chunk_y: range.base_sub_chunk_y,
-                    biome_storage_count: range.sub_chunk_count,
+                    slots: dimension_slots(range),
+                    ids,
                 });
             }
             WorldEvent::SubChunks(batch) => {
@@ -402,7 +402,12 @@ impl WorldStream {
                     return Ok(());
                 }
                 self.record_sub_chunk_reply_admissions(&batch);
-                self.enqueue_decode_job(DecodeJob::SubChunks { sequence, batch });
+                let ids = self.decode_ids(batch.dimension);
+                self.enqueue_decode_job(DecodeJob::SubChunks {
+                    sequence,
+                    batch,
+                    ids,
+                });
             }
             WorldEvent::SubChunkReplyAdmission(admission) => {
                 self.record_sub_chunk_reply_admission(&admission);

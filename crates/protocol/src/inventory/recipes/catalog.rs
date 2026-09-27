@@ -61,6 +61,17 @@ impl RecipeCatalog {
             .flat_map(|storage| &storage.entries)
             .filter_map(|entry| entry.handle.as_ref().map(RecipeHandle::recipe))
     }
+    pub(super) fn observation_entries(&self) -> impl Iterator<Item = (u32, &super::model::Recipe)> {
+        self.storage
+            .iter()
+            .flat_map(|storage| &storage.entries)
+            .filter_map(|entry| {
+                entry
+                    .handle
+                    .as_ref()
+                    .map(|handle| (entry.id, handle.recipe()))
+            })
+    }
     /// Every accepted FIFO update advances authority, including unavailable-only
     /// replacements. A policy refusal retires the complete previous catalog.
     pub fn apply(&mut self, session: u64, sequence: u64, update: &RecipeUpdate) -> bool {

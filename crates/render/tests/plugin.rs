@@ -74,7 +74,7 @@ const CHUNK_RENDERER_SOURCE: &str = concat!(
     include_str!("../src/chunk/draw.rs"),
     include_str!("../src/chunk/transparent/liquid.rs"),
 );
-use world::{DecodedBiomeColumn, SubChunk, SubChunkKey};
+use world::{DecodedBiomeColumn, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey};
 
 const AIR: u32 = 12_530;
 
@@ -405,7 +405,7 @@ fn flowerbed_sub_chunk(placements: &[([u8; 3], usize)]) -> SubChunk {
     encoded.extend(zig_zag_i32(0));
     encoded.extend(zig_zag_i32(1));
     encoded.extend(zig_zag_i32(2));
-    SubChunk::decode(&encoded).expect("decode packed FlowerBed subchunk")
+    SubChunk::decode(&encoded, &RawBlockIds { air: AIR })
 }
 
 #[path = "plugin/contracts.rs"]

@@ -31,6 +31,26 @@ const MILLIS_PER_SERVER_TICK: u64 = 50;
 const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
+    pub(crate) fn clear_block_breaking_mode(&mut self) {
+        self.server_authoritative_block_breaking = None;
+    }
+
+    pub(crate) fn install_block_breaking_mode(
+        &mut self,
+        session_generation: u64,
+        mode: bool,
+        setup_succeeded: bool,
+    ) {
+        if self.session_id() == session_generation && setup_succeeded {
+            self.server_authoritative_block_breaking = Some(mode);
+        }
+    }
+
+    /// Retained negotiation only; this does not authorize a mining request.
+    pub(crate) const fn server_authoritative_block_breaking(&self) -> Option<bool> {
+        self.server_authoritative_block_breaking
+    }
+
     /// Predicts a physical hotbar selection and retains the latest slot until its packet is sent.
     pub(crate) fn queue_local_hotbar_selection(&mut self, slot: u8) {
         if self.selected_hotbar_slot() == Some(slot) && self.pending_hotbar_selection.is_none() {
@@ -128,20 +148,6 @@ impl UiRuntime {
                 super::UiApplyOutcome::IgnoredByReceiveStore
             }
         }
-    }
-
-    pub(crate) const fn publish_block_breaking_authority(
-        &mut self,
-        authority: protocol::BlockBreakingAuthority,
-    ) {
-        self.block_breaking_authority = Some(authority);
-    }
-
-    /// `None` until this session's StartGame has been applied.
-    pub(crate) const fn block_breaking_authority(
-        &self,
-    ) -> Option<protocol::BlockBreakingAuthority> {
-        self.block_breaking_authority
     }
 
     pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
@@ -396,6 +402,7 @@ impl UiRuntime {
             );
         }
         self.crafting_authority.advance();
+        self.sample_crafting_observation();
     }
 
     pub fn apply_local_attributes(

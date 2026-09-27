@@ -5,6 +5,9 @@ pub const BLOCKS_PER_SUB_CHUNK: usize = 16 * 16 * 16;
 
 pub(crate) const SUPPORTED_BITS: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 8, 16];
 
+/// Storage widths that carry packed index words.
+pub(crate) const PACKED_BITS: [u8; 8] = [1, 2, 3, 4, 5, 6, 8, 16];
+
 /// Runtime values referenced by a [`PalettedStorage`].
 ///
 /// The values are deliberately kept as raw network `u32`s. Depending on the
@@ -125,6 +128,20 @@ impl PalettedStorage {
         let shift = (linear % values_per_word) * bits;
         let mask = (1_u32 << self.bits_per_index) - 1;
         Some(((word >> shift) & mask) as usize)
+    }
+
+    pub(crate) fn zero_indices_at_or_above(&mut self, palette_len: usize) {
+        if self.bits_per_index == 0 || palette_len >= 1_usize << self.bits_per_index {
+            return;
+        }
+        for linear in 0..BLOCKS_PER_SUB_CHUNK {
+            if self
+                .palette_index(linear)
+                .is_some_and(|index| index >= palette_len)
+            {
+                write_palette_index(&mut self.words, self.bits_per_index, linear, 0);
+            }
+        }
     }
 
     pub(crate) fn uniform(runtime_id: u32) -> Self {

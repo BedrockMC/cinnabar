@@ -158,7 +158,7 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) local_physics: ResMut<'w, LocalPhysicsController>,
     pub(crate) movement_effects: ResMut<'w, LocalMovementEffectTimeline>,
     pub(crate) movement_speed: ResMut<'w, LocalMovementSpeedAuthority>,
-    pub(crate) collisions: Res<'w, PhysicsCollisionRegistries>,
+    pub(crate) collisions: ResMut<'w, PhysicsCollisionRegistries>,
     pub(crate) ui_runtime: ResMut<'w, UiRuntime>,
     pub(crate) time: Res<'w, Time<Real>>,
 }

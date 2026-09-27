@@ -30,7 +30,7 @@ fn inventory_frontier_waits_for_actual_block_mutation_then_releases_fifo_suffix(
 }
 
 #[test]
-fn inventory_frontier_stops_at_missing_predecessor_and_remains_closed_after_fatal_consumption() {
+fn inventory_frontier_stops_at_missing_predecessor_then_passes_malformed_chunk() {
     let mut stream = block_entity_visual_stream();
     stream.commit(2).unwrap();
     stream.poll([0.0; 3], 0);
@@ -48,10 +48,8 @@ fn inventory_frontier_stops_at_missing_predecessor_and_remains_closed_after_fata
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
-    assert!(stream.take_fatal_error().is_some());
-    assert_eq!(stream.inventory_committed_through(), None);
     assert!(stream.take_fatal_error().is_none());
-    assert_eq!(stream.inventory_committed_through(), None);
+    assert_eq!(stream.inventory_committed_through(), Some(2));
 }
 
 #[test]

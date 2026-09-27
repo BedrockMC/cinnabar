@@ -65,8 +65,12 @@ impl WorldStream {
             "one fixture batch respects the production result capacity"
         );
         for (key, _, _) in &entries {
-            let source =
-                SubChunk::decode(&[8, 1, 1, 2]).expect("decode publication fixture source");
+            let source = SubChunk::decode(
+                &[8, 1, 1, 2],
+                &world::RawBlockIds {
+                    air: self.classifier.air_network_id(),
+                },
+            );
             self.store
                 .commit_sub_chunk(*key, source)
                 .expect("commit publication fixture source");

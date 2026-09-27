@@ -334,8 +334,7 @@ fn publication_fixture_key(index: usize) -> world::SubChunkKey {
 }
 
 fn publication_fixture_mesh(runtime_assets: &assets::RuntimeAssets) -> meshing::ChunkMesh {
-    let source = world::SubChunk::decode(&[9, 1, 0, 1, 2])
-        .expect("decode deterministic solid publication source");
+    let source = world::SubChunk::decode(&[9, 1, 0, 1, 2], &world::RawBlockIds { air: 0 });
     meshing::mesh_sub_chunk(
         &meshing::BlockClassifier::new(0),
         runtime_assets,
