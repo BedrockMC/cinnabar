@@ -3,7 +3,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use assets::NetworkIdMode;
 use bevy::{
     camera::Projection,
     ecs::system::SystemParam,
@@ -19,7 +18,8 @@ use render::{
     ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
 };
 use render::{
-    ActorRuntimeWitness, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler,
+    ActorRuntimeWitness, ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage,
+    RuntimeStageProfiler,
 };
 
 use crate::{
@@ -56,6 +56,8 @@ use crate::local_player::FrozenLocalAvatarVisibility;
 pub(crate) use inventory::{
     publish_bootstrap_inventory, route_inventory_ingress, route_item_registry_ingress,
 };
+#[cfg(test)]
+pub(crate) use resource_packs::PackApplication;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
 };
@@ -236,6 +238,7 @@ fn consume_equipment_route(
 pub(crate) fn receive_network_events(
     mut network: ResMut<NetworkHandle>,
     mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
+    mut chunk_textures: Option<ResMut<ChunkTextureAssets>>,
     state: AppWorldState,
     mut acceptance: ResMut<AcceptanceRun>,
     metrics: Res<AppMetrics>,
@@ -285,8 +288,7 @@ pub(crate) fn receive_network_events(
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
                 server_authoritative_block_breaking,
-                resource_packs,
-                server_lang,
+                packs,
             } => {
                 match classify_bootstrap_generation(
                     ui_runtime.session_id(),
@@ -338,7 +340,7 @@ pub(crate) fn receive_network_events(
                     );
                     continue;
                 }
-                resource_pack_admission.replace_for_generation(session_generation, resource_packs);
+                resource_pack_admission.replace_for_generation(session_generation, packs.admission);
                 ui_runtime.publish_bootstrap_game_modes(
                     player_game_mode,
                     world_default_game_mode,
@@ -356,27 +358,11 @@ pub(crate) fn receive_network_events(
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]
                 };
-                let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
-                    WorldStream::new_with_asset_sets(
-                        bootstrap,
-                        Arc::clone(&client_world.runtime_assets),
-                        Arc::clone(entity_assets),
-                        current,
-                        client_world.pending_surface_spawn,
-                    )
-                } else {
-                    WorldStream::new_with_assets(
-                        bootstrap,
-                        Arc::clone(&client_world.runtime_assets),
-                        current,
-                        client_world.pending_surface_spawn,
-                    )
-                };
-                let custom_block_ids = if stream.network_id_mode() == NetworkIdMode::Sequential {
-                    collisions.begin_session_custom_blocks(&custom_blocks)
-                } else {
+                let custom_block_ids = if bootstrap.block_network_ids_are_hashes {
                     collisions.begin_session_custom_blocks(&protocol::CustomBlocks::default());
                     None
+                } else {
+                    collisions.begin_session_custom_blocks(&custom_blocks)
                 };
                 if custom_block_ids.is_none() && !custom_blocks.blocks.is_empty() {
                     warn!(
@@ -384,6 +370,30 @@ pub(crate) fn receive_network_events(
                         "server custom blocks are unsupported in this id mode or ordering"
                     );
                 }
+                let session_assets = resource_packs::session_runtime_assets(
+                    &client_world.runtime_assets,
+                    custom_block_ids.as_ref(),
+                    packs.block_overlay.as_deref(),
+                );
+                if let Some(textures) = chunk_textures.as_mut() {
+                    resource_packs::install_chunk_textures(textures, &session_assets);
+                }
+                let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
+                    WorldStream::new_with_asset_sets(
+                        bootstrap,
+                        Arc::clone(&session_assets),
+                        Arc::clone(entity_assets),
+                        current,
+                        client_world.pending_surface_spawn,
+                    )
+                } else {
+                    WorldStream::new_with_assets(
+                        bootstrap,
+                        session_assets,
+                        current,
+                        client_world.pending_surface_spawn,
+                    )
+                };
                 if custom_blocks.skipped != 0 {
                     warn!(
                         skipped = custom_blocks.skipped,
@@ -467,7 +477,7 @@ pub(crate) fn receive_network_events(
                 resource_packs::install_server_language(
                     &mut ui_runtime,
                     session_generation,
-                    server_lang,
+                    packs.server_lang,
                     client_world.fatal_error.is_none(),
                 );
                 ui_runtime.install_block_breaking_mode(
@@ -888,6 +898,7 @@ pub(crate) fn update_actor_render_scene<'a>(
 }
 
 mod actor_publication;
+mod block_overlay;
 mod drain;
 mod inventory;
 mod resource_packs;

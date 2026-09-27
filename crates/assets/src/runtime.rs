@@ -1,4 +1,7 @@
 mod decode;
+mod overlay;
+
+pub use overlay::BlockOverlay;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

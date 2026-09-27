@@ -138,7 +138,7 @@ pub use registry::{
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
     read_registry_for_protocol, registry_header_protocol,
 };
-pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
+pub use runtime::{BlockOverlay, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,

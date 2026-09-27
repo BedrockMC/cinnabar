@@ -147,6 +147,15 @@ impl ClientWorld {
             ..Self::new(runtime_assets)
         }
     }
+
+    /// Unmapped block lookups on the assets the current session meshes with,
+    /// which carry any server block overlay.
+    pub(crate) fn missing_asset_count(&self) -> u64 {
+        self.stream
+            .as_ref()
+            .map_or(&self.runtime_assets, |stream| stream.runtime_assets())
+            .missing_count()
+    }
 }
 
 #[derive(SystemParam)]

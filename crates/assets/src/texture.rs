@@ -119,7 +119,8 @@ fn build_texture_array(
             {
                 let mip_pixels =
                     usize::try_from(size * size).expect("bounded texture mip fits usize");
-                let target = (base_survivors * mip_pixels + 128) / 256;
+                let base_pixels = (tile_size * tile_size) as usize;
+                let target = (base_survivors * mip_pixels + base_pixels / 2) / base_pixels;
                 let mut corrected = pixels.to_vec();
                 preserve_alpha_coverage(&mut corrected, target);
                 rgba8.extend_from_slice(&corrected);
@@ -312,7 +313,29 @@ fn invalid(detail: impl Into<Box<str>>) -> AssetError {
 
 #[cfg(test)]
 mod tests {
-    use super::{downsample_linear_premultiplied, downsample_linear_unassociated};
+    use super::{
+        ALPHA_TEST_THRESHOLD, build_texture_mip_chain, downsample_linear_premultiplied,
+        downsample_linear_unassociated,
+    };
+
+    // Coverage targets scale with the base size, so larger cutout tiles keep their share.
+    #[test]
+    fn cutout_coverage_is_preserved_for_larger_tiles() {
+        let base = (0..32 * 32)
+            .flat_map(|index| [90, 90, 90, if index % 3 == 0 { 255 } else { 0 }])
+            .collect::<Box<[u8]>>();
+        let mips = build_texture_mip_chain(base, 32).expect("mip chain");
+        assert_eq!(mips.len(), 6);
+        let covered = mips[2]
+            .rgba8
+            .chunks_exact(4)
+            .filter(|pixel| pixel[3] >= ALPHA_TEST_THRESHOLD)
+            .count();
+        assert!(
+            covered.abs_diff(21) <= 1,
+            "a third of the 8x8 mip stays covered: {covered}"
+        );
+    }
 
     #[test]
     fn transparent_colour_does_not_bleed_into_linear_mips() {

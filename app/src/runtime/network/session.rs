@@ -76,8 +76,7 @@ pub enum NetworkControlEvent {
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
         server_authoritative_block_breaking: bool,
-        resource_packs: resource_pack::PackAdmission,
-        server_lang: Option<Arc<assets::ServerLangOverlay>>,
+        packs: super::resource_packs::PackApplication,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,
@@ -577,13 +576,13 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 // publishing any StartGame state; optional semantic rejection
                 // remains a live base-assets session.
                 let handoff = session.take_resource_pack_handoff();
-                let (resource_packs, server_lang) =
-                    super::resource_packs::prepare_pack_application(handoff);
+                let custom_blocks = CustomBlocks::from_game_data(&game_data);
+                let packs =
+                    super::resource_packs::prepare_pack_application(handoff, &custom_blocks);
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let server_authoritative_block_breaking =
                     protocol::server_authoritative_block_breaking(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
-                let custom_blocks = CustomBlocks::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
                 let item_registry = match start_game_item_registry(&game_data, bootstrap.dimension)
                 {
@@ -612,8 +611,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
                         server_authoritative_block_breaking,
-                        resource_packs,
-                        server_lang,
+                        packs,
                     },
                 )
                 .await

@@ -1,0 +1,293 @@
+use std::{io::Write, sync::Arc};
+
+use assets::{BlockFace, NetworkIdMode, RuntimeAssets, VisualKind};
+use protocol::{
+    CustomBlock, CustomBlockVisuals, CustomBlocks, CustomMaterialInstance, CustomPermutation,
+    CustomStateAxis, CustomStateValue, CustomTransformation, CustomVisualComponents,
+};
+use resource_pack::LayeredPackView;
+
+use super::{OverlayGaps, compile_block_overlay};
+
+fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+    let image = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba(pixel(x, y)));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("encode fixture png");
+    bytes.into_inner()
+}
+
+const GEOMETRY: &str = r#"{"format_version": "1.12.0", "minecraft:geometry": [{
+    "description": {"identifier": "geometry.gen", "texture_width": 32, "texture_height": 32},
+    "bones": [{"name": "block", "pivot": [0, 0, 0], "cubes": [
+        {"origin": [-8, 0, -8], "size": [16, 16, 16], "uv": {
+            "north": {"uv": [0, 0], "uv_size": [16, 16]},
+            "east": {"uv": [16, 0], "uv_size": [16, 16]},
+            "south": {"uv": [16, 0], "uv_size": [16, 16]},
+            "west": {"uv": [16, 0], "uv_size": [16, 16]},
+            "up": {"uv": [16, 32], "uv_size": [16, -16]},
+            "down": {"uv": [0, 32], "uv_size": [16, -16]}}},
+        {"origin": [-4, 16, -4], "size": [8, 1, 8], "uv": {"up": {"uv": [20, 20], "uv_size": [8, 8]}}},
+        {"origin": [0, 0, 0], "size": [1, 1, 1], "rotation": [0, 45, 0], "uv": [0, 0]}
+    ]}]}]}"#;
+
+fn view() -> LayeredPackView {
+    let id = "00000000-0000-0000-0000-000000000001";
+    let manifest = format!(
+        r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+    );
+    let terrain = r#"{"texture_data": {
+        "lucky": {"textures": "textures/blocks/lucky"},
+        "gen": {"textures": ["textures/blocks/gen"]}}}"#;
+    let flipbook = r#"[{"flipbook_texture": "textures/blocks/gen", "atlas_tile": "gen",
+        "frames": [1, 0], "ticks_per_frame": 15}]"#;
+    let lucky = png(16, 16, |x, _| [x as u8 * 16, 200, 0, 255]);
+    let gen_strip = png(32, 64, |_, y| {
+        if y < 32 {
+            [255, 0, 0, 255]
+        } else {
+            [0, 0, 255, 255]
+        }
+    });
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, bytes) in [
+        ("manifest.json", manifest.as_bytes()),
+        ("textures/terrain_texture.json", terrain.as_bytes()),
+        ("textures/flipbook_textures.json", flipbook.as_bytes()),
+        ("textures/blocks/lucky.png", &lucky),
+        ("textures/blocks/gen.png", &gen_strip),
+        ("models/blocks/gen.geo.json", GEOMETRY.as_bytes()),
+    ] {
+        writer
+            .start_file(path, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(bytes).unwrap();
+    }
+    let archive = protocol::ResourcePackArchive::unencrypted(
+        id.parse().unwrap(),
+        "1.0.0".into(),
+        String::new(),
+        writer.finish().unwrap().into_inner(),
+    );
+    LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![archive]),
+    ))
+}
+
+fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
+    Some(Box::new([CustomMaterialInstance {
+        name: "*".into(),
+        texture: texture.into(),
+        render_method: None,
+    }]))
+}
+
+fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
+    CustomBlock {
+        name: name.into(),
+        state_count,
+        collides: true,
+        visual: Arc::new(visual),
+    }
+}
+
+fn turn(quarters: i32) -> CustomVisualComponents {
+    CustomVisualComponents {
+        transformation: Some(CustomTransformation {
+            rotation: [0, quarters, 0],
+            scale: [1.0; 3],
+            translation: [0.0; 3],
+        }),
+        ..CustomVisualComponents::default()
+    }
+}
+
+fn generator() -> CustomBlock {
+    let direction = |value: &str, quarters| CustomPermutation {
+        condition: format!("q.block_state('minecraft:cardinal_direction') == '{value}'").into(),
+        components: turn(quarters),
+    };
+    block(
+        "test:generator",
+        4,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("geometry.gen".into()),
+                materials: materials("gen"),
+                transformation: None,
+            },
+            permutations: Box::new([direction("west", 1), direction("north", 0)]),
+            state_axes: Box::new([CustomStateAxis {
+                name: "minecraft:cardinal_direction".into(),
+                values: ["south", "west", "north", "east"]
+                    .map(|value| CustomStateValue::String(value.into()))
+                    .into(),
+            }]),
+        },
+    )
+}
+
+fn compiled() -> super::CompiledBlockOverlay {
+    let lucky = block(
+        "test:lucky",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("minecraft:geometry.full_block".into()),
+                materials: materials("lucky"),
+                transformation: None,
+            },
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let missing = block(
+        "test:missing",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                materials: materials("absent"),
+                ..CustomVisualComponents::default()
+            },
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let blocks = CustomBlocks {
+        blocks: vec![lucky, generator(), missing].into(),
+        skipped: 0,
+    };
+    compile_block_overlay(&view(), &blocks).expect("overlay")
+}
+
+// Full blocks become cubes on page 1; missing textures stay diagnostic and are counted.
+#[test]
+fn full_block_is_a_page_one_cube_and_missing_texture_is_diagnostic() {
+    let compiled = compiled();
+    let overlay = &compiled.overlay;
+    assert_eq!(
+        overlay.visuals.len(),
+        6,
+        "one lucky, four generator, one missing state"
+    );
+    let lucky = overlay.visuals[0];
+    assert_eq!(lucky.kind, VisualKind::Cube);
+    let material = overlay.materials[lucky.faces[BlockFace::Up as usize] as usize];
+    assert_eq!((material.texture.page(), material.flags), (1, 0));
+    assert_eq!(overlay.visuals[5].kind, VisualKind::Diagnostic);
+    assert_eq!(
+        compiled.gaps,
+        OverlayGaps {
+            missing_textures: 1,
+            skipped_cubes: 3,
+            ..OverlayGaps::default()
+        },
+        "the rotated cube is skipped once per distinct generator visual"
+    );
+    let texture = overlay.texture.as_ref().expect("page");
+    assert_eq!(
+        texture.mips[0].size, 32,
+        "largest source keeps its resolution"
+    );
+}
+
+// Flipbook frames become layers in the listed order behind one animation.
+#[test]
+fn flipbook_texture_animates_listed_frames() {
+    let compiled = compiled();
+    let overlay = &compiled.overlay;
+    let generator = overlay.visuals[1];
+    let material = overlay.materials[generator.faces[0] as usize];
+    let animation = overlay.animations[material.animation as usize];
+    assert_eq!((animation.frame_count, animation.ticks_per_frame), (2, 15));
+    let texture = overlay.texture.as_ref().unwrap();
+    let layer_bytes = 32 * 32 * 4;
+    let first_frame = overlay.animation_frames[animation.frame_start as usize].layer() as usize;
+    let pixel = &texture.mips[0].rgba8[first_frame * layer_bytes..][..4];
+    assert_eq!(
+        pixel,
+        [0, 0, 255, 255],
+        "frame 1 of the strip is listed first"
+    );
+}
+
+// Geometry faces keep their pixel UVs and a quarter turn moves the front to the west.
+#[test]
+fn geometry_quads_follow_uvs_and_placement_rotation() {
+    let compiled = compiled();
+    let overlay = &compiled.overlay;
+    let north_state = overlay.visuals[3];
+    assert_eq!(north_state.kind, VisualKind::Model);
+    let template = overlay.model_templates[north_state.model_template as usize];
+    assert_eq!(template.quad_count, 7, "six body faces and the top plate");
+    let quads = &overlay.model_quads[template.quad_start as usize..][..7];
+    let front = quads
+        .iter()
+        .find(|quad| quad.flags & 7 == 5)
+        .expect("north face");
+    assert!(front.positions.iter().all(|corner| corner[2] == 0));
+    assert!(front.uvs.iter().all(|uv| uv[0] <= 2048 && uv[1] <= 2048));
+    assert_eq!(
+        front.flags >> 4 & 7,
+        5,
+        "boundary faces cull against neighbours"
+    );
+
+    let west_state = overlay.visuals[2];
+    let west_template = overlay.model_templates[west_state.model_template as usize];
+    let west_quads = &overlay.model_quads[west_template.quad_start as usize..][..7];
+    let turned_front = west_quads
+        .iter()
+        .find(|quad| quad.uvs.iter().all(|uv| uv[0] <= 2048 && uv[1] <= 2048))
+        .expect("front face");
+    assert!(turned_front.positions.iter().all(|corner| corner[0] == 0));
+    assert_eq!(turned_front.flags & 7, 3, "front now faces west");
+}
+
+// The overlay resolves at the ids after the base carrier and nowhere else.
+#[test]
+fn overlay_extends_runtime_assets_after_base_ids() {
+    let compiled = compiled();
+    let base = RuntimeAssets::diagnostic();
+    let session = base
+        .with_block_overlay(1, &compiled.overlay)
+        .expect("overlay applies");
+    assert_eq!(session.texture_pages().len(), 2);
+    let lucky = session.resolve(NetworkIdMode::Sequential, 1);
+    assert!(lucky.is_known());
+    assert_eq!(lucky.kind(), VisualKind::Cube);
+    let material = session.material(lucky.face(BlockFace::North).material_id());
+    assert_eq!(material.texture.page(), 1);
+    assert!(!session.resolve(NetworkIdMode::Sequential, 7).is_known());
+    assert!(base.with_block_overlay(2, &compiled.overlay).is_err());
+}
+
+// Only block_state equality conjunctions evaluate; anything else is unknown, not false.
+#[test]
+fn permutation_conditions_evaluate_only_supported_terms() {
+    let direction = CustomStateValue::String("west".into());
+    let open = CustomStateValue::Bool(true);
+    let state = |name: &str| match name {
+        "minecraft:cardinal_direction" => Some(&direction),
+        "test:open" => Some(&open),
+        _ => None,
+    };
+    let evaluate = |condition| super::condition::evaluate(condition, &state);
+    assert_eq!(
+        evaluate("q.block_state('minecraft:cardinal_direction') == 'west'"),
+        Some(true)
+    );
+    assert_eq!(
+        evaluate("query.block_state(\"minecraft:cardinal_direction\") != 'west'"),
+        Some(false)
+    );
+    assert_eq!(
+        evaluate(
+            "(q.block_state('test:open') == true) && q.block_state('minecraft:cardinal_direction') == 'west'"
+        ),
+        Some(true)
+    );
+    assert_eq!(evaluate("q.block_state('test:open') == false"), Some(false));
+    assert_eq!(evaluate("q.block_state('test:missing') == 1"), None);
+    assert_eq!(evaluate("q.block_state('test:open') || true"), None);
+    assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+}
