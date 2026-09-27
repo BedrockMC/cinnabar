@@ -59,6 +59,7 @@ mod helpers;
 mod lighting;
 mod meshing;
 mod model;
+mod movement_attribute;
 mod polling;
 mod publication;
 #[path = "publication_config.rs"]

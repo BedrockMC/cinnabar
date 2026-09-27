@@ -189,6 +189,7 @@ fn processed_arc_drives_wire_jumping_even_when_the_button_is_released() {
         jump_arc_active: true,
         sneaking: false,
         sprinting: false,
+        direction_flags: None,
     };
     let mut released = settled_sample(42, [0.0, 64.9, 0.0]);
     // The button is up but the simulated arc is still in progress.
