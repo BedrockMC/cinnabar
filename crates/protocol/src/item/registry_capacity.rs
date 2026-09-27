@@ -61,6 +61,80 @@ pub(super) fn negotiated_max_stack_size(bytes: &[u8]) -> Option<u8> {
     evidence.finish()
 }
 
+/// Bounds on declared item tags retained per registry entry.
+const MAX_DECLARED_TAGS: usize = 64;
+const MAX_TAG_BYTES: usize = 256;
+
+/// Item tags a component-based entry declares at `components.item_tags`.
+/// Unusable shapes declare nothing rather than failing admission.
+pub(super) fn declared_item_tags(bytes: &[u8]) -> Vec<std::sync::Arc<str>> {
+    let mut reader = Reader::new(bytes);
+    let mut tags = Vec::new();
+    let mut evidence = Evidence::default();
+    let found = (|| -> Result<(), ()> {
+        if reader.read_u8()? != 10 {
+            return Err(());
+        }
+        reader.read_string()?;
+        find_child(
+            &mut reader,
+            &mut evidence,
+            b"components",
+            10,
+            |reader, evidence| {
+                find_child(reader, evidence, b"item_tags", 9, |reader, _| {
+                    if reader.read_u8()? != 8 {
+                        return Err(());
+                    }
+                    let length = reader.read_length()?;
+                    if length > MAX_DECLARED_TAGS {
+                        return Err(());
+                    }
+                    for _ in 0..length {
+                        let tag = reader.read_string()?;
+                        let tag = std::str::from_utf8(tag).map_err(|_| ())?;
+                        if tag.len() > MAX_TAG_BYTES || !tag.contains(':') {
+                            return Err(());
+                        }
+                        tags.push(std::sync::Arc::from(tag));
+                    }
+                    Ok(())
+                })
+            },
+        )
+    })();
+    if found.is_err() {
+        tags.clear();
+    }
+    tags
+}
+
+/// Scans one compound body for the first child `name` of type `tag`, handing
+/// its payload to `visit` and skipping every other child.
+fn find_child(
+    reader: &mut Reader<'_>,
+    evidence: &mut Evidence,
+    name: &[u8],
+    tag: u8,
+    mut visit: impl FnMut(&mut Reader<'_>, &mut Evidence) -> Result<(), ()>,
+) -> Result<(), ()> {
+    let mut visited = false;
+    loop {
+        let child = reader.read_u8()?;
+        if child == 0 {
+            return Ok(());
+        }
+        evidence.visit_tag()?;
+        let child_name = reader.read_string()?;
+        if !visited && child == tag && child_name == name {
+            visited = true;
+            visit(reader, evidence)?;
+        } else {
+            scan_payload(child, reader, evidence, Scope::Other, 1)?;
+        }
+    }
+}
+
 fn scan_compound(
     reader: &mut Reader<'_>,
     evidence: &mut Evidence,
@@ -264,5 +338,49 @@ impl<'a> Reader<'a> {
         let bytes = self.bytes.get(self.offset..end).ok_or(())?;
         self.offset = end;
         Ok(bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn string(out: &mut Vec<u8>, value: &str) {
+        out.push(value.len() as u8);
+        out.extend_from_slice(value.as_bytes());
+    }
+
+    fn component_data(tags: &[&str]) -> Vec<u8> {
+        let mut out = vec![10, 0];
+        out.push(10);
+        string(&mut out, "components");
+        out.push(1);
+        string(&mut out, "other");
+        out.push(1);
+        out.push(9);
+        string(&mut out, "item_tags");
+        out.push(8);
+        out.push((tags.len() as u8) << 1);
+        for tag in tags {
+            string(&mut out, tag);
+        }
+        out.extend_from_slice(&[0, 0]);
+        out
+    }
+
+    /// Declared tags come from `components.item_tags`; malformed data
+    /// declares nothing.
+    #[test]
+    fn component_item_tags_are_extracted_or_empty() {
+        let tags = declared_item_tags(&component_data(&["minecraft:planks", "custom:wood"]));
+        assert_eq!(
+            tags.iter().map(|tag| &**tag).collect::<Vec<_>>(),
+            ["minecraft:planks", "custom:wood"]
+        );
+        assert!(declared_item_tags(&component_data(&["no_namespace"])).is_empty());
+        assert!(declared_item_tags(CANONICAL_EMPTY_COMPONENT_DATA).is_empty());
+        let mut truncated = component_data(&["minecraft:planks"]);
+        truncated.truncate(truncated.len() - 3);
+        assert!(declared_item_tags(&truncated).is_empty());
     }
 }

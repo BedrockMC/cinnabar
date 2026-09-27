@@ -17,6 +17,14 @@ These compact tables are positive allowlists for Bedrock 1.26.40.
   `a494566eaf96fb57a38a736a1ec02d54424669e9272ae4c889be39c6f3e9caf3`;
   `item_capacity_1_26_40.provenance.json` records the reproducibility inputs.
 
+- `item_tags_dragonfly.tsv` is vanilla item tag membership (one tag per line,
+  space-separated members) compacted by `tools/registrygen/cmd/itemtags` from
+  `server/item/recipe/item_tags.json` of MIT-licensed `hashimthearab/dragonfly`
+  at `3d29a693c54b8412a6a1c619f5b06bd8cb09a0e5` (source SHA-256 pinned in its
+  header and in `assets/block-data-sources.json`). Its SHA-256 is
+  `f291e91d363203b16f92c6625361e09ed367d65ed67d9fb056b527019867c3ac`. It is a
+  server-implementation table, not a Bedrock extraction.
+
 Entries not established by those positive retail surfaces are omitted. Numeric
 item IDs are preserved exactly; omissions therefore remain gaps.
 

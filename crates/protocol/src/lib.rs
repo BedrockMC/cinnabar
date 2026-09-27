@@ -57,7 +57,14 @@ pub use interaction::{
     destroy_block_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
-    RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeUpdate, decode_recipe_update,
+    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeOutput,
+    RecipeUpdate, decode_recipe_update, match_crafting_grid,
+};
+pub use inventory::{
+    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
+    CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
+    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, StackItemDescriptor, container_window,
+    is_personal_ui_inventory,
 };
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
@@ -74,6 +81,10 @@ pub use inventory::{
     normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
     normalize_slot, open_inventory_packet, personal_craft_content_indices,
     personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
+};
+pub use inventory::{
+    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS,
 };
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,

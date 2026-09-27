@@ -18,14 +18,25 @@ use valentine::protocol::wire;
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
 mod address;
+mod container_policy;
+mod creative;
+pub use container_policy::{
+    CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR, ContainerWindow, LAST_CONTAINER_NAME,
+    container_window,
+};
+pub use creative::{
+    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS, normalize_creative_content,
+};
 pub mod recipes;
 mod request;
 mod validation;
 pub use address::{
-    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
-    CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY,
-    CONTAINER_NAME_OFFHAND, CanonicalCell, OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID,
-    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
+    ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+    CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY,
+    CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, OFFHAND_WINDOW_ID,
+    PLAYER_INVENTORY_WINDOW_ID, is_personal_ui_inventory, personal_craft_content_indices,
+    personal_craft_slot_index, project_container_cell,
 };
 pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
@@ -38,8 +49,10 @@ pub use recipes::{
 pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
-    PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
-    container_close_packet, item_stack_request_packet, open_inventory_packet,
+    ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
+    MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction,
+    StackRequestContainer, StackRequestSlot, container_close_packet, item_stack_request_packet,
+    open_inventory_packet,
 };
 use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
@@ -169,6 +182,7 @@ pub enum InventoryEvent {
     Open(ContainerOpenEvent),
     Close(ContainerCloseEvent),
     Data(ContainerDataEvent),
+    Creative(CreativeContentEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -177,6 +191,8 @@ pub enum InventoryPacketError {
     InvalidStackRequestId,
     #[error("item stack request amount must be positive")]
     InvalidStackRequestAmount,
+    #[error("item stack request has {0} actions, outside 1..=100")]
+    InvalidStackRequestActionCount(usize),
     #[error("item stack request slot {slot} is invalid for {container:?}")]
     InvalidStackRequestSlot {
         container: StackRequestContainer,

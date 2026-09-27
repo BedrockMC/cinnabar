@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use protocol::{ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack};
 use sha2::{Digest, Sha256};
 
-use super::{Cell, InventoryPendingState, PlayerInventoryLedger};
+use super::{Cell, PlayerInventoryLedger};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum OccupiedStackRelation {
@@ -30,33 +30,28 @@ impl PlayerInventoryLedger {
         }
 
         let affected_cells = self.registry_affected_cells(previous, &next);
-        let pending_affected = self.pending.as_ref().is_some_and(|pending| {
-            [
-                pending.prediction.source_stack.as_ref(),
-                pending.prediction.destination_stack.as_ref(),
-            ]
-            .into_iter()
-            .flatten()
-            .any(|stack| {
-                registry_identity_changed(previous, &next, stack.network_id)
-                    || (pending.prediction.registry_bound_merge
-                        && registry_merge_rule_changed(previous, &next, stack.network_id))
+        let affected_requests: Vec<i32> = self
+            .queue
+            .iter()
+            .filter(|pending| {
+                pending
+                    .predicted
+                    .iter()
+                    .map(|(_, held)| held.stack.network_id)
+                    .any(|network_id| {
+                        registry_identity_changed(previous, &next, network_id)
+                            || (pending.registry_bound_merge
+                                && registry_merge_rule_changed(previous, &next, network_id))
+                    })
             })
-        });
-
-        if pending_affected {
-            match self.pending_state() {
-                Some(InventoryPendingState::AwaitingTransport) => self.rollback_pending(),
-                Some(InventoryPendingState::AwaitingResponse) => {
-                    self.require_authoritative_recovery();
-                }
-                None => {}
-            }
-        }
+            .map(|pending| pending.request_id)
+            .collect();
+        self.abandon_requests(|pending| affected_requests.contains(&pending.request_id));
         for cell in affected_cells {
             self.mark_cell_recovery(cell);
         }
         self.item_registry = Some(next);
+        self.refold();
     }
 
     pub(super) fn occupied_stack_relation(
@@ -121,32 +116,11 @@ impl PlayerInventoryLedger {
         previous: &BTreeMap<i32, ItemRegistryEntry>,
         next: &BTreeMap<i32, ItemRegistryEntry>,
     ) -> Vec<Cell> {
-        let mut affected = Vec::new();
-        for (slot, stack) in self.slots.iter().enumerate() {
-            if stack
-                .as_ref()
-                .is_some_and(|stack| registry_identity_changed(previous, next, stack.network_id))
-            {
-                affected.push(Cell::Inventory(slot as u8));
-            }
-        }
-        if self
-            .cursor
-            .as_ref()
-            .is_some_and(|stack| registry_identity_changed(previous, next, stack.network_id))
-        {
-            affected.push(Cell::Cursor);
-        }
-        if let Some(storage) = self.storage.as_ref() {
-            for (slot, stack) in storage.slots.iter().enumerate() {
-                if stack.as_ref().is_some_and(|stack| {
-                    registry_identity_changed(previous, next, stack.network_id)
-                }) {
-                    affected.push(Cell::Storage(slot as u8));
-                }
-            }
-        }
-        affected
+        self.confirmed
+            .occupied()
+            .filter(|(_, held)| registry_identity_changed(previous, next, held.stack.network_id))
+            .map(|(cell, _)| cell)
+            .collect()
     }
 }
 
@@ -189,7 +163,7 @@ fn effective_merge_binding(entry: Option<&ItemRegistryEntry>) -> Option<(&str, O
     Some((entry.identifier.as_ref(), entry_capacity(entry)))
 }
 
-fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
+pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
     if matches!(entry.version, ItemRegistryVersion::Unknown(_))
         || protocol::vanilla_item_capacity(&entry.identifier, 0).is_none()
     {
@@ -205,7 +179,7 @@ fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
     }
 }
 
-fn plain_stack(stack: &NetworkItemStack) -> bool {
+pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
     let digest: [u8; 32] = Sha256::digest(&stack.extra_data).into();
     stack.metadata == 0
         && stack.block_runtime_id == 0
