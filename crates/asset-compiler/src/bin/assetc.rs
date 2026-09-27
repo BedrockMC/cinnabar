@@ -22,6 +22,8 @@ use sha2::{Digest, Sha256};
 
 #[path = "assetc/audio_command.rs"]
 mod audio_command;
+#[path = "assetc/audio_pcm_command.rs"]
+mod audio_pcm_command;
 #[path = "assetc/hud_command.rs"]
 mod hud_command;
 #[path = "assetc/icon_command.rs"]
@@ -34,6 +36,7 @@ mod output_validation;
 mod registry_version;
 
 use audio_command::compile_audio_assets_command;
+use audio_pcm_command::compile_audio_pcm_command;
 use hud_command::compile_hud_assets_command;
 use icon_command::compile_icon_assets_command;
 use lang_command::compile_lang_assets_command;
@@ -146,6 +149,19 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile one reviewed sample into finite PCM; does not activate playback.
+    AudioPcmAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        catalog: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
         #[arg(long)]
         report: PathBuf,
     },
@@ -369,6 +385,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_audio_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::AudioPcmAssets {
+            pack,
+            catalog,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_audio_pcm_command(&pack, &catalog, &source_manifest, &out, &report)?;
         }
         Command::OutlineFontAssets {
             font,

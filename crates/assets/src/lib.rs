@@ -2,6 +2,7 @@
 
 mod atmosphere;
 mod audio;
+mod audio_pcm;
 mod biome;
 mod blob;
 mod compiled;
@@ -33,6 +34,11 @@ pub use audio::{
     MAX_AUDIO_ALTERNATIVES, MAX_AUDIO_ALTERNATIVES_PER_DEFINITION, MAX_AUDIO_CARRIER_BYTES,
     MAX_AUDIO_CATEGORY_BYTES, MAX_AUDIO_DEFINITIONS, MAX_AUDIO_IDENTIFIER_BYTES,
     MAX_AUDIO_PATH_BYTES, MAX_AUDIO_SUBTITLE_BYTES, RuntimeAudioCatalog, encode_audio_catalog,
+};
+pub use audio_pcm::{
+    AudioPcmError, AudioPcmExpectedIdentity, AudioPcmMode, MAX_AUDIO_PCM_BYTES,
+    MAX_AUDIO_PCM_CARRIER_BYTES, MAX_AUDIO_PCM_SOURCE_BYTES, RuntimeAudioPcm, encode_audio_pcm,
+    reviewed_audio_pcm_identity, validate_audio_pcm_catalog,
 };
 pub use biome::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BiomeRegistryRecord, BiomeRule,
