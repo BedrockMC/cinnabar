@@ -28,7 +28,7 @@ pub use entity::{
 };
 pub use font::{
     CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, OutlineFontConfig,
-    compile_fonts, compile_outline_font,
+    compile_fonts, compile_outline_font, compile_outline_font_with_fallback,
 };
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
 pub use icon::{CompiledIconCarrier, IconCompileReport, compile_icon_assets};

@@ -4,6 +4,7 @@ use crate::{Options, Platform};
 
 pub(crate) const ASSET_FILES: &[&str] = &[
     "ui-monocraft-v1.mcbefont",
+    "ui-font-notices.txt",
     "vanilla-v1.mcbeatm",
     "vanilla-v1.mcbeent",
     "vanilla-v1.mcbehud",
