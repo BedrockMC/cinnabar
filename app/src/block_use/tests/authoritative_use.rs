@@ -492,7 +492,40 @@ fn production_use_payload(version: ItemRegistryVersion) -> Vec<u8> {
     );
     let mut packets = 0;
     let mut encoded = Vec::new();
-    flush_player_auth_inputs(&mut ticker, 1, None, |_, packet| {
+    assert_eq!(
+        flush_player_auth_inputs(&mut ticker, 1, None, |_, _| {
+            packets += 1;
+            Ok::<_, &str>(())
+        }),
+        Err(crate::movement::MovementSendError::MissingEvidenceContext)
+    );
+    assert_eq!(packets, 0);
+    assert_eq!(ticker.pending_count(), 1);
+
+    let frame = carrier.snapshot().unwrap();
+    assert_eq!(frame.session_generation(), session);
+    assert_eq!(frame.physics_tick(), 101);
+    assert_eq!(
+        frame.perspective(),
+        semantic_input::PerspectiveMode::FirstPerson
+    );
+    assert_eq!(frame.eye(), frame.pose().translation);
+    // This fixture has no look delta and uses the first-person eye as its camera.
+    let context = PhysicsTickEvidenceContext {
+        fifo_sequence: frame.fifo_sequence(),
+        pose_generation: frame.pose_generation(),
+        dimension: stream.current_dimension(),
+        perspective: frame.perspective(),
+        camera_blocked: false,
+        camera_fallback: false,
+        local_avatar_visible: false,
+        look_delta: [0.0; 2],
+        outbound_authorized: ticker.physics_is_authorized(),
+        outbox_depth: ticker.pending_count(),
+        outbox_drops: ticker.dropped_tick_count(),
+        free_camera_packet_count: ticker.sent_free_camera_packet_count(),
+    };
+    flush_player_auth_inputs(&mut ticker, 1, Some(context), |_, packet| {
         packets += 1;
         encoded = protocol::encode(&packet, &BedrockSession { shield_item_id: 0 })
             .unwrap()
