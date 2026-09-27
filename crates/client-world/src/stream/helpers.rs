@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn prepare_sub_chunks(batch: SubChunkBatchEvent) -> Vec<PreparedSubChunk> {
+pub(super) fn prepare_sub_chunks(
+    batch: SubChunkBatchEvent,
+    ids: &DecodeIds,
+) -> Vec<PreparedSubChunk> {
     let dimension = batch.dimension;
     batch
         .entries
@@ -16,7 +19,7 @@ pub(super) fn prepare_sub_chunks(batch: SubChunkBatchEvent) -> Vec<PreparedSubCh
                 position: entry.position,
                 result: match entry.result {
                     SubChunkResult::Success { payload } => {
-                        PreparedSubChunkResult::Decoded(DecodedSubChunk::decode(key, &payload))
+                        PreparedSubChunkResult::Decoded(DecodedSubChunk::decode(key, &payload, ids))
                     }
                     SubChunkResult::AllAir => PreparedSubChunkResult::AllAir,
                     SubChunkResult::Unavailable(unavailable) => {

@@ -67,11 +67,13 @@ instead of treating coordinator review as independent review.
 
 ## Remote server data: be lenient, not strict
 
-Inbound server data is untrusted and imperfect. Malformed *wire* (truncation, bad
-lengths, decode failures) is fatal. A semantically odd but well-formed packet
-(unexpected slot, sentinel id, non-finite float, unknown metadata key, custom world
-height) is not: skip that packet/field, log/count it, keep the session alive. Never
-disconnect over data the client doesn't even use.
+Inbound server data is untrusted and imperfect. Malformed packet *framing*
+(truncation, bad lengths, envelope decode failures) is fatal. A semantically odd but
+well-formed packet (unexpected slot, sentinel id, non-finite float, unknown metadata
+key, custom world height) is not: skip that packet/field, log/count it, keep the
+session alive. Chunk payload contents follow the vanilla client's lenient decode
+exactly — clamp, zero-fill and skip as it does, never fail. Never disconnect over
+data the client doesn't even use.
 
 ## Required local assets: fail closed at startup
 

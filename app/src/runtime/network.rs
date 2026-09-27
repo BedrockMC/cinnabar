@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use assets::NetworkIdMode;
 use bevy::{
     camera::Projection,
     ecs::system::SystemParam,
@@ -265,7 +266,7 @@ pub(crate) fn receive_network_events(
         mut local_physics,
         mut movement_effects,
         mut movement_speed,
-        collisions,
+        mut collisions,
         mut ui_runtime,
         time,
     } = state;
@@ -277,6 +278,7 @@ pub(crate) fn receive_network_events(
                 session_generation,
                 world: bootstrap,
                 environment,
+                custom_blocks,
                 inventory,
                 item_registry,
                 player_game_mode,
@@ -367,6 +369,25 @@ pub(crate) fn receive_network_events(
                         client_world.pending_surface_spawn,
                     )
                 };
+                let custom_block_ids = if stream.network_id_mode() == NetworkIdMode::Sequential {
+                    collisions.begin_session_custom_blocks(&custom_blocks)
+                } else {
+                    collisions.begin_session_custom_blocks(&protocol::CustomBlocks::default());
+                    None
+                };
+                if custom_block_ids.is_none() && !custom_blocks.blocks.is_empty() {
+                    warn!(
+                        count = custom_blocks.blocks.len(),
+                        "server custom blocks are unsupported in this id mode or ordering"
+                    );
+                }
+                if custom_blocks.skipped != 0 {
+                    warn!(
+                        skipped = custom_blocks.skipped,
+                        "skipped malformed server block definitions"
+                    );
+                }
+                stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {

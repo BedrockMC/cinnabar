@@ -1,18 +1,44 @@
 use crate::{
     BlockUpdate, PalettedStorage,
-    error::DecodeError,
-    palette::{BLOCKS_PER_SUB_CHUNK, SUPPORTED_BITS, word_count},
+    palette::{BLOCKS_PER_SUB_CHUNK, PACKED_BITS, word_count},
 };
 
-/// Deliberate client safety limit for block storage layers in one sub-chunk.
-///
-/// The wire count is an unsigned byte, but vanilla uses only a handful of
-/// layers. Sixteen retains generous custom-server headroom while preventing a
-/// malicious packet from multiplying packed-storage allocations 255 times.
+/// Client limit for block layers addressed by block updates.
 pub const MAX_STORAGE_COUNT: usize = 16;
 
 /// At most one distinct value can be used by each block position.
 pub const MAX_PALETTE_ENTRIES: usize = BLOCKS_PER_SUB_CHUNK;
+
+/// Block storage layers vanilla reads from a v8+ sub-chunk; extra layers stay unread.
+const MAX_WIRE_STORAGES: usize = 2;
+
+/// Versions 0 and 2–7 carry 4096 legacy id bytes plus 2048 data nibble bytes.
+const LEGACY_PAYLOAD_BYTES: usize = BLOCKS_PER_SUB_CHUNK + BLOCKS_PER_SUB_CHUNK / 2;
+
+/// Resolves raw network block ids the way the vanilla palette does.
+pub trait BlockIds {
+    /// Network id of air in the session's id mode.
+    fn air(&self) -> u32;
+
+    /// Returns the id itself when the registry knows it, otherwise air.
+    fn resolve(&self, network_id: u32) -> u32;
+}
+
+/// Keeps every network id; for decoders whose callers own id resolution.
+#[derive(Debug, Clone, Copy)]
+pub struct RawBlockIds {
+    pub air: u32,
+}
+
+impl BlockIds for RawBlockIds {
+    fn air(&self) -> u32 {
+        self.air
+    }
+
+    fn resolve(&self, network_id: u32) -> u32 {
+        network_id
+    }
+}
 
 /// A decoded 16×16×16 Bedrock sub-chunk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,71 +49,60 @@ pub struct SubChunk {
 }
 
 impl SubChunk {
-    /// Decodes one standalone network sub-chunk and requires exact EOF.
-    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let (sub_chunk, consumed) = Self::decode_prefix(bytes)?;
-        let remaining = bytes.len() - consumed;
-        if remaining != 0 {
-            return Err(DecodeError::TrailingBytes { remaining });
-        }
-        Ok(sub_chunk)
+    /// Decodes one network sub-chunk, ignoring any bytes vanilla would leave unread.
+    pub fn decode(bytes: &[u8], ids: &dyn BlockIds) -> Self {
+        Self::decode_prefix(bytes, ids).0
     }
 
-    /// Prefix-decodes one network sub-chunk and reports the number of bytes
-    /// consumed. Block-entity NBT and other packet data may follow the prefix.
+    /// Decodes one network sub-chunk and reports the bytes vanilla consumes.
     ///
-    /// This function is pure and suitable for a decode worker. Use
-    /// [`crate::ChunkStore::commit_sub_chunk`] to apply its result later.
-    pub fn decode_prefix(bytes: &[u8]) -> Result<(Self, usize), DecodeError> {
+    /// Like vanilla, malformed input never fails: reads past the end yield zero.
+    pub fn decode_prefix(bytes: &[u8], ids: &dyn BlockIds) -> (Self, usize) {
         let mut reader = Reader::new(bytes);
-        let version = reader.read_u8("sub-chunk version")?;
-
-        let (storage_count, y_index) = match version {
-            1 => (1, None),
-            8 => (usize::from(reader.read_u8("storage count")?), None),
-            9 => {
-                let count = usize::from(reader.read_u8("storage count")?);
-                if count > MAX_STORAGE_COUNT {
-                    return Err(DecodeError::TooManyStorages {
-                        count,
-                        max: MAX_STORAGE_COUNT,
-                    });
-                }
-                let index = reader.read_u8("sub-chunk Y index")? as i8;
-                (count, Some(index))
-            }
-            other => return Err(DecodeError::UnsupportedVersion(other)),
-        };
-
-        if storage_count > MAX_STORAGE_COUNT {
-            return Err(DecodeError::TooManyStorages {
-                count: storage_count,
-                max: MAX_STORAGE_COUNT,
-            });
-        }
-
-        let mut storages = Vec::with_capacity(storage_count);
-        for _ in 0..storage_count {
-            storages.push(decode_storage(&mut reader)?);
-        }
-
-        Ok((
-            Self {
-                version,
-                y_index,
-                storages: storages.into_boxed_slice(),
-            },
-            reader.position(),
-        ))
+        let sub_chunk = Self::read(&mut reader, ids);
+        (sub_chunk, reader.position())
     }
 
-    /// Wire-format version (1, 8, or 9).
+    pub(crate) fn read(reader: &mut Reader<'_>, ids: &dyn BlockIds) -> Self {
+        let version = reader.read_u8();
+        if version == 0 || (2..=7).contains(&version) {
+            // Provisional: vanilla converts legacy ids through its own table.
+            reader.read_exact(LEGACY_PAYLOAD_BYTES);
+            return Self {
+                version,
+                y_index: None,
+                storages: Box::new([]),
+            };
+        }
+        let storage_count = if version > 7 {
+            usize::from(reader.read_u8()).min(MAX_WIRE_STORAGES)
+        } else {
+            1
+        };
+        let y_index = (version > 8).then(|| reader.read_u8() as i8);
+        let storages = (0..storage_count)
+            .map(|_| {
+                if version > 9 {
+                    PalettedStorage::uniform(ids.air())
+                } else {
+                    read_block_storage(reader, ids)
+                }
+            })
+            .collect();
+        Self {
+            version,
+            y_index,
+            storages,
+        }
+    }
+
+    /// Wire-format version byte.
     #[must_use]
     pub fn version(&self) -> u8 {
         self.version
     }
 
-    /// Absolute sub-chunk Y embedded by version 9, or `None` for v1/v8.
+    /// Absolute sub-chunk Y embedded by version 9+, or `None` for earlier versions.
     #[must_use]
     pub fn y_index(&self) -> Option<i8> {
         self.y_index
@@ -154,73 +169,55 @@ impl SubChunk {
     }
 }
 
-fn decode_storage(reader: &mut Reader<'_>) -> Result<PalettedStorage, DecodeError> {
-    let header = reader.read_u8("palette header")?;
-    decode_storage_with_header(reader, header)
+fn read_block_storage(reader: &mut Reader<'_>, ids: &dyn BlockIds) -> PalettedStorage {
+    let header = reader.read_u8();
+    let persistent = header & 1 == 0;
+    let entry = |reader: &mut Reader<'_>| {
+        if persistent {
+            // Provisional: vanilla resolves persistent entries by name and states.
+            reader.skip_nbt_compound();
+            ids.air()
+        } else {
+            ids.resolve(reader.read_var_i32() as u32)
+        }
+    };
+    match header >> 1 {
+        0 | 0x7f => PalettedStorage::uniform(entry(reader)),
+        bits if PACKED_BITS.contains(&bits) => read_packed_storage(reader, bits, entry),
+        // Vanilla leaves a null layer, which reads back as air.
+        _ => PalettedStorage::uniform(ids.air()),
+    }
 }
 
-pub(crate) fn decode_storage_with_header(
+/// Reads packed words and a palette clamped to the storage's capacity, then
+/// rewrites indices past the palette to entry zero, as vanilla does.
+pub(crate) fn read_packed_storage(
     reader: &mut Reader<'_>,
-    header: u8,
-) -> Result<PalettedStorage, DecodeError> {
-    if header & 1 == 0 {
-        return Err(DecodeError::DiskPaletteInNetworkData { header });
-    }
-
-    let bits_per_index = header >> 1;
-    if !SUPPORTED_BITS.contains(&bits_per_index) {
-        return Err(DecodeError::UnsupportedBitsPerIndex(bits_per_index));
-    }
-
+    bits_per_index: u8,
+    mut entry: impl FnMut(&mut Reader<'_>) -> u32,
+) -> PalettedStorage {
     let word_count = word_count(bits_per_index);
-    let word_bytes = word_count * std::mem::size_of::<u32>();
-    let packed = reader.read_exact(word_bytes, "packed index words")?;
-    let mut words = Vec::with_capacity(word_count);
-    for bytes in packed.chunks_exact(4) {
-        words.push(u32::from_le_bytes(
-            bytes.try_into().expect("four-byte chunk"),
-        ));
-    }
-
-    let max_palette_len = if bits_per_index == 0 {
-        1
-    } else {
-        (1_usize << bits_per_index).min(MAX_PALETTE_ENTRIES)
-    };
-    let palette_len = if bits_per_index == 0 {
-        1
-    } else {
-        let count = reader.read_var_i32("palette length")?;
-        if count <= 0 || usize::try_from(count).map_or(true, |count| count > max_palette_len) {
-            return Err(DecodeError::InvalidPaletteLength {
-                count,
-                max: max_palette_len,
-            });
-        }
-        count as usize
-    };
-
-    let mut palette = Vec::with_capacity(palette_len);
-    for _ in 0..palette_len {
-        palette.push(reader.read_var_i32("palette entry")? as u32);
-    }
-
-    let storage = PalettedStorage::new(bits_per_index, words, palette);
-    for block_index in 0..BLOCKS_PER_SUB_CHUNK {
-        let palette_index = storage
-            .palette_index(block_index)
-            .expect("validated packed storage has every block index");
-        if palette_index >= storage.palette().len() {
-            return Err(DecodeError::PaletteIndexOutOfBounds {
-                block_index,
-                palette_index,
-                palette_len: storage.palette().len(),
-            });
-        }
-    }
-    Ok(storage)
+    let words = reader.read_exact(word_count * 4).map_or_else(
+        || vec![0; word_count],
+        |bytes| {
+            bytes
+                .chunks_exact(4)
+                .map(|word| u32::from_le_bytes(word.try_into().expect("four-byte chunk")))
+                .collect()
+        },
+    );
+    let max_palette_len = (1_usize << bits_per_index).min(MAX_PALETTE_ENTRIES);
+    let palette_len = usize::try_from(reader.read_var_i32())
+        .unwrap_or(0)
+        .clamp(1, max_palette_len);
+    let palette = (0..palette_len).map(|_| entry(reader)).collect();
+    let mut storage = PalettedStorage::new(bits_per_index, words, palette);
+    storage.zero_indices_at_or_above(palette_len);
+    storage
 }
 
+/// Byte reader with vanilla's stream semantics: a read past the end yields
+/// zero and parks the cursor at the end.
 pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     position: usize,
@@ -235,47 +232,55 @@ impl<'a> Reader<'a> {
         self.position
     }
 
-    pub(crate) fn read_u8(&mut self, context: &'static str) -> Result<u8, DecodeError> {
-        Ok(self.read_exact(1, context)?[0])
+    pub(crate) fn is_at_end(&self) -> bool {
+        self.position >= self.bytes.len()
     }
 
-    fn read_exact(&mut self, count: usize, context: &'static str) -> Result<&'a [u8], DecodeError> {
-        let remaining = self.bytes.len().saturating_sub(self.position);
-        if remaining < count {
-            return Err(DecodeError::UnexpectedEof {
-                context,
-                needed: count,
-                remaining,
-            });
-        }
-        let start = self.position;
+    pub(crate) fn skip_to_end(&mut self) {
+        self.position = self.bytes.len();
+    }
+
+    pub(crate) fn remaining(&self) -> &'a [u8] {
+        &self.bytes[self.position..]
+    }
+
+    pub(crate) fn read_u8(&mut self) -> u8 {
+        let Some(&byte) = self.bytes.get(self.position) else {
+            return 0;
+        };
+        self.position += 1;
+        byte
+    }
+
+    /// Returns `None` and parks at the end when fewer than `count` bytes remain.
+    pub(crate) fn read_exact(&mut self, count: usize) -> Option<&'a [u8]> {
+        let Some(bytes) = self.remaining().get(..count) else {
+            self.skip_to_end();
+            return None;
+        };
         self.position += count;
-        Ok(&self.bytes[start..self.position])
+        Some(bytes)
     }
 
-    fn read_var_i32(&mut self, context: &'static str) -> Result<i32, DecodeError> {
+    /// Zigzag VarInt; bits past 32 are dropped and an unterminated fifth byte yields zero.
+    pub(crate) fn read_var_i32(&mut self) -> i32 {
         let mut encoded = 0_u32;
         for index in 0..5 {
-            let byte = self.read_u8(context)?;
-            if index == 4 {
-                if byte & 0x80 != 0 {
-                    return Err(DecodeError::VarIntTooLong { context });
-                }
-                if byte & 0xf0 != 0 {
-                    return Err(DecodeError::VarIntOverflow { context });
-                }
+            if self.is_at_end() {
+                return 0;
             }
+            let byte = self.read_u8();
             encoded |= u32::from(byte & 0x7f) << (index * 7);
             if byte & 0x80 == 0 {
-                let magnitude = (encoded >> 1) as i32;
-                return Ok(if encoded & 1 == 0 {
-                    magnitude
-                } else {
-                    !magnitude
-                });
+                return ((encoded >> 1) as i32) ^ -((encoded & 1) as i32);
             }
         }
-        Err(DecodeError::VarIntTooLong { context })
+        0
+    }
+
+    /// Skips one network NBT root the way vanilla's lenient NBT read does.
+    pub(crate) fn skip_nbt_compound(&mut self) {
+        self.position += crate::block_entity::lenient_nbt_len(self.remaining());
     }
 }
 

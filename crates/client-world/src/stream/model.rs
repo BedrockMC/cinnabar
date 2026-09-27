@@ -709,8 +709,6 @@ pub enum WorldStreamError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum WorldStreamFatalError {
-    #[error("world sequence {sequence} carries malformed chunk wire: {reason}")]
-    ChunkDecode { sequence: u64, reason: &'static str },
     #[error("light solve failed for {key:?}: {error}")]
     LightSolve {
         key: SubChunkKey,
@@ -734,12 +732,12 @@ impl From<SequenceError> for WorldStreamError {
 pub(super) enum PreparedWorldEvent {
     InlineLevelChunk {
         event: LevelChunkEvent,
-        decoded: Result<DecodedLevelChunk, DecodeError>,
+        decoded: DecodedLevelChunk,
         duration: Duration,
     },
     RequestLevelChunk {
         event: LevelChunkEvent,
-        decoded: Result<(DecodedBiomeColumn, DecodedBlockEntities), DecodeError>,
+        decoded: (DecodedBiomeColumn, DecodedBlockEntities),
         duration: Duration,
     },
     SubChunks {
@@ -769,7 +767,7 @@ pub(super) struct PreparedSubChunk {
 
 #[derive(Debug)]
 pub(super) enum PreparedSubChunkResult {
-    Decoded(Result<DecodedSubChunk, DecodeError>),
+    Decoded(DecodedSubChunk),
     AllAir,
     Unavailable(protocol::SubChunkUnavailable),
 }
@@ -793,25 +791,26 @@ pub(super) enum DecodeJob {
         sequence: u64,
         event: LevelChunkEvent,
         payload: Bytes,
-        base_sub_chunk_y: i32,
+        slots: DimensionSlots,
         count: usize,
-        biome_storage_count: usize,
+        ids: DecodeIds,
     },
     RequestLevelChunk {
         sequence: u64,
         event: LevelChunkEvent,
         payload: Bytes,
-        biome_base_sub_chunk_y: i32,
-        biome_storage_count: usize,
+        slots: DimensionSlots,
+        ids: DecodeIds,
     },
     SubChunks {
         sequence: u64,
         batch: SubChunkBatchEvent,
+        ids: DecodeIds,
     },
     BlockUpdates {
         sequence: u64,
         batches: Vec<BlockMutationBatch>,
-        air_runtime_id: u32,
+        ids: DecodeIds,
     },
     BlockEntityUpdate {
         sequence: u64,
