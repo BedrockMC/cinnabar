@@ -20,6 +20,9 @@ const MOB_BODY_TURN_STEP: f32 = 25.0;
 const MOB_HEAD_LIMIT: f32 = 75.0;
 const MOB_HEAD_RESTABLE: f32 = 15.0;
 const MOB_STABLE_TICKS: u32 = 10;
+const STRIDE_STEP_MIN: f32 = 0.05;
+const STRIDE_GAIN: f32 = 3.0;
+const STRIDE_READ_SCALE: f32 = 0.6;
 
 /// One tick of actor state the motion model consumes.
 pub(super) struct MotionInput {
@@ -40,6 +43,8 @@ pub(super) struct MotionState {
     pub(super) previous_body_yaw: f32,
     stable_head_yaw: f32,
     stable_ticks: u32,
+    /// Stride accumulator behind `query.walk_distance`.
+    stride: f32,
 }
 
 impl MotionState {
@@ -63,6 +68,10 @@ impl MotionState {
         self.swing = Some(-1);
     }
 
+    pub(super) fn walk_distance(self) -> f32 {
+        self.stride * STRIDE_READ_SCALE
+    }
+
     pub(super) fn attack_time(self) -> f32 {
         self.swing.map_or(0.0, |counter| {
             counter.max(0) as f32 / ACTOR_SWING_TICKS as f32
@@ -80,11 +89,14 @@ impl MotionState {
         } else {
             self.turn_mob_body(input);
         }
+        let step = input.delta[0].hypot(input.delta[2]);
+        if step > STRIDE_STEP_MIN {
+            self.stride += STRIDE_GAIN * step;
+        }
         if input.riding {
             self.speed = 0.0;
             return;
         }
-        let step = input.delta[0].hypot(input.delta[2]);
         let target = if step != 0.0 {
             (WALK_STEP_GAIN * step).min(WALK_STEP_TARGET_MAX)
         } else {

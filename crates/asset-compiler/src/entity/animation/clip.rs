@@ -37,6 +37,7 @@ pub(super) fn compile_clip_for_geometry(
         molang,
     } = outputs;
     let mut dropped = 0;
+    let mut uncompiled = 0;
     let mut bone_indices = BTreeMap::<Box<str>, u32>::new();
     for (index, bone) in effective_bones.iter().enumerate() {
         bone_indices.entry(bone.clone()).or_insert(index as u32);
@@ -66,7 +67,15 @@ pub(super) fn compile_clip_for_geometry(
                 };
                 let first_keyframe = local_keyframes.len() as u32;
                 let mark = molang.mark();
-                match parse_channel(value, &mut local_keyframes, &mut maximum_time, molang) {
+                match parse_channel(
+                    value,
+                    &mut local_keyframes,
+                    &mut maximum_time,
+                    &mut Axes {
+                        molang,
+                        uncompiled: &mut uncompiled,
+                    },
+                ) {
                     Ok(()) => {}
                     Err(ChannelError::Unsupported) => {
                         molang.rollback(mark);
@@ -126,7 +135,7 @@ pub(super) fn compile_clip_for_geometry(
             .and_then(Value::as_bool)
             .unwrap_or(false),
     });
-    Ok((clip, dropped))
+    Ok((clip, dropped + uncompiled))
 }
 
 enum ChannelError {
@@ -140,11 +149,17 @@ impl From<AssetError> for ChannelError {
     }
 }
 
+/// Compiles axis expressions; an uncompilable one reads 0.0, as vanilla evaluates it.
+struct Axes<'a> {
+    molang: &'a mut MolangCompiler,
+    uncompiled: &'a mut usize,
+}
+
 fn parse_channel(
     value: &Value,
     output: &mut Vec<EntityAnimationKeyframe>,
     maximum_time: &mut f32,
-    molang: &mut MolangCompiler,
+    molang: &mut Axes<'_>,
 ) -> Result<(), ChannelError> {
     if !value.is_object() {
         let (value, expressions) = parse_vector(value, molang)?;
@@ -245,7 +260,7 @@ const ZERO: EntityGeometryScalar = EntityGeometryScalar::ZERO;
 
 type ParsedVector = ([EntityGeometryScalar; 3], [Option<u32>; 3]);
 
-fn parse_vector(value: &Value, molang: &mut MolangCompiler) -> Result<ParsedVector, ChannelError> {
+fn parse_vector(value: &Value, molang: &mut Axes<'_>) -> Result<ParsedVector, ChannelError> {
     if value.is_number() || value.is_string() {
         let axis = parse_axis(value, molang)?;
         return Ok(([axis.0; 3], [axis.1; 3]));
@@ -264,15 +279,18 @@ fn parse_vector(value: &Value, molang: &mut MolangCompiler) -> Result<ParsedVect
 
 fn parse_axis(
     value: &Value,
-    molang: &mut MolangCompiler,
+    axes: &mut Axes<'_>,
 ) -> Result<(EntityGeometryScalar, Option<u32>), ChannelError> {
     match value {
         Value::String(text) => match text.trim().parse::<f32>() {
             Ok(number) => Ok((scalar(number)?, None)),
-            Err(_) => molang
-                .compile(text)
-                .map(|expression| (ZERO, Some(expression)))
-                .map_err(|_| ChannelError::Unsupported),
+            Err(_) => Ok(match axes.molang.compile(text) {
+                Ok(expression) => (ZERO, Some(expression)),
+                Err(_) => {
+                    *axes.uncompiled += 1;
+                    (ZERO, None)
+                }
+            }),
         },
         // Per-axis rotation-order objects are an unsupported authoring form, not malformed.
         Value::Object(_) => Err(ChannelError::Unsupported),

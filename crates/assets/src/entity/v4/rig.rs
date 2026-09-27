@@ -143,8 +143,7 @@ fn is_boolean_expression(compiled: &CompiledEntityAssets, expression: u32) -> bo
         last,
         Some(
             MolangOp::Not
-                | MolangOp::And
-                | MolangOp::Or
+                | MolangOp::Truthy
                 | MolangOp::Equal
                 | MolangOp::NotEqual
                 | MolangOp::Less

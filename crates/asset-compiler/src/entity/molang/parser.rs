@@ -1,392 +1,434 @@
-use assets::{AssetError, MOLANG_QUERIES, MolangSymbolKind};
+use assets::{AssetError, MolangFunction};
 
-use super::{Binary, Expr, Function, Unary, fold_binary, fold_function, fold_ternary, fold_unary};
+use super::lexer::{Token, tokenize};
 use crate::entity::invalid;
 
-const MAX_EXPRESSION_BYTES: usize = 16 * 1024;
-const MAX_PARSE_DEPTH: usize = 32;
-const MAX_STATEMENTS: usize = 64;
+const MAX_PARSE_DEPTH: usize = 48;
+const MAX_STATEMENTS: usize = 256;
 
-#[derive(Clone, Debug, PartialEq)]
-enum Token {
-    Number(f32),
-    Identifier(Box<str>),
-    LeftParen,
-    RightParen,
-    Comma,
-    Question,
-    Colon,
-    Semicolon,
-    Assign,
-    Operator(&'static str),
-    End,
+/// Where a named value lives.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum Slot {
+    Variable,
+    Temporary,
 }
 
-struct Lexer<'a> {
-    bytes: &'a [u8],
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Unary {
+    Negate,
+    Not,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Binary {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Equal,
+    NotEqual,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Expr {
+    Number(f32),
+    String(Box<str>),
+    This,
+    Variable(Slot, Box<str>),
+    Query(Box<str>, Option<Vec<Expr>>),
+    Call(MolangFunction, Vec<Expr>),
+    Unary(Unary, Box<Expr>),
+    Binary(Binary, Box<Expr>, Box<Expr>),
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
+    /// `condition ? yes : no`, or `condition ? yes` which reads 0.0 when false.
+    Conditional(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
+    Coalesce(Slot, Box<str>, Box<Expr>),
+    Arrow(Box<Expr>, Box<Expr>),
+    /// `condition ? { ... } : { ... }` or `condition ? break`: statements, no value.
+    Branch(Box<Expr>, Vec<Statement>, Option<Vec<Statement>>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Statement {
+    Expression(Expr),
+    Assign(Slot, Box<str>, Expr),
+    Return(Option<Expr>),
+    Break,
+    Continue,
+    Loop(Expr, Vec<Statement>),
+    ForEach(Slot, Box<str>, Expr, Vec<Statement>),
+    Block(Vec<Statement>),
+}
+
+/// A simple expression yields its value; a complex one yields 0.0 unless it returns.
+#[derive(Debug, PartialEq)]
+pub(super) enum Program {
+    Simple(Expr),
+    Complex(Vec<Statement>),
+}
+
+pub(super) fn parse(source: &str) -> Result<Program, AssetError> {
+    let tokens = tokenize(source)?;
+    let complex = tokens
+        .iter()
+        .any(|token| matches!(token, Token::Semicolon | Token::Assign));
+    let mut parser = Parser { tokens, cursor: 0 };
+    if !complex {
+        let expression = parser.expression(0)?;
+        parser.expect(&Token::End)?;
+        return Ok(Program::Simple(expression));
+    }
+    let statements = parser.statements(&Token::End)?;
+    // Vanilla rejects a complex expression whose last statement lacks its terminator.
+    if parser.tokens.get(parser.tokens.len().wrapping_sub(2)) != Some(&Token::Semicolon) {
+        return Err(invalid("complex Molang expression must end with `;`"));
+    }
+    Ok(Program::Complex(statements))
+}
+
+struct Parser {
+    tokens: Vec<Token>,
     cursor: usize,
 }
 
-impl Lexer<'_> {
-    fn next(&mut self) -> Result<Token, AssetError> {
-        while self
-            .bytes
-            .get(self.cursor)
-            .is_some_and(u8::is_ascii_whitespace)
-        {
-            self.cursor += 1;
-        }
-        let Some(&byte) = self.bytes.get(self.cursor) else {
-            return Ok(Token::End);
-        };
-        let punctuation = match byte {
-            b'(' => Some(Token::LeftParen),
-            b')' => Some(Token::RightParen),
-            b',' => Some(Token::Comma),
-            b':' => Some(Token::Colon),
-            b';' => Some(Token::Semicolon),
-            _ => None,
-        };
-        if let Some(token) = punctuation {
-            self.cursor += 1;
-            return Ok(token);
-        }
-        for (text, operator) in [
-            (b"??".as_slice(), "??"),
-            (b"&&", "&&"),
-            (b"||", "||"),
-            (b"<=", "<="),
-            (b">=", ">="),
-            (b"==", "=="),
-            (b"!=", "!="),
-        ] {
-            if self.bytes[self.cursor..].starts_with(text) {
-                self.cursor += text.len();
-                return Ok(Token::Operator(operator));
-            }
-        }
-        if byte == b'?' {
-            self.cursor += 1;
-            return Ok(Token::Question);
-        }
-        if byte == b'=' {
-            self.cursor += 1;
-            return Ok(Token::Assign);
-        }
-        if let Some(operator) = match byte {
-            b'+' => Some("+"),
-            b'-' => Some("-"),
-            b'*' => Some("*"),
-            b'/' => Some("/"),
-            b'%' => Some("%"),
-            b'<' => Some("<"),
-            b'>' => Some(">"),
-            b'!' => Some("!"),
-            _ => None,
-        } {
-            self.cursor += 1;
-            return Ok(Token::Operator(operator));
-        }
-        if byte.is_ascii_digit() || byte == b'.' {
-            return self.number();
-        }
-        if byte.is_ascii_alphabetic() || byte == b'_' {
-            let start = self.cursor;
-            self.cursor += 1;
-            while self
-                .bytes
-                .get(self.cursor)
-                .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
-            {
-                self.cursor += 1;
-            }
-            let identifier = std::str::from_utf8(&self.bytes[start..self.cursor])
-                .map_err(|_| invalid("Molang identifier is not UTF-8"))?
-                .to_ascii_lowercase();
-            return Ok(Token::Identifier(expand_alias(identifier).into()));
-        }
-        Err(invalid("unsupported token in Molang expression"))
+impl Parser {
+    fn peek(&self) -> &Token {
+        &self.tokens[self.cursor]
     }
 
-    fn number(&mut self) -> Result<Token, AssetError> {
-        let start = self.cursor;
-        self.cursor += 1;
-        while self.bytes.get(self.cursor).is_some_and(|byte| {
-            byte.is_ascii_digit() || matches!(byte, b'.' | b'e' | b'E' | b'+' | b'-')
-        }) {
-            if matches!(self.bytes[self.cursor], b'+' | b'-')
-                && !matches!(self.bytes[self.cursor - 1], b'e' | b'E')
-            {
-                break;
-            }
+    fn bump(&mut self) -> Token {
+        let token = self.tokens[self.cursor].clone();
+        if token != Token::End {
             self.cursor += 1;
         }
-        let text = std::str::from_utf8(&self.bytes[start..self.cursor])
-            .map_err(|_| invalid("Molang number is not UTF-8"))?;
-        // Authored float suffixes such as `1.0f` carry no Molang meaning.
-        if self
-            .bytes
-            .get(self.cursor)
-            .is_some_and(|byte| matches!(byte, b'f' | b'F'))
-        {
-            self.cursor += 1;
-        }
-        let value = text
-            .parse::<f32>()
-            .map_err(|_| invalid("invalid Molang numeric literal"))?;
-        super::scalar(value)?;
-        Ok(Token::Number(value))
-    }
-}
-
-fn expand_alias(identifier: String) -> String {
-    for (short, long) in [("q.", "query."), ("v.", "variable."), ("t.", "temp.")] {
-        if let Some(rest) = identifier.strip_prefix(short) {
-            return format!("{long}{rest}");
-        }
-    }
-    identifier
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum SymbolMode {
-    /// Only the reviewed query namespace is accepted.
-    Reviewed,
-    /// Every query and variable reads as zero, for authoring-time default selection.
-    Zero,
-}
-
-pub(super) struct Parser<'a> {
-    lexer: Lexer<'a>,
-    current: Token,
-    mode: SymbolMode,
-}
-
-impl<'a> Parser<'a> {
-    pub(super) fn new(source: &'a str, mode: SymbolMode) -> Result<Self, AssetError> {
-        if source.trim().is_empty() || source.len() > MAX_EXPRESSION_BYTES {
-            return Err(invalid("Molang expression size exceeds bound"));
-        }
-        let mut lexer = Lexer {
-            bytes: source.as_bytes(),
-            cursor: 0,
-        };
-        let current = lexer.next()?;
-        Ok(Self {
-            lexer,
-            current,
-            mode,
-        })
+        token
     }
 
-    pub(super) fn parse(mut self) -> Result<Expr, AssetError> {
-        let expression = self.parse_ternary(0)?;
-        if self.current == Token::Semicolon {
-            self.bump()?;
+    fn eat(&mut self, token: &Token) -> bool {
+        let found = self.peek() == token;
+        if found {
+            self.bump();
         }
-        if self.current != Token::End {
-            return Err(invalid("trailing or unsupported Molang syntax"));
-        }
-        Ok(expression)
+        found
     }
 
-    /// Parses `statement (; statement)* ;?`, where a statement assigns or evaluates.
-    pub(super) fn parse_statements(mut self) -> Result<Vec<Expr>, AssetError> {
+    fn expect(&mut self, token: &Token) -> Result<(), AssetError> {
+        if self.eat(token) {
+            Ok(())
+        } else {
+            Err(invalid("unexpected Molang token"))
+        }
+    }
+
+    fn statements(&mut self, close: &Token) -> Result<Vec<Statement>, AssetError> {
         let mut statements = Vec::new();
-        while self.current != Token::End {
+        let mut returned = false;
+        while self.peek() != close {
             if statements.len() == MAX_STATEMENTS {
                 return Err(invalid("Molang statement count exceeds bound"));
             }
-            statements.push(self.parse_statement()?);
-            match self.current {
-                Token::Semicolon => {
-                    self.bump()?;
-                }
-                Token::End => {}
-                _ => return Err(invalid("Molang statements must be `;` separated")),
+            if returned {
+                return Err(invalid("Molang statement follows a return"));
             }
-        }
-        if statements.is_empty() {
-            return Err(invalid("empty Molang script"));
+            let statement = self.statement(0)?;
+            returned = matches!(statement, Statement::Return(_));
+            statements.push(statement);
+            if !self.eat(&Token::Semicolon) && self.peek() != close {
+                return Err(invalid("Molang statements must be `;` separated"));
+            }
         }
         Ok(statements)
     }
 
-    fn parse_statement(&mut self) -> Result<Expr, AssetError> {
-        let expression = self.parse_ternary(0)?;
-        if self.current != Token::Assign {
-            return Ok(expression);
+    fn block(&mut self, depth: usize) -> Result<Vec<Statement>, AssetError> {
+        check_depth(depth)?;
+        self.expect(&Token::LeftBrace)?;
+        let statements = self.statements(&Token::RightBrace)?;
+        self.expect(&Token::RightBrace)?;
+        Ok(statements)
+    }
+
+    fn statement(&mut self, depth: usize) -> Result<Statement, AssetError> {
+        check_depth(depth)?;
+        if let Token::Identifier(keyword) = self.peek() {
+            match keyword.as_ref() {
+                "return" => {
+                    self.bump();
+                    return Ok(Statement::Return(
+                        (!matches!(
+                            self.peek(),
+                            Token::Semicolon | Token::RightBrace | Token::End
+                        ))
+                        .then(|| self.expression(depth + 1))
+                        .transpose()?,
+                    ));
+                }
+                "break" => {
+                    self.bump();
+                    return Ok(Statement::Break);
+                }
+                "continue" => {
+                    self.bump();
+                    return Ok(Statement::Continue);
+                }
+                "loop" => {
+                    self.bump();
+                    self.expect(&Token::LeftParen)?;
+                    let count = self.expression(depth + 1)?;
+                    self.expect(&Token::Comma)?;
+                    let body = self.block(depth + 1)?;
+                    self.expect(&Token::RightParen)?;
+                    return Ok(Statement::Loop(count, body));
+                }
+                "for_each" => {
+                    self.bump();
+                    self.expect(&Token::LeftParen)?;
+                    let Expr::Variable(slot, name) = self.primary(depth + 1)? else {
+                        return Err(invalid("for_each needs a variable"));
+                    };
+                    self.expect(&Token::Comma)?;
+                    let array = self.expression(depth + 1)?;
+                    self.expect(&Token::Comma)?;
+                    let body = self.block(depth + 1)?;
+                    self.expect(&Token::RightParen)?;
+                    return Ok(Statement::ForEach(slot, name, array, body));
+                }
+                _ => {}
+            }
         }
-        let Expr::Symbol(kind @ (MolangSymbolKind::Variable | MolangSymbolKind::Temporary), name) =
-            expression
-        else {
+        if self.peek() == &Token::LeftBrace {
+            return Ok(Statement::Block(self.block(depth + 1)?));
+        }
+        let target = self.expression(depth + 1)?;
+        if !self.eat(&Token::Assign) {
+            return Ok(Statement::Expression(target));
+        }
+        let Expr::Variable(slot, name) = target else {
             return Err(invalid("Molang assignment target must be a variable"));
         };
-        self.bump()?;
-        let value = self.parse_ternary(0)?;
-        Ok(Expr::Assign(kind, name, Box::new(value)))
+        Ok(Statement::Assign(slot, name, self.expression(depth + 1)?))
     }
 
-    fn bump(&mut self) -> Result<Token, AssetError> {
-        let previous = std::mem::replace(&mut self.current, self.lexer.next()?);
-        Ok(previous)
-    }
-
-    fn parse_ternary(&mut self, depth: usize) -> Result<Expr, AssetError> {
+    /// Precedence levels from loosest: `??`, `?:`, `||`, `&&`, equality, relational,
+    /// additive, `*`, `/`, unary, postfix.
+    fn expression(&mut self, depth: usize) -> Result<Expr, AssetError> {
         check_depth(depth)?;
-        let condition = self.parse_binary(0, depth + 1)?;
-        if self.current != Token::Question {
+        let left = self.conditional(depth)?;
+        if self.peek() != &Token::Operator("??") {
+            return Ok(left);
+        }
+        self.bump();
+        let Expr::Variable(slot, name) = left else {
+            return Err(invalid("Molang `??` requires a variable"));
+        };
+        Ok(Expr::Coalesce(
+            slot,
+            name,
+            Box::new(self.expression(depth + 1)?),
+        ))
+    }
+
+    fn conditional(&mut self, depth: usize) -> Result<Expr, AssetError> {
+        let condition = self.binary(0, depth)?;
+        if !self.eat(&Token::Question) {
             return Ok(condition);
         }
-        self.bump()?;
-        let yes = self.parse_ternary(depth + 1)?;
-        if self.current != Token::Colon {
-            return Err(invalid("Molang ternary is missing `:`"));
+        if self.statement_branch_follows() {
+            let yes = self.branch_body(depth + 1)?;
+            let no = if self.eat(&Token::Colon) {
+                Some(self.branch_body(depth + 1)?)
+            } else {
+                None
+            };
+            return Ok(Expr::Branch(Box::new(condition), yes, no));
         }
-        self.bump()?;
-        let no = self.parse_ternary(depth + 1)?;
-        fold_ternary(condition, yes, no)
+        let yes = self.conditional(depth + 1)?;
+        let no = if self.eat(&Token::Colon) {
+            Some(Box::new(self.conditional(depth + 1)?))
+        } else {
+            None
+        };
+        Ok(Expr::Conditional(Box::new(condition), Box::new(yes), no))
     }
 
-    fn parse_binary(&mut self, min_precedence: u8, depth: usize) -> Result<Expr, AssetError> {
-        check_depth(depth)?;
-        let mut left = self.parse_unary(depth + 1)?;
-        loop {
-            let Token::Operator(operator) = self.current else {
-                break;
-            };
-            if operator == "??" {
-                if min_precedence > 0 {
-                    break;
-                }
-                self.bump()?;
-                let fallback = self.parse_binary(1, depth + 1)?;
-                left = match left {
-                    Expr::Symbol(
-                        kind @ (MolangSymbolKind::Variable | MolangSymbolKind::Temporary),
-                        name,
-                    ) => Expr::Coalesce(kind, name, Box::new(fallback)),
-                    Expr::Constant(_) if self.mode == SymbolMode::Zero => left,
-                    _ => return Err(invalid("Molang `??` requires a variable")),
-                };
-                continue;
+    fn statement_branch_follows(&self) -> bool {
+        match self.peek() {
+            Token::LeftBrace => true,
+            Token::Identifier(keyword) => {
+                matches!(keyword.as_ref(), "break" | "continue" | "return")
             }
-            let Some((precedence, binary)) = binary_operator(operator) else {
-                break;
-            };
-            if precedence < min_precedence {
+            _ => false,
+        }
+    }
+
+    fn branch_body(&mut self, depth: usize) -> Result<Vec<Statement>, AssetError> {
+        if self.peek() == &Token::LeftBrace {
+            self.block(depth)
+        } else {
+            Ok(vec![self.statement(depth)?])
+        }
+    }
+
+    /// Precedence levels share one nesting depth; only nested operands deepen it.
+    fn binary(&mut self, level: usize, depth: usize) -> Result<Expr, AssetError> {
+        const LEVELS: [&[&str]; 7] = [
+            &["||"],
+            &["&&"],
+            &["==", "!="],
+            &["<", "<=", ">", ">="],
+            &["+", "-"],
+            &["*"],
+            &["/"],
+        ];
+        if level == LEVELS.len() {
+            return self.unary(depth);
+        }
+        let mut left = self.binary(level + 1, depth)?;
+        while let Token::Operator(operator) = *self.peek() {
+            if !LEVELS[level].contains(&operator) {
                 break;
             }
-            self.bump()?;
-            let right = self.parse_binary(precedence + 1, depth + 1)?;
-            left = fold_binary(binary, left, right)?;
+            self.bump();
+            let right = Box::new(self.binary(level + 1, depth)?);
+            let left_box = Box::new(left);
+            left = match operator {
+                "||" => Expr::Or(left_box, right),
+                "&&" => Expr::And(left_box, right),
+                _ => Expr::Binary(binary_operator(operator), left_box, right),
+            };
         }
         Ok(left)
     }
 
-    fn parse_unary(&mut self, depth: usize) -> Result<Expr, AssetError> {
+    fn unary(&mut self, depth: usize) -> Result<Expr, AssetError> {
         check_depth(depth)?;
-        if let Token::Operator(operator @ ("-" | "!")) = self.current {
-            self.bump()?;
-            return fold_unary(
-                if operator == "-" {
-                    Unary::Negate
-                } else {
-                    Unary::Not
-                },
-                self.parse_unary(depth + 1)?,
-            );
-        }
-        self.parse_primary(depth + 1)
+        let operator = match self.peek() {
+            Token::Operator("-") => Unary::Negate,
+            Token::Operator("!") => Unary::Not,
+            _ => return self.postfix(depth),
+        };
+        self.bump();
+        Ok(Expr::Unary(operator, Box::new(self.unary(depth + 1)?)))
     }
 
-    fn parse_arguments(&mut self, depth: usize) -> Result<Vec<Expr>, AssetError> {
-        self.bump()?;
+    fn postfix(&mut self, depth: usize) -> Result<Expr, AssetError> {
+        let left = self.primary(depth)?;
+        if !self.eat(&Token::Arrow) {
+            return Ok(left);
+        }
+        let right = self.primary(depth + 1)?;
+        if self.peek() == &Token::Arrow {
+            return Err(invalid(
+                "nested Molang `->` access is unsupported by vanilla",
+            ));
+        }
+        Ok(Expr::Arrow(Box::new(left), Box::new(right)))
+    }
+
+    fn arguments(&mut self, depth: usize) -> Result<Vec<Expr>, AssetError> {
+        self.expect(&Token::LeftParen)?;
         let mut arguments = Vec::new();
-        if self.current != Token::RightParen {
+        if !self.eat(&Token::RightParen) {
             loop {
-                arguments.push(self.parse_ternary(depth + 1)?);
-                if self.current != Token::Comma {
+                arguments.push(self.expression(depth + 1)?);
+                if self.eat(&Token::RightParen) {
                     break;
                 }
-                self.bump()?;
+                self.expect(&Token::Comma)?;
             }
         }
-        if self.current != Token::RightParen {
-            return Err(invalid("unclosed Molang call"));
-        }
-        self.bump()?;
         Ok(arguments)
     }
 
-    fn parse_primary(&mut self, depth: usize) -> Result<Expr, AssetError> {
+    fn primary(&mut self, depth: usize) -> Result<Expr, AssetError> {
         check_depth(depth)?;
-        match self.bump()? {
-            Token::Number(value) => Ok(Expr::Constant(value)),
-            Token::Identifier(identifier) if self.current == Token::LeftParen => {
-                self.parse_call(&identifier, depth)
-            }
-            Token::Identifier(identifier) => self.parse_name(identifier),
+        match self.bump() {
+            Token::Number(value) => Ok(Expr::Number(value)),
+            Token::String(text) => Ok(Expr::String(text)),
             Token::LeftParen => {
-                let expression = self.parse_ternary(depth + 1)?;
-                if self.current != Token::RightParen {
-                    return Err(invalid("unclosed Molang parenthesis"));
-                }
-                self.bump()?;
+                let expression = self.expression(depth + 1)?;
+                self.expect(&Token::RightParen)?;
                 Ok(expression)
             }
-            _ => Err(invalid("expected Molang expression value")),
+            Token::Identifier(name) => self.name(name, depth),
+            _ => Err(invalid("expected a Molang value")),
         }
     }
 
-    fn parse_call(&mut self, identifier: &str, depth: usize) -> Result<Expr, AssetError> {
-        if identifier.starts_with("query.") {
-            let arguments = self.parse_arguments(depth)?;
-            if self.mode == SymbolMode::Zero {
-                return Ok(Expr::Constant(0.0));
-            }
-            if identifier != "query.position_delta" || arguments.len() != 1 {
-                return Err(invalid("unsupported Molang query call"));
-            }
-            let argument = arguments.into_iter().next().expect("one checked argument");
-            return Ok(Expr::CallQuery(identifier.into(), Box::new(argument)));
-        }
-        let function = parse_function(identifier)?;
-        let arguments = self.parse_arguments(depth)?;
-        if arguments.len() != function.arity() {
-            return Err(invalid("Molang function has invalid arity"));
-        }
-        fold_function(function, arguments)
-    }
-
-    fn parse_name(&self, identifier: Box<str>) -> Result<Expr, AssetError> {
-        match identifier.as_ref() {
-            "true" => return Ok(Expr::Constant(1.0)),
-            "false" => return Ok(Expr::Constant(0.0)),
-            "this" => return Ok(Expr::This),
-            "math.pi" => return Ok(Expr::Constant(std::f32::consts::PI)),
+    fn name(&mut self, name: Box<str>, depth: usize) -> Result<Expr, AssetError> {
+        let calls = self.peek() == &Token::LeftParen;
+        match name.as_ref() {
+            "true" if !calls => return Ok(Expr::Number(1.0)),
+            "false" if !calls => return Ok(Expr::Number(0.0)),
+            "this" if !calls => return Ok(Expr::This),
+            "math.pi" if !calls => return Ok(Expr::Number(std::f32::consts::PI)),
             _ => {}
         }
-        let kind = if identifier.starts_with("query.") {
-            if self.mode == SymbolMode::Reviewed
-                && MOLANG_QUERIES.binary_search(&identifier.as_ref()).is_err()
-            {
-                return Err(invalid("unlisted Molang query"));
+        if name.starts_with("math.") {
+            let function = MolangFunction::from_name(&name)
+                .ok_or_else(|| invalid("unknown Molang function"))?;
+            let arguments = self.arguments(depth)?;
+            if arguments.len() != function.arity() {
+                return Err(invalid("Molang function has invalid arity"));
             }
-            MolangSymbolKind::Query
-        } else if identifier.starts_with("variable.") {
-            validate_slot(&identifier, "variable.")?;
-            MolangSymbolKind::Variable
-        } else if identifier.starts_with("temp.") {
-            validate_slot(&identifier, "temp.")?;
-            MolangSymbolKind::Temporary
-        } else {
-            return Err(invalid("unlisted Molang identifier"));
-        };
-        if self.mode == SymbolMode::Zero {
-            return Ok(Expr::Constant(0.0));
+            return Ok(Expr::Call(function, arguments));
         }
-        Ok(Expr::Symbol(kind, identifier))
+        if name.starts_with("query.") {
+            if assets::MOLANG_QUERIES
+                .binary_search(&name.as_ref())
+                .is_err()
+            {
+                return Err(invalid("unknown Molang query"));
+            }
+            let arguments = calls.then(|| self.arguments(depth)).transpose()?;
+            return Ok(Expr::Query(name, arguments));
+        }
+        let slot = if name.starts_with("variable.") || name.starts_with("context.") {
+            Slot::Variable
+        } else if name.starts_with("temp.") {
+            Slot::Temporary
+        } else if ["geometry.", "texture.", "material."]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        {
+            // Render-controller resource references evaluate to their resource name.
+            return Ok(Expr::String(name));
+        } else {
+            return Err(invalid("unknown Molang identifier"));
+        };
+        if calls || !valid_path(&name) {
+            return Err(invalid("invalid Molang variable"));
+        }
+        Ok(Expr::Variable(slot, name))
+    }
+}
+
+fn valid_path(name: &str) -> bool {
+    name.split('.').skip(1).all(|segment| {
+        !segment.is_empty()
+            && segment
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    }) && name.split('.').count() > 1
+}
+
+fn binary_operator(operator: &str) -> Binary {
+    match operator {
+        "==" => Binary::Equal,
+        "!=" => Binary::NotEqual,
+        "<" => Binary::Less,
+        "<=" => Binary::LessEqual,
+        ">" => Binary::Greater,
+        ">=" => Binary::GreaterEqual,
+        "+" => Binary::Add,
+        "-" => Binary::Subtract,
+        "*" => Binary::Multiply,
+        _ => Binary::Divide,
     }
 }
 
@@ -396,57 +438,4 @@ fn check_depth(depth: usize) -> Result<(), AssetError> {
     } else {
         Ok(())
     }
-}
-
-fn validate_slot(identifier: &str, prefix: &str) -> Result<(), AssetError> {
-    let valid = identifier.strip_prefix(prefix).is_some_and(|slot| {
-        !slot.is_empty()
-            && slot
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-    });
-    if valid {
-        Ok(())
-    } else {
-        Err(invalid("invalid Molang variable or temporary slot"))
-    }
-}
-
-fn parse_function(identifier: &str) -> Result<Function, AssetError> {
-    match identifier {
-        "math.abs" => Ok(Function::Abs),
-        "math.ceil" => Ok(Function::Ceil),
-        "math.floor" => Ok(Function::Floor),
-        "math.round" => Ok(Function::Round),
-        "math.sqrt" => Ok(Function::Sqrt),
-        "math.sin" => Ok(Function::Sin),
-        "math.cos" => Ok(Function::Cos),
-        "math.min" => Ok(Function::Min),
-        "math.max" => Ok(Function::Max),
-        "math.clamp" => Ok(Function::Clamp),
-        "math.lerp" => Ok(Function::Lerp),
-        "math.pow" => Ok(Function::Pow),
-        "math.mod" => Ok(Function::Mod),
-        "math.lerprotate" => Ok(Function::LerpRotate),
-        _ => Err(invalid("unsupported Molang function")),
-    }
-}
-
-fn binary_operator(operator: &str) -> Option<(u8, Binary)> {
-    Some(match operator {
-        "||" => (1, Binary::Or),
-        "&&" => (2, Binary::And),
-        "==" => (3, Binary::Equal),
-        "!=" => (3, Binary::NotEqual),
-        "<" => (4, Binary::Less),
-        "<=" => (4, Binary::LessEqual),
-        ">" => (4, Binary::Greater),
-        ">=" => (4, Binary::GreaterEqual),
-        "+" => (5, Binary::Add),
-        "-" => (5, Binary::Subtract),
-        "*" => (6, Binary::Multiply),
-        "/" => (6, Binary::Divide),
-        "%" => (6, Binary::Modulo),
-        _ => return None,
-    })
 }

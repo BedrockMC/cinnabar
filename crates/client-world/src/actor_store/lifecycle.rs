@@ -367,23 +367,50 @@ impl ActorStore {
                 actor.set_current_pose(next);
             }
             let (session_id, dimension) = (self.session_id, self.dimension);
+            let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
-            self.animation.advance_tick(&self.actors, |actor| {
+            self.animation.advance_tick(actors, |actor| {
                 let lifetime = ActorLifetimeId {
                     session_id,
                     dimension,
                     runtime_id: actor.runtime_id,
                     spawn_revision: actor.spawn_revision,
                 };
-                let holding = |hand| {
+                let held = |hand| {
                     items
                         .get_in_hand(lifetime, hand)
-                        .is_some_and(|equipment| equipment.item.identity.network_id != 0)
+                        .filter(|equipment| equipment.item.identity.network_id != 0)
+                        .and_then(|equipment| equipment.item.identifier.clone())
                 };
+                let kind_of = |unique_id: &i64| {
+                    unique_to_runtime
+                        .get(unique_id)
+                        .and_then(|runtime_id| actors.get(runtime_id))
+                        .map(|actor| &actor.kind)
+                };
+                let riders = rider_to_ridden
+                    .iter()
+                    .filter(|(_, ridden)| **ridden == actor.unique_id)
+                    .map(|(rider, _)| kind_of(rider));
+                let mut has_rider = false;
+                let mut has_player_rider = false;
+                for rider in riders {
+                    has_rider = true;
+                    has_player_rider |= matches!(rider, Some(ActorKind::Player { .. }));
+                }
                 crate::actor_animation::ActorTickContext {
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
-                    holding_right: holding(protocol::ActorHandedness::Right),
-                    holding_left: holding(protocol::ActorHandedness::Left),
+                    main_hand: held(protocol::ActorHandedness::Right),
+                    off_hand: held(protocol::ActorHandedness::Left),
+                    ridden: rider_to_ridden
+                        .get(&actor.unique_id)
+                        .and_then(kind_of)
+                        .map(|kind| match kind {
+                            ActorKind::Player { .. } => std::sync::Arc::from("minecraft:player"),
+                            ActorKind::Entity { identifier } => std::sync::Arc::clone(identifier),
+                        }),
+                    has_rider,
+                    has_player_rider,
                 }
             });
             self.actions.advance_tick();

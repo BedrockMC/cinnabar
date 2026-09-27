@@ -117,6 +117,8 @@ struct RuntimeBone {
 struct ControllerState {
     controller: usize,
     state: u16,
+    /// Animation tick the current state was entered, where its clips start.
+    entered_tick: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -131,6 +133,7 @@ struct ActorTickInput {
     is_riding: bool,
     distance_moved: f32,
     move_speed: f32,
+    walk_distance: f32,
 }
 
 struct EvaluatedState {
@@ -341,7 +344,7 @@ impl ActorAnimationStore {
                 &self.layout,
                 state,
                 actor,
-                context(actor),
+                &context(actor),
                 self.completed_tick,
                 &mut budget,
             );
@@ -489,15 +492,18 @@ fn resolve_rig(
         pitch: actor.pitch,
         ..ActorTickInput::default()
     };
+    let context = ActorTickContext::default();
     let evaluator = Evaluator {
         assets,
         layout,
         actor,
         input: &input,
+        context: &context,
         anim_tick: 0,
         life_tick: 0,
+        finished: (false, false),
     };
-    let mut variables = layout.fresh();
+    let mut variables = layout.fresh(actor.runtime_id ^ actor.spawn_revision.rotate_left(32));
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
         let selected = evaluator
             .run(
@@ -507,7 +513,7 @@ fn resolve_rig(
                 &mut budget,
             )
             .ok()?;
-        if truthy(selected) {
+        if selected.truthy() {
             candidate_offset = offset;
             break;
         }
@@ -577,6 +583,7 @@ fn collect_controllers(
     output.push(ControllerState {
         controller,
         state: compiled.initial_state,
+        entered_tick: 0,
     });
     let states = assets.controller_states().get(
         compiled.first_state as usize
@@ -695,7 +702,7 @@ mod motion;
 mod pose;
 mod query;
 mod tick;
-use evaluation::{Evaluator, MolangVariables, VariableLayout, truthy};
+use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use motion::{MotionInput, MotionState};
 use pose::{compose_pose, sample_clips};
 pub(crate) use tick::ActorTickContext;

@@ -344,9 +344,10 @@ fn resolves_inherited_rig_and_publishes_adjacent_completed_tick_palettes() {
     assert_eq!(initial.completed_tick, 0);
     assert_eq!(initial.current[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
 
-    stream.advance_actor_interpolation_ticks(1);
+    // The first tick enters the animated state, whose clip starts at time zero.
+    stream.advance_actor_interpolation_ticks(2);
     let tick = stream.actor_rig(42).unwrap();
-    assert_eq!(tick.completed_tick, 1);
+    assert_eq!(tick.completed_tick, 2);
     assert_eq!(tick.previous[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
     // The rig frame mirrors authored X, so the +X clip offset lands at -X.
     assert_eq!(tick.current[1].translation_scale[0..3], [-1.0, 2.0, 0.0]);
@@ -470,7 +471,7 @@ fn animation_time_is_lifetime_relative_and_looped() {
     stream.advance_actor_interpolation_ticks(10);
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
 
-    stream.advance_actor_interpolation_ticks(1);
+    stream.advance_actor_interpolation_ticks(2);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
         -1.0
@@ -502,7 +503,7 @@ fn authoritative_riding_link_reaches_the_next_runtime_tick_query() {
             }),
         )
         .unwrap();
-    stream.advance_actor_interpolation_ticks(1);
+    stream.advance_actor_interpolation_ticks(2);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
         -1.0
@@ -569,7 +570,7 @@ fn conditioned_geometry_candidates_precede_the_unconditional_fallback() {
 }
 
 #[test]
-fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
+fn reversed_dynamic_clamp_takes_the_lower_bound_instead_of_freezing() {
     let mut compiled = compiled_entity_assets(EntityRigFallback::Skip);
     let first_op = compiled.molang_ops.len() as u32;
     let mut ops = compiled.molang_ops.into_vec();
@@ -577,7 +578,7 @@ fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
         MolangOp::Push(scalar(1.0)),
         MolangOp::Push(scalar(2.0)),
         MolangOp::Push(scalar(1.0)),
-        MolangOp::Clamp,
+        MolangOp::Call(assets::MolangFunction::Clamp),
     ]);
     compiled.molang_ops = ops.into_boxed_slice();
     let weight = compiled.molang_expressions.len() as u32;
@@ -592,12 +593,15 @@ fn reversed_dynamic_clamp_freezes_instead_of_panicking() {
 
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    let rest = stream.actor_rig(42).unwrap().rest.to_vec();
-    stream.advance_actor_interpolation_ticks(1);
-    assert_eq!(stream.actor_rig(42).unwrap().completed_tick, 0);
-    assert_eq!(stream.actor_rig(42).unwrap().rest_completed_tick, 1);
-    assert_eq!(stream.actor_rig(42).unwrap().rest, rest);
-    assert_eq!(stream.actor_animation_stats().frozen_actors, 1);
+    stream.advance_actor_interpolation_ticks(2);
+    assert_eq!(stream.actor_rig(42).unwrap().completed_tick, 2);
+    assert_eq!(stream.actor_animation_stats().frozen_actors, 0);
+    // One tick into the entered state, weight 2 doubles the clip's +1 authored X offset,
+    // which the rig frame mirrors.
+    assert_eq!(
+        stream.actor_rig(42).unwrap().current[1].translation_scale[0],
+        -2.0
+    );
 }
 
 #[test]
@@ -628,7 +632,8 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
             })),
         )
         .unwrap();
-    stream.advance_actor_interpolation_ticks(1);
+    // The move enters the animated state; its clip then runs from zero.
+    stream.advance_actor_interpolation_ticks(3);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
         -2.0
@@ -709,9 +714,9 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
 
     let mut stream = stream_with_entity_assets(decode_entity_assets(&compiled));
     stream.submit(1, spawn(42, -7, [1.0, 0.0, 0.0])).unwrap();
-    stream.advance_actor_interpolation_ticks(1);
-    // At 0.05 the duplicate time's post value (2) interpolates to 3;
-    // clamping index 99 to the final collection weight doubles that delta.
+    stream.advance_actor_interpolation_ticks(2);
+    // At 0.05 the duplicate time's post value (2) interpolates to 3; index 99 wraps
+    // to the second collection weight, which doubles that delta.
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
         -6.0

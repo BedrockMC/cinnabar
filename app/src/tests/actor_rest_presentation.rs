@@ -190,7 +190,7 @@ fn absent_nonfinite_or_wrong_length_rest_is_nodraw_without_pose_substitution() {
 #[test]
 fn static_clock_survives_invalid_first_eval_but_requires_real_tick_after_reset_or_spawn() {
     let (_pack, artwork, entities) =
-        weighted_fixture("math.clamp(query.modified_move_speed,2,1)", 1);
+        weighted_fixture("math.sqrt(query.modified_move_speed - 1)", 1);
     let mut world = stream(entities.clone());
     world.advance_actor_interpolation_ticks(3);
     world.submit(1, spawn(-1)).unwrap();
