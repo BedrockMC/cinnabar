@@ -82,6 +82,10 @@ pub use inventory::{
     personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
 };
 pub use inventory::{
+    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS,
+};
+pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
 pub use inventory::{

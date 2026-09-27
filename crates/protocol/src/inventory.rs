@@ -19,9 +19,14 @@ use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
 mod address;
 mod container_policy;
+mod creative;
 pub use container_policy::{
     CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR, ContainerWindow, LAST_CONTAINER_NAME,
     container_window,
+};
+pub use creative::{
+    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
 pub mod recipes;
 mod request;
@@ -177,6 +182,7 @@ pub enum InventoryEvent {
     Open(ContainerOpenEvent),
     Close(ContainerCloseEvent),
     Data(ContainerDataEvent),
+    Creative(CreativeContentEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
