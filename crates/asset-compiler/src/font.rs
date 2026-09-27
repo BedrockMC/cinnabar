@@ -17,7 +17,9 @@ use thiserror::Error;
 
 mod outline;
 
-pub use outline::{GlyphAdvances, OutlineFontConfig, compile_outline_font};
+pub use outline::{
+    GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
+};
 
 const DESCRIPTOR_PATH: &str = "font/catalog.json";
 const PINNED_SOURCE_MANIFEST_SHA256: [u8; 32] =

@@ -3,8 +3,9 @@
 //! presentation root to honor the production line budget.
 
 use assets::{HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
-use render::{MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray};
+use render::{MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray, UiTexturePage, UiTexturePlan};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 use super::UiPresentationError;
 
@@ -64,12 +65,25 @@ fn plan_icon_placements(
         if padded[0] > width || padded[1] > height {
             return Err(UiPresentationError::InvalidFontTexture);
         }
-        if cursor[0] + padded[0] > width {
-            cursor = [0, cursor[1] + row_height];
+        if cursor[0]
+            .checked_add(padded[0])
+            .is_none_or(|right| right > width)
+        {
+            cursor = [
+                0,
+                cursor[1]
+                    .checked_add(row_height)
+                    .ok_or(UiPresentationError::InvalidFontTexture)?,
+            ];
             row_height = 0;
         }
-        if cursor[1] + padded[1] > height {
-            layer_offset += 1;
+        if cursor[1]
+            .checked_add(padded[1])
+            .is_none_or(|bottom| bottom > height)
+        {
+            layer_offset = layer_offset
+                .checked_add(1)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
             cursor = [0, 0];
             row_height = 0;
         }
@@ -78,15 +92,19 @@ fn plan_icon_placements(
             cursor,
             padded,
         });
-        cursor[0] += padded[0];
+        cursor[0] = cursor[0]
+            .checked_add(padded[0])
+            .ok_or(UiPresentationError::InvalidFontTexture)?;
         row_height = row_height.max(padded[1]);
     }
-    let layer_count = layer_offset + u32::from(!placements.is_empty());
+    let layer_count = layer_offset
+        .checked_add(u32::from(!placements.is_empty()))
+        .ok_or(UiPresentationError::InvalidFontTexture)?;
     Ok((placements, layer_count))
 }
 
 pub(super) fn font_texture_array_with_optional_hud(
-    font: &RuntimeFontCatalog,
+    font: &Arc<RuntimeFontCatalog>,
     hud: Option<&RuntimeHudCatalog>,
 ) -> Result<(UiRenderTextureArray, u16, Option<HudTexturePages>), UiPresentationError> {
     let (textures, solid_texture_page, hud_textures, _) =
@@ -102,26 +120,12 @@ type TextureArrayWithIcons = (
 );
 
 pub(super) fn font_texture_array_with_hud_and_icons(
-    font: &RuntimeFontCatalog,
+    font: &Arc<RuntimeFontCatalog>,
     hud: Option<&RuntimeHudCatalog>,
     icons: Option<&RuntimeIconCatalog>,
 ) -> Result<TextureArrayWithIcons, UiPresentationError> {
-    let mut width = font
-        .pages()
-        .iter()
-        .map(|page| page.width)
-        .max()
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let mut height = font
-        .pages()
-        .iter()
-        .map(|page| page.height)
-        .max()
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    if hud.is_some() || icons.is_some() {
-        width = width.max(VANILLA_HUD_ATLAS_SIDE);
-        height = height.max(VANILLA_HUD_ATLAS_SIDE);
-    }
+    let width = VANILLA_HUD_ATLAS_SIDE;
+    let height = VANILLA_HUD_ATLAS_SIDE;
     let font_layers =
         u32::try_from(font.pages().len()).map_err(|_| UiPresentationError::InvalidFontTexture)?;
     if font_layers >= MAX_UI_TEXTURE_LAYERS {
@@ -134,6 +138,40 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         .map(|icons| plan_icon_placements(icons, width, height))
         .transpose()?;
     let icon_layers = icon_placements.as_ref().map_or(0, |(_, layers)| *layers);
+    // Dry-run every HUD placement before allocating even the solid page.
+    if let Some(hud) = hud {
+        let mut cursor = [0u32, 0u32];
+        let mut row_height = 0;
+        for texture in hud.textures() {
+            let padded_width = texture
+                .width
+                .checked_add(2)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            let padded_height = texture
+                .height
+                .checked_add(2)
+                .ok_or(UiPresentationError::InvalidFontTexture)?;
+            if cursor[0]
+                .checked_add(padded_width)
+                .is_none_or(|right| right > width)
+            {
+                cursor[0] = 0;
+                cursor[1] = cursor[1]
+                    .checked_add(row_height)
+                    .ok_or(UiPresentationError::InvalidFontTexture)?;
+                row_height = 0;
+            }
+            if padded_width > width
+                || cursor[1]
+                    .checked_add(padded_height)
+                    .is_none_or(|bottom| bottom > height)
+            {
+                return Err(UiPresentationError::InvalidFontTexture);
+            }
+            cursor[0] += padded_width;
+            row_height = row_height.max(padded_height);
+        }
+    }
     let layers = font_layers
         .checked_add(1)
         .and_then(|layers| layers.checked_add(hud_layers))
@@ -145,29 +183,25 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         .and_then(|width| width.checked_mul(height as usize))
         .and_then(|pixels| pixels.checked_mul(4))
         .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let total_bytes = layer_bytes
-        .checked_mul(layers as usize)
-        .filter(|bytes| *bytes <= MAX_UI_TEXTURE_BYTES)
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
+    let mut dimensions = font
+        .pages()
+        .iter()
+        .map(|p| [p.width, p.height])
+        .collect::<Vec<_>>();
+    dimensions.extend(std::iter::repeat_n(
+        [width, height],
+        (layers - font_layers + 9) as usize,
+    ));
+    UiTexturePlan::new(&dimensions).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    let total_bytes = layer_bytes * (layers - font_layers) as usize;
     let mut rgba8 = vec![0; total_bytes];
-    for (layer, page) in font.pages().iter().enumerate() {
-        let page_width = page.width as usize;
-        let page_height = page.height as usize;
-        for row in 0..page_height {
-            let source_start = row * page_width * 4;
-            let source_end = source_start + page_width * 4;
-            let target_start = layer * layer_bytes + row * width as usize * 4;
-            rgba8[target_start..target_start + page_width * 4]
-                .copy_from_slice(&page.rgba8[source_start..source_end]);
-        }
-    }
-    let solid_start = usize::from(solid_texture_page) * layer_bytes;
+    let solid_start = 0;
     rgba8[solid_start..solid_start + layer_bytes].fill(255);
     let hud_textures = if let Some(hud) = hud {
         let page = solid_texture_page
             .checked_add(1)
             .ok_or(UiPresentationError::InvalidFontTexture)?;
-        let layer_start = usize::from(page) * layer_bytes;
+        let layer_start = (usize::from(page) - font_layers as usize) * layer_bytes;
         let mut cursor = [0u32, 0u32];
         let mut row_height = 0u32;
         let mut sprites = [HudSprite::default(); HudTextureRole::ALL.len()];
@@ -261,7 +295,7 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         let mut refs = Vec::with_capacity(placements.len());
         for (sprite, placement) in icons.sprites().iter().zip(placements.iter()) {
             let layer = first_icon_layer + placement.layer_offset;
-            let layer_start = layer as usize * layer_bytes;
+            let layer_start = (layer - font_layers) as usize * layer_bytes;
             let sprite_width = u32::from(sprite.width);
             let sprite_height = u32::from(sprite.height);
             for padded_y in 0..placement.padded[1] {
@@ -301,95 +335,41 @@ pub(super) fn font_texture_array_with_hud_and_icons(
         None
     };
 
-    let texture_identity = if hud.is_some() || icons.is_some() {
-        let mut identity = Sha256::new();
-        identity.update(font.identity().carrier_sha256);
-        if let Some(hud) = hud {
-            identity.update(hud.source_manifest_sha256());
-            for texture in hud.textures() {
-                identity.update(texture.pixels_sha256);
-            }
-        }
-        if let Some(icons) = icons {
-            identity.update(icons.source_manifest_sha256());
-            for sprite in icons.sprites() {
-                identity.update(Sha256::digest(&sprite.rgba8));
-            }
-        }
-        identity.finalize().into()
-    } else {
-        font.identity().carrier_sha256
-    };
-    Ok((
-        UiRenderTextureArray {
-            identity: texture_identity,
-            width,
-            height,
-            layers,
-            rgba8: rgba8.into(),
-        },
-        solid_texture_page,
-        hud_textures,
-        icon_refs,
-    ))
+    let mut pages = (0..font.pages().len())
+        .map(|index| {
+            UiTexturePage::font(Arc::clone(font), index)
+                .map_err(|_| UiPresentationError::InvalidFontTexture)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for pixels in rgba8.chunks_exact(layer_bytes) {
+        pages.push(
+            UiTexturePage::owned([width, height], Arc::from(pixels))
+                .map_err(|_| UiPresentationError::InvalidFontTexture)?,
+        );
+    }
+    let dynamic_start = pages.len();
+    let blank = UiTexturePage::owned([width, height], vec![0; layer_bytes].into())
+        .map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    pages.extend(std::iter::repeat_n(blank, 9));
+    let mut source = Sha256::new();
+    source.update(b"ui-source-catalog-v1");
+    source.update(font.identity().carrier_sha256);
+    source.update([u8::from(hud.is_some()), u8::from(icons.is_some())]);
+    if let Some(hud) = hud {
+        source.update(hud.source_manifest_sha256());
+    }
+    if let Some(icons) = icons {
+        source.update(icons.source_manifest_sha256());
+    }
+    let textures =
+        UiRenderTextureArray::with_source_identity(pages, dynamic_start, source.finalize().into())
+            .map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    Ok((textures, solid_texture_page, hud_textures, icon_refs))
 }
 
 pub(super) fn font_texture_array(
-    font: &RuntimeFontCatalog,
+    font: &Arc<RuntimeFontCatalog>,
 ) -> Result<(UiRenderTextureArray, u16), UiPresentationError> {
-    let width = font
-        .pages()
-        .iter()
-        .map(|page| page.width)
-        .max()
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let height = font
-        .pages()
-        .iter()
-        .map(|page| page.height)
-        .max()
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let font_layers =
-        u32::try_from(font.pages().len()).map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    if font_layers >= MAX_UI_TEXTURE_LAYERS {
-        return Err(UiPresentationError::InvalidFontTexture);
-    }
-    let solid_texture_page =
-        u16::try_from(font_layers).map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    let layers = font_layers
-        .checked_add(1)
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let layer_bytes = usize::try_from(width)
-        .ok()
-        .and_then(|width| width.checked_mul(height as usize))
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let total_bytes = layer_bytes
-        .checked_mul(layers as usize)
-        .filter(|bytes| *bytes <= MAX_UI_TEXTURE_BYTES)
-        .ok_or(UiPresentationError::InvalidFontTexture)?;
-    let mut rgba8 = vec![0; total_bytes];
-    for (layer, page) in font.pages().iter().enumerate() {
-        let page_width = page.width as usize;
-        let page_height = page.height as usize;
-        for row in 0..page_height {
-            let source_start = row * page_width * 4;
-            let source_end = source_start + page_width * 4;
-            let target_start = layer * layer_bytes + row * width as usize * 4;
-            rgba8[target_start..target_start + page_width * 4]
-                .copy_from_slice(&page.rgba8[source_start..source_end]);
-        }
-    }
-    let solid_start = usize::from(solid_texture_page) * layer_bytes;
-    rgba8[solid_start..solid_start + layer_bytes].fill(255);
-    Ok((
-        UiRenderTextureArray {
-            identity: font.identity().carrier_sha256,
-            width,
-            height,
-            layers,
-            rgba8: rgba8.into(),
-        },
-        solid_texture_page,
-    ))
+    let (textures, solid, _, _) = font_texture_array_with_hud_and_icons(font, None, None)?;
+    Ok((textures, solid))
 }

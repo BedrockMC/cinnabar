@@ -192,13 +192,13 @@ mod tests {
 
         let input = adapt_ui_draw_list(
             &draw_list,
-            Arc::new(UiRenderTextureArray {
-                identity: [1; 32],
-                width: 1,
-                height: 1,
-                layers: 1,
-                rgba8: vec![255; 4].into(),
-            }),
+            Arc::new(
+                UiRenderTextureArray::new(
+                    vec![render::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                    1,
+                )
+                .unwrap(),
+            ),
             UiRenderViewport {
                 physical_size: [100, 100],
                 dpi_scale: DpiScale::new(1.0).unwrap(),

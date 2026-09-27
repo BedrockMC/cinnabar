@@ -138,6 +138,244 @@ fn clear_recipes() -> InventoryEvent {
     InventoryEvent::Recipes(protocol::decode_recipe_update(&body).unwrap())
 }
 
+fn contextual_grid(present: bool) -> InventoryEvent {
+    let mut slots = vec![NetworkItemStack::empty(); 54];
+    if present {
+        slots[28] = NetworkItemStack {
+            network_id: 6,
+            stack_network_id: 101,
+            count: 1,
+            ..NetworkItemStack::empty()
+        };
+    }
+    InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(124),
+            slot_type: Some(0),
+            dynamic_id: None,
+        },
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    })
+}
+
+fn contextual_slot(position: u16) -> InventoryEvent {
+    let mut event = empty_slot(0, position);
+    let InventoryEvent::Slot(update) = &mut event else {
+        unreachable!()
+    };
+    update.identity.container.window_id = Some(124);
+    event
+}
+
+#[test]
+fn contextual_grid_ingress_and_mixed_slots_follow_actual_committed_frontier() {
+    let mut app = app();
+    registry_ingress(&mut app, 1, named_registry("minecraft:oak_log"));
+    let fixture =
+        include_bytes!("../../../crates/protocol/fixtures/crafting_data_manual_named_1x1.bin");
+    ingress(
+        &mut app,
+        2,
+        InventoryEvent::Recipes(protocol::decode_recipe_update(&fixture[4..]).unwrap()),
+    );
+    ingress(&mut app, 3, contextual_grid(true));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .crafting_preview()
+            .is_none(),
+        "Content cannot synthesize known-empty cursor"
+    );
+    ingress(&mut app, 4, empty_slot(59, 0));
+    app.update();
+    assert!(matches!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::Unique { count: 4, .. })
+    ));
+    let old = app.world().resource::<UiRuntime>().clone();
+    // Missing predecessor5 withholds the mutating Slot6, not ordinary inventory.
+    ingress(&mut app, 6, contextual_slot(28));
+    app.update();
+    assert!(matches!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::Unique { .. })
+    ));
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .commit(5)
+        .unwrap();
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::NoMatch)
+    );
+    assert!(matches!(
+        old.crafting_preview(),
+        Some(CraftingPreview::Unique { .. })
+    ));
+    // A later Content beats the earlier default Slot in the same real FIFO.
+    ingress(&mut app, 7, contextual_grid(true));
+    ingress(&mut app, 8, empty_slot(13, 28));
+    ingress(&mut app, 9, contextual_grid(true));
+    app.update();
+    assert!(matches!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::Unique { .. })
+    ));
+    // Both incremental identities address only their distinct crafting cells.
+    ingress(&mut app, 10, contextual_slot(28));
+    let mut named_present = empty_slot(13, 28);
+    let InventoryEvent::Slot(update) = &mut named_present else {
+        unreachable!()
+    };
+    update.stack = NetworkItemStack {
+        network_id: 6,
+        stack_network_id: 202,
+        count: 1,
+        ..NetworkItemStack::empty()
+    };
+    ingress(&mut app, 11, named_present.clone());
+    app.update();
+    assert!(matches!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::Unique { .. })
+    ));
+    ingress(&mut app, 12, named_present);
+    ingress(&mut app, 13, contextual_slot(28));
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::NoMatch)
+    );
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntime>()
+            .inventory_ledger()
+            .slot_state(28),
+        Some(PlayerInventorySlot::Unknown),
+        "default UI124 must never alias player inventory"
+    );
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+}
+
+#[test]
+fn contextual_grid_burst_refuses_only_craft_projection_and_recovers_from_fresh_facts() {
+    let mut app = app();
+    ingress(&mut app, 1, clear_recipes());
+    ingress(&mut app, 2, contextual_grid(false));
+    ingress(&mut app, 3, empty_slot(59, 0));
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::NoMatch)
+    );
+    // Real ordinary drain observes the whole ingress burst before craft advance.
+    // The committed world markers do not retain ordinary inventory payloads.
+    for sequence in 4..=68 {
+        ingress(&mut app, sequence, contextual_grid(false));
+    }
+    assert_eq!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .inventory_committed_through(),
+        Some(68)
+    );
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .crafting_preview()
+            .is_none()
+    );
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert_eq!(
+        app.world()
+            .resource::<UiRuntime>()
+            .inventory_ledger()
+            .slot_state(28),
+        Some(PlayerInventorySlot::Unknown)
+    );
+    ingress(&mut app, 69, contextual_grid(false));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .crafting_preview()
+            .is_none(),
+        "grid recovery does not recover retired cursor"
+    );
+    ingress(&mut app, 70, empty_slot(59, 0));
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::NoMatch),
+        "healthy catalog/registry/Server survived cell-domain overflow"
+    );
+    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+}
+
+#[test]
+fn contextual_grid_dimension_round_trip_accepts_only_final_epoch_cells() {
+    let mut app = app();
+    ingress(&mut app, 1, clear_recipes());
+    ingress(&mut app, 2, contextual_grid(false));
+    ingress(&mut app, 3, empty_slot(59, 0));
+    for (sequence, dimension) in [(4, 1), (6, 0), (7, 0)] {
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(
+                sequence,
+                WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                    dimension,
+                    position: [0.0, 70.0, 0.0],
+                }),
+            )
+            .unwrap();
+    }
+    ingress(&mut app, 5, contextual_grid(false));
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .form_dimension_epoch(),
+        7
+    );
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .crafting_preview()
+            .is_none()
+    );
+    ingress(&mut app, 8, contextual_grid(false));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .crafting_preview()
+            .is_none()
+    );
+    ingress(&mut app, 9, empty_slot(59, 0));
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().crafting_preview(),
+        Some(CraftingPreview::NoMatch)
+    );
+}
+
 fn named_registry(name: &str) -> ItemRegistryEvent {
     ItemRegistryEvent {
         entries: [(6, name), (7, "minecraft:oak_planks")]

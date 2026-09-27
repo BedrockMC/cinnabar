@@ -10,6 +10,12 @@ mod cloud_render;
 mod present_mode;
 mod runtime_profile;
 mod ui;
+mod ui_textures;
+
+pub use ui_textures::{
+    MAX_UI_TEXTURE_BUCKETS, UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage,
+    UiTexturePlan,
+};
 mod ui_render;
 mod visibility_diagnostics;
 

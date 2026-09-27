@@ -285,7 +285,13 @@ impl CraftingAuthority {
                 ) {
                     Some(protocol::CanonicalCell::CraftInput(index)) => Some(usize::from(index)),
                     Some(protocol::CanonicalCell::Cursor) => None,
-                    _ => return,
+                    _ => match protocol::personal_craft_slot_index(
+                        &update.identity.container,
+                        update.identity.slot,
+                    ) {
+                        Some(index) => Some(usize::from(index)),
+                        None => return,
+                    },
                 };
                 let Some(stack) = StackOwner::with_credits(&update.stack, &self.credits) else {
                     self.lose(sequence, 0);
@@ -296,6 +302,27 @@ impl CraftingAuthority {
                 } else {
                     Observation::Cursor(stack)
                 }
+            }
+            InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content))
+                if protocol::personal_craft_content_indices(
+                    &content.container,
+                    content.slots.len(),
+                )
+                .is_some() =>
+            {
+                let indices = protocol::personal_craft_content_indices(
+                    &content.container,
+                    content.slots.len(),
+                )
+                .expect("guarded content shape");
+                let Some(grid) = StackOwner::grid_with_credits(
+                    indices.map(|index| &content.slots[index]),
+                    &self.credits,
+                ) else {
+                    self.lose(sequence, 0);
+                    return;
+                };
+                Observation::Grid(grid)
             }
             InventoryAuthorityEvent::Inventory(InventoryEvent::Content(content))
                 if content.slots.len() == 1
@@ -373,13 +400,19 @@ impl CraftingAuthority {
                     self.grid[*index] = Some(Arc::clone(stack));
                     self.changed_cells();
                 }
+                Observation::Grid(grid)
+                    if record.sequence > self.epoch.max(self.authority_loss) =>
+                {
+                    self.grid = grid.each_ref().map(|stack| Some(Arc::clone(stack)));
+                    self.changed_cells();
+                }
                 Observation::Cursor(stack)
                     if record.sequence > self.epoch.max(self.authority_loss) =>
                 {
                     self.cursor = Some(Arc::clone(stack));
                     self.changed_cells();
                 }
-                Observation::Cell { .. } | Observation::Cursor(_) => {}
+                Observation::Grid(_) | Observation::Cell { .. } | Observation::Cursor(_) => {}
             }
         }
         if split < queue.records.len() {

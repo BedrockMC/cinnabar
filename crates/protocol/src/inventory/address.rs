@@ -159,9 +159,79 @@ fn player_inventory_cell(slot: u16) -> Option<CanonicalCell> {
     }
 }
 
+fn is_personal_ui_storage(identity: &ContainerIdentity) -> bool {
+    identity.window_id == Some(124)
+        && identity.slot_type == Some(0)
+        && identity.dynamic_id.is_none()
+}
+
+/// Selects the four personal input references from an exact UI storage snapshot.
+/// This contextual observation does not add a canonical or ordinary ledger alias.
+#[must_use]
+pub fn personal_craft_content_indices(
+    identity: &ContainerIdentity,
+    slots: usize,
+) -> Option<[usize; 4]> {
+    (is_personal_ui_storage(identity) && slots == 54).then_some([28, 29, 30, 31])
+}
+
+/// Selects one personal input observation from the default UI storage identity.
+/// Other UI cells, named containers and cursor authority are not inferred here.
+#[must_use]
+pub fn personal_craft_slot_index(identity: &ContainerIdentity, slot: u16) -> Option<u8> {
+    if !is_personal_ui_storage(identity) {
+        return None;
+    }
+    let index = slot.checked_sub(28)?;
+    (index < 4).then_some(u8::try_from(index).ok()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contextual_personal_inputs_require_exact_identity_and_snapshot_shape() {
+        let valid = identity(124, Some(0));
+        assert_eq!(
+            personal_craft_content_indices(&valid, 54),
+            Some([28, 29, 30, 31])
+        );
+        for count in [0, 4, 53, 55, usize::MAX] {
+            assert_eq!(personal_craft_content_indices(&valid, count), None);
+        }
+        for slot in 28..32 {
+            assert_eq!(
+                personal_craft_slot_index(&valid, slot),
+                Some(u8::try_from(slot - 28).unwrap())
+            );
+            assert_eq!(project_container_cell(&valid, slot), None);
+            assert_eq!(
+                project_container_cell(&identity(0, None), slot),
+                Some(CanonicalCell::PlayerInventory(u8::try_from(slot).unwrap()))
+            );
+        }
+        for slot in [0, 27, 32, 50, 53, u16::MAX] {
+            assert_eq!(personal_craft_slot_index(&valid, slot), None);
+        }
+        for invalid in [
+            identity(0, Some(0)),
+            identity(123, Some(0)),
+            identity(124, None),
+            identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)),
+            ContainerIdentity {
+                window_id: None,
+                ..valid
+            },
+            ContainerIdentity {
+                dynamic_id: Some(1),
+                ..valid
+            },
+        ] {
+            assert_eq!(personal_craft_content_indices(&invalid, 54), None);
+            assert_eq!(personal_craft_slot_index(&invalid, 28), None);
+        }
+    }
 
     fn identity(window_id: i32, slot_type: Option<u8>) -> ContainerIdentity {
         ContainerIdentity {
