@@ -140,4 +140,7 @@ pub use registry::{
 };
 pub use runtime::{NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
-pub use texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip};
+pub use texture::{
+    MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
+    downsample_linear_premultiplied,
+};
