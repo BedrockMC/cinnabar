@@ -84,7 +84,7 @@ impl PlayerInventoryLedger {
                 }
                 if self.storage.as_ref().is_some_and(|storage| {
                     close.container.window_id == Some(storage.window_id)
-                        && close.window_type == GENERIC_STORAGE_WINDOW_TYPE
+                        && close.window_type == storage.window_type
                 }) {
                     self.close_storage();
                 }
@@ -302,7 +302,11 @@ impl PlayerInventoryLedger {
         let Some(window_id) = open.container.window_id else {
             return;
         };
-        if open.window_type != GENERIC_STORAGE_WINDOW_TYPE || !valid_storage_window_id(window_id) {
+        if !matches!(
+            open.window_type,
+            GENERIC_STORAGE_WINDOW_TYPE | super::WORKBENCH_WINDOW_TYPE
+        ) || !valid_storage_window_id(window_id)
+        {
             self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             self.storage = None;
             self.confirmed.clear_storage();
@@ -313,6 +317,7 @@ impl PlayerInventoryLedger {
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
         self.storage = Some(StorageWindow {
             window_id,
+            window_type: open.window_type,
             generation,
             identity: None,
             resync_required: false,
@@ -376,7 +381,10 @@ impl PlayerInventoryLedger {
             return;
         };
         let window_id = storage.window_id;
-        if identity.window_id != Some(window_id) {
+        // A workbench keeps its grid in the UI inventory, never here.
+        if identity.window_id != Some(window_id)
+            || storage.window_type != GENERIC_STORAGE_WINDOW_TYPE
+        {
             return;
         }
         if storage.identity.is_some_and(|current| current != identity) {

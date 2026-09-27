@@ -23,7 +23,7 @@ mod inventory;
 mod pinned;
 mod player;
 
-pub(super) use inventory::StorageIcons;
+pub(super) use inventory::{CraftingFrame, StorageIcons};
 use pinned::{
     BOSS_TINTS, BOTTOM_STACK_HEIGHT, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH,
     LABEL_FADE_MILLIS, LABEL_WINDOW_MILLIS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS,
@@ -59,6 +59,7 @@ pub(crate) struct HudFrame {
     pub hotbar_icons: [Option<IconRef>; 9],
     pub inventory_icons: InventoryIcons,
     pub storage_icons: StorageIcons,
+    pub crafting: CraftingFrame,
     pub cursor_icon: Option<IconRef>,
     pub armor_icons: [Option<IconRef>; 4],
     pub offhand_icon: Option<IconRef>,

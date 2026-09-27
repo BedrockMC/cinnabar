@@ -56,7 +56,8 @@ pub use interaction::{
     click_block_packet, destroy_block_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
-    RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeUpdate, decode_recipe_update,
+    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeOutput,
+    RecipeUpdate, decode_recipe_update, match_crafting_grid,
 };
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,

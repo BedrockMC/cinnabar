@@ -163,7 +163,7 @@ fn effective_merge_binding(entry: Option<&ItemRegistryEntry>) -> Option<(&str, O
     Some((entry.identifier.as_ref(), entry_capacity(entry)))
 }
 
-fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
+pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
     if matches!(entry.version, ItemRegistryVersion::Unknown(_))
         || protocol::vanilla_item_capacity(&entry.identifier, 0).is_none()
     {
@@ -179,7 +179,7 @@ fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
     }
 }
 
-fn plain_stack(stack: &NetworkItemStack) -> bool {
+pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
     let digest: [u8; 32] = Sha256::digest(&stack.extra_data).into();
     stack.metadata == 0
         && stack.block_runtime_id == 0

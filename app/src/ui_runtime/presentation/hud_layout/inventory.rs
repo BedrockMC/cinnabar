@@ -1,8 +1,7 @@
 //! Java-proportioned player inventory presentation.
 //!
-//! The screen consumes real Bedrock window-0, armor, and offhand state. It is
-//! deliberately read-only until the protocol transaction owner is modeled;
-//! drawing empty crafting cells is preferable to inventing client authority.
+//! The screen consumes real Bedrock window-0, armor, offhand and crafting
+//! state from the ledger; the output cell previews the grid's unique recipe.
 
 use std::sync::Arc;
 
@@ -12,6 +11,14 @@ use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime, rect};
 
 const PANEL_SIZE: [f32; 2] = [176.0, 166.0];
 const SLOT_SIZE: f32 = 18.0;
+
+/// The active crafting grid's icons in row-major order plus the previewed
+/// output of its unique recipe.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CraftingFrame {
+    pub(crate) icons: [Option<IconRef>; 9],
+    pub(crate) output: Option<(Option<IconRef>, protocol::NetworkItemStack)>,
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct StorageIcons(pub(crate) [Option<IconRef>; 54]);
@@ -28,7 +35,11 @@ impl HudLayout<'_> {
         runtime: &UiRuntime,
         frame: &HudFrame,
     ) -> Result<(), UiPresentationError> {
-        if let Some(slot_count @ (27 | 54)) = runtime.inventory_ledger().storage_slot_count() {
+        use crate::ui_runtime::presentation::inventory_pointer::{
+            InventoryScreen, WORKBENCH_GRID, WORKBENCH_OUTPUT,
+        };
+        let screen = InventoryScreen::of(runtime.inventory_ledger());
+        if let InventoryScreen::Storage(slot_count) = screen {
             return self.storage_screen(runtime, frame, slot_count);
         }
         let g = self.geometry;
@@ -39,6 +50,11 @@ impl HudLayout<'_> {
         ];
         self.panel(origin, PANEL_SIZE)?;
 
+        if screen == InventoryScreen::Workbench {
+            self.inventory_label("Crafting", [origin[0] + 28.0, origin[1] + 6.0])?;
+            self.crafting_cells(runtime, frame, origin, WORKBENCH_GRID, 3, WORKBENCH_OUTPUT)?;
+            return self.player_cells(runtime, frame, origin);
+        }
         self.inventory_label("Crafting", [origin[0] + 97.0, origin[1] + 6.0])?;
 
         // Armor, paper doll, offhand, and the 2x2 personal crafting grid.
@@ -61,25 +77,57 @@ impl HudLayout<'_> {
             self.inventory_item(frame.offhand_icon, offhand_slot, Some(stack))?;
         }
 
-        for row in 0..2 {
-            for column in 0..2 {
-                self.inventory_slot([
-                    origin[0] + 98.0 + column as f32 * SLOT_SIZE,
-                    origin[1] + 18.0 + row as f32 * SLOT_SIZE,
-                ])?;
+        self.crafting_cells(runtime, frame, origin, [98.0, 18.0], 2, [152.0, 28.0])?;
+        self.player_cells(runtime, frame, origin)
+    }
+
+    /// One crafting grid, its arrow and the previewed output cell.
+    fn crafting_cells(
+        &mut self,
+        runtime: &UiRuntime,
+        frame: &HudFrame,
+        origin: [f32; 2],
+        grid: [f32; 2],
+        width: usize,
+        output: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
+        let first_slot = if width == 3 { 32 } else { 28 };
+        for index in 0..width * width {
+            let slot = [
+                origin[0] + grid[0] + (index % width) as f32 * SLOT_SIZE,
+                origin[1] + grid[1] + (index / width) as f32 * SLOT_SIZE,
+            ];
+            self.inventory_slot(slot)?;
+            let target = crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(
+                first_slot + index as u8,
+            );
+            if let Some(stack) = runtime.inventory_ledger().target_stack(target) {
+                self.inventory_item(frame.crafting.icons[index], slot, Some(stack))?;
             }
         }
         // Crafting arrow and result slot use original pixel geometry rather
         // than a borrowed texture or proprietary icon.
-        let arrow = [origin[0] + 135.0, origin[1] + 31.0];
+        let arrow = [origin[0] + output[0] - 17.0, origin[1] + output[1] + 3.0];
         self.solid_gui(arrow, [12.0, 4.0], [139, 139, 139, 255])?;
         self.solid_gui(
             [arrow[0] + 8.0, arrow[1] - 3.0],
             [4.0, 10.0],
             [139, 139, 139, 255],
         )?;
-        self.inventory_slot([origin[0] + 152.0, origin[1] + 28.0])?;
+        let output = [origin[0] + output[0], origin[1] + output[1]];
+        self.inventory_slot(output)?;
+        if let Some((icon, stack)) = &frame.crafting.output {
+            self.inventory_item(*icon, output, Some(stack))?;
+        }
+        Ok(())
+    }
 
+    fn player_cells(
+        &mut self,
+        runtime: &UiRuntime,
+        frame: &HudFrame,
+        origin: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
         // Bedrock window 0: hotbar 0..8, storage 9..35.
         for row in 0..3 {
             for column in 0..9 {

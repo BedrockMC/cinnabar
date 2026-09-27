@@ -29,6 +29,8 @@ pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
 
 pub(crate) use gameplay_authority::drain_inventory_authority;
 pub use interaction::FastTransferAction;
+#[cfg(test)]
+pub(crate) use interaction::dispatch_inventory_click;
 pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
 #[cfg(test)]
 use interaction::{

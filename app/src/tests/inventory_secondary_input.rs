@@ -158,6 +158,7 @@ fn secondary_places_one_into_empty_player_and_storage_cells() {
         let placed = match target {
             InventoryCellHit::Player(slot) => ledger.displayed_stack(slot),
             InventoryCellHit::Storage(slot) => ledger.storage_stack(slot),
+            _ => unreachable!("cases target player and storage cells"),
         };
         assert_eq!(placed.map(|stack| stack.count), Some(1));
         assert_eq!(
@@ -648,9 +649,12 @@ fn hit_point(
             (0..PHYSICAL_SIZE[0]).find_map(|x| {
                 let point = UiPoint::new(x as f32, y as f32).unwrap();
                 let gui = presentation.inventory_gui_point(point, PHYSICAL_SIZE, 1.0)?;
-                (presentation.inventory_cell_hit(gui, PHYSICAL_SIZE, 1.0, storage_slots)
-                    == Some(target))
-                .then_some(Vec2::new(x as f32, y as f32))
+                let screen = storage_slots.map_or(
+                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Personal,
+                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Storage,
+                );
+                (presentation.inventory_cell_hit(gui, PHYSICAL_SIZE, 1.0, screen) == Some(target))
+                    .then_some(Vec2::new(x as f32, y as f32))
             })
         })
         .unwrap_or_else(|| panic!("{target:?} has a physical hit point"))

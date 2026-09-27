@@ -65,12 +65,15 @@ fn summary(id: u32, recipe: &Recipe, registry: &RecipeRegistrySnapshot) -> Recip
     RecipeObservation {
         recipe_id: id,
         dimensions: [recipe.width, recipe.height],
-        ingredients: recipe.ingredients.each_ref().map(|value| {
-            value.as_ref().map(|ingredient| IngredientObservation {
-                name_sha256: Sha256::digest(ingredient.name.as_bytes()).into(),
-                aux: ingredient.aux,
-                count: ingredient.count,
-            })
+        // Observed recipes fit two-by-two, so only the first four cells exist.
+        ingredients: std::array::from_fn(|index| {
+            recipe.ingredients[index]
+                .as_ref()
+                .map(|ingredient| IngredientObservation {
+                    name_sha256: Sha256::digest(ingredient.name.as_bytes()).into(),
+                    aux: ingredient.aux,
+                    count: ingredient.count,
+                })
         }),
         output_id: recipe.output.id,
         output_name_sha256: output.map(|entry| Sha256::digest(entry.identifier.as_bytes()).into()),
