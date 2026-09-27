@@ -26,7 +26,7 @@ use crate::{
         inventory_ledger::PlayerInventorySlot,
     },
 };
-use bevy::{prelude::*, time::Real};
+use bevy::{ecs::system::RunSystemOnce, prelude::*, time::Real};
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent, ItemRegistryEvent,
     NetworkItemStack, SlotIdentity, WorldBootstrap, WorldEvent,
@@ -304,12 +304,31 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
     ingress(&mut app, 1, clear_recipes());
     app.update();
     // Keep predecessor2 absent while ordinary drain remains destructive each frame.
-    for sequence in 3..=66 {
+    let mut routed_slots = 0;
+    for sequence in 3..=65 {
         ingress(&mut app, sequence, empty_slot(13, 28));
+        routed_slots += 1;
         app.update();
     }
-    // The existing world cap is64. Release its predecessor before admitting the
-    // next event, but before the craft observer drains its retained64 records.
+    assert_eq!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .inventory_committed_through(),
+        Some(1)
+    );
+    // Retain63 successors so the missing predecessor still has admission space.
+    assert!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .remaining_admission_capacity()
+            > 0
+    );
     app.world_mut()
         .resource_mut::<ClientWorld>()
         .stream
@@ -317,6 +336,49 @@ fn slot_only_projection_overflow_does_not_disconnect_or_discard_healthy_bootstra
         .unwrap()
         .commit(2)
         .unwrap();
+    assert_eq!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .remaining_admission_capacity(),
+        0
+    );
+    // Run the real world poll without the craft drain. This is a composed-system
+    // retention witness, not an assertion about whole-frame scheduler interleaving.
+    app.world_mut()
+        .run_system_once(reconcile_world_stream_before_physics)
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .remaining_admission_capacity()
+            > 0
+    );
+    assert_eq!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .inventory_committed_through(),
+        Some(65)
+    );
+    ingress(&mut app, 66, empty_slot(13, 28));
+    routed_slots += 1;
+    // Exactly64 slot observations were routed; no craft drain has consumed any
+    // since predecessor2 was released. The next observation exceeds its cap.
+    assert_eq!(routed_slots, 64);
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .crafting_preview()
+            .is_none()
+    );
     ingress(&mut app, 67, empty_slot(13, 28));
     app.update();
     ingress(&mut app, 68, empty_slot(12, 31));
@@ -557,10 +619,30 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
         );
         app.update();
         if overflow {
-            for sequence in 4..=67 {
+            let mut routed_slots = 0;
+            for sequence in 4..=66 {
                 ingress(&mut app, sequence, empty_slot(13, 28));
+                routed_slots += 1;
                 app.update();
             }
+            assert_eq!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .stream
+                    .as_ref()
+                    .unwrap()
+                    .inventory_committed_through(),
+                Some(2)
+            );
+            assert!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .stream
+                    .as_ref()
+                    .unwrap()
+                    .remaining_admission_capacity()
+                    > 0
+            );
             app.world_mut()
                 .resource_mut::<ClientWorld>()
                 .stream
@@ -568,6 +650,45 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
                 .unwrap()
                 .commit(3)
                 .unwrap();
+            assert_eq!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .stream
+                    .as_ref()
+                    .unwrap()
+                    .remaining_admission_capacity(),
+                0
+            );
+            app.world_mut()
+                .run_system_once(reconcile_world_stream_before_physics)
+                .unwrap();
+            assert!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .stream
+                    .as_ref()
+                    .unwrap()
+                    .remaining_admission_capacity()
+                    > 0
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<ClientWorld>()
+                    .stream
+                    .as_ref()
+                    .unwrap()
+                    .inventory_committed_through(),
+                Some(66)
+            );
+            ingress(&mut app, 67, empty_slot(13, 28));
+            routed_slots += 1;
+            assert_eq!(routed_slots, 64);
+            assert!(
+                app.world()
+                    .resource::<UiRuntime>()
+                    .crafting_preview()
+                    .is_none()
+            );
             ingress(&mut app, 68, empty_slot(13, 28));
             app.update();
             assert!(
