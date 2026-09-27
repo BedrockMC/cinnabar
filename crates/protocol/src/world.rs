@@ -136,6 +136,30 @@ impl WorldBootstrap {
     }
 }
 
+/// Which side StartGame's movement settings make authoritative for block destruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockBreakingAuthority {
+    /// Progress travels as per-tick block actions; completion is only predicted.
+    Server,
+    /// Completion travels as an item-use destroy transaction.
+    Client,
+}
+
+impl BlockBreakingAuthority {
+    #[must_use]
+    pub fn from_game_data(game_data: &GameData) -> Self {
+        if game_data
+            .start_game
+            .movement_settings
+            .server_authoritative_block_breaking
+        {
+            Self::Server
+        } else {
+            Self::Client
+        }
+    }
+}
+
 /// Initial clock and weather state retained from StartGame.
 ///
 /// This is separate from [`WorldBootstrap`] so existing world-stream

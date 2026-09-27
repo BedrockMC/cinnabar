@@ -130,6 +130,20 @@ impl UiRuntime {
         }
     }
 
+    pub(crate) const fn publish_block_breaking_authority(
+        &mut self,
+        authority: protocol::BlockBreakingAuthority,
+    ) {
+        self.block_breaking_authority = Some(authority);
+    }
+
+    /// `None` until this session's StartGame has been applied.
+    pub(crate) const fn block_breaking_authority(
+        &self,
+    ) -> Option<protocol::BlockBreakingAuthority> {
+        self.block_breaking_authority
+    }
+
     pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {
         self.player_game_mode
     }
