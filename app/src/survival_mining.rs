@@ -10,8 +10,8 @@ use bevy::{
     window::PrimaryWindow,
 };
 use protocol::{
-    BlockAction, BlockActionKind, BlockActions, BlockBreakingAuthority, BlockItemInteraction,
-    BlockUseRequest, PlayerAuthInputInteractions, PlayerGameMode,
+    BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, BlockUseRequest,
+    PlayerAuthInputInteractions, PlayerGameMode,
 };
 use semantic_input::Action;
 use sim::{BlockDestroyInfo, DestroyConditions, HeldTool, PaletteWorld};
@@ -32,6 +32,25 @@ use crate::{
 pub(crate) const DESTROY_DELAY_TICKS: u8 = 5;
 /// How long a predicted break suppresses restarting on the unchanged block.
 const PREDICTED_BREAK_HOLD_TICKS: u8 = 20;
+
+/// Which side StartGame's negotiation makes authoritative for block destruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BlockBreakingAuthority {
+    /// Progress travels as per-tick block actions; completion is only predicted.
+    Server,
+    /// Completion travels as an item-use destroy transaction.
+    Client,
+}
+
+impl BlockBreakingAuthority {
+    const fn from_negotiation(server_authoritative: bool) -> Self {
+        if server_authoritative {
+            Self::Server
+        } else {
+            Self::Client
+        }
+    }
+}
 
 /// The block under the crosshair and everything its destroy rate depends on.
 #[derive(Debug, Clone, PartialEq)]
@@ -379,13 +398,16 @@ pub(crate) fn produce_survival_mining(
         if let Some(local_runtime_id) = local_runtime_id
             && swings.try_swing(tick, duration)
         {
-            let _ = network.send_interaction_packet(protocol::swing_arm_packet(
+            let _ = network.send_inventory_packet(protocol::swing_arm_packet(
                 local_runtime_id,
                 protocol::SwingSource::Mine,
             ));
         }
     };
-    let authority = context.ui.block_breaking_authority();
+    let authority = context
+        .ui
+        .server_authoritative_block_breaking()
+        .map(BlockBreakingAuthority::from_negotiation);
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     let (Some(authority), Some(input), true) = (authority, context.input.snapshot(), focused)

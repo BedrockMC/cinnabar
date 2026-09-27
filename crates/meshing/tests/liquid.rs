@@ -11,7 +11,7 @@ use meshing::{
     BlockClassifier, Face, LiquidLevel, MeshLightSample, Neighbourhood, PackedLiquidQuad,
     mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood, mesh_sub_chunk_in_neighbourhood_with_lighting,
 };
-use world::{MeshNeighbourhood, SubChunk};
+use world::{MeshNeighbourhood, RawBlockIds, SubChunk};
 
 const AIR: u32 = 0;
 const WATER_SOURCE: u32 = 1;
@@ -890,7 +890,7 @@ fn sub_chunk(storages: Vec<Vec<u8>>) -> SubChunk {
     for storage in storages {
         out.extend(storage);
     }
-    SubChunk::decode(&out).unwrap()
+    SubChunk::decode(&out, &RawBlockIds { air: AIR })
 }
 fn varint(mut value: i32) -> Vec<u8> {
     let mut out = Vec::new();

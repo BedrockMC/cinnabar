@@ -297,7 +297,7 @@ fn absent_named_geometry_collection_is_an_attributed_static_fallback() {
 }
 
 #[test]
-fn required_missing_animation_rejects_only_that_rig_and_optional_expression_falls_back() {
+fn undefined_animation_reference_keeps_the_rig_as_a_static_fallback() {
     let pack = animation_pack(false);
     write(
         pack.path(),
@@ -305,11 +305,7 @@ fn required_missing_animation_rejects_only_that_rig_and_optional_expression_fall
         br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:rejected","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"required":"animation.missing"},"render_controllers":[{"controller.render.test":"query.unlisted"}],"scripts":{"animate":["required"]}}}}"#,
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-    assert_eq!(
-        compiled.rig_bindings.len(),
-        1,
-        "the valid rig remains resolved"
-    );
+    assert_eq!(compiled.rig_bindings.len(), 2);
 }
 
 #[test]

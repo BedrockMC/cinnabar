@@ -12,7 +12,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures},
 };
-use world::SubChunk;
+use world::{RawBlockIds, SubChunk};
 
 use super::*;
 
@@ -99,7 +99,7 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
 }
 
 fn solid_test_mesh() -> ChunkMesh {
-    let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2]).expect("uniform test sub-chunk");
+    let sub_chunk = SubChunk::decode(&[9, 1, 0, 1, 2], &RawBlockIds { air: 0 });
     meshing::mesh_sub_chunk(
         &meshing::BlockClassifier::new(0),
         opaque_runtime_assets(),

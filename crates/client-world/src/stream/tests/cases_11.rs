@@ -212,7 +212,7 @@ fn live_mutations_use_confirmed_player_grid_interest() {
                 dimension: key.dimension,
                 position: [key.x * 16, -64, key.z * 16],
                 layer: 0,
-                network_id: 1,
+                network_id: 0,
             }]),
         )
         .expect("admit player-grid block update");
@@ -352,15 +352,16 @@ fn inline_column_in_another_dimension_remains_inactive() {
 }
 
 #[test]
-fn malformed_inline_wire_outside_both_scopes_is_still_fatal() {
+fn malformed_inline_wire_outside_both_scopes_is_only_inactive() {
     let mut stream = stream_after_publisher_shrink();
+    let key = ChunkKey::new(0, -20, -32);
     stream
         .submit(
             4,
             WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: 0,
-                x: -20,
-                z: -32,
+                dimension: key.dimension,
+                x: key.x,
+                z: key.z,
                 mode: LevelChunkMode::Inline { count: 1 },
                 payload: vec![0xff],
             }),
@@ -370,10 +371,12 @@ fn malformed_inline_wire_outside_both_scopes_is_still_fatal() {
     complete_pending_decode_jobs(&mut stream);
     stream.poll(PLAYER_POSITION, 0);
 
-    assert!(matches!(
-        stream.take_fatal_error(),
-        Some(WorldStreamFatalError::ChunkDecode { sequence: 4, .. })
-    ));
+    assert!(!stream.loaded_columns.contains(&key));
+    assert_eq!(
+        stream.stats().normalization_reasons.inactive_inline_chunks,
+        1
+    );
+    assert!(stream.take_fatal_error().is_none());
 }
 
 #[test]

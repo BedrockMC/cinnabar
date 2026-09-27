@@ -9,7 +9,9 @@ fn collision_revision_commit_errors_are_mutation_failures_not_decode_failures() 
     ));
     assert!(
         !crate::stream::sequencing::chunk_commit_is_mutation_failure(
-            &world::DecodeError::UnsupportedVersion(42)
+            &world::DecodeError::BlockEntity(world::BlockEntityError::TrailingBytes {
+                remaining: 1
+            })
         )
     );
 }
@@ -87,12 +89,12 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     apply_sub_chunk_result(
         &mut stream,
         keys[0],
-        super::PreparedSubChunkResult::Decoded(Ok(decoded)),
+        super::PreparedSubChunkResult::Decoded(decoded),
     );
     apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
     apply_sub_chunk_result(
@@ -101,21 +103,15 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::Unknown(0xff)),
     );
 
-    stream
-        .requested_sub_chunks
-        .get_mut(&keys[3].chunk())
-        .unwrap()
-        .get_mut(&keys[3].y)
-        .unwrap()
-        .retry_attempts = super::MAX_SUB_CHUNK_RETRIES;
-    let bounded_policy_rejection = world::DecodeError::TooManyStorages {
-        count: world::MAX_STORAGE_COUNT + 1,
-        max: world::MAX_STORAGE_COUNT,
-    };
+    // Malformed content decodes leniently and counts as a success.
     apply_sub_chunk_result(
         &mut stream,
         keys[3],
-        super::PreparedSubChunkResult::Decoded(Err(bounded_policy_rejection)),
+        super::PreparedSubChunkResult::Decoded(world::DecodedSubChunk::decode(
+            keys[3],
+            &[0xff],
+            &RAW_IDS,
+        )),
     );
 
     stream
@@ -164,10 +160,10 @@ fn publication_snapshot_separates_every_stage_and_subchunk_outcome() {
     assert_eq!(snapshot.required_columns, 5);
     assert_eq!(snapshot.loaded_required_columns, 0);
     assert!(!snapshot.required_cohort_stable);
-    assert_eq!(snapshot.outcomes.success, 1);
+    assert_eq!(snapshot.outcomes.success, 2);
     assert_eq!(snapshot.outcomes.all_air, 1);
     assert_eq!(snapshot.outcomes.unavailable, 1);
-    assert_eq!(snapshot.outcomes.malformed, 1);
+    assert_eq!(snapshot.outcomes.malformed, 0);
     assert_eq!(snapshot.outcomes.stale, 1);
     assert_eq!(snapshot.outcomes.timed_out, 1);
     assert!(snapshot.stages.requests_sent <= snapshot.stages.requests_constructed);
@@ -382,13 +378,13 @@ fn request_mode_non_air_completion_marks_collision_residency() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
 
     apply_sub_chunk_result(
         &mut stream,
         key,
-        super::PreparedSubChunkResult::Decoded(Ok(decoded)),
+        super::PreparedSubChunkResult::Decoded(decoded),
     );
 
     assert!(stream.loaded_columns.contains(&key.chunk()));
@@ -848,14 +844,17 @@ fn timeout_progress_stats_are_exact_and_deterministic() {
 }
 
 #[test]
-fn unavailable_value_is_preserved_and_y_out_of_bounds_completes_split_batch_as_air() {
-    let prepared = super::prepare_sub_chunks(SubChunkBatchEvent {
-        dimension: 0,
-        entries: vec![SubChunkEntryEvent {
-            position: [0, -4, 0],
-            result: SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
-        }],
-    });
+fn unavailable_value_is_preserved_and_y_out_of_bounds_leaves_empty_slot_as_air() {
+    let prepared = super::prepare_sub_chunks(
+        SubChunkBatchEvent {
+            dimension: 0,
+            entries: vec![SubChunkEntryEvent {
+                position: [0, -4, 0],
+                result: SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound),
+            }],
+        },
+        &test_decode_ids(),
+    );
     assert!(matches!(
         prepared[0].result,
         super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
@@ -871,28 +870,45 @@ fn unavailable_value_is_preserved_and_y_out_of_bounds_completes_split_batch_as_a
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 0, 0);
+    let (empty, stored) = (
+        SubChunkKey::from_chunk(chunk, -3),
+        SubChunkKey::from_chunk(chunk, -2),
+    );
     stream.requested_sub_chunks.insert(
         chunk,
-        BTreeMap::from([(-4, Default::default()), (-3, Default::default())]),
+        BTreeMap::from([
+            (-4, Default::default()),
+            (-3, Default::default()),
+            (-2, Default::default()),
+        ]),
     );
+    stream
+        .store
+        .commit_sub_chunk(stored, uniform_sub_chunk(1))
+        .unwrap();
+    let before = stream.store.sub_chunk(stored).unwrap();
     apply_sub_chunk_result(
         &mut stream,
         SubChunkKey::from_chunk(chunk, -4),
         super::PreparedSubChunkResult::AllAir,
     );
-    apply_sub_chunk_result(
-        &mut stream,
-        SubChunkKey::from_chunk(chunk, -3),
-        super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds),
-    );
+    for key in [empty, stored] {
+        apply_sub_chunk_result(
+            &mut stream,
+            key,
+            super::PreparedSubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds),
+        );
+    }
 
     assert!(!stream.requested_sub_chunks.contains_key(&chunk));
     assert!(stream.loaded_columns.contains(&chunk));
-    assert!(
-        stream
-            .known_air
-            .contains(&SubChunkKey::from_chunk(chunk, -3))
-    );
+    assert!(stream.store.sub_chunk(empty).is_none());
+    assert!(stream.known_air.contains(&empty));
+    assert!(Arc::ptr_eq(
+        &before,
+        &stream.store.sub_chunk(stored).unwrap()
+    ));
+    assert!(!stream.known_air.contains(&stored));
 }
 
 #[test]
@@ -923,23 +939,19 @@ fn transient_unavailable_results_retry_boundedly_then_complete_without_wedging()
 }
 
 #[test]
-fn bounded_decode_rejections_retry_and_invalid_dimension_is_terminal_normalization() {
+fn malformed_payload_completes_without_retry_and_invalid_dimension_is_terminal_normalization() {
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
-    for attempt in 0..=super::MAX_SUB_CHUNK_RETRIES {
-        apply_sub_chunk_result(
-            &mut stream,
+    apply_sub_chunk_result(
+        &mut stream,
+        key,
+        super::PreparedSubChunkResult::Decoded(world::DecodedSubChunk::decode(
             key,
-            super::PreparedSubChunkResult::Decoded(Err(world::DecodeError::TooManyStorages {
-                count: world::MAX_STORAGE_COUNT + 1,
-                max: world::MAX_STORAGE_COUNT,
-            })),
-        );
-        if attempt < super::MAX_SUB_CHUNK_RETRIES {
-            assert_eq!(stream.take_requests().len(), 1);
-        }
-    }
-    assert!(!stream.loaded_columns.contains(&key.chunk()));
-    assert!(!stream.store.is_chunk_loaded(key.chunk()));
+            &[8, 3, 0xff],
+            &RAW_IDS,
+        )),
+    );
+    assert!(stream.take_requests().is_empty());
+    assert!(stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.requested_sub_chunks.contains_key(&key.chunk()));
 
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
@@ -991,13 +1003,13 @@ fn decoded_and_all_air_sections_complete_an_authoritative_request_column() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
 
     apply_sub_chunk_result(
         &mut stream,
         keys[0],
-        super::PreparedSubChunkResult::Decoded(Ok(decoded)),
+        super::PreparedSubChunkResult::Decoded(decoded),
     );
     apply_sub_chunk_result(&mut stream, keys[1], super::PreparedSubChunkResult::AllAir);
 
@@ -1025,8 +1037,8 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
             env!("CARGO_MANIFEST_DIR"),
             "/../world/fixtures/uniform_non_air.bin"
         )),
-    )
-    .unwrap();
+        &RAW_IDS,
+    );
     stream
         .store
         .commit_level_chunk(key.chunk(), decoded)

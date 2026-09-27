@@ -244,16 +244,3 @@ fn fallback_and_default_game_type_resolve_against_the_world_default() {
     assert!(!runtime.survival_stats_visible());
     assert_eq!(runtime.gameplay_hud().diagnostics().odd_hud_packets, 1);
 }
-
-#[test]
-fn block_breaking_authority_is_session_scoped() {
-    let mut runtime = UiRuntime::new(1);
-    assert_eq!(runtime.block_breaking_authority(), None);
-    runtime.publish_block_breaking_authority(protocol::BlockBreakingAuthority::Server);
-    assert_eq!(
-        runtime.block_breaking_authority(),
-        Some(protocol::BlockBreakingAuthority::Server)
-    );
-    runtime.begin_session(2);
-    assert_eq!(runtime.block_breaking_authority(), None);
-}

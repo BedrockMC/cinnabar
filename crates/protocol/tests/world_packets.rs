@@ -1,11 +1,11 @@
 use bytes::{Buf, Bytes, BytesMut};
 use protocol::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockBreakingAuthority, DaylightCycleUpdateEvent,
-    DimensionRange, GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS,
-    MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, SEQUENTIAL_AIR_NETWORK_ID,
-    SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
-    request_sub_chunk_column, vanilla_dimension_range,
+    BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
+    GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
+    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
+    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
+    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_44::{
@@ -266,27 +266,6 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
             rain_level: 0.25,
             lightning_level: 0.75,
         }
-    );
-}
-
-#[test]
-fn start_game_movement_settings_select_block_breaking_authority() {
-    let mut game_data = game_data();
-    game_data
-        .start_game
-        .movement_settings
-        .server_authoritative_block_breaking = true;
-    assert_eq!(
-        BlockBreakingAuthority::from_game_data(&game_data),
-        BlockBreakingAuthority::Server
-    );
-    game_data
-        .start_game
-        .movement_settings
-        .server_authoritative_block_breaking = false;
-    assert_eq!(
-        BlockBreakingAuthority::from_game_data(&game_data),
-        BlockBreakingAuthority::Client
     );
 }
 
@@ -721,8 +700,7 @@ fn rejects_malformed_or_cached_level_chunks() {
     );
 
     // A world taller than vanilla overworld is accepted: custom servers send
-    // standard dimension ids with taller columns. Only the absolute protocol
-    // bound is enforced.
+    // standard dimension ids with taller columns.
     let taller_than_overworld = LevelChunkPacket {
         dimension_id: DimensionType { value: 0 },
         subchunks_count: 25,
@@ -737,18 +715,22 @@ fn rejects_malformed_or_cached_level_chunks() {
     };
     assert_eq!(event.mode, LevelChunkMode::Inline { count: 25 });
 
-    let over_protocol_bound = LevelChunkPacket {
+    let over_request_bound = LevelChunkPacket {
         dimension_id: DimensionType { value: 0 },
         subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as u32,
         ..Default::default()
     };
+    let WorldEvent::LevelChunk(event) = into_world_event(over_request_bound.into(), 0)
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("expected LevelChunk event")
+    };
     assert_eq!(
-        into_world_event(over_protocol_bound.into(), 0),
-        Err(WorldPacketError::InlineSubChunkCountExceedsDimension {
-            dimension: 0,
-            count: MAX_SUB_CHUNK_REQUESTS + 1,
-            max: MAX_SUB_CHUNK_REQUESTS,
-        })
+        event.mode,
+        LevelChunkMode::Inline {
+            count: MAX_SUB_CHUNK_REQUESTS + 1
+        }
     );
 }
 

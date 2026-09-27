@@ -130,7 +130,7 @@ fn layered_uniform_sub_chunk(runtime_ids: &[u32]) -> SubChunk {
         bytes.push(1);
         bytes.extend(super::zig_zag_i32(runtime_id as i32));
     }
-    SubChunk::decode(&bytes).expect("decode layered uniform test subchunk")
+    SubChunk::decode(&bytes, &RAW_IDS)
 }
 
 #[test]

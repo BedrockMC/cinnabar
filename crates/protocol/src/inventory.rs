@@ -30,7 +30,11 @@ pub use address::{
 pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
+pub use request::mining::{MineBlockRequest, MineBlockRequestError};
 mod registry_snapshot;
+pub use recipes::{
+    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
+};
 pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{

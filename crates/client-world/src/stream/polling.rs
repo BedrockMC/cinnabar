@@ -6,7 +6,7 @@ impl WorldStream {
     /// A popped asynchronous block update is not committed until its decode applies.
     #[must_use]
     pub fn inventory_committed_through(&self) -> Option<u64> {
-        if self.fatal_decode_failure || self.fatal_light_failure {
+        if self.fatal_light_failure {
             return None;
         }
         let popped = self.ordered.next_sequence().saturating_sub(1);

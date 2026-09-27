@@ -221,7 +221,7 @@ pub(crate) fn produce_block_use(
     {
         let _ = context
             .network
-            .send_interaction_packet(protocol::swing_arm_packet(
+            .send_inventory_packet(protocol::swing_arm_packet(
                 stream.local_player_runtime_id(),
                 SwingSource::Build,
             ));
@@ -236,7 +236,7 @@ pub(crate) fn produce_block_use(
         block_runtime_id: u64::from(observed.target.runtime_id),
     };
     if let Ok(packet) = protocol::click_block_transaction_packet(request, trigger, predicted) {
-        let _ = context.network.send_interaction_packet(packet);
+        let _ = context.network.send_inventory_packet(packet);
     }
 }
 

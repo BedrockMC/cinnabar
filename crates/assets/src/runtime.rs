@@ -193,6 +193,26 @@ impl RuntimeAssets {
         )
     }
 
+    /// True for the programmatic diagnostic runtime, which carries no registries.
+    #[must_use]
+    pub fn is_diagnostic(&self) -> bool {
+        self.provenance == BlobProvenance::ZEROED
+    }
+
+    /// Returns whether the registry knows a network id, without counting misses.
+    /// The diagnostic runtime has no registry and knows every id.
+    #[must_use]
+    pub fn is_known(&self, mode: NetworkIdMode, value: u32) -> bool {
+        if self.is_diagnostic() {
+            return true;
+        }
+        let index = match mode {
+            NetworkIdMode::Sequential => Some(value),
+            NetworkIdMode::Hashed => self.sequential_id_for_hash(value),
+        };
+        index.is_some_and(|index| (index as usize) < self.visuals.len())
+    }
+
     /// Returns the exact sequential identity paired with a validated network
     /// hash. Coverage tooling uses this rather than visual equality because
     /// distinct states may intentionally share byte-identical visuals.

@@ -5,7 +5,9 @@ use meshing::{
     BIOME_NEIGHBOUR_SLOT_COUNT, MAX_PACKED_BIOME_RECORD_WORDS, PackedBiomeRecord,
     biome_neighbour_index,
 };
-use world::DecodedBiomeColumn;
+use world::{DecodedBiomeColumn, RawBiomeIds};
+
+const BIOMES: RawBiomeIds = RawBiomeIds { default_biome: 0 };
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -27,8 +29,7 @@ fn zig_zag_i32(value: i32) -> Vec<u8> {
 fn uniform_record_remaps_only_the_palette() {
     let mut payload = vec![1];
     payload.extend(zig_zag_i32(42));
-    let storage = DecodedBiomeColumn::decode(-4, 1, &payload)
-        .unwrap()
+    let storage = DecodedBiomeColumn::decode(-4, 1, &payload, &BIOMES)
         .storage(-4)
         .unwrap();
 
@@ -52,8 +53,7 @@ fn packed_record_preserves_bedrock_words_and_xzy_lookup() {
     payload.extend(zig_zag_i32(2));
     payload.extend(zig_zag_i32(7));
     payload.extend(zig_zag_i32(9));
-    let storage = DecodedBiomeColumn::decode(0, 1, &payload)
-        .unwrap()
+    let storage = DecodedBiomeColumn::decode(0, 1, &payload, &BIOMES)
         .storage(0)
         .unwrap();
 
@@ -79,8 +79,7 @@ fn fallback_record_is_a_valid_uniform_palette() {
 fn uniform_storage(id: i32) -> Arc<world::BiomeStorage> {
     let mut payload = vec![1];
     payload.extend(zig_zag_i32(id));
-    DecodedBiomeColumn::decode(0, 1, &payload)
-        .unwrap()
+    DecodedBiomeColumn::decode(0, 1, &payload, &BIOMES)
         .storage(0)
         .unwrap()
 }
@@ -151,8 +150,7 @@ fn missing_neighbour_clamps_to_the_centres_nearest_edge() {
     payload.extend(zig_zag_i32(2));
     payload.extend(zig_zag_i32(7));
     payload.extend(zig_zag_i32(9));
-    let center = DecodedBiomeColumn::decode(0, 1, &payload)
-        .unwrap()
+    let center = DecodedBiomeColumn::decode(0, 1, &payload, &BIOMES)
         .storage(0)
         .unwrap();
     let mut halo = std::array::from_fn(|_| None);

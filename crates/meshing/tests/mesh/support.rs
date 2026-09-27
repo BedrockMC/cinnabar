@@ -61,7 +61,7 @@ fn sub_chunk(storages: Vec<Vec<u8>>) -> SubChunk {
     for storage in storages {
         encoded.extend(storage);
     }
-    SubChunk::decode(&encoded).expect("decode test sub-chunk")
+    SubChunk::decode(&encoded, &RawBlockIds { air: AIR })
 }
 
 fn blocks(runtime_id: u32, coordinates: &[[u8; 3]]) -> SubChunk {
