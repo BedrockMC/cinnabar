@@ -16,7 +16,16 @@ fn ops(source: &str) -> Vec<MolangOp> {
 
 #[test]
 fn precedence_matches_the_vanilla_table() {
-    // `/` groups before `*`, comparisons share one level, and `??` is looser than `?:`.
+    // `/` binds tighter than `*`, relational tighter than equality, `&&` tighter than `||`.
+    let divided_first = 10.0_f32 * (1.0_f32 / 3.0);
+    assert_ne!(
+        divided_first,
+        10.0_f32 / 3.0,
+        "the fixture discriminates grouping"
+    );
+    assert_eq!(constant("10 * 1 / 3"), divided_first);
+    assert_eq!(constant("1 || 0 && 0"), 1.0);
+    assert_eq!(constant("3 == 3 > 0"), 0.0);
     assert_eq!(constant("2 * 6 / 3"), 4.0);
     assert_eq!(constant("1 + 2 * 3"), 7.0);
     assert_eq!(constant("1 < 2 == 1"), 1.0);
@@ -144,4 +153,24 @@ fn constants_beyond_the_carrier_bound_leave_only_their_expression_uncompiled() {
     assert!(compiler.compile("1e30 + q.anim_time").is_err());
     compiler.compile("q.anim_time").unwrap();
     compiler.finish().unwrap();
+}
+
+#[test]
+fn malformed_script_shapes_drop_the_whole_script_for_entities_and_controllers_alike() {
+    let mut compiler = MolangCompiler::default();
+    let value = serde_json::json!(["v.x = 1;", 3]);
+    assert_eq!(
+        compiler.compile_script_value(Some(&value)).unwrap(),
+        (None, 2)
+    );
+    assert_eq!(
+        compiler
+            .compile_script_value(Some(&serde_json::json!({"v.x": 1})))
+            .unwrap(),
+        (None, 1)
+    );
+    let (script, dropped) = compiler
+        .compile_script_value(Some(&serde_json::json!("v.x = 1;")))
+        .unwrap();
+    assert!(script.is_some() && dropped == 0);
 }

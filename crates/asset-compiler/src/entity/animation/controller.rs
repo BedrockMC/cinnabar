@@ -219,20 +219,7 @@ fn compile_one_controller(
             }
         }
         let mut script = |field: &str| -> Result<Option<u32>, AssetError> {
-            let statements = match state.get(field) {
-                None => return Ok(None),
-                Some(Value::String(statement)) => vec![statement.as_str()],
-                Some(Value::Array(statements)) => statements
-                    .iter()
-                    .map(|statement| {
-                        statement
-                            .as_str()
-                            .ok_or_else(|| invalid("controller script entries must be strings"))
-                    })
-                    .collect::<Result<_, _>>()?,
-                Some(_) => return Err(invalid("controller script has an invalid shape")),
-            };
-            let (script, skipped) = molang.compile_script(&statements)?;
+            let (script, skipped) = molang.compile_script_value(state.get(field))?;
             dropped += skipped;
             Ok(script)
         };

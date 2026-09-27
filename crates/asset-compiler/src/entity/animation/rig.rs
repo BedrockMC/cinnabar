@@ -363,15 +363,8 @@ impl RigScripts {
         let scripts = description.get("scripts").and_then(Value::as_object);
         let mut dropped = 0;
         let mut script = |field: &str| -> Result<Option<u32>, AssetError> {
-            let Some(entries) = scripts.and_then(|scripts| scripts.get(field)) else {
-                return Ok(None);
-            };
-            let statements = match entries {
-                Value::String(statement) => vec![statement.as_str()],
-                Value::Array(entries) => entries.iter().filter_map(Value::as_str).collect(),
-                _ => return Err(invalid("entity script has an invalid shape")),
-            };
-            let (script, skipped) = molang.compile_script(&statements)?;
+            let (script, skipped) =
+                molang.compile_script_value(scripts.and_then(|scripts| scripts.get(field)))?;
             dropped += skipped;
             Ok(script)
         };

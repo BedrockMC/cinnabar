@@ -25,6 +25,7 @@ fn bone(translation: [f32; 3]) -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [translation[0], translation[1], translation[2], 1.0],
+        axis_scale: render::UNIT_AXIS_SCALE,
     }
 }
 
@@ -67,7 +68,8 @@ fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmis
 
 #[test]
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
-    assert_eq!(size_of::<RenderBoneTransform>(), 32);
+    // Bone poses reach the GPU as 48-byte affine matrices, not in this CPU form.
+    assert_eq!(size_of::<RenderBoneTransform>(), 48);
     assert_eq!(size_of::<ActorGpuInstance>(), 72);
     assert_eq!(MAX_RENDER_BONES_PER_ACTOR, 96);
     assert_eq!(
@@ -260,4 +262,23 @@ fn exact_spawn_identity_does_not_require_a_movement_packet() {
 
     assert_eq!(frame.instances.len(), 1);
     assert_eq!(frame.rejects.invalid_identity, 0);
+}
+
+#[test]
+fn per_axis_bone_scale_scales_matrix_columns_and_zero_scale_is_drawable() {
+    let mut squashed = bone([0.0; 3]);
+    squashed.axis_scale = [1.0, 0.5, 2.0, 1.0];
+    squashed.translation_scale[3] = 2.0;
+    assert!(squashed.is_finite());
+    let mut hidden = bone([0.0; 3]);
+    hidden.translation_scale[3] = 0.0;
+    assert!(hidden.is_finite(), "vanilla hides bones with zero scale");
+    let converted = RenderBoneTransform::from_model_space_scaled(
+        [0.0, 0.0, 0.0, 1.0],
+        [16.0, 0.0, 0.0, 1.0],
+        [1.0, 0.5, 1.0],
+    )
+    .unwrap();
+    assert_eq!(converted.axis_scale, [1.0, 0.5, 1.0, 1.0]);
+    assert_eq!(converted.translation_scale[0], 1.0);
 }

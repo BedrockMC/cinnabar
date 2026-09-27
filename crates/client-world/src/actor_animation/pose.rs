@@ -207,11 +207,6 @@ fn compose_bone(
     visiting[index] = true;
     let bone = bones.get(index)?;
     let delta = local.get(index).copied().unwrap_or_default();
-    if (delta.scale[0] - delta.scale[1]).abs() > f32::EPSILON
-        || (delta.scale[0] - delta.scale[2]).abs() > f32::EPSILON
-    {
-        return None;
-    }
     // Pivots are already in the X-mirrored rig frame; authored offsets and angles are not.
     let translation = std::array::from_fn(|axis| {
         let parent_pivot = bone
@@ -228,31 +223,27 @@ fn compose_bone(
     let [x, y, z] = std::array::from_fn(|axis| bone.rotation[axis] + delta.rotation[axis]);
     // Authored X and Y angles turn against the right-hand rule in the mirrored frame.
     let rotation = quat_from_euler([-x, -y, z]);
-    let scale = delta.scale[0];
     let transform = if let Some(parent_index) = bone.parent {
         let parent = compose_bone(parent_index, bones, local, transforms, visiting)?;
-        let parent_scale = parent.translation_scale[3];
-        let scaled = translation.map(|value| value * parent_scale);
+        let parent_scale = total_scale(&parent);
+        let scaled = std::array::from_fn(|axis| translation[axis] * parent_scale[axis]);
         let rotated = rotate_vector(parent.rotation, scaled);
-        BoneTransform {
-            rotation: quat_multiply(parent.rotation, rotation),
-            translation_scale: [
-                parent.translation_scale[0] + rotated[0],
-                parent.translation_scale[1] + rotated[1],
-                parent.translation_scale[2] + rotated[2],
-                parent_scale * scale,
-            ],
-        }
+        // A non-uniform parent scale under a rotated child would shear; the child keeps the
+        // componentwise product, exact whenever either scale is uniform or the child is unturned.
+        let scale = std::array::from_fn(|axis| parent_scale[axis] * delta.scale[axis]);
+        with_scale(
+            quat_multiply(parent.rotation, rotation),
+            std::array::from_fn(|axis| parent.translation_scale[axis] + rotated[axis]),
+            scale,
+        )
     } else {
-        BoneTransform {
-            rotation,
-            translation_scale: [translation[0], translation[1], translation[2], scale],
-        }
+        with_scale(rotation, translation, delta.scale)
     };
     if transform
         .rotation
         .iter()
         .chain(transform.translation_scale.iter())
+        .chain(transform.axis_scale.iter())
         .any(|value| !value.is_finite())
     {
         return None;
@@ -260,6 +251,27 @@ fn compose_bone(
     visiting[index] = false;
     transforms[index] = Some(transform);
     Some(transform)
+}
+
+fn total_scale(transform: &BoneTransform) -> [f32; 3] {
+    transform
+        .axis_scale
+        .map(|axis| axis * transform.translation_scale[3])
+}
+
+/// Stores a uniform scale in `translation_scale[3]` and anything else per axis.
+fn with_scale(rotation: [f32; 4], translation: [f32; 3], scale: [f32; 3]) -> BoneTransform {
+    let uniform = scale[0] == scale[1] && scale[1] == scale[2];
+    BoneTransform {
+        rotation,
+        translation_scale: [
+            translation[0],
+            translation[1],
+            translation[2],
+            if uniform { scale[0] } else { 1.0 },
+        ],
+        axis_scale: if uniform { [1.0; 3] } else { scale },
+    }
 }
 
 pub(super) fn quat_from_euler(rotation: [f32; 3]) -> [f32; 4] {

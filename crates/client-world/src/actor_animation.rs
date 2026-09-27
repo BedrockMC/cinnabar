@@ -37,6 +37,8 @@ pub struct EntityRigId(pub u32);
 pub struct BoneTransform {
     pub rotation: [f32; 4],
     pub translation_scale: [f32; 4],
+    /// Non-uniform scale in the bone's own frame; `[1; 3]` when the scale is uniform.
+    pub axis_scale: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,6 +77,8 @@ pub(crate) struct ActorAnimationStore {
     layout: Arc<VariableLayout>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
+    /// First actor the world budget skipped last tick, where the next tick starts.
+    first_starved: Option<ActorLifetimeId>,
     completed_tick: u64,
     next_reset_generation: u64,
     next_rest_reset_generation: u64,
@@ -139,9 +143,7 @@ struct ActorTickInput {
 struct EvaluatedState {
     pose: Vec<BoneTransform>,
     controllers: Vec<ControllerState>,
-    history: VecDeque<ActorTickInput>,
     variables: MolangVariables,
-    motion: MotionState,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -210,6 +212,7 @@ impl ActorAnimationStore {
             assets,
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
+            first_starved: None,
             completed_tick: 0,
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
@@ -282,7 +285,17 @@ impl ActorAnimationStore {
             return;
         };
         let mut world_left = MAX_MOLANG_OPS_PER_WORLD_TICK;
-        let lifetimes = self.rigs.keys().copied().collect::<Vec<_>>();
+        // Start where the world budget ran out last tick so no actor starves every tick.
+        let lifetimes = match self.first_starved.take() {
+            Some(start) => self
+                .rigs
+                .range(start..)
+                .chain(self.rigs.range(..start))
+                .map(|(lifetime, _)| *lifetime)
+                .collect::<Vec<_>>(),
+            None => self.rigs.keys().copied().collect(),
+        };
+        let mut starved = None;
         for lifetime in lifetimes {
             let Some(actor) = actors.get(&lifetime.runtime_id) else {
                 continue;
@@ -314,6 +327,8 @@ impl ActorAnimationStore {
             } else {
                 state.rest_completed_tick = 0;
             }
+            let context = context(actor);
+            advance_motion(state, actor, &context);
             if state.fallback == EntityRigFallback::GeometryOnly {
                 state.previous.clone_from(&state.current);
                 if state.reset_pending {
@@ -321,7 +336,6 @@ impl ActorAnimationStore {
                     state.reset_generation = self.next_reset_generation;
                     self.next_reset_generation = self.next_reset_generation.saturating_add(1);
                     state.animation_epoch = self.completed_tick;
-                    state.history.clear();
                 }
                 state.completed_tick = self.completed_tick;
                 continue;
@@ -330,6 +344,7 @@ impl ActorAnimationStore {
                 self.stats.world_budget_exhaustions =
                     self.stats.world_budget_exhaustions.saturating_add(1);
                 self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
+                starved.get_or_insert(lifetime);
                 continue;
             }
             let mut budget = EvalBudget {
@@ -344,7 +359,7 @@ impl ActorAnimationStore {
                 &self.layout,
                 state,
                 actor,
-                &context(actor),
+                &context,
                 self.completed_tick,
                 &mut budget,
             );
@@ -355,9 +370,7 @@ impl ActorAnimationStore {
             match result {
                 Ok(evaluated) => {
                     state.controllers = evaluated.controllers;
-                    state.history = evaluated.history;
                     state.variables = evaluated.variables;
-                    state.motion = evaluated.motion;
                     state.initialized = true;
                     if state.reset_pending {
                         state.previous.clone_from(&evaluated.pose);
@@ -380,12 +393,14 @@ impl ActorAnimationStore {
                     self.stats.world_budget_exhaustions =
                         self.stats.world_budget_exhaustions.saturating_add(1);
                     self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
+                    starved.get_or_insert(lifetime);
                 }
                 Err(EvalError::Invalid) => {
                     self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
                 }
             }
         }
+        self.first_starved = starved;
     }
 
     pub(crate) fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
@@ -706,7 +721,7 @@ use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use motion::{MotionInput, MotionState};
 use pose::{compose_pose, sample_clips};
 pub(crate) use tick::ActorTickContext;
-use tick::evaluate_state;
+use tick::{advance_motion, evaluate_state};
 
 #[cfg(test)]
 mod tests;

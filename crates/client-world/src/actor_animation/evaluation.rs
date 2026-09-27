@@ -1,4 +1,4 @@
-use assets::{MAX_MOLANG_LOOP_DEPTH, MolangSymbolKind, molang_call};
+use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind, molang_call};
 
 use super::*;
 
@@ -52,8 +52,9 @@ pub(super) struct EngineSlots {
     pub(super) damage_nearby_mobs: Option<usize>,
 }
 
-// Client-owned variables seeded on construction; remote third-person actors keep these
-// values because only first-person, HUD, and paper-doll renderers change them.
+// Client-owned variables seeded on construction, observed in a client reconstruction and
+// needing independent measurement; remote third-person actors keep these values because
+// only first-person, HUD, and paper-doll renderers change them.
 const SEEDED_VARIABLES: [(&str, f32); 21] = [
     ("variable.animation_frames_128x128", 1.0),
     ("variable.animation_frames_32x32", 1.0),
@@ -345,18 +346,13 @@ impl Evaluator<'_> {
                     }
                 }
                 MolangOp::Return => return pop(&mut stack),
-                MolangOp::LoopStart(target) => {
-                    let count = pop(&mut stack)?.number();
-                    if count > 0.0 {
-                        if loops.len() == MAX_MOLANG_LOOP_DEPTH {
-                            return Err(EvalError::Invalid);
-                        }
-                        // The operation budget, not the authored count, bounds the loop.
-                        loops.push(count.ceil().min(u32::MAX as f32) as u32);
-                    } else {
-                        pc = jump(target)?;
+                MolangOp::LoopStart(target) => match loop_iterations(pop(&mut stack)?.number()) {
+                    Some(_) if loops.len() == MAX_MOLANG_LOOP_DEPTH => {
+                        return Err(EvalError::Invalid);
                     }
-                }
+                    Some(iterations) => loops.push(iterations),
+                    None => pc = jump(target)?,
+                },
                 MolangOp::LoopNext(target)
                 | MolangOp::ForEachNext(assets::MolangBranch { target, .. }) => {
                     let remaining = loops.last_mut().ok_or(EvalError::Invalid)?;
@@ -438,13 +434,19 @@ impl Evaluator<'_> {
     }
 }
 
+/// Iterations a `loop` count runs: its ceiling, bounded; `None` skips the body.
+pub(super) fn loop_iterations(count: f32) -> Option<u32> {
+    (count > 0.0).then(|| count.ceil().min(MAX_MOLANG_LOOP_ITERATIONS as f32) as u32)
+}
+
 fn arithmetic(op: &MolangOp, left: f32, right: f32) -> f32 {
     let truth = |value: bool| if value { 1.0 } else { 0.0 };
     match op {
         MolangOp::Add => left + right,
         MolangOp::Subtract => left - right,
         MolangOp::Multiply => left * right,
-        // A divisor within float epsilon of zero yields zero.
+        // A divisor within float epsilon of zero yields zero; the threshold needs independent
+        // measurement.
         MolangOp::Divide if right.abs() < f32::EPSILON => 0.0,
         MolangOp::Divide => left / right,
         MolangOp::Less => truth(left < right),

@@ -185,6 +185,7 @@ pub fn molang_call(function: MolangFunction, args: &[f32], random: &mut dyn FnMu
             if dice.is_nan() || dice <= 0.0 {
                 return 0.0;
             }
+            // Vanilla floors both bounds; the rolls themselves stay fractional for die_roll.
             let (low, high) = ordered(b.floor(), c.floor());
             let integer = function == MolangFunction::DieRollInteger;
             let mut sum = 0.0;
@@ -259,9 +260,9 @@ pub fn molang_call(function: MolangFunction, args: &[f32], random: &mut dyn FnMu
     }
 }
 
-/// Largest dice count rolled in one call.
+/// Cinnabar's bound on dice rolled in one call, not a vanilla value.
 const MAX_DICE: f32 = 1_024.0;
-/// Rounds halves away from zero after truncation.
+/// Rounds halves away from zero after truncation; needs independent measurement.
 const ROUND_BIAS: f32 = 0.499_999_97;
 
 fn max(a: f32, b: f32) -> f32 {
@@ -272,7 +273,8 @@ fn ordered(a: f32, b: f32) -> (f32, f32) {
     if b < a { (b, a) } else { (a, b) }
 }
 
-// Inputs just past the unit range are treated as rounding error.
+// Inputs just past the unit range are treated as rounding error; the tolerance needs
+// independent measurement.
 fn clamp_unit(value: f32) -> f32 {
     if value.abs() <= 1.0005 {
         value.clamp(-1.0, 1.0)

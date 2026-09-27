@@ -16,6 +16,8 @@ pub(crate) struct ActorRigPresentation {
     pub(crate) skin_rgba8: Option<Arc<[u8]>>,
     pub(crate) artwork: Option<ActorArtworkLocation>,
     pub(crate) model_scale: f32,
+    /// Head yaw minus the rendered body yaw, in degrees.
+    pub(crate) head_over_body: f32,
 }
 
 #[derive(Debug)]
@@ -59,8 +61,12 @@ pub(crate) fn entity_rig_presentation(
             || rig.rest.len() != rig.previous.len()
             || rig.rest.len() != rig.current.len()
             || !rig.rest.iter().all(|bone| {
-                RenderBoneTransform::from_model_space(bone.rotation, bone.translation_scale)
-                    .is_some()
+                RenderBoneTransform::from_model_space_scaled(
+                    bone.rotation,
+                    bone.translation_scale,
+                    bone.axis_scale,
+                )
+                .is_some()
             }));
     let selected = if rest_mode {
         ActorRigSnapshot {
@@ -176,6 +182,9 @@ fn actor_rig_presentation_inner(
         skin_rgba8,
         artwork: None,
         model_scale: rig.scale,
+        head_over_body: wrap_degrees(
+            lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw,
+        ),
     })
 }
 
@@ -209,6 +218,7 @@ pub(crate) fn local_diagnostic_presentation(
     let mut bones = pivots.map(|pivot| RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
+        axis_scale: render::UNIT_AXIS_SCALE,
     });
     bones[0].rotation = head_rotation;
     let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
@@ -242,6 +252,7 @@ pub(crate) fn local_diagnostic_presentation(
         skin_rgba8: Some(default_actor_skin_rgba8()),
         artwork: None,
         model_scale: 1.0,
+        head_over_body: 0.0,
     })
 }
 
@@ -262,9 +273,13 @@ pub(crate) fn local_actor_presentation_for_visibility(
         Some(mut canonical)
             if canonical.submission.input.identity.runtime_id == local_runtime_id =>
         {
+            // The body lags the view yaw as the rig's head does, so the head faces the view.
             let feet = diagnostic.submission.world_from_actor.map(|row| row[3]);
-            canonical.submission.world_from_actor =
-                rig_world_from_actor(feet, yaw_degrees, canonical.model_scale);
+            canonical.submission.world_from_actor = rig_world_from_actor(
+                feet,
+                yaw_degrees - canonical.head_over_body,
+                canonical.model_scale,
+            );
             Some(canonical)
         }
         Some(_) => None,
@@ -371,7 +386,13 @@ pub(crate) fn select_actor_presentations_for_view(
 fn convert_bones(bones: &[client_world::BoneTransform]) -> Option<Arc<[RenderBoneTransform]>> {
     bones
         .iter()
-        .map(|bone| RenderBoneTransform::from_model_space(bone.rotation, bone.translation_scale))
+        .map(|bone| {
+            RenderBoneTransform::from_model_space_scaled(
+                bone.rotation,
+                bone.translation_scale,
+                bone.axis_scale,
+            )
+        })
         .collect::<Option<Vec<_>>>()
         .map(Arc::from)
 }

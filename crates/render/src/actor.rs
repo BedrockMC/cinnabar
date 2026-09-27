@@ -31,7 +31,8 @@ pub use rig::{
     ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
     ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, actor_rig_submission_is_visible,
+    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
+    actor_rig_submission_is_visible,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -286,6 +287,7 @@ impl ActorRenderScene {
             let bones = pivots.map(|pivot| RenderBoneTransform {
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
+                axis_scale: rig::UNIT_AXIS_SCALE,
             });
             let mut posed_bones = bones;
             posed_bones[0].rotation = head_rotation;

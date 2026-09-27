@@ -119,17 +119,43 @@ fn rotated_parent_uses_child_model_space_pivot_delta() {
 }
 
 #[test]
-fn nonuniform_scale_is_rejected_instead_of_silently_truncated() {
-    let bones = [RuntimeBone {
-        parent: None,
-        pivot: [0.0; 3],
-        rotation: [0.0; 3],
-    }];
-    let local = [LocalDelta {
-        scale: [1.0, 2.0, 3.0],
-        ..LocalDelta::default()
-    }];
-    assert!(compose_pose(&bones, &local).is_none());
+fn nonuniform_scale_is_carried_per_axis_and_inherited_by_children() {
+    let bones = [
+        RuntimeBone {
+            parent: None,
+            pivot: [0.0; 3],
+            rotation: [0.0; 3],
+        },
+        RuntimeBone {
+            parent: Some(0),
+            pivot: [2.0, 4.0, 0.0],
+            rotation: [0.0; 3],
+        },
+    ];
+    let local = [
+        LocalDelta {
+            scale: [1.0, 0.5, 1.0],
+            ..LocalDelta::default()
+        },
+        LocalDelta {
+            scale: [2.0; 3],
+            ..LocalDelta::default()
+        },
+    ];
+    let pose = compose_pose(&bones, &local).unwrap();
+    assert_eq!(pose[0].axis_scale, [1.0, 0.5, 1.0]);
+    assert_eq!(pose[0].translation_scale[3], 1.0);
+    assert_eq!(pose[1].axis_scale, [2.0, 1.0, 2.0]);
+    assert_eq!(
+        pose[1].translation_scale[0..2],
+        [2.0, 2.0],
+        "child offset squashed in Y"
+    );
+    let uniform = compose_pose(&bones, &[LocalDelta::default(), local[1]]).unwrap();
+    assert_eq!(
+        (uniform[1].translation_scale[3], uniform[1].axis_scale),
+        (2.0, [1.0; 3])
+    );
 }
 
 #[test]
@@ -298,4 +324,17 @@ fn bare_head_rotation_queries_read_zero_and_limited_forms_clamp() {
         12.0
     );
     assert_eq!(read("query.target_y_rotation", &[]), 60.0);
+}
+
+#[test]
+fn loop_counts_run_their_ceiling_up_to_the_bound_and_skip_when_not_positive() {
+    use evaluation::loop_iterations;
+    assert_eq!(loop_iterations(2.5), Some(3));
+    assert_eq!(
+        loop_iterations(3000.0),
+        Some(assets::MAX_MOLANG_LOOP_ITERATIONS)
+    );
+    assert_eq!(loop_iterations(0.0), None);
+    assert_eq!(loop_iterations(-1.0), None);
+    assert_eq!(loop_iterations(f32::NAN), None);
 }

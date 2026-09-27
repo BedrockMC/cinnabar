@@ -13,9 +13,59 @@ pub(crate) struct ActorTickContext {
     pub(crate) has_player_rider: bool,
 }
 
+// Babies' legs cycle faster by this factor; needs independent measurement.
+const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
+
 // Gliding divides limb swing by the cubed squared speed over this; needs independent
 // measurement.
 const GLIDING_SPEED_SQUARED_UNIT: f32 = 0.2;
+
+/// Advances the walk cycle, swing, and body yaw every tick, whether or not the rig's Molang
+/// runs, so static and failing rigs still turn and move.
+pub(super) fn advance_motion(
+    state: &mut ActorRigState,
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+) {
+    if state.reset_pending {
+        state.history.clear();
+    }
+    let previous_position = state
+        .history
+        .back()
+        .map_or(actor.position, |input| input.position);
+    let position_delta = std::array::from_fn(|axis| actor.position[axis] - previous_position[axis]);
+    let motion = &mut state.motion;
+    motion.advance(&MotionInput {
+        delta: position_delta,
+        riding: context.is_riding,
+        player: matches!(actor.kind, ActorKind::Player { .. }),
+        yaw: actor.yaw,
+        head_yaw: actor.head_yaw,
+    });
+    let baby_scale = if query::actor_flag(actor, FLAG_BABY) {
+        BABY_MOVE_SPEED_SCALE
+    } else {
+        1.0
+    };
+    if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
+        state.history.pop_front();
+    }
+    let input = ActorTickInput {
+        position: actor.position,
+        position_delta,
+        velocity: actor.velocity,
+        on_ground: actor.on_ground.unwrap_or(false),
+        body_yaw: motion.body_yaw,
+        head_yaw: actor.head_yaw,
+        pitch: actor.pitch,
+        is_riding: context.is_riding,
+        distance_moved: motion.distance,
+        move_speed: motion.speed.min(1.0) * baby_scale,
+        walk_distance: motion.walk_distance(),
+    };
+    state.history.push_back(input);
+}
 
 pub(super) fn evaluate_state(
     assets: &RuntimeEntityAssets,
@@ -33,45 +83,8 @@ pub(super) fn evaluate_state(
         tick.saturating_sub(state.animation_epoch)
     };
     let life_tick = tick.saturating_sub(state.lifetime_epoch);
-    let mut history = if reset {
-        VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY)
-    } else {
-        state.history.clone()
-    };
-    let previous_position = history
-        .back()
-        .map_or(actor.position, |input| input.position);
-    let position_delta = std::array::from_fn(|axis| actor.position[axis] - previous_position[axis]);
-    let mut motion = state.motion;
-    motion.advance(&MotionInput {
-        delta: position_delta,
-        riding: context.is_riding,
-        player: matches!(actor.kind, ActorKind::Player { .. }),
-        yaw: actor.yaw,
-        head_yaw: actor.head_yaw,
-    });
-    let baby_scale = if query::actor_flag(actor, FLAG_BABY) {
-        1.5
-    } else {
-        1.0
-    };
-    if history.len() == MAX_ACTOR_ACTION_HISTORY {
-        history.pop_front();
-    }
-    let input = ActorTickInput {
-        position: actor.position,
-        position_delta,
-        velocity: actor.velocity,
-        on_ground: actor.on_ground.unwrap_or(false),
-        body_yaw: motion.body_yaw,
-        head_yaw: actor.head_yaw,
-        pitch: actor.pitch,
-        is_riding: context.is_riding,
-        distance_moved: motion.distance,
-        move_speed: motion.speed.min(1.0) * baby_scale,
-        walk_distance: motion.walk_distance(),
-    };
-    history.push_back(input);
+    let input = state.history.back().copied().ok_or(EvalError::Invalid)?;
+    let motion = state.motion;
     let evaluator = Evaluator {
         assets,
         layout,
@@ -169,9 +182,7 @@ pub(super) fn evaluate_state(
         .map(|pose| EvaluatedState {
             pose,
             controllers,
-            history,
             variables,
-            motion,
         })
         .ok_or(EvalError::Invalid)
 }
