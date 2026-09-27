@@ -26,11 +26,14 @@ fn registry() -> Vec<ItemRegistryEntry> {
         .collect()
 }
 fn input(slot: u8, stack_id: i32) -> ManualCraftInput {
+    counted_input(slot, stack_id, 1)
+}
+fn counted_input(slot: u8, stack_id: i32, count: u16) -> ManualCraftInput {
     let digest: [u8; 32] = Sha256::digest([]).into();
     let stack = NetworkItemStack {
         network_id: 6,
         metadata: 0,
-        count: 1,
+        count,
         stack_network_id: stack_id,
         nbt_digest: digest,
         block_runtime_id: 0,
@@ -40,6 +43,120 @@ fn input(slot: u8, stack_id: i32) -> ManualCraftInput {
         slot,
         stack: VerifiedNetworkItemStack::try_new(stack, digest).unwrap(),
     }
+}
+
+#[test]
+fn each_atomic_request_uses_current_registry_and_ingredient_authority() {
+    let catalog = catalog();
+    let mut entries = registry();
+    let inputs = || [Some(input(28, 101)), None, None, None];
+    assert!(request(&catalog, 17, inputs(), &entries, -3, &cursor()).is_ok());
+    entries[1].identifier = Arc::from("minecraft:birch_planks");
+    let packet = request(
+        &catalog,
+        17,
+        [Some(input(28, 202)), None, None, None],
+        &entries,
+        -5,
+        &cursor(),
+    )
+    .unwrap();
+    let McpePacketData::ItemStackRequestPacket(packet) = packet.data else {
+        panic!("request")
+    };
+    use valentine::bedrock::version::v1_26_44::{
+        ItemStackRequestCerealNetworkItemInstanceDescriptorDataItemDescriptor as Descriptor,
+        ItemStackRequestPacketDataRequestDataActionsItem as Action,
+    };
+    let Action::CraftResultsActionData(results) = &packet.requests[0].actions[1] else {
+        panic!("results")
+    };
+    let Descriptor::ItemNameDescriptorData(name) = &results.craft_results[0].item_descriptor else {
+        panic!("name")
+    };
+    assert_eq!(name.full_name, "minecraft:birch_planks");
+    let Action::ConsumeActionData(consume) = &packet.requests[0].actions[2] else {
+        panic!("consume")
+    };
+    assert_eq!(consume.source.net_id_variant, 202);
+    entries[1].negotiated_max_stack_size = Some(3);
+    assert!(request(&catalog, 17, inputs(), &entries, -7, &cursor()).is_err());
+    entries[1].negotiated_max_stack_size = None;
+    assert!(request(&catalog, 17, inputs(), &entries, -7, &cursor()).is_err());
+    entries = registry();
+    entries[0].identifier = Arc::from("minecraft:birch_log");
+    assert!(request(&catalog, 17, inputs(), &entries, -7, &cursor()).is_err());
+    assert!(
+        request(
+            &catalog,
+            17,
+            [None, None, None, None],
+            &registry(),
+            -7,
+            &cursor()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn current_ingredient_count_must_cover_the_advertised_consumption() {
+    use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
+    let mut bytes = bytes::BytesMut::new();
+    CraftingDataPacket {
+        shaped_recipes: vec![ShapedRecipePayload {
+            recipe_id: "test:two".into(),
+            width: 1,
+            height: 1,
+            ingredients: vec![CerealizerRecipeIngredientSerializedData {
+                descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
+                    key: "name".into(),
+                    value: "minecraft:oak_log".into(),
+                }],
+                aux_value: 0,
+                stack_size: 2,
+            }],
+            results: vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
+                id: 7,
+                stacksize: 4,
+                auxvalue: 0,
+                block_runtime_id: 0,
+                user_data_buffer: vec![0; 10],
+            }],
+            tag: "crafting_table".into(),
+            net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: 17 },
+            ..Default::default()
+        }],
+        clear_recipes: true,
+        ..Default::default()
+    }
+    .encode(&mut bytes)
+    .unwrap();
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    catalog.apply(1, 1, &decode_recipe_update(&bytes).unwrap());
+    assert!(
+        request(
+            &catalog,
+            17,
+            [Some(counted_input(28, 101, 2)), None, None, None],
+            &registry(),
+            -3,
+            &cursor()
+        )
+        .is_ok()
+    );
+    assert!(
+        request(
+            &catalog,
+            17,
+            [Some(counted_input(28, 101, 1)), None, None, None],
+            &registry(),
+            -5,
+            &cursor()
+        )
+        .is_err()
+    );
 }
 fn cursor() -> VerifiedNetworkItemStack {
     let stack = NetworkItemStack::empty();
@@ -59,18 +176,39 @@ fn catalog() -> RecipeCatalog {
     catalog
 }
 
+fn request(
+    catalog: &RecipeCatalog,
+    recipe_id: u32,
+    inputs: [Option<ManualCraftInput>; 4],
+    registry: &[ItemRegistryEntry],
+    request_id: i32,
+    cursor: &VerifiedNetworkItemStack,
+) -> Result<Packet, ManualCraftError> {
+    manual_craft_packet(
+        ManualCraftSnapshot {
+            session: 1,
+            catalog,
+            registry,
+            inputs,
+            cursor,
+        },
+        recipe_id,
+        request_id,
+    )
+}
+
 #[test]
 fn candidate_compound_order_and_current_request_reference_match_pinned_codec() {
     let catalog = catalog();
-    let plan = ManualCraftPlan::prepare(
+    let mut packet = request(
         &catalog,
-        1,
         17,
         [Some(input(28, 101)), None, None, None],
         &registry(),
+        -3,
+        &cursor(),
     )
     .unwrap();
-    let mut packet = manual_craft_packet(&catalog, &plan, -3, &cursor()).unwrap();
     packet.header.from_subclient = 1;
     packet.header.to_subclient = 2;
     assert_eq!(
@@ -109,16 +247,16 @@ fn vertical_named_shape_uses_personal_grid_stride_and_positive_input_ids() {
         )),
     );
     let prepare = |a, b| {
-        ManualCraftPlan::prepare(
+        request(
             &catalog,
-            1,
             18,
             [Some(input(28, a)), None, Some(input(30, b)), None],
             &registry(),
+            -3,
+            &cursor(),
         )
     };
-    let plan = prepare(101, 102).unwrap();
-    let packet = manual_craft_packet(&catalog, &plan, -3, &cursor()).unwrap();
+    let packet = prepare(101, 102).unwrap();
     let McpePacketData::ItemStackRequestPacket(packet) = packet.data else {
         panic!("request");
     };
@@ -126,29 +264,23 @@ fn vertical_named_shape_uses_personal_grid_stride_and_positive_input_ids() {
     assert!(prepare(-1, 102).is_err());
     assert!(prepare(101, 101).is_err());
     assert!(
-        ManualCraftPlan::prepare(
+        request(
             &catalog,
-            1,
             18,
             [Some(input(28, 101)), Some(input(29, 102)), None, None],
-            &registry()
+            &registry(),
+            -3,
+            &cursor()
         )
         .is_err()
     );
 }
 
 #[test]
-fn replaced_or_retired_recipe_plan_cannot_emit_and_generic_negative_slots_stay_invalid() {
+fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invalid() {
     let mut catalog = catalog();
-    let plan = ManualCraftPlan::prepare(
-        &catalog,
-        1,
-        17,
-        [Some(input(28, 101)), None, None, None],
-        &registry(),
-    )
-    .unwrap();
-    assert!(manual_craft_packet(&catalog, &plan, -2, &cursor()).is_err());
+    let inputs = || [Some(input(28, 101)), None, None, None];
+    assert!(request(&catalog, 17, inputs(), &registry(), -2, &cursor()).is_err());
     catalog.apply(
         1,
         2,
@@ -158,7 +290,7 @@ fn replaced_or_retired_recipe_plan_cannot_emit_and_generic_negative_slots_stay_i
     );
     assert!(catalog.recipe(17).is_none());
     assert_eq!(
-        manual_craft_packet(&catalog, &plan, -3, &cursor()).unwrap_err(),
+        request(&catalog, 17, inputs(), &registry(), -3, &cursor()).unwrap_err(),
         ManualCraftError::Unavailable
     );
     catalog.apply(
@@ -169,7 +301,7 @@ fn replaced_or_retired_recipe_plan_cannot_emit_and_generic_negative_slots_stay_i
         )),
     );
     catalog.begin_session(2);
-    assert!(manual_craft_packet(&catalog, &plan, -3, &cursor()).is_err());
+    assert!(request(&catalog, 17, inputs(), &registry(), -3, &cursor()).is_err());
     assert!(
         item_stack_request_packet(
             -3,
@@ -233,19 +365,28 @@ fn synthetic_acceptance_response_retains_exact_request_and_result_mapping() {
 fn cursor_and_output_binding_must_be_proven_not_guessed() {
     let catalog = catalog();
     let inputs = || [Some(input(28, 101)), None, None, None];
-    let plan = ManualCraftPlan::prepare(&catalog, 1, 17, inputs(), &registry()).unwrap();
-    assert!(manual_craft_packet(&catalog, &plan, -3, &input(28, 101).stack).is_err());
+    assert!(
+        request(
+            &catalog,
+            17,
+            inputs(),
+            &registry(),
+            -3,
+            &input(28, 101).stack
+        )
+        .is_err()
+    );
     let mut entries = registry();
     entries[1].negotiated_max_stack_size = None;
-    assert!(ManualCraftPlan::prepare(&catalog, 1, 17, inputs(), &entries).is_err());
+    assert!(request(&catalog, 17, inputs(), &entries, -3, &cursor()).is_err());
     entries[1].negotiated_max_stack_size = Some(3);
-    assert!(ManualCraftPlan::prepare(&catalog, 1, 17, inputs(), &entries).is_err());
+    assert!(request(&catalog, 17, inputs(), &entries, -3, &cursor()).is_err());
     entries[1].negotiated_max_stack_size = Some(64);
     entries[1].component_based = true;
     entries[1].canonical_empty_component_data = false;
-    assert!(ManualCraftPlan::prepare(&catalog, 1, 17, inputs(), &entries).is_err());
+    assert!(request(&catalog, 17, inputs(), &entries, -3, &cursor()).is_err());
     let duplicate = registry()[1].clone();
     entries = registry();
     entries.push(duplicate);
-    assert!(ManualCraftPlan::prepare(&catalog, 1, 17, inputs(), &entries).is_err());
+    assert!(request(&catalog, 17, inputs(), &entries, -3, &cursor()).is_err());
 }

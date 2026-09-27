@@ -27,7 +27,7 @@ pub use address::{
     OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, project_container_cell,
 };
 pub use request::manual_craft::{
-    ManualCraftError, ManualCraftInput, ManualCraftPlan, manual_craft_packet,
+    ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
 pub use request::{
     PLAYER_INVENTORY_SLOTS, StackRequestAction, StackRequestContainer, StackRequestSlot,
