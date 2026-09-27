@@ -207,6 +207,10 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"SetTitle",
 		"BossEvent",
 		"ModalFormRequest",
+		"ModalFormTextMenu",
+		"ModalFormResponseButton",
+		"ModalFormResponseClosed",
+		"ModalFormResponseBusy",
 		"AvailableCommands",
 		"AvailableCommandsLive356513",
 		"BiomeDefinitionListChunkGeneration",
@@ -227,7 +231,7 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"DisconnectFiltered",
 		"DisconnectHidden",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -245,6 +249,10 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0xd8, 0x48},
 		{0xca, 0x48},
 		{0xe4, 0x48},
+		{0xe4, 0x48},
+		{0xe5, 0x48},
+		{0xe5, 0x48},
+		{0xe5, 0x48},
 		{0xcc, 0x48},
 		{0xcc, 0x48},
 		{0xfa, 0x48},

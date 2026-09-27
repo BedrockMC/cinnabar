@@ -1,5 +1,7 @@
 mod acceptance_helpers;
+mod committed_ui;
 mod control_apply;
+pub(crate) use committed_ui::drain_committed_ui_before_authority;
 #[cfg(test)]
 mod player_list_tests;
 mod shutdown_watchdog;
@@ -23,12 +25,11 @@ use bevy::{
     time::Real,
 };
 use client_world::{
-    CommittedControlEvent, CommittedUiEvent, ViewCohortStatus, WorldMeshChange, WorldStream,
-    WorldStreamPoll,
+    CommittedControlEvent, ViewCohortStatus, WorldMeshChange, WorldStream, WorldStreamPoll,
 };
 
 use super::audio::{SequencedAudioEvent, drain_committed_audio};
-use crate::block_cracks::{consume_committed_block_crack, reconcile_world_block_cracks};
+use crate::block_cracks::reconcile_world_block_cracks;
 use crate::server_camera::{ServerCameraInstructions, drain_committed_camera};
 use meshing::CameraMedium;
 use protocol::BlobCacheStats;
@@ -60,7 +61,7 @@ use crate::{
         shutdown::record_fatal_error,
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
     },
-    ui_runtime::{SequencedLocalAttributes, SequencedUiEvent, UiRuntime},
+    ui_runtime::UiRuntime,
 };
 
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
@@ -561,11 +562,9 @@ pub(crate) fn drive_world_stream(
         .map(|profiler| profiler.time(RuntimeStage::WorldStream));
     let AppWorldState {
         mut client_world,
-        clock,
         mut local_physics,
         mut movement,
         mut ui_runtime,
-        time,
         ..
     } = state;
     let active_session = client_world
@@ -583,7 +582,6 @@ pub(crate) fn drive_world_stream(
         ui_runtime.clear_disconnected_block_cracks();
         return;
     };
-    ui_runtime.note_stream_dimension(stream.current_dimension());
     synchronize_biome_tints(stream, &mut biome_tints);
     let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
@@ -604,82 +602,7 @@ pub(crate) fn drive_world_stream(
             acknowledgement.applied_at,
         );
     }
-    let committed_ui = stream.take_committed_ui();
     let poll_report = std::mem::take(&mut frame_poll.report);
-    let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    if !committed_ui.is_empty() {
-        // Rawtext score owners and selectors resolve against the stream's
-        // authoritative actor names and player list as of this drain.
-        let known_player_names = stream.player_list_usernames();
-        ui_runtime.refresh_raw_text_identities(
-            |unique_id| stream.actor_display_name(unique_id),
-            known_player_names,
-        );
-    }
-    for committed in committed_ui {
-        let result = match committed {
-            CommittedUiEvent::Ui { sequence, event } => ui_runtime
-                .apply(SequencedUiEvent {
-                    session_id: clock.session_generation(),
-                    fifo_sequence: sequence,
-                    local_millis,
-                    server_tick: None,
-                    event,
-                })
-                .map(|_| ()),
-            CommittedUiEvent::BlockCrack {
-                sequence,
-                dimension,
-                event,
-            } => consume_committed_block_crack(
-                &mut ui_runtime,
-                clock.session_generation(),
-                sequence,
-                dimension,
-                event,
-            ),
-            CommittedUiEvent::LocalAttributes {
-                sequence,
-                server_tick,
-                attributes,
-            } => ui_runtime.apply_local_attributes(SequencedLocalAttributes {
-                session_id: clock.session_generation(),
-                fifo_sequence: sequence,
-                local_millis,
-                server_tick,
-                attributes,
-            }),
-            CommittedUiEvent::LocalMetadata {
-                sequence, metadata, ..
-            } => ui_runtime.apply_local_metadata(
-                clock.session_generation(),
-                sequence,
-                metadata.as_ref(),
-            ),
-            CommittedUiEvent::LocalEffect { sequence, event } => ui_runtime.apply_local_effect(
-                clock.session_generation(),
-                sequence,
-                event,
-                local_millis,
-            ),
-            CommittedUiEvent::LocalArmor { sequence, event } => {
-                ui_runtime.apply_local_armor(clock.session_generation(), sequence, &event)
-            }
-            CommittedUiEvent::LocalMount {
-                sequence,
-                ridden_unique_id,
-            } => {
-                ui_runtime.apply_local_mount(clock.session_generation(), sequence, ridden_unique_id)
-            }
-        };
-        if let Err(error) = result {
-            record_fatal_error(
-                &mut client_world.fatal_error,
-                format!("committed UI/gameplay event rejected: {error:?}"),
-            );
-            return;
-        }
-    }
     reconcile_world_block_cracks(&mut ui_runtime, stream);
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {

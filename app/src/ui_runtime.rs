@@ -18,9 +18,10 @@ pub mod render_adapter;
 mod scoreboard_adapter;
 
 pub use forms::{
-    FormRespondError, LocalFormAction, MAX_RETAINED_SERVER_FORMS, ServerFormEntry, ServerFormStore,
-    flush_form_response,
+    FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
+    ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
 };
+pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
 
 pub(crate) use gameplay_authority::drain_inventory_authority;
 pub use interaction::FastTransferAction;
@@ -365,10 +366,10 @@ impl UiRuntime {
     /// `ModalFormResponse` for [`flush_form_response`].
     pub fn respond_to_server_form(
         &mut self,
-        form_id: u32,
+        identity: ServerFormIdentity,
         action: LocalFormAction,
     ) -> Result<(), FormRespondError> {
-        self.forms.respond(form_id, action)
+        self.forms.respond(identity, action)
     }
 
     pub(crate) fn server_forms_mut(&mut self) -> &mut ServerFormStore {
@@ -405,8 +406,8 @@ impl UiRuntime {
         self.inventory_pointer_gui = position;
     }
 
-    pub const fn ui_focused(&self) -> bool {
-        self.chat_focused || self.inventory_open
+    pub fn ui_focused(&self) -> bool {
+        self.chat_focused || self.inventory_open || self.forms.owns_input()
     }
 
     pub const fn chat_editor(&self) -> &ChatEditor {
@@ -831,7 +832,12 @@ impl UiRuntime {
             UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
             UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
             UiEvent::Form(event) => {
-                self.forms.admit(event, envelope.fifo_sequence);
+                self.forms.admit(
+                    event,
+                    envelope.fifo_sequence,
+                    self.session_id,
+                    self.chat_focused || self.inventory_open,
+                );
                 UiApplyOutcome::Applied
             }
         };

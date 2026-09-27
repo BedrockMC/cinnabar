@@ -1,325 +1,274 @@
-//! Server-form retention and the modal answer lifecycle witnesses.
-
+//! Form authority, overlap policy and definite-unsent backpressure witnesses.
+use super::*;
+use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UnsupportedForm};
 use std::sync::Arc;
 
-use protocol::{FormKind, FormKind::*, FormRequestEvent, ModalFormResponseSelection};
-
-use super::*;
-
-fn retained(form_id: u32, kind: FormKind, sequence: u64) -> SequencedUiEvent {
+pub(super) fn retained(form_id: u32, sequence: u64) -> SequencedUiEvent {
     envelope(
         1,
         sequence,
         UiEvent::Form(FormRequestEvent {
             form_id,
-            kind,
-            title: Some(Arc::from("Dialog")),
-            json: Arc::from(r#"{"type":"form","title":"Dialog"}"#),
+            kind: FormKind::Menu,
+            title: Some(Arc::from("Choose 世界")),
+            json: Arc::from("{}"),
+            model: ServerFormModel::TextMenu(TextMenuForm {
+                title: Arc::from("Choose 世界"),
+                content: Arc::from("Pick one"),
+                buttons: vec![Arc::from("First ✓"), Arc::from("第二")].into(),
+                omitted_images: 0,
+            }),
         }),
     )
 }
+fn identity(runtime: &UiRuntime) -> ServerFormIdentity {
+    runtime.server_forms().active().unwrap().identity
+}
+fn bytes(packet: protocol::Packet) -> Vec<u8> {
+    protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 })
+        .unwrap()
+        .to_vec()
+}
+fn drain(runtime: &mut UiRuntime) -> Vec<Vec<u8>> {
+    let mut packets = Vec::new();
+    while flush_form_response(runtime, |packet| {
+        packets.push(bytes(packet));
+        Ok(())
+    })
+    .unwrap()
+    {}
+    packets
+}
 
 #[test]
-fn form_events_replace_by_id_and_evict_oldest_at_capacity() {
+fn different_id_overlap_is_busy_not_fifo_display_and_queue_is_bounded() {
     let mut runtime = UiRuntime::new(1);
-    for id in 1..=(MAX_RETAINED_SERVER_FORMS as u32) {
-        runtime.apply(retained(id, Menu, u64::from(id))).unwrap();
+    runtime.apply(retained(1, 1)).unwrap();
+    for id in 2..=11 {
+        runtime.apply(retained(id, u64::from(id))).unwrap();
     }
-    let store = runtime.server_forms();
-    assert_eq!(store.entries().count(), MAX_RETAINED_SERVER_FORMS);
-    assert_eq!(store.dropped_over_capacity(), 0);
-    assert_eq!(store.replaced_by_reissue(), 0);
-
-    // One past capacity drops the oldest dialog, not the new arrival.
-    runtime
-        .apply(retained(100, Menu, MAX_RETAINED_SERVER_FORMS as u64 + 1))
-        .unwrap();
-    let store = runtime.server_forms();
+    assert_eq!(identity(&runtime).form_id, 1);
+    assert_eq!(runtime.server_forms().entries().count(), 1);
     assert_eq!(
-        store.entries().next().expect("newest survives").form_id,
-        2,
-        "form 1 was evicted"
+        runtime.server_forms().queued_busy_count(),
+        MAX_RETAINED_SERVER_FORMS
     );
-    assert_eq!(store.dropped_over_capacity(), 1);
-
-    // A reissued id replaces its retained dialog exactly once.
-    runtime
-        .apply(envelope(
-            1,
-            20,
-            UiEvent::Form(FormRequestEvent {
-                form_id: 3,
-                kind: Custom,
-                title: None,
-                json: Arc::from(r#"{"type":"custom_form"}"#),
-            }),
-        ))
-        .unwrap();
-    let store = runtime.server_forms();
-    assert_eq!(store.entries().count(), MAX_RETAINED_SERVER_FORMS);
-    assert_eq!(store.replaced_by_reissue(), 1);
-    let replaced = store.get(3).expect("replacement retained");
-    assert_eq!(replaced.kind, Custom);
-    assert_eq!(replaced.title, None);
+    assert_eq!(runtime.server_forms().dropped_over_capacity(), 2);
+    let packets = drain(&mut runtime);
+    assert_eq!(packets[0], bytes(protocol::modal_form_busy_response(2)));
+    assert_eq!(packets.len(), 8);
+    assert_eq!(identity(&runtime).form_id, 1);
 }
 
 #[test]
-fn session_replacement_clears_retained_forms_and_pending_responses() {
+fn same_id_reissue_invalidates_full_answer_and_stale_actions() {
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(5, Menu, 1)).unwrap();
+    runtime.apply(retained(7, 1)).unwrap();
+    let old = identity(&runtime);
     runtime
-        .respond_to_server_form(5, LocalFormAction::SubmitButton(0))
+        .respond_to_server_form(old, LocalFormAction::SubmitButton(1))
         .unwrap();
-
-    runtime.begin_session(2);
-
-    assert_eq!(runtime.server_forms().entries().count(), 0);
-    assert!(
-        !flush_form_response::<crate::runtime::network::PacketSendError>(&mut runtime, |_| panic!(
-            "a replaced session must not send its stale form response"
-        ))
-        .unwrap()
+    assert_eq!(
+        flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+        Err(FormTransportError::Full)
+    );
+    runtime.apply(retained(7, 2)).unwrap();
+    let new = identity(&runtime);
+    assert_ne!(old, new);
+    assert_eq!(
+        runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
+        Err(FormRespondError::StaleIdentity)
+    );
+    assert!(drain(&mut runtime).is_empty());
+    runtime
+        .respond_to_server_form(new, LocalFormAction::SubmitButton(0))
+        .unwrap();
+    assert_eq!(
+        drain(&mut runtime),
+        vec![bytes(protocol::modal_form_submit_response(
+            7,
+            protocol::ModalFormResponseSelection::ButtonIndex(0)
+        ))]
     );
 }
 
 #[test]
-fn button_submission_builds_the_exact_submit_packet_and_closes_the_form() {
+fn same_id_busy_reissue_removes_all_unsent_old_rejections() {
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(7, Menu, 1)).unwrap();
-
+    runtime.apply(retained(1, 1)).unwrap();
+    runtime.apply(retained(2, 2)).unwrap();
+    assert_eq!(
+        flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+        Err(FormTransportError::Full)
+    );
+    runtime.apply(retained(2, 3)).unwrap();
+    assert_eq!(runtime.server_forms().queued_busy_count(), 1);
     runtime
-        .respond_to_server_form(7, LocalFormAction::SubmitButton(2))
+        .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
         .unwrap();
-    assert_eq!(
-        runtime.server_forms().get(7),
-        None,
-        "answered dialogs close"
-    );
+    assert_eq!(drain(&mut runtime).len(), 2);
+    runtime.apply(retained(2, 4)).unwrap();
+    assert_eq!(identity(&runtime).revision, 4);
+    assert!(drain(&mut runtime).is_empty());
+}
 
-    let mut sent = None;
+#[test]
+fn accepted_answer_is_not_retried_or_retracted_by_id_reissue() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(retained(7, 1)).unwrap();
+    runtime
+        .respond_to_server_form(identity(&runtime), LocalFormAction::SubmitButton(1))
+        .unwrap();
+    assert_eq!(drain(&mut runtime).len(), 1);
+    runtime.apply(retained(7, 2)).unwrap();
+    assert!(drain(&mut runtime).is_empty());
+    assert_eq!(identity(&runtime).revision, 2);
+}
+
+#[test]
+fn new_displayed_revision_invalidates_queued_same_id_busy_reply() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(retained(1, 1)).unwrap();
+    runtime.apply(retained(2, 2)).unwrap();
+    runtime
+        .respond_to_server_form(identity(&runtime), LocalFormAction::Dismiss)
+        .unwrap();
+    assert!(flush_form_response(&mut runtime, |_| Ok(())).unwrap());
+    assert_eq!(runtime.server_forms().queued_busy_count(), 1);
+    runtime.apply(retained(2, 3)).unwrap();
+    assert_eq!(identity(&runtime).form_id, 2);
+    assert_eq!(runtime.server_forms().queued_busy_count(), 0);
     assert!(
-        flush_form_response(&mut runtime, |packet| {
-            sent = Some(packet);
-            Ok::<_, ()>(())
-        })
-        .unwrap()
-    );
-    let session = protocol::BedrockSession { shield_item_id: 0 };
-    let expected =
-        protocol::modal_form_submit_response(7, ModalFormResponseSelection::ButtonIndex(2));
-    assert_eq!(
-        protocol::encode(&sent.unwrap(), &session).unwrap(),
-        protocol::encode(&expected, &session).unwrap()
-    );
-    assert!(
-        !flush_form_response(&mut runtime, |_| Ok::<_, ()>(())).unwrap(),
-        "the drained slot stays empty"
+        drain(&mut runtime).is_empty(),
+        "old busy response cannot cancel displayed replacement"
     );
 }
 
 #[test]
-fn dismissal_builds_the_cancel_marker_packet_for_any_family() {
-    for kind in [Menu, Modal, Custom] {
+fn single_flight_index_validation_and_closed_transport_fail_closed() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.apply(retained(7, 1)).unwrap();
+    let id = identity(&runtime);
+    assert_eq!(
+        runtime.respond_to_server_form(id, LocalFormAction::SubmitButton(2)),
+        Err(FormRespondError::InvalidButton)
+    );
+    runtime
+        .respond_to_server_form(id, LocalFormAction::SubmitButton(1))
+        .unwrap();
+    assert_eq!(
+        runtime.respond_to_server_form(id, LocalFormAction::Dismiss),
+        Err(FormRespondError::PendingResponse)
+    );
+    assert!(runtime.ui_focused(), "Full pending answers still own input");
+    assert_eq!(
+        flush_form_response(&mut runtime, |_| Err(FormTransportError::Closed)),
+        Err(FormTransportError::Closed)
+    );
+    assert!(drain(&mut runtime).is_empty());
+    assert!(!runtime.ui_focused());
+}
+
+#[test]
+fn other_ui_busy_and_unsupported_cancel_are_honest() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat();
+    runtime.apply(retained(7, 1)).unwrap();
+    assert!(runtime.server_forms().active().is_none());
+    assert_eq!(
+        drain(&mut runtime),
+        vec![bytes(protocol::modal_form_busy_response(7))]
+    );
+    let mut unsupported = retained(8, 2);
+    if let UiEvent::Form(form) = &mut unsupported.event {
+        form.model = ServerFormModel::Unsupported(UnsupportedForm::Controls);
+    }
+    runtime.close_chat();
+    runtime.apply(unsupported).unwrap();
+    let id = identity(&runtime);
+    assert_eq!(
+        runtime.respond_to_server_form(id, LocalFormAction::CustomElements),
+        Err(FormRespondError::CustomElementsUnsupported)
+    );
+    assert_eq!(
+        runtime.respond_to_server_form(id, LocalFormAction::SubmitButton(0)),
+        Err(FormRespondError::UnsupportedControls)
+    );
+    runtime
+        .respond_to_server_form(id, LocalFormAction::Dismiss)
+        .unwrap();
+    assert_eq!(
+        drain(&mut runtime),
+        vec![bytes(protocol::modal_form_cancel_response(8))]
+    );
+}
+
+#[test]
+fn session_and_dimension_retirement_clear_every_unsent_response() {
+    for new_session in [false, true] {
         let mut runtime = UiRuntime::new(1);
-        runtime.apply(retained(9, kind, 1)).unwrap();
+        runtime.note_stream_dimension(0);
+        runtime.apply(retained(1, 1)).unwrap();
+        runtime.apply(retained(2, 2)).unwrap();
+        runtime.note_stream_dimension(0);
+        assert!(
+            runtime.server_forms().active().is_some(),
+            "the same dimension retains the form"
+        );
+        let old = identity(&runtime);
         runtime
-            .respond_to_server_form(9, LocalFormAction::Dismiss)
+            .respond_to_server_form(old, LocalFormAction::Dismiss)
             .unwrap();
-
-        let mut sent = None;
-        flush_form_response(&mut runtime, |packet| {
-            sent = Some(packet);
-            Ok::<_, ()>(())
-        })
-        .unwrap();
-        let session = protocol::BedrockSession { shield_item_id: 0 };
-        // id 9, response absent(0), cancel present(1), UserClosed wire value 0.
+        if new_session {
+            runtime.begin_session(2);
+        } else {
+            runtime.note_stream_dimension(1);
+        }
+        assert!(!runtime.ui_focused());
+        assert!(drain(&mut runtime).is_empty());
         assert_eq!(
-            protocol::encode(&sent.unwrap(), &session).unwrap().as_ref(),
-            &[0xfe, 0x05, 101, 0x09, 0x00, 0x01, 0x00]
+            runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
+            Err(FormRespondError::StaleIdentity)
         );
     }
 }
 
 #[test]
-fn unsupported_answers_fail_closed_without_touching_state() {
+fn epoch_identity_clears_unsent_state_but_never_reuses_a_rendered_revision() {
     let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(3, Unknown, 0)).unwrap();
-    runtime.apply(retained(4, Custom, 1)).unwrap();
-    runtime.apply(retained(5, Menu, 2)).unwrap();
-    runtime.apply(retained(6, Modal, 3)).unwrap();
-
-    assert_eq!(
-        runtime
-            .respond_to_server_form(4, LocalFormAction::CustomElements)
-            .unwrap_err(),
-        FormRespondError::CustomElementsUnsupported
-    );
-    // Gophertunnel v1.57.0 modal_form_response.go: menu responses are
-    // integers, modal responses are true/false — only menu forms accept a
-    // button answer.
-    assert_eq!(
-        runtime
-            .respond_to_server_form(6, LocalFormAction::SubmitButton(0))
-            .unwrap_err(),
-        FormRespondError::ButtonAnswerUnsupportedForKind {
-            form_id: 6,
-            kind: Modal
-        }
-    );
-    assert_eq!(
-        runtime
-            .respond_to_server_form(3, LocalFormAction::SubmitButton(1))
-            .unwrap_err(),
-        FormRespondError::ButtonAnswerUnsupportedForKind {
-            form_id: 3,
-            kind: Unknown
-        }
-    );
-    assert_eq!(
-        runtime
-            .respond_to_server_form(4, LocalFormAction::SubmitButton(0))
-            .unwrap_err(),
-        FormRespondError::ButtonAnswerUnsupportedForKind {
-            form_id: 4,
-            kind: Custom
-        }
-    );
-    assert_eq!(
-        runtime
-            .respond_to_server_form(404, LocalFormAction::Dismiss)
-            .unwrap_err(),
-        FormRespondError::UnknownForm { form_id: 404 }
-    );
-
-    // Nothing was answered, closed, or staged.
-    assert_eq!(runtime.server_forms().entries().count(), 4);
-    assert!(!flush_form_response(&mut runtime, |_| Ok::<_, ()>(())).unwrap());
-}
-
-#[test]
-fn answering_a_closed_form_again_is_unknown_and_keeps_the_pending_answer_intact() {
-    let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(11, Menu, 1)).unwrap();
+    runtime.server_forms_mut().synchronize_epoch(1, 0);
+    runtime.apply(retained(7, 1)).unwrap();
+    runtime.apply(retained(8, 2)).unwrap();
+    let old = identity(&runtime);
+    runtime.server_forms_mut().move_focus(1);
+    runtime.server_forms_mut().set_scroll(5);
     runtime
-        .respond_to_server_form(11, LocalFormAction::SubmitButton(3))
+        .respond_to_server_form(old, LocalFormAction::Dismiss)
         .unwrap();
-
     assert_eq!(
-        runtime
-            .respond_to_server_form(11, LocalFormAction::SubmitButton(0))
-            .unwrap_err(),
-        FormRespondError::UnknownForm { form_id: 11 },
-        "the first answer closed the form"
+        flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
+        Err(FormTransportError::Full)
     );
-
-    let session = protocol::BedrockSession { shield_item_id: 0 };
-    let mut sent = None;
-    flush_form_response(&mut runtime, |packet| {
-        sent = Some(packet);
-        Ok::<_, ()>(())
-    })
-    .unwrap();
-    assert_eq!(
-        protocol::encode(&sent.unwrap(), &session).unwrap(),
-        protocol::encode(
-            &protocol::modal_form_submit_response(11, ModalFormResponseSelection::ButtonIndex(3)),
-            &session
-        )
-        .unwrap(),
-        "the rejected second attempt never displaced the staged answer"
-    );
-}
-
-#[test]
-fn newer_answers_supersede_older_pending_responses_with_accounting() {
-    let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(1, Menu, 1)).unwrap();
-    runtime.apply(retained(2, Menu, 2)).unwrap();
-
-    runtime
-        .respond_to_server_form(1, LocalFormAction::SubmitButton(0))
-        .unwrap();
-    runtime
-        .respond_to_server_form(2, LocalFormAction::Dismiss)
-        .unwrap();
-    assert_eq!(runtime.server_forms().superseded_responses(), 1);
-
-    let mut sent = None;
-    flush_form_response(&mut runtime, |packet| {
-        sent = Some(packet);
-        Ok::<_, ()>(())
-    })
-    .unwrap();
-    assert_eq!(
-        protocol::encode(
-            &sent.unwrap(),
-            &protocol::BedrockSession { shield_item_id: 0 }
-        )
-        .unwrap()
-        .as_ref()[3],
-        2,
-        "only the latest answer's form id is on the wire"
-    );
-}
-
-#[test]
-fn transport_backpressure_restores_the_pending_response_for_retry() {
-    let mut runtime = UiRuntime::new(1);
-    runtime.apply(retained(6, Menu, 1)).unwrap();
-    runtime
-        .respond_to_server_form(6, LocalFormAction::SubmitButton(1))
-        .unwrap();
-
-    let attempts = std::cell::Cell::new(0);
-    let restored = flush_form_response(&mut runtime, |_| {
-        attempts.set(attempts.get() + 1);
-        Err("full")
-    });
-    assert_eq!(restored, Err("full"));
-    assert_eq!(attempts.into_inner(), 1);
-
-    let mut retried = None;
-    flush_form_response(&mut runtime, |packet| {
-        retried = Some(packet);
-        Ok::<_, ()>(())
-    })
-    .unwrap();
-    assert_eq!(
-        protocol::encode(
-            &retried.unwrap(),
-            &protocol::BedrockSession { shield_item_id: 0 }
-        )
-        .unwrap(),
-        protocol::encode(
-            &protocol::modal_form_submit_response(6, ModalFormResponseSelection::ButtonIndex(1)),
-            &protocol::BedrockSession { shield_item_id: 0 }
-        )
-        .unwrap()
-    );
-}
-
-#[test]
-fn stream_dimension_changes_clear_retained_forms_and_pending_responses() {
-    let mut runtime = UiRuntime::new(1);
-    runtime.note_stream_dimension(0);
-    runtime.apply(retained(8, Menu, 1)).unwrap();
-
-    runtime.note_stream_dimension(0);
-    assert_eq!(
-        runtime.server_forms().entries().count(),
-        1,
-        "the same dimension keeps dialogs"
-    );
-
-    runtime
-        .respond_to_server_form(8, LocalFormAction::Dismiss)
-        .unwrap();
-    runtime.note_stream_dimension(1);
-
-    assert_eq!(runtime.server_forms().entries().count(), 0);
+    runtime.server_forms_mut().synchronize_epoch(1, 0);
     assert!(
-        !flush_form_response(&mut runtime, |_| Ok::<_, ()>(())).unwrap(),
-        "a dimension change also drops the staged response"
+        runtime.server_forms().owns_input(),
+        "unchanged authority preserves pending reply"
+    );
+    runtime.server_forms_mut().synchronize_epoch(1, 3);
+    assert!(!runtime.server_forms().owns_input());
+    assert_eq!(runtime.server_forms().queued_busy_count(), 0);
+    assert_eq!(runtime.server_forms().focus(), 0);
+    assert_eq!(runtime.server_forms().scroll(), 0);
+    assert!(drain(&mut runtime).is_empty());
+    runtime.apply(retained(7, 4)).unwrap();
+    assert!(identity(&runtime).revision > old.revision);
+    assert_eq!(
+        runtime.respond_to_server_form(old, LocalFormAction::Dismiss),
+        Err(FormRespondError::StaleIdentity)
+    );
+    runtime.server_forms_mut().synchronize_epoch(2, 3);
+    assert!(
+        runtime.server_forms().active().is_none(),
+        "session replacement fences the same token"
     );
 }

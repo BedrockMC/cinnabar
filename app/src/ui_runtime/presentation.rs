@@ -33,6 +33,7 @@ use crate::{
 
 mod chat;
 mod dynamic_textures;
+mod forms;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod item_viewmodel;
@@ -222,6 +223,7 @@ pub struct UiPresentationRuntime {
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
+    form_presentation: forms::FormPresentation,
     loading_message: Option<&'static str>,
     startup: StartupPresentationState,
 }
@@ -302,6 +304,7 @@ impl UiPresentationRuntime {
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
+            form_presentation: forms::FormPresentation::default(),
             loading_message: None,
             startup: StartupPresentationState::default(),
         })
@@ -952,6 +955,14 @@ impl UiPresentationRuntime {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        self.append_server_form(
+            runtime,
+            &mut nodes,
+            &mut next_id,
+            metrics,
+            content_width,
+            content_height,
+        )?;
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;

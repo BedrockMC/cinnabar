@@ -1,0 +1,359 @@
+use super::forms_tests::retained;
+use crate::{
+    menu::{MenuClipboard, MenuRuntime, drive_menu_input},
+    ui_runtime::{
+        UiRuntime, drive_chat_keyboard_input, drive_server_form_input, flush_form_response,
+        presentation::{UiPresentationRuntime, tests::fixture_font},
+    },
+};
+use bevy::{
+    ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet},
+    input::{
+        ButtonState,
+        keyboard::{Key, KeyboardInput, NativeKey},
+        mouse::{AccumulatedMouseMotion, MouseWheel},
+    },
+    prelude::*,
+    time::Real,
+    window::{CursorOptions, PrimaryWindow},
+};
+
+#[test]
+fn production_committed_stream_poll_precedes_form_input_authority_without_moving_publication() {
+    use crate::{
+        app::{
+            ClientFrameSet, configure_client_frame_schedule,
+            configure_client_production_frame_systems,
+        },
+        runtime::world::{
+            drain_committed_ui_before_authority, drive_world_stream,
+            reconcile_world_stream_before_physics,
+        },
+    };
+    let mut app = App::new();
+    configure_client_frame_schedule(&mut app);
+    configure_client_production_frame_systems(&mut app);
+    let schedules = app.world().resource::<Schedules>();
+    let graph = schedules.get(Update).unwrap().graph();
+    let authority = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(ClientFrameSet::UiAuthority.intern())
+            .unwrap(),
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            production_system_node(graph, reconcile_world_stream_before_physics),
+            authority,
+        ),
+        "the real stream commit must precede admission-frame form/cursor authority"
+    );
+    let drain = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(
+                drain_committed_ui_before_authority
+                    .into_system_set()
+                    .intern(),
+            )
+            .unwrap(),
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            production_system_node(graph, reconcile_world_stream_before_physics),
+            drain,
+        ),
+        "the sole UI drain follows real committed stream reconciliation"
+    );
+    assert!(
+        graph.dependency().graph().contains_edge(
+            production_system_node(graph, drain_committed_ui_before_authority),
+            authority,
+        ),
+        "the actual sole committed UI consumer precedes form input"
+    );
+    let publication = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(ClientFrameSet::WorldPublication.intern())
+            .unwrap(),
+    );
+    assert!(
+        graph.hierarchy().graph().contains_edge(
+            publication,
+            production_system_node(graph, drive_world_stream)
+        ),
+        "render/world publication remains in its existing later phase"
+    );
+}
+
+fn production_system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeId {
+    let parent = NodeId::Set(
+        graph
+            .system_sets
+            .get_key(system.into_system_set().intern())
+            .unwrap(),
+    );
+    graph
+        .systems
+        .iter()
+        .find_map(|(key, _, _)| {
+            let child = NodeId::System(key);
+            graph
+                .hierarchy()
+                .graph()
+                .contains_edge(parent, child)
+                .then_some(child)
+        })
+        .unwrap()
+}
+
+fn app() -> (App, Entity) {
+    app_for(false)
+}
+fn app_for(unsupported: bool) -> (App, Entity) {
+    let mut app = App::new();
+    let mut menu = MenuRuntime::new(true, 2, "Test".into());
+    menu.set_visible(false);
+    let mut runtime = UiRuntime::new(1);
+    let mut event = retained(7, 1);
+    if unsupported && let protocol::UiEvent::Form(form) = &mut event.event {
+        form.model = protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls);
+    }
+    runtime.apply(event).unwrap();
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    presentation
+        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .unwrap();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<Touches>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .insert_resource(menu)
+        .add_systems(
+            Update,
+            (
+                drive_server_form_input,
+                drive_chat_keyboard_input,
+                drive_menu_input,
+            )
+                .chain(),
+        );
+    let entity = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    (app, entity)
+}
+fn press(app: &mut App, entity: Entity, key: KeyCode) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(key);
+    app.world_mut().write_message(KeyboardInput {
+        key_code: key,
+        logical_key: Key::Unidentified(NativeKey::Unidentified),
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window: entity,
+    });
+}
+
+#[test]
+fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges() {
+    for (action, unsupported) in [
+        (KeyCode::Enter, false),
+        (KeyCode::Escape, false),
+        (KeyCode::Enter, true),
+        (KeyCode::Escape, true),
+    ] {
+        let (mut app, entity) = app_for(unsupported);
+        for key in [KeyCode::KeyT, KeyCode::KeyE, KeyCode::KeyW, action] {
+            press(&mut app, entity, key);
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Right);
+        app.update();
+        let runtime = app.world().resource::<UiRuntime>();
+        assert!(
+            runtime.ui_focused(),
+            "transition-frame pending answer owns semantic context"
+        );
+        assert!(!runtime.chat_focused());
+        assert!(!runtime.inventory_open());
+        assert!(!app.world().resource::<MenuRuntime>().is_visible());
+        assert!(
+            app.world()
+                .resource::<ButtonInput<KeyCode>>()
+                .get_pressed()
+                .next()
+                .is_none()
+        );
+        assert!(
+            app.world()
+                .resource::<ButtonInput<MouseButton>>()
+                .get_pressed()
+                .next()
+                .is_none()
+        );
+        let mut packets = Vec::new();
+        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
+            packets.push(packet);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(packets.len(), 1);
+        app.update(); // returns cursor ownership without replaying old messages
+        assert!(!app.world().resource::<UiRuntime>().ui_focused());
+        assert!(!app.world().resource::<MenuRuntime>().is_visible());
+        press(&mut app, entity, KeyCode::KeyT);
+        app.update();
+        assert!(
+            app.world().resource::<UiRuntime>().chat_focused(),
+            "normal controls resume"
+        );
+    }
+}
+
+#[test]
+fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index() {
+    let (mut app, entity) = app();
+    press(&mut app, entity, KeyCode::ArrowDown);
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiRuntime>().server_forms().focus(),
+        1
+    );
+    press(&mut app, entity, KeyCode::Enter);
+    app.update();
+    let mut response = None;
+    flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
+        response = Some(packet);
+        Ok(())
+    })
+    .unwrap();
+    let wire = protocol::encode(
+        &response.unwrap(),
+        &protocol::BedrockSession { shield_item_id: 0 },
+    )
+    .unwrap();
+    assert_eq!(
+        wire,
+        protocol::encode(
+            &protocol::modal_form_submit_response(
+                7,
+                protocol::ModalFormResponseSelection::ButtonIndex(1)
+            ),
+            &protocol::BedrockSession { shield_item_id: 0 }
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
+    for stale in [false, true] {
+        let (mut app, entity) = app();
+        let point = ui::UiPoint::new(640.0, 156.0).unwrap();
+        let hit = app
+            .world()
+            .resource::<UiPresentationRuntime>()
+            .hit_test_form(point)
+            .unwrap();
+        assert_eq!(hit.1, crate::ui_runtime::LocalFormAction::SubmitButton(0));
+        if stale {
+            app.world_mut()
+                .resource_mut::<UiRuntime>()
+                .apply(retained(7, 2))
+                .unwrap();
+        }
+        app.world_mut()
+            .get_mut::<Window>(entity)
+            .unwrap()
+            .set_cursor_position(Some(Vec2::new(point.x(), point.y())));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        let sent =
+            flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(()))
+                .unwrap();
+        assert_eq!(sent, !stale);
+        assert!(
+            !flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(()))
+                .unwrap()
+        );
+        if stale {
+            assert!(
+                app.world()
+                    .resource::<UiRuntime>()
+                    .server_forms()
+                    .active()
+                    .is_some()
+            );
+        }
+        assert!(!app.world().resource::<MenuRuntime>().is_visible());
+    }
+}
+
+#[test]
+fn enter_reveals_a_hidden_button_before_it_can_submit() {
+    let (mut app, entity) = app();
+    let mut event = retained(7, 2);
+    if let protocol::UiEvent::Form(form) = &mut event.event
+        && let protocol::ServerFormModel::TextMenu(menu) = &mut form.model
+    {
+        menu.content = "Long body\n".repeat(100).into();
+        menu.omitted_images = 1;
+    }
+    let mut runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
+    runtime.apply(event).unwrap();
+    app.world_mut()
+        .resource_mut::<UiPresentationRuntime>()
+        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    assert!(
+        !app.world()
+            .resource::<UiPresentationRuntime>()
+            .form_button_visible(identity, 0)
+    );
+    app.insert_resource(runtime);
+    press(&mut app, entity, KeyCode::Enter);
+    app.update();
+    let runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
+    assert!(runtime.server_forms().active().is_some());
+    assert!(runtime.server_forms().scroll() > 0);
+    app.world_mut()
+        .resource_mut::<UiPresentationRuntime>()
+        .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .form_button_visible(identity, 0)
+    );
+    app.insert_resource(runtime);
+    press(&mut app, entity, KeyCode::Enter);
+    app.update();
+    assert!(
+        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap()
+    );
+    assert!(
+        !flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap()
+    );
+}

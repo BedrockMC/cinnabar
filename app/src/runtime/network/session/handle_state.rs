@@ -18,6 +18,7 @@ impl NetworkHandle {
         let (shutdown, _shutdown_rx) = watch::channel(false);
         (
             Self {
+                session_generation: 0,
                 control_events,
                 world_events,
                 commands,
