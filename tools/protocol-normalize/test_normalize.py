@@ -59,6 +59,11 @@ class NormalizationTests(unittest.TestCase):
 
     def test_numeric_extension_closure_is_canonical(self):
         text = self.input["types.rs"].decode()
+        self.assertTrue("EnumsLegacyTelemetryEventPacketPayloadType::Reserved8" in text)
+        self.assertTrue("EnumsLegacyTelemetryEventPacketPayloadType::Reserved9" in text)
+        for number in (8, 9):
+            self.assertEqual(normalizer.numeric_variant(text, "EnumsLegacyTelemetryEventPacketPayloadType", number),
+                             f"Reserved{number}")
         self.assertTrue("EnumsLegacyTelemetryEventPacketPayloadType::Reserved26" in text)
         self.assertTrue("LegacyTelemetryEventPacketEventData::Reserved18" in text)
         self.assertTrue("LegacyTelemetryEventPacketEventData::Reserved19" in text)
