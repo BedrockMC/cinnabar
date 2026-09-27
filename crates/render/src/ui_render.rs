@@ -37,6 +37,7 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
+#[path = "ui_render/textures.rs"]
 mod textures;
 use textures::UiGpuTextures;
 
