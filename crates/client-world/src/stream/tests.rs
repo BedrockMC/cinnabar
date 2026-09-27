@@ -1121,6 +1121,7 @@ enum Action {
     Update,
 }
 
+mod audio_events;
 #[path = "tests/camera_events.rs"]
 mod camera_events;
 mod cases_01;

@@ -14,6 +14,7 @@ use std::{
 };
 
 use assets::RuntimeAudioCatalog;
+use sha2::{Digest, Sha256};
 
 use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, VANILLA_SOURCE_JSON, canonical_source_manifest_sha256,
@@ -63,10 +64,14 @@ pub fn audio_assets_missing_notice(path: &Path) -> String {
 #[derive(Debug)]
 pub struct LoadedAudioAssets {
     runtime: Arc<RuntimeAudioCatalog>,
+    identity: [u8; 32],
     selected_path: PathBuf,
 }
 
 impl LoadedAudioAssets {
+    pub const fn identity(&self) -> [u8; 32] {
+        self.identity
+    }
     #[must_use]
     pub fn runtime(&self) -> &Arc<RuntimeAudioCatalog> {
         &self.runtime
@@ -165,6 +170,7 @@ pub fn load_audio_assets(
         });
     }
     Ok(Some(LoadedAudioAssets {
+        identity: Sha256::digest(&bytes).into(),
         runtime: Arc::new(runtime),
         selected_path: path,
     }))
