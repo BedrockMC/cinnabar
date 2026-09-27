@@ -1,15 +1,20 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 	"golang.org/x/oauth2"
 )
@@ -25,7 +30,128 @@ const (
 
 	maxSelectedResourcePacks          = 32
 	maxSelectedResourcePackTotalBytes = 128 * 1024 * 1024
+	maxResourcePackArchiveBytes       = 64 * 1024 * 1024
+	// Cinnabar safety bound on the download phase, below the client's login timeout.
+	maxResourcePackAcquisitionTime = 60 * time.Second
 )
+
+var (
+	errResourcePackAcquisitionTimeout = errors.New("proxy: resource-pack acquisition exceeded its time bound")
+	errResourcePackArchiveTooLarge    = errors.New("proxy: resource-pack archive exceeds its size bound")
+)
+
+// resourcePackAcquisitionBudget admits offered packs for download in offer
+// order until the count or byte bound is reached; later packs are ignored, not
+// fatal. A transfer that outgrows its bounds cancels the upstream dial.
+type resourcePackAcquisitionBudget struct {
+	proto  minecraft.Protocol
+	cancel context.CancelCauseFunc
+	limit  time.Duration
+
+	mu       sync.Mutex
+	accepted []bool
+	timer    *time.Timer
+}
+
+func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.CancelCauseFunc) *resourcePackAcquisitionBudget {
+	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel, limit: maxResourcePackAcquisitionTime}
+}
+
+// observe must see every inbound packet before gophertunnel handles it.
+func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, payload []byte) {
+	if budget == nil {
+		return
+	}
+	switch header.PacketID {
+	case packet.IDResourcePacksInfo:
+		info, ok := decodeInboundPacket[*packet.ResourcePacksInfo](budget.proto, header.PacketID, payload)
+		budget.admitOffer(info, ok)
+	case packet.IDResourcePackDataInfo:
+		info, ok := decodeInboundPacket[*packet.ResourcePackDataInfo](budget.proto, header.PacketID, payload)
+		if ok && info.Size > maxResourcePackArchiveBytes {
+			budget.cancel(errResourcePackArchiveTooLarge)
+		}
+	case packet.IDResourcePackStack, packet.IDStartGame:
+		budget.stop()
+	}
+}
+
+func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePacksInfo, decoded bool) {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	budget.accepted = nil
+	if !decoded {
+		return
+	}
+	budget.accepted = make([]bool, len(info.TexturePacks))
+	var total uint64
+	admitted := 0
+	for index, pack := range info.TexturePacks {
+		if admitted == maxSelectedResourcePacks || pack.Size > maxResourcePackArchiveBytes ||
+			pack.Size > maxSelectedResourcePackTotalBytes-total {
+			continue
+		}
+		total += pack.Size
+		admitted++
+		budget.accepted[index] = true
+	}
+	if budget.timer != nil {
+		budget.timer.Stop()
+		budget.timer = nil
+	}
+	if admitted != 0 {
+		budget.timer = time.AfterFunc(budget.limit, func() { budget.cancel(errResourcePackAcquisitionTimeout) })
+	}
+}
+
+// admit is the Dialer's DownloadResourcePack callback.
+func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index, total int) bool {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	return total == len(budget.accepted) && index >= 0 && index < total && budget.accepted[index]
+}
+
+func (budget *resourcePackAcquisitionBudget) stop() {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if budget.timer != nil {
+		budget.timer.Stop()
+		budget.timer = nil
+	}
+}
+
+// withResourcePackAcquisitionBudget routes pack admission and inbound packet
+// observation through budget, preserving any existing PacketFunc.
+func withResourcePackAcquisitionBudget(dialer minecraft.Dialer, budget *resourcePackAcquisitionBudget) minecraft.Dialer {
+	dialer.DownloadResourcePack = budget.admit
+	next := dialer.PacketFunc
+	dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
+		budget.observe(header, payload)
+		if next != nil {
+			next(header, payload, source, destination)
+		}
+	}
+	return dialer
+}
+
+// decodeInboundPacket decodes a payload with the connection's own protocol;
+// false means the packet cannot be trusted for budgeting.
+func decodeInboundPacket[T packet.Packet](proto minecraft.Protocol, id uint32, payload []byte) (decoded T, ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	factory, found := proto.Packets(false)[id]
+	if !found {
+		return decoded, false
+	}
+	pk := factory()
+	buf := bytes.NewBuffer(payload)
+	pk.Marshal(proto.NewReader(buf, 0, true))
+	decoded, ok = pk.(T)
+	return decoded, ok && buf.Len() == 0
+}
 
 // PackAdmissionError reports a typed, bounded pre-login pack failure.
 type PackAdmissionError struct {
@@ -53,18 +179,18 @@ type resourcePackOfferConnection interface {
 	ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot, bool) error
 }
 
-// configureResourcePackOffer advertises one empty optional offer and stack on
-// the private core-to-client hop. The pinned upstream Dialer has already
-// ignored the advertised packs using its supported DownloadResourcePack hook,
-// so no content exists to hand off until application is implemented.
+// configureResourcePackOffer offers only the acquired selected archives, in
+// stack order, and replays the exact upstream stack. The private hop is always
+// optional so an unavailable pack never blocks login; the client ignores stack
+// entries it was not offered.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
 		return errResourcePackStackUnavailable
 	}
-	if err := downstream.ConfigureResourcePackOffer(nil, false); err != nil {
+	if err := downstream.ConfigureResourcePackOffer(stack.packs, false); err != nil {
 		return err
 	}
-	return downstream.ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot{}, false)
+	return downstream.ConfigureResourcePackStack(stack.snapshot, false)
 }
 
 var (
@@ -85,16 +211,11 @@ type resourcePackStackSource interface {
 type selectedResourcePackStack struct {
 	packs    []*resource.Pack
 	required bool
-	offer    minecraft.ResourcePackOfferSnapshot
 	snapshot minecraft.ResourcePackStackSnapshot
 }
 
 func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResourcePackStack, error) {
 	source, ok := upstream.(resourcePackStackSource)
-	if !ok {
-		return nil, errResourcePackStackUnavailable
-	}
-	offer, ok := source.ResourcePackOffer()
 	if !ok {
 		return nil, errResourcePackStackUnavailable
 	}
@@ -123,7 +244,6 @@ func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResour
 		stack.release()
 		return nil, errResourcePackStackInvalid
 	}
-	stack.offer = offer
 	stack.snapshot = snapshot
 	return stack, nil
 }
@@ -158,7 +278,6 @@ func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf 
 func (stack *selectedResourcePackStack) release() {
 	if stack != nil {
 		stack.packs = nil
-		stack.offer = minecraft.ResourcePackOfferSnapshot{}
 		stack.snapshot = minecraft.ResourcePackStackSnapshot{}
 	}
 }
@@ -410,8 +529,13 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if target.clientData.nonce != "" {
 		dialer.ClientData.Nonce = target.clientData.nonce
 	}
-	upstream, err = connections.dialTarget(ctx, target, dialer)
+	dialCtx, cancelDial := context.WithCancelCause(ctx)
+	budget := newResourcePackAcquisitionBudget(dialer.Protocol, cancelDial)
+	dialer = withResourcePackAcquisitionBudget(dialer, budget)
+	upstream, err = connections.dialTarget(dialCtx, target, dialer)
+	budget.stop()
 	if err != nil {
+		cancelDial(nil)
 		return nil, err
 	}
 	packStack, err = connections.captureResourcePackStack(upstream)

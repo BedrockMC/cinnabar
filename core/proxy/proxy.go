@@ -463,10 +463,9 @@ func newUpstreamDialerForAdmission(
 	return dialer
 }
 
-// Returning false uses the pinned public gophertunnel ignore path: the offer
-// and selected stack remain observable, but no URL or local chunk acquisition
-// is attempted and login may continue even when the upstream required bit is
-// set.
+// ignoreResourcePack is the default until connect installs an acquisition
+// budget: ignored packs stay observable in the offer and stack, and login
+// continues even when the upstream required bit is set.
 func ignoreResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return false }
 
 func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {

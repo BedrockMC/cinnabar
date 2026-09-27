@@ -78,7 +78,7 @@ func TestNewUpstreamDialerDefaultsUpstreamClientCacheOff(t *testing.T) {
 	}
 }
 
-func TestNewUpstreamDialerDeclinesResourcePackAcquisitionForCompatibility(t *testing.T) {
+func TestNewUpstreamDialerDeclinesResourcePackAcquisitionWithoutBudget(t *testing.T) {
 	dialer := newUpstreamDialer(dialerTestDownstream{protocol: minecraft.DefaultProtocol}, nil)
 	if dialer.DownloadResourcePack == nil {
 		t.Fatal("DownloadResourcePack is nil, want explicit admission callback")
@@ -86,7 +86,7 @@ func TestNewUpstreamDialerDeclinesResourcePackAcquisitionForCompatibility(t *tes
 	for _, total := range []int{1, 8} {
 		for index := range total {
 			if dialer.DownloadResourcePack(uuid.New(), "1.0.0", index, total) {
-				t.Fatalf("pack %d/%d accepted, want dependency-supported ignore policy", index, total)
+				t.Fatalf("pack %d/%d accepted without an acquisition budget", index, total)
 			}
 		}
 	}

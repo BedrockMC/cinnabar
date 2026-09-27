@@ -27,6 +27,7 @@ const (
 	ResourcePackAcquisitionNone      ResourcePackAcquisition = "none"
 	ResourcePackAcquisitionComplete  ResourcePackAcquisition = "complete"
 	ResourcePackAcquisitionIgnored   ResourcePackAcquisition = "ignored"
+	ResourcePackAcquisitionPartial   ResourcePackAcquisition = "partial"
 	ResourcePackAcquisitionFailed    ResourcePackAcquisition = "failed"
 	ResourcePackAcquisitionCancelled ResourcePackAcquisition = "cancelled"
 )
@@ -102,55 +103,60 @@ func newResourcePackAdmissionTelemetry(id uint64, callback func(ResourcePackAdmi
 
 func (telemetry *resourcePackAdmissionTelemetry) observeOffer(upstream upstreamSession) {
 	packs := upstream.ResourcePacks()
-	count := len(packs)
+	acquired := 0
+	for _, pack := range packs {
+		if pack != nil {
+			acquired++
+		}
+	}
+	count := acquired
 	required := upstream.TexturePacksRequired()
-	acquisition := ResourcePackAcquisitionComplete
 	var total uint64
 	if source, ok := upstream.(resourcePackStackSource); ok {
 		if offer, available := source.ResourcePackOffer(); available {
 			entries := offer.TexturePacks()
 			count = len(entries)
 			required = required || offer.TexturePackRequired()
-			acquisition = ResourcePackAcquisitionIgnored
 			for _, entry := range entries {
-				size := entry.Info().Size
-				if size > math.MaxUint64-total {
-					total = math.MaxUint64
-					break
-				}
-				total += size
+				total = saturatingAdd(total, entry.Info().Size)
 			}
 		}
 	}
-	if count > math.MaxUint32 {
-		count = math.MaxUint32
-	}
-	if total == 0 && len(packs) != 0 {
+	if total == 0 {
 		for _, pack := range packs {
-			if pack == nil {
-				continue
+			if pack != nil {
+				total = saturatingAdd(total, uint64(pack.Size()))
 			}
-			size := uint64(pack.Size())
-			if size > math.MaxUint64-total {
-				total = math.MaxUint64
-				break
-			}
-			total += size
 		}
 	}
 	offer := ResourcePackOfferNone
-	if count == 0 {
-		acquisition = ResourcePackAcquisitionNone
-	} else {
+	acquisition := ResourcePackAcquisitionNone
+	switch {
+	case count == 0:
+	case acquired >= count:
+		acquisition = ResourcePackAcquisitionComplete
+	case acquired == 0:
+		acquisition = ResourcePackAcquisitionIgnored
+	default:
+		acquisition = ResourcePackAcquisitionPartial
+	}
+	if count != 0 {
 		offer = ResourcePackOfferOptional
 		if required {
 			offer = ResourcePackOfferRequired
 		}
 	}
 	telemetry.mu.Lock()
-	telemetry.offer, telemetry.packCount, telemetry.totalBytes = offer, uint32(count), total
+	telemetry.offer, telemetry.packCount, telemetry.totalBytes = offer, uint32(min(count, math.MaxUint32)), total
 	telemetry.acquisition = acquisition
 	telemetry.mu.Unlock()
+}
+
+func saturatingAdd(total, size uint64) uint64 {
+	if size > math.MaxUint64-total {
+		return math.MaxUint64
+	}
+	return total + size
 }
 
 func (telemetry *resourcePackAdmissionTelemetry) observeNegotiation() {
@@ -181,16 +187,25 @@ func (telemetry *resourcePackAdmissionTelemetry) observePolicyOutcome(stack *sel
 	switch {
 	case stack == nil || !configured || telemetry.offer == ResourcePackOfferNone:
 		telemetry.downstream = ResourcePackDownstreamNone
-	default:
+	case len(stack.packs) == 0:
 		telemetry.downstream = ResourcePackDownstreamStrippedIgnored
+	default:
+		telemetry.downstream = ResourcePackDownstreamOfferedOptional
 	}
 	telemetry.mu.Unlock()
 	telemetry.publishUpdate()
 }
 
-func (telemetry *resourcePackAdmissionTelemetry) observeLocalHandoff(_ *selectedResourcePackStack) {
-	// The compatibility handoff is deliberately empty and one-shot. Keep the
-	// policy outcome stable instead of implying any content was transferred.
+func (telemetry *resourcePackAdmissionTelemetry) observeLocalHandoff(stack *selectedResourcePackStack) {
+	if telemetry == nil || stack == nil || len(stack.packs) == 0 {
+		return
+	}
+	telemetry.mu.Lock()
+	if telemetry.downstream == ResourcePackDownstreamOfferedOptional {
+		telemetry.downstream = ResourcePackDownstreamHandedOffOptional
+	}
+	telemetry.mu.Unlock()
+	telemetry.publishUpdate()
 }
 
 func (telemetry *resourcePackAdmissionTelemetry) snapshot() ResourcePackAdmissionSnapshot {
