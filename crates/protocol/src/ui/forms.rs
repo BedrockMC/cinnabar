@@ -338,17 +338,6 @@ pub fn modal_form_submit_response(
     .into()
 }
 
-/// Encodes the vanilla user-closed dismissal: response data absent(0), cancel
-/// reason present(1) as the `UserClosed` wire value 0.
-pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
-    ModalFormResponsePacket {
-        form_id,
-        json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::UserClosed),
-    }
-    .into()
-}
-
 /// An overlapping dialog cannot take ownership of an already occupied UI.
 /// UserBusy is wire value 1 in the pinned response schema.
 pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
@@ -356,6 +345,17 @@ pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
         form_id,
         json_response: None,
         form_cancel_reason: Some(EnumsModalFormCancelReason::UserBusy),
+    }
+    .into()
+}
+
+/// Encodes the vanilla user-closed dismissal: response data absent(0), cancel
+/// reason present(1) as the `UserClosed` wire value 0.
+pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
+    ModalFormResponsePacket {
+        form_id,
+        json_response: None,
+        form_cancel_reason: Some(EnumsModalFormCancelReason::UserClosed),
     }
     .into()
 }
