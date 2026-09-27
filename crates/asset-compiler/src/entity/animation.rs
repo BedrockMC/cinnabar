@@ -814,10 +814,9 @@ fn compile_rigs(
                 } else if let Some(&clip) = clip_indices.get(&(target.clone(), candidate_geometry))
                 {
                     animation_bindings.push((name.clone(), clip));
-                } else if animation_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
                 } else {
-                    rejected = true;
+                    // A reference the pack never defines leaves the rig static.
+                    static_fallback = true;
                 }
             }
             for (name, target) in &controller_aliases {
@@ -839,10 +838,8 @@ fn compile_rigs(
                     candidate_geometry,
                 )) {
                     controller_bindings.push((name.clone(), target.clone()));
-                } else if controller_symbols.contains_key(target.as_ref()) {
-                    static_fallback = true;
                 } else {
-                    rejected = true;
+                    static_fallback = true;
                 }
             }
             animation_bindings.sort_by(|left, right| left.0.cmp(&right.0));
