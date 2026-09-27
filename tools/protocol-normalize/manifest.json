@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "upstream_revision": "870bb549c701a0c03472c66441449c4b70a8454a",
+  "packet_ids": [109, 137, 150, 170, 178, 181, 183, 304],
+  "field_ordinals": {"CraftingDataPacket": [4, 5, 10], "LevelSettings": [12, 13, 14, 44]},
+  "enum_values": {"EnumsContainerEnumName": [35, 36, 37, 38, 39, 40], "EnumsItemStackRequestActionType": [9], "EnumsLegacyTelemetryEventPacketPayloadType": [8, 9, 26, 27], "EnumsPlayStatus": [5, 6], "EnumsConnectionDisconnectFailReason": [11, 131, 132], "EnumsActorType": [78, 107, 312, 318, 4194410], "EnumsActorEvent": [36, 71, 73], "EnumsPhotoType": [0, 1]},
+  "action_unions": ["ItemStackRequestCerealRequestDataActionsItem", "ItemStackRequestPacketDataRequestDataActionsItem"],
+  "action_union_discriminator": 7,
+  "reserved_unions": [
+    {"owner":"LegacyTelemetryEventPacketEventData","discriminator":18,"neutral":"ReservedPacket65Event18","field_types":["String"]},
+    {"owner":"LegacyTelemetryEventPacketEventData","discriminator":19,"neutral":"ReservedPacket65Event19","field_types":["String","i32"]}
+  ],
+  "supporting_records": [
+    {"packet":109,"path":[0],"neutral":"ReservedPacket109Field0"},
+    {"packet":109,"path":[2],"neutral":"ReservedPacket109Field2"},
+    {"packet":137,"path":[0],"neutral":"ReservedPacket137Field0"},
+    {"packet":137,"path":[0,7],"neutral":"ReservedPacket137Field0Field7"},
+    {"packet":137,"path":[0,9],"neutral":"ReservedPacket137Field0Field9"},
+    {"packet":170,"path":[0],"neutral":"ReservedPacket170Field0"},
+    {"packet":178,"path":[0],"neutral":"ReservedPacket178Field0"},
+    {"packet":178,"path":[1],"neutral":"ReservedPacket178Field1"},
+    {"packet":178,"path":[2],"neutral":"ReservedPacket178Field2"},
+    {"packet":181,"path":[1],"neutral":"ReservedPacket181Field1"},
+    {"packet":304,"path":[0],"neutral":"ReservedPacket304Field0"},
+    {"owner":"CraftingDataPacket","path":[10],"neutral":"ReservedCraftingVector10Entry"},
+    {"owner":"CraftingDataPacket","path":[10,1],"neutral":"ReservedCraftingVector10EntryField1"},
+    {"owner":"LevelSettings","path":[12],"neutral":"ReservedLevelSettingsField12"}
+  ],
+  "shared_incoming_fields": [["CraftingDataPacket",10],["LevelSettings",12],["LevelSettings",44]],
+  "input_sha256": {
+    "common.rs":"f3bffd9fa5ec9e9f2a1031ba509d6e77d3ff5db6ced3d3126a97863a7f439fcf",
+    "mcpe.rs":"6b7aa1ff0f82207350311b079621d14503f2697dff0f03682e1cb8dca2dce2e5",
+    "proto.rs":"13adb5f89423cbd13bb34a9953262a95f0415b635d5741c89e113ccb4a18d7e3",
+    "types.rs":"1ca0d06a54287477769344188e316462df22a0a4ec9b1e2e65a3d4d11c0f8bbe",
+    "borrowed.rs":"88ae114b80b0ed85a1f01c623f5bc9c969df79364da8fd3850b2926083dd626b"
+  },
+  "normalized_sha256": {
+    "common.rs":"14a27b7da0279b4799c6eff86a84583ce1ffce8ed6915e50c1596fe750e61767",
+    "mcpe.rs":"d2881264fcea06a480d9edaf8f9bdb6e3e8f897cced531287e551a3ca9087941",
+    "proto.rs":"ddd6425ad53119834ee97024d1cc4aca73b2018a0ed286a4fa4583f606bef807",
+    "types.rs":"34d08c671f866ce382240e87d19bfdc0622955c14deea7a83d55a5fd39081446",
+    "borrowed.rs":"ae5565f467ddd3b13a351ba4c9aaeaaca4806dcbb07fdbfd28154380a16b7f72"
+  },
+  "preformat_sha256": {
+    "common.rs": "14a27b7da0279b4799c6eff86a84583ce1ffce8ed6915e50c1596fe750e61767",
+    "mcpe.rs": "d2881264fcea06a480d9edaf8f9bdb6e3e8f897cced531287e551a3ca9087941",
+    "proto.rs": "83a9a41baaf7fb8a156e606e8209dd88dcd05a33879c3b276ebf91d0d795881d",
+    "types.rs": "4ccf39cc8d588fad256467aeda41e1b0e614107a0d3a6c31a8246c9c70973d10",
+    "borrowed.rs": "18e9364d7229418d3c0acb4ca4d064a8385fd1ee68a1053064d4fe8e5716ecd1"
+  },
+  "layout_edits": {
+    "common.rs": [],
+    "mcpe.rs": [],
+    "proto.rs": [
+      {
+        "offset": 295767,
+        "before": "            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(\n                buf,\n                (),\n            )?;\n",
+        "after": "            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      },
+      {
+        "offset": 343155,
+        "before": "        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 433539,
+        "before": "        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 450196,
+        "before": "        let reserved_field_0 = <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(\n            buf,\n            (),\n        )?;\n        let reserved_field_1 = <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(\n            buf,\n            (),\n        )?;\n        let reserved_field_2 = <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(\n            buf,\n            (),\n        )?;\n",
+        "after": "        let reserved_field_0 =\n            <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n        let reserved_field_1 =\n            <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n        let reserved_field_2 =\n            <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      },
+      {
+        "offset": 501288,
+        "before": "        let reserved_field_1 = <ActorRuntimeId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n",
+        "after": "        let reserved_field_1 =\n            <ActorRuntimeId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      }
+    ],
+    "types.rs": [
+      {
+        "offset": 432184,
+        "before": "        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 435119,
+        "before": "        Ok(Self { reserved_field_0, reserved_field_1 })\n",
+        "after": "        Ok(Self {\n            reserved_field_0,\n            reserved_field_1,\n        })\n"
+      },
+      {
+        "offset": 440350,
+        "before": "        let reserved_field_2 =\n            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n",
+        "after": "        let reserved_field_2 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      },
+      {
+        "offset": 442222,
+        "before": "            <ReservedPacket137Field0Field7 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n        let reserved_field_8 =\n            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n",
+        "after": "            <ReservedPacket137Field0Field7 as crate::bedrock::codec::BedrockCodec>::decode(\n                buf,\n                (),\n            )?;\n        let reserved_field_8 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      },
+      {
+        "offset": 442565,
+        "before": "                    <ReservedPacket137Field0Field9 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,\n",
+        "after": "                    <ReservedPacket137Field0Field9 as crate::bedrock::codec::BedrockCodec>::decode(\n                        buf,\n                        (),\n                    )?,\n"
+      },
+      {
+        "offset": 746252,
+        "before": "impl crate::bedrock::codec::BedrockSized\n    for ReservedPacket65Event18\n{\n",
+        "after": "impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event18 {\n"
+      },
+      {
+        "offset": 746658,
+        "before": "impl crate::bedrock::codec::BedrockCodec\n    for ReservedPacket65Event18\n{\n",
+        "after": "impl crate::bedrock::codec::BedrockCodec for ReservedPacket65Event18 {\n"
+      },
+      {
+        "offset": 747878,
+        "before": "        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 748093,
+        "before": "impl crate::bedrock::codec::BedrockSized\n    for ReservedPacket65Event19\n{\n",
+        "after": "impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event19 {\n"
+      },
+      {
+        "offset": 748646,
+        "before": "impl crate::bedrock::codec::BedrockCodec\n    for ReservedPacket65Event19\n{\n",
+        "after": "impl crate::bedrock::codec::BedrockCodec for ReservedPacket65Event19 {\n"
+      },
+      {
+        "offset": 851792,
+        "before": "        let reserved_field_13 =\n            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n",
+        "after": "        let reserved_field_13 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      }
+    ],
+    "borrowed.rs": [
+      {
+        "offset": 379168,
+        "before": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_1).as_bytes().len()) as u32).encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_1).as_bytes().len()) as u32)\n            .encode(buf)?;\n"
+      },
+      {
+        "offset": 380026,
+        "before": "            + (&self.reserved_field_0)\n                .as_ref()\n                .map_or(0usize, |_value| {\n                    crate::bedrock::codec::BedrockSized::encoded_size(\n                        &crate::bedrock::codec::VarUInt(((_value).as_bytes().len()) as u32),\n                    ) + (_value).as_bytes().len()\n                })\n",
+        "after": "            + (&self.reserved_field_0).as_ref().map_or(0usize, |_value| {\n                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(\n                    ((_value).as_bytes().len()) as u32,\n                )) + (_value).as_bytes().len()\n            })\n"
+      },
+      {
+        "offset": 380672,
+        "before": "        let reserved_field_0 =\n            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {\n                Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)\n            } else {\n                None\n            };\n        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        let reserved_field_0 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {\n            Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)\n        } else {\n            None\n        };\n        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 383252,
+        "before": "        Ok(Self { reserved_field_0, reserved_field_1 })\n",
+        "after": "        Ok(Self {\n            reserved_field_0,\n            reserved_field_1,\n        })\n"
+      },
+      {
+        "offset": 383656,
+        "before": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32).encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)\n            .encode(buf)?;\n"
+      },
+      {
+        "offset": 386271,
+        "before": "            + (&self.reserved_field_6)\n                .as_ref()\n                .map_or(0usize, |_value| {\n                    crate::bedrock::codec::BedrockSized::encoded_size(_value)\n                })\n",
+        "after": "            + (&self.reserved_field_6).as_ref().map_or(0usize, |_value| {\n                crate::bedrock::codec::BedrockSized::encoded_size(_value)\n            })\n"
+      },
+      {
+        "offset": 386673,
+        "before": "            + (&self.reserved_field_9)\n                .as_ref()\n                .map_or(0usize, |_value| {\n                    crate::bedrock::codec::BedrockSized::encoded_size(_value)\n                })\n",
+        "after": "            + (&self.reserved_field_9).as_ref().map_or(0usize, |_value| {\n                crate::bedrock::codec::BedrockSized::encoded_size(_value)\n            })\n"
+      },
+      {
+        "offset": 387363,
+        "before": "        let reserved_field_2 =\n            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n",
+        "after": "        let reserved_field_2 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      },
+      {
+        "offset": 387660,
+        "before": "        let reserved_field_5 =\n            crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;\n        let reserved_field_6 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?\n        {\n",
+        "after": "        let reserved_field_5 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;\n        let reserved_field_6 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {\n"
+      },
+      {
+        "offset": 388224,
+        "before": "        let reserved_field_8 =\n            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n        let reserved_field_9 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(\n            buf,\n            (),\n        )? {\n",
+        "after": "        let reserved_field_8 = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n        let reserved_field_9 = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {\n"
+      },
+      {
+        "offset": 390029,
+        "before": "        crate::bedrock::codec::VarUInt(\n            ((&self.reserved_field_5).as_bytes().len()) as u32,\n        )\n        .encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_5).as_bytes().len()) as u32)\n            .encode(buf)?;\n"
+      },
+      {
+        "offset": 390819,
+        "before": "            reserved_field_0: (value.reserved_field_0)\n                .to_string_lossy()\n                .into_owned(),\n",
+        "after": "            reserved_field_0: (value.reserved_field_0).to_string_lossy().into_owned(),\n"
+      },
+      {
+        "offset": 391222,
+        "before": "            reserved_field_5: (value.reserved_field_5)\n                .to_string_lossy()\n                .into_owned(),\n",
+        "after": "            reserved_field_5: (value.reserved_field_5).to_string_lossy().into_owned(),\n"
+      },
+      {
+        "offset": 468411,
+        "before": "impl crate::bedrock::borrowed::BedrockBorrowDecode\n    for ReservedStackRequestAction9View\n{\n",
+        "after": "impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedStackRequestAction9View {\n"
+      },
+      {
+        "offset": 469346,
+        "before": "impl From<ReservedStackRequestAction9View>\n    for ReservedStackRequestAction9\n{\n",
+        "after": "impl From<ReservedStackRequestAction9View> for ReservedStackRequestAction9 {\n"
+      },
+      {
+        "offset": 523667,
+        "before": "impl crate::bedrock::codec::BedrockSized\n    for ReservedPacket65Event18View\n{\n",
+        "after": "impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event18View {\n"
+      },
+      {
+        "offset": 524043,
+        "before": "impl crate::bedrock::borrowed::BedrockBorrowDecode\n    for ReservedPacket65Event18View\n{\n",
+        "after": "impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket65Event18View {\n"
+      },
+      {
+        "offset": 524338,
+        "before": "        let reserved_field_0 =\n            crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;\n        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        let reserved_field_0 = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;\n        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 524844,
+        "before": "        crate::bedrock::codec::VarUInt(\n            ((&self.reserved_field_0).as_bytes().len()) as u32,\n        )\n        .encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)\n            .encode(buf)?;\n"
+      },
+      {
+        "offset": 525064,
+        "before": "impl From<ReservedPacket65Event18View>\n    for ReservedPacket65Event18\n{\n",
+        "after": "impl From<ReservedPacket65Event18View> for ReservedPacket65Event18 {\n"
+      },
+      {
+        "offset": 525234,
+        "before": "            reserved_field_0: (value.reserved_field_0)\n                .to_string_lossy()\n                .into_owned(),\n",
+        "after": "            reserved_field_0: (value.reserved_field_0).to_string_lossy().into_owned(),\n"
+      },
+      {
+        "offset": 525547,
+        "before": "impl crate::bedrock::codec::BedrockSized\n    for ReservedPacket65Event19View\n{\n",
+        "after": "impl crate::bedrock::codec::BedrockSized for ReservedPacket65Event19View {\n"
+      },
+      {
+        "offset": 526077,
+        "before": "impl crate::bedrock::borrowed::BedrockBorrowDecode\n    for ReservedPacket65Event19View\n{\n",
+        "after": "impl crate::bedrock::borrowed::BedrockBorrowDecode for ReservedPacket65Event19View {\n"
+      },
+      {
+        "offset": 527373,
+        "before": "impl From<ReservedPacket65Event19View>\n    for ReservedPacket65Event19\n{\n",
+        "after": "impl From<ReservedPacket65Event19View> for ReservedPacket65Event19 {\n"
+      },
+      {
+        "offset": 1017317,
+        "before": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_4).len()) as u32)\n            .encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_4).len()) as u32).encode(buf)?;\n"
+      },
+      {
+        "offset": 1017512,
+        "before": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_5).len()) as u32)\n            .encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_5).len()) as u32).encode(buf)?;\n"
+      },
+      {
+        "offset": 1163960,
+        "before": "            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(\n                buf,\n                (),\n            )?;\n",
+        "after": "            <ReservedPacket109Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      },
+      {
+        "offset": 1222232,
+        "before": "        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 1247808,
+        "before": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32).encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)\n            .encode(buf)?;\n"
+      },
+      {
+        "offset": 1300447,
+        "before": "        Ok(Self {\n            reserved_field_0,\n        })\n",
+        "after": "        Ok(Self { reserved_field_0 })\n"
+      },
+      {
+        "offset": 1315000,
+        "before": "        let reserved_field_0 = <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(\n            buf,\n            (),\n        )?;\n        let reserved_field_1 = <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(\n            buf,\n            (),\n        )?;\n        let reserved_field_2 = <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(\n            buf,\n            (),\n        )?;\n",
+        "after": "        let reserved_field_0 =\n            <ReservedPacket178Field0 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n        let reserved_field_1 =\n            <ReservedPacket178Field1 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n        let reserved_field_2 =\n            <ReservedPacket178Field2 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;\n"
+      },
+      {
+        "offset": 1324571,
+        "before": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32).encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_0).as_bytes().len()) as u32)\n            .encode(buf)?;\n"
+      },
+      {
+        "offset": 1324783,
+        "before": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_2).as_bytes().len()) as u32).encode(buf)?;\n",
+        "after": "        crate::bedrock::codec::VarUInt(((&self.reserved_field_2).as_bytes().len()) as u32)\n            .encode(buf)?;\n"
+      },
+      {
+        "offset": 1521873,
+        "before": "            Self::ReservedPacket109(view) => Ok(crate::McpePacketData::ReservedPacket109(view.into())),\n",
+        "after": "            Self::ReservedPacket109(view) => {\n                Ok(crate::McpePacketData::ReservedPacket109(view.into()))\n            }\n"
+      },
+      {
+        "offset": 1525103,
+        "before": "            Self::ReservedPacket137(view) => Ok(\n                crate::McpePacketData::ReservedPacket137(Box::new(view.into())),\n            ),\n",
+        "after": "            Self::ReservedPacket137(view) => Ok(crate::McpePacketData::ReservedPacket137(\n                Box::new(view.into()),\n            )),\n"
+      }
+    ]
+  }
+}

@@ -24,6 +24,24 @@ preserving its local shared-codec and Jolyne transport hardening.
 
 ## Local source patches
 
+Generated protocol reservations are normalized locally after generation by
+`tools/protocol-normalize/normalize.py` and its pinned neutral-only manifest.
+Numeric packet selectors, enum values, union discriminators and field ordinals
+select reserved API bindings, including their supporting owned/borrowed records
+and debug labels. Shared retail records remain unchanged. This is a local
+generated-source naming patch, not pristine upstream output: codecs, numeric
+wire values, field order, sizing, limits, allocation and error paths are retained.
+The tool validates complete input/output fingerprints and a reversible scoped
+binding transformation plus an exact reversible, fingerprinted local layout
+patch before emitting an `apply_patch` patch. The layout spans reproduce the
+reviewed Rust formatting without invoking a formatter at tool runtime; they
+do not generalize syntax transformations. Uniform LF and CRLF input retain
+their line endings, while mixed line endings are refused. The tool never edits
+upstream repositories or generator inputs. Run the tool without `--patch` to
+check canonical output, and run its stdlib Python unit tests separately. The
+Rust protocol suite independently checks the complete normalized source hashes
+without requiring Python. Existing conformance fixture bytes remain unchanged.
+
 The retained Jolyne changes preserve negotiated compression, bounded batch
 ingress, deferred packets, strict login sequencing, compact raw-frame error
 context, and exact packet-entry boundary checks. The shared codec includes a
