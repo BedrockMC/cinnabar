@@ -145,6 +145,7 @@ fn replay_with_admitted_future_ticks(
 }
 
 include!("integration_tests/basics.rs");
+include!("integration_tests/replay_controls.rs");
 include!("integration_tests/replay_retry.rs");
 include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
