@@ -105,6 +105,9 @@ impl ActorStore {
     pub(crate) fn len(&self) -> usize {
         self.actors.len()
     }
+    pub(crate) fn actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
+        self.actors.values()
+    }
     pub(crate) fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.animation.get(runtime_id)
     }

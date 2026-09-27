@@ -26,7 +26,7 @@ pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsA
 pub use collision_registries::PhysicsCollisionRegistries;
 pub(crate) use correction_shape::reconcile_committed_correction;
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
-pub(crate) use effects::LocalMovementEffectTimeline;
+pub(crate) use effects::{LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
@@ -72,7 +72,6 @@ struct QueuedPhysicsSample {
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
     mining: Option<crate::mining::QueuedMiningInteraction>,
-    block_use: Option<crate::block_use::QueuedBlockUseInteraction>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +131,7 @@ pub struct MovementTicker {
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
-    block_use_epoch_publisher: watch::Sender<u64>,
+    survival_epoch_publisher: watch::Sender<u64>,
 }
 
 #[cfg(test)]
@@ -146,7 +145,7 @@ impl Default for MovementTicker {
 impl MovementTicker {
     pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
         let (mining_epoch_publisher, _mining_epoch_receiver) = watch::channel(0);
-        let (block_use_epoch_publisher, _block_use_epoch_receiver) = watch::channel(0);
+        let (survival_epoch_publisher, _survival_epoch_receiver) = watch::channel(0);
         Self {
             session_active: false,
             source: MovementSource::default(),
@@ -175,7 +174,7 @@ impl MovementTicker {
             unmarked_move_players_observed: 0,
             epoch_publisher,
             mining_epoch_publisher,
-            block_use_epoch_publisher,
+            survival_epoch_publisher,
         }
     }
 
@@ -344,7 +343,6 @@ impl MovementTicker {
             world_identity: completed.world_identity,
             evidence,
             mining: None,
-            block_use: None,
         });
         Ok(())
     }
