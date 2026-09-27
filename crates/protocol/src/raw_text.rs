@@ -196,7 +196,7 @@ fn resolve_component(
 /// escapes one percent sign; an out-of-range reference keeps its literal
 /// form, and a non-numeric argument for `%.Nf` presents verbatim.
 fn format_translation(template: &str, arguments: &[String]) -> String {
-    let mut output = TranslationPrefix::new();
+    let mut output = TranslationPrefix::new(template.len());
     let mut sequential = 0usize;
     let mut chars = template.char_indices().peekable();
     while let Some((_, current)) = chars.next() {
@@ -277,9 +277,9 @@ struct TranslationPrefix {
 }
 
 impl TranslationPrefix {
-    fn new() -> Self {
+    fn new(template_bytes: usize) -> Self {
         Self {
-            text: String::with_capacity(MAX_FORMATTED_PREFIX_BYTES),
+            text: String::with_capacity(template_bytes.min(MAX_FORMATTED_PREFIX_BYTES)),
             sealed: false,
         }
     }
@@ -294,17 +294,28 @@ impl TranslationPrefix {
             return;
         }
         let remaining = MAX_FORMATTED_PREFIX_BYTES - self.text.len();
-        if text.len() <= remaining {
-            self.text.push_str(text);
-            return;
-        }
-        let mut end = remaining;
+        let mut end = text.len().min(remaining);
         while !text.is_char_boundary(end) {
             end -= 1;
         }
+        let required = self
+            .text
+            .len()
+            .checked_add(end)
+            .expect("bounded prefix length cannot overflow");
+        if required > self.text.capacity() {
+            let geometric = self
+                .text
+                .capacity()
+                .saturating_mul(2)
+                .clamp(16, MAX_FORMATTED_PREFIX_BYTES);
+            let target = required.max(geometric);
+            // reserve_exact's additional count is relative to length, not capacity.
+            self.text.reserve_exact(target - self.text.len());
+        }
         self.text.push_str(&text[..end]);
         // Discard the entire suffix, including later smaller ASCII scalars.
-        self.sealed = true;
+        self.sealed = end < text.len();
     }
 }
 
@@ -792,10 +803,37 @@ mod formatting_tests {
     }
 
     #[test]
-    fn short_translation_keeps_text_but_reserves_the_fixed_prefix_capacity() {
+    fn short_translation_keeps_text_without_unnecessary_capacity_growth() {
+        let mut prefix = TranslationPrefix::new(5);
+        let initial_capacity = prefix.text.capacity();
+        prefix.push_str("hello");
+        assert_eq!(prefix.text, "hello");
+        assert_eq!(prefix.text.capacity(), initial_capacity);
         let formatted = format_translation("hello", &[]);
         assert_eq!(formatted, "hello");
-        assert!(formatted.capacity() >= MAX_FORMATTED_PREFIX_BYTES);
+        assert_eq!(formatted.capacity(), initial_capacity);
+        assert_eq!(format_translation("", &[]).capacity(), 0);
+    }
+
+    #[test]
+    fn formatted_prefix_growth_is_capped_and_geometric() {
+        let mut prefix = TranslationPrefix::new(0);
+        let mut capacity = prefix.text.capacity();
+        let mut growths = 0;
+        for _ in 0..(MAX_FORMATTED_PREFIX_BYTES + 32) {
+            prefix.push('a');
+            if prefix.text.capacity() != capacity {
+                growths += 1;
+                capacity = prefix.text.capacity();
+            }
+            // Observed String capacity is not a physical allocator/RSS guarantee.
+            assert!(capacity <= MAX_FORMATTED_PREFIX_BYTES);
+        }
+        assert_eq!(prefix.text.len(), MAX_FORMATTED_PREFIX_BYTES);
+        assert!(prefix.sealed);
+        assert!(growths <= 11);
+        prefix.push_str("Z");
+        assert_eq!(prefix.text.len(), MAX_FORMATTED_PREFIX_BYTES);
     }
 
     #[test]
