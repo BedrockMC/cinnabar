@@ -73,6 +73,31 @@ impl UiPresentationRuntime {
         cell_hit(gui, geometry, screen)
     }
 
+    /// Whether a GUI point lies on the drawn inventory panel.
+    pub(crate) fn inventory_panel_contains(
+        &self,
+        gui: [f32; 2],
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+        screen: InventoryScreen,
+    ) -> bool {
+        let Some(geometry) = self.inventory_geometry(physical_size, dpi_scale) else {
+            return false;
+        };
+        let height = match screen {
+            InventoryScreen::Storage(count) => 114.0 + (count / 9) as f32 * SLOT_SIZE,
+            InventoryScreen::Personal | InventoryScreen::Workbench => PANEL_SIZE[1],
+        };
+        let origin = [
+            ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),
+            ((geometry.gui_height - height) * 0.5).floor(),
+        ];
+        gui[0] >= origin[0]
+            && gui[0] < origin[0] + PANEL_SIZE[0]
+            && gui[1] >= origin[1]
+            && gui[1] < origin[1] + height
+    }
+
     fn inventory_geometry(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<HudGeometry> {
         HudGeometry::new(
             physical_size,
