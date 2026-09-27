@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+hashbrown = "0.16"
 thiserror.workspace = true
 
 [dev-dependencies]
