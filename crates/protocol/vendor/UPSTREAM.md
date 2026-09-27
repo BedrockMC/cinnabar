@@ -44,7 +44,9 @@ without requiring Python. Existing conformance fixture bytes remain unchanged.
 
 The retained Jolyne changes preserve negotiated compression, bounded batch
 ingress, deferred packets, strict login sequencing, compact raw-frame error
-context, and exact packet-entry boundary checks. The shared codec includes a
+context, exact packet-entry boundary checks, and a stack-encoded packet-ID
+varint in raw header decoding (resolution still goes through the generated
+codec, whose normalized source stays hash-locked). The shared codec includes a
 fixed-width little-endian NBT scanner with bounded nesting and Bedrock UUID
 encoding as two little-endian `u64` halves.
 
