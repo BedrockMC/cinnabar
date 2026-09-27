@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 use thiserror::Error;
 
 use crate::{
-    CollisionWorld, MovementInput, PlayerState, SimulationError, Simulator, TickResult, Vec3,
-    simulator::validate_player_state,
+    CollisionWorld, ControlledTickResult, MovementInput, PlayerState, SimulationError, Simulator,
+    TickResult, Vec3, simulator::validate_player_state,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,6 +116,18 @@ impl PredictionHistory {
         simulator: &Simulator,
         world: &impl CollisionWorld,
     ) -> Result<TickResult, PredictionError> {
+        self.predict_with_controls(state, input, simulator, world)
+            .map(|output| output.tick_result)
+    }
+
+    /// Predicts with the completed tick's pre-impulse primary controls.
+    pub fn predict_with_controls(
+        &mut self,
+        state: &mut PlayerState,
+        input: MovementInput,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+    ) -> Result<ControlledTickResult, PredictionError> {
         if let Some(newest_tick) = self.newest_tick()
             && newest_tick != state.tick
         {
@@ -124,7 +136,7 @@ impl PredictionHistory {
                 newest_tick,
             });
         }
-        let result = simulator.tick(state, input, world)?;
+        let result = simulator.tick_with_controls(state, input, world)?;
         if self.frames.len() == self.capacity {
             self.frames.pop_front();
         }
@@ -182,6 +194,28 @@ impl PredictionHistory {
         world: &impl CollisionWorld,
         overlays: &[MotionOverlay],
     ) -> Result<(ReplayResult, Vec<TickResult>), PredictionError> {
+        self.rewind_and_replay_with_controls(current, corrected, simulator, world, overlays)
+            .map(|(replay, outputs)| {
+                (
+                    replay,
+                    outputs
+                        .into_iter()
+                        .map(|output| output.tick_result)
+                        .collect(),
+                )
+            })
+    }
+
+    /// Replays retained input snapshots through the same simulation path,
+    /// exposing primary controls for replacement outbound samples.
+    pub fn rewind_and_replay_with_controls(
+        &mut self,
+        current: &mut PlayerState,
+        corrected: PlayerState,
+        simulator: &Simulator,
+        world: &impl CollisionWorld,
+        overlays: &[MotionOverlay],
+    ) -> Result<(ReplayResult, Vec<ControlledTickResult>), PredictionError> {
         validate_player_state(&corrected)?;
         let Some(index) = self
             .frames
@@ -208,7 +242,7 @@ impl PredictionHistory {
                 replayed_state.velocity = overlay.velocity;
             }
             let input = candidate.frames[frame_index].input;
-            let tick = simulator.tick(&mut replayed_state, input, world)?;
+            let tick = simulator.tick_with_controls(&mut replayed_state, input, world)?;
             candidate.frames[frame_index].state = replayed_state.clone();
             ticks.push(tick);
         }

@@ -566,6 +566,10 @@ fn simulation_error_detail(error: &sim::SimulationError) -> serde_json::Value {
             "field": field,
             "message": error.to_string(),
         }),
+        sim::SimulationError::InvalidItemUseMovementModifier => serde_json::json!({
+            "kind": "invalid_item_use_movement_modifier",
+            "message": error.to_string(),
+        }),
         sim::SimulationError::InvalidMovementSpeed => serde_json::json!({
             "kind": "invalid_movement_speed",
             "message": error.to_string(),

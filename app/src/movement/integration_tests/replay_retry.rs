@@ -1,4 +1,59 @@
 #[test]
+fn correction_rebuilds_primary_controls_from_each_retained_input_snapshot() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut input = physics_movement_input([0.25, 0.5], 0.0, true, false, true, false, false);
+    input.item_use_movement_modifier = Some(0.5);
+    input.movement_speed = Some(0.2);
+    let context = PhysicsSampleContext {
+        raw_move_vector: [0.25, 0.5],
+        analogue_move_vector: [0.25, 0.5],
+        ..Default::default()
+    };
+    let first = physics.advance_with_context(
+        Duration::from_millis(100),
+        input,
+        context,
+        &VersionedFloor(1),
+    );
+    assert_eq!(first.samples.len(), 2);
+    input.item_use_movement_modifier = Some(1.0);
+    input.movement_speed = Some(0.1);
+    let second = physics.advance_with_context(
+        Duration::from_millis(50),
+        input,
+        context,
+        &VersionedFloor(1),
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.testing_lift_spawn_settle_gate();
+    for sample in first.samples.into_iter().chain(second.samples) {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    ticker.pop_pending().unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    let pending = ticker.pending_samples();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(pending[0].snapshot.move_vector, [0.0375, 0.075]);
+    assert_eq!(pending[1].snapshot.move_vector, [0.075, 0.15]);
+    for sample in pending {
+        assert_eq!(sample.snapshot.raw_move_vector, [0.25, 0.5]);
+        assert_eq!(sample.snapshot.analogue_move_vector, [0.25, 0.5]);
+    }
+}
+
+#[test]
 fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
@@ -23,13 +78,11 @@ fn retained_correction_replays_physics_and_replaces_only_unsent_fifo_ticks() {
     let sent = ticker.pop_pending().unwrap();
     assert_eq!(sent.snapshot.tick, 101);
     let before = ticker.pending_samples();
-    let collision_mask = PlayerInputFlags::HORIZONTAL_COLLISION.bits()
-        | PlayerInputFlags::VERTICAL_COLLISION.bits();
-    assert!(
-        before.iter().all(|pending| pending.snapshot.flags.bits()
-            & PlayerInputFlags::HORIZONTAL_COLLISION.bits()
-            == 0)
-    );
+    let collision_mask =
+        PlayerInputFlags::HORIZONTAL_COLLISION.bits() | PlayerInputFlags::VERTICAL_COLLISION.bits();
+    assert!(before.iter().all(|pending| pending.snapshot.flags.bits()
+        & PlayerInputFlags::HORIZONTAL_COLLISION.bits()
+        == 0));
     for pending in &mut ticker.outbox {
         pending.snapshot.delta = [99.0; 3];
         pending.snapshot.flags |= PlayerInputFlags::HORIZONTAL_COLLISION;
@@ -636,9 +689,7 @@ fn app_respawn_snap_publishes_its_epoch_from_the_authority_event() {
 /// PlayerAuthInput through the exact `rust-mcbe-pai-trace-v1` formatter.
 /// `teleport_ack` forces the opt-in state the startup environment read would
 /// install, so both gated states stay deterministic in-process.
-fn respawn_flow_first_transmission_trace(
-    teleport_ack: bool,
-) -> Option<String> {
+fn respawn_flow_first_transmission_trace(teleport_ack: bool) -> Option<String> {
     let mut ticker = MovementTicker::default();
     ticker.testing_set_teleport_ack(teleport_ack);
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);

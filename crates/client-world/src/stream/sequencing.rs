@@ -738,8 +738,7 @@ impl WorldStream {
                         .iter()
                         .rev()
                         .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
-                        .map(|attribute| f64::from(attribute.current))
-                        .find(|current| current.is_finite() && *current >= 0.0)
+                        .find_map(super::movement_attribute::walk_speed)
                     {
                         self.local_movement_speed = Some(current);
                         self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {

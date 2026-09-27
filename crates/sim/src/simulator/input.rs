@@ -12,11 +12,20 @@ pub struct MovementInput {
     pub jump_pressed: bool,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// Axes precede item and pose slowdown. False preserves historical
+    /// already-processed input clamping; true retains partial-axis magnitude.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub move_vector_is_raw: bool,
     /// Whether the selected item is actively in its consumable-use phase.
     #[serde(default)]
     pub using_consumable: bool,
-    /// Server-authoritative `minecraft:movement` current value captured for
-    /// this fixed tick. Absence selects the vanilla default; zero is valid.
+    /// Effective item-use factor applied once before pose slowdown. None
+    /// preserves consumable flags; explicit zero and one are meaningful.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_use_movement_modifier: Option<f64>,
+    /// Effective non-sprinting `minecraft:movement` value captured for this
+    /// fixed tick, retaining custom/effect speed. Sprint is applied separately
+    /// once. Absence selects the vanilla default; zero is valid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub movement_speed: Option<f64>,
     #[serde(default, skip_serializing_if = "MovementEffects::is_empty")]
@@ -32,6 +41,12 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
         if !value.is_finite() {
             return Err(SimulationError::NonFiniteInput { field });
         }
+    }
+    if input
+        .item_use_movement_modifier
+        .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
+    {
+        return Err(SimulationError::InvalidItemUseMovementModifier);
     }
     if input
         .movement_speed
