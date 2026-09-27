@@ -221,11 +221,11 @@ mod tests {
             identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)),
             ContainerIdentity {
                 window_id: None,
-                ..valid.clone()
+                ..valid
             },
             ContainerIdentity {
                 dynamic_id: Some(1),
-                ..valid.clone()
+                ..valid
             },
         ] {
             assert_eq!(personal_craft_content_indices(&invalid, 54), None);
