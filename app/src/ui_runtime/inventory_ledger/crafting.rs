@@ -56,6 +56,7 @@ pub struct CraftGridCell {
     pub metadata: u32,
     pub count: u16,
     pub plain: bool,
+    pub tags: Arc<[Arc<str>]>,
 }
 
 impl CraftGridCell {
@@ -66,6 +67,7 @@ impl CraftGridCell {
             metadata: self.metadata,
             count: self.count,
             plain: self.plain,
+            tags: &self.tags,
         }
     }
 }
@@ -92,16 +94,16 @@ impl PlayerInventoryLedger {
             .slots()
             .map(|slot| match self.view().get(Cell::Craft(slot)) {
                 None => Some(None),
-                Some(held) => Some(Some(CraftGridCell {
-                    identifier: Arc::clone(
-                        &self
-                            .negotiated_item_entry(held.stack.network_id)?
-                            .identifier,
-                    ),
-                    metadata: held.stack.metadata,
-                    count: held.stack.count,
-                    plain: plain_stack(&held.stack),
-                })),
+                Some(held) => {
+                    let entry = self.negotiated_item_entry(held.stack.network_id)?;
+                    Some(Some(CraftGridCell {
+                        identifier: Arc::clone(&entry.identifier),
+                        metadata: held.stack.metadata,
+                        count: held.stack.count,
+                        plain: plain_stack(&held.stack),
+                        tags: Arc::clone(&entry.item_tags),
+                    }))
+                }
             })
             .collect()
     }

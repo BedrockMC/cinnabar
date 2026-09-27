@@ -388,6 +388,7 @@ fn named_registry(name: &str) -> ItemRegistryEvent {
                 component_digest: [0; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: true,
+                item_tags: std::sync::Arc::from([]),
             })
             .collect(),
     }
@@ -829,6 +830,7 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
                 component_digest: [8; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: false,
+                item_tags: std::sync::Arc::from([]),
             }]),
         };
         assert!(publish_bootstrap_inventory(

@@ -1,21 +1,5 @@
-//! Authoritative item-stack responses plus the retained per-cell response
-//! overlay.
-//!
-//! An accepted correction is authoritative for its whole cell: beyond the
-//! count/stack-network-id corrections applied directly to the retained
-//! stack, the server's custom display names and durability damage are kept
-//! as one [`StackResponseOverlay`] keyed to that cell. The overlay travels
-//! with its predicted stack through a pending gesture. Each correction
-//! restates only what changed: empty name halves and nonpositive durability
-//! are the wire's unstated encodings, so they never fabricate facts — a
-//! field stays absent until some accepted correction states it, a stated
-//! value replaces an earlier one, an omitted field keeps what the cell
-//! already retained, and presentation falls back to local derivation for
-//! every absent field. That guarantee is scoped deliberately: a well-formed
-//! accepted correction that restates a changed positive stack-network id
-//! updates the retained stack in place, and this module does not claim that
-//! unstated overlay fields follow such an id change. Rejected requests roll
-//! back without writing one.
+//! Response correlation and the per-cell overlay of server-stated names and
+//! durability; unstated fields stay absent rather than defaulted.
 
 use std::sync::Arc;
 
@@ -23,13 +7,8 @@ use protocol::{ItemStackResponseEvent, StackResponseSlot, StackResponseStatus};
 
 use super::{Cell, PlayerInventoryLedger};
 
-/// Authoritative presentation facts an accepted server correction attached
-/// to one inventory cell: custom display names plus the exact durability
-/// damage. Every field is `None` while unstated, so absent facts stay
-/// genuinely absent and presentation keeps its local derivation instead of
-/// reading a defaulted value as authoritative. The overlay never alters
-/// stack identity; replacing the cell through any other authoritative path
-/// drops it.
+/// Names and durability an accepted correction stated for one cell; `None`
+/// while unstated. Any other authoritative write to the cell drops it.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct StackResponseOverlay {
     /// Server-owned display name once a response states it.

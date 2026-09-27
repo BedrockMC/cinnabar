@@ -17,6 +17,7 @@ fn registry(capacity: Option<u8>) -> RecipeRegistrySnapshot {
             component_digest: [0; 32],
             negotiated_max_stack_size: capacity,
             canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         }]
         .into(),
     )
@@ -34,6 +35,8 @@ fn catalog(count: usize) -> RecipeCatalog {
                         width: 1,
                         height: 1,
                         shapeless: false,
+                        mirror: false,
+                        priority: 0,
                         ingredients: std::array::from_fn(|index| {
                             (index == 0).then(|| Ingredient {
                                 name: "minecraft:oak_log".into(),

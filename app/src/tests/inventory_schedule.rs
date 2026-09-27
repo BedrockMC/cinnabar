@@ -746,6 +746,7 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
                 component_digest: [6; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: false,
+                item_tags: std::sync::Arc::from([]),
             }]),
         }),
         inventory: vec![content(stack(6, 60, 60)), cursor_content(stack(6, 33, 33))],

@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 /// Grid cells a crafting-table recipe may address.
 pub(in crate::inventory) const MAX_INGREDIENTS: usize = 9;
+/// Ingredient metadata that accepts any item metadata.
+pub(in crate::inventory) const ANY_AUX: u16 = 32767;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::inventory) struct Ingredient {
@@ -28,9 +30,19 @@ pub(in crate::inventory) struct Recipe {
     pub(in crate::inventory) width: u8,
     pub(in crate::inventory) height: u8,
     pub(in crate::inventory) shapeless: bool,
+    /// A shaped recipe that also matches its horizontal mirror.
+    pub(in crate::inventory) mirror: bool,
+    /// Lower values win when several recipes match one grid.
+    pub(in crate::inventory) priority: i32,
     /// Row-major shaped cells, or the shapeless ingredient list.
     pub(in crate::inventory) ingredients: [Option<Ingredient>; MAX_INGREDIENTS],
     pub(in crate::inventory) output: Output,
+}
+
+impl Ingredient {
+    pub(in crate::inventory) fn accepts_metadata(&self, metadata: u32) -> bool {
+        self.aux == ANY_AUX || u32::from(self.aux) == metadata
+    }
 }
 
 impl Recipe {

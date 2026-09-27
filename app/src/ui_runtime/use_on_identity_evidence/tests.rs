@@ -21,6 +21,7 @@ fn registry() -> InventoryAuthorityEvent {
             component_digest: [7; 32],
             negotiated_max_stack_size: None,
             canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         }]),
     })
 }

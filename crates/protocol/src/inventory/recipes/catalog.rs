@@ -186,6 +186,8 @@ mod tests {
                         width: 1,
                         height: 1,
                         shapeless: false,
+                        mirror: false,
+                        priority: 0,
                         ingredients: std::array::from_fn(|_| None),
                         output: Output {
                             id: 7,

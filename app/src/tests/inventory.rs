@@ -39,6 +39,7 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
             component_digest: [8; 32],
             negotiated_max_stack_size: Some(64),
             canonical_empty_component_data: false,
+            item_tags: std::sync::Arc::from([]),
         }]),
     };
     assert!(publish_bootstrap_inventory(
@@ -300,6 +301,7 @@ fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
             component_digest: [6; 32],
             negotiated_max_stack_size: Some(64),
             canonical_empty_component_data: false,
+            item_tags: std::sync::Arc::from([]),
         }]),
     };
     let sequenced = SequencedWorldEvent {

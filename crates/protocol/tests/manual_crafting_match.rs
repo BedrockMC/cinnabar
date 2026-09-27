@@ -16,6 +16,7 @@ fn entries() -> Arc<[ItemRegistryEntry]> {
             component_digest: [0; 32],
             negotiated_max_stack_size: Some(64),
             canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         })
         .collect()
 }
@@ -299,6 +300,25 @@ fn unknown_cell_authority_is_not_an_empty_cell() {
             ManualCraftMatch::Unavailable
         );
     }
+    assert!(matches!(
+        match_manual_grid(
+            &catalog,
+            1,
+            &registry,
+            &[Present(&input), Empty, Empty, Empty]
+        ),
+        ManualCraftMatch::Unique(_)
+    ));
+}
+
+/// Metadata 32767 accepts any variant in the manual preview too.
+#[test]
+fn wildcard_ingredient_metadata_matches_any_variant() {
+    let mut wildcard = recipe(17, 1, 1);
+    wildcard.ingredients[0].aux_value = 32767;
+    let catalog = catalog(vec![wildcard]);
+    let registry = registry(entries(), 1);
+    let input = stack(101, 1, 3);
     assert!(matches!(
         match_manual_grid(
             &catalog,

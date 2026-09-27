@@ -4,6 +4,7 @@ mod catalog;
 mod crafting;
 mod decode;
 mod grammar;
+mod item_tags;
 mod matching;
 pub(super) mod model;
 mod observation;
