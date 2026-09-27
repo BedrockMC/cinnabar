@@ -2,52 +2,62 @@
 
 use std::sync::Arc;
 
-use render::{MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray};
-use sha2::{Digest, Sha256};
+use render::UiTexturePage;
 
 use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview};
+
+pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
+    let changed = runtime
+        .texture_session
+        .is_some_and(|previous| previous != session);
+    runtime.texture_session = Some(session);
+    if !changed {
+        return;
+    }
+    runtime.player_preview_source_hash = None;
+    runtime.player_preview_pose = None;
+    runtime.player_preview_pixels = None;
+    runtime.held_viewmodel_source = None;
+    runtime.offhand_viewmodel_source = None;
+    runtime.menu_artwork_paths.clear();
+    runtime.menu_artwork_dirty = true;
+    runtime.preview_dirty = true;
+    rebuild(runtime);
+}
 
 /// Rebuilds dynamic pages from immutable base assets so refreshed launcher
 /// artwork cannot accumulate stale layers or discard the HUD carriers.
 pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
-    let width = runtime.base_textures.width;
-    let height = runtime.base_textures.height;
-    let Some(layer_bytes) = usize::try_from(width)
-        .ok()
-        .and_then(|width| width.checked_mul(height as usize))
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return;
+    let width = 256;
+    let height = 256;
+    let layer_bytes = (width * height * 4) as usize;
+    let mut rgba8 = if runtime.preview_dirty {
+        vec![0; layer_bytes]
+    } else {
+        Vec::new()
     };
+    let first_dynamic = runtime.textures.dynamic_start();
 
-    let mut rgba8 = runtime.base_textures.rgba8.to_vec();
-    let mut layers = runtime.base_textures.layers;
-    let mut identity = Sha256::new();
-    identity.update(runtime.base_texture_identity);
-    identity.update(b"cinnabar-dynamic-hud-v4");
+    if runtime.preview_dirty {
+        runtime.player_preview_page = None;
+        runtime.player_preview_icon = None;
+        runtime.left_hand_icon = None;
+        runtime.right_hand_icon = None;
+        runtime.held_viewmodel_icon = None;
+        runtime.offhand_viewmodel_icon = None;
+    }
 
-    runtime.player_preview_page = None;
-    runtime.player_preview_icon = None;
-    runtime.left_hand_icon = None;
-    runtime.right_hand_icon = None;
-    runtime.held_viewmodel_icon = None;
-    runtime.offhand_viewmodel_icon = None;
-    runtime.menu_artwork = menu_artwork::MenuArtworkAtlas::default();
-
-    let preview_fits = runtime.player_preview_pixels.is_some()
+    let preview_fits = runtime.preview_dirty
+        && runtime.player_preview_pixels.is_some()
         && width >= player_preview::PREVIEW_WIDTH
         && height >= player_preview::PREVIEW_HEIGHT
         && width >= player_preview::HAND_WIDTH.saturating_mul(2)
-        && height >= player_preview::PREVIEW_HEIGHT.saturating_add(player_preview::HAND_HEIGHT)
-        && layers < MAX_UI_TEXTURE_LAYERS
-        && rgba8.len().saturating_add(layer_bytes) <= MAX_UI_TEXTURE_BYTES;
+        && height >= player_preview::PREVIEW_HEIGHT.saturating_add(player_preview::HAND_HEIGHT);
     let viewmodel_fits = width >= item_viewmodel::MAIN_ORIGIN[0] + item_viewmodel::SIDE
         && height >= item_viewmodel::OFFHAND_ORIGIN[1] + item_viewmodel::SIDE;
     if preview_fits {
-        let page = layers as u16;
-        let layer_start = rgba8.len();
-        rgba8.extend(std::iter::repeat_n(0, layer_bytes));
-        layers = layers.saturating_add(1);
+        let page = first_dynamic as u16;
+        let layer_start = 0;
         let texture_width = width as usize;
         let copy_raster = |target: &mut [u8],
                            raster: &[u8],
@@ -92,7 +102,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         if viewmodel_fits {
             if let Some(main) = runtime
                 .held_viewmodel_source
-                .and_then(|icon| item_viewmodel::render(&runtime.base_textures, icon, false))
+                .and_then(|icon| item_viewmodel::render(&runtime.textures, icon, false))
             {
                 copy_raster(
                     &mut rgba8,
@@ -106,7 +116,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             }
             if let Some(offhand) = runtime
                 .offhand_viewmodel_source
-                .and_then(|icon| item_viewmodel::render(&runtime.base_textures, icon, true))
+                .and_then(|icon| item_viewmodel::render(&runtime.textures, icon, true))
             {
                 copy_raster(
                     &mut rgba8,
@@ -151,27 +161,49 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         });
     }
 
-    let remaining_layers = MAX_UI_TEXTURE_LAYERS.saturating_sub(layers);
-    let remaining_bytes = MAX_UI_TEXTURE_BYTES.saturating_sub(rgba8.len());
-    runtime.menu_artwork = menu_artwork::load(
-        &runtime.menu_artwork_paths,
-        width,
-        height,
-        u16::try_from(layers).unwrap_or(u16::MAX),
-        remaining_layers,
-        remaining_bytes,
-    );
-    if runtime.menu_artwork.layers > 0 {
-        layers = layers.saturating_add(runtime.menu_artwork.layers);
-        rgba8.extend_from_slice(&runtime.menu_artwork.rgba8);
-        identity.update(runtime.menu_artwork.signature);
+    let preview = if runtime.preview_dirty {
+        let Ok(page) = UiTexturePage::owned([width, height], rgba8.into()) else {
+            return;
+        };
+        runtime.preview_dirty = false;
+        page
+    } else {
+        runtime.textures.pages()[first_dynamic].clone()
+    };
+    let mut dynamic = vec![preview];
+    let menu_changed = runtime.menu_artwork_dirty;
+    if runtime.menu_artwork_dirty {
+        runtime.menu_artwork = menu_artwork::load(
+            &runtime.menu_artwork_paths,
+            width,
+            height,
+            (first_dynamic + 1) as u16,
+            8,
+            layer_bytes * 8,
+        );
+        runtime.menu_artwork_dirty = false;
     }
-    identity.update(&rgba8);
-    runtime.textures = Arc::new(UiRenderTextureArray {
-        identity: identity.finalize().into(),
-        width,
-        height,
-        layers,
-        rgba8: rgba8.into(),
-    });
+    let previous = runtime.textures.pages();
+    for offset in 0..8 {
+        let page = if !menu_changed {
+            previous[first_dynamic + 1 + offset].clone()
+        } else if let Some(page) = runtime.menu_artwork.pages.get(offset) {
+            page.clone()
+        } else {
+            runtime.blank_dynamic_page.clone()
+        };
+        dynamic.push(page);
+    }
+    // Equal per-page identities preserve old immutable payload ownership.
+    for (offset, page) in dynamic.iter_mut().enumerate() {
+        let old = &previous[first_dynamic + offset];
+        if old.identity() == page.identity() {
+            *page = old.clone();
+        }
+    }
+    if let Ok(textures) = runtime.textures.replace_dynamic(dynamic) {
+        runtime.textures = Arc::new(textures);
+        // Pixels live solely in the current catalog, not a second cache owner.
+        runtime.menu_artwork.pages.clear();
+    }
 }

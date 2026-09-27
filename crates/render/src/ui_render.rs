@@ -17,18 +17,15 @@ use bevy::{
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
-            AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendFactor,
-            BlendOperation, BlendState, Buffer, BufferBindingType, BufferDescriptor,
-            BufferInitDescriptor, BufferSize, BufferUsages, CachedRenderPipelineId, Canonical,
-            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
-            FilterMode, FragmentState, Origin3d, PipelineCache, RenderPipeline,
-            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
-            TextureViewDimension, Variants, VertexAttribute, VertexFormat, VertexState,
-            VertexStepMode,
+            AddressMode, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+            BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
+            Buffer, BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferSize,
+            BufferUsages, CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
+            CompareFunction, DepthStencilState, FilterMode, FragmentState, PipelineCache,
+            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TextureFormat,
+            TextureSampleType, TextureViewDimension, Variants, VertexAttribute, VertexFormat,
+            VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -36,6 +33,9 @@ use bevy::{
     },
 };
 use bytemuck::{Pod, Zeroable};
+
+mod textures;
+use textures::UiGpuTextures;
 
 use crate::ui::{
     MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderRejectReason,
@@ -99,6 +99,7 @@ struct UiViewportUniform {
 
 #[derive(Resource)]
 pub(crate) struct UiGpu {
+    device: wgpu::Device,
     vertex_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>,
     vertex_capacity: usize,
@@ -107,13 +108,8 @@ pub(crate) struct UiGpu {
     index_arena_id: u64,
     viewport_buffer: Buffer,
     viewport_size: [u32; 2],
-    texture: Option<Texture>,
-    texture_view: Option<TextureView>,
-    texture_identity: Option<[u8; 32]>,
-    texture_extent: [u32; 3],
-    texture_bytes: usize,
+    textures: UiGpuTextures,
     sampler: Sampler,
-    bind_group: Option<BindGroup>,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
     /// Specialized pipelines for the frame's view: the shared alpha pipeline
@@ -144,6 +140,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         ..default()
     });
     commands.insert_resource(UiGpu {
+        device: render_device.wgpu_device().clone(),
         vertex_buffer: None,
         index_buffer: None,
         vertex_capacity: 0,
@@ -152,13 +149,8 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         index_arena_id: 0,
         viewport_buffer,
         viewport_size: [1, 1],
-        texture: None,
-        texture_view: None,
-        texture_identity: None,
-        texture_extent: [0; 3],
-        texture_bytes: 0,
+        textures: UiGpuTextures::default(),
         sampler,
-        bind_group: None,
         batches: Arc::from([]),
         accepted_revision: None,
         alpha_pipeline: None,
@@ -174,12 +166,51 @@ pub(crate) fn prepare_ui_resources(
     stats: Res<UiRenderStats>,
 ) {
     let Some(input) = scene.input.as_ref() else {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        stats.update(|s| {
+            s.accepted_revision = None;
+            s.draw_calls = 0;
+        });
         return;
     };
+    if &gpu.device != render_device.wgpu_device() {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        record_render_rejection(
+            &stats,
+            input.revision,
+            UiRenderRejectReason::InvalidTextureExtent,
+        );
+        return;
+    }
     if gpu.accepted_revision == Some(input.revision) {
+        if !gpu.textures.resident(&input.textures)
+            || (!input.vertices.is_empty() && gpu.vertex_buffer.is_none())
+            || (!input.indices.is_empty() && gpu.index_buffer.is_none())
+        {
+            gpu.accepted_revision = None;
+            gpu.batches = Arc::from([]);
+            record_render_rejection(
+                &stats,
+                input.revision,
+                UiRenderRejectReason::InvalidTextureExtent,
+            );
+        }
         return;
     }
     if let Err(reason) = input.validate() {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
+        record_render_rejection(&stats, input.revision, reason);
+        return;
+    }
+    if let Err(reason) = gpu
+        .textures
+        .prepare(&input.textures, &render_device, &render_queue)
+    {
+        gpu.accepted_revision = None;
+        gpu.batches = Arc::from([]);
         record_render_rejection(&stats, input.revision, reason);
         return;
     }
@@ -223,74 +254,6 @@ pub(crate) fn prepare_ui_resources(
     render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     gpu.viewport_size = input.viewport_size;
 
-    if gpu.texture_identity != Some(input.textures.identity) {
-        let texture_extent = [
-            input.textures.width,
-            input.textures.height,
-            input.textures.layers,
-        ];
-        if gpu.texture_extent == texture_extent
-            && let Some(texture) = gpu.texture.as_ref()
-        {
-            // Dynamic HUD content (the player preview and first-person item
-            // carriers) changes independently of the atlas shape. Reuse the
-            // resident allocation so animated pixels cannot create one full
-            // deferred GPU texture per frame.
-            render_queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture,
-                    mip_level: 0,
-                    origin: Origin3d::default(),
-                    aspect: Default::default(),
-                },
-                &input.textures.rgba8,
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(input.textures.width.saturating_mul(4)),
-                    rows_per_image: Some(input.textures.height),
-                },
-                Extent3d {
-                    width: input.textures.width,
-                    height: input.textures.height,
-                    depth_or_array_layers: input.textures.layers,
-                },
-            );
-            gpu.texture_identity = Some(input.textures.identity);
-            gpu.texture_bytes = input.textures.rgba8.len();
-        } else {
-            let texture = render_device.create_texture_with_data(
-                &render_queue,
-                &TextureDescriptor {
-                    label: Some("shared bounded UI texture array"),
-                    size: Extent3d {
-                        width: input.textures.width,
-                        height: input.textures.height,
-                        depth_or_array_layers: input.textures.layers,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8UnormSrgb,
-                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                    view_formats: &[],
-                },
-                TextureDataOrder::LayerMajor,
-                &input.textures.rgba8,
-            );
-            let view = texture.create_view(&TextureViewDescriptor {
-                label: Some("shared bounded UI texture array view"),
-                dimension: Some(TextureViewDimension::D2Array),
-                ..default()
-            });
-            gpu.texture = Some(texture);
-            gpu.texture_view = Some(view);
-            gpu.texture_identity = Some(input.textures.identity);
-            gpu.texture_extent = texture_extent;
-            gpu.texture_bytes = input.textures.rgba8.len();
-            gpu.bind_group = None;
-        }
-    }
-
     gpu.batches = Arc::clone(&input.batches);
     gpu.accepted_revision = Some(input.revision);
     stats.update(|stats| {
@@ -302,7 +265,7 @@ pub(crate) fn prepare_ui_resources(
         stats.index_arena_capacity = gpu.index_capacity as u32;
         stats.per_node_gpu_allocations = 0;
         stats.retained_gpu_bytes =
-            retained_gpu_bytes(gpu.vertex_capacity, gpu.index_capacity, gpu.texture_bytes);
+            retained_gpu_bytes(gpu.vertex_capacity, gpu.index_capacity, gpu.textures.bytes);
         stats.rejected_revision = None;
         stats.rejected_reason = None;
     });
@@ -310,6 +273,8 @@ pub(crate) fn prepare_ui_resources(
 
 fn record_render_rejection(stats: &UiRenderStats, revision: u64, reason: UiRenderRejectReason) {
     stats.update(|stats| {
+        stats.accepted_revision = None;
+        stats.draw_calls = 0;
         stats.rejected_revision = Some(revision);
         stats.rejected_reason = Some(reason);
         stats.rejection_count = stats.rejection_count.saturating_add(1);
@@ -525,30 +490,34 @@ fn prepare_ui_bind_group(
     pipeline: Res<UiPipeline>,
     mut gpu: ResMut<UiGpu>,
 ) {
-    if gpu.bind_group.is_some() {
+    if &gpu.device != render_device.wgpu_device() {
         return;
     }
-    let Some(texture_view) = gpu.texture_view.as_ref() else {
-        return;
-    };
-    gpu.bind_group = Some(render_device.create_bind_group(
-        "shared retained UI bind group",
-        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: gpu.viewport_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(texture_view),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::Sampler(&gpu.sampler),
-            },
-        ],
-    ));
+    let viewport = gpu.viewport_buffer.clone();
+    let sampler = gpu.sampler.clone();
+    for bucket in &mut gpu.textures.buckets {
+        if bucket.bind_group.is_some() {
+            continue;
+        }
+        bucket.bind_group = Some(render_device.create_bind_group(
+            "shared retained UI bind group",
+            &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: viewport.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(&bucket.view),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&sampler),
+                },
+            ],
+        ));
+    }
 }
 
 fn queue_ui_overlay(
@@ -560,7 +529,7 @@ fn queue_ui_overlay(
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
     if gpu.batches.is_empty()
-        || gpu.bind_group.is_none()
+        || gpu.textures.buckets.iter().any(|b| b.bind_group.is_none())
         || gpu.vertex_buffer.is_none()
         || gpu.index_buffer.is_none()
     {
@@ -621,7 +590,13 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetUiBindGroup<I> {
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some(bind_group) = &gpu.into_inner().bind_group else {
+        let Some(bind_group) = gpu
+            .into_inner()
+            .textures
+            .buckets
+            .first()
+            .and_then(|b| b.bind_group.as_ref())
+        else {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(I, bind_group, &[]);
@@ -654,6 +629,18 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
         // so consecutive same-blend batches never rebind.
         let mut invert_bound = false;
         for batch in gpu.batches.iter() {
+            let Some(location) = gpu.textures.locations.get(batch.texture_page as usize) else {
+                return RenderCommandResult::Skip;
+            };
+            let Some(bind_group) = gpu
+                .textures
+                .buckets
+                .get(location.bucket)
+                .and_then(|b| b.bind_group.as_ref())
+            else {
+                return RenderCommandResult::Skip;
+            };
+            pass.set_bind_group(0, bind_group, &[]);
             let wants_invert = batch.blend_mode == UI_BLEND_INVERT;
             if wants_invert != invert_bound {
                 let id = if wants_invert {
@@ -678,7 +665,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawUiBatches {
             pass.draw_indexed(
                 batch.first_index..batch.first_index + batch.index_count,
                 0,
-                batch.texture_page..batch.texture_page + 1,
+                location.layer..location.layer + 1,
             );
         }
         pass.set_scissor_rect(0, 0, gpu.viewport_size[0], gpu.viewport_size[1]);
@@ -777,7 +764,7 @@ impl UiRenderHarness {
             stats.retained_gpu_bytes = retained_gpu_bytes(
                 self.vertex_capacity,
                 self.index_capacity,
-                input.textures.rgba8.len(),
+                input.textures.plan().bytes(),
             );
         });
         let prepared = UiPreparedFrame {
