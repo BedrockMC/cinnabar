@@ -268,7 +268,7 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
         .run_system_once(prepare_ui_resources)
         .unwrap();
     assert_eq!(stats.snapshot().accepted_revision, Some(3));
-    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     render_app
         .world_mut()
         .insert_resource(RenderDevice::from(device));
@@ -278,6 +278,63 @@ fn current_device_loss_or_invalid_scene_withholds_old_prepared_draws() {
         .unwrap();
     assert_eq!(stats.snapshot().accepted_revision, None);
     assert_eq!(stats.snapshot().draw_calls, 0);
+    for _ in 0..3 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+    }
+    render_app
+        .world_mut()
+        .insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
+    render_app.world_mut().run_schedule(RenderStartup);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(
+        stats.snapshot().accepted_revision,
+        Some(3),
+        "paired device/queue and real renderer startup may recover"
+    );
+}
+
+#[test]
+fn cloned_device_resource_replacement_on_empty_frame_stays_invalid_until_startup() {
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(UiRenderPlugin);
+    app.finish();
+    let stats = app.world().resource::<UiRenderStats>().clone();
+    let render_app = app.sub_app_mut(RenderApp);
+    render_app.world_mut().run_schedule(RenderStartup);
+    render_app
+        .world_mut()
+        .insert_resource(UiRenderScene::default());
+    let device = render_app.world().resource::<RenderDevice>().clone();
+    render_app.world_mut().increment_change_tick();
+    render_app.world_mut().insert_resource(device);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    let mut scene = UiRenderScene::default();
+    scene.publish(fixture_draw_list(1), &stats).unwrap();
+    render_app.world_mut().insert_resource(scene);
+    for _ in 0..10 {
+        render_app
+            .world_mut()
+            .run_system_once(prepare_ui_resources)
+            .unwrap();
+        assert_eq!(stats.snapshot().accepted_revision, None);
+        assert_eq!(stats.snapshot().draw_calls, 0);
+    }
+    render_app.world_mut().run_schedule(RenderStartup);
+    render_app
+        .world_mut()
+        .run_system_once(prepare_ui_resources)
+        .unwrap();
+    assert_eq!(stats.snapshot().accepted_revision, Some(1));
 }
 
 #[test]

@@ -12,6 +12,33 @@ use bevy::render::{
 use crate::ui::UiRenderRejectReason;
 use crate::{UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan};
 
+/// Observes schedule-separated device-resource changes, not arbitrary context IDs.
+pub(super) struct DeviceObservation {
+    last_observed: bevy::ecs::change_detection::Tick,
+    invalidated: bool,
+}
+impl DeviceObservation {
+    pub(super) fn new(now: bevy::ecs::change_detection::Tick) -> Self {
+        Self {
+            last_observed: now,
+            invalidated: false,
+        }
+    }
+    pub(super) fn observe(
+        &mut self,
+        changed: bevy::ecs::change_detection::Tick,
+        now: bevy::ecs::change_detection::Tick,
+        same_device: bool,
+    ) -> bool {
+        let gap = now.get().wrapping_sub(self.last_observed.get());
+        self.invalidated |= !same_device
+            || gap >= bevy::ecs::change_detection::MAX_CHANGE_AGE
+            || changed.is_newer_than(self.last_observed, now);
+        self.last_observed = now;
+        !self.invalidated
+    }
+}
+
 pub(super) struct GpuBucket {
     pub(super) texture: Texture,
     pub(super) view: TextureView,
@@ -217,6 +244,50 @@ impl UiGpuTextures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_observation_handles_clamped_aging_wrap_and_unknown_gaps() {
+        use bevy::ecs::change_detection::{MAX_CHANGE_AGE, Tick};
+        let mut observation = DeviceObservation::new(Tick::new(10));
+        assert!(observation.observe(Tick::new(1), Tick::new(11), true));
+        let near_age = MAX_CHANGE_AGE - 1;
+        assert!(
+            observation.observe(Tick::new(1), Tick::new(11 + near_age), true),
+            "old unchanged resource aging is not a replacement"
+        );
+        assert!(
+            observation.observe(Tick::new(12), Tick::new(12 + near_age), true),
+            "clamped old resource stamp is not newer than last observation"
+        );
+        let mut wrapped = DeviceObservation::new(Tick::new(u32::MAX - 2));
+        assert!(wrapped.observe(Tick::new(u32::MAX - 5), Tick::new(1), true));
+        assert!(!wrapped.observe(Tick::new(2), Tick::new(3), true));
+        assert!(
+            !wrapped.observe(Tick::new(0), Tick::new(4), true),
+            "observed invalidation is permanent"
+        );
+        let mut missing = DeviceObservation::new(Tick::new(10));
+        assert!(
+            !missing.observe(Tick::new(1), Tick::new(10 + MAX_CHANGE_AGE), true),
+            "unknown detection-window gap fails closed"
+        );
+        assert!(!missing.observe(Tick::new(1), Tick::new(11 + MAX_CHANGE_AGE), true));
+        assert!(
+            !DeviceObservation::new(Tick::new(10)).observe(
+                Tick::new(1),
+                Tick::new(11 + MAX_CHANGE_AGE),
+                true
+            ),
+            "gap beyond detection window is also unknown"
+        );
+        let mut mismatch = DeviceObservation::new(Tick::new(1));
+        assert!(!mismatch.observe(Tick::new(1), Tick::new(2), false));
+        assert!(!mismatch.observe(Tick::new(1), Tick::new(3), true));
+        assert!(
+            DeviceObservation::new(Tick::new(3)).observe(Tick::new(1), Tick::new(4), true),
+            "actual recreation starts a new observer"
+        );
+    }
 
     fn catalog(value: u8) -> UiTextureCatalog {
         UiTextureCatalog::new(
