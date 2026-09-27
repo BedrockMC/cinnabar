@@ -155,8 +155,14 @@ impl SubChunk {
             updates_by_layer[layer].push((linear, update.runtime_id));
         }
         for (layer, layer_updates) in updates_by_layer.iter().enumerate() {
-            if !layer_updates.is_empty() {
-                storages[layer].apply_runtime_updates(layer_updates);
+            match layer_updates.as_slice() {
+                [] => {}
+                &[(linear, runtime_id)] => {
+                    storages[layer].apply_runtime_update(linear, runtime_id);
+                }
+                updates => {
+                    storages[layer].apply_runtime_updates(updates);
+                }
             }
         }
         while storages
