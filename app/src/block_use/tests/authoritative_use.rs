@@ -43,9 +43,14 @@ fn records() -> Box<[RegistryRecord]> {
 fn negotiated_cube_selection_preserves_data_and_signed_hash_bits() {
     let records = records();
     let collisions = fixture_registries();
-    for mode in [
-        assets::NetworkIdMode::Sequential,
-        assets::NetworkIdMode::Hashed,
+    for (mode, version) in [
+        (
+            assets::NetworkIdMode::Sequential,
+            ItemRegistryVersion::Legacy,
+        ),
+        (assets::NetworkIdMode::Sequential, ItemRegistryVersion::None),
+        (assets::NetworkIdMode::Hashed, ItemRegistryVersion::Legacy),
+        (assets::NetworkIdMode::Hashed, ItemRegistryVersion::None),
     ] {
         let record = records
             .iter()
@@ -63,7 +68,9 @@ fn negotiated_cube_selection_preserves_data_and_signed_hash_bits() {
             assets::NetworkIdMode::Sequential => record.sequential_id,
             assets::NetworkIdMode::Hashed => record.network_hash,
         };
-        let ui = selected(entry(&record.name), id);
+        let mut definition = entry(&record.name);
+        definition.version = version;
+        let ui = selected(definition, id);
         let expected = ui.selected_stack().unwrap().clone();
         let selection =
             crate::block_use::verified_block_use_selection(&ui, &collisions, mode).unwrap();
@@ -81,7 +88,13 @@ fn negotiated_cube_selection_preserves_data_and_signed_hash_bits() {
 }
 
 #[test]
-fn known_none_is_distinct_but_unproven_and_ambiguous_authority_is_rejected() {
+fn known_none_remains_distinct_from_unsupported_versions_and_requires_exact_authority() {
+    for version in [ItemRegistryVersion::Legacy, ItemRegistryVersion::None] {
+        reject_ambiguous_selection(version);
+    }
+}
+
+fn reject_ambiguous_selection(version: ItemRegistryVersion) {
     let records = records();
     let collisions = fixture_registries();
     let record = records
@@ -93,10 +106,10 @@ fn known_none_is_distinct_but_unproven_and_ambiguous_authority_is_rejected() {
                     .is_some()
         })
         .unwrap();
-    let base = entry(&record.name);
+    let mut base = entry(&record.name);
+    base.version = version;
     for version in [
         ItemRegistryVersion::DataDriven,
-        ItemRegistryVersion::None,
         ItemRegistryVersion::Unknown(99),
     ] {
         let mut candidate = base.clone();
@@ -136,13 +149,14 @@ fn known_none_is_distinct_but_unproven_and_ambiguous_authority_is_rejected() {
             .is_none()
         );
     }
-    for change in 0..3 {
+    for change in 0..4 {
         let mut ui = selected(base.clone(), record.sequential_id);
         let mut stack = ui.selected_stack().unwrap().clone();
         match change {
             0 => stack.stack_network_id = -1,
             1 => stack.nbt_digest = [0; 32],
-            _ => stack.network_id = 99,
+            2 => stack.network_id = 99,
+            _ => stack.stack_network_id = 0,
         }
         ui.inventory_ledger_mut().apply(&inventory_slot(2, stack));
         assert!(
@@ -178,13 +192,21 @@ fn known_none_is_distinct_but_unproven_and_ambiguous_authority_is_rejected() {
 
 #[test]
 fn full_cube_support_does_not_admit_special_shapes_or_item_aliases() {
+    for version in [ItemRegistryVersion::Legacy, ItemRegistryVersion::None] {
+        reject_special_shape(version);
+    }
+}
+
+fn reject_special_shape(version: ItemRegistryVersion) {
     let records = records();
     let collisions = fixture_registries();
     let special = records
         .iter()
         .find(|r| r.name.as_ref() == "minecraft:chest")
         .unwrap();
-    let ui = selected(entry(&special.name), special.sequential_id);
+    let mut definition = entry(&special.name);
+    definition.version = version;
+    let ui = selected(definition, special.sequential_id);
     assert!(
         crate::block_use::verified_block_use_selection(
             &ui,
@@ -197,6 +219,12 @@ fn full_cube_support_does_not_admit_special_shapes_or_item_aliases() {
 
 #[test]
 fn filled_pending_and_recovery_never_use_predicted_inventory() {
+    for version in [ItemRegistryVersion::Legacy, ItemRegistryVersion::None] {
+        reject_pending_and_recovery(version);
+    }
+}
+
+fn reject_pending_and_recovery(version: ItemRegistryVersion) {
     let records = records();
     let collisions = fixture_registries();
     let cube = records
@@ -208,7 +236,9 @@ fn filled_pending_and_recovery_never_use_predicted_inventory() {
                     .is_some()
         })
         .unwrap();
-    let mut ui = selected(entry(&cube.name), cube.sequential_id);
+    let mut definition = entry(&cube.name);
+    definition.version = version;
+    let mut ui = selected(definition, cube.sequential_id);
     ui.inventory_ledger_mut()
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
     admit_personal_inventory(&mut ui);
@@ -348,6 +378,13 @@ fn production_world(runtime_id: u32) -> crate::runtime::world::ClientWorld {
 
 #[test]
 fn production_observation_and_tick_attachment_do_not_predict_world_or_inventory() {
+    assert_eq!(
+        production_use_payload(ItemRegistryVersion::Legacy),
+        production_use_payload(ItemRegistryVersion::None)
+    );
+}
+
+fn production_use_payload(version: ItemRegistryVersion) -> Vec<u8> {
     let records = records();
     let collisions = fixture_registries();
     let cube = records
@@ -366,12 +403,14 @@ fn production_observation_and_tick_attachment_do_not_predict_world_or_inventory(
         .selected_stack()
         .unwrap()
         .clone();
+    let mut definition = entry(&cube.name);
+    definition.version = version;
     let mut ui = UiRuntime::new(session);
     ui.publish_player_game_mode(protocol::PlayerGameMode::Survival);
     ui.set_local_selected_slot(2);
     ui.inventory_ledger_mut()
         .apply_registry(&ItemRegistryEvent {
-            entries: Arc::from([entry(&cube.name)]),
+            entries: Arc::from([definition]),
         });
     ui.inventory_ledger_mut()
         .apply(&inventory_slot(2, stack.clone()));
@@ -452,9 +491,12 @@ fn production_observation_and_tick_attachment_do_not_predict_world_or_inventory(
         Some(cube.sequential_id)
     );
     let mut packets = 0;
+    let mut encoded = Vec::new();
     flush_player_auth_inputs(&mut ticker, 1, None, |_, packet| {
         packets += 1;
-        assert!(protocol::encode(&packet, &BedrockSession { shield_item_id: 0 }).is_ok());
+        encoded = protocol::encode(&packet, &BedrockSession { shield_item_id: 0 })
+            .unwrap()
+            .to_vec();
         Ok::<_, &str>(())
     })
     .unwrap();
@@ -478,4 +520,5 @@ fn production_observation_and_tick_attachment_do_not_predict_world_or_inventory(
             .is_none()
         );
     }
+    encoded
 }
