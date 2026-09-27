@@ -48,7 +48,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-pub(crate) const PLAYER_POSITION_INTERPOLATION_TICKS: u8 = 3;
+/// Steps a remote actor takes to reach each absolute movement target.
+pub(crate) const ACTOR_INTERPOLATION_TICKS: u8 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {

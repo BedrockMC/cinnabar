@@ -348,7 +348,8 @@ fn resolves_inherited_rig_and_publishes_adjacent_completed_tick_palettes() {
     let tick = stream.actor_rig(42).unwrap();
     assert_eq!(tick.completed_tick, 1);
     assert_eq!(tick.previous[1].translation_scale[0..3], [0.0, 2.0, 0.0]);
-    assert_eq!(tick.current[1].translation_scale[0..3], [1.0, 2.0, 0.0]);
+    // The rig frame mirrors authored X, so the +X clip offset lands at -X.
+    assert_eq!(tick.current[1].translation_scale[0..3], [-1.0, 2.0, 0.0]);
     assert_eq!(tick.current[1].translation_scale[3], 1.0);
     assert_eq!(tick.rest, rest);
     assert_ne!(tick.rest, tick.current);
@@ -472,7 +473,7 @@ fn animation_time_is_lifetime_relative_and_looped() {
     stream.advance_actor_interpolation_ticks(1);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        1.0
+        -1.0
     );
 
     stream.advance_actor_interpolation_ticks(19);
@@ -504,7 +505,7 @@ fn authoritative_riding_link_reaches_the_next_runtime_tick_query() {
     stream.advance_actor_interpolation_ticks(1);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        1.0
+        -1.0
     );
 }
 
@@ -630,7 +631,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
     stream.advance_actor_interpolation_ticks(1);
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        2.0
+        -2.0
     );
 
     stream
@@ -713,6 +714,6 @@ fn duplicate_keyframe_post_values_and_collection_indices_are_bounded() {
     // clamping index 99 to the final collection weight doubles that delta.
     assert_eq!(
         stream.actor_rig(42).unwrap().current[1].translation_scale[0],
-        6.0
+        -6.0
     );
 }

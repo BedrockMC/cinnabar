@@ -205,16 +205,22 @@ fn compose_bone(
     {
         return None;
     }
+    // Pivots are already in the X-mirrored rig frame; authored offsets and angles are not.
     let translation = std::array::from_fn(|axis| {
         let parent_pivot = bone
             .parent
             .and_then(|parent| bones.get(parent))
             .map_or(0.0, |parent| parent.pivot[axis]);
-        bone.pivot[axis] - parent_pivot + delta.translation[axis]
+        let offset = if axis == 0 {
+            -delta.translation[axis]
+        } else {
+            delta.translation[axis]
+        };
+        bone.pivot[axis] - parent_pivot + offset
     });
-    let rotation = quat_from_euler(std::array::from_fn(|axis| {
-        bone.rotation[axis] + delta.rotation[axis]
-    }));
+    let [x, y, z] = std::array::from_fn(|axis| bone.rotation[axis] + delta.rotation[axis]);
+    // Authored X and Y angles turn against the right-hand rule in the mirrored frame.
+    let rotation = quat_from_euler([-x, -y, z]);
     let scale = delta.scale[0];
     let transform = if let Some(parent_index) = bone.parent {
         let parent = compose_bone(parent_index, bones, local, transforms, visiting)?;

@@ -115,8 +115,9 @@ fn inherited_rotated_rest_is_drawn_instead_of_animated_pose_and_survives_replace
     let mut world = stream(entities.clone());
     world.submit(1, spawn(-1)).unwrap();
     let rest = world.actor_rig(42).unwrap().rest.to_vec();
-    assert!((rest[1].translation_scale[0] - 1.0).abs() < 1e-5);
-    assert!((rest[1].translation_scale[1] - 2.0).abs() < 1e-5);
+    // The rig frame mirrors authored X, so the root's +90 Z turn swings the tail down.
+    assert!((rest[1].translation_scale[0] + 1.0).abs() < 1e-5);
+    assert!((rest[1].translation_scale[1] + 2.0).abs() < 1e-5);
     world.advance_actor_interpolation_ticks(5);
     let rig = world.actor_rig(42).unwrap();
     assert_eq!(rig.rest, rest);
