@@ -72,6 +72,71 @@ fn app_audio_seam_drains_each_committed_event_once_in_the_same_call() {
     );
 }
 
+#[test]
+fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
+    let mut world = connected_client_world();
+    let stream = world.stream.as_mut().unwrap();
+    stream.submit(1, audio_event("first")).unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0; 3],
+            }),
+        )
+        .unwrap();
+    stream.submit(3, audio_event("middle")).unwrap();
+    stream
+        .submit(
+            4,
+            WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                dimension: 0,
+                position: [0.0; 3],
+            }),
+        )
+        .unwrap();
+    stream.submit(5, audio_event("last")).unwrap();
+    let mut events = Vec::new();
+    drain_committed_audio(stream, |event| events.push(event));
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| (event.dimension, event.dimension_epoch))
+            .collect::<Vec<_>>(),
+        vec![(0, 0), (1, 2), (0, 4)]
+    );
+    let mut app = App::new();
+    app.add_message::<SequencedAudioEvent>()
+        .insert_resource(world)
+        .init_resource::<crate::environment::WorldClock>()
+        .init_resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
+        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<crate::local_player::CameraPose>()
+        .init_resource::<crate::movement::LocalPhysicsController>()
+        .init_resource::<crate::named_audio::NamedAudio>()
+        .add_systems(Update, crate::named_audio::drain_live_named_audio);
+    for event in events {
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<SequencedAudioEvent>>()
+            .write(event);
+    }
+    app.update();
+    let stats = app
+        .world()
+        .resource::<crate::named_audio::NamedAudio>()
+        .stats();
+    assert_eq!((stats.stale, stats.unavailable), (2, 1));
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<crate::named_audio::NamedAudio>()
+            .stats()
+            .stale,
+        2
+    );
+}
+
 fn fixture_alternative(name: &str, weight: u16) -> AudioAlternative {
     AudioAlternative {
         object_form: true,
@@ -104,6 +169,8 @@ fn fixture_catalog() -> RuntimeAudioCatalog {
 fn sequenced_play(sequence: u64, name: &str) -> SequencedAudioEvent {
     SequencedAudioEvent {
         origin_stream_session_id: 1,
+        dimension: 0,
+        dimension_epoch: 0,
         sequence,
         event: AudioEvent::Play(PlayAudioEvent {
             name: Arc::from(name),
@@ -119,6 +186,8 @@ fn sequenced_play(sequence: u64, name: &str) -> SequencedAudioEvent {
 fn sequenced_stop(sequence: u64) -> SequencedAudioEvent {
     SequencedAudioEvent {
         origin_stream_session_id: 1,
+        dimension: 0,
+        dimension_epoch: 0,
         sequence,
         event: AudioEvent::Stop(StopAudioEvent {
             name: Arc::from("random.orb"),
