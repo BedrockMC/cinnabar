@@ -229,7 +229,7 @@ fn compose_bone(
         let scaled = std::array::from_fn(|axis| translation[axis] * parent_scale[axis]);
         let rotated = rotate_vector(parent.rotation, scaled);
         // A non-uniform parent scale under a rotated child would shear; the child keeps the
-        // componentwise product, exact whenever either scale is uniform or the child is unturned.
+        // componentwise product, exact only for a uniform parent scale or an unturned child.
         let scale = std::array::from_fn(|axis| parent_scale[axis] * delta.scale[axis]);
         with_scale(
             quat_multiply(parent.rotation, rotation),

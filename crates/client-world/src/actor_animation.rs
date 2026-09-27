@@ -345,6 +345,8 @@ impl ActorAnimationStore {
                     self.stats.world_budget_exhaustions.saturating_add(1);
                 self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
                 starved.get_or_insert(lifetime);
+                // A frozen tick holds the pose instead of replaying the last change.
+                state.previous.clone_from(&state.current);
                 continue;
             }
             let mut budget = EvalBudget {
@@ -388,15 +390,18 @@ impl ActorAnimationStore {
                     self.stats.actor_budget_exhaustions =
                         self.stats.actor_budget_exhaustions.saturating_add(1);
                     self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
+                    state.previous.clone_from(&state.current);
                 }
                 Err(EvalError::WorldBudget) => {
                     self.stats.world_budget_exhaustions =
                         self.stats.world_budget_exhaustions.saturating_add(1);
                     self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
                     starved.get_or_insert(lifetime);
+                    state.previous.clone_from(&state.current);
                 }
                 Err(EvalError::Invalid) => {
                     self.stats.frozen_actors = self.stats.frozen_actors.saturating_add(1);
+                    state.previous.clone_from(&state.current);
                 }
             }
         }
