@@ -176,6 +176,7 @@ pub struct UiRuntime {
     player_game_mode: Option<PlayerGameMode>,
     world_default_game_mode: Option<PlayerGameMode>,
     player_mode_from_default: bool,
+    block_breaking_authority: Option<protocol::BlockBreakingAuthority>,
     last_inventory_sequence: Option<u64>,
     pending_inventory: VecDeque<SequencedInventoryEvent>,
     crafting_authority: crafting_authority::CraftingAuthority,
@@ -248,6 +249,7 @@ impl UiRuntime {
             player_game_mode: None,
             world_default_game_mode: None,
             player_mode_from_default: false,
+            block_breaking_authority: None,
             last_inventory_sequence: None,
             pending_inventory: VecDeque::with_capacity(MAX_PENDING_INVENTORY_EVENTS),
             crafting_authority: crafting_authority::CraftingAuthority::new(session_id),
@@ -688,6 +690,7 @@ impl UiRuntime {
         self.player_game_mode = None;
         self.world_default_game_mode = None;
         self.player_mode_from_default = false;
+        self.block_breaking_authority = None;
         self.last_inventory_sequence = None;
         self.pending_inventory.clear();
         self.crafting_authority = crafting_authority::CraftingAuthority::new(session_id);

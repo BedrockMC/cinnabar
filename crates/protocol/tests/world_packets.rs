@@ -1,11 +1,11 @@
 use bytes::{Buf, Bytes, BytesMut};
 use protocol::{
-    BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
-    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
-    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
-    vanilla_dimension_range,
+    BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockBreakingAuthority, DaylightCycleUpdateEvent,
+    DimensionRange, GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS,
+    MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, SEQUENTIAL_AIR_NETWORK_ID,
+    SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
+    request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_44::{
@@ -266,6 +266,27 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
             rain_level: 0.25,
             lightning_level: 0.75,
         }
+    );
+}
+
+#[test]
+fn start_game_movement_settings_select_block_breaking_authority() {
+    let mut game_data = game_data();
+    game_data
+        .start_game
+        .movement_settings
+        .server_authoritative_block_breaking = true;
+    assert_eq!(
+        BlockBreakingAuthority::from_game_data(&game_data),
+        BlockBreakingAuthority::Server
+    );
+    game_data
+        .start_game
+        .movement_settings
+        .server_authoritative_block_breaking = false;
+    assert_eq!(
+        BlockBreakingAuthority::from_game_data(&game_data),
+        BlockBreakingAuthority::Client
     );
 }
 
