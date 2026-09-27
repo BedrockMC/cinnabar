@@ -1,340 +1,465 @@
+use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind, molang_call};
+
 use super::*;
 
-pub(super) fn evaluate_expression(
-    assets: &RuntimeEntityAssets,
-    expression_index: usize,
-    actor: &ActorSnapshot,
-    history: &VecDeque<ActorTickInput>,
-    tick: u64,
-    life_tick: u64,
-    budget: &mut EvalBudget<'_>,
-) -> Result<f32, EvalError> {
-    let expression = assets
-        .molang_expressions()
-        .get(expression_index)
-        .ok_or(EvalError::Invalid)?;
-    evaluate_ops(assets, expression, actor, history, tick, life_tick, budget)
+/// A Molang runtime value. Actor references and arrays have no producer in this client, so
+/// `->` and `for_each` always take their empty path.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum MolangValue {
+    Number(f32),
+    String(Arc<str>),
 }
 
-pub(super) fn evaluate_ops(
-    assets: &RuntimeEntityAssets,
-    expression: &CompiledMolangExpression,
-    actor: &ActorSnapshot,
-    history: &VecDeque<ActorTickInput>,
-    tick: u64,
-    life_tick: u64,
-    budget: &mut EvalBudget<'_>,
-) -> Result<f32, EvalError> {
-    let first = expression.first_op as usize;
-    let end = first
-        .checked_add(expression.op_count as usize)
-        .ok_or(EvalError::Invalid)?;
-    let ops = assets
-        .molang_ops()
-        .get(first..end)
-        .ok_or(EvalError::Invalid)?;
-    let mut stack = Vec::with_capacity(expression.max_stack as usize);
-    for op in ops {
-        budget.charge()?;
-        match *op {
-            MolangOp::Push(value) => stack.push(value.get()),
-            MolangOp::LoadQuery(symbol) => {
-                let symbol = assets
-                    .molang_symbols()
-                    .get(symbol as usize)
-                    .ok_or(EvalError::Invalid)?;
-                stack.push(query(actor, history, tick, life_tick, &symbol.identifier));
-            }
-            MolangOp::LoadVariable(_) => stack.push(0.0),
-            MolangOp::Add => binary(&mut stack, |a, b| a + b)?,
-            MolangOp::Subtract => binary(&mut stack, |a, b| a - b)?,
-            MolangOp::Multiply => binary(&mut stack, |a, b| a * b)?,
-            MolangOp::Divide => binary(&mut stack, |a, b| if b == 0.0 { 0.0 } else { a / b })?,
-            MolangOp::Modulo => binary(&mut stack, |a, b| if b == 0.0 { 0.0 } else { a % b })?,
-            MolangOp::Negate => unary(&mut stack, |value| -value)?,
-            MolangOp::Not => unary(&mut stack, |value| bool_value(!truthy(value)))?,
-            MolangOp::Abs => unary(&mut stack, f32::abs)?,
-            MolangOp::Ceil => unary(&mut stack, f32::ceil)?,
-            MolangOp::Floor => unary(&mut stack, f32::floor)?,
-            MolangOp::Round => unary(&mut stack, f32::round)?,
-            MolangOp::Sqrt => unary(&mut stack, |value| value.max(0.0).sqrt())?,
-            MolangOp::Sin => unary(&mut stack, |value| value.to_radians().sin())?,
-            MolangOp::Cos => unary(&mut stack, |value| value.to_radians().cos())?,
-            MolangOp::And => binary(&mut stack, |a, b| bool_value(truthy(a) && truthy(b)))?,
-            MolangOp::Or => binary(&mut stack, |a, b| bool_value(truthy(a) || truthy(b)))?,
-            MolangOp::Equal => binary(&mut stack, |a, b| bool_value(a == b))?,
-            MolangOp::NotEqual => binary(&mut stack, |a, b| bool_value(a != b))?,
-            MolangOp::Less => binary(&mut stack, |a, b| bool_value(a < b))?,
-            MolangOp::LessEqual => binary(&mut stack, |a, b| bool_value(a <= b))?,
-            MolangOp::Greater => binary(&mut stack, |a, b| bool_value(a > b))?,
-            MolangOp::GreaterEqual => binary(&mut stack, |a, b| bool_value(a >= b))?,
-            MolangOp::Min => binary(&mut stack, f32::min)?,
-            MolangOp::Max => binary(&mut stack, f32::max)?,
-            MolangOp::Select => ternary(
-                &mut stack,
-                |condition, yes, no| {
-                    if truthy(condition) { yes } else { no }
+impl MolangValue {
+    /// Numeric reading; a string has no numeric value and reads 0.0.
+    pub(super) fn number(&self) -> f32 {
+        match self {
+            Self::Number(value) => *value,
+            Self::String(_) => 0.0,
+        }
+    }
+
+    /// Molang truthiness: non-zero numbers (NaN included) and strings are true.
+    pub(super) fn truthy(&self) -> bool {
+        match self {
+            Self::Number(value) => *value != 0.0,
+            Self::String(_) => true,
+        }
+    }
+}
+
+/// Dense variable and temporary slots of one carrier's Molang symbol table.
+#[derive(Debug, Default)]
+pub(super) struct VariableLayout {
+    variable_base: usize,
+    variable_count: usize,
+    temp_base: usize,
+    temp_count: usize,
+    pub(super) engine: EngineSlots,
+}
+
+/// Slots of variables the client, not the pack, assigns.
+#[derive(Debug, Default)]
+pub(super) struct EngineSlots {
+    /// Assigned once, before the pack's `initialize` script runs.
+    pub(super) seeded: Vec<(usize, f32)>,
+    pub(super) attack_time: Option<usize>,
+    pub(super) gliding_speed_value: Option<usize>,
+    pub(super) is_holding_right: Option<usize>,
+    pub(super) is_holding_left: Option<usize>,
+    pub(super) is_sneaking: Option<usize>,
+    pub(super) is_blocking: Option<usize>,
+    pub(super) damage_nearby_mobs: Option<usize>,
+}
+
+// Client-owned variables seeded on construction, observed in a client reconstruction and
+// needing independent measurement; remote third-person actors keep these values because
+// only first-person, HUD, and paper-doll renderers change them.
+const SEEDED_VARIABLES: [(&str, f32); 21] = [
+    ("variable.animation_frames_128x128", 1.0),
+    ("variable.animation_frames_32x32", 1.0),
+    ("variable.animation_frames_face", 1.0),
+    ("variable.attack_time", 0.0),
+    ("variable.charge_amount", 0.0),
+    ("variable.gliding_speed_value", 1.0),
+    ("variable.has_target", 0.0),
+    ("variable.is_first_person", 0.0),
+    ("variable.is_horizontal_splitscreen", 0.0),
+    ("variable.is_paperdoll", 0.0),
+    ("variable.is_using_vr", 0.0),
+    ("variable.is_vertical_splitscreen", 0.0),
+    ("variable.left_arm_swim_amount", 0.0),
+    ("variable.map_face_icon", 0.0),
+    ("variable.player_arm_height", 0.0),
+    ("variable.player_x_rotation", 0.0),
+    ("variable.right_arm_swim_amount", 0.0),
+    ("variable.short_arm_offset_left", 0.0),
+    ("variable.short_arm_offset_right", 0.0),
+    ("variable.swim_amount", 0.0),
+    ("variable.use_blinking_animation", 0.0),
+];
+
+impl VariableLayout {
+    pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
+        let symbols = assets.molang_symbols();
+        let range = |kind: MolangSymbolKind| {
+            let start = symbols.partition_point(|symbol| symbol.kind < kind);
+            let end = symbols.partition_point(|symbol| symbol.kind <= kind);
+            (start, end - start)
+        };
+        let (variable_base, variable_count) = range(MolangSymbolKind::Variable);
+        let (temp_base, temp_count) = range(MolangSymbolKind::Temporary);
+        let slot = |name: &str| {
+            symbols[variable_base..variable_base + variable_count]
+                .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
+                .ok()
+        };
+        Self {
+            variable_base,
+            variable_count,
+            temp_base,
+            temp_count,
+            engine: EngineSlots {
+                seeded: SEEDED_VARIABLES
+                    .iter()
+                    .filter_map(|(name, value)| slot(name).map(|slot| (slot, *value)))
+                    .collect(),
+                attack_time: slot("variable.attack_time"),
+                gliding_speed_value: slot("variable.gliding_speed_value"),
+                is_holding_right: slot("variable.is_holding_right"),
+                is_holding_left: slot("variable.is_holding_left"),
+                is_sneaking: slot("variable.is_sneaking"),
+                is_blocking: slot("variable.is_blocking"),
+                damage_nearby_mobs: slot("variable.damage_nearby_mobs"),
+            },
+        }
+    }
+
+    pub(super) fn fresh(&self, seed: u64) -> MolangVariables {
+        MolangVariables {
+            values: vec![None; self.variable_count],
+            temps: vec![None; self.temp_count],
+            random: seed | 1,
+        }
+    }
+}
+
+/// One actor's Molang variables and random stream; an unassigned variable reads as 0.0.
+#[derive(Clone, Debug, Default)]
+pub(super) struct MolangVariables {
+    values: Vec<Option<MolangValue>>,
+    temps: Vec<Option<MolangValue>>,
+    random: u64,
+}
+
+enum Place {
+    Variable(usize),
+    Temporary(usize),
+}
+
+impl MolangVariables {
+    pub(super) fn set(&mut self, slot: Option<usize>, value: f32) {
+        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
+            *entry = Some(MolangValue::Number(value));
+        }
+    }
+
+    pub(super) fn clear_temporaries(&mut self) {
+        self.temps.fill(None);
+    }
+
+    fn entry(&mut self, place: Place) -> Option<&mut Option<MolangValue>> {
+        match place {
+            Place::Variable(slot) => self.values.get_mut(slot),
+            Place::Temporary(slot) => self.temps.get_mut(slot),
+        }
+    }
+
+    /// Next value in `[0, 1]` from a per-actor xorshift stream.
+    fn next_random(&mut self) -> f32 {
+        let mut state = self.random;
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        self.random = state;
+        (state >> 40) as f32 / (1_u64 << 24) as f32
+    }
+}
+
+impl VariableLayout {
+    fn place(&self, symbol: u32) -> Option<Place> {
+        let symbol = symbol as usize;
+        if let Some(slot) = symbol.checked_sub(self.variable_base)
+            && slot < self.variable_count
+        {
+            return Some(Place::Variable(slot));
+        }
+        let slot = symbol.checked_sub(self.temp_base)?;
+        (slot < self.temp_count).then_some(Place::Temporary(slot))
+    }
+}
+
+/// Read-only inputs shared by every expression an actor evaluates in one tick.
+#[derive(Clone, Copy)]
+pub(super) struct Evaluator<'a> {
+    pub(super) assets: &'a RuntimeEntityAssets,
+    pub(super) layout: &'a VariableLayout,
+    pub(super) actor: &'a ActorSnapshot,
+    pub(super) input: &'a ActorTickInput,
+    pub(super) context: &'a ActorTickContext,
+    pub(super) anim_tick: u64,
+    pub(super) life_tick: u64,
+    /// Whether all and any animations of the controller state being left have finished.
+    pub(super) finished: (bool, bool),
+}
+
+impl Evaluator<'_> {
+    pub(super) fn number(
+        &self,
+        expression: usize,
+        variables: &mut MolangVariables,
+        this: f32,
+        budget: &mut EvalBudget<'_>,
+    ) -> Result<f32, EvalError> {
+        Ok(self.run(expression, variables, this, budget)?.number())
+    }
+
+    /// Evaluates one compiled program; `this` is the channel value earlier animations built.
+    pub(super) fn run(
+        &self,
+        expression_index: usize,
+        variables: &mut MolangVariables,
+        this: f32,
+        budget: &mut EvalBudget<'_>,
+    ) -> Result<MolangValue, EvalError> {
+        let expression = self
+            .assets
+            .molang_expressions()
+            .get(expression_index)
+            .ok_or(EvalError::Invalid)?;
+        let first = expression.first_op as usize;
+        let end = first
+            .checked_add(expression.op_count as usize)
+            .ok_or(EvalError::Invalid)?;
+        let ops = self
+            .assets
+            .molang_ops()
+            .get(first..end)
+            .ok_or(EvalError::Invalid)?;
+        // Temporaries last for one evaluation.
+        variables.clear_temporaries();
+        let mut stack = Vec::with_capacity(expression.max_stack as usize);
+        let mut loops = Vec::new();
+        let mut pc = 0;
+        while let Some(op) = ops.get(pc) {
+            budget.charge()?;
+            pc += 1;
+            let jump = |target: u16| -> Result<usize, EvalError> {
+                let target = target as usize;
+                (target <= ops.len())
+                    .then_some(target)
+                    .ok_or(EvalError::Invalid)
+            };
+            match *op {
+                MolangOp::Push(value) => stack.push(MolangValue::Number(value.get())),
+                MolangOp::PushString(symbol) => {
+                    stack.push(MolangValue::String(self.string(symbol)?));
+                }
+                MolangOp::LoadThis => stack.push(MolangValue::Number(this)),
+                MolangOp::LoadQuery(symbol) => {
+                    stack.push(self.query(symbol, &[]));
+                }
+                MolangOp::CallQuery(call) => {
+                    let start = stack
+                        .len()
+                        .checked_sub(call.arguments as usize)
+                        .ok_or(EvalError::Invalid)?;
+                    let arguments = stack.split_off(start);
+                    stack.push(self.query(call.symbol, &arguments));
+                }
+                MolangOp::LoadVariable(symbol) => {
+                    let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
+                    let value = variables
+                        .entry(place)
+                        .and_then(|entry| entry.clone())
+                        .unwrap_or(MolangValue::Number(0.0));
+                    stack.push(value);
+                }
+                MolangOp::StoreVariable(symbol) => {
+                    let value = pop(&mut stack)?;
+                    let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
+                    *variables.entry(place).ok_or(EvalError::Invalid)? = Some(value);
+                }
+                MolangOp::Coalesce(branch) => {
+                    let place = self.layout.place(branch.symbol).ok_or(EvalError::Invalid)?;
+                    if let Some(value) = variables.entry(place).and_then(|entry| entry.clone()) {
+                        stack.push(value);
+                        pc = jump(branch.target)?;
+                    }
+                }
+                MolangOp::SelectCollection(collection) => {
+                    let index = pop(&mut stack)?.number();
+                    stack.push(MolangValue::Number(self.collection(collection, index)?));
+                }
+                MolangOp::Pop => {
+                    pop(&mut stack)?;
+                }
+                MolangOp::Negate => {
+                    let value = pop(&mut stack)?.number();
+                    stack.push(MolangValue::Number(-value));
+                }
+                MolangOp::Not => {
+                    let value = match pop(&mut stack)? {
+                        MolangValue::Number(value) => value == 0.0,
+                        MolangValue::String(_) => false,
+                    };
+                    stack.push(bool_value(value));
+                }
+                MolangOp::Truthy => {
+                    let value = pop(&mut stack)?.truthy();
+                    stack.push(bool_value(value));
+                }
+                MolangOp::Equal | MolangOp::NotEqual => {
+                    let right = pop(&mut stack)?;
+                    let left = pop(&mut stack)?;
+                    let equal = match (&left, &right) {
+                        (MolangValue::Number(left), MolangValue::Number(right)) => left == right,
+                        (MolangValue::String(left), MolangValue::String(right)) => left == right,
+                        _ => false,
+                    };
+                    stack.push(bool_value(equal == matches!(op, MolangOp::Equal)));
+                }
+                MolangOp::Add
+                | MolangOp::Subtract
+                | MolangOp::Multiply
+                | MolangOp::Divide
+                | MolangOp::Less
+                | MolangOp::LessEqual
+                | MolangOp::Greater
+                | MolangOp::GreaterEqual => {
+                    let right = pop(&mut stack)?.number();
+                    let left = pop(&mut stack)?.number();
+                    stack.push(MolangValue::Number(arithmetic(op, left, right)));
+                }
+                MolangOp::Call(function) => {
+                    let start = stack
+                        .len()
+                        .checked_sub(function.arity())
+                        .ok_or(EvalError::Invalid)?;
+                    let arguments = stack
+                        .split_off(start)
+                        .iter()
+                        .map(MolangValue::number)
+                        .collect::<Vec<_>>();
+                    let value = molang_call(function, &arguments, &mut || variables.next_random());
+                    stack.push(MolangValue::Number(value));
+                }
+                MolangOp::Jump(target) => pc = jump(target)?,
+                MolangOp::JumpIfFalse(target) => {
+                    if !pop(&mut stack)?.truthy() {
+                        pc = jump(target)?;
+                    }
+                }
+                MolangOp::JumpIfTrue(target) => {
+                    if pop(&mut stack)?.truthy() {
+                        pc = jump(target)?;
+                    }
+                }
+                MolangOp::Return => return pop(&mut stack),
+                MolangOp::LoopStart(target) => match loop_iterations(pop(&mut stack)?.number()) {
+                    Some(_) if loops.len() == MAX_MOLANG_LOOP_DEPTH => {
+                        return Err(EvalError::Invalid);
+                    }
+                    Some(iterations) => loops.push(iterations),
+                    None => pc = jump(target)?,
                 },
-            )?,
-            MolangOp::Clamp => {
-                let max = pop(&mut stack)?;
-                let min = pop(&mut stack)?;
-                let value = pop(&mut stack)?;
-                if min > max {
-                    return Err(EvalError::Invalid);
+                MolangOp::LoopNext(target)
+                | MolangOp::ForEachNext(assets::MolangBranch { target, .. }) => {
+                    let remaining = loops.last_mut().ok_or(EvalError::Invalid)?;
+                    *remaining = remaining.saturating_sub(1);
+                    if *remaining > 0 {
+                        pc = jump(target)?;
+                    } else {
+                        loops.pop();
+                    }
                 }
-                stack.push(value.max(min).min(max));
-            }
-            MolangOp::Lerp => ternary(&mut stack, |start, end, amount| {
-                start + (end - start) * amount
-            })?,
-            MolangOp::SelectCollection(collection) => {
-                let index = pop(&mut stack)?;
-                let collection = assets
-                    .molang_collections()
-                    .get(collection as usize)
-                    .ok_or(EvalError::Invalid)?;
-                if collection.item_count == 0 {
-                    return Err(EvalError::Invalid);
+                MolangOp::LoopBreak(target) => {
+                    loops.pop().ok_or(EvalError::Invalid)?;
+                    pc = jump(target)?;
                 }
-                let clamped = index
-                    .floor()
-                    .clamp(0.0, f32::from(collection.item_count - 1))
-                    as usize;
-                let item = assets
-                    .molang_collection_items()
-                    .get(collection.first_item as usize + clamped)
-                    .ok_or(EvalError::Invalid)?;
-                stack.push(item.value.get());
+                MolangOp::ForEachStart(branch) => {
+                    // No value is an actor array, so the body never runs.
+                    pop(&mut stack)?;
+                    pc = jump(branch.target)?;
+                }
+                MolangOp::Arrow(target) => {
+                    // No value is an actor reference: the right side is skipped.
+                    pop(&mut stack)?;
+                    stack.push(MolangValue::Number(0.0));
+                    pc = jump(target)?;
+                }
             }
         }
-        if stack.last().is_some_and(|value| !value.is_finite()) {
+        if stack.len() != 1 {
             return Err(EvalError::Invalid);
         }
+        pop(&mut stack)
     }
-    if stack.len() != 1 {
-        return Err(EvalError::Invalid);
-    }
-    pop(&mut stack)
-}
 
-pub(super) fn query(
-    actor: &ActorSnapshot,
-    history: &VecDeque<ActorTickInput>,
-    tick: u64,
-    life_tick: u64,
-    identifier: &str,
-) -> f32 {
-    let identifier = identifier.strip_prefix("query.").unwrap_or(identifier);
-    let input = history.back().copied().unwrap_or(ActorTickInput {
-        velocity: actor.velocity,
-        on_ground: actor.on_ground.unwrap_or(false),
-        body_yaw: actor.body_yaw,
-        head_yaw: actor.head_yaw,
-        pitch: actor.pitch,
-        is_riding: false,
-    });
-    let ground_speed = input.velocity[0].hypot(input.velocity[2]);
-    match identifier {
-        "anim_time" => tick as f32 * 0.05,
-        "life_time" => life_tick as f32 * 0.05,
-        "modified_move_speed" => actor
-            .attributes
-            .get("minecraft:movement")
-            .or_else(|| actor.attributes.get("movement"))
-            .map_or(ground_speed, |attribute| attribute.current),
-        "ground_speed" => ground_speed,
-        "is_on_ground" => bool_value(input.on_ground),
-        "is_riding" => bool_value(input.is_riding),
-        "is_moving" => bool_value(
-            input
-                .velocity
-                .iter()
-                .any(|value| value.abs() > f32::EPSILON),
-        ),
-        "is_sprinting" => bool_value(generic_metadata_flag(actor, 3)),
-        "is_sneaking" => bool_value(generic_metadata_flag(actor, 1)),
-        "is_sleeping" => bool_value(
-            generic_metadata_flag(actor, 2)
-                || player_sleeping_flag(actor)
-                || extended_sleeping_flag(actor),
-        ),
-        "body_y_rotation" => input.body_yaw,
-        "head_y_rotation" => input.head_yaw,
-        "target_x_rotation" => input.pitch,
-        _ => 0.0,
+    fn string(&self, symbol: u32) -> Result<Arc<str>, EvalError> {
+        self.assets
+            .molang_symbols()
+            .get(symbol as usize)
+            .filter(|symbol| symbol.kind == MolangSymbolKind::String)
+            .map(|symbol| Arc::from(symbol.identifier.as_ref()))
+            .ok_or(EvalError::Invalid)
     }
-}
 
-pub(super) fn generic_metadata_flag(actor: &ActorSnapshot, bit: u32) -> bool {
-    matches!(actor.metadata.get(&0), Some(ActorMetadataValue::Flags(flags)) if flags & (1_u64 << bit) != 0)
-}
-
-pub(super) fn player_sleeping_flag(actor: &ActorSnapshot) -> bool {
-    matches!(actor.metadata.get(&26), Some(ActorMetadataValue::Byte(flags)) if (*flags as u8) & (1 << 1) != 0)
-}
-
-pub(super) fn extended_sleeping_flag(actor: &ActorSnapshot) -> bool {
-    matches!(actor.metadata.get(&92), Some(ActorMetadataValue::FlagsExtended(flags)) if flags & (1 << 11) != 0)
-}
-
-pub(super) fn compose_pose(
-    bones: &[RuntimeBone],
-    local: &[LocalDelta],
-) -> Option<Vec<BoneTransform>> {
-    let mut transforms = vec![None; bones.len()];
-    let mut visiting = vec![false; bones.len()];
-    for index in 0..bones.len() {
-        compose_bone(index, bones, local, &mut transforms, &mut visiting)?;
+    fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
+        let Some(symbol) = self.assets.molang_symbols().get(symbol as usize) else {
+            return MolangValue::Number(0.0);
+        };
+        let inputs = query::QueryInputs {
+            actor: self.actor,
+            input: self.input,
+            context: self.context,
+            anim_tick: self.anim_tick,
+            life_tick: self.life_tick,
+            finished: self.finished,
+        };
+        query::query(&inputs, &symbol.identifier, arguments)
     }
-    transforms.into_iter().collect()
-}
 
-pub(super) fn compose_bone(
-    index: usize,
-    bones: &[RuntimeBone],
-    local: &[LocalDelta],
-    transforms: &mut [Option<BoneTransform>],
-    visiting: &mut [bool],
-) -> Option<BoneTransform> {
-    if let Some(transform) = transforms.get(index).copied().flatten() {
-        return Some(transform);
-    }
-    if *visiting.get(index)? {
-        return None;
-    }
-    visiting[index] = true;
-    let bone = bones.get(index)?;
-    let delta = local.get(index).copied().unwrap_or_default();
-    if (delta.scale[0] - delta.scale[1]).abs() > f32::EPSILON
-        || (delta.scale[0] - delta.scale[2]).abs() > f32::EPSILON
-    {
-        return None;
-    }
-    let translation = std::array::from_fn(|axis| {
-        let parent_pivot = bone
-            .parent
-            .and_then(|parent| bones.get(parent))
-            .map_or(0.0, |parent| parent.pivot[axis]);
-        bone.pivot[axis] - parent_pivot + delta.translation[axis]
-    });
-    let rotation = quat_from_euler(std::array::from_fn(|axis| {
-        bone.rotation[axis] + delta.rotation[axis]
-    }));
-    let scale = delta.scale[0];
-    let transform = if let Some(parent_index) = bone.parent {
-        let parent = compose_bone(parent_index, bones, local, transforms, visiting)?;
-        let parent_scale = parent.translation_scale[3];
-        let scaled = translation.map(|value| value * parent_scale);
-        let rotated = rotate_vector(parent.rotation, scaled);
-        BoneTransform {
-            rotation: quat_multiply(parent.rotation, rotation),
-            translation_scale: [
-                parent.translation_scale[0] + rotated[0],
-                parent.translation_scale[1] + rotated[1],
-                parent.translation_scale[2] + rotated[2],
-                parent_scale * scale,
-            ],
+    /// Selects a collection item; indices wrap past the end and clamp below zero.
+    fn collection(&self, collection: u32, index: f32) -> Result<f32, EvalError> {
+        let collection = self
+            .assets
+            .molang_collections()
+            .get(collection as usize)
+            .ok_or(EvalError::Invalid)?;
+        let count = usize::from(collection.item_count);
+        if count == 0 {
+            return Err(EvalError::Invalid);
         }
-    } else {
-        BoneTransform {
-            rotation,
-            translation_scale: [translation[0], translation[1], translation[2], scale],
-        }
-    };
-    if transform
-        .rotation
-        .iter()
-        .chain(transform.translation_scale.iter())
-        .any(|value| !value.is_finite())
-    {
-        return None;
+        let index = if index.is_nan() || index <= 0.0 {
+            0
+        } else {
+            (index as usize) % count
+        };
+        self.assets
+            .molang_collection_items()
+            .get(collection.first_item as usize + index)
+            .map(|item| item.value.get())
+            .ok_or(EvalError::Invalid)
     }
-    visiting[index] = false;
-    transforms[index] = Some(transform);
-    Some(transform)
 }
 
-pub(super) fn quat_from_euler(rotation: [f32; 3]) -> [f32; 4] {
-    let [x, y, z] = rotation.map(|value| value.to_radians() * 0.5);
-    let (sx, cx) = x.sin_cos();
-    let (sy, cy) = y.sin_cos();
-    let (sz, cz) = z.sin_cos();
-    [
-        sx * cy * cz - cx * sy * sz,
-        cx * sy * cz + sx * cy * sz,
-        cx * cy * sz - sx * sy * cz,
-        cx * cy * cz + sx * sy * sz,
-    ]
+/// Iterations a `loop` count runs: its ceiling, bounded; `None` skips the body.
+pub(super) fn loop_iterations(count: f32) -> Option<u32> {
+    (count > 0.0).then(|| count.ceil().min(MAX_MOLANG_LOOP_ITERATIONS as f32) as u32)
 }
 
-pub(super) fn quat_multiply(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [
-        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
-        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
-        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
-        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
-    ]
+fn arithmetic(op: &MolangOp, left: f32, right: f32) -> f32 {
+    let truth = |value: bool| if value { 1.0 } else { 0.0 };
+    match op {
+        MolangOp::Add => left + right,
+        MolangOp::Subtract => left - right,
+        MolangOp::Multiply => left * right,
+        // A divisor within float epsilon of zero yields zero; the threshold needs independent
+        // measurement.
+        MolangOp::Divide if right.abs() < f32::EPSILON => 0.0,
+        MolangOp::Divide => left / right,
+        MolangOp::Less => truth(left < right),
+        MolangOp::LessEqual => truth(left <= right),
+        MolangOp::Greater => truth(left > right),
+        _ => truth(left >= right),
+    }
 }
 
-pub(super) fn rotate_vector(rotation: [f32; 4], vector: [f32; 3]) -> [f32; 3] {
-    let qvector = [vector[0], vector[1], vector[2], 0.0];
-    let inverse = [-rotation[0], -rotation[1], -rotation[2], rotation[3]];
-    let result = quat_multiply(quat_multiply(rotation, qvector), inverse);
-    [result[0], result[1], result[2]]
-}
-
-pub(super) fn lerp3(left: [f32; 3], right: [f32; 3], amount: f32) -> [f32; 3] {
-    std::array::from_fn(|axis| left[axis] + (right[axis] - left[axis]) * amount)
-}
-
-pub(super) fn catmull(p0: f32, p1: f32, p2: f32, p3: f32, amount: f32) -> f32 {
-    let amount2 = amount * amount;
-    let amount3 = amount2 * amount;
-    0.5 * ((2.0 * p1)
-        + (-p0 + p2) * amount
-        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * amount2
-        + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * amount3)
-}
-
-pub(super) fn pop(stack: &mut Vec<f32>) -> Result<f32, EvalError> {
+pub(super) fn pop(stack: &mut Vec<MolangValue>) -> Result<MolangValue, EvalError> {
     stack.pop().ok_or(EvalError::Invalid)
 }
 
-pub(super) fn unary(
-    stack: &mut Vec<f32>,
-    operation: impl FnOnce(f32) -> f32,
-) -> Result<(), EvalError> {
-    let value = pop(stack)?;
-    stack.push(operation(value));
-    Ok(())
-}
-
-pub(super) fn binary(
-    stack: &mut Vec<f32>,
-    operation: impl FnOnce(f32, f32) -> f32,
-) -> Result<(), EvalError> {
-    let right = pop(stack)?;
-    let left = pop(stack)?;
-    stack.push(operation(left, right));
-    Ok(())
-}
-
-pub(super) fn ternary(
-    stack: &mut Vec<f32>,
-    operation: impl FnOnce(f32, f32, f32) -> f32,
-) -> Result<(), EvalError> {
-    let third = pop(stack)?;
-    let second = pop(stack)?;
-    let first = pop(stack)?;
-    stack.push(operation(first, second, third));
-    Ok(())
-}
-
-pub(super) fn truthy(value: f32) -> bool {
-    value != 0.0
-}
-
-pub(super) fn bool_value(value: bool) -> f32 {
-    u8::from(value).into()
+fn bool_value(value: bool) -> MolangValue {
+    MolangValue::Number(if value { 1.0 } else { 0.0 })
 }

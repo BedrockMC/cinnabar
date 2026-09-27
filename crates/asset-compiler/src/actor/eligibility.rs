@@ -155,7 +155,10 @@ pub(super) fn supported(
             for animation in &entities.controller_animations[state.first_animation as usize
                 ..state.first_animation as usize + usize::from(state.animation_count)]
             {
-                clips.insert(animation.clip);
+                let assets::EntityControllerAnimationTarget::Clip(clip) = animation.target else {
+                    return Ok(false);
+                };
+                clips.insert(clip);
             }
         }
     }
