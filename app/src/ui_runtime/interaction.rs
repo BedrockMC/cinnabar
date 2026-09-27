@@ -20,31 +20,40 @@ use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
 use super::{PlatformClipboard, UiRuntime, presentation};
 
+/// Admits every ready inventory packet in queue order, stopping at the first
+/// transport refusal. Returns whether anything was admitted.
 pub fn flush_inventory_send<E>(
     runtime: &mut UiRuntime,
     now_millis: u64,
     mut send: impl FnMut(Packet) -> Result<(), E>,
 ) -> Result<bool, E> {
     runtime.poll_inventory_timeout(now_millis);
-    let Some(packet) = runtime
-        .inventory_ledger()
-        .pending_packet()
-        .expect("the ledger retains only validated protocol requests")
-    else {
-        return Ok(false);
-    };
-    if let Err(error) = send(packet) {
-        runtime
+    let mut admitted_any = false;
+    for _ in 0..MAX_INVENTORY_PACKETS_PER_FLUSH {
+        let Some(packet) = runtime
+            .inventory_ledger()
+            .pending_packet()
+            .expect("the ledger retains only validated protocol requests")
+        else {
+            break;
+        };
+        if let Err(error) = send(packet) {
+            runtime
+                .inventory_ledger_mut()
+                .note_transport_pressure(now_millis);
+            return Err(error);
+        }
+        let admitted = runtime
             .inventory_ledger_mut()
-            .note_transport_pressure(now_millis);
-        return Err(error);
+            .mark_transport_enqueued(now_millis);
+        debug_assert!(admitted, "only an awaiting request can be transported");
+        admitted_any = true;
     }
-    let admitted = runtime
-        .inventory_ledger_mut()
-        .mark_transport_enqueued(now_millis);
-    debug_assert!(admitted, "only an awaiting request can be transported");
-    Ok(true)
+    Ok(admitted_any)
 }
+
+/// Bounds one frame's inventory transport work.
+const MAX_INVENTORY_PACKETS_PER_FLUSH: usize = 32;
 
 pub(crate) fn flush_inventory_network(
     time: Res<Time<Real>>,
