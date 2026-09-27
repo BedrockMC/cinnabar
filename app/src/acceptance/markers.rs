@@ -252,7 +252,7 @@ mod tests {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
-        assert_eq!(names.len(), 37);
+        assert_eq!(names.len(), 38);
         let protocol_prefix = concat!("RUST_", "MCBE_");
         assert!(names.iter().all(|name| name.starts_with(protocol_prefix)));
     }
