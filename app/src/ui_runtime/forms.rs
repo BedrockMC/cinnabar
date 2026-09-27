@@ -1,6 +1,7 @@
 //! Session-bound form authority and bounded, single-enqueue responses.
 mod interaction;
 mod network;
+mod shape_probe;
 use super::UiRuntime;
 pub(crate) use interaction::drive_server_form_input;
 pub(crate) use network::flush_server_form_network;
@@ -91,6 +92,7 @@ impl ServerFormStore {
         session: u64,
         other_ui: bool,
     ) {
+        shape_probe::observe(&event);
         self.next_revision = self.next_revision.saturating_add(1);
         let identity = ServerFormIdentity {
             session,
