@@ -14,11 +14,23 @@ pub(crate) fn drain_committed_ui_before_authority(
     mut ui_runtime: ResMut<UiRuntime>,
     time: Res<Time<Real>>,
 ) {
+    let session = clock.session_generation();
+    let craft_identity = client_world
+        .stream
+        .as_ref()
+        .filter(|_| client_world.fatal_error.is_none())
+        .map(|stream| {
+            (
+                stream.biome_tint_identity().stream(),
+                stream.form_dimension_epoch(),
+                stream.inventory_committed_through(),
+            )
+        });
+    ui_runtime.synchronize_crafting_frontier(session, craft_identity);
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };
     ui_runtime.note_stream_dimension(stream.current_dimension());
-    let session = clock.session_generation();
     let dimension_epoch = stream.form_dimension_epoch();
     ui_runtime
         .server_forms_mut()

@@ -54,21 +54,29 @@ pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     click_block_packet, destroy_block_packet, use_actor_packet,
 };
-pub use inventory::{
-    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR,
-    CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
-    ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,
-    InventorySlotEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES,
-    MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, OFFHAND_WINDOW_ID,
-    PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
-    StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
-    StackResponseContainer, StackResponseSlot, StackResponseStatus, VerifiedNetworkItemStack,
-    container_close_packet, item_stack_request_packet, normalize_authority,
-    normalize_container_close, normalize_container_data, normalize_container_open,
-    normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
-    project_container_cell, validate_item_nbt_size,
+pub use inventory::recipes::{
+    RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeUpdate, decode_recipe_update,
 };
+pub use inventory::{
+    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
+    CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY,
+    CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent, ContainerDataEvent,
+    ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
+    InventoryEvent, InventoryPacketError, InventorySlotEvent, ItemStackResponseEvent,
+    MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES,
+    MAX_STACK_RESPONSES, OFFHAND_WINDOW_ID, PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID,
+    SelectedSlotEvent, SlotIdentity, StackRequestAction, StackRequestContainer, StackRequestSlot,
+    StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
+    VerifiedNetworkItemStack, container_close_packet, item_stack_request_packet,
+    normalize_authority, normalize_container_close, normalize_container_data,
+    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
+    normalize_slot, open_inventory_packet, project_container_cell, validate_item_nbt_size,
+};
+pub use inventory::{
+    ManualCraftCell, ManualCraftMatch, ManualCraftPreview, RecipeRegistryError,
+    RecipeRegistrySnapshot, match_manual_grid,
+};
+pub use inventory::{ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
