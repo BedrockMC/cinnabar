@@ -1,6 +1,132 @@
 use super::*;
 use protocol::{ContainerIdentity, InventorySlotEvent, NetworkItemStack, SlotIdentity};
 
+fn contextual_content(stacks: [NetworkItemStack; 4]) -> InventoryAuthorityEvent {
+    let mut slots = vec![NetworkItemStack::empty(); 54];
+    slots[28..32].clone_from_slice(&stacks);
+    InventoryAuthorityEvent::Inventory(InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(124),
+            slot_type: Some(0),
+            dynamic_id: None,
+        },
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }))
+}
+
+#[test]
+fn contextual_grid_and_incremental_cells_share_committed_fifo_without_cursor_authority() {
+    let stacks = std::array::from_fn(|index| NetworkItemStack {
+        network_id: 6,
+        stack_network_id: i32::try_from(101 + index).unwrap(),
+        count: u16::try_from(index + 1).unwrap(),
+        ..NetworkItemStack::empty()
+    });
+    let mut state = CraftingAuthority::new(1);
+    state.observe(1, 1, &contextual_content(stacks.clone()));
+    state.synchronize(Some((1, 0, Some(0))));
+    state.advance();
+    assert!(state.grid.iter().all(Option::is_none));
+    state.synchronize(Some((1, 0, Some(1))));
+    let revision = state.revision;
+    state.advance();
+    assert_eq!(state.revision, revision + 1, "one atomic grid revision");
+    for (cell, expected) in state.grid.iter().zip(&stacks) {
+        assert_eq!(&cell.as_ref().unwrap().stack, expected);
+    }
+    assert!(state.cursor.is_none());
+    let old = state.clone();
+    state.observe(1, 2, &slot(0, 29));
+    state.observe(1, 3, &present_slot(13, 30));
+    state.synchronize(Some((1, 0, Some(2))));
+    state.advance();
+    assert!(state.grid[1].as_ref().unwrap().stack.is_empty());
+    assert_eq!(state.grid[2].as_ref().unwrap().stack.stack_network_id, 103);
+    assert_eq!(old.grid[1].as_ref().unwrap().stack, stacks[1]);
+    state.synchronize(Some((1, 0, Some(3))));
+    state.advance();
+    assert_eq!(state.grid[2].as_ref().unwrap().stack.stack_network_id, 101);
+    state.observe(
+        1,
+        4,
+        &contextual_content(std::array::from_fn(|_| NetworkItemStack::empty())),
+    );
+    state.synchronize(Some((1, 0, Some(4))));
+    state.advance();
+    assert!(
+        state
+            .grid
+            .iter()
+            .all(|cell| cell.as_ref().unwrap().stack.is_empty())
+    );
+    assert!(state.cursor.is_none());
+}
+
+#[test]
+fn contextual_grid_obeys_session_epoch_and_immediate_client_revocation() {
+    let empty = || contextual_content(std::array::from_fn(|_| NetworkItemStack::empty()));
+    let mut state = CraftingAuthority::new(1);
+    state.observe(2, 1, &empty());
+    assert!(state.queue.is_none());
+    state.observe(1, 1, &empty());
+    state.observe(1, 3, &empty());
+    state.synchronize(Some((1, 2, Some(3))));
+    state.advance();
+    assert!(state.grid.iter().all(Option::is_some));
+    state.note_ingress(4, &authority(InventoryAuthority::Client));
+    assert!(state.grid.iter().all(Option::is_none));
+    state.observe(1, 4, &authority(InventoryAuthority::Client));
+    state.synchronize(Some((1, 2, Some(4))));
+    state.advance();
+    assert!(state.grid.iter().all(Option::is_none));
+    state.observe(1, 5, &empty());
+    state.synchronize(Some((1, 6, Some(6))));
+    state.advance();
+    assert!(
+        state.grid.iter().all(Option::is_none),
+        "same-number epoch cut retires old grid"
+    );
+    state.observe(1, 7, &empty());
+    state.synchronize(Some((1, 6, Some(7))));
+    state.advance();
+    assert!(state.grid.iter().all(Option::is_some));
+    state.synchronize(None);
+    assert!(state.grid.iter().all(Option::is_none));
+}
+
+#[test]
+fn contextual_grid_overflow_is_cell_only_and_fresh_snapshot_does_not_invent_cursor() {
+    let empty = || contextual_content(std::array::from_fn(|_| NetworkItemStack::empty()));
+    let mut state = CraftingAuthority::new(1);
+    state.bootstrap(
+        Some(&named_registry("minecraft:oak_log", 64)),
+        InventoryAuthority::Server,
+    );
+    for sequence in 1..=64 {
+        state.observe(1, sequence, &empty());
+    }
+    assert_eq!(state.queue.as_ref().unwrap().records.len(), 64);
+    let old = state.clone();
+    state.observe(1, 65, &empty());
+    assert!(state.queue.is_none());
+    assert_eq!(state.barrier, 65);
+    assert!(state.registry.is_some());
+    assert_eq!(state.authority, Some(InventoryAuthority::Server));
+    assert_eq!(old.queue.as_ref().unwrap().records.len(), 64);
+    state.observe(1, 66, &slot(0, 28));
+    state.synchronize(Some((1, 0, Some(66))));
+    state.advance();
+    assert!(state.grid[0].is_some());
+    assert!(state.grid[1..].iter().all(Option::is_none));
+    state.observe(1, 67, &empty());
+    state.synchronize(Some((1, 0, Some(67))));
+    state.advance();
+    assert!(state.grid.iter().all(Option::is_some));
+    assert!(state.cursor.is_none());
+    assert!(state.preview().is_none());
+}
+
 fn slot(name: u8, slot: u16) -> InventoryAuthorityEvent {
     InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity {
