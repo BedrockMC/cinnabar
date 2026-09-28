@@ -33,6 +33,10 @@ const DEFAULT_SKY_TEMPERATURE: f32 = 0.8;
 /// Provisional lightning-flash sky pull; needs native calibration.
 const PROVISIONAL_FLASH_SKY_PULL: f32 = 0.6;
 const PROVISIONAL_FLASH_COLOUR: [f32; 3] = [0.85, 0.87, 1.0];
+/// Provisional vision-effect responses; need native calibration.
+const BLINDNESS_FOG_END: f32 = 5.0;
+const DARKNESS_LIGHT_LOSS: f32 = 0.7;
+const DARKNESS_FOG_END_SCALE: f32 = 0.4;
 const NETHER_FOG_RGB8: u32 = 0x3308_08;
 /// Provisional flat end sky until `end_sky.png` is carried; needs native calibration.
 const PROVISIONAL_END_SKY: [f32; 3] = [0.035, 0.028, 0.05];
@@ -360,6 +364,38 @@ impl AtmosphereFrame {
                 record.w,
             );
         }
+        self
+    }
+
+    /// Applies blindness (fog closes to black), darkness (dimmer lightmap and fog) and night
+    /// vision (lightmap toward full bright), each in `0..=1`.
+    #[must_use]
+    pub fn with_vision_effects(mut self, blindness: f32, darkness: f32, night_vision: f32) -> Self {
+        let (blindness, darkness, night_vision) = (
+            bounded_level(blindness),
+            bounded_level(darkness),
+            bounded_level(night_vision),
+        );
+        let light = celestial::lerp(self.daylight(), 1.0, night_vision)
+            * (1.0 - darkness * DARKNESS_LIGHT_LOSS);
+        self.sun_direction_daylight.w = light;
+        let dim = (1.0 - blindness) * (1.0 - darkness * 0.5);
+        for record in [
+            &mut self.sky_zenith_rain,
+            &mut self.sky_horizon_thunder,
+            &mut self.fog_color_start,
+        ] {
+            *record = Vec4::new(record.x * dim, record.y * dim, record.z * dim, record.w);
+        }
+        let end_scale = celestial::lerp(1.0, DARKNESS_FOG_END_SCALE, darkness);
+        self.fog_end_time.x = celestial::lerp(
+            self.fog_end_time.x * end_scale,
+            BLINDNESS_FOG_END,
+            blindness,
+        );
+        self.fog_color_start.w =
+            celestial::lerp(self.fog_color_start.w * end_scale, 0.0, blindness)
+                .min(self.fog_end_time.x);
         self
     }
 
@@ -774,6 +810,19 @@ mod tests {
         assert!((flashed.daylight() - 1.0).abs() < 1.0e-6);
         assert!(flashed.sky_zenith()[2] > night.sky_zenith()[2]);
         assert_eq!(night.with_lightning_flash(0.0), night);
+    }
+
+    #[test]
+    fn vision_effects_are_identity_at_zero_and_shape_fog_and_light() {
+        let noon = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+        assert_eq!(noon.with_vision_effects(0.0, 0.0, 0.0), noon);
+        let blind = noon.with_vision_effects(1.0, 0.0, 0.0);
+        assert_eq!((blind.fog_start(), blind.fog_end()), (0.0, 5.0));
+        assert_eq!(blind.fog_color(), [0.0; 3]);
+        let dark = noon.with_vision_effects(0.0, 1.0, 0.0);
+        assert!(dark.daylight() < noon.daylight() && dark.fog_end() < noon.fog_end());
+        let night = AtmosphereFrame::from_bedrock_time(18_000.0, 0.0, 0.0);
+        assert!((night.with_vision_effects(0.0, 0.0, 1.0).daylight() - 1.0).abs() < 1.0e-6);
     }
 
     #[test]
