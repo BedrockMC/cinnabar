@@ -151,3 +151,32 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
 
 ## Audio
 - Not yet audited. Earlier note: no footstep/block-sound lookups by runtime id exist — likely a large gap.
+
+## Entity animation query audit (Bedrock target)
+
+Queries referenced by the vanilla pack's entity, controller, animation and render-controller JSON
+(use count in parentheses), by how Cinnabar evaluates them. Sources: `actor_animation/query.rs`,
+`tick.rs`. Unlisted queries read 0.
+
+| Status | Queries |
+| --- | --- |
+| Metadata flag word | is_sneaking, is_sprinting, is_swimming, is_gliding, is_crawling, is_baby (293), is_saddled, is_chested, is_powered, is_tamed, is_sitting, is_angry, is_charging, is_casting, is_eating, is_emoting, is_using_item, is_delayed_attacking, blocking, is_dancing, is_standing, is_playing_dead, plus the remaining `is_*` behaviour flags |
+| Metadata value | variant (69), mark_variant, skin_id, model_scale, sit_amount, lie_amount, fuse_time, invulnerable_ticks, swelling_dir, swell_amount (normaliser unmeasured), has_target, get_name |
+| Client-derived motion | modified_move_speed (269), modified_distance_moved (226), walk_distance, ground_speed, vertical_speed, position_delta, movement_direction, is_moving, is_on_ground, life_time, anim_time, delta_time, time_stamp (tick count, not world clock), body/head/target x/y rotation |
+| Links and equipment | is_riding, has_rider, has_player_rider, is_riding_any_entity_of_type, get_equipped_item_name, is_item_equipped, is_item_name_any, is_sleeping |
+| Status / attributes | health, is_alive, hurt_time, hurt_direction, death_ticks, is_shield_powered |
+| Item use | main_hand_item_use_duration (ticks the use flag has been set, in seconds) |
+| Heuristic | is_in_water (swimming flag, or airborne for fish and squid; no fluid sample), is_grazing (eating flag, unmeasured), swim_amount and standing_scale (unsmoothed 0/1) |
+| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (53), is_in_lava, item_is_charged (25), has_cape, sleep_rotation, property (21), armor_color/texture/material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
+
+Engine-fed variables: attack_time, gliding_speed_value, is_holding_right/left, is_sneaking,
+is_blocking, damage_nearby_mobs, is_first_person, player_x_rotation, bob_animation (per tick);
+the seeded set in `evaluation.rs` (charge_amount, has_target, swim amounts, arm offsets) stays at
+its seed.
+
+Local player: sneak and sprint come from the latest predicted tick; swim, glide, crawl, sleep and
+item-use flags arrive from server metadata, with no client-predicted source.
+
+Open: fluid sampling for is_in_water/is_in_lava, item_is_charged and max use duration need item
+state, sleep_rotation needs the bed orientation, property needs a name-to-index map, frame_alpha
+needs a partial-tick feed, has_cape needs the skin cape.

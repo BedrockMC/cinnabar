@@ -465,3 +465,57 @@ fn hurt_queries_read_the_client_countdown() {
     assert_eq!(read("query.hurt_time"), MolangValue::Number(7.0));
     assert_eq!(read("query.hurt_direction"), MolangValue::Number(3.0));
 }
+
+#[test]
+fn state_queries_read_target_swell_shield_and_death() {
+    let mut actor = actor_with_metadata(HashMap::from([
+        (6, ActorMetadataValue::Long(42)),
+        (19, ActorMetadataValue::Int(14)),
+    ]));
+    let input = ActorTickInput::default();
+    assert_eq!(read(&actor, &input, 0, "query.has_target"), 1.0);
+    assert_eq!(read(&actor, &input, 0, "query.swell_amount"), 0.5);
+    actor.metadata.insert(6, ActorMetadataValue::Long(-1));
+    assert_eq!(read(&actor, &input, 0, "query.has_target"), 0.0);
+    actor.status.death_time = 9;
+    assert_eq!(read(&actor, &input, 0, "query.death_ticks"), 9.0);
+    assert_eq!(read(&actor, &input, 0, "query.is_shield_powered"), 0.0);
+    actor.attributes.insert(
+        "minecraft:health".into(),
+        protocol::ActorAttribute {
+            name: "minecraft:health".into(),
+            min: 0.0,
+            max: 300.0,
+            current: 150.0,
+            default: None,
+            modifiers: Arc::from([]),
+        },
+    );
+    assert_eq!(read(&actor, &input, 0, "query.is_shield_powered"), 1.0);
+}
+
+#[test]
+fn item_use_duration_counts_seconds_and_water_follows_swimming_or_aquatic_airborne() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput {
+        item_use_ticks: 20,
+        ..ActorTickInput::default()
+    };
+    assert_eq!(
+        read(&actor, &input, 0, "query.main_hand_item_use_duration"),
+        1.0
+    );
+    assert_eq!(read(&actor, &input, 0, "query.is_in_water"), 0.0);
+    let swimmer = actor_with_metadata(HashMap::from([(0, ActorMetadataValue::Flags(1 << 57))]));
+    assert_eq!(read(&swimmer, &input, 0, "query.is_in_water"), 1.0);
+    let mut fish = actor_with_metadata(HashMap::new());
+    fish.kind = ActorKind::Entity {
+        identifier: "minecraft:cod".into(),
+    };
+    assert_eq!(read(&fish, &input, 0, "query.is_in_water"), 1.0);
+    let grounded = ActorTickInput {
+        on_ground: true,
+        ..input
+    };
+    assert_eq!(read(&fish, &grounded, 0, "query.is_in_water"), 0.0);
+}
