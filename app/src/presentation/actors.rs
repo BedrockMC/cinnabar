@@ -10,8 +10,8 @@ use render::{
     default_actor_skin_rgba8, normalize_actor_skin, pack_overlay_rgba8,
 };
 
-/// Damage tint blended over a hurt or dying actor; alpha needs independent measurement.
-const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, 0.4];
+/// Damage tint blended over a hurt or dying actor.
+const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActorRigPresentation {
