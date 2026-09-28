@@ -78,6 +78,7 @@ pub(crate) struct ItemStateStore {
     /// Latest armor by runtime id; the client-owned runtime survives actor churn.
     armor: BTreeMap<u64, ActorArmorSnapshot>,
     persistent_armor_runtime: Option<u64>,
+    use_durations: Option<Arc<BTreeMap<Box<str>, u32>>>,
 }
 
 impl ItemStateStore {
@@ -97,7 +98,23 @@ impl ItemStateStore {
             pending: VecDeque::new(),
             armor: BTreeMap::new(),
             persistent_armor_runtime: None,
+            use_durations: None,
         }
+    }
+
+    pub(crate) fn set_use_durations(&mut self, durations: Arc<BTreeMap<Box<str>, u32>>) {
+        if !self
+            .use_durations
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &durations))
+        {
+            self.use_durations = Some(durations);
+        }
+    }
+
+    /// Ticks the item can be used for, when the pack states it.
+    pub(crate) fn max_use_ticks(&self, identifier: &str) -> Option<u32> {
+        self.use_durations.as_ref()?.get(identifier).copied()
     }
 
     /// Keeps this runtime's armor across actor removal and dimension resets (the local player).

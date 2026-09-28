@@ -7,6 +7,8 @@ pub(crate) struct ActorTickContext {
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub(crate) main_hand: Option<Arc<str>>,
     pub(crate) off_hand: Option<Arc<str>>,
+    /// Ticks the main-hand item can be used for, or 0 when unknown.
+    pub(crate) main_hand_max_use_ticks: u32,
     /// Namespaced identifier of the actor being ridden.
     pub(crate) ridden: Option<Arc<str>>,
     pub(crate) has_rider: bool,

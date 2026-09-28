@@ -202,6 +202,13 @@ impl WorldStream {
     ) -> Option<&ActorEquipmentSnapshot> {
         self.actors.equipment_in_hand(runtime_id, hand)
     }
+    /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
+    pub fn set_item_use_durations(
+        &mut self,
+        durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
+    ) {
+        self.actors.set_item_use_durations(durations);
+    }
     pub fn actor_armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
         self.actors.armor(runtime_id)
     }
