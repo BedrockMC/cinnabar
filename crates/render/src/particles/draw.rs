@@ -293,10 +293,15 @@ fn emit_emitter(
         }
         let direction = match &def.particle.billboard.direction {
             DirectionMode::DeriveFromVelocity => {
-                let speed_sq = dot(p.vel, p.vel);
+                let velocity = if def.emitter.local_velocity {
+                    transform(&basis, p.vel)
+                } else {
+                    p.vel
+                };
+                let speed_sq = dot(velocity, velocity);
                 let threshold = def.particle.billboard.min_speed_threshold;
                 (speed_sq > threshold * threshold)
-                    .then(|| unit(p.vel))
+                    .then(|| unit(velocity))
                     .flatten()
             }
             DirectionMode::Custom(vector) => unit([

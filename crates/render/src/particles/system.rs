@@ -21,6 +21,24 @@ pub const MAX_SPAWN_DISTANCE: f32 = 128.0;
 /// Longest single simulation step; larger frame gaps are split.
 const MAX_STEP: f32 = 1.0 / 30.0;
 const MAX_FRAME_SECONDS: f32 = 0.25;
+const TILE_VARIABLE_NAMES: [(&str, &str); 5] = [
+    ("emitter_texture_coordinate", "emitter_texture_size"),
+    ("emittertexturecoord", "emittertexturesize"),
+    (
+        "dig_particle_texture_coordinate",
+        "dig_particle_texture_size",
+    ),
+    (
+        "ground_particle_texture_coordinate",
+        "ground_particle_texture_size",
+    ),
+    (
+        "surface_particle_texture_coordinate",
+        "surface_particle_texture_size",
+    ),
+];
+/// Undrained sound requests kept before the oldest are dropped.
+const MAX_QUEUED_SOUNDS: usize = 256;
 
 #[derive(Resource, Default)]
 pub struct ParticleSystem {
@@ -94,6 +112,10 @@ impl ParticleSystem {
         self.sounds.clear();
     }
 
+    pub(super) fn atlas_base(&mut self) -> std::sync::Arc<[u8]> {
+        self.atlas.base()
+    }
+
     pub(super) fn emitters_mut(&mut self) -> &mut [Emitter] {
         &mut self.emitters
     }
@@ -151,17 +173,31 @@ impl ParticleSystem {
                     return fallback;
                 };
                 let [u, v, du, dv] = placement.normalized();
-                for (name, value) in [
-                    ("emitter_texture_coordinate.u", u),
-                    ("emitter_texture_coordinate.v", v),
-                    ("emitter_texture_size.u", du),
-                    ("emitter_texture_size.v", dv),
-                ] {
-                    request.variables.push((name.to_owned(), value));
+                // Vanilla effects name the same tile rectangle several ways.
+                for (coordinate, size) in TILE_VARIABLE_NAMES {
+                    for (name, value) in [
+                        (format!("{coordinate}.u"), u),
+                        (format!("{coordinate}.v"), v),
+                        (format!("{size}.u"), du),
+                        (format!("{size}.v"), dv),
+                    ] {
+                        request.variables.push((name, value));
+                    }
                 }
                 placement
             }
         }
+    }
+
+    /// `(emitter id, actor runtime id, offset)` for every actor-bound emitter; the host sets each
+    /// emitter's transform from the actor pose, or stops it when the actor is gone.
+    #[must_use]
+    pub fn bound_emitters(&self) -> Vec<(u64, u64, [f32; 3])> {
+        self.emitters
+            .iter()
+            .filter(|e| !e.done)
+            .filter_map(|e| e.bound.map(|(actor, offset)| (e.id, actor, offset)))
+            .collect()
     }
 
     /// Moves an attached emitter; ignored once the emitter is gone.
@@ -179,7 +215,8 @@ impl ParticleSystem {
         }
     }
 
-    /// Sound requests raised by particle events since the last call.
+    /// Sound requests (`sound_effect` events) raised since the last call; the audio runtime
+    /// drains this and resolves `event_name` against the sound catalog.
     pub fn take_sounds(&mut self) -> Vec<ParticleSound> {
         std::mem::take(&mut self.sounds)
     }
@@ -212,6 +249,10 @@ impl ParticleSystem {
         self.boxes = boxes;
         self.emitters.retain(|emitter| !emitter.is_finished());
         self.sounds.append(&mut output.sounds);
+        if self.sounds.len() > MAX_QUEUED_SOUNDS {
+            let excess = self.sounds.len() - MAX_QUEUED_SOUNDS;
+            self.sounds.drain(..excess);
+        }
         self.seed = self.seed.wrapping_add(1);
         for request in output.spawns {
             self.spawn(&request);

@@ -346,6 +346,13 @@ impl ItemStateStore {
         Some(self.resolve_identity(identity))
     }
 
+    /// The registry identifier for an item network id.
+    pub(crate) fn identifier_for_network_id(&self, network_id: i32) -> Option<Arc<str>> {
+        self.registry
+            .get(&network_id)
+            .map(|record| Arc::clone(&record.identifier))
+    }
+
     fn resolve_identity(&self, identity: ItemStackIdentity) -> CanonicalItemStack {
         if identity.is_empty() {
             return CanonicalItemStack {

@@ -22,6 +22,10 @@ pub struct Particle {
     pub vars: Vec<f32>,
     pub plane_side: f32,
     pub timeline_next: usize,
+    pub travelled: f32,
+    pub travel_next: usize,
+    /// Times each looping travel event has fired.
+    pub loop_counts: Vec<u32>,
 }
 
 impl Particle {
@@ -38,6 +42,9 @@ impl Particle {
             vars,
             plane_side: 0.0,
             timeline_next: 0,
+            travelled: 0.0,
+            travel_next: 0,
+            loop_counts: Vec::new(),
         }
     }
 }
@@ -268,10 +275,17 @@ impl Emitter {
                 } => {
                     let acc = eval3(acceleration, &mut p.vars, rng, &queries);
                     let drag = drag.eval(&mut p.vars, rng, &queries);
+                    let mut shifts = [0.0f32; 3];
                     for (axis, acceleration) in acc.into_iter().enumerate() {
                         let (velocity, shift) = integrate(p.vel[axis], acceleration, drag, dt);
                         p.vel[axis] = velocity;
-                        p.pos[axis] += shift;
+                        shifts[axis] = shift;
+                    }
+                    if def.emitter.local_velocity && !local {
+                        shifts = transform(&basis, shifts);
+                    }
+                    for (component, shift) in p.pos.iter_mut().zip(shifts) {
+                        *component += shift;
                     }
                     let spin_acc = rotation_acceleration.eval(&mut p.vars, rng, &queries);
                     let spin_drag = rotation_drag.eval(&mut p.vars, rng, &queries);
@@ -350,6 +364,33 @@ impl Emitter {
                         .any(|name| name.contains("water") || name.contains("lava"))
                 {
                     alive = false;
+                }
+            }
+            p.travelled += (0..3)
+                .map(|i| (p.pos[i] - p.prev[i]).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            while let Some((distance, event)) = def.particle.travel_events.get(p.travel_next) {
+                if *distance > p.travelled {
+                    break;
+                }
+                pending.push((event.clone(), world_pos, p.vel));
+                p.travel_next += 1;
+            }
+            if !def.particle.looping_travel_events.is_empty() {
+                p.loop_counts
+                    .resize(def.particle.looping_travel_events.len(), 0);
+                for (index, (interval, event)) in
+                    def.particle.looping_travel_events.iter().enumerate()
+                {
+                    if *interval <= 1e-4 {
+                        continue;
+                    }
+                    let due = ((p.travelled / interval) as u32).min(p.loop_counts[index] + 8);
+                    while p.loop_counts[index] < due {
+                        pending.push((event.clone(), world_pos, p.vel));
+                        p.loop_counts[index] += 1;
+                    }
                 }
             }
             while let Some((time, event)) = def.particle.timeline.get(p.timeline_next) {
