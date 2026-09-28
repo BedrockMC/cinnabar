@@ -46,3 +46,18 @@ fn block_entity_overlay(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     return vec4(texel.rgb * input.color.rgb, alpha);
 }
+
+@fragment
+fn block_entity_crack(input: VertexOutput) -> @location(0) vec4<f32> {
+    let texel = textureSample(atlas, atlas_sampler, input.uv);
+    if (texel.a < 0.02) {
+        discard;
+    }
+    return vec4(texel.rgb, 1.0);
+}
+
+@fragment
+fn block_entity_additive(input: VertexOutput) -> @location(0) vec4<f32> {
+    let texel = textureSample(atlas, atlas_sampler, input.uv);
+    return vec4(texel.rgb * input.color.rgb, 1.0);
+}

@@ -254,12 +254,19 @@ fn expected_network_hash(sequential_id: u32) -> Option<u32> {
 }
 
 fn deferred_backing_matches(id: &str, backing: BackingBlockIdentity) -> bool {
-    let expected_visual_kind = match id {
-        "Beacon" => VisualKind::Cube,
-        "Sign" => VisualKind::Model,
-        _ => VisualKind::Diagnostic,
+    // Entity-drawn blocks compile to `Invisible` and the enchanting-table base to `Model`;
+    // the placeholder `Diagnostic` route stays accepted for carriers built before that.
+    let expected_visual_kinds: &[VisualKind] = match id {
+        "Beacon" => &[VisualKind::Cube],
+        "Sign" => &[VisualKind::Model],
+        "Banner" | "Bed" | "Chest" | "DecoratedPot" | "EnderChest" | "GlowItemFrame"
+        | "ItemFrame" | "Lectern" | "Skull" => {
+            &[VisualKind::Diagnostic, VisualKind::Invisible]
+        }
+        "EnchantTable" => &[VisualKind::Diagnostic, VisualKind::Model],
+        _ => &[VisualKind::Diagnostic],
     };
-    if !backing.known || backing.visual_kind != expected_visual_kind {
+    if !backing.known || !expected_visual_kinds.contains(&backing.visual_kind) {
         return false;
     }
     let sequential_id = backing.sequential_id;

@@ -111,6 +111,19 @@ impl BlockEntityAtlas {
         })
     }
 
+    /// One RGBA8 texel of a packed texture, in the texture's own pixel coordinates.
+    #[must_use]
+    pub fn texel(&self, name: &str, x: u32, y: u32) -> Option<[u8; 4]> {
+        let rect = self.placements.get(name)?;
+        if x as f32 >= rect.width || y as f32 >= rect.height {
+            return None;
+        }
+        let row = rect.y as u32 + y;
+        let column = rect.x as u32 + x;
+        let start = (row as usize * self.size[0] as usize + column as usize) * 4;
+        self.static_rgba8.get(start..start + 4)?.try_into().ok()
+    }
+
     /// The rect of dynamic text cell `slot`.
     #[must_use]
     pub fn text_cell(&self, slot: usize) -> Option<AtlasRect> {

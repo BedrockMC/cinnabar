@@ -524,8 +524,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
     let particle_assets = crate::particles::load_optional_carrier(&loaded_assets.selected_path);
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
-    let block_entity_scene =
+    let mut block_entity_scene =
         crate::block_entities::load_block_entity_scene(&loaded_assets.selected_path);
+    block_entity_scene.install_entity_assets(&entity_runtime);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(

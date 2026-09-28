@@ -10,6 +10,7 @@ pub(in crate::compiler) mod cross;
 pub(in crate::compiler) mod cube;
 pub(in crate::compiler) mod dispatcher;
 pub(in crate::compiler) mod doors;
+pub(in crate::compiler) mod entity_drawn;
 pub(in crate::compiler) mod exact;
 pub(in crate::compiler) mod fallback;
 pub(in crate::compiler) mod farmland;
