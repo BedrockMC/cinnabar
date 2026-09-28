@@ -187,7 +187,7 @@ impl SessionAudio {
                     stop_music_legacy: stop.stop_music_legacy,
                 },
                 // Transport-only by contract: retain nothing, count everything.
-                protocol::AudioEvent::Level(_) => {
+                protocol::AudioEvent::Level(_) | protocol::AudioEvent::LevelEvent(_) => {
                     self.level_transport_only_total =
                         self.level_transport_only_total.saturating_add(1);
                     continue;

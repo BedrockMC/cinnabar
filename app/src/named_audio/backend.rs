@@ -194,6 +194,22 @@ impl AudioDevice {
             mixer,
         )
     }
+    /// Plays an already-stereo f32 source; false when the device is unavailable or rejects it.
+    pub(crate) fn play_source(&mut self, source: impl Source<Item = f32> + Send + 'static) -> bool {
+        #[cfg(test)]
+        if let Some(controller) = &self.test_output {
+            controller.add(source);
+            return true;
+        }
+        let Some((_, handle)) = &self.output else {
+            return false;
+        };
+        if handle.play_raw(source).is_err() {
+            self.output = None;
+            return false;
+        }
+        true
+    }
     pub(super) fn submit(&mut self, source: CancelablePcm) -> bool {
         #[cfg(test)]
         if let Some(controller) = &self.test_output {

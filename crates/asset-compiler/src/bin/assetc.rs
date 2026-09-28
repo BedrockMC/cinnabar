@@ -20,10 +20,10 @@ use sha2::{Digest, Sha256};
 
 #[path = "assetc/actor_command.rs"]
 mod actor_command;
-#[path = "assetc/audio_command.rs"]
-mod audio_command;
 #[path = "assetc/audio_bank_command.rs"]
 mod audio_bank_command;
+#[path = "assetc/audio_command.rs"]
+mod audio_command;
 #[path = "assetc/audio_pcm_command.rs"]
 mod audio_pcm_command;
 #[path = "assetc/block_entity_command.rs"]

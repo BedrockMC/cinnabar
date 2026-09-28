@@ -61,7 +61,9 @@ fn read_json(path: &Path, required: bool) -> Result<Vec<u8>, AudioBankCompileErr
         Err(source) => return Err(io_error(path)(source)),
     };
     if !meta.is_file() || meta.len() > MAX_JSON_BYTES {
-        return Err(AudioBankCompileError::Invalid("JSON source is not a bounded file"));
+        return Err(AudioBankCompileError::Invalid(
+            "JSON source is not a bounded file",
+        ));
     }
     fs::read(path).map_err(io_error(path))
 }
@@ -105,7 +107,9 @@ fn collect(
             .ok()
             .and_then(|relative| relative.with_extension("").to_str().map(str::to_owned))
             .map(|text| text.replace('\\', "/"));
-        let is_fsb = path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("fsb"));
+        let is_fsb = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fsb"));
         match stem {
             Some(stem) if meta.is_file() && is_fsb && meta.len() <= MAX_BANK_FILE_BYTES => {
                 files.push((stem, fs::read(&path).map_err(io_error(&path))?));
@@ -135,7 +139,10 @@ pub fn compile_audio_bank(pack: &Path) -> Result<CompiledAudioBank, AudioBankCom
     let prefix_len = assets::sound_bank_prefix_len(&bytes)?;
     let index = assets::SoundBankIndex::decode_prefix(&bytes[..prefix_len])?;
     let hex = |hash: [u8; 32]| -> Box<str> {
-        hash.iter().map(|byte| format!("{byte:02x}")).collect::<String>().into()
+        hash.iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+            .into()
     };
     let report = AudioBankCompileReport {
         schema: 1,
@@ -159,7 +166,11 @@ mod tests {
         let root = dir.path();
         fs::create_dir_all(root.join("sounds/random")).unwrap();
         fs::write(root.join("sounds.json"), r#"{"block_sounds":{}}"#).unwrap();
-        fs::write(root.join("blocks.json"), r#"{"stone":{"sound":"stone"},"air":{}}"#).unwrap();
+        fs::write(
+            root.join("blocks.json"),
+            r#"{"stone":{"sound":"stone"},"air":{}}"#,
+        )
+        .unwrap();
         fs::write(root.join("sounds/random/click.fsb"), [1, 2, 3]).unwrap();
         fs::write(root.join("sounds/random/note.txt"), "x").unwrap();
         let compiled = compile_audio_bank(root).expect("compile");

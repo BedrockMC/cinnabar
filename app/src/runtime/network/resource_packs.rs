@@ -50,6 +50,7 @@ pub(super) fn prepare_pack_application(
     hashed_block_ids: bool,
 ) -> PackApplication {
     if handoff.is_empty() {
+        crate::audio::publish_server_sounds(None);
         return PackApplication::default();
     }
     let stack = resource_pack::validate_handoff(handoff);
@@ -61,6 +62,7 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
+    crate::audio::publish_server_sounds(Some(&view));
     let block_overlay = cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
         compile_block_overlay(
             &view,

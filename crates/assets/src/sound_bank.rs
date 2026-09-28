@@ -102,7 +102,10 @@ impl SoundBankIndex {
             let path = std::str::from_utf8(path).map_err(|_| SoundBankError("path encoding"))?;
             let offset = u64::from_le_bytes(tail[..8].try_into().expect("offset width"));
             let len = u32::from_le_bytes(tail[8..12].try_into().expect("length width"));
-            if offset.checked_add(u64::from(len)).is_none_or(|end| end > data_len) {
+            if offset
+                .checked_add(u64::from(len))
+                .is_none_or(|end| end > data_len)
+            {
                 return Err(SoundBankError("entry outside data"));
             }
             entries.insert(
