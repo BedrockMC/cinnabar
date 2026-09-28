@@ -42,21 +42,23 @@ Values only resolvable from decompiled source are marked *(measure)*.
 
 ## JSON-UI engine (clean-room, Bedrock target; Java HUD stays an override)
 Owner decision: a faithful 1:1 Bedrock JSON-UI interpreter drives forms, container
-screens and menus from the vanilla `ui/*.json` + textures (read at runtime from
-`.local/`, never committed); the Java-styled gameplay HUD (`hud_screen` family) stays
-on the existing path, never routed through the engine. 8 tranches: **T1 parser+resolver
-and T2 length-expr + two-pass layout + nine-slice emit — landed** (`crates/json-ui`,
-fixture- and golden-tested against real templates/sidecars; still no app wiring). Next:
-T3 bindings + ActionForm/ModalForm (and `grid`/`scroll_view`, laid out as plain panels
-for now), T4 input+response, T5 CustomForm controls, T6 chest container, T7 remaining
-containers+menus, T8 server-pack overrides. Nine-slice emits as ≤9 self-contained sprite
-quads carrying texture path + normalized UV (atlas binds later); no new render primitive.
-Layout is deterministic within the virtual root; needs native confirmation: the
-physical→virtual UI scale factor (parameterized, not guessed), and three inferred
-semantics — omitted `size` = 100% fill while the `default` keyword = natural content
-size (image base_size / label text extent); `anchor_to` = parent point and
-`anchor_from` = child point (symmetric vanilla dialogs can't distinguish); and no
-sub-pixel rounding in-engine (deferred to draw).
+screens and menus from the vanilla `ui/*.json` + textures; the Java-styled gameplay HUD
+(`hud_screen` family) stays on the existing path and is absent from the engine's screen
+allow-list (`json_ui::ENGINE_SCREENS`). Landed (uncompiled in-lane, pending reconcile):
+T1-T3 plus engine-owned widget state (button/toggle/edit-box/slider state children,
+scroll views and scrollbar box, slider box travel and progress clipping), relative layers,
+width-aware wrapped labels, grids, hit regions/modal blocking/global mappings, server-pack
+ui overlays with `modifications`; app wiring loads the optional `.mcbeui` carrier (absent:
+fallback dialog), draws action/element/modal/custom forms with vanilla input, and draws
+storage windows (27/54) through the chest screens. Open: personal inventory, workbench and
+the other container screens (their screen globals, recipe book, creative tabs and the
+paper-doll renderer are unbound, and the ledger does not open them), item tooltips,
+dropdown `dropdown_area` re-parenting, server-pack textures, keyboard focus auto-scroll.
+Needs native measurement: the virtual UI scale (engine pixel = the HUD's GUI pixel, not
+Bedrock's own scale-index rule), slider box travel and `clip_direction` semantics, the
+slider `label: value` text, durability bar colour/size, layer relativity, and the three
+T2 inferences (omitted `size` = 100%, `anchor_to` = parent point, no in-engine rounding).
+Container routing through the engine awaits owner confirmation.
 
 ## Equipment / attachable rendering (Bedrock 3D target)
 Held/offhand items are decoded+stored but never drawn; remote armor is decoded then

@@ -38,7 +38,7 @@ impl UiPresentationRuntime {
             assets
                 .ui_files()
                 .iter()
-                .map(|file| (file.path.as_ref(), file.bytes.as_ref())),
+                .map(|file| (&*file.path, &*file.bytes)),
         )
         .map_err(|error| format!("ui catalog: {error}"))?;
         let (textures, first_page) = pages::with_ui_pages(&self.textures, &assets)
