@@ -602,3 +602,33 @@ impl<P: PhaseItem, const OVERLAY: bool> RenderCommand<P> for DrawList<OVERLAY> {
         RenderCommandResult::Success
     }
 }
+
+#[cfg(test)]
+const SHADER_SOURCE: &str = include_str!("block_entity.wgsl");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shader_parses_and_reads_the_vertex_stride_the_cpu_writes() {
+        let source = SHADER_SOURCE.replace(
+            "#import bevy_render::view::View",
+            "struct View { clip_from_world: mat4x4<f32>, }",
+        );
+        naga::front::wgsl::parse_str(&source).expect("block-entity shader parses");
+        assert_eq!(BLOCK_ENTITY_VERTEX_WORDS, 9);
+        assert_eq!(
+            size_of::<BlockEntityVertex>(),
+            BLOCK_ENTITY_VERTEX_WORDS * 4
+        );
+        assert!(source.contains("vertex_index * 9u"));
+    }
+
+    #[test]
+    fn vertex_lists_track_counts_without_a_device() {
+        let list = VertexList::new();
+        assert_eq!(list.count, 0);
+        assert!(list.buffer.is_none() && list.bind_group.is_none());
+    }
+}
