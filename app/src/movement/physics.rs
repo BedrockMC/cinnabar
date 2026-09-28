@@ -451,6 +451,8 @@ impl LocalPhysicsController {
         let mut fly_toggle = context.mode_intent.fly_toggle;
         input.pitch_degrees = f64::from(context.pitch);
         input.fly_speed = context.mode_intent.fly_speed;
+        input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
+        input.creative_flight = context.mode_intent.creative_flight;
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         for tick_index in 0..allowed {

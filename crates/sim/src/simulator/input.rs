@@ -42,6 +42,12 @@ pub struct MovementInput {
     /// Soul Speed level on the boots; replaces the soul sand slowdown.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub soul_speed: u8,
+    /// Ability vertical flight speed (per-tick acceleration scale); `None` selects 1.0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vertical_fly_speed: Option<f64>,
+    /// Creative flight hovers with stronger damping than other flying modes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub creative_flight: bool,
     /// Ability flight speed; `None` selects the vanilla default. Read only when flying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fly_speed: Option<f64>,
@@ -82,9 +88,11 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
     {
         return Err(SimulationError::InvalidMovementSpeed);
     }
-    if input
-        .fly_speed
-        .is_some_and(|value| !value.is_finite() || value < 0.0)
+    if [input.fly_speed, input.vertical_fly_speed]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.is_finite())
+        || input.fly_speed.is_some_and(|value| value < 0.0)
     {
         return Err(SimulationError::InvalidMovementSpeed);
     }

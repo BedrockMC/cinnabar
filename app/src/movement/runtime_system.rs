@@ -130,6 +130,8 @@ pub(crate) fn advance_local_physics(
                 server_flying: facts.server_flying,
                 fly_toggle,
                 fly_speed: facts.fly_speed,
+                vertical_fly_speed: facts.vertical_fly_speed,
+                creative_flight: facts.creative_flight,
                 elytra_ready: facts.elytra_ready,
                 depth_strider: facts.depth_strider,
                 soul_speed: facts.soul_speed,

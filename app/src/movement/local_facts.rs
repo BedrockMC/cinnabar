@@ -15,6 +15,8 @@ pub(super) struct LocalMovementFacts {
     pub can_fly: bool,
     pub server_flying: bool,
     pub fly_speed: Option<f64>,
+    pub vertical_fly_speed: Option<f64>,
+    pub creative_flight: bool,
     pub elytra_ready: bool,
     pub depth_strider: u8,
     pub soul_speed: u8,
@@ -45,7 +47,13 @@ pub(super) fn read(
     LocalMovementFacts {
         can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
-        fly_speed: ui.local_abilities().and_then(flight_speed),
+        fly_speed: ui
+            .local_abilities()
+            .and_then(|update| flight_speed(update, |layer| layer.fly_speed_bits)),
+        vertical_fly_speed: ui
+            .local_abilities()
+            .and_then(|update| flight_speed(update, |layer| layer.vertical_fly_speed_bits)),
+        creative_flight: capabilities.is_some_and(|capabilities| capabilities.creative_inventory),
         elytra_ready,
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
         soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
@@ -57,15 +65,18 @@ pub(super) fn read(
     }
 }
 
-/// The last ability layer's finite positive flight speed.
-fn flight_speed(update: &AbilitiesUpdate) -> Option<f64> {
+/// The last ability layer's finite positive flight speed for the selected float field.
+fn flight_speed(
+    update: &AbilitiesUpdate,
+    bits: impl Fn(&protocol::AbilityLayerEvidence) -> u32,
+) -> Option<f64> {
     let AbilityLayersEvidence::Received(layers) = &update.layers else {
         return None;
     };
     layers
         .iter()
         .rev()
-        .map(|layer| f32::from_bits(layer.fly_speed_bits))
+        .map(|layer| f32::from_bits(bits(layer)))
         .find(|speed| speed.is_finite() && *speed > 0.0)
         .map(f64::from)
 }
@@ -99,14 +110,20 @@ mod tests {
     #[test]
     fn flight_speed_takes_the_last_usable_layer() {
         assert_eq!(
-            flight_speed(&update(&[0.05, 0.1])),
+            flight_speed(&update(&[0.05, 0.1]), |layer| layer.fly_speed_bits),
             Some(f64::from(0.1_f32))
         );
         assert_eq!(
-            flight_speed(&update(&[0.05, 0.0])),
+            flight_speed(&update(&[0.05, 0.0]), |layer| layer.fly_speed_bits),
             Some(f64::from(0.05_f32))
         );
-        assert_eq!(flight_speed(&update(&[f32::NAN, -1.0])), None);
-        assert_eq!(flight_speed(&update(&[])), None);
+        assert_eq!(
+            flight_speed(&update(&[f32::NAN, -1.0]), |layer| layer.fly_speed_bits),
+            None
+        );
+        assert_eq!(
+            flight_speed(&update(&[]), |layer| layer.fly_speed_bits),
+            None
+        );
     }
 }
