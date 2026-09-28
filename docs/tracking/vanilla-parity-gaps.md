@@ -237,5 +237,21 @@ mount and clamp its head. The offset frame, vertical origin, seat ordering and r
 verification. Invisible bodies draw as NoDraw after equipment layers are built, so armor and held
 items stay.
 
-Open: cape pixels are retained on the decoded skin but no render path draws them yet;
-`armor_material_slot` semantics are unmeasured.
+Open: `armor_material_slot` semantics are unmeasured.
+
+## Entity render controllers (Bedrock target)
+
+Incomplete: the neutral single-texture artwork admission is gone; every rig with a decodable
+texture now gets artwork. The entity carrier holds each rig's render layers (per controller:
+activation, texture candidates, part visibility, colours), evaluated per tick against the actor's
+Molang state, and every texture a candidate can select is built into the actor pages.
+
+| Status | Coverage |
+| --- | --- |
+| Drawn | texture aliases, `Array.x[expr]` selection, nested ternaries, several `textures` entries per controller (drawn as stacked layers), several controllers per entity that share the rig's geometry, `part_visibility` (bone-name patterns, trailing `*`), `color` as the tint, `overlay_color` |
+| Approximated | materials are all drawn with the neutral binary-alpha material; a controller `geometry` naming another geometry is skipped; hidden bones hide only their own cubes; fractional-alpha and mis-sized variant rasters are omitted |
+| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `is_hurt_color`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape), pack-catalog variants |
+
+Player cape: drawn from the skin's cape raster with the `geometry.cape` mesh posed from the
+player's bones by name; the cape's rest turn, layer resampling and `cape_flap_amount` scale need
+native verification.
