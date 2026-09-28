@@ -267,6 +267,8 @@ pub struct CollisionRegistry {
 #[derive(Debug)]
 struct BlockPhysics {
     shapes: Box<[Aabb]>,
+    /// Shapes the interaction ray targets instead of `shapes` (selection boxes).
+    pick_shapes: Option<Box<[Aabb]>>,
     friction: f64,
     horizontal_speed_factor: f64,
     vertical_speed_factor: f64,
@@ -411,6 +413,7 @@ impl CollisionRegistry {
             runtime_id,
             BlockPhysics {
                 shapes: shapes.into_boxed_slice(),
+                pick_shapes: None,
                 friction,
                 horizontal_speed_factor,
                 vertical_speed_factor,
@@ -459,6 +462,20 @@ impl CollisionRegistry {
     /// Drops every registration at or above `first_runtime_id`.
     pub fn remove_runtime_ids_from(&mut self, first_runtime_id: u32) {
         self.blocks.split_off(&first_runtime_id);
+    }
+
+    /// Makes the interaction ray target `boxes` (empty: untargetable) instead of the
+    /// collision shapes; returns whether `runtime_id` is registered.
+    pub fn set_pick_shapes(
+        &mut self,
+        runtime_id: u32,
+        boxes: impl IntoIterator<Item = Aabb>,
+    ) -> bool {
+        let Some(block) = self.blocks.get_mut(&runtime_id) else {
+            return false;
+        };
+        block.pick_shapes = Some(boxes.into_iter().collect());
+        true
     }
 
     /// Drops one registration; returns whether it existed.
