@@ -5,9 +5,39 @@
 
 use sim::{CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
 
+/// What the local player is mounted on; only the steering-relevant classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RideKind {
+    /// Jump-charge mounts: horse, donkey, mule and undead horses.
+    Horse,
+    Boat,
+    Minecart,
+    /// Item-steered or otherwise server-driven mounts (pig, strider, and the rest).
+    Other,
+}
+
+impl RideKind {
+    /// Classifies a mount by entity identifier substring.
+    #[must_use]
+    pub fn from_identifier(identifier: &str) -> Self {
+        let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+        if name.contains("boat") || name.contains("raft") {
+            Self::Boat
+        } else if name.contains("minecart") {
+            Self::Minecart
+        } else if name.contains("horse") || matches!(name, "donkey" | "mule") {
+            Self::Horse
+        } else {
+            Self::Other
+        }
+    }
+}
+
 /// Render-frame facts the tick-level selector cannot derive from simulation.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ModeIntent {
+    /// The mount the player currently rides, if any.
+    pub ride: Option<RideKind>,
     /// Abilities permit flight.
     pub can_fly: bool,
     /// The server's ability layers currently say the player is flying.
@@ -16,8 +46,14 @@ pub struct ModeIntent {
     pub fly_toggle: bool,
     /// Ability flight speed, when the server sent a usable one.
     pub fly_speed: Option<f64>,
+    pub vertical_fly_speed: Option<f64>,
+    /// Game mode is creative, which selects the stronger hover damping.
+    pub creative_flight: bool,
     /// An elytra is equipped in the chest slot.
     pub elytra_ready: bool,
+    /// Boot enchantment levels the simulator reads.
+    pub depth_strider: u8,
+    pub soul_speed: u8,
 }
 
 /// Per-tick simulation facts read before the tick runs.
@@ -70,6 +106,7 @@ impl ModeTracker {
         let server_rise = intent.server_flying && !self.last_server_flying;
         self.last_server_flying = intent.server_flying;
         let flying = intent.can_fly
+            && intent.ride.is_none()
             && match self.mode {
                 MovementMode::Flying => {
                     !fly_toggle
@@ -92,7 +129,9 @@ impl ModeTracker {
             && observed.sprinting
             && observed.moving_forward;
 
-        let (mode, forced_sneak) = if flying {
+        let (mode, forced_sneak) = if intent.ride.is_some() {
+            (MovementMode::Riding, false)
+        } else if flying {
             (MovementMode::Flying, false)
         } else if gliding {
             (MovementMode::Gliding, false)
@@ -227,6 +266,43 @@ mod tests {
             pick(&mut tracker, server, false, landed),
             MovementMode::Walking
         );
+    }
+
+    #[test]
+    fn mounting_overrides_every_other_mode_and_dismounting_resumes_walking() {
+        let mut tracker = ModeTracker::default();
+        let mounted = ModeIntent {
+            ride: Some(RideKind::Boat),
+            can_fly: true,
+            elytra_ready: true,
+            ..ModeIntent::default()
+        };
+        assert_eq!(
+            pick(&mut tracker, mounted, true, airborne()),
+            MovementMode::Riding
+        );
+        assert_eq!(
+            pick(&mut tracker, ModeIntent::default(), false, airborne()),
+            MovementMode::Walking
+        );
+    }
+
+    #[test]
+    fn rides_classify_by_identifier() {
+        for (id, kind) in [
+            ("minecraft:boat", RideKind::Boat),
+            ("minecraft:chest_boat", RideKind::Boat),
+            ("minecraft:chest_raft", RideKind::Boat),
+            ("minecraft:minecart", RideKind::Minecart),
+            ("minecraft:hopper_minecart", RideKind::Minecart),
+            ("minecraft:horse", RideKind::Horse),
+            ("minecraft:skeleton_horse", RideKind::Horse),
+            ("minecraft:mule", RideKind::Horse),
+            ("minecraft:pig", RideKind::Other),
+            ("minecraft:strider", RideKind::Other),
+        ] {
+            assert_eq!(RideKind::from_identifier(id), kind, "{id}");
+        }
     }
 
     #[test]

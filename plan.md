@@ -2828,7 +2828,12 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
   double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
   edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
-  against a native client. Not started: honey slide, depth strider, soul speed, riding input.
+  against a native client. Flight, swim and glide follow the public movement-physics notes'
+  BedSim candidates (still unvalidated for 1.26.30). Honey jump/slide, soul speed and depth
+  strider coefficients are provisional (honey and soul speed have no public value). Riding
+  suspends player physics and streams steering input with boat paddle flags; rider seat
+  following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire
+  signalling and sweet berry bush slowdown are not implemented.
 
 ## Phase 4 — Entities and other players
 

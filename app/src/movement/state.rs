@@ -42,6 +42,8 @@ pub struct ProcessedMovementState {
     pub mode: sim::MovementMode,
     /// A low ceiling holds the sneak pose although the button is up.
     pub forced_sneak: bool,
+    /// The ridden mount class while `mode` is `Riding`.
+    pub ride: Option<super::RideKind>,
 }
 
 impl ProcessedMovementState {
@@ -68,6 +70,7 @@ impl ProcessedMovementState {
             direction_flags: None,
             mode: sim::MovementMode::Walking,
             forced_sneak: false,
+            ride: None,
         }
     }
 }

@@ -205,3 +205,57 @@ fn scaffolding_supports_from_above_and_is_passable_when_sneaking_or_beside() {
     );
     assert!(!walked.collisions.z);
 }
+
+#[test]
+fn creative_hover_damps_harder_and_vertical_speed_scales_ascent() {
+    let world = empty(BlockPhysicsFlags::default());
+    let second_tick_y = |creative_flight| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        state.velocity.y = 1.0;
+        let input = MovementInput {
+            mode: MovementMode::Flying,
+            creative_flight,
+            ..MovementInput::default()
+        };
+        tick(&mut state, input, &world);
+        tick(&mut state, input, &world).movement.y
+    };
+    assert!(second_tick_y(true) < second_tick_y(false));
+
+    let ascend = |vertical_fly_speed| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        tick(
+            &mut state,
+            MovementInput {
+                mode: MovementMode::Flying,
+                jumping: true,
+                vertical_fly_speed,
+                ..MovementInput::default()
+            },
+            &world,
+        )
+        .movement
+        .y
+    };
+    assert!(ascend(Some(2.0)) > ascend(None));
+}
+
+#[test]
+fn riding_freezes_player_motion_but_still_reports_a_tick() {
+    let world = empty(BlockPhysicsFlags::default());
+    let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+    state.velocity = Vec3::new(0.3, -0.5, 0.3);
+    let result = tick(
+        &mut state,
+        MovementInput {
+            mode: MovementMode::Riding,
+            forward: 1.0,
+            ..MovementInput::default()
+        },
+        &world,
+    );
+    assert_eq!(state.position, Vec3::new(0.5, 10.0, 0.5));
+    assert_eq!(result.movement, Vec3::ZERO);
+    assert_eq!(result.velocity, Vec3::ZERO);
+    assert_eq!(state.tick, 1);
+}

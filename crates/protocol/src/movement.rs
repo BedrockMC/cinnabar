@@ -67,6 +67,8 @@ impl PlayerInputFlags {
     pub const STOP_CRAWLING: Self = Self(1 << 41);
     pub const START_FLYING: Self = Self(1 << 42);
     pub const STOP_FLYING: Self = Self(1 << 43);
+    pub const PADDLING_LEFT: Self = Self(1 << 46);
+    pub const PADDLING_RIGHT: Self = Self(1 << 47);
     pub const HORIZONTAL_COLLISION: Self = Self(1 << 49);
     pub const VERTICAL_COLLISION: Self = Self(1 << 50);
     pub const DOWN_LEFT: Self = Self(1 << 51);
@@ -383,6 +385,8 @@ mod locomotion_flag_tests {
     fn locomotion_constants_sit_on_their_named_table_rows() {
         for (flag, name) in [
             (PlayerInputFlags::PERSIST_SNEAK, "PersistSneak"),
+            (PlayerInputFlags::PADDLING_LEFT, "PaddlingLeft"),
+            (PlayerInputFlags::PADDLING_RIGHT, "PaddlingRight"),
             (PlayerInputFlags::ASCEND, "Ascend"),
             (PlayerInputFlags::DESCEND, "Descend"),
             (PlayerInputFlags::START_SWIMMING, "StartSwimming"),
