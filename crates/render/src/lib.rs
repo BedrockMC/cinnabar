@@ -135,7 +135,7 @@ pub use visibility_diagnostics::{
 pub use weather::{
     ColumnSample, ColumnSampler, MAX_PRECIPITATION_COLUMNS, PRECIPITATION_ABOVE_CAMERA,
     PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_RADIUS, Precipitation, PrecipitationColumn,
-    PrecipitationScene, RainSplashQueue, altitude_adjusted_temperature, approach_level,
-    build_precipitation_columns, classify_precipitation, pick_rain_splashes, precipitation_clock,
-    precipitation_wind,
+    PrecipitationScene, RainSplashQueue, WeatherTextureAssets, altitude_adjusted_temperature,
+    approach_level, build_precipitation_columns, classify_precipitation, pick_rain_splashes,
+    precipitation_clock, precipitation_wind,
 };
