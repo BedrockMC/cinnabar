@@ -123,6 +123,12 @@ pub(super) fn level_event_request(
     Some(request.at(event.position))
 }
 
+/// Sound definition of a music disc item (`minecraft:music_disc_13` -> `record.13`).
+pub(super) fn record_sound_name(item_identifier: &str) -> Option<String> {
+    let disc = item_identifier.strip_prefix("minecraft:music_disc_")?;
+    (!disc.is_empty()).then(|| format!("record.{disc}"))
+}
+
 /// Break sound of the block in `data` for a destroy-block level event; other ids yield `None`.
 pub(crate) fn destroy_block_request(
     tables: &SoundEventTables,
@@ -230,6 +236,15 @@ mod tests {
         assert_eq!(request.position, Some([2.0, 1.0, -1.0]));
         assert_eq!(request.pitch.min, 1.0);
         assert_eq!(request.volume.max, 0.5);
+    }
+
+    #[test]
+    fn music_discs_map_to_record_definitions() {
+        assert_eq!(
+            record_sound_name("minecraft:music_disc_13").as_deref(),
+            Some("record.13")
+        );
+        assert_eq!(record_sound_name("minecraft:stick"), None);
     }
 
     #[test]
