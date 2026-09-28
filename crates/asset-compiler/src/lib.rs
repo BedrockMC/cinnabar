@@ -17,12 +17,14 @@ mod pack;
 mod particle;
 mod ui;
 mod weather_textures;
+mod hud_extras;
 
 pub use actor::{
     ActorCompileReport, ActorFallback, ActorTextureEvidence, CompiledActorCarrier,
     compile_actor_assets,
 };
 pub use animation::AnimationInventory;
+pub use hud_extras::compile_hud_extras_to_file;
 pub use weather_textures::{compile_weather_textures, compile_weather_textures_to_file};
 pub use assets::BlockFace;
 pub use atmosphere::{

@@ -139,6 +139,13 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Compile the optional hardcore-heart sprite carrier.
+    HudExtrasAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     HudAssets {
         #[arg(long)]
         pack: PathBuf,
@@ -459,6 +466,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::HudExtrasAssets { pack, out } => {
+            asset_compiler::compile_hud_extras_to_file(&pack, &out)?;
+            println!("compiled HUD extras to {}", out.display());
         }
         Command::WeatherAssets { pack, out } => {
             asset_compiler::compile_weather_textures_to_file(&pack, &out)?;
