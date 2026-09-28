@@ -33,5 +33,6 @@ pub(in crate::compiler) mod stairs;
 pub(in crate::compiler) mod state;
 pub(in crate::compiler) mod surfaces;
 pub(in crate::compiler) mod torches;
+pub(in crate::compiler) mod translucent_cubes;
 pub(in crate::compiler) mod vine;
 pub(in crate::compiler) mod walls;

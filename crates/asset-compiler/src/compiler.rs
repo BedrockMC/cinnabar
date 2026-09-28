@@ -39,8 +39,9 @@ use classification::{
     is_gate, is_kelp, is_ladder, is_liquid, is_model_visual, is_multiface,
     is_ordinary_stained_glass_name, is_pale_moss_carpet, is_pane, is_pressure_plate, is_rail,
     is_sign, is_slab, is_stained_glass_cube, is_stair, is_supported_liquid, is_terrestrial_cross,
-    is_torch, is_trapdoor, is_vine, is_wall, leaf_tint_flags, liquid_material_flags,
-    record_has_deferred_material, source_is_deferred,
+    is_torch, is_translucent_cube, is_trapdoor, is_vine, is_wall, leaf_tint_flags,
+    liquid_material_flags, record_has_deferred_material, source_is_deferred,
+    translucent_cube_material_flags,
 };
 
 use visuals::{
@@ -535,6 +536,8 @@ fn descriptor_for(
         flags |= MATERIAL_FLAG_ALPHA_BLEND;
     } else if is_copper_grate(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
+    } else if is_translucent_cube(record) {
+        flags |= translucent_cube_material_flags(&record.name);
     } else if is_pane(record) {
         flags |= if record.name.contains("stained_glass_pane") {
             MATERIAL_FLAG_ALPHA_BLEND

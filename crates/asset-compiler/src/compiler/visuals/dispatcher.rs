@@ -337,6 +337,15 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::translucent_cubes::compile_rule(
+            record,
+            inputs,
+            &mut self.transparent_cube_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::kelp::compile_rule(
             record,
             inputs,
