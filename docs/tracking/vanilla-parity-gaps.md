@@ -132,10 +132,12 @@ animated rig remotes use. All three below flow from that.
   (`lighting.wgsl`, `chunk/gpu/upload/lighting.rs`, cloud) still clamp at 0.2/0.04 and must drop to `NIGHT_SKY_TRANSFER` (HIGH).
 - Stars: procedural star field landed uncompiled; twinkle unverified *(measure)*.
 - Leaves: Fancy look landed (leaf↔leaf faces kept); live compare pending.
-- Block-entity models: chests (single/double, lid cue), beds, shulkers, banners, skulls, bell, enchant/lectern book, beacon
-  beam, end portal, sign text, break-crack overlay are drawn from the `.mcbeben` carrier but uncompiled/unmeasured
-  and lit only by retained light; conduit, pots, campfire, frames, spawner, dragon/piglin heads, banner/beam
-  scroll and hanging-sign extents remain absent or provisional (MED-HIGH).
+- Block-entity models: chests (single/double, lid cue), beds, shulkers, banners, skulls (incl. dragon/piglin),
+  bell with frame and swing, lectern, enchant-table book, conduit, decorated pot, item/glow frames with framed items
+  (dropped-item sprite path), campfire items, tinted scrolling beacon beam, additive end portal, sign text and
+  model-shaped crack overlay draw from the `.mcbeben` carrier; all uncompiled, unmeasured and lit by the terrain
+  light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
+  terrain models and exact bell/lectern/pot dimensions remain open (MED-HIGH).
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
   vanilla entity retexturing, custom entities, custom-block selection boxes, and audio consumption of merged sounds remain unapplied (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
