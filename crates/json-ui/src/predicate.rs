@@ -1,26 +1,79 @@
-//! Boolean predicate evaluator for `ignored` and for `variables[]` `requires`.
-//! It handles exactly what the vanilla pack uses: `$var` references, `not`/`and`/
-//! `or`, parentheses, single-quoted string literals, and `=` string comparison.
-//! Anything outside that grammar (an unbound variable, a `#binding`, an unknown
-//! operator) yields `None`, and the caller decides the lenient default.
+//! Boolean/string predicate evaluator for `ignored`, `variables[]` `requires`, and
+//! the data-binding `view` grammar. It handles what the vanilla pack uses: `$var`
+//! references, `#binding` lookups, `not`/`and`/`or`, parentheses, single-quoted
+//! string literals, `=` comparison, and `+` string concatenation. Anything outside
+//! that grammar (an unbound variable, an unbound `#binding`, an unknown operator)
+//! yields `None`, and the caller decides the lenient default.
 
 use serde_json::Value;
 
 use crate::env::Env;
 
-/// Evaluate a predicate to a boolean, or `None` when it cannot be decided.
+/// A resolved binding scalar: the value a `#name` lookup yields and the value a
+/// `view` expression produces.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Scalar {
+    Bool(bool),
+    Text(String),
+    Num(f64),
+}
+
+impl Scalar {
+    /// The boolean reading, honouring `"true"`/`"false"` text; `None` otherwise.
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Scalar::Bool(value) => Some(*value),
+            Scalar::Text(text) => match text.as_str() {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            },
+            Scalar::Num(_) => None,
+        }
+    }
+}
+
+/// Resolves `#name` bindings for a `view` expression against a control's bound
+/// values. The name is passed with its leading `#`.
+pub trait Bindings {
+    fn get(&self, name: &str) -> Option<Scalar>;
+}
+
+/// No binding scope: every `#name` is undecidable. Used by `ignored`/`requires`,
+/// which never reference runtime bindings.
+pub struct NoBindings;
+
+impl Bindings for NoBindings {
+    fn get(&self, _name: &str) -> Option<Scalar> {
+        None
+    }
+}
+
+/// Evaluate a boolean predicate with no binding scope, or `None` when undecidable.
 pub fn eval(expression: &str, env: &Env) -> Option<bool> {
+    eval_bool(expression, env, &NoBindings)
+}
+
+/// Evaluate a predicate to a boolean against `bindings`, or `None` when undecidable.
+pub fn eval_bool(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<bool> {
+    eval_scalar(expression, env, bindings)?.as_bool()
+}
+
+/// Evaluate a `view` expression to its scalar result (a bool for `#visible`, text
+/// for a concatenated `#texture`), or `None` when undecidable.
+pub fn eval_scalar(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<Scalar> {
     let tokens = tokenize(expression)?;
     let mut parser = Parser {
         tokens: &tokens,
         pos: 0,
         env,
+        bindings,
     };
     let value = parser.parse_or()?;
     if parser.pos != parser.tokens.len() {
         return None;
     }
-    value.as_bool()
+    Some(value.into_scalar())
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -31,6 +84,7 @@ enum Token {
     And,
     Or,
     Eq,
+    Plus,
     Str(String),
     Ident(String),
 }
@@ -59,6 +113,31 @@ impl Operand {
             Operand::Str(text) => text.clone(),
         }
     }
+
+    fn from_scalar(scalar: Scalar) -> Self {
+        match scalar {
+            Scalar::Bool(value) => Operand::Bool(value),
+            Scalar::Text(text) => Operand::Str(text),
+            Scalar::Num(number) => Operand::Str(format_number(number)),
+        }
+    }
+
+    fn into_scalar(self) -> Scalar {
+        match self {
+            Operand::Bool(value) => Scalar::Bool(value),
+            Operand::Str(text) => Scalar::Text(text),
+        }
+    }
+}
+
+/// Render a number without a trailing `.0` so `#index` (a float) compares against a
+/// `'2'` literal.
+fn format_number(number: f64) -> String {
+    if number.is_finite() && number.fract() == 0.0 {
+        format!("{}", number as i64)
+    } else {
+        number.to_string()
+    }
 }
 
 fn tokenize(expression: &str) -> Option<Vec<Token>> {
@@ -78,6 +157,10 @@ fn tokenize(expression: &str) -> Option<Vec<Token>> {
             }
             b'=' => {
                 tokens.push(Token::Eq);
+                i += 1;
+            }
+            b'+' => {
+                tokens.push(Token::Plus);
                 i += 1;
             }
             b'\'' => {
@@ -119,6 +202,7 @@ struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
     env: &'a Env,
+    bindings: &'a dyn Bindings,
 }
 
 impl Parser<'_> {
@@ -156,11 +240,21 @@ impl Parser<'_> {
     }
 
     fn parse_comparison(&mut self) -> Option<Operand> {
-        let left = self.parse_atom()?;
+        let left = self.parse_concat()?;
         if self.peek() == Some(&Token::Eq) {
             self.pos += 1;
-            let right = self.parse_atom()?;
+            let right = self.parse_concat()?;
             return Some(Operand::Bool(left.as_str() == right.as_str()));
+        }
+        Some(left)
+    }
+
+    fn parse_concat(&mut self) -> Option<Operand> {
+        let mut left = self.parse_atom()?;
+        while self.peek() == Some(&Token::Plus) {
+            self.pos += 1;
+            let right = self.parse_atom()?;
+            left = Operand::Str(format!("{}{}", left.as_str(), right.as_str()));
         }
         Some(left)
     }
@@ -203,8 +297,8 @@ impl Parser<'_> {
             };
         }
         if word.starts_with('#') {
-            // Runtime binding: undecidable at resolve time.
-            return None;
+            // Runtime binding: resolved from the view's binding scope, or undecidable.
+            return self.bindings.get(word).map(Operand::from_scalar);
         }
         Some(Operand::Str(word.to_owned()))
     }
@@ -212,9 +306,24 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::eval;
+    use super::{Bindings, Scalar, eval, eval_bool, eval_scalar};
     use crate::env::Env;
     use serde_json::json;
+
+    struct Map(std::collections::BTreeMap<String, Scalar>);
+
+    impl Bindings for Map {
+        fn get(&self, name: &str) -> Option<Scalar> {
+            self.0.get(name).cloned()
+        }
+    }
+
+    fn bindings(entries: &[(&str, Scalar)]) -> Map {
+        Map(entries
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), value.clone()))
+            .collect())
+    }
 
     fn env() -> Env {
         let mut env = Env::new();
@@ -258,5 +367,37 @@ mod tests {
     fn unknown_variable_and_binding_are_undecidable() {
         assert_eq!(eval("$never_set", &env()), None);
         assert_eq!(eval("(not #visible)", &env()), None);
+    }
+
+    #[test]
+    fn view_binding_drives_visibility() {
+        // The vanilla dynamic_button image visibility rule.
+        let present = bindings(&[("#texture", Scalar::Text("textures/x".into()))]);
+        let empty = bindings(&[("#texture", Scalar::Text(String::new()))]);
+        let loading = bindings(&[("#texture", Scalar::Text("loading".into()))]);
+        let expr = "(not ((#texture = '') or (#texture = 'loading')))";
+        assert_eq!(eval_bool(expr, &env(), &present), Some(true));
+        assert_eq!(eval_bool(expr, &env(), &empty), Some(false));
+        assert_eq!(eval_bool(expr, &env(), &loading), Some(false));
+    }
+
+    #[test]
+    fn unbound_binding_stays_undecidable_under_a_scope() {
+        let scope = bindings(&[("#other", Scalar::Bool(true))]);
+        assert_eq!(eval_bool("(not (#texture = ''))", &env(), &scope), None);
+    }
+
+    #[test]
+    fn concatenation_builds_a_texture_path() {
+        let scope = bindings(&[("#name", Scalar::Text("apple".into()))]);
+        let value = eval_scalar("'textures/items/' + #name", &env(), &scope);
+        assert_eq!(value, Some(Scalar::Text("textures/items/apple".into())));
+    }
+
+    #[test]
+    fn numeric_binding_compares_as_its_integer_text() {
+        let scope = bindings(&[("#index", Scalar::Num(2.0))]);
+        assert_eq!(eval_bool("(#index = '2')", &env(), &scope), Some(true));
+        assert_eq!(eval_bool("(#index = '3')", &env(), &scope), Some(false));
     }
 }

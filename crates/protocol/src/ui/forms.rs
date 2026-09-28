@@ -29,8 +29,21 @@ pub struct TextMenuForm {
     pub content: Arc<str>,
     /// Array order is the zero-based wire selection index. Never truncate it.
     pub buttons: Arc<[Arc<str>]>,
-    /// Decorations are not retained or loaded; indexes remain unchanged.
+    /// Per-button image, aligned by index with `buttons` (`None` when the button has
+    /// none). Retained for the renderer; the atlas step still decides what loads.
+    pub button_images: Arc<[Option<FormButtonImage>]>,
+    /// Count of buttons carrying an image; kept for the interim presentation notice.
     pub omitted_images: u16,
+}
+
+/// A retained button image reference. The URL/path string is decoded but not
+/// fetched here; nothing is loaded until the renderer's atlas step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormButtonImage {
+    /// Wire `{ "type": "path", "data": <resource-pack texture path> }`.
+    Path(Arc<str>),
+    /// Wire `{ "type": "url", "data": <url> }`.
+    Url(Arc<str>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +146,7 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
         return unsupported(UnsupportedForm::Limit);
     }
     let mut labels = Vec::with_capacity(buttons.len());
+    let mut images = Vec::with_capacity(buttons.len());
     let mut omitted_images = 0;
     for button in buttons {
         let Some(button) = button.as_object() else {
@@ -150,24 +164,27 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
         {
             return unsupported(UnsupportedForm::Controls);
         }
-        if !element_controls && let Some(image) = button.get("image") {
-            let Some(image) = image.as_object() else {
+        let mut image = None;
+        if !element_controls && let Some(value) = button.get("image") {
+            let Some(object) = value.as_object() else {
                 return unsupported(UnsupportedForm::Controls);
             };
-            if image.keys().any(|key| key != "type" && key != "data")
-                || !matches!(
-                    image.get("type").and_then(serde_json::Value::as_str),
-                    Some("url" | "path")
-                )
+            let kind = object.get("type").and_then(serde_json::Value::as_str);
+            if object.keys().any(|key| key != "type" && key != "data")
+                || !matches!(kind, Some("url" | "path"))
             {
                 return unsupported(UnsupportedForm::Controls);
             }
-            let Some(data) = image.get("data").and_then(serde_json::Value::as_str) else {
+            let Some(data) = object.get("data").and_then(serde_json::Value::as_str) else {
                 return unsupported(UnsupportedForm::Controls);
             };
             if data.len() > MAX_UI_TEXT_BYTES {
                 return unsupported(UnsupportedForm::Limit);
             }
+            image = Some(match kind {
+                Some("path") => FormButtonImage::Path(Arc::from(data)),
+                _ => FormButtonImage::Url(Arc::from(data)),
+            });
             omitted_images += 1;
         }
         let Some(label) = button.get("text").and_then(serde_json::Value::as_str) else {
@@ -177,11 +194,13 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
             return unsupported(UnsupportedForm::Limit);
         }
         labels.push(Arc::from(label));
+        images.push(image);
     }
     ServerFormModel::TextMenu(TextMenuForm {
         title: Arc::from(title),
         content: Arc::from(content),
         buttons: labels.into(),
+        button_images: images.into(),
         omitted_images,
     })
 }
@@ -323,26 +342,41 @@ enum MetadataMember {
     Other(IgnoredAny),
 }
 
-/// The one selection this slice wires: the zero-based integer button index a
-/// menu form answers with. Per gophertunnel v1.57.0
-/// `minecraft/protocol/packet/modal_form_response.go`, menu responses are
-/// integers while modal responses are true/false, so no wrong-shaped modal
-/// payload can even be constructed here. Custom-form element state has no
-/// capture surface yet either.
+/// A submit answer for a menu or modal form. Per gophertunnel v1.57.0
+/// `minecraft/protocol/packet/modal_form_response.go`, a menu answers with a bare
+/// integer button index and a modal with `true`/`false`; the JSON scalar shape is
+/// what distinguishes them on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModalFormResponseSelection {
+    /// Menu/action form: the zero-based button index.
     ButtonIndex(u32),
+    /// Modal form: `true` for button1, `false` for button2.
+    ModalButton(bool),
 }
 
-/// Encodes the protocol-2168 submit answer: form id, response data present(1)
-/// with the bare-number menu-selection integer, cancel reason absent(0)
-/// (gophertunnel `minecraft/protocol/packet/modal_form_response.go`).
+/// One custom-form control's submitted value, in element order. Non-input elements
+/// (label/header/divider) encode as `Null` so array indexes stay aligned.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CustomFormValue {
+    Toggle(bool),
+    Slider(f64),
+    /// Step-slider selected step index.
+    Step(u32),
+    /// Dropdown selected option index.
+    Dropdown(u32),
+    Input(String),
+    Null,
+}
+
+/// Encodes a menu/modal submit answer: form id, response data present(1) with the
+/// bare JSON scalar (integer index or `true`/`false`), cancel reason absent(0).
 pub fn modal_form_submit_response(
     form_id: u32,
     selection: ModalFormResponseSelection,
 ) -> crate::Packet {
     let payload = match selection {
         ModalFormResponseSelection::ButtonIndex(index) => index.to_string(),
+        ModalFormResponseSelection::ModalButton(flag) => flag.to_string(),
     };
     ModalFormResponsePacket {
         form_id,
@@ -350,6 +384,32 @@ pub fn modal_form_submit_response(
         form_cancel_reason: None,
     }
     .into()
+}
+
+/// Encodes a custom-form submit answer: response data present(1) carrying the JSON
+/// array of `values` in element order, cancel reason absent(0).
+pub fn custom_form_submit_response(form_id: u32, values: &[CustomFormValue]) -> crate::Packet {
+    let array = serde_json::Value::Array(values.iter().map(custom_value_json).collect());
+    ModalFormResponsePacket {
+        form_id,
+        json_response: Some(array.to_string()),
+        form_cancel_reason: None,
+    }
+    .into()
+}
+
+fn custom_value_json(value: &CustomFormValue) -> serde_json::Value {
+    match value {
+        CustomFormValue::Toggle(flag) => serde_json::Value::Bool(*flag),
+        CustomFormValue::Slider(number) => serde_json::Number::from_f64(*number)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        CustomFormValue::Step(index) | CustomFormValue::Dropdown(index) => {
+            serde_json::Value::Number((*index).into())
+        }
+        CustomFormValue::Input(text) => serde_json::Value::String(text.clone()),
+        CustomFormValue::Null => serde_json::Value::Null,
+    }
 }
 
 /// An overlapping dialog cannot take ownership of an already occupied UI.

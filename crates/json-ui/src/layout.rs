@@ -80,6 +80,7 @@ enum Axis {
 /// Lay `root` out inside a virtual screen of `root_size`, positioning it as the lone
 /// child of that screen.
 pub fn layout<'a>(root: &'a ResolvedControl, root_size: [f64; 2], env: &LayoutEnv) -> LaidOut<'a> {
+    INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = resolve_size(root, screen, intrinsic(root, env), env);
     let rect = place_by_anchor(root, screen, own, env);
@@ -286,9 +287,28 @@ fn clamp_bounds(
     out
 }
 
+std::thread_local! {
+    /// Per-`layout` memo of [`intrinsic`], keyed by control address. Intrinsic size
+    /// is a pure function of the subtree and `env`, but `content_extent`/`children_max`
+    /// each re-derive it, so without this the cost is exponential in tree depth. The
+    /// borrowed tree is stable for one `layout` call; `layout` clears the memo first.
+    static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<usize, [f64; 2]>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// Intrinsic (parent-independent) size, used when a parent aggregates this child for
 /// its own `%c`/`%cm`. Parent-relative units resolve to zero here by design.
 fn intrinsic(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
+    let key = control as *const ResolvedControl as usize;
+    if let Some(cached) = INTRINSIC_MEMO.with(|memo| memo.borrow().get(&key).copied()) {
+        return cached;
+    }
+    let value = intrinsic_uncached(control, env);
+    INTRINSIC_MEMO.with(|memo| memo.borrow_mut().insert(key, value));
+    value
+}
+
+fn intrinsic_uncached(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
     let content = content_extent(control, env);
     let child_max = children_max(control, env);
     let nat = natural(control, env);
