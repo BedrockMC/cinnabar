@@ -1,18 +1,22 @@
-//! The server-form input model and the renderer that turns it into a draw-node
-//! tree. A [`FormModel`] describes a decoded server form (action, modal, or custom);
-//! [`form_data_source`] maps it onto the `#binding` names the vanilla
-//! `ui/server_form.json` templates read, and [`render_form`] resolves the matching
-//! template, binds it, lays it out, and emits the primitives.
+//! The server-form input model and the renderer that turns it into draw nodes
+//! and hit regions. A [`FormModel`] describes a decoded server form (action,
+//! modal, or custom); [`form_data_source`] maps it onto the `#binding` names the
+//! vanilla templates read, and [`render_form_with`] resolves the template, binds,
+//! lays out against the live [`ViewState`], and emits.
 //!
-//! Binding names below are read from the vanilla pack's `server_form.json`; the
-//! per-index factory role and the button-image routing are behaviour inferences
-//! flagged in the crate plan pending confirmation against the running client.
+//! Routing follows the vanilla client: action and custom forms open their
+//! `server_form` factory templates, while a modal form opens the generic
+//! two-button popup (`popup_dialog.modal_dialog_popup` with `$two_buttons_visible`),
+//! its title/body/button texts fed as the popup's global values. Binding names are
+//! read from the vanilla pack's `server_form.json`/`popup_dialog.json`.
 
 use crate::bind::{CollectionItem, ControlLibrary, DataSource, bind};
 use crate::catalog::Catalog;
 use crate::emit::{DrawNode, emit};
-use crate::layout::{LayoutEnv, layout};
+use crate::input::{HitRegion, global_mapping, hit_regions};
+use crate::layout::{LayoutEnv, layout_with};
 use crate::predicate::Scalar;
+use crate::state::{LayoutReport, ViewState};
 use crate::tree::{ControlRef, ResolvedControl};
 use crate::{Context, resolve};
 
@@ -24,16 +28,24 @@ pub enum FormModel {
     Custom(CustomForm),
 }
 
-/// A button menu (`type:"form"`): a title, body text, and ordered buttons.
+/// A button menu (`type:"form"`): title, body, and ordered elements. Only buttons
+/// answer; labels, headers, and dividers decorate the list.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ActionForm {
     pub title: String,
     pub body: String,
-    pub buttons: Vec<FormButton>,
+    pub elements: Vec<ActionElement>,
 }
 
-/// A yes/no dialog (`type:"modal"`): rendered via `long_form` with exactly the two
-/// buttons. The wire response is a boolean, encoded on the protocol side.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ActionElement {
+    Button(FormButton),
+    Label(String),
+    Header(String),
+    Divider,
+}
+
+/// A yes/no dialog (`type:"modal"`). `button1` answers `true`, `button2` `false`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModalForm {
     pub title: String,
@@ -67,7 +79,8 @@ pub enum ButtonImage {
     Url(String),
 }
 
-/// A custom-form element, in wire order.
+/// A custom-form element with its current (possibly user-edited) value. Display
+/// text such as a slider's `label: value` is composed by the caller.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CustomElement {
     Label {
@@ -79,92 +92,131 @@ pub enum CustomElement {
     Divider,
     Toggle {
         text: String,
-        default: bool,
+        on: bool,
+        tooltip: String,
     },
     Slider {
         text: String,
-        value: f64,
+        /// Normalized `0..=1` position.
+        fraction: f64,
+        tooltip: String,
     },
     StepSlider {
         text: String,
-        index: u32,
+        steps: usize,
+        index: usize,
+        tooltip: String,
     },
     Dropdown {
         text: String,
-        index: u32,
+        options: Vec<String>,
+        index: usize,
+        open: bool,
+        tooltip: String,
     },
     Input {
         text: String,
         value: String,
         placeholder: String,
+        tooltip: String,
     },
 }
 
-/// The output of rendering a form: the bound tree (for structural inspection) and
-/// the flattened draw-node list.
+/// The output of rendering a form.
 #[derive(Debug)]
 pub struct FormRender {
+    /// The bound tree, for structural inspection.
     pub bound: ResolvedControl,
     pub nodes: Vec<DrawNode>,
+    pub hits: Vec<HitRegion>,
+    pub report: LayoutReport,
+    /// Where `button.menu_cancel` (Escape/back) routes on this screen.
+    pub cancel_target: Option<String>,
 }
 
 const LONG_FORM: &str = "server_form.long_form";
 const CUSTOM_FORM: &str = "server_form.custom_form";
+const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
 
 /// The `namespace.name` of the vanilla template a model renders through.
 pub fn form_template(model: &FormModel) -> &'static str {
     match model {
-        // Modal forms have no dedicated template: the screen factory offers only
-        // long_form and custom_form, so a two-button long_form is the modal path.
-        FormModel::Action(_) | FormModel::Modal(_) => LONG_FORM,
+        FormModel::Action(_) => LONG_FORM,
+        FormModel::Modal(_) => MODAL_POPUP,
         FormModel::Custom(_) => CUSTOM_FORM,
     }
+}
+
+/// The screen context a model resolves in: the caller's platform flags plus, for a
+/// modal, the popup's two-button layout selection.
+pub fn form_context(model: &FormModel, base: &Context) -> Context {
+    let mut context = base.clone();
+    if matches!(model, FormModel::Modal(_)) {
+        for (flag, value) in [
+            ("two_buttons_visible", true),
+            ("no_buttons_visible", false),
+            ("single_button_visible", false),
+            ("single_button_checkbox_visible", false),
+            ("two_buttons_checkbox_visible", false),
+            ("destructive_two_buttons_visible", false),
+            ("three_buttons_visible", false),
+            ("destructive_three_buttons_visible", false),
+            ("show_close_button", false),
+        ] {
+            context = context.with_flag(flag, value);
+        }
+    }
+    context
 }
 
 /// Map a form model onto the `#binding` names its template reads.
 pub fn form_data_source(model: &FormModel) -> DataSource {
     let mut data = DataSource::new();
     match model {
-        FormModel::Action(form) => {
-            long_form_source(&mut data, &form.title, &form.body, &form.buttons)
-        }
+        FormModel::Action(form) => long_form_source(&mut data, form),
         FormModel::Modal(form) => {
-            let buttons = vec![
-                FormButton {
-                    text: form.button1.clone(),
-                    image: None,
-                },
-                FormButton {
-                    text: form.button2.clone(),
-                    image: None,
-                },
-            ];
-            long_form_source(&mut data, &form.title, &form.body, &buttons);
+            let text = |value: &str| Scalar::Text(value.to_owned());
+            data.set_global("#modal_title_text", text(&form.title));
+            data.set_global("#modal_label_text", text(&form.body));
+            data.set_global("#modal_left_button_text", text(&form.button1));
+            data.set_global("#modal_middle_button_text", text(""));
+            data.set_global("#modal_rightcancel_button_text", text(&form.button2));
         }
         FormModel::Custom(form) => custom_form_source(&mut data, form),
     }
     data
 }
 
-fn long_form_source(data: &mut DataSource, title: &str, body: &str, buttons: &[FormButton]) {
-    data.set_global("#title_text", Scalar::Text(title.to_owned()));
-    data.set_global("#form_text", Scalar::Text(body.to_owned()));
-    data.set_global("#form_button_contents", Scalar::Num(buttons.len() as f64));
-    let items = buttons
+fn long_form_source(data: &mut DataSource, form: &ActionForm) {
+    data.set_global("#title_text", Scalar::Text(form.title.clone()));
+    data.set_global("#form_text", Scalar::Text(form.body.clone()));
+    data.set_global(
+        "#form_button_contents",
+        Scalar::Num(form.elements.len() as f64),
+    );
+    let text_item = |role: &str, text: &str| {
+        CollectionItem::new(role).with("#form_button_text", Scalar::Text(text.to_owned()))
+    };
+    let items = form
+        .elements
         .iter()
-        .map(|button| {
-            let (path, file_system) = match &button.image {
-                Some(ButtonImage::Path(path)) => (path.clone(), String::new()),
-                Some(ButtonImage::Url(url)) => (String::new(), url.clone()),
-                None => (String::new(), String::new()),
-            };
-            CollectionItem::new("button")
-                .with("#form_button_text", Scalar::Text(button.text.clone()))
-                .with("#form_button_texture", Scalar::Text(path))
-                .with(
-                    "#form_button_texture_file_system",
-                    Scalar::Text(file_system),
-                )
+        .map(|element| match element {
+            ActionElement::Button(button) => {
+                let (path, file_system) = match &button.image {
+                    Some(ButtonImage::Path(path)) => (path.clone(), String::new()),
+                    Some(ButtonImage::Url(url)) => (String::new(), url.clone()),
+                    None => (String::new(), String::new()),
+                };
+                text_item("button", &button.text)
+                    .with("#form_button_texture", Scalar::Text(path))
+                    .with(
+                        "#form_button_texture_file_system",
+                        Scalar::Text(file_system),
+                    )
+            }
+            ActionElement::Label(text) => text_item("label", text),
+            ActionElement::Header(text) => text_item("header", text),
+            ActionElement::Divider => CollectionItem::new("divider"),
         })
         .collect();
     data.set_collection("form_buttons", items);
@@ -180,43 +232,105 @@ fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
     data.set_global("#submit_button_visible", Scalar::Bool(form.submit_visible));
     let items = form.elements.iter().map(custom_item).collect();
     data.set_collection("custom_form", items);
+    // Only one dropdown is open at a time; its options feed the shared radio list.
+    let options = form
+        .elements
+        .iter()
+        .find_map(|element| match element {
+            CustomElement::Dropdown {
+                options,
+                index,
+                open: true,
+                ..
+            } => Some((options, *index)),
+            _ => None,
+        })
+        .map(|(options, selected)| {
+            options
+                .iter()
+                .enumerate()
+                .map(|(index, option)| {
+                    CollectionItem::new("radio")
+                        .with("#custom_radio_text", Scalar::Text(option.clone()))
+                        .with("#custom_radio_toggled", Scalar::Bool(index == selected))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    data.set_collection("custom_dropdown", options);
 }
 
 fn custom_item(element: &CustomElement) -> CollectionItem {
+    let text = |value: &str| Scalar::Text(value.to_owned());
     match element {
-        CustomElement::Label { text } => {
-            CollectionItem::new("label").with("#custom_text", Scalar::Text(text.clone()))
+        CustomElement::Label { text: label } => {
+            CollectionItem::new("label").with("#custom_text", text(label))
         }
-        CustomElement::Header { text } => {
-            CollectionItem::new("header").with("#custom_text", Scalar::Text(text.clone()))
+        CustomElement::Header { text: label } => {
+            CollectionItem::new("header").with("#custom_text", text(label))
         }
         CustomElement::Divider => CollectionItem::new("divider"),
-        CustomElement::Toggle { text, default } => CollectionItem::new("toggle")
-            .with("#custom_text", Scalar::Text(text.clone()))
-            .with("#custom_toggle_state", Scalar::Bool(*default))
-            .with("#custom_toggle_enabled", Scalar::Bool(true)),
-        CustomElement::Slider { text, value } => CollectionItem::new("slider")
-            .with("#custom_slider_text", Scalar::Text(text.clone()))
-            .with("#custom_slider_value", Scalar::Num(*value))
-            .with("#custom_slider_enabled", Scalar::Bool(true)),
-        CustomElement::StepSlider { text, index } => CollectionItem::new("step_slider")
-            .with("#custom_slider_step_text", Scalar::Text(text.clone()))
-            .with("#custom_slider_step_value", Scalar::Num(*index as f64)),
-        CustomElement::Dropdown { text, index } => CollectionItem::new("dropdown")
-            .with("#custom_text", Scalar::Text(text.clone()))
-            .with("#custom_dropdown_index", Scalar::Num(*index as f64)),
+        CustomElement::Toggle {
+            text: label,
+            on,
+            tooltip,
+        } => CollectionItem::new("toggle")
+            .with("#custom_text", text(label))
+            .with("#custom_toggle_state", Scalar::Bool(*on))
+            .with("#custom_toggle_enabled", Scalar::Bool(true))
+            .with("#custom_tooltip_text", text(tooltip)),
+        CustomElement::Slider {
+            text: label,
+            fraction,
+            tooltip,
+        } => CollectionItem::new("slider")
+            .with("#custom_slider_text", text(label))
+            .with("#custom_slider_text_value", text(label))
+            .with(
+                "#custom_slider_value",
+                Scalar::Num(fraction.clamp(0.0, 1.0)),
+            )
+            .with("#custom_slider_enabled", Scalar::Bool(true))
+            .with("#custom_tooltip_text", text(tooltip)),
+        CustomElement::StepSlider {
+            text: label,
+            steps,
+            index,
+            tooltip,
+        } => CollectionItem::new("step_slider")
+            .with("#custom_slider_step_text", text(label))
+            .with("#custom_slider_step_text_value", text(label))
+            .with("#custom_slider_step_value", Scalar::Num(*index as f64))
+            .with("#custom_slider_steps", Scalar::Num((*steps).max(1) as f64))
+            .with("#custom_slider_enabled", Scalar::Bool(true))
+            .with("#custom_tooltip_text", text(tooltip)),
+        CustomElement::Dropdown {
+            text: label,
+            options,
+            index,
+            open,
+            tooltip,
+        } => CollectionItem::new("dropdown")
+            .with("#custom_text", text(label))
+            .with(
+                "#dropdown_option_text",
+                text(options.get(*index).map_or("", String::as_str)),
+            )
+            .with("#custom_dropdown", Scalar::Bool(*open))
+            .with("#custom_dropdown_length", Scalar::Num(options.len() as f64))
+            .with("#custom_toggle_enabled", Scalar::Bool(true))
+            .with("#custom_tooltip_text", text(tooltip)),
         CustomElement::Input {
-            text,
+            text: label,
             value,
             placeholder,
+            tooltip,
         } => CollectionItem::new("input")
-            .with("#custom_text", Scalar::Text(text.clone()))
-            .with("#custom_input_text", Scalar::Text(value.clone()))
-            .with(
-                "#custom_placeholder_text",
-                Scalar::Text(placeholder.clone()),
-            )
-            .with("#custom_input_enabled", Scalar::Bool(true)),
+            .with("#custom_text", text(label))
+            .with("#custom_input_text", text(value))
+            .with("#custom_placeholder_text", text(placeholder))
+            .with("#custom_input_enabled", Scalar::Bool(true))
+            .with("#custom_tooltip_text", text(tooltip)),
     }
 }
 
@@ -241,13 +355,17 @@ pub fn bind_form(
     catalog: &Catalog,
     context: &Context,
 ) -> Option<ResolvedControl> {
-    let root = resolve(catalog, form_template(model), context).control?;
+    let context = form_context(model, context);
+    let root = resolve(catalog, form_template(model), &context).control?;
     let data = form_data_source(model);
-    let library = CatalogLibrary { catalog, context };
+    let library = CatalogLibrary {
+        catalog,
+        context: &context,
+    };
     Some(bind(&root, &data, &library))
 }
 
-/// Render a form to its laid-out draw-node tree within a `root_size` virtual screen.
+/// Render a form with no interaction state.
 pub fn render_form(
     model: &FormModel,
     catalog: &Catalog,
@@ -255,10 +373,40 @@ pub fn render_form(
     root_size: [f64; 2],
     env: &LayoutEnv,
 ) -> Option<FormRender> {
+    render_form_with(
+        model,
+        catalog,
+        context,
+        root_size,
+        env,
+        &ViewState::default(),
+    )
+}
+
+/// Render a form within a `root_size` virtual screen under live `state`.
+pub fn render_form_with(
+    model: &FormModel,
+    catalog: &Catalog,
+    context: &Context,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+) -> Option<FormRender> {
     let bound = bind_form(model, catalog, context)?;
-    let nodes = {
-        let laid = layout(&bound, root_size, env);
-        emit(&laid, env)
+    let (nodes, hits, report, cancel_target) = {
+        let (laid, report) = layout_with(&bound, root_size, env, state);
+        (
+            emit(&laid, env),
+            hit_regions(&laid),
+            report,
+            global_mapping(&laid, "button.menu_cancel"),
+        )
     };
-    Some(FormRender { bound, nodes })
+    Some(FormRender {
+        bound,
+        nodes,
+        hits,
+        report,
+        cancel_target,
+    })
 }

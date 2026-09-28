@@ -2,7 +2,11 @@
 //! carry the texture path and a normalised source sub-rect; the atlas that maps a
 //! path to a page and pixel UVs binds later. A nine-slice `image` emits up to nine
 //! sprite quads (corners 1:1, edges stretched on one axis, centre on both); a zero
-//! inset collapses that border so the neighbour stretches to the edge.
+//! inset collapses that border so the neighbour stretches to the edge. A clipped
+//! progress image (`clip_direction` + ratio) crops its quads and their UVs, and a
+//! `custom` control emits an opaque [`Draw::Custom`] the caller renders itself.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -82,6 +86,14 @@ pub enum Draw {
         color: [u8; 4],
         shadow: bool,
         align: TextAlign,
+        /// `font_scale_factor`: glyphs draw this many times their natural size.
+        scale: f32,
+    },
+    /// A `custom` control (`renderer` names it, e.g. `inventory_item_renderer`)
+    /// with its bound `#` values, drawn by the caller.
+    Custom {
+        renderer: String,
+        data: BTreeMap<String, Value>,
     },
 }
 
@@ -90,6 +102,8 @@ pub enum Draw {
 pub struct DrawNode {
     /// The source control's instance name, so a bound node can be traced back.
     pub name: String,
+    /// The source control's layout key (see [`crate::state`]).
+    pub key: String,
     pub dest: RectOut,
     pub clip: RectOut,
     pub layer: i32,
@@ -116,13 +130,19 @@ fn collect(
     if !node.visible {
         return;
     }
-    for draw in draws_for(node.control, node.rect, env) {
-        let (dest, draw) = draw;
+    let visible_rect = node
+        .clip_ratio
+        .map(|ratio| clipped_rect(node.control, node.rect, ratio));
+    for (dest, draw) in draws_for(node.control, node.rect, env) {
+        let Some((dest, draw)) = crop(dest, draw, visible_rect) else {
+            continue;
+        };
         out.push((
             node.layer,
             *order,
             DrawNode {
                 name: node.control.name.clone(),
+                key: node.key.clone(),
                 dest: dest.into(),
                 clip: node.clip.into(),
                 layer: node.layer,
@@ -144,6 +164,9 @@ fn draws_for(control: &ResolvedControl, rect: Rect, env: &LayoutEnv) -> Vec<(Rec
     }
     match control.control_type.as_deref() {
         Some("label") => vec![(rect, text_draw(control))],
+        Some("custom") => custom_draw(control)
+            .map(|draw| vec![(rect, draw)])
+            .unwrap_or_default(),
         Some("image") => solid_or_empty(control, rect),
         _ if is_fill(control) => solid_or_empty(control, rect),
         _ => Vec::new(),
@@ -188,12 +211,94 @@ fn text_draw(control: &ResolvedControl) -> Draw {
         Some(text) => text.to_owned(),
         None => String::new(),
     };
+    let color = match control.properties.get("#color") {
+        Some(value) => color_from_value(value, [255, 255, 255, 255]),
+        None => color_of(control, [255, 255, 255, 255]),
+    };
     Draw::Text {
         text,
-        color: color_of(control, [255, 255, 255, 255]),
+        color,
         shadow: matches!(control.properties.get("shadow"), Some(Value::Bool(true))),
         align: alignment(control),
+        scale: crate::layout::font_scale(control) as f32,
     }
+}
+
+fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
+    let renderer = control.properties.get("renderer")?.as_str()?.to_owned();
+    let data = control
+        .properties
+        .iter()
+        .filter(|(key, _)| key.starts_with('#') || key.as_str() == "collection_index")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    Some(Draw::Custom { renderer, data })
+}
+
+/// The part of `rect` a progress image keeps after clipping `ratio` of it away
+/// toward `clip_direction` (the image stays pinned to the named side).
+fn clipped_rect(control: &ResolvedControl, rect: Rect, ratio: f32) -> Rect {
+    let keep = (1.0 - f64::from(ratio)).clamp(0.0, 1.0);
+    match control
+        .properties
+        .get("clip_direction")
+        .and_then(Value::as_str)
+        .unwrap_or("left")
+    {
+        "right" => Rect::new(
+            rect.x + rect.w * (1.0 - keep),
+            rect.y,
+            rect.w * keep,
+            rect.h,
+        ),
+        "up" => Rect::new(rect.x, rect.y, rect.w, rect.h * keep),
+        "down" => Rect::new(
+            rect.x,
+            rect.y + rect.h * (1.0 - keep),
+            rect.w,
+            rect.h * keep,
+        ),
+        "center" => {
+            let (w, h) = (rect.w * keep, rect.h * keep);
+            Rect::new(
+                rect.x + (rect.w - w) * 0.5,
+                rect.y + (rect.h - h) * 0.5,
+                w,
+                h,
+            )
+        }
+        _ => Rect::new(rect.x, rect.y, rect.w * keep, rect.h),
+    }
+}
+
+/// Crop a primitive to `visible`, scaling a sprite's UVs with its dest; a fully
+/// clipped primitive yields `None`.
+fn crop(dest: Rect, draw: Draw, visible: Option<Rect>) -> Option<(Rect, Draw)> {
+    let Some(visible) = visible else {
+        return Some((dest, draw));
+    };
+    let kept = dest.intersect(visible);
+    if kept.w <= 0.0 || kept.h <= 0.0 {
+        return None;
+    }
+    let draw = match draw {
+        Draw::Sprite { texture, uv, color } if dest.w > 0.0 && dest.h > 0.0 => {
+            let lerp_u = |x: f64| uv.u0 + (uv.u1 - uv.u0) * ((x - dest.x) / dest.w) as f32;
+            let lerp_v = |y: f64| uv.v0 + (uv.v1 - uv.v0) * ((y - dest.y) / dest.h) as f32;
+            Draw::Sprite {
+                texture,
+                uv: UvRect {
+                    u0: lerp_u(kept.x),
+                    v0: lerp_v(kept.y),
+                    u1: lerp_u(kept.x + kept.w),
+                    v1: lerp_v(kept.y + kept.h),
+                },
+                color,
+            }
+        }
+        other => other,
+    };
+    Some((kept, draw))
 }
 
 fn solid_or_empty(control: &ResolvedControl, rect: Rect) -> Vec<(Rect, Draw)> {

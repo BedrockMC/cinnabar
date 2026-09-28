@@ -26,7 +26,12 @@ pub struct RawControl {
 }
 
 impl RawControl {
-    fn from_entry(owner_ns: &str, key: &str, value: &Value, diagnostics: &mut Vec<String>) -> Self {
+    pub(crate) fn from_entry(
+        owner_ns: &str,
+        key: &str,
+        value: &Value,
+        diagnostics: &mut Vec<String>,
+    ) -> Self {
         let (name, base) = split_key(key);
         let mut props = Map::new();
         let mut children = Vec::new();
@@ -51,7 +56,11 @@ impl RawControl {
     }
 }
 
-fn child_controls(owner_ns: &str, value: &Value, diagnostics: &mut Vec<String>) -> Vec<RawControl> {
+pub(crate) fn child_controls(
+    owner_ns: &str,
+    value: &Value,
+    diagnostics: &mut Vec<String>,
+) -> Vec<RawControl> {
     let Value::Array(entries) = value else {
         diagnostics.push(format!("{owner_ns}: `controls` is not an array"));
         return Vec::new();
@@ -70,7 +79,7 @@ fn child_controls(owner_ns: &str, value: &Value, diagnostics: &mut Vec<String>) 
     children
 }
 
-fn split_key(key: &str) -> (String, Option<String>) {
+pub(crate) fn split_key(key: &str) -> (String, Option<String>) {
     match key.split_once('@') {
         Some((name, base)) => (name.to_owned(), Some(base.to_owned())),
         None => (key.to_owned(), None),
@@ -104,7 +113,11 @@ impl Catalog {
 
     fn load_globals(&mut self, path: &Path) -> Result<(), LoadError> {
         let text = read(path)?;
-        let value = json5::parse(&text).map_err(|source| LoadError::Parse {
+        self.load_globals_text(path, &text)
+    }
+
+    pub(crate) fn load_globals_text(&mut self, path: &Path, text: &str) -> Result<(), LoadError> {
+        let value = json5::parse(text).map_err(|source| LoadError::Parse {
             path: path.to_path_buf(),
             message: source.to_string(),
         })?;
@@ -122,15 +135,17 @@ impl Catalog {
     }
 
     fn load_file(&mut self, entry: &str, path: &Path) {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(error) => {
-                self.diagnostics
-                    .push(format!("{entry}: unreadable ({error})"));
-                return;
-            }
-        };
-        let value = match json5::parse(&text) {
+        match std::fs::read_to_string(path) {
+            Ok(text) => self.load_text(entry, &text),
+            Err(error) => self
+                .diagnostics
+                .push(format!("{entry}: unreadable ({error})")),
+        }
+    }
+
+    /// Add every control of one `ui/*.json` document; a redefinition replaces.
+    pub(crate) fn load_text(&mut self, entry: &str, text: &str) {
+        let value = match json5::parse(text) {
             Ok(value) => value,
             Err(error) => {
                 self.diagnostics
@@ -168,6 +183,21 @@ impl Catalog {
         self.defs.get(namespace)?.get(name)
     }
 
+    pub(crate) fn lookup_mut(&mut self, namespace: &str, name: &str) -> Option<&mut RawControl> {
+        self.defs.get_mut(namespace)?.get_mut(name)
+    }
+
+    pub(crate) fn insert(&mut self, control: RawControl) {
+        self.defs
+            .entry(control.owner_ns.clone())
+            .or_default()
+            .insert(control.name.clone(), control);
+    }
+
+    pub(crate) fn note(&mut self, message: String) {
+        self.diagnostics.push(message);
+    }
+
     pub fn global(&self, name: &str) -> Option<&Value> {
         self.globals.get(name)
     }
@@ -187,7 +217,11 @@ impl Catalog {
 
 fn read_ui_defs(path: &Path) -> Result<Vec<String>, LoadError> {
     let text = read(path)?;
-    let value = json5::parse(&text).map_err(|source| LoadError::Parse {
+    parse_ui_defs(path, &text)
+}
+
+pub(crate) fn parse_ui_defs(path: &Path, text: &str) -> Result<Vec<String>, LoadError> {
+    let value = json5::parse(text).map_err(|source| LoadError::Parse {
         path: path.to_path_buf(),
         message: source.to_string(),
     })?;
