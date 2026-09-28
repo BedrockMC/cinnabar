@@ -48,8 +48,11 @@ when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
 they collide as full cubes with stone's surface facts and render as diagnostic
 cubes until runtime pack application lands. Hashed-id sessions now register custom
 states by network hash (pack visuals via the runtime overlay; stone-surface collision
-provisional); interleaved sequential custom blocks remain unsupported. Vanilla
-block/entity retexturing from server packs is not applied yet (incomplete). No vanilla acceptance gate is closed by this change.
+provisional); sequential customs sorting among vanilla remap wire ids, custom collision
+uses `minecraft:collision_box`, and vanilla blocks retexture from a pack's terrain keys
+via the `.matkeys.json` sidecar (rebuild assets to emit it). Vanilla item icons override by
+short-name key (provisional). Vanilla entity retexturing and custom entities from server
+packs are not applied (incomplete); pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
