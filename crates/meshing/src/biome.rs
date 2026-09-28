@@ -52,11 +52,7 @@ impl ChunkBiomeTintIdentity {
 /// Number of horizontal biome storages retained by one render record.
 pub const BIOME_NEIGHBOUR_SLOT_COUNT: usize = 9;
 
-/// Provisional horizontal tint-sampling radius used by the bounded renderer.
-///
-/// The data sources pin exact Bedrock biome identities and colours but do not
-/// publish the native renderer kernel. Keep this explicit until the native
-/// abrupt-boundary acceptance witness adjudicates it.
+/// Radius of the CPU reference box kernel; the shader blends on a 4-block lattice instead.
 pub const BIOME_BLEND_RADIUS: i32 = 1;
 
 /// Number of samples in the fixed radius-one horizontal tint kernel.
