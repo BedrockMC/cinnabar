@@ -865,6 +865,7 @@ fn decode_world_raw_with(
             | McpePacketName::CameraPacket
             | McpePacketName::CameraShakePacket
             | McpePacketName::CameraInstructionPacket
+            | McpePacketName::CameraPresetsPacket
     ) {
         return Ok(None);
     }
