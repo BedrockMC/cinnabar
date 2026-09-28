@@ -1,7 +1,7 @@
 use valentine::bedrock::version::v1_26_44::McpePacketName;
 
-const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
-const PACKET_ID_TRACE_DURATION: std::time::Duration = std::time::Duration::from_secs(30);
+pub(super) const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
+pub(super) const PACKET_ID_TRACE_DURATION: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacketIdTraceSnapshot {
@@ -12,7 +12,7 @@ pub struct PacketIdTraceSnapshot {
 
 #[derive(Default)]
 pub(super) struct PacketIdTraceState {
-    started_at: Option<std::time::Instant>,
+    pub(super) started_at: Option<std::time::Instant>,
     packet_ids: Vec<u32>,
     recorded: usize,
     overflow: u64,

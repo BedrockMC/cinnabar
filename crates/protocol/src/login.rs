@@ -26,6 +26,8 @@ mod packet_trace;
 use boundary::boundary_wakeup;
 pub use packet_trace::PacketIdTraceSnapshot;
 use packet_trace::PacketIdTraceState;
+#[cfg(test)]
+use packet_trace::{MAX_PACKET_ID_TRACE_ENTRIES, PACKET_ID_TRACE_DURATION};
 
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = 16 * 1024 * 1024;
 
