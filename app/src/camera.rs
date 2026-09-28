@@ -33,6 +33,7 @@ mod fov;
 mod hurt;
 mod look;
 mod overlay;
+mod overlay_publish;
 mod presentation;
 mod server_view;
 mod shake;
@@ -524,7 +525,10 @@ impl Plugin for FlyCameraPlugin {
             .init_resource::<SemanticRouteState>()
             .init_resource::<SemanticTouchTargets>()
             .init_resource::<RuntimeSettings>()
-            .add_systems(Startup, spawn_fly_camera)
+            .add_systems(
+                Startup,
+                (spawn_fly_camera, overlay_publish::load_overlay_textures),
+            )
             .configure_sets(
                 Update,
                 FlyCameraUpdateSet
@@ -554,6 +558,7 @@ impl Plugin for FlyCameraPlugin {
                     (
                         presentation::advance_presentation_state,
                         presentation::update_screen_overlays,
+                        overlay_publish::publish_screen_overlays,
                         presentation::apply_camera_presentation,
                     )
                         .chain()
