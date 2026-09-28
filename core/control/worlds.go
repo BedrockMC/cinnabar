@@ -40,6 +40,24 @@ type Worlds interface {
 	Status() localworld.Status
 }
 
+type openHookWorlds struct {
+	Worlds
+	onOpen func()
+}
+
+func (w openHookWorlds) Open(id string) error {
+	err := w.Worlds.Open(id)
+	if err == nil {
+		w.onOpen()
+	}
+	return err
+}
+
+// WithOpenHook returns worlds that also call onOpen after each successful Open.
+func WithOpenHook(worlds Worlds, onOpen func()) Worlds {
+	return openHookWorlds{Worlds: worlds, onOpen: onOpen}
+}
+
 var worldMethods = map[string]struct{}{
 	methodWorldList: {}, methodWorldCreate: {}, methodWorldRename: {}, methodWorldDelete: {},
 	methodWorldOpen: {}, methodWorldClose: {}, methodWorldPause: {}, methodWorldStatus: {},

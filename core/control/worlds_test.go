@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 type stubWorlds struct {
@@ -145,4 +146,26 @@ func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = server.Close() })
 	assertRPCError(t, call(t, dir, methodWorldList, ""), -32601)
+}
+
+func TestOpenHookRunsOnlyAfterSuccessfulOpen(t *testing.T) {
+	stub := &stubWorlds{}
+	opened := 0
+	worlds := WithOpenHook(stub, func() { opened++ })
+	if err := worlds.Open("0123456789abcdef"); err != nil || opened != 1 || stub.opened != "0123456789abcdef" {
+		t.Fatalf("Open() = %v, hook calls %d", err, opened)
+	}
+	stub.err = errors.New("busy")
+	if err := worlds.Open("0123456789abcdef"); err == nil || opened != 1 {
+		t.Fatalf("failed Open ran the hook: err=%v calls=%d", err, opened)
+	}
+}
+
+func TestClearTransferWithdrawsPendingTransfer(t *testing.T) {
+	store := NewStore()
+	store.ObserveTransfer(proxy.TransferTarget{Host: "a", Port: 1})
+	store.ClearTransfer()
+	if store.Status().Transfer != nil {
+		t.Fatal("transfer still pending after ClearTransfer")
+	}
 }
