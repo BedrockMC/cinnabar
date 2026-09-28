@@ -16,8 +16,9 @@ use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
 use ui::{
-    DpiScale, HudViewRole, SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
-    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    DpiScale, HudViewRole, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache,
+    TextLayoutRequest, TextShadow, TextStyle, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree,
+    UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -60,7 +61,7 @@ use crate::menu::{MenuAction, MenuView};
 use chat::visible_suggestion_range;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
-use primitives::{bounded_visible_text, hud_position, rect};
+use primitives::{bounded_visible_text, hud_position, rect, resolve_chat_line};
 #[cfg(test)]
 pub(crate) use publish::refresh_hud_frame;
 pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
@@ -191,6 +192,7 @@ pub struct UiPresentationRuntime {
     icon_catalog: Option<Arc<RuntimeIconCatalog>>,
     icon_refs: Option<Box<[IconRef]>>,
     layouts: TextLayoutCache,
+    obfuscation: ObfuscationGlyphs, // same-width pools for the per-frame §k swap
     revision: u64,
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
     scoreboard: PresentedScoreboardCache,
@@ -273,6 +275,7 @@ impl UiPresentationRuntime {
             };
         let textures = Arc::new(textures);
         Ok(Self {
+            obfuscation: ObfuscationGlyphs::from_catalog(&font),
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
@@ -712,7 +715,8 @@ impl UiPresentationRuntime {
             if alpha == 0 {
                 continue;
             }
-            let text = bounded_visible_text(&node.message);
+            let resolved = resolve_chat_line(node, |key| runtime.translation(key));
+            let text = bounded_visible_text(resolved.as_ref());
             let layout = self
                 .layouts
                 .layout(metrics.request(text, wrap_width, &self.font))
@@ -967,7 +971,12 @@ impl UiPresentationRuntime {
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;
-        let draw_list = tree.build_draw_list().map_err(UiPresentationError::Tree)?;
+        let draw_list = tree
+            .build_draw_list_with(TextEffects {
+                obfuscation_seed: now_millis,
+                obfuscation: Some(&self.obfuscation),
+            })
+            .map_err(UiPresentationError::Tree)?;
         let input = adapt_ui_draw_list(
             &draw_list,
             Arc::clone(&self.textures),
