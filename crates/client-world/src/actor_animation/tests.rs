@@ -362,6 +362,47 @@ fn is_first_person_variable_tracks_the_local_camera_context() {
 }
 
 #[test]
+fn first_person_driver_variables_track_pitch_and_enable_view_bob() {
+    let engine = EngineSlots {
+        player_x_rotation: Some(0),
+        bob_animation: Some(1),
+        ..EngineSlots::default()
+    };
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput {
+        pitch: 30.0,
+        ..ActorTickInput::default()
+    };
+    let motion = MotionState::default();
+    let mut variables = MolangVariables::slots(2);
+    tick::apply_engine_variables(
+        &engine,
+        &mut variables,
+        &actor,
+        &ActorTickContext::default(),
+        &input,
+        &motion,
+    );
+    assert_eq!(variables.number_at(0), Some(30.0));
+    assert_eq!(variables.number_at(1), Some(1.0));
+}
+
+#[test]
+fn use_item_and_headgear_queries_read_their_neutral_idle_values() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    for name in [
+        "query.main_hand_item_use_duration",
+        "query.main_hand_item_max_duration",
+        "query.item_remaining_use_duration",
+        "query.has_head_gear",
+        "query.is_spectator",
+    ] {
+        assert_eq!(read(&actor, &input, 0, name), 0.0, "{name}");
+    }
+}
+
+#[test]
 fn loop_counts_run_their_ceiling_up_to_the_bound_and_skip_when_not_positive() {
     use evaluation::loop_iterations;
     assert_eq!(loop_iterations(2.5), Some(3));
