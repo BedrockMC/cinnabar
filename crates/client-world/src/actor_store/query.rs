@@ -81,6 +81,12 @@ impl ActorStore {
         Some((current.min(maximum), maximum))
     }
 
+    /// Position and view angles `(position, yaw, pitch)` of the actor with this unique id.
+    pub(crate) fn pose_by_unique(&self, unique_id: i64) -> Option<([f32; 3], f32, f32)> {
+        let actor = self.actors.get(self.unique_to_runtime.get(&unique_id)?)?;
+        Some((actor.position, actor.yaw, actor.pitch))
+    }
+
     /// Whether the actor with this unique id carries a named attribute, for
     /// capability gates like the mount jump-strength check.
     pub(crate) fn actor_has_attribute_by_unique(&self, unique_id: i64, name: &str) -> bool {

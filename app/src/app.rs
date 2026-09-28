@@ -777,6 +777,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::ViewmodelRenderPlugin,
         render::HandRigRenderPlugin,
         render::DroppedItemRenderPlugin,
+        render::ScreenOverlayRenderPlugin,
     ));
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {

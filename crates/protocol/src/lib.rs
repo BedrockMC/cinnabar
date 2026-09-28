@@ -47,9 +47,9 @@ pub use blob_cache::{
 };
 pub use camera::{
     CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
-    CameraFovInstruction, CameraInstructionEvent, CameraSetInstruction, CameraShakeAction,
-    CameraShakeEvent, CameraShakeType, CameraSwitchEvent, CameraTargetInstruction,
-    MAX_CAMERA_EASE_IDENTIFIER_BYTES,
+    CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
+    CameraShakeAction, CameraShakeEvent, CameraShakeType, CameraSwitchEvent,
+    CameraTargetInstruction, MAX_CAMERA_EASE_IDENTIFIER_BYTES, MAX_CAMERA_PRESETS,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
