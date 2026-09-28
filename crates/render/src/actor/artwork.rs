@@ -8,7 +8,9 @@ use std::{
     sync::Arc,
 };
 
-pub const MAX_ACTOR_TEXTURE_PAGES: usize = 16;
+pub const MAX_ACTOR_TEXTURE_PAGES: usize = 32;
+/// Layers per generic entity page, within every backend's array-layer limit.
+const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory.
 // Driver overhead and internal upload staging are separate, unmeasured costs.
 pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 48 * 1024 * 1024;
@@ -74,6 +76,10 @@ pub struct ActorArtworkPages {
     pub(crate) entity_identity: [u8; 32],
     pub(crate) pages: Arc<[ActorTexturePage]>,
     routes: Arc<BTreeMap<EntityRigId, ActorArtworkLocation>>,
+    /// Location of every catalog texture by entity-catalog source index.
+    source_locations: Arc<BTreeMap<u32, ActorArtworkLocation>>,
+    /// `(page, layer)` of every catalog texture; any entity rig may draw these variants.
+    entity_locations: Arc<BTreeSet<(u8, u32)>>,
     /// `(page, layer)` of every equipment raster; equipment rigs are not entity routes.
     equipment: Arc<BTreeSet<(u8, u32)>>,
     rejected_bindings: usize,
@@ -92,36 +98,38 @@ impl ActorArtworkPages {
         // The existing player page retains all 128 layers and its full byte budget.
         let mut gpu_bytes = MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES;
         for ((width, height), indices) in groups {
-            let length = indices
-                .iter()
-                .map(|index| catalog.textures()[*index].rgba8.len())
-                .sum::<usize>();
-            if gpu_bytes
-                .checked_add(length)
-                .is_none_or(|total| !within_page_budget(pages.len() + 1, total))
-            {
-                continue;
+            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
+                let length = indices
+                    .iter()
+                    .map(|index| catalog.textures()[*index].rgba8.len())
+                    .sum::<usize>();
+                if gpu_bytes
+                    .checked_add(length)
+                    .is_none_or(|total| !within_page_budget(pages.len() + 1, total))
+                {
+                    continue;
+                }
+                let page = (pages.len() + 1) as u8;
+                let mut pixels = Vec::with_capacity(length);
+                for (layer, index) in indices.iter().enumerate() {
+                    pixels.extend_from_slice(&catalog.textures()[*index].rgba8);
+                    locations.insert(
+                        *index as u32,
+                        ActorArtworkLocation {
+                            page,
+                            layer: layer as u32,
+                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                        },
+                    );
+                }
+                gpu_bytes += length;
+                pages.push(ActorTexturePage {
+                    width,
+                    height,
+                    layers: indices.len() as u32,
+                    rgba8: pixels.into(),
+                });
             }
-            let page = (pages.len() + 1) as u8;
-            let mut pixels = Vec::with_capacity(length);
-            for (layer, index) in indices.iter().enumerate() {
-                pixels.extend_from_slice(&catalog.textures()[*index].rgba8);
-                locations.insert(
-                    *index as u32,
-                    ActorArtworkLocation {
-                        page,
-                        layer: layer as u32,
-                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                    },
-                );
-            }
-            gpu_bytes += length;
-            pages.push(ActorTexturePage {
-                width,
-                height,
-                layers: indices.len() as u32,
-                rgba8: pixels.into(),
-            });
         }
         let routes: BTreeMap<_, _> = catalog
             .bindings()
@@ -137,7 +145,21 @@ impl ActorArtworkPages {
             })
             .collect();
         let rejected_bindings = catalog.bindings().len() - routes.len();
+        let source_locations: BTreeMap<u32, ActorArtworkLocation> = catalog
+            .textures()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, texture)| {
+                Some((texture.source, locations.get(&(index as u32)).copied()?))
+            })
+            .collect();
+        let entity_locations: BTreeSet<(u8, u32)> = source_locations
+            .values()
+            .map(|location| (location.page, location.layer))
+            .collect();
         Self {
+            source_locations: Arc::new(source_locations),
+            entity_locations: Arc::new(entity_locations),
             identity: catalog.identity(),
             entity_identity: catalog.entity_identity(),
             pages: pages.into(),
@@ -300,6 +322,10 @@ impl ActorArtworkPages {
     pub fn route(&self, rig: EntityRigId) -> Option<ActorArtworkLocation> {
         self.routes.get(&rig).copied()
     }
+    /// Where the catalog texture drawn from entity-catalog source `source` lives.
+    pub fn texture_location(&self, source: u32) -> Option<ActorArtworkLocation> {
+        self.source_locations.get(&source).copied()
+    }
     pub fn rejected_bindings(&self) -> usize {
         self.rejected_bindings
     }
@@ -313,7 +339,15 @@ impl ActorArtworkPages {
         if super::rig::is_equipment_rig_id(rig) {
             return self.equipment.contains(&(location.page, location.layer));
         }
-        self.route(rig) == Some(location)
+        match self.route(rig) {
+            Some(route) if super::rig::is_pack_rig_id(rig) => route == location,
+            Some(route) => {
+                route == location
+                    || (route.pose_mode == location.pose_mode
+                        && self.entity_locations.contains(&(location.page, location.layer)))
+            }
+            None => false,
+        }
     }
 }
 
@@ -324,7 +358,7 @@ mod tests {
     fn page_budget_reserves_player_capacity_and_checks_exact_boundaries() {
         assert_eq!(MAX_RENDERED_PLAYERS, 128);
         assert_eq!(MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES, 2 * 1024 * 1024);
-        assert_eq!(assets::MAX_ACTOR_TEXTURES, 128);
+        assert_eq!(assets::MAX_ACTOR_TEXTURES, 2048);
         assert!(within_page_budget(
             MAX_ACTOR_TEXTURE_PAGES - 1,
             MAX_ACTOR_GPU_PIXEL_BYTES
