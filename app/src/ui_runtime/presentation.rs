@@ -41,6 +41,7 @@ mod item_sprite;
 mod item_viewmodel;
 mod menu;
 mod menu_artwork;
+mod nametags;
 mod player_preview;
 mod primitives;
 mod publish;
@@ -212,6 +213,8 @@ pub struct UiPresentationRuntime {
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// World-projected below-name score anchors for the current frame.
     below_name_anchors: Vec<BelowNameAnchor>,
+    /// World-projected nametags for players without a below-name score.
+    nametag_anchors: Vec<nametags::NametagAnchor>,
     /// Stable reserved logical page for the optional preview raster.
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
@@ -298,6 +301,7 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
+            nametag_anchors: Vec::new(),
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
@@ -428,6 +432,10 @@ impl UiPresentationRuntime {
         );
     }
 
+    fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
+        self.nametag_anchors = anchors;
+    }
+
     /// Retained text-layout cache entries, exposed for the bounded-memory
     /// steady-state witnesses.
     #[cfg(test)]
@@ -473,6 +481,8 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
         let menu_visible = self.menu_view.is_some();
+        // Titles, the action bar and toasts lay out in the Java-parity HUD when it renders.
+        let hud_lays_out_overlays = hud_geometry.is_some() && self.hud_textures.is_some();
 
         if !menu_visible
             && let Some(hud_textures) = self.hud_textures.as_ref()
@@ -503,6 +513,18 @@ impl UiPresentationRuntime {
                 node.role,
                 HudViewRole::Health | HudViewRole::Hunger | HudViewRole::Armor | HudViewRole::Air
             ) {
+                continue;
+            }
+            if hud_lays_out_overlays
+                && matches!(
+                    node.role,
+                    HudViewRole::Title
+                        | HudViewRole::Subtitle
+                        | HudViewRole::ActionBar
+                        | HudViewRole::ToastTitle
+                        | HudViewRole::ToastMessage
+                )
+            {
                 continue;
             }
             let is_toast = matches!(
@@ -603,6 +625,15 @@ impl UiPresentationRuntime {
         }
 
         if !inventory_open && !menu_visible {
+            nametags::append_nametag_nodes(
+                &mut nodes,
+                &mut next_id,
+                &mut self.layouts,
+                &self.font,
+                metrics,
+                self.solid_texture_page,
+                &self.nametag_anchors,
+            )?;
             retained_hud::append_below_name_nodes(
                 &mut nodes,
                 &mut next_id,

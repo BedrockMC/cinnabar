@@ -94,6 +94,8 @@ pub struct TimedText {
     pub fifo_sequence: u64,
     pub started_millis: u64,
     pub expires_millis: u64,
+    pub fade_in_millis: u64,
+    pub fade_out_millis: u64,
 }
 
 impl TimedText {
@@ -108,11 +110,30 @@ impl TimedText {
             fifo_sequence,
             started_millis,
             expires_millis: started_millis.saturating_add(durations.total_millis()),
+            fade_in_millis: u64::from(durations.fade_in_ticks) * 50,
+            fade_out_millis: u64::from(durations.fade_out_ticks) * 50,
         }
     }
 
     pub const fn visible_at(&self, now_millis: u64) -> bool {
         now_millis < self.expires_millis
+    }
+
+    /// Opacity in `0..=255`: ramps up over the fade-in, holds, ramps down over the fade-out.
+    pub fn alpha_at(&self, now_millis: u64) -> u8 {
+        if !self.visible_at(now_millis) {
+            return 0;
+        }
+        let elapsed = now_millis.saturating_sub(self.started_millis);
+        let remaining = self.expires_millis - now_millis;
+        let mut alpha = 255.0_f32;
+        if elapsed < self.fade_in_millis {
+            alpha = alpha.min(255.0 * elapsed as f32 / self.fade_in_millis as f32);
+        }
+        if remaining < self.fade_out_millis {
+            alpha = alpha.min(255.0 * remaining as f32 / self.fade_out_millis as f32);
+        }
+        alpha as u8
     }
 }
 

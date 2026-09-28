@@ -182,6 +182,22 @@ pub(crate) fn publish_ui_runtime(
         })
         .unwrap_or_default();
     presentation.set_below_name_anchors(anchors);
+    let nametags = client_world
+        .stream
+        .as_ref()
+        .zip(cameras.single().ok())
+        .map(|(stream, (camera, transform))| {
+            project_nametags(
+                runtime.scoreboards(),
+                stream,
+                camera,
+                transform,
+                [logical_width, logical_height],
+                presentation.safe_area,
+            )
+        })
+        .unwrap_or_default();
+    presentation.set_nametag_anchors(nametags);
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
         let artwork_paths = view
@@ -477,6 +493,45 @@ fn project_below_name_anchors(
                 })
         })
         .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
+        .collect()
+}
+
+/// Nametags for every other player; those with a below-name score get the combined plate instead.
+fn project_nametags(
+    scoreboards: &ui::ScoreboardStore,
+    stream: &client_world::WorldStream,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    logical_size: [f32; 2],
+    safe_area: SafeArea,
+) -> Vec<nametags::NametagAnchor> {
+    let content_size = [
+        (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0),
+        (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0),
+    ];
+    stream
+        .render_players()
+        .into_iter()
+        .filter_map(|(actor, _profile)| {
+            let scored = scoreboards
+                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
+                .or_else(|| {
+                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
+                });
+            if scored.is_some() {
+                return None;
+            }
+            let name = stream.actor_display_name(actor.unique_id)?;
+            nametags::project_nametag(
+                actor,
+                name,
+                camera,
+                camera_transform,
+                content_size,
+                safe_area,
+            )
+        })
+        .take(nametags::MAX_PRESENTED_NAMETAGS)
         .collect()
 }
 
