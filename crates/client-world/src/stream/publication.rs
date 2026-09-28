@@ -170,6 +170,13 @@ impl WorldStream {
     pub fn pending_item_resolution_count(&self) -> usize {
         self.actors.pending_item_resolution_count()
     }
+    /// Every tracked actor except the local player, in no particular order.
+    pub fn remote_actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
+        let local = self.local_player_runtime_id;
+        self.actors
+            .actors()
+            .filter(move |actor| actor.runtime_id != local)
+    }
     pub fn actor_count(&self) -> usize {
         self.actors.len()
     }

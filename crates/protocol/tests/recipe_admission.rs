@@ -49,7 +49,7 @@ fn clear_merge_unsupported_replacement_and_fifo_are_authoritative() {
     assert!(catalog.apply(1, 2, &update(vec![recipe(2)], false)));
     assert!(catalog.recipe(1).is_some());
     let mut unsupported = recipe(1);
-    unsupported.ingredients[0].descriptor[0].key = "item_tag".into();
+    unsupported.ingredients[0].descriptor[0].key = "molang".into();
     assert!(catalog.apply(1, 3, &update(vec![unsupported], false)));
     assert!(catalog.recipe(1).is_none());
     assert!(catalog.recipe(2).is_some());

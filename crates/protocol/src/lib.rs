@@ -54,10 +54,18 @@ pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    click_block_packet, destroy_block_packet, use_actor_packet,
+    ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
+    destroy_block_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
-    RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeUpdate, decode_recipe_update,
+    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeOutput,
+    RecipeUpdate, decode_recipe_update, match_crafting_grid,
+};
+pub use inventory::{
+    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
+    CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
+    LAST_CONTAINER_NAME, MAX_STACK_REQUEST_ACTIONS, StackItemDescriptor, container_window,
+    is_personal_ui_inventory,
 };
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
@@ -76,6 +84,10 @@ pub use inventory::{
     personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
 };
 pub use inventory::{
+    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS,
+};
+pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
 pub use inventory::{
@@ -89,8 +101,8 @@ pub use item::{
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, item_icon_keys, item_stack_damage, select_hotbar_slot_packet,
-    vanilla_item_registry,
+    NetworkItemStack, item_enchantment_level, item_extra_damage, item_icon_keys, item_stack_damage,
+    select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;

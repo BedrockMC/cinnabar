@@ -212,6 +212,10 @@ fn canonical_default_icons_reach_consumer_lookup_without_duplicate_pixels() {
     let first = compile_icon_assets(pack.path(), MANIFEST).unwrap();
     let second = compile_icon_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(first.bytes, second.bytes);
+    assert_eq!(
+        first.report.block_visuals, 0,
+        "the legacy sprite-only entry point must not silently invent block artwork"
+    );
     assert_eq!(first.report.sprites, 1);
     let catalog = RuntimeIconCatalog::decode(&first.bytes).unwrap();
     let blue = catalog.lookup_index("minecraft:blue_bundle", 0).unwrap();

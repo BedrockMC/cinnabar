@@ -6,10 +6,12 @@
 //! while the provisional spawn-settle gate suppresses transmission, drained
 //! and withheld instead.
 
-use protocol::{Packet, PlayerAuthInputError, player_auth_input_with_interactions};
+use protocol::{
+    Packet, PlayerAuthInputError, player_auth_input_with_interactions,
+    player_auth_input_with_mining_request,
+};
 use tokio::sync::watch;
 
-use crate::block_use::FrozenBlockUse;
 use crate::mining::FrozenCreativeMining;
 
 /// Failure taxonomy of one bounded outbound movement flush.
@@ -65,6 +67,16 @@ impl MovementOutboxReconciliation {
 use super::{
     MovementTicker, PhysicsAuthorityFault, PhysicsSendIdentity, PhysicsTickEvidenceContext,
 };
+
+/// The reported pose of one unsent tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct UnsentSampleView {
+    pub(crate) tick: u64,
+    /// Network (eye-offset) position.
+    pub(crate) position: [f32; 3],
+    pub(crate) delta: [f32; 3],
+    pub(crate) sneaking: bool,
+}
 
 /// Capacity of every movement retry queue: queued samples, staged sends,
 /// sent-history confirmations, and retained tick evidence.
@@ -165,13 +177,13 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
         // intact, and pending state is consumed only after the transport
         // accepts the packet. See the `teleport_ack` module.
         let carried_teleport_ack = ticker.project_pending_teleport_ack(&mut sample);
-        debug_assert!(sample.mining.is_none() || sample.block_use.is_none());
-        let interaction_epoch = match (&sample.mining, &sample.block_use) {
-            (Some(_), None) => Some(&ticker.mining_epoch_publisher),
-            (None, Some(_)) => Some(&ticker.block_use_epoch_publisher),
-            (None, None) => None,
-            (Some(_), Some(_)) => None,
-        };
+        let interaction_epoch = sample.mining.as_ref().map(|mining| {
+            if mining.is_creative() {
+                &ticker.mining_epoch_publisher
+            } else {
+                &ticker.survival_epoch_publisher
+            }
+        });
         let interaction_guard = interaction_epoch
             .map(|publisher| {
                 let movement_packet = player_auth_input_with_interactions(
@@ -186,13 +198,18 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
             })
             .transpose()
             .map_err(MovementSendError::Encode)?;
-        let interactions = match (&sample.mining, &sample.block_use) {
-            (Some(mining), None) => mining.interactions.clone(),
-            (None, Some(block_use)) => block_use.interactions.clone(),
-            (None, None) | (Some(_), Some(_)) => protocol::PlayerAuthInputInteractions::default(),
-        };
-        let packet = player_auth_input_with_interactions(sample.snapshot, &interactions)
-            .map_err(MovementSendError::Encode)?;
+        let interactions = sample
+            .mining
+            .as_ref()
+            .map(|mining| mining.interactions.clone())
+            .unwrap_or_default();
+        let mining_request = sample
+            .mining
+            .as_ref()
+            .and_then(|mining| mining.mining_request);
+        let packet =
+            player_auth_input_with_mining_request(sample.snapshot, &interactions, mining_request)
+                .map_err(MovementSendError::Encode)?;
         let identity = ticker.next_send_identity(&sample);
         ticker.note_command_admitted(
             identity,
@@ -238,6 +255,7 @@ impl MovementTicker {
                     .iter()
                     .filter_map(|pending| pending.sample.mining.as_ref()),
             )
+            .filter(|mining| mining.is_creative())
             .any(|mining| current.is_none_or(|current| !mining.still_authorized_by(current)));
         if stale {
             self.invalidate_creative_mining();
@@ -260,7 +278,6 @@ impl MovementTicker {
             || sample.snapshot.input_mode != frozen.input_mode
             || sample.world_identity != frozen.ray.movement_world_identity
             || sample.mining.is_some()
-            || sample.block_use.is_some()
         {
             return None;
         }
@@ -269,11 +286,71 @@ impl MovementTicker {
     }
 
     pub(crate) fn has_queued_creative_mining(&self) -> bool {
-        self.outbox.iter().any(|sample| sample.mining.is_some())
+        let creative = |mining: &Option<crate::mining::QueuedMiningInteraction>| {
+            mining.as_ref().is_some_and(|mining| mining.is_creative())
+        };
+        self.outbox.iter().any(|sample| creative(&sample.mining))
             || self
                 .pending_sends
                 .iter()
-                .any(|pending| pending.sample.mining.is_some())
+                .any(|pending| creative(&pending.sample.mining))
+    }
+
+    /// Unsent ticks newer than `after`, oldest first, with their post-tick ground state.
+    pub(crate) fn unstepped_interaction_ticks(&self, after: Option<u64>) -> Vec<(u64, bool)> {
+        self.outbox
+            .iter()
+            .filter(|sample| after.is_none_or(|after| sample.snapshot.tick > after))
+            .map(|sample| (sample.snapshot.tick, sample.evidence.grounded_after_tick))
+            .collect()
+    }
+
+    /// The newest unsent tick, which standalone interaction packets precede.
+    pub(crate) fn newest_unsent_sample(&self) -> Option<UnsentSampleView> {
+        self.outbox.back().map(|sample| UnsentSampleView {
+            tick: sample.snapshot.tick,
+            position: sample.snapshot.position,
+            delta: sample.snapshot.delta,
+            sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
+                != 0,
+        })
+    }
+
+    /// Flags an attack press that hit nothing on its exact unsent tick.
+    pub(crate) fn mark_missed_swing(&mut self, tick: u64) -> bool {
+        let Some(sample) = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick)
+        else {
+            return false;
+        };
+        sample.snapshot.flags |= protocol::PlayerInputFlags::MISSED_SWING;
+        true
+    }
+
+    /// Attaches one survival destroy tick to its exact unsent sample.
+    pub(crate) fn attach_survival_mining(
+        &mut self,
+        tick: u64,
+        payload: crate::survival_mining::SurvivalTickPayload,
+    ) -> bool {
+        if !self.accepts_creative_mining() {
+            return false;
+        }
+        let Some(sample) = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick && sample.mining.is_none())
+        else {
+            return false;
+        };
+        let (interactions, mining_request) = payload.into_interactions(sample.snapshot.position);
+        sample.mining = Some(crate::mining::QueuedMiningInteraction::survival(
+            interactions,
+            mining_request,
+        ));
+        true
     }
 
     pub(crate) const fn mining_authority_identity(&self) -> (u64, u64) {
@@ -284,76 +361,36 @@ impl MovementTicker {
         (self.session_generation, self.reanchor_epoch)
     }
 
-    pub(crate) fn accepts_block_use(&self) -> bool {
-        self.accepts_creative_mining()
-    }
-
-    pub(crate) fn retain_block_use(&mut self, current: Option<&FrozenBlockUse>) {
-        let stale = self
-            .outbox
-            .iter()
-            .filter_map(|sample| sample.block_use.as_ref())
-            .chain(
-                self.pending_sends
-                    .iter()
-                    .filter_map(|pending| pending.sample.block_use.as_ref()),
-            )
-            .any(|block_use| current.is_none_or(|current| !block_use.still_authorized_by(current)));
-        if stale {
-            self.invalidate_block_use();
-        }
-    }
-
-    pub(crate) fn attach_block_use(&mut self, frozen: FrozenBlockUse) -> Option<u64> {
-        if !self.accepts_block_use() {
-            return None;
-        }
-        let tick = frozen.observation.frame.physics_tick;
-        let sample = self
-            .outbox
-            .iter_mut()
-            .find(|sample| sample.snapshot.tick == tick)?;
-        if frozen.observation.frame.position_authority_generation != self.reanchor_epoch
-            || sample.session_generation != frozen.observation.frame.session_generation
-            || sample.snapshot.input_mode != frozen.observation.input_mode
-            || sample.world_identity != frozen.observation.ray.movement_world_identity
-            || sample.mining.is_some()
-            || sample.block_use.is_some()
-        {
-            return None;
-        }
-        sample.block_use = Some(frozen.into_tick_payload(sample.snapshot.position));
-        Some(tick)
-    }
-
-    pub(crate) fn has_queued_block_use(&self) -> bool {
-        self.outbox.iter().any(|sample| sample.block_use.is_some())
-            || self
-                .pending_sends
-                .iter()
-                .any(|pending| pending.sample.block_use.is_some())
-    }
-
+    /// Strips creative payloads only; survival ticks are already committed to the
+    /// destroy machine and dropping them would desynchronize the server's view.
     fn invalidate_creative_mining(&mut self) {
-        let next = self.mining_epoch_publisher.borrow().wrapping_add(1);
-        self.mining_epoch_publisher.send_replace(next);
-        for queued in &mut self.outbox {
-            queued.mining = None;
-        }
-        for pending in &mut self.pending_sends {
-            pending.sample.mining = None;
-        }
+        self.invalidate_mining(true);
     }
 
-    fn invalidate_block_use(&mut self) {
-        let next = self.block_use_epoch_publisher.borrow().wrapping_add(1);
-        self.block_use_epoch_publisher.send_replace(next);
-        for queued in &mut self.outbox {
-            queued.block_use = None;
+    fn invalidate_mining(&mut self, creative_only: bool) {
+        let publishers = if creative_only {
+            [Some(&self.mining_epoch_publisher), None]
+        } else {
+            [
+                Some(&self.mining_epoch_publisher),
+                Some(&self.survival_epoch_publisher),
+            ]
+        };
+        for publisher in publishers.into_iter().flatten() {
+            let next = publisher.borrow().wrapping_add(1);
+            publisher.send_replace(next);
         }
-        for pending in &mut self.pending_sends {
-            pending.sample.block_use = None;
-        }
+        let strip = |mining: &mut Option<crate::mining::QueuedMiningInteraction>| {
+            if !creative_only || mining.as_ref().is_some_and(|mining| mining.is_creative()) {
+                *mining = None;
+            }
+        };
+        self.outbox
+            .iter_mut()
+            .for_each(|queued| strip(&mut queued.mining));
+        self.pending_sends
+            .iter_mut()
+            .for_each(|pending| strip(&mut pending.sample.mining));
     }
 
     /// Invalidates every transport-owned sample after a position-authority
@@ -368,8 +405,8 @@ impl MovementTicker {
                 true
             }
         });
-        self.invalidate_creative_mining();
-        self.invalidate_block_use();
+        // The survival destroy machine observes the new identity and resets.
+        self.invalidate_mining(false);
         for pending in &mut self.pending_sends {
             pending.retry_after_cancellation = false;
         }

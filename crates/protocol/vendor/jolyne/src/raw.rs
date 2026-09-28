@@ -188,10 +188,13 @@ fn decode_packet_raw_with_backing(
     // Decode the packet ID from the same varint representation used by generated
     // BedrockCodec impls. Feeding little-endian bytes breaks IDs >= 128 because
     // packet IDs are encoded as VarUInts on the wire.
+    // The ten-bit ID fits a two-byte varint, so encode it on the stack.
     let id_raw = header_raw & 0x3FF;
-    let mut id_buf = BytesMut::new();
-    wire::write_var_u32(&mut id_buf, id_raw);
-    let mut id_cursor = id_buf.freeze();
+    let mut id_bytes = [0_u8; 2];
+    let mut id_writer = &mut id_bytes[..];
+    wire::write_var_u32(&mut id_writer, id_raw);
+    let id_len = 2 - id_writer.len();
+    let mut id_cursor = &id_bytes[..id_len];
     let id = McpePacketName::decode(&mut id_cursor, ()).map_err(|e| {
         JolyneError::Protocol(ProtocolError::UnexpectedHandshake(format!(
             "unknown packet ID {}: {}",
@@ -401,6 +404,28 @@ mod tests {
         let raw = decode_packet_raw(&mut cursor).expect("decode");
 
         assert_eq!(raw.id, McpePacketName::RequestNetworkSettingsPacket);
+    }
+
+    /// Every ten-bit ID must resolve exactly as the codec decodes its wire varint.
+    #[test]
+    fn decode_packet_raw_matches_codec_for_every_ten_bit_id() {
+        for id in 0..=0x3FF_u32 {
+            let mut encoded = BytesMut::new();
+            wire::write_var_u32(&mut encoded, id);
+            let expected = McpePacketName::decode(&mut encoded.freeze(), ());
+            let mut cursor = create_test_frame(id, 0, 0, &[]);
+            match (decode_packet_raw(&mut cursor), expected) {
+                (Ok(raw), Ok(expected)) => assert_eq!(raw.id, expected, "id={id}"),
+                (Err(error), Err(expected)) => assert_eq!(
+                    error.to_string(),
+                    JolyneError::Protocol(ProtocolError::UnexpectedHandshake(format!(
+                        "unknown packet ID {id}: {expected}"
+                    )))
+                    .to_string()
+                ),
+                (actual, expected) => panic!("id={id}: {actual:?} vs {expected:?}"),
+            }
+        }
     }
 
     #[test]

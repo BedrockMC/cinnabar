@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -150,4 +151,63 @@ func TestUnixOldListenerCannotDeleteSuccessorSocket(t *testing.T) {
 	if info.Mode()&os.ModeSocket == 0 {
 		t.Fatalf("successor path mode = %v, want socket", info.Mode())
 	}
+}
+
+// Vectored header+payload writes must keep frames intact across partial writev calls.
+func TestUnixVectoredWriteKeepsLargeFramesIntact(t *testing.T) {
+	pair, err := syscallSocketPair()
+	if err != nil {
+		t.Fatalf("socketpair: %v", err)
+	}
+	writer, reader := NewFramedConn(pair[0]), NewFramedConn(pair[1])
+	defer writer.Close()
+	defer reader.Close()
+	if !vectoredConn(writer.Conn) {
+		t.Fatalf("socketpair conn %T is not vectored", writer.Conn)
+	}
+	frames := [][]byte{{0xfe}, bytes.Repeat([]byte{0xab}, 4<<20), {0xfe, 2}}
+	errC := make(chan error, 1)
+	go func() {
+		for _, frame := range frames {
+			n, err := writer.Write(frame)
+			if err == nil && n != len(frame) {
+				err = errors.New("short vectored write")
+			}
+			if err != nil {
+				errC <- err
+				return
+			}
+		}
+		errC <- nil
+	}()
+	for i, want := range frames {
+		got, err := reader.ReadPacket()
+		if err != nil {
+			t.Fatalf("ReadPacket(%d) error = %v", i, err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("ReadPacket(%d) returned %d bytes, want %d", i, len(got), len(want))
+		}
+	}
+	if err := <-errC; err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+}
+
+func syscallSocketPair() ([2]net.Conn, error) {
+	var conns [2]net.Conn
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return conns, err
+	}
+	for i, fd := range fds {
+		file := os.NewFile(uintptr(fd), "streamnet-socketpair")
+		conn, err := net.FileConn(file)
+		_ = file.Close()
+		if err != nil {
+			return conns, err
+		}
+		conns[i] = conn
+	}
+	return conns, nil
 }

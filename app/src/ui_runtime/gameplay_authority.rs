@@ -47,7 +47,6 @@ impl UiRuntime {
     }
 
     /// Retained negotiation only; this does not authorize a mining request.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn server_authoritative_block_breaking(&self) -> Option<bool> {
         self.server_authoritative_block_breaking
     }
@@ -149,6 +148,16 @@ impl UiRuntime {
                 super::UiApplyOutcome::IgnoredByReceiveStore
             }
         }
+    }
+
+    /// Registers a mine-block prediction and returns its request id.
+    pub(crate) fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
+        self.inventory_ledger
+            .begin_mining_request(slot, predicted_damage)
+    }
+
+    pub(crate) fn cancel_mining_request(&mut self, request_id: i32) {
+        self.inventory_ledger.cancel_mining_request(request_id);
     }
 
     pub(crate) const fn player_game_mode(&self) -> Option<protocol::PlayerGameMode> {

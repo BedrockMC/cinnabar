@@ -22,10 +22,13 @@ pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYT
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
 const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
 const NAMETAG_METADATA_KEY: u32 = 4;
+const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
-const EXTENDED_FLAGS_SLEEPING: u64 = 1 << 11;
+/// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
+/// 64 live in the overflow flag word.
+pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -48,7 +51,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-pub(crate) const PLAYER_POSITION_INTERPOLATION_TICKS: u8 = 3;
+/// Steps a remote actor takes to reach each absolute movement target.
+pub(crate) const ACTOR_INTERPOLATION_TICKS: u8 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
@@ -138,6 +142,24 @@ impl ActorSnapshot {
         self.head_yaw = pose.head_yaw;
     }
 
+    /// Feet-anchored `(min, max)` box from the width and height metadata.
+    #[must_use]
+    pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
+        let dimension = |key| match self.metadata.get(&key) {
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
+                Some(*value)
+            }
+            _ => None,
+        };
+        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY)? * 0.5;
+        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY)?;
+        let [x, y, z] = self.position;
+        Some((
+            [x - half_width, y, z - half_width],
+            [x + half_width, y + height, z + half_width],
+        ))
+    }
+
     fn network_position_offset(&self) -> f32 {
         match &self.kind {
             ActorKind::Player { .. } => {
@@ -167,14 +189,26 @@ impl ActorSnapshot {
         }
     }
 
-    fn player_is_sleeping(&self) -> bool {
+    pub(crate) fn player_is_sleeping(&self) -> bool {
         let player_flags = self.metadata.get(&PLAYER_FLAGS_METADATA_KEY).is_some_and(
             |value| matches!(value, ActorMetadataValue::Byte(flags) if (*flags as u8) & PLAYER_FLAGS_SLEEPING != 0),
         );
-        let extended_flags = self.metadata.get(&EXTENDED_FLAGS_METADATA_KEY).is_some_and(
-            |value| matches!(value, ActorMetadataValue::FlagsExtended(flags) if flags & EXTENDED_FLAGS_SLEEPING != 0),
-        );
-        player_flags || extended_flags
+        player_flags || self.flag(ACTOR_FLAG_SLEEPING)
+    }
+
+    /// Reads one actor flag bit from the primary or overflow flag word.
+    pub(crate) fn flag(&self, bit: u32) -> bool {
+        let (key, bit) = if bit < 64 {
+            (0, bit)
+        } else {
+            (EXTENDED_FLAGS_METADATA_KEY, bit - 64)
+        };
+        match self.metadata.get(&key) {
+            Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)) => {
+                flags & (1_u64 << bit) != 0
+            }
+            _ => false,
+        }
     }
 
     fn primed_tnt_network_offset(&self) -> f32 {

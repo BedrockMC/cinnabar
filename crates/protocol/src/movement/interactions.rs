@@ -5,9 +5,9 @@
 //! a destroy travel as the block-action list of the movement tick in which
 //! they happened (`PerformBlockActions`), and the creative instant destroy
 //! travels as the embedded break-block item-use transaction
-//! (`PerformItemInteraction`). The provisional empty-hand block-use path uses
-//! that same mutually exclusive carrier. This module owns those bounded
-//! payloads; the movement snapshot itself stays a pure movement record.
+//! (`PerformItemInteraction`). Block placement is a standalone transaction.
+//! This module owns those bounded payloads; the movement snapshot itself stays
+//! a pure movement record.
 
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_44::{
@@ -27,15 +27,17 @@ pub const MAX_BLOCK_ACTIONS_PER_INPUT: usize = 8;
 
 /// The block-action kinds a client may place inside `PlayerAuthInput`.
 ///
-/// This bounded API exposes the destroy actions used by the intended mining
-/// workflow, with completion represented by [`Self::PredictDestroy`]. The wire
-/// codec can also represent `StopDestroyBlock`; this API does not expose it.
+/// Server-authoritative completion is [`Self::PredictDestroy`]; client-authoritative
+/// completion is [`Self::StopDestroy`] beside an item-use destroy transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockActionKind {
     /// Wire value 0: the player started destroying the block.
     StartDestroy,
-    /// Wire value 1: the player stopped before the block was destroyed.
+    /// Wire value 1: the player stopped before the block was destroyed. Its
+    /// face slot carries the whole-percent progress reached, `0..=100`.
     AbortDestroy,
+    /// Wire value 2: a client-authoritative destroy completed.
+    StopDestroy,
     /// Wire value 18: the destroy continues on the same block this tick.
     CrackBlock,
     /// Wire value 26: the client predicts that its destroy completed.
@@ -51,6 +53,7 @@ impl BlockActionKind {
         match self {
             Self::StartDestroy => 0,
             Self::AbortDestroy => 1,
+            Self::StopDestroy => 2,
             Self::CrackBlock => 18,
             Self::PredictDestroy => 26,
             Self::ContinueDestroy => 27,
@@ -61,6 +64,7 @@ impl BlockActionKind {
         match self {
             Self::StartDestroy => EnumsPlayerActionType::StartDestroyBlock,
             Self::AbortDestroy => EnumsPlayerActionType::AbortDestroyBlock,
+            Self::StopDestroy => EnumsPlayerActionType::StopDestroyBlock,
             Self::CrackBlock => EnumsPlayerActionType::CrackBlock,
             Self::PredictDestroy => EnumsPlayerActionType::PredictDestroyBlock,
             Self::ContinueDestroy => EnumsPlayerActionType::ContinueDestroyBlock,
@@ -69,7 +73,8 @@ impl BlockActionKind {
 }
 
 /// One block action: the kind, the absolute block position, and the face
-/// (`0` down, `1` up, `2` north, `3` south, `4` west, `5` east).
+/// (`0` down, `1` up, `2` north, `3` south, `4` west, `5` east), except that an
+/// abort carries its progress percent there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockAction {
     pub kind: BlockActionKind,
@@ -147,7 +152,11 @@ impl BlockActions {
     pub(super) fn vendor(&self) -> Result<Vec<PlayerBlockActionData>, InteractionEncodeError> {
         self.iter()
             .map(|action| {
-                if action.face > 5 {
+                let face_limit = match action.kind {
+                    BlockActionKind::AbortDestroy => 100,
+                    _ => 5,
+                };
+                if action.face > face_limit {
                     return Err(InteractionEncodeError::InvalidBlockActionFace(action.face));
                 }
                 let [x, y, z] = action.position;
@@ -163,9 +172,7 @@ impl BlockActions {
 
 /// The one item-use transaction attached to a movement tick.
 ///
-/// `Use` is the bounded empty-hand block-use carrier currently exercised by
-/// the app. Its wider item behavior and optional input envelope remain
-/// intentionally unspecified.
+/// The client uses `Destroy`; `Use` stays encodable for wire fixtures.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockItemInteraction {
     Use(BlockUseRequest),
@@ -191,7 +198,7 @@ impl PlayerAuthInputInteractions {
 /// Invalid interaction state that cannot be represented on the wire.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InteractionEncodeError {
-    #[error("block action face {0} is outside 0..=5")]
+    #[error("block action face {0} is outside its kind's range")]
     InvalidBlockActionFace(u8),
     #[error("embedded break-block transaction is invalid: {0}")]
     InvalidBlockDestroy(#[from] BlockUsePacketError),
@@ -247,6 +254,7 @@ mod tests {
     fn wire_values_are_the_pinned_destroy_family() {
         assert_eq!(BlockActionKind::StartDestroy.wire_value(), 0);
         assert_eq!(BlockActionKind::AbortDestroy.wire_value(), 1);
+        assert_eq!(BlockActionKind::StopDestroy.wire_value(), 2);
         assert_eq!(BlockActionKind::CrackBlock.wire_value(), 18);
         assert_eq!(BlockActionKind::PredictDestroy.wire_value(), 26);
         assert_eq!(BlockActionKind::ContinueDestroy.wire_value(), 27);
@@ -308,6 +316,23 @@ mod tests {
         assert_eq!(
             actions.vendor().unwrap_err(),
             InteractionEncodeError::InvalidBlockActionFace(6)
+        );
+    }
+
+    #[test]
+    fn abort_carries_progress_percent_in_the_face_slot() {
+        let mut actions = BlockActions::new();
+        actions
+            .push(action(BlockActionKind::AbortDestroy, 100))
+            .unwrap();
+        assert_eq!(actions.vendor().unwrap()[0].facing, 100);
+        actions.clear();
+        actions
+            .push(action(BlockActionKind::AbortDestroy, 101))
+            .unwrap();
+        assert_eq!(
+            actions.vendor().unwrap_err(),
+            InteractionEncodeError::InvalidBlockActionFace(101)
         );
     }
 }

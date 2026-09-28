@@ -155,11 +155,9 @@ impl PlayerInventoryLedger {
     }
 
     fn cancel_unsent_personal_prediction(&mut self, generation: u64) {
-        if self.pending.as_ref().is_some_and(|pending| {
+        self.abandon_requests(|pending| {
             pending.personal_generation == Some(generation)
                 && pending.state == InventoryPendingState::AwaitingTransport
-        }) {
-            self.rollback_pending();
-        }
+        });
     }
 }

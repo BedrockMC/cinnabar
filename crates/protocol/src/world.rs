@@ -435,6 +435,12 @@ pub fn into_world_event(
         McpePacketData::InventoryContentPacket(packet) => {
             WorldEvent::Inventory(normalize_content(*packet)?)
         }
+        McpePacketData::CreativeContentPacket(packet) => {
+            let Some(event) = crate::inventory::normalize_creative_content(packet)? else {
+                return Ok(None);
+            };
+            WorldEvent::Inventory(event)
+        }
         McpePacketData::InventorySlotPacket(packet) => {
             WorldEvent::Inventory(normalize_slot(*packet)?)
         }

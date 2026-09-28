@@ -192,6 +192,7 @@ pub struct UiPresentationRuntime {
     icon_refs: Option<Box<[IconRef]>>,
     layouts: TextLayoutCache,
     revision: u64,
+    last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
@@ -282,6 +283,7 @@ impl UiPresentationRuntime {
             icon_refs,
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
+            last_input: None,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             scoreboard_opacity: None,
@@ -965,9 +967,7 @@ impl UiPresentationRuntime {
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;
-        let mut draw_list = tree.build_draw_list().map_err(UiPresentationError::Tree)?;
-        self.revision = self.revision.saturating_add(1);
-        draw_list.revision = self.revision;
+        let draw_list = tree.build_draw_list().map_err(UiPresentationError::Tree)?;
         let input = adapt_ui_draw_list(
             &draw_list,
             Arc::clone(&self.textures),
@@ -978,6 +978,7 @@ impl UiPresentationRuntime {
             },
         )
         .map_err(UiPresentationError::Adapter)?;
+        let input = self.stabilize_revision(input);
         self.chat_hit_logical_size = Some([logical_width, logical_height]);
         self.chat_suggestion_hits = chat_suggestion_hits;
         self.menu_hit_targets = menu_hit_targets;

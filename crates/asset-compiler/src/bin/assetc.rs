@@ -122,6 +122,9 @@ enum Command {
         pack: PathBuf,
         #[arg(long)]
         source_manifest: PathBuf,
+        /// Optional checked world carrier for ordinary opaque-cube thumbnails.
+        #[arg(long)]
+        block_assets: Option<PathBuf>,
         #[arg(long)]
         out: PathBuf,
         #[arg(long)]
@@ -389,10 +392,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::IconAssets {
             pack,
             source_manifest,
+            block_assets,
             out,
             report,
         } => {
-            compile_icon_assets_command(&pack, &source_manifest, &out, &report)?;
+            compile_icon_assets_command(
+                &pack,
+                &source_manifest,
+                block_assets.as_deref(),
+                &out,
+                &report,
+            )?;
         }
         Command::LangAssets {
             pack,

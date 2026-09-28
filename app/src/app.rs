@@ -49,6 +49,7 @@ use crate::{
         LocalPlayerFrameSet, publish_interaction_origin, publish_local_player_frame,
         resolve_camera_pose,
     },
+    melee::{MeleeRuntime, SwingTracker, produce_melee},
     menu::{
         CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
         follow_server_transfer, recover_menu_session_failure, spawn_core_for_address,
@@ -93,6 +94,7 @@ use crate::{
         synchronize_semantic_input_authority,
     },
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
+    survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
         drive_inventory_ui_actions, drive_server_form_input, flush_chat_network,
@@ -151,6 +153,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
     app.init_resource::<MiningRuntime>()
         .init_resource::<BlockUseRuntime>()
+        .init_resource::<SurvivalMiningRuntime>()
+        .init_resource::<MeleeRuntime>()
+        .init_resource::<SwingTracker>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
@@ -236,7 +241,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             (
                 flush_inventory_network,
                 emit_phase3_evidence,
+                produce_melee,
                 produce_creative_mining,
+                produce_survival_mining,
                 produce_block_use,
                 send_player_auth_inputs,
             )
@@ -396,6 +403,7 @@ fn render_plugin() -> RenderPlugin {
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     UiRuntime::configure_crafting_observation(args.address.as_deref());
+    render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.

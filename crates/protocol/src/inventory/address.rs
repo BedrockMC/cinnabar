@@ -26,6 +26,7 @@
 //! existed.
 
 use super::ContainerIdentity;
+use super::container_policy::{CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR};
 
 /// `EnumsContainerEnumName::ArmorContainer`, the player armor surface.
 pub const CONTAINER_NAME_ARMOR: u8 = 6;
@@ -51,6 +52,8 @@ pub const PLAYER_INVENTORY_WINDOW_ID: i32 = 0;
 /// The legacy offhand window id (`CONTAINER_ID_OFFHAND`), which servers send
 /// without a full container name.
 pub const OFFHAND_WINDOW_ID: i32 = 119;
+/// The legacy armor window id, addressed like the offhand window.
+pub const ARMOR_WINDOW_ID: i32 = 120;
 
 /// One canonical inventory cell in the explicit cross-surface address space.
 ///
@@ -73,6 +76,10 @@ pub enum CanonicalCell {
     Cursor,
     /// One of four personal crafting cells, never a player-inventory alias.
     CraftInput(u8),
+    /// One of nine crafting-table cells (wire slots 32..=40).
+    TableCraftInput(u8),
+    /// The created-output cell (wire slot 50).
+    CreatedOutput,
     /// One screen-specific generic storage cell identified by its open
     /// container's dynamic id.
     GenericStorage { dynamic_id: Option<u32>, slot: u16 },
@@ -109,25 +116,37 @@ impl CanonicalCell {
 pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option<CanonicalCell> {
     match identity.slot_type {
         Some(CONTAINER_NAME_CRAFT_INPUT) => {
-            let index = slot.checked_sub(28)?;
-            (index < 4).then_some(CanonicalCell::CraftInput(u8::try_from(index).ok()?))
+            let index = u8::try_from(slot.checked_sub(28)?).ok()?;
+            match index {
+                0..4 => Some(CanonicalCell::CraftInput(index)),
+                4..13 => Some(CanonicalCell::TableCraftInput(index - 4)),
+                _ => None,
+            }
         }
+        Some(CONTAINER_NAME_CREATED_OUTPUT) => (slot == 50).then_some(CanonicalCell::CreatedOutput),
         Some(CONTAINER_NAME_CURSOR) => (slot == 0).then_some(CanonicalCell::Cursor),
-        Some(CONTAINER_NAME_ARMOR) => Some(CanonicalCell::Armor(u8::try_from(slot).ok()?)),
-        Some(CONTAINER_NAME_OFFHAND) => (slot == 0).then_some(CanonicalCell::Offhand),
+        Some(CONTAINER_NAME_ARMOR) => armor_cell(slot),
+        // Requests address the single offhand cell as wire slot 1 and
+        // responses echo it; slot updates use index 0.
+        Some(CONTAINER_NAME_OFFHAND) => matches!(slot, 0 | 1).then_some(CanonicalCell::Offhand),
+        // Vanilla requests name hotbar cells this way; responses echo it.
+        Some(CONTAINER_NAME_HOTBAR)
+            if identity.dynamic_id.is_none()
+                && matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID)) =>
+        {
+            (slot < 9).then(|| player_inventory_cell(slot)).flatten()
+        }
         Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY)
             if matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID)) =>
         {
             player_inventory_cell(slot)
         }
-        // Prior-admission restoration, pending live adjudication of any
-        // further named aliases: servers name ordinary player-inventory
-        // traffic `InventoryContainer` on legacy window 0, and both the
-        // ledger and the HUD hotbar mirror applied it to player cells before
-        // the projection existed. Window-less response containers carrying
-        // this name stay unrouted, as they always were.
+        // Servers name player traffic `InventoryContainer` on legacy window
+        // 0, and vanilla requests name main-inventory cells this way with
+        // responses echoing it without a window.
         Some(CONTAINER_NAME_INVENTORY)
-            if identity.window_id == Some(PLAYER_INVENTORY_WINDOW_ID) =>
+            if identity.dynamic_id.is_none()
+                && matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID)) =>
         {
             player_inventory_cell(slot)
         }
@@ -141,9 +160,15 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         None => match identity.window_id {
             Some(PLAYER_INVENTORY_WINDOW_ID) => player_inventory_cell(slot),
             Some(OFFHAND_WINDOW_ID) if slot == 0 => Some(CanonicalCell::Offhand),
+            Some(ARMOR_WINDOW_ID) => armor_cell(slot),
             _ => None,
         },
     }
+}
+
+fn armor_cell(slot: u16) -> Option<CanonicalCell> {
+    let slot = u8::try_from(slot).ok()?;
+    (slot < super::request::ARMOR_SLOTS).then_some(CanonicalCell::Armor(slot))
 }
 
 fn player_inventory_cell(slot: u16) -> Option<CanonicalCell> {
@@ -157,6 +182,13 @@ fn player_inventory_cell(slot: u16) -> Option<CanonicalCell> {
     } else {
         None
     }
+}
+
+/// Whether an identity is the personal UI inventory (cursor, crafting cells,
+/// created output) as servers address it.
+#[must_use]
+pub fn is_personal_ui_inventory(identity: &ContainerIdentity) -> bool {
+    is_personal_ui_storage(identity)
 }
 
 fn is_personal_ui_storage(identity: &ContainerIdentity) -> bool {
@@ -428,9 +460,19 @@ mod tests {
             project_container_cell(&identity(0, Some(inventory_name)), 4),
             project_container_cell(&identity(0, None), 4),
         );
-        // The alias restores prior admission only alongside the legacy
-        // player window: other windows and the window-less response shape
-        // stay unrouted.
+        // Responses echo the request's name without a window; other windows
+        // and dynamic identities stay unrouted.
+        assert_eq!(
+            project_container_cell(
+                &ContainerIdentity {
+                    window_id: None,
+                    slot_type: Some(inventory_name),
+                    dynamic_id: None,
+                },
+                13
+            ),
+            Some(CanonicalCell::PlayerInventory(13))
+        );
         assert_eq!(
             project_container_cell(&identity(6, Some(inventory_name)), 4),
             None
@@ -457,9 +499,13 @@ mod tests {
     fn unrouted_container_names_and_legacy_windows_resolve_to_none() {
         assert_eq!(project_container_cell(&identity(0, Some(211)), 0), None);
         assert_eq!(
-            project_container_cell(&identity(0, Some(28)), 0),
+            project_container_cell(&identity(0, Some(CONTAINER_NAME_HOTBAR)), 9),
             None,
-            "the standalone hotbar container name has no reviewed mapping"
+            "the hotbar name covers only the nine hotbar cells"
+        );
+        assert_eq!(
+            project_container_cell(&identity(7, Some(CONTAINER_NAME_HOTBAR)), 0),
+            None
         );
         assert_eq!(project_container_cell(&identity(-777, None), 0), None);
         assert_eq!(project_container_cell(&identity(119, None), 1), None);
@@ -482,8 +528,59 @@ mod tests {
             project_container_cell(&identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)), 27),
             None
         );
+        for slot in 32..41 {
+            assert_eq!(
+                project_container_cell(&identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)), slot),
+                Some(CanonicalCell::TableCraftInput(
+                    u8::try_from(slot - 32).unwrap()
+                ))
+            );
+        }
         assert_eq!(
-            project_container_cell(&identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)), 32),
+            project_container_cell(&identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)), 41),
+            None
+        );
+    }
+
+    /// Request-shaped names from the owner's captures: hotbar cells, the
+    /// offhand's wire slot 1, armor by name or window 120, and created output.
+    #[test]
+    fn vanilla_request_container_names_resolve_to_their_cells() {
+        let window_less = |slot_type| ContainerIdentity {
+            window_id: None,
+            slot_type: Some(slot_type),
+            dynamic_id: None,
+        };
+        assert_eq!(
+            project_container_cell(&window_less(CONTAINER_NAME_HOTBAR), 3),
+            Some(CanonicalCell::PlayerInventory(3))
+        );
+        assert_eq!(
+            project_container_cell(&window_less(CONTAINER_NAME_OFFHAND), 1),
+            Some(CanonicalCell::Offhand)
+        );
+        assert_eq!(
+            project_container_cell(&window_less(CONTAINER_NAME_OFFHAND), 2),
+            None
+        );
+        assert_eq!(
+            project_container_cell(&window_less(CONTAINER_NAME_ARMOR), 4),
+            Some(CanonicalCell::Armor(4))
+        );
+        assert_eq!(
+            project_container_cell(&window_less(CONTAINER_NAME_ARMOR), 5),
+            None
+        );
+        assert_eq!(
+            project_container_cell(&identity(ARMOR_WINDOW_ID, None), 2),
+            Some(CanonicalCell::Armor(2))
+        );
+        assert_eq!(
+            project_container_cell(&window_less(CONTAINER_NAME_CREATED_OUTPUT), 50),
+            Some(CanonicalCell::CreatedOutput)
+        );
+        assert_eq!(
+            project_container_cell(&window_less(CONTAINER_NAME_CREATED_OUTPUT), 0),
             None
         );
     }

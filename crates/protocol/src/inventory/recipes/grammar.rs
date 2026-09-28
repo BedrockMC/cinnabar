@@ -7,6 +7,7 @@ use super::{
 #[derive(Clone, Copy, Default)]
 pub(super) struct Ingredient<'a> {
     pub(super) name: &'a str,
+    pub(super) tag: bool,
     pub(super) aux: i32,
     pub(super) count: i32,
     pub(super) valid: bool,
@@ -15,7 +16,10 @@ pub(super) struct Ingredient<'a> {
 pub(super) struct Candidate<'a> {
     pub(super) width: u8,
     pub(super) height: u8,
-    pub(super) ingredients: [Ingredient<'a>; 4],
+    pub(super) shapeless: bool,
+    pub(super) mirror: bool,
+    pub(super) priority: i32,
+    pub(super) ingredients: [Ingredient<'a>; super::model::MAX_INGREDIENTS],
     pub(super) output: Output,
 }
 
@@ -37,14 +41,18 @@ pub(super) fn identifier(value: &str) -> bool {
 fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
     let pairs = reader.count(8)?;
     let mut name = "";
+    let mut tag = false;
     let mut valid = pairs == 1;
     for _ in 0..pairs {
         let key = reader.string()?;
         let value = reader.string()?;
-        if key == "name" && identifier(value) {
-            name = value;
-        } else {
-            valid = false;
+        // `item_tag` descriptors name a tag rather than an item.
+        match key {
+            "name" | "item_tag" if identifier(value) => {
+                name = value;
+                tag = key == "item_tag";
+            }
+            _ => valid = false,
         }
     }
     let aux = reader.int()?;
@@ -55,6 +63,7 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
     }
     Ok(Ingredient {
         name,
+        tag,
         aux,
         count,
         valid,
@@ -111,11 +120,15 @@ fn normal<'a>(
         (0, 0)
     };
     let count = reader.count(64)?;
-    let mut ingredients = [Ingredient::default(); 4];
+    let mut ingredients = [Ingredient::default(); super::model::MAX_INGREDIENTS];
     let mut valid = eligible
-        && (1..=2).contains(&width)
-        && (1..=2).contains(&height)
-        && count == (width * height) as usize;
+        && if shaped {
+            (1..=3).contains(&width)
+                && (1..=3).contains(&height)
+                && count == (width * height) as usize
+        } else {
+            (1..=super::model::MAX_INGREDIENTS).contains(&count)
+        };
     for target in ingredients
         .iter_mut()
         .map(Some)
@@ -123,7 +136,8 @@ fn normal<'a>(
         .take(count)
     {
         let item = ingredient(reader)?;
-        valid &= item.valid;
+        // Shapeless recipes have no empty cells to describe.
+        valid &= item.valid && (shaped || item.count > 0);
         if let Some(target) = target {
             *target = item;
         }
@@ -140,10 +154,8 @@ fn normal<'a>(
     }
     reader.take(16)?;
     valid &= reader.string()? == "crafting_table";
-    reader.int()?;
-    if shaped {
-        reader.byte()?;
-    }
+    let priority = reader.int()?;
+    let mirror = shaped && reader.byte()? != 0;
     valid &= unlock(reader)?;
     let id = reader.uint()?;
     valid &= id != 0;
@@ -153,6 +165,9 @@ fn normal<'a>(
             result.map(|output| Candidate {
                 width: width as u8,
                 height: height as u8,
+                shapeless: !shaped,
+                mirror,
+                priority,
                 ingredients,
                 output,
             })
@@ -179,7 +194,8 @@ pub(super) fn walk<'a>(
         for _ in 0..count {
             match family {
                 0 | 1 | 3 | 4 | 5 => {
-                    let (id, candidate) = normal(reader, matches!(family, 0 | 5), family == 0)?;
+                    let (id, candidate) =
+                        normal(reader, matches!(family, 0 | 5), matches!(family, 0 | 1))?;
                     record(id, candidate)?;
                 }
                 2 => {

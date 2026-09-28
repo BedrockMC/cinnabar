@@ -159,6 +159,7 @@ mod tests {
                 component_digest: [0; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: true,
+                item_tags: std::sync::Arc::from([]),
             }]),
         };
         let owner =
@@ -244,6 +245,7 @@ mod tests {
                     component_digest: [0; 32],
                     negotiated_max_stack_size: Some(64),
                     canonical_empty_component_data: true,
+                    item_tags: std::sync::Arc::from([]),
                 })
                 .collect(),
         };

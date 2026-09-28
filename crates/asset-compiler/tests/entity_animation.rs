@@ -10,21 +10,47 @@ use tempfile::TempDir;
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
 #[test]
-fn unsupported_player_scripts_keep_existing_parent_binding_compatibility() {
+fn modern_player_scripts_activate_only_animate_roots_and_compile_rig_scripts() {
     let pack = animation_pack(false);
     let path = pack.path().join("entity/test.entity.json");
     let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     value["format_version"] = serde_json::json!("1.26.0");
     value["minecraft:client_entity"]["description"]["identifier"] =
         serde_json::json!("minecraft:player");
-    value["minecraft:client_entity"]["description"]["scripts"] =
-        serde_json::json!({"initialize":["variable.example=0;"],"animate":["main"]});
+    value["minecraft:client_entity"]["description"]["scripts"] = serde_json::json!({
+        "scale": "0.9375",
+        "initialize": ["variable.example=0;"],
+        "pre_animation": ["variable.tcos0 = Math.cos(query.modified_distance_moved * 38.17);"],
+        "animate": [{"walk": "query.is_moving"}]
+    });
+    value["minecraft:client_entity"]["description"]
+        .as_object_mut()
+        .unwrap()
+        .remove("animation_controllers");
     fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let rig = compiled.rig_bindings[0];
+    assert!(rig.initialize.is_some() && rig.pre_animation.is_some());
+    assert_eq!(rig.scale.get(), 0.9375);
+    assert_eq!(rig.fallback, assets::EntityRigFallback::Skip);
     for candidate in &compiled.rig_geometries {
-        assert_eq!(candidate.animation_count, 2);
-        assert_eq!(candidate.controller_count, 1);
+        assert_eq!(candidate.animation_count, 1);
+        assert_eq!(candidate.controller_count, 0);
     }
+    let walk = compiled.rig_animations[0];
+    assert!(
+        walk.weight.is_some(),
+        "a conditional root carries its weight"
+    );
+    assert!(
+        compiled.molang_ops.contains(&MolangOp::StoreVariable(
+            compiled
+                .molang_symbols
+                .iter()
+                .position(|symbol| symbol.identifier.as_ref() == "variable.tcos0")
+                .unwrap() as u32
+        ))
+    );
 }
 
 #[test]
@@ -51,6 +77,13 @@ fn modern_alias_lookup_alone_does_not_activate_and_explicit_roots_are_not_subtra
     for candidate in &explicit.rig_geometries {
         assert_eq!(candidate.animation_count, 1);
         assert_eq!(candidate.controller_count, 1);
+    }
+}
+
+fn clip_target(animation: &assets::EntityControllerAnimation) -> u32 {
+    match animation.target {
+        assets::EntityControllerAnimationTarget::Clip(clip) => clip,
+        assets::EntityControllerAnimationTarget::Controller(_) => panic!("expected a clip"),
     }
 }
 
@@ -102,15 +135,9 @@ fn evaluate_selection_expression(
         match operation {
             MolangOp::Push(value) => stack.push(value.get()),
             MolangOp::LoadQuery(_) => stack.push(query_value),
-            MolangOp::Floor => {
-                let value = stack.pop().unwrap();
-                stack.push(value.floor());
-            }
-            MolangOp::Clamp => {
-                let maximum = stack.pop().unwrap();
-                let minimum = stack.pop().unwrap();
-                let value = stack.pop().unwrap();
-                stack.push(value.clamp(minimum, maximum));
+            MolangOp::Call(function) => {
+                let arguments = stack.split_off(stack.len() - function.arity());
+                stack.push(assets::molang_call(*function, &arguments, &mut || 0.0));
             }
             MolangOp::Equal => {
                 let right = stack.pop().unwrap();
@@ -232,8 +259,17 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
         symbol.kind == MolangSymbolKind::Variable
             && symbol.identifier.as_ref() == "variable.enabled"
     }));
-    assert!(first.molang_ops.contains(&MolangOp::And));
-    assert!(first.molang_ops.contains(&MolangOp::Clamp));
+    assert!(
+        first
+            .molang_ops
+            .iter()
+            .any(|op| matches!(op, MolangOp::JumpIfFalse(_)))
+    );
+    assert!(
+        first
+            .molang_ops
+            .contains(&MolangOp::Call(assets::MolangFunction::Clamp))
+    );
     assert!(first.molang_ops.contains(&MolangOp::Equal));
 }
 
@@ -325,14 +361,27 @@ fn malformed_keyframes_non_finite_literals_and_unsupported_grammar_fail_closed()
         "animation_controllers/test.animation_controllers.json",
         br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.test":{"states":{"default":{"transitions":[{"default":"variable.x = 1"}]}}}}}"#,
     );
-    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-    assert!(compiled.controllers.is_empty());
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert_only_transition_dropped(&compiled);
     assert!(
         !compiled
+            .assets
             .molang_ops
             .iter()
             .any(|operation| { matches!(operation, MolangOp::LoadVariable(_)) })
     );
+}
+
+fn assert_only_transition_dropped(compiled: &asset_compiler::EntityAssetCompilation) {
+    assert!(!compiled.assets.controllers.is_empty());
+    assert!(compiled.assets.controller_transitions.is_empty());
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        asset_compiler::CompileReferenceOutcome::OptionalStaticFallback {
+            reason: asset_compiler::FallbackReason::UnsupportedOptionalExpression,
+            ..
+        }
+    )));
 }
 
 #[test]
@@ -343,14 +392,15 @@ fn unlisted_query_in_optional_controller_is_attributed_as_fallback_not_bytecode(
         "animation_controllers/test.animation_controllers.json",
         br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.test":{"states":{"default":{"transitions":[{"default":"query.unlisted"}]}}}}}"#,
     );
-    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
     assert!(
         !compiled
+            .assets
             .molang_symbols
             .iter()
             .any(|symbol| symbol.identifier.as_ref() == "query.unlisted")
     );
-    assert!(compiled.controllers.is_empty());
+    assert_only_transition_dropped(&compiled);
 }
 
 #[test]
@@ -371,7 +421,6 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "query.anim_time - query.life_time",
         "query.anim_time * query.life_time",
         "query.anim_time / query.life_time",
-        "query.anim_time % query.life_time",
         "!query.is_moving",
         "math.abs(query.body_y_rotation)",
         "math.ceil(query.anim_time)",
@@ -384,7 +433,11 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
         "math.max(query.anim_time, query.life_time)",
         "math.clamp(query.anim_time, 0, 1)",
         "math.lerp(query.anim_time, query.life_time, 0.5)",
-        "1 / 0 + 1 % 0",
+        "1 / 0 + math.mod(1, 0)",
+        "variable.speed ?? 1",
+        "query.get_equipped_item_name == 'bow'",
+        "query.is_moving ? 1",
+        "math.ease_in_out_back(0, 1, query.anim_time)",
     ];
     let transitions = expressions
         .iter()
@@ -405,39 +458,45 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
     );
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     assert_eq!(compiled.controller_transitions.len(), expressions.len());
+    use assets::MolangFunction as F;
     for operation in [
         MolangOp::Add,
         MolangOp::Subtract,
         MolangOp::Multiply,
         MolangOp::Divide,
-        MolangOp::Modulo,
         MolangOp::Negate,
         MolangOp::Not,
-        MolangOp::Abs,
-        MolangOp::Ceil,
-        MolangOp::Floor,
-        MolangOp::Round,
-        MolangOp::Sqrt,
-        MolangOp::Sin,
-        MolangOp::Cos,
-        MolangOp::And,
-        MolangOp::Or,
+        MolangOp::Truthy,
         MolangOp::Equal,
         MolangOp::NotEqual,
         MolangOp::Less,
         MolangOp::LessEqual,
         MolangOp::Greater,
         MolangOp::GreaterEqual,
-        MolangOp::Min,
-        MolangOp::Max,
-        MolangOp::Select,
-        MolangOp::Clamp,
-        MolangOp::Lerp,
+        MolangOp::Call(F::Abs),
+        MolangOp::Call(F::Ceil),
+        MolangOp::Call(F::Floor),
+        MolangOp::Call(F::Round),
+        MolangOp::Call(F::Sqrt),
+        MolangOp::Call(F::Sin),
+        MolangOp::Call(F::Cos),
+        MolangOp::Call(F::Min),
+        MolangOp::Call(F::Max),
+        MolangOp::Call(F::Clamp),
+        MolangOp::Call(F::Lerp),
     ] {
         assert!(
             compiled.molang_ops.contains(&operation),
             "missing {operation:?}"
         );
+    }
+    for present in [
+        |op: &MolangOp| matches!(op, MolangOp::Coalesce(_)),
+        |op: &MolangOp| matches!(op, MolangOp::PushString(_)),
+        |op: &MolangOp| matches!(op, MolangOp::JumpIfTrue(_)),
+        |op: &MolangOp| matches!(op, MolangOp::Call(F::Ease(..))),
+    ] {
+        assert!(compiled.molang_ops.iter().any(present));
     }
     assert!(
         compiled
@@ -448,14 +507,20 @@ fn accepted_molang_surface_compiles_every_query_operator_and_fixed_arity_functio
 }
 
 #[test]
-fn assignment_loops_return_strings_dynamic_properties_and_arbitrary_functions_are_unsupported() {
+fn forms_vanilla_rejects_leave_only_that_transition_out() {
     for expression in [
         "variable.x = 1",
         "loop(2, 1)",
         "return 1",
-        "'runtime string'",
         "variable['dynamic']",
-        "math.random(0, 1)",
+        "query.not_a_vanilla_query",
+        "math.not_a_function(1)",
+        "math.sin(1, 2)",
+        "break;",
+        "return 1; return 2;",
+        "v.a->v.b->v.c",
+        "1 % 2",
+        "'unterminated",
     ] {
         let pack = animation_pack(false);
         let controller = serde_json::json!({
@@ -473,9 +538,10 @@ fn assignment_loops_return_strings_dynamic_properties_and_arbitrary_functions_ar
         );
         let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
         assert!(
-            compiled.controllers.is_empty(),
+            compiled.controller_transitions.is_empty(),
             "unexpected support for {expression}"
         );
+        assert!(!compiled.controllers.is_empty());
     }
 }
 
@@ -504,7 +570,7 @@ fn conflicting_animation_aliases_are_resolved_inside_each_entity_environment() {
     let clip_symbols = compiled
         .controller_animations
         .iter()
-        .map(|binding| compiled.animation_clips[binding.clip as usize].symbol)
+        .map(|binding| compiled.animation_clips[clip_target(binding) as usize].symbol)
         .map(|symbol| compiled.symbols[symbol as usize].identifier.as_ref())
         .collect::<Vec<_>>();
     assert!(clip_symbols.contains(&"animation.test.walk"));
@@ -654,7 +720,7 @@ fn selectable_geometries_own_specialized_clips_and_controllers() {
     write(
         pack.path(),
         "entity/test.entity.json",
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk","attack":"animation.test.attack"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.a","alternate":"geometry.b"},"animations":{"move":"animation.test.walk","attack":"animation.test.attack"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"],"scripts":{"animate":["move"]}}}}"#,
     );
     write(
         pack.path(),
@@ -695,7 +761,8 @@ fn selectable_geometries_own_specialized_clips_and_controllers() {
     let rig_controller = compiled.rig_controllers[alternate.first_controller as usize].controller;
     let controller = compiled.controllers[rig_controller as usize];
     let state = compiled.controller_states[controller.first_state as usize];
-    let controller_clip = compiled.controller_animations[state.first_animation as usize].clip;
+    let controller_clip =
+        clip_target(&compiled.controller_animations[state.first_animation as usize]);
     assert_eq!(
         compiled.animation_channels
             [compiled.animation_clips[controller_clip as usize].first_channel as usize]

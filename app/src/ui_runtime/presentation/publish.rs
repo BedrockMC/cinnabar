@@ -206,7 +206,11 @@ pub(crate) fn publish_ui_runtime(
             return;
         }
     };
-    hand.bind_cpu_fallback(&input, presentation.cpu_empty_hand_fallback());
+    hand.bind_cpu_fallback(
+        &input,
+        presentation.cpu_empty_hand_fallback(),
+        presentation.hud_frame.held_item_icon,
+    );
     if let Err(error) = scene.publish(input, &stats) {
         hand.clear();
         record_fatal_error(
@@ -262,6 +266,36 @@ pub(crate) fn refresh_hud_frame(
             *icon = resolve_identifier(stack)
                 .as_deref()
                 .and_then(|id| presentation.item_icon(id, stack.metadata));
+        }
+    }
+    let mut crafting = super::hud_layout::CraftingFrame::default();
+    if runtime.inventory_open() {
+        let ledger = runtime.inventory_ledger();
+        for (icon, slot) in crafting
+            .icons
+            .iter_mut()
+            .zip(ledger.crafting_grid().slots())
+        {
+            let target = crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(slot);
+            if let Some(stack) = ledger.target_stack(target) {
+                *icon = resolve_identifier(stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata));
+            }
+        }
+        if let protocol::CraftGridMatch::Unique(recipe) = runtime.crafting_match() {
+            let output = recipe.output();
+            let stack = protocol::NetworkItemStack {
+                network_id: output.network_id,
+                metadata: u32::from(output.aux),
+                count: u16::from(output.count),
+                block_runtime_id: output.block_runtime_id as i32,
+                ..protocol::NetworkItemStack::empty()
+            };
+            let icon = resolve_identifier(&stack)
+                .as_deref()
+                .and_then(|id| presentation.item_icon(id, stack.metadata));
+            crafting.output = Some((icon, stack));
         }
     }
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
@@ -359,6 +393,7 @@ pub(crate) fn refresh_hud_frame(
     frame.hotbar_icons = hotbar_icons;
     frame.inventory_icons = inventory_icons;
     frame.storage_icons = storage_icons;
+    frame.crafting = crafting;
     frame.cursor_icon = cursor_icon;
     frame.armor_icons = armor_icons;
     frame.offhand_icon = offhand_icon;
@@ -431,4 +466,21 @@ fn project_below_name_anchors(
         })
         .take(retained_hud::MAX_PRESENTED_BELOW_NAME_ROWS)
         .collect()
+}
+
+impl UiPresentationRuntime {
+    /// Returns the previous frame when only the revision would differ, so the
+    /// renderer keeps its accepted publication and skips re-uploading.
+    pub(super) fn stabilize_revision(&mut self, mut input: UiRenderInput) -> UiRenderInput {
+        if let Some(previous) = &self.last_input {
+            input.revision = previous.revision;
+            if *previous == input {
+                return previous.clone();
+            }
+        }
+        self.revision = self.revision.saturating_add(1);
+        input.revision = self.revision;
+        self.last_input = Some(input.clone());
+        input
+    }
 }

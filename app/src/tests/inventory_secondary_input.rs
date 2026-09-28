@@ -3,12 +3,12 @@ use std::sync::Arc;
 use bevy::{
     input::{
         ButtonInput, ButtonState,
-        keyboard::{Key, KeyCode, KeyboardInput},
+        keyboard::{Key, KeyCode, KeyboardInput, NativeKey},
         mouse::AccumulatedMouseMotion,
         touch::Touches,
     },
     math::Vec2,
-    prelude::{App, IntoScheduleConfigs, MouseButton, Update},
+    prelude::{App, Entity, IntoScheduleConfigs, MouseButton, Update, With},
     time::{Real, Time},
     window::{CursorOptions, PrimaryWindow, Window, WindowResolution},
 };
@@ -158,6 +158,7 @@ fn secondary_places_one_into_empty_player_and_storage_cells() {
         let placed = match target {
             InventoryCellHit::Player(slot) => ledger.displayed_stack(slot),
             InventoryCellHit::Storage(slot) => ledger.storage_stack(slot),
+            _ => unreachable!("cases target player and storage cells"),
         };
         assert_eq!(placed.map(|stack| stack.count), Some(1));
         assert_eq!(
@@ -184,8 +185,10 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
         .pending_request_id();
     press(&mut busy, MouseButton::Right);
     busy.update();
+    // The unsettled split shares one server id, so it cannot be named yet.
     let busy_ledger = busy.world().resource::<UiRuntime>().inventory_ledger();
     assert_eq!(busy_ledger.pending_request_id(), first_request);
+    assert_eq!(busy_ledger.pending_request_count(), 1);
     assert_eq!(busy_ledger.cursor_stack().map(|stack| stack.count), Some(5));
 
     let mut unknown = UiRuntime::new(1);
@@ -231,9 +234,13 @@ fn secondary_rejects_busy_empty_occupied_and_outside_targets() {
         .world()
         .resource::<UiRuntime>()
         .inventory_ledger();
+    // The timed-out prediction stays and blocks new gestures until refresh.
     assert!(recovering_ledger.resync_required());
-    assert_eq!(recovering_ledger.pending_state(), None);
-    assert_eq!(recovering_ledger.cursor_stack(), None);
+    assert_eq!(recovering_ledger.pending_request_count(), 1);
+    assert_eq!(
+        recovering_ledger.cursor_stack().map(|stack| stack.count),
+        Some(5)
+    );
 
     for runtime in [
         personal_runtime(None, None),
@@ -609,6 +616,7 @@ fn apply_apple_registry(runtime: &mut UiRuntime) {
                 component_digest: [6; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: false,
+                item_tags: std::sync::Arc::from([]),
             }]),
         });
 }
@@ -642,9 +650,12 @@ fn hit_point(
             (0..PHYSICAL_SIZE[0]).find_map(|x| {
                 let point = UiPoint::new(x as f32, y as f32).unwrap();
                 let gui = presentation.inventory_gui_point(point, PHYSICAL_SIZE, 1.0)?;
-                (presentation.inventory_cell_hit(gui, PHYSICAL_SIZE, 1.0, storage_slots)
-                    == Some(target))
-                .then_some(Vec2::new(x as f32, y as f32))
+                let screen = storage_slots.map_or(
+                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Personal,
+                    crate::ui_runtime::presentation::inventory_pointer::InventoryScreen::Storage,
+                );
+                (presentation.inventory_cell_hit(gui, PHYSICAL_SIZE, 1.0, screen) == Some(target))
+                    .then_some(Vec2::new(x as f32, y as f32))
             })
         })
         .unwrap_or_else(|| panic!("{target:?} has a physical hit point"))
@@ -654,4 +665,89 @@ fn press(app: &mut App, button: MouseButton) {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(button);
+}
+
+fn press_key(app: &mut App, key: KeyCode) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(key);
+    let window = app
+        .world_mut()
+        .query_filtered::<Entity, With<PrimaryWindow>>()
+        .single(app.world())
+        .unwrap();
+    app.world_mut().write_message(KeyboardInput {
+        key_code: key,
+        logical_key: Key::Unidentified(NativeKey::Unidentified),
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window,
+    });
+}
+
+/// Shift-click quick-moves; a digit over a cell swaps with that hotbar cell.
+#[test]
+fn shift_click_and_number_keys_move_without_the_cursor() {
+    let mut shifted = pointer_app(
+        personal_runtime(Some(stack(9, 90)), None),
+        InventoryCellHit::Player(0),
+        false,
+        true,
+    );
+    press_key(&mut shifted, KeyCode::ShiftLeft);
+    press(&mut shifted, MouseButton::Left);
+    shifted.update();
+    let ledger = shifted.world().resource::<UiRuntime>().inventory_ledger();
+    assert!(ledger.cursor_stack().is_none());
+    assert_eq!(ledger.displayed_stack(9).map(|stack| stack.count), Some(9));
+
+    let mut digit = pointer_app(
+        personal_runtime(Some(stack(9, 91)), None),
+        InventoryCellHit::Player(0),
+        false,
+        true,
+    );
+    press_key(&mut digit, KeyCode::Digit4);
+    digit.update();
+    let ledger = digit.world().resource::<UiRuntime>().inventory_ledger();
+    assert!(ledger.displayed_stack(0).is_none());
+    assert_eq!(ledger.displayed_stack(3).map(|stack| stack.count), Some(9));
+}
+
+/// Q drops one item from the hovered cell, Control+Q the whole stack, and a
+/// click outside the panel drops the held stack.
+#[test]
+fn drop_keys_and_outside_clicks_drop_items() {
+    for (control, remaining) in [(false, Some(8)), (true, None)] {
+        let mut app = pointer_app(
+            personal_runtime(Some(stack(9, 92)), None),
+            InventoryCellHit::Player(0),
+            false,
+            true,
+        );
+        if control {
+            press_key(&mut app, KeyCode::ControlLeft);
+        }
+        press_key(&mut app, KeyCode::KeyQ);
+        app.update();
+        let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
+        assert_eq!(
+            ledger.displayed_stack(0).map(|stack| stack.count),
+            remaining
+        );
+        assert_eq!(ledger.pending_request_count(), 1);
+    }
+
+    let mut outside = pointer_app_at(
+        personal_runtime(None, Some(stack(5, 93))),
+        Vec2::ZERO,
+        false,
+        true,
+    );
+    press(&mut outside, MouseButton::Right);
+    outside.update();
+    let ledger = outside.world().resource::<UiRuntime>().inventory_ledger();
+    assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(4));
+    assert_eq!(ledger.pending_request_count(), 1);
 }

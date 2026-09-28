@@ -28,18 +28,22 @@ impl ViewNode for HandViewNode {
             world.get_resource::<HandDrawn>(),
             world.get_resource::<PipelineCache>(),
         ) else {
+            ViewmodelCompletionGate::observe_stage(3, 1, None);
             return Ok(());
         };
         let Some(token) = gpu.token else {
+            ViewmodelCompletionGate::observe_stage(3, 2, None);
             return Ok(());
         };
         if owner.id() != token.owner {
+            ViewmodelCompletionGate::observe_stage(3, 3, Some(token));
             return Ok(());
         }
         if view.hdr != token.hdr
             || msaa.samples() != token.samples
             || view.viewport != UVec4::new(0, 0, token.viewport[0], token.viewport[1])
         {
+            ViewmodelCompletionGate::observe_stage(3, 4, Some(token));
             gate.reject(token);
             return Ok(());
         }
@@ -49,6 +53,7 @@ impl ViewNode for HandViewNode {
         let extent = color.size();
         if [extent.width, extent.height] != token.viewport || color.sample_count() != token.samples
         {
+            ViewmodelCompletionGate::observe_stage(3, 5, Some(token));
             gate.reject(token);
             return Ok(());
         }
@@ -58,6 +63,7 @@ impl ViewNode for HandViewNode {
             &gpu.bind_group,
             gpu.pipeline.and_then(|id| cache.get_render_pipeline(id)),
         ) else {
+            ViewmodelCompletionGate::observe_stage(3, 6, Some(token));
             gate.reject(token);
             return Ok(());
         };
@@ -96,6 +102,8 @@ impl ViewNode for HandViewNode {
             );
         }
         *drawn.0.lock().expect("hand drawn lock") = Some(token);
+        drop(pass);
+        ViewmodelCompletionGate::observe_stage(3, 0, Some(token));
         Ok(())
     }
 }

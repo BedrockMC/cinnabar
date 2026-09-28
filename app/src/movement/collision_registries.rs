@@ -253,7 +253,7 @@ impl PhysicsCollisionRegistries {
         Some(first..next)
     }
 
-    pub(crate) fn interaction_cube(
+    pub(crate) fn block_identifier(
         &self,
         mode: assets::NetworkIdMode,
         runtime_id: u32,
@@ -262,8 +262,8 @@ impl PhysicsCollisionRegistries {
             assets::NetworkIdMode::Sequential => &self.interaction_blocks,
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
         };
-        let (identifier, full_cube) = map.get(&runtime_id)?;
-        full_cube.then_some(identifier.as_ref())
+        map.get(&runtime_id)
+            .map(|(identifier, _)| identifier.as_ref())
     }
 
     #[must_use]
