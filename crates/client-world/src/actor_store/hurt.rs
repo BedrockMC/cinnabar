@@ -4,6 +4,8 @@ use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
 /// Ticks the hurt tint and hurt-driven animations stay active; needs independent measurement.
 pub const HURT_DURATION_TICKS: u8 = 10;
+/// Alpha of the red damage overlay while hurt or dying; needs independent measurement.
+pub const HURT_OVERLAY_ALPHA: f32 = 0.4;
 /// Ticks a dying actor takes to tip fully over; needs independent measurement.
 pub const DEATH_DURATION_TICKS: u8 = 20;
 

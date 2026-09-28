@@ -181,6 +181,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         }),
         "texture_frame_index" => texture_frame_index(actor),
         // Client-derived from the Hurt event; streamed metadata is not authoritative.
+        "overlay_alpha" => {
+            if actor.status.overlay_active() {
+                crate::actor_store::HURT_OVERLAY_ALPHA
+            } else {
+                0.0
+            }
+        }
         "hurt_time" => f32::from(actor.status.hurt_time),
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),

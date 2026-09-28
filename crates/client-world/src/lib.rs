@@ -18,7 +18,7 @@ pub use actor_animation::{
 };
 pub use actor_store::{
     ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
-    DroppedItemView, HURT_DURATION_TICKS, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
+    DroppedItemView, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
     MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS, PlayerProfile, dropped_item_copy_count,
 };
 pub use block_entity_visuals::{
