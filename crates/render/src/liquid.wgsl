@@ -12,6 +12,7 @@ struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,
     sky_zenith_rain: vec4<f32>, sky_horizon_thunder: vec4<f32>,
     fog_color_start: vec4<f32>, fog_end_time: vec4<f32>,
+    sunrise_band: vec4<f32>, sky_extra: vec4<f32>,
 }
 
 // These literal tables are the GPU half of the packed-liquid stream contract.

@@ -7,6 +7,8 @@ struct AtmosphereUniform {
     sky_horizon_thunder: vec4<f32>,
     fog_color_start: vec4<f32>,
     fog_end_time: vec4<f32>,
+    sunrise_band: vec4<f32>,
+    sky_extra: vec4<f32>,
 }
 
 struct PackedCloudQuad {
