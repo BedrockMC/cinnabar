@@ -184,7 +184,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         artwork_current: false,
         instance_buffer: render_device.create_buffer(&BufferDescriptor {
             label: Some("bounded shared actor instance arena"),
-            size: (crate::actor::MAX_RENDERED_PLAYERS * size_of::<ActorGpuInstance>()) as u64,
+            size: (crate::actor::MAX_ACTOR_RENDER_INSTANCES * size_of::<ActorGpuInstance>()) as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -238,10 +238,10 @@ fn prepare_actor_resources(
     }
     let skin_upload_plan = actor_skin_upload_plan(&frame);
     let structurally_valid = !rig.instances.is_empty()
-        && rig.instances.len() <= crate::actor::MAX_RENDERED_PLAYERS
+        && rig.instances.len() <= crate::actor::MAX_ACTOR_RENDER_INSTANCES
         && rig.previous_bones.len() == rig.current_bones.len()
         && rig.previous_bones.len()
-            <= crate::actor::MAX_RENDERED_PLAYERS * crate::actor::MAX_RENDER_BONES_PER_ACTOR
+            <= crate::actor::MAX_ACTOR_RENDER_INSTANCES * crate::actor::MAX_RENDER_BONES_PER_ACTOR
         && rig.manifest.len() == rig.instances.len()
         && rig.maximum_vertex_count != 0
         && skin_upload_plan.is_some()
