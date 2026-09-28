@@ -1,29 +1,26 @@
 //! The one canonical container-address projection.
 //!
-//! Bedrock names an inventory cell three different ways on the wire: a legacy
-//! bare window id plus slot index (`InventoryContent`/`InventorySlot`), a full
-//! container name plus dynamic id alongside that window id, and a response
-//! container that carries only the container name plus dynamic id. Matching
-//! any one wire field alone collapses distinct surfaces onto each other — a
-//! cursor update can land in hotbar cell 0, or an offhand rewrite can clear
-//! unseen inventory cells.
+//! The vanilla client routes inventory traffic by two rules, established from
+//! the 26.30 client's InventoryContent and InventorySlot handlers (Lens RVA
+//! 0x10356ed50 and 0x10356d350). `InventoryContent`/`InventorySlot` carry a
+//! legacy window id and route by it alone — window 0 fills the player
+//! inventory, the offhand and armor legacy windows their surfaces, and other
+//! windows the open or dynamic container — consulting the packet's
+//! `FullContainerName` only on the dynamic-storage window. `ItemStackResponse`
+//! carries no window, only that `FullContainerName`, so it routes by the
+//! decoded container name. Across both, the `DynamicContainerID` identifies a
+//! generic-storage instance and is a discriminator for that one surface only;
+//! for every fixed surface it is ignored, and a present zero is an ordinary id,
+//! not a sentinel.
 //!
-//! [`project_container_cell`] is the single resolver every admission, lookup,
-//! and accepted-response path routes through. It maps the wire triple (window
-//! id, decoded container-name code, slot index) onto one explicit
-//! [`CanonicalCell`], so a Content event, a Slot event, and an accepted item
-//! stack response describing the same physical cell all resolve to the same
-//! canonical value while distinct cells stay distinct.
-//!
-//! Only identities today's protocol layer actually decodes are enumerated;
-//! anything else — including decoded container names this client has no
-//! reviewed mapping for — resolves to `None`, and callers treat that as odd
-//! but well-formed data: a typed counted skip, never a mutation and never a
-//! disconnect. One shape is routed by prior admission rather than a reviewed
-//! live mapping: the `InventoryContainer` alias on legacy window 0 (see
-//! [`project_container_cell`]), which the repository's pinned fixture corpus
-//! encodes and base admission applied to player cells before this projection
-//! existed.
+//! [`project_container_cell`] folds those two rules onto the wire triple
+//! (window id, decoded container-name code, slot index) so a Content event, a
+//! Slot event, and an accepted item stack response describing the same physical
+//! cell resolve to one [`CanonicalCell`] while distinct surfaces stay distinct.
+//! Only identities this layer maps are recognized; anything else — an
+//! unreviewed container name, or a player name arriving on a foreign window —
+//! resolves to `None`, which callers treat as odd but well-formed data: a typed
+//! counted skip, never a mutation and never a disconnect.
 
 use super::ContainerIdentity;
 use super::container_policy::{CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR};
@@ -38,9 +35,8 @@ pub const CONTAINER_NAME_LEVEL_ENTITY: u8 = 7;
 pub const CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY: u8 = 12;
 /// The distinct personal crafting input surface; wire cells 28..31.
 pub const CONTAINER_NAME_CRAFT_INPUT: u8 = 13;
-/// `EnumsContainerEnumName::InventoryContainer`, the named player-inventory
-/// alias live servers send riding the legacy window id (the pinned
-/// gophertunnel fixture corpus encodes exactly this shape).
+/// `EnumsContainerEnumName::InventoryContainer`, the player-inventory name that
+/// rides the legacy player window (the pinned fixture corpus encodes this shape).
 pub const CONTAINER_NAME_INVENTORY: u8 = 29;
 /// `EnumsContainerEnumName::OffhandContainer`.
 pub const CONTAINER_NAME_OFFHAND: u8 = 34;
@@ -95,23 +91,20 @@ impl CanonicalCell {
 }
 
 /// Resolves one wire cell address onto its canonical cell, or `None` when the
-/// container identity does not route onto the canonical space.
+/// identity maps onto no canonical surface (callers count that as a skip).
 ///
-/// Named containers resolve by their decoded container-name code alone, so a
-/// Content event, a Slot event, and an accepted item stack response (whose
-/// container carries no window id) converge on the same value. One reviewed
-/// prior-admission exception: the `InventoryContainer` alias addresses the
-/// player inventory only alongside legacy window 0 — exactly how base
-/// admission treated it before this projection existed (the pinned fixture
-/// corpus writes `window_id 0 + InventoryContainer + slot`), so that shape
-/// keeps routing onto player cells while any further named aliases wait for
-/// live adjudication. Unnamed addresses fall back to the two legacy window
-/// ids the client recognizes: window 0 as the combined player inventory and
-/// window 119 as the offhand.
+/// Named containers resolve by their decoded name, so a windowless response and
+/// a windowed Content/Slot event for the same surface converge. Generic storage
+/// is the one surface keyed by the dynamic id; every fixed surface ignores it,
+/// so a present zero routes exactly like an absent one. Player-inventory names
+/// bind only on bare window 0 or a windowless response; the same name on another
+/// window is the open container's, not the player's, and stays unrouted here.
+/// An unnamed address falls back to the legacy windows the client recognizes:
+/// window 0 as the player inventory, and the offhand and armor windows.
 ///
-/// Slot-index sanity is part of the mapping: a cursor or offhand address only
-/// exists at index 0, and player-inventory indices outside `0..36` are not
-/// player-inventory cells at all.
+/// Slot-index sanity is part of the mapping: cursor and offhand exist only at
+/// their single indices, the hotbar name covers only its nine cells, and
+/// player-inventory indices outside `0..36` are not player-inventory cells.
 #[must_use]
 pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option<CanonicalCell> {
     match identity.slot_type {
@@ -129,27 +122,24 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         // Requests address the single offhand cell as wire slot 1 and
         // responses echo it; slot updates use index 0.
         Some(CONTAINER_NAME_OFFHAND) => matches!(slot, 0 | 1).then_some(CanonicalCell::Offhand),
-        // Vanilla requests name hotbar cells this way; responses echo it.
-        Some(CONTAINER_NAME_HOTBAR) if is_player_inventory_window(identity) => {
-            (slot < 9).then(|| player_inventory_cell(slot)).flatten()
-        }
-        Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY)
-            if matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID)) =>
-        {
-            player_inventory_cell(slot)
-        }
-        // Servers name player traffic `InventoryContainer` on legacy window
-        // 0, and vanilla requests name main-inventory cells this way with
-        // responses echoing it without a window.
-        Some(CONTAINER_NAME_INVENTORY) if is_player_inventory_window(identity) => {
-            player_inventory_cell(slot)
-        }
+        // The one surface the dynamic id keys.
         Some(CONTAINER_NAME_LEVEL_ENTITY) => Some(CanonicalCell::GenericStorage {
             dynamic_id: identity.dynamic_id,
             slot,
         }),
-        // Every other decoded container name — crafting inputs, furnaces,
-        // trades, unknown codes — has no reviewed canonical mapping here.
+        // The three player-inventory names all fill the player container and
+        // the dynamic id never discriminates among them; the hotbar name spans
+        // only its nine cells, the other two the whole combined surface.
+        Some(CONTAINER_NAME_HOTBAR) if on_player_inventory_window(identity) => {
+            (slot < 9).then(|| player_inventory_cell(slot)).flatten()
+        }
+        Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY | CONTAINER_NAME_INVENTORY)
+            if on_player_inventory_window(identity) =>
+        {
+            player_inventory_cell(slot)
+        }
+        // Every other decoded name — furnaces, trades, unreviewed codes, and a
+        // player name on a foreign window — has no canonical mapping here.
         Some(_) => None,
         None => match identity.window_id {
             Some(PLAYER_INVENTORY_WINDOW_ID) => player_inventory_cell(slot),
@@ -160,12 +150,11 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
     }
 }
 
-/// The player-inventory windows ride legacy window 0 with either no dynamic id
-/// or a zero one; live servers (e.g. Lifeboat) send `Some(0)`. A nonzero dynamic
-/// id marks a real dynamic-storage container, which must not route here.
-fn is_player_inventory_window(identity: &ContainerIdentity) -> bool {
-    matches!(identity.dynamic_id, None | Some(0))
-        && matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID))
+/// The player inventory rides bare legacy window 0 (Content/Slot) or no window
+/// at all (a windowless response). Its names never carry a meaningful dynamic
+/// id, so — unlike generic storage — the dynamic id is not consulted here.
+fn on_player_inventory_window(identity: &ContainerIdentity) -> bool {
+    matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID))
 }
 
 fn armor_cell(slot: u16) -> Option<CanonicalCell> {
@@ -224,35 +213,137 @@ pub fn personal_craft_slot_index(identity: &ContainerIdentity, slot: u16) -> Opt
 mod tests {
     use super::*;
 
+    /// `InventoryContainer` on window 0 with a present zero dynamic id routes
+    /// every player slot: the dynamic id is not a gate on a fixed surface.
     #[test]
-    fn player_inventory_routes_with_a_zero_dynamic_id() {
-        // Live servers (Lifeboat) send the player inventory as InventoryContainer
-        // on window 0 with dynamic_id Some(0); it must route, not drop.
-        let live = ContainerIdentity {
+    fn inventory_name_with_zero_dynamic_id_on_window_zero_routes_every_slot() {
+        let identity = ContainerIdentity {
             window_id: Some(PLAYER_INVENTORY_WINDOW_ID),
             slot_type: Some(CONTAINER_NAME_INVENTORY),
             dynamic_id: Some(0),
         };
         for slot in 0..36 {
             assert_eq!(
-                project_container_cell(&live, slot),
+                project_container_cell(&identity, slot),
                 Some(CanonicalCell::PlayerInventory(u8::try_from(slot).unwrap()))
             );
         }
-        let hotbar = ContainerIdentity {
-            slot_type: Some(CONTAINER_NAME_HOTBAR),
-            ..live
+    }
+
+    /// The whole container × dynamic-id × window/slot matrix. The dynamic id is
+    /// swept `{None, Some(0), Some(7)}` against every fixed surface to pin that
+    /// it discriminates generic storage alone; a present zero must route exactly
+    /// like an absent id.
+    #[test]
+    fn container_routing_matrix_matches_the_vanilla_contract() {
+        use CanonicalCell::{
+            Armor, CraftInput, CreatedOutput, Cursor, GenericStorage, Offhand, PlayerInventory,
+            TableCraftInput,
         };
-        assert_eq!(
-            project_container_cell(&hotbar, 3),
-            Some(CanonicalCell::PlayerInventory(3))
-        );
-        // A nonzero dynamic id is a real dynamic-storage container, not the inventory.
-        let dynamic = ContainerIdentity {
-            dynamic_id: Some(7),
-            ..live
-        };
-        assert_eq!(project_container_cell(&dynamic, 0), None);
+
+        const COMBINED: u8 = CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY;
+        // (window, name, slot, expected) — checked under every dynamic id.
+        type Row = (Option<i32>, Option<u8>, u16, Option<CanonicalCell>);
+        let dyn_invariant: &[Row] = &[
+            // Player-inventory names bind on window 0 or windowless; the dynamic
+            // id is not a discriminator, and a foreign window is not the player.
+            (
+                Some(0),
+                Some(CONTAINER_NAME_INVENTORY),
+                0,
+                Some(PlayerInventory(0)),
+            ),
+            (
+                Some(0),
+                Some(CONTAINER_NAME_INVENTORY),
+                35,
+                Some(PlayerInventory(35)),
+            ),
+            (Some(0), Some(CONTAINER_NAME_INVENTORY), 36, None),
+            (
+                None,
+                Some(CONTAINER_NAME_INVENTORY),
+                13,
+                Some(PlayerInventory(13)),
+            ),
+            (Some(0), Some(COMBINED), 20, Some(PlayerInventory(20))),
+            (None, Some(COMBINED), 20, Some(PlayerInventory(20))),
+            (
+                Some(0),
+                Some(CONTAINER_NAME_HOTBAR),
+                3,
+                Some(PlayerInventory(3)),
+            ),
+            (Some(0), Some(CONTAINER_NAME_HOTBAR), 9, None),
+            (Some(5), Some(CONTAINER_NAME_INVENTORY), 0, None),
+            (Some(5), Some(COMBINED), 0, None),
+            // Fixed non-player surfaces, likewise dynamic-id-invariant.
+            (None, Some(CONTAINER_NAME_CURSOR), 0, Some(Cursor)),
+            (None, Some(CONTAINER_NAME_CURSOR), 1, None),
+            (None, Some(CONTAINER_NAME_ARMOR), 2, Some(Armor(2))),
+            (None, Some(CONTAINER_NAME_ARMOR), 4, Some(Armor(4))),
+            (None, Some(CONTAINER_NAME_ARMOR), 5, None),
+            (None, Some(CONTAINER_NAME_OFFHAND), 0, Some(Offhand)),
+            (None, Some(CONTAINER_NAME_OFFHAND), 1, Some(Offhand)),
+            (None, Some(CONTAINER_NAME_OFFHAND), 2, None),
+            (
+                Some(124),
+                Some(CONTAINER_NAME_CRAFT_INPUT),
+                28,
+                Some(CraftInput(0)),
+            ),
+            (
+                Some(124),
+                Some(CONTAINER_NAME_CRAFT_INPUT),
+                32,
+                Some(TableCraftInput(0)),
+            ),
+            (Some(124), Some(CONTAINER_NAME_CRAFT_INPUT), 27, None),
+            (
+                None,
+                Some(CONTAINER_NAME_CREATED_OUTPUT),
+                50,
+                Some(CreatedOutput),
+            ),
+            (None, Some(CONTAINER_NAME_CREATED_OUTPUT), 0, None),
+            // Unreviewed name and bare legacy windows.
+            (Some(0), Some(211), 0, None),
+            (Some(0), None, 20, Some(PlayerInventory(20))),
+            (Some(OFFHAND_WINDOW_ID), None, 0, Some(Offhand)),
+            (Some(OFFHAND_WINDOW_ID), None, 1, None),
+            (Some(ARMOR_WINDOW_ID), None, 2, Some(Armor(2))),
+        ];
+        for &(window_id, slot_type, slot, expected) in dyn_invariant {
+            for dynamic_id in [None, Some(0), Some(7)] {
+                let identity = ContainerIdentity {
+                    window_id,
+                    slot_type,
+                    dynamic_id,
+                };
+                assert_eq!(
+                    project_container_cell(&identity, slot),
+                    expected,
+                    "{identity:?} slot {slot} under dynamic_id {dynamic_id:?}"
+                );
+            }
+        }
+
+        // Generic storage is the one surface the dynamic id keys, so each id
+        // yields a distinct cell rather than collapsing.
+        for dynamic_id in [None, Some(0), Some(7)] {
+            let storage = ContainerIdentity {
+                window_id: Some(4),
+                slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+                dynamic_id,
+            };
+            assert_eq!(
+                project_container_cell(&storage, 5),
+                Some(GenericStorage {
+                    dynamic_id,
+                    slot: 5
+                })
+            );
+        }
     }
 
     #[test]
@@ -493,8 +584,8 @@ mod tests {
             project_container_cell(&identity(0, Some(inventory_name)), 4),
             project_container_cell(&identity(0, None), 4),
         );
-        // Responses echo the request's name without a window; other windows
-        // and dynamic identities stay unrouted.
+        // Responses echo the request's name without a window; a foreign window
+        // stays unrouted, but the dynamic id never un-routes a player name.
         assert_eq!(
             project_container_cell(
                 &ContainerIdentity {
@@ -519,7 +610,7 @@ mod tests {
                 },
                 4
             ),
-            None,
+            Some(expected),
         );
         // Surface bounds still hold.
         assert_eq!(
