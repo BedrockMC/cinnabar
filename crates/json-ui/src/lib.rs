@@ -6,13 +6,17 @@
 //! [`ResolvedControl`] tree. From there [`layout`] evaluates the size/offset
 //! expressions ([`expr`]) against a virtual root size and positions every control,
 //! and [`emit`] flattens the placed tree into layer-ordered draw commands,
-//! nine-slicing sprites from their texture sidecars ([`sidecar`]). Data bindings,
-//! collections, and input are later tranches.
+//! nine-slicing sprites from their texture sidecars ([`sidecar`]). [`bind`] resolves
+//! `#bindings` against a screen data source and expands factory collections, and
+//! [`form`] renders a decoded server form through its vanilla template. Input is a
+//! later tranche.
 
+mod bind;
 mod catalog;
 mod emit;
 mod env;
 mod expr;
+mod form;
 mod json5;
 mod layout;
 mod merge;
@@ -25,13 +29,19 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+pub use bind::{CollectionItem, ControlLibrary, DataSource, EmptyLibrary, bind};
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};
 pub use env::Env;
 pub use expr::{
     AxisContext, ExprError, Length, Resolved, Term, Unit, length_from_value, parse_length,
 };
+pub use form::{
+    ActionForm, ButtonImage, CatalogLibrary, CustomElement, CustomForm, FormButton, FormModel,
+    FormRender, ModalForm, bind_form, form_data_source, form_template, render_form,
+};
 pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout};
+pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
 pub use tree::{ControlRef, Factory, ResolvedControl};

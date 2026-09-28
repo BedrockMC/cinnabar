@@ -16,6 +16,7 @@ pub(super) fn retained(form_id: u32, sequence: u64) -> SequencedUiEvent {
                 title: Arc::from("Choose 世界"),
                 content: Arc::from("Pick one"),
                 buttons: vec![Arc::from("First ✓"), Arc::from("第二")].into(),
+                button_images: [].into(),
                 omitted_images: 0,
             }),
         }),

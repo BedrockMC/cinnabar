@@ -23,6 +23,7 @@ fn form_runtime() -> UiRuntime {
                         .map(|index| Arc::from(format!("Button {index} 世界 {}", "x".repeat(100))))
                         .collect::<Vec<_>>()
                         .into(),
+                    button_images: [].into(),
                     omitted_images: 2,
                 }),
             }),
