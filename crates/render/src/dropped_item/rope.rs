@@ -32,6 +32,7 @@ pub fn rope_point(from: [f32; 3], to: [f32; 3], sag: f32, t: f32) -> [f32; 3] {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Appends a camera-facing ribbon of `segments` quads (two triangles each) following the sagging
 /// rope from `from` to `to`; degenerate or non-finite input appends nothing.
 pub fn rope_ribbon(
