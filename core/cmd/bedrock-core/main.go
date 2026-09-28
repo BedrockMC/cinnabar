@@ -23,6 +23,10 @@ import (
 
 func main() {
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	if handled, code := helperMode(signalCtx, os.Args[1:], os.Stdout, os.Stderr); handled {
+		stopSignals()
+		os.Exit(code)
+	}
 	ctx := signalCtx
 	stopStdin := func() {}
 	if !catalogMode(os.Args[1:]) {

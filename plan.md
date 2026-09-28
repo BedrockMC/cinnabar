@@ -3204,6 +3204,14 @@ macOS .app + codesign/notarize, Windows installer, Linux AppImage; core binary b
 lifecycle-managed by the app; crash reporting (sentry for Rust + core); auto-update channel;
 first-run experience.
 
+**Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
+AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, opt-in crash
+upload, signed-manifest update checks, and the core log/backoff helpers are in `app/src/{first_run,lifecycle}`
+and `core/{update,crashreport}`. Unverified until compiled and run on a clean machine: every
+recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
+dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
+install, mid-session core restart wiring, and Sentry for Rust panics beyond report capture.
+
 **Final Go relay/batching polish:** adopt the batch-boundary API from
 [`HashimTheArab/gophertunnel` PR #80](https://github.com/HashimTheArab/gophertunnel/pull/80)
 after it lands on the pinned `lunar` line. The integration commit must retain the pinned
