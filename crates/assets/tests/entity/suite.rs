@@ -76,6 +76,7 @@ fn fixture() -> CompiledEntityAssets {
         rig_controllers: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
+        render: Default::default(),
     }
 }
 
@@ -651,6 +652,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             visual: LeafItemVisualId(0),
         }]
         .into_boxed_slice(),
+        render: Default::default(),
     }
 }
 

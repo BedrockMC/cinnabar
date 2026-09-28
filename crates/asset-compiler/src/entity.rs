@@ -356,6 +356,7 @@ fn assemble(
         rig_controllers: animation.rig_controllers,
         item_visuals: items.visuals,
         item_visual_aliases: items.aliases,
+        render: animation.render,
     };
     if include_items {
         assets.validate()?;

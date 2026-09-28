@@ -4,7 +4,7 @@ use assets::{
     AssetError, EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
     EntityAnimationKeyframe, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
     EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
-    EntityControllerTransition, EntityGeometry, EntityRigAnimationBinding, EntityRigBinding,
+    EntityControllerTransition, EntityGeometry, EntityRenderData, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigGeometryBinding,
 };
 use serde_json::Value;
@@ -15,6 +15,7 @@ mod clip;
 mod controller;
 mod environment;
 mod outcome;
+mod render;
 mod rig;
 pub(crate) mod roots;
 
@@ -31,6 +32,7 @@ use environment::{
     controller_clip_references, effective_bone_names, selection_for,
 };
 pub use outcome::{CompileReferenceOutcome, FallbackReason, RejectReason};
+use render::{RenderSources, compile_render};
 use rig::{RigInputs, RigSources, compile_rigs};
 
 pub(super) struct AnimationPayload {
@@ -45,6 +47,7 @@ pub(super) struct AnimationPayload {
     pub rig_geometries: Box<[EntityRigGeometryBinding]>,
     pub rig_animations: Box<[EntityRigAnimationBinding]>,
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
+    pub render: EntityRenderData,
     pub outcomes: Box<[CompileReferenceOutcome<u32>]>,
 }
 
@@ -298,6 +301,18 @@ pub(super) fn compile(
     }
     let finalized_rigs = rig_payload.finalize(&name_index, &finalized.indices)?;
     outcomes.extend(finalized_rigs.outcomes);
+    let render = compile_render(
+        RenderSources {
+            root,
+            payloads,
+            sources,
+            symbols,
+            geometries,
+            rigs: &finalized_rigs.bindings,
+            rig_geometries: &finalized_rigs.geometries,
+        },
+        molang,
+    )?;
 
     Ok(AnimationPayload {
         clips: clips.into_boxed_slice(),
@@ -311,6 +326,7 @@ pub(super) fn compile(
         rig_geometries: finalized_rigs.geometries,
         rig_animations: finalized_rigs.animations,
         rig_controllers: finalized_rigs.controllers,
+        render,
         outcomes: outcomes.into_boxed_slice(),
     })
 }

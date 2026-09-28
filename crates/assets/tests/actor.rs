@@ -40,6 +40,7 @@ fn entities() -> Box<[u8]> {
         rig_controllers: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
+        render: Default::default(),
     })
     .unwrap()
 }
