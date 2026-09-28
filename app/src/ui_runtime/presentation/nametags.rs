@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bevy::{camera::Camera, math::Vec3, prelude::GlobalTransform};
 use client_world::ActorSnapshot;
-use protocol::ActorMetadataValue;
+use protocol::{ActorKind, ActorMetadataValue};
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle, UiNode, UiNodeId, UiScale,
     UiVisual,
@@ -29,6 +29,12 @@ const BOX_ALPHA: u8 = 64;
 const SNEAK_TEXT_ALPHA: u8 = 128;
 const ACTOR_FLAG_SNEAKING: u32 = 1;
 const ACTOR_FLAG_INVISIBLE: u32 = 5;
+const ACTOR_FLAG_SHOW_NAME: u32 = 14;
+const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
+/// A mob flagged show-name (not always-show) presents its tag only near the view center.
+const CROSSHAIR_RADIUS: f32 = 48.0;
+/// See-through tags behind walls are faint.
+const OCCLUDED_TEXT_ALPHA: u8 = 48;
 
 /// One player's tag position in safe-content logical px.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +43,8 @@ pub(super) struct NametagAnchor {
     pub(super) y: f32,
     pub(super) name: Arc<str>,
     pub(super) sneaking: bool,
+    /// Line of sight to the actor is blocked; the tag shows only as a faint see-through.
+    pub(super) occluded: bool,
     /// Logical px covered by one world block at the tag, which sets the text size.
     pub(super) pixels_per_block: f32,
     pub(super) distance: f32,
@@ -50,8 +58,9 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     )
 }
 
-/// Projects `actor`'s tag, or `None` when it is out of range, invisible, behind the camera or
-/// off the content rect.
+/// Projects `actor`'s tag, or `None` when it is out of range, invisible, hidden by wall
+/// occlusion while sneaking, behind the camera or off the content rect. `is_occluded` takes the
+/// tag's world position and reports whether a wall blocks the line from the camera.
 pub(super) fn project_nametag(
     actor: &ActorSnapshot,
     name: Arc<str>,
@@ -59,8 +68,14 @@ pub(super) fn project_nametag(
     camera_transform: &GlobalTransform,
     content_size: [f32; 2],
     safe_area: SafeArea,
+    is_occluded: impl FnOnce(Vec3) -> bool,
 ) -> Option<NametagAnchor> {
     if actor_flag(actor, ACTOR_FLAG_INVISIBLE) {
+        return None;
+    }
+    let is_player = matches!(actor.kind, ActorKind::Player { .. });
+    let always = is_player || actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME);
+    if !always && !actor_flag(actor, ACTOR_FLAG_SHOW_NAME) {
         return None;
     }
     let position = Vec3::from_array(actor.position) + Vec3::Y * HEAD_OFFSET;
@@ -74,6 +89,17 @@ pub(super) fn project_nametag(
         .ok()?;
     let x = point.x - safe_area.left();
     let y = point.y - safe_area.top();
+    if !always {
+        let center = [content_size[0] / 2.0, content_size[1] / 2.0];
+        if (x - center[0]).hypot(y - center[1]) > CROSSHAIR_RADIUS {
+            return None;
+        }
+    }
+    let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
+    let occluded = is_occluded(position);
+    if sneaking && occluded {
+        return None;
+    }
     let pixels_per_block = (point.y - above.y).abs();
     (x.is_finite()
         && y.is_finite()
@@ -85,7 +111,8 @@ pub(super) fn project_nametag(
         x,
         y,
         name,
-        sneaking: actor_flag(actor, ACTOR_FLAG_SNEAKING),
+        sneaking,
+        occluded,
         pixels_per_block,
         distance,
     })
@@ -127,11 +154,8 @@ pub(super) fn append_nametag_nodes(
         let [width, height] = layout.size_64().map(|value| value as f32 / 64.0);
         let left = anchor.x - width / 2.0;
         let top = anchor.y - height;
-        let box_alpha = if anchor.sneaking {
-            BOX_ALPHA / 2
-        } else {
-            BOX_ALPHA
-        };
+        let faint = anchor.sneaking || anchor.occluded;
+        let box_alpha = if faint { BOX_ALPHA / 2 } else { BOX_ALPHA };
         let id = UiNodeId::new(*next_id);
         *next_id = next_id.saturating_add(1);
         nodes.push(
@@ -152,7 +176,9 @@ pub(super) fn append_nametag_nodes(
         );
         let id = UiNodeId::new(*next_id);
         *next_id = next_id.saturating_add(1);
-        let alpha = if anchor.sneaking {
+        let alpha = if anchor.occluded {
+            OCCLUDED_TEXT_ALPHA
+        } else if anchor.sneaking {
             SNEAK_TEXT_ALPHA
         } else {
             255
@@ -162,7 +188,7 @@ pub(super) fn append_nametag_nodes(
                 UiVisual::Text {
                     layout,
                     color: [255, 255, 255, alpha],
-                    shadow: if anchor.sneaking {
+                    shadow: if faint {
                         TextShadow::None
                     } else {
                         metrics.shadow()
