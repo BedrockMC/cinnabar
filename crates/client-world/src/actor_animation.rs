@@ -75,6 +75,8 @@ pub struct ActorAnimationStats {
 pub(crate) struct ActorAnimationStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
     layout: Arc<VariableLayout>,
+    /// The session's server-pack entity catalog, in its own index space; its entities win.
+    pack: Option<PackCatalog>,
     rigs: BTreeMap<ActorLifetimeId, ActorRigState>,
     runtime_to_lifetime: HashMap<u64, ActorLifetimeId>,
     /// First actor the world budget skipped last tick, where the next tick starts.
@@ -86,7 +88,15 @@ pub(crate) struct ActorAnimationStore {
 }
 
 #[derive(Debug)]
+struct PackCatalog {
+    assets: Arc<RuntimeEntityAssets>,
+    layout: Arc<VariableLayout>,
+}
+
+#[derive(Debug)]
 struct ActorRigState {
+    /// Resolved from the session pack catalog rather than the vanilla one.
+    pack: bool,
     rig: EntityRigId,
     rig_binding: usize,
     geometry_binding: usize,
@@ -214,6 +224,7 @@ impl ActorAnimationStore {
                     .unwrap_or_default(),
             ),
             assets,
+            pack: None,
             rigs: BTreeMap::new(),
             runtime_to_lifetime: HashMap::new(),
             first_starved: None,
@@ -222,6 +233,14 @@ impl ActorAnimationStore {
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
         }
+    }
+
+    /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
+    pub(crate) fn set_pack(&mut self, assets: Option<Arc<RuntimeEntityAssets>>) {
+        self.pack = assets.map(|assets| PackCatalog {
+            layout: Arc::new(VariableLayout::new(&assets)),
+            assets,
+        });
     }
 
     pub(crate) fn clear(&mut self) {
@@ -248,7 +267,15 @@ impl ActorAnimationStore {
             runtime_id: actor.runtime_id,
             spawn_revision: actor.spawn_revision,
         };
-        let Some(mut state) = resolve_rig(&assets, &self.layout, actor, self.completed_tick) else {
+        let from_pack = self.pack.as_ref().and_then(|pack| {
+            let mut state = resolve_rig(&pack.assets, &pack.layout, actor, self.completed_tick)?;
+            state.pack = true;
+            state.rig = EntityRigId(assets::PACK_RIG_ID_BASE.checked_add(state.rig.0)?);
+            Some(state)
+        });
+        let resolved =
+            from_pack.or_else(|| resolve_rig(&assets, &self.layout, actor, self.completed_tick));
+        let Some(mut state) = resolved else {
             self.stats.unrigged_spawns = self.stats.unrigged_spawns.saturating_add(1);
             return;
         };
@@ -360,9 +387,17 @@ impl ActorAnimationStore {
                 transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
                 used: 0,
             };
+            let (state_assets, state_layout) = if state.pack {
+                match &self.pack {
+                    Some(pack) => (&pack.assets, &pack.layout),
+                    None => continue,
+                }
+            } else {
+                (&assets, &self.layout)
+            };
             let result = evaluate_state(
-                &assets,
-                &self.layout,
+                state_assets,
+                state_layout,
                 state,
                 actor,
                 &context,
@@ -451,11 +486,13 @@ impl ActorAnimationStore {
             completed_tick: state.completed_tick,
             reset_generation: state.reset_generation,
             fallback: state.fallback,
-            scale: self
-                .assets
-                .as_ref()
-                .and_then(|assets| assets.rig_bindings().get(state.rig_binding))
-                .map_or(1.0, |rig| rig.scale.get()),
+            scale: if state.pack {
+                self.pack.as_ref().map(|pack| &pack.assets)
+            } else {
+                self.assets.as_ref()
+            }
+            .and_then(|assets| assets.rig_bindings().get(state.rig_binding))
+            .map_or(1.0, |rig| rig.scale.get()),
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
         })
@@ -561,6 +598,7 @@ fn resolve_rig(
         collect_controllers(assets, binding.controller as usize, 0, &mut controllers)?;
     }
     Some(ActorRigState {
+        pack: false,
         // The renderer needs the resolved geometry candidate, not only the
         // entity-level binding that may contain several candidates.
         rig: EntityRigId(geometry_binding as u32),

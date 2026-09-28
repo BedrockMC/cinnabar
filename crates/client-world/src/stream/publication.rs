@@ -216,6 +216,15 @@ impl WorldStream {
         self.actors.equipment_in_hand(runtime_id, hand)
     }
     /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
+    /// Layers the session's server-pack entity catalog over the vanilla one; its entities
+    /// win by identifier for actors spawned afterwards.
+    pub fn set_pack_entities(
+        &mut self,
+        assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+    ) {
+        self.actors.set_pack_entities(assets);
+    }
+
     pub fn set_item_use_durations(
         &mut self,
         durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
