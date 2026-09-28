@@ -87,6 +87,14 @@ impl ActorStore {
             synthetic_local_uuid: None,
             synthetic_local_revision: 0,
             local_first_person: false,
+            camera_rotation: [0.0; 2],
+        }
+    }
+
+    /// Records the view's `[pitch, yaw]` (degrees) for camera-facing animations.
+    pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
+        if rotation.iter().all(|value| value.is_finite()) {
+            self.camera_rotation = rotation;
         }
     }
 
@@ -487,6 +495,7 @@ impl ActorStore {
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
+            let camera_rotation = self.camera_rotation;
             let local_first_person = self
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);
@@ -533,6 +542,7 @@ impl ActorStore {
                     has_rider,
                     has_player_rider,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
+                    camera_rotation,
                 }
             });
             self.actions.advance_tick();

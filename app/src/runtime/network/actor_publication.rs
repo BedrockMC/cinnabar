@@ -10,8 +10,8 @@ use render::{
 };
 
 use super::{
-    ActorFrameClock, dropped_items::DroppedItemPublisher, ActorPresentationState, authoritative_local_actor_eye,
-    publish_local_actor_visibility,
+    ActorFrameClock, ActorPresentationState, authoritative_local_actor_eye,
+    dropped_items::DroppedItemPublisher, publish_local_actor_visibility,
 };
 use crate::{
     presentation::actors::{
@@ -112,6 +112,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         if let Some(feed) = &local_feed {
             stream.sync_local_player_pose(feed);
         }
+        let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
+        stream.set_actor_camera_rotation([
+            -pitch.to_degrees(),
+            (180.0 - yaw.to_degrees()).rem_euclid(360.0),
+        ]);
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
     let authoritative_subject_eye = authoritative_local_actor_eye(

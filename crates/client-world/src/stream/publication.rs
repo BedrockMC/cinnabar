@@ -133,6 +133,10 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }
+    /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
+    pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
+        self.actors.set_camera_rotation(rotation);
+    }
     /// Feeds this frame's client-authored local-player pose into the shared actor rig. Call
     /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
     /// third-person body and first-person hand read a driven rig instead of a static fallback.

@@ -415,3 +415,53 @@ fn loop_counts_run_their_ceiling_up_to_the_bound_and_skip_when_not_positive() {
     assert_eq!(loop_iterations(-1.0), None);
     assert_eq!(loop_iterations(f32::NAN), None);
 }
+
+#[test]
+fn camera_rotation_reads_the_fed_view_and_xp_orb_frames_follow_value() {
+    let input = ActorTickInput::default();
+    let context = ActorTickContext {
+        camera_rotation: [12.0, -34.0],
+        ..ActorTickContext::default()
+    };
+    let mut orb = actor_with_metadata(HashMap::from([(15, ActorMetadataValue::Int(20))]));
+    let number = |actor: &ActorSnapshot, name: &str, arguments: &[MolangValue]| {
+        read_with(actor, &input, &context, 0, name, arguments)
+    };
+    assert_eq!(
+        number(&orb, "query.camera_rotation", &[MolangValue::Number(0.0)]),
+        MolangValue::Number(12.0)
+    );
+    assert_eq!(
+        number(&orb, "query.camera_rotation", &[MolangValue::Number(1.0)]),
+        MolangValue::Number(-34.0)
+    );
+    // Only orbs pick a frame by value.
+    assert_eq!(
+        number(&orb, "query.texture_frame_index", &[]),
+        MolangValue::Number(0.0)
+    );
+    orb.kind = ActorKind::Entity {
+        identifier: "minecraft:xp_orb".into(),
+    };
+    assert_eq!(
+        number(&orb, "query.texture_frame_index", &[]),
+        MolangValue::Number(3.0)
+    );
+    orb.metadata.insert(15, ActorMetadataValue::Int(5_000));
+    assert_eq!(
+        number(&orb, "query.texture_frame_index", &[]),
+        MolangValue::Number(10.0)
+    );
+}
+
+#[test]
+fn hurt_queries_read_the_client_countdown() {
+    let input = ActorTickInput::default();
+    let context = ActorTickContext::default();
+    let mut actor = actor_with_metadata(HashMap::new());
+    actor.status.hurt_time = 7;
+    actor.status.hurt_direction = Some(3.0);
+    let read = |name: &str| read_with(&actor, &input, &context, 0, name, &[]);
+    assert_eq!(read("query.hurt_time"), MolangValue::Number(7.0));
+    assert_eq!(read("query.hurt_direction"), MolangValue::Number(3.0));
+}
