@@ -223,7 +223,7 @@ fn prepare_particle_resources(
             gpu.texture = Some(texture);
             gpu.bind_group = None;
         }
-        if let Some(texture) = &gpu.texture {
+        let written = if let Some(texture) = &gpu.texture {
             render_queue.write_texture(
                 TexelCopyTextureInfo {
                     texture,
@@ -243,6 +243,11 @@ fn prepare_particle_resources(
                     depth_or_array_layers: 1,
                 },
             );
+            true
+        } else {
+            false
+        };
+        if written {
             gpu.uploaded_generation = frame.atlas_generation;
         }
     }

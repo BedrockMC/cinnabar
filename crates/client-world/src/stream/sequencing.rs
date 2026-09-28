@@ -610,6 +610,18 @@ impl WorldStream {
                     event,
                 });
             }
+            WorldEvent::Particle(event) => {
+                let sequence = sequence.expect("sequenced particle events commit through submit");
+                // Visual-only and unretained under backpressure: drop the oldest trigger.
+                if self.committed_particles.len() >= COMMITTED_PARTICLE_CAPACITY {
+                    self.committed_particles.pop_front();
+                }
+                self.committed_particles.push_back(CommittedParticleEvent {
+                    sequence,
+                    dimension: self.current_dimension,
+                    event,
+                });
+            }
             WorldEvent::Camera(event) => {
                 self.stats.audio_nondefault_camera_observed = true;
                 let sequence = sequence.expect("sequenced camera events commit through submit");

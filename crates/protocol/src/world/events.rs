@@ -386,4 +386,5 @@ pub enum WorldEvent {
     ArmorEquipment(Box<ArmorEquipmentEvent>),
     Inventory(InventoryEvent),
     ItemActor(ItemActorEvent),
+    Particle(crate::ParticleEvent),
 }

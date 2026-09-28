@@ -189,6 +189,7 @@ impl WorldStream {
             local_movement_speed: None,
             committed_audio: VecDeque::new(),
             committed_camera: VecDeque::new(),
+            committed_particles: VecDeque::new(),
             publisher_center: Some([
                 floor_to_i32(resolved_server_position.position[0]),
                 floor_to_i32(resolved_server_position.position[1]),
