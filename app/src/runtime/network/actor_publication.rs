@@ -128,8 +128,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             (180.0 - yaw.to_degrees()).rem_euclid(360.0),
         ]);
         if let Some(collisions) = collisions.as_deref() {
-            let samples = sample_actor_fluids(stream, collisions);
-            stream.set_actor_fluids(&samples);
+            super::actor_sampling::sample_actor_world_state(stream, collisions);
         }
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
@@ -392,42 +391,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         hand_light,
         step.partial_tick,
     );
-}
-
-/// Samples the water and lava at each actor's body; an unreadable block reads as dry.
-fn sample_actor_fluids(
-    stream: &WorldStream,
-    collisions: &crate::movement::PhysicsCollisionRegistries,
-) -> Vec<(u64, bool, bool)> {
-    use sim::{BlockPhysicsFlags, CollisionWorld};
-    let world = sim::PaletteWorld::new(
-        stream.collision_store(),
-        collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
-    );
-    stream
-        .actor_fluid_sample_points()
-        .into_iter()
-        .filter(|(_, position)| position.iter().all(|axis| axis.is_finite()))
-        .map(|(runtime_id, position)| {
-            // A hair above the feet, so a fish resting on the bed still samples its own water.
-            let y = position[1] + 0.1;
-            let block = [
-                position[0].floor() as i32,
-                y.floor() as i32,
-                position[2].floor() as i32,
-            ];
-            let (mut water, mut lava) = (false, false);
-            if let Ok(sample) = world.block_physics(block) {
-                for layer in sample.layers.iter() {
-                    let submerged = f64::from(y) < f64::from(block[1]) + layer.fluid_height_blocks;
-                    water |= submerged && layer.flags.contains(BlockPhysicsFlags::WATER);
-                    lava |= submerged && layer.flags.contains(BlockPhysicsFlags::LAVA);
-                }
-            }
-            (runtime_id, water, lava)
-        })
-        .collect()
 }
 
 /// Builds and publishes the local player's first-person rig for the near-camera pass, or clears

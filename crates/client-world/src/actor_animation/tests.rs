@@ -548,3 +548,19 @@ fn sampled_fluid_overrides_the_heuristic_and_armor_queries_read_worn_stacks() {
     assert_eq!(number("query.armor_color_slot", &[0.0, 0.0]), 1.0);
     assert_eq!(number("query.armor_color_slot", &[0.0, 1.0]), 0.0);
 }
+
+#[test]
+fn charged_hand_and_bed_rotation_queries_read_their_feeds() {
+    let mut actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    assert_eq!(read(&actor, &input, 0, "query.item_is_charged"), 0.0);
+    assert_eq!(read(&actor, &input, 0, "query.sleep_rotation"), 0.0);
+    actor.status.sleep_rotation = Some(90.0);
+    assert_eq!(read(&actor, &input, 0, "query.sleep_rotation"), 90.0);
+    let context = ActorTickContext {
+        hand_charged: true,
+        ..ActorTickContext::default()
+    };
+    let charged = read_with(&actor, &input, &context, 0, "query.item_is_charged", &[]);
+    assert_eq!(charged.number(), 1.0);
+}

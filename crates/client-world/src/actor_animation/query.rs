@@ -233,6 +233,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Unsmoothed 0/1 stand-in for the pose blend.
         "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),
         "is_in_water" => truth(in_water(actor, input)),
+        "sleep_rotation" => actor.status.sleep_rotation.unwrap_or(0.0),
         "item_is_charged" => truth(context.hand_charged),
         "is_in_lava" => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
         "armor_texture_slot" => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
