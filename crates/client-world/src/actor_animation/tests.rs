@@ -548,3 +548,33 @@ fn sampled_fluid_overrides_the_heuristic_and_armor_queries_read_worn_stacks() {
     assert_eq!(number("query.armor_color_slot", &[0.0, 0.0]), 1.0);
     assert_eq!(number("query.armor_color_slot", &[0.0, 1.0]), 0.0);
 }
+
+#[test]
+fn item_duration_queries_report_max_and_remaining_seconds() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput {
+        item_use_ticks: 20,
+        ..ActorTickInput::default()
+    };
+    let context = ActorTickContext {
+        main_hand_max_use_ticks: 32,
+        ..ActorTickContext::default()
+    };
+    let number = |name: &str| read_with(&actor, &input, &context, 0, name, &[]).number();
+    assert!((number("query.main_hand_item_use_duration") - 1.0).abs() < 1e-6);
+    assert!((number("query.main_hand_item_max_duration") - 1.6).abs() < 1e-6);
+    assert!((number("query.item_remaining_use_duration") - 0.6).abs() < 1e-6);
+    let unknown = ActorTickContext::default();
+    assert_eq!(
+        read_with(
+            &actor,
+            &input,
+            &unknown,
+            0,
+            "query.main_hand_item_max_duration",
+            &[]
+        )
+        .number(),
+        0.0
+    );
+}

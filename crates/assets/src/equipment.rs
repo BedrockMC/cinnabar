@@ -72,6 +72,7 @@ impl EquipmentBinding {
 }
 
 const MAX_POSES_PER_BINDING: usize = 16;
+const MAX_ITEM_USE_DURATIONS: usize = 2048;
 const MAX_BONES_PER_POSE: usize = 32;
 
 /// Where the attachment renders, which selects the biped bone a later tranche binds.
@@ -135,6 +136,16 @@ struct EquipmentCatalogPayload {
     source_manifest_sha256: [u8; 32],
     entity_blob_sha256: [u8; 32],
     bindings: Box<[EquipmentBinding]>,
+    #[serde(default)]
+    item_use: Box<[ItemUseDuration]>,
+}
+
+/// How long one item can be used (eaten, drunk, drawn) before it completes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemUseDuration {
+    pub identifier: Box<str>,
+    pub ticks: u32,
 }
 
 /// Decoded, validated equipment catalog pinned to one entity carrier build.
@@ -144,6 +155,7 @@ pub struct RuntimeEquipmentCatalog {
     entity_blob_sha256: [u8; 32],
     bindings: Arc<[EquipmentBinding]>,
     textures: Arc<[EquipmentTexture]>,
+    item_use: Arc<[ItemUseDuration]>,
 }
 
 impl RuntimeEquipmentCatalog {
@@ -179,11 +191,13 @@ impl RuntimeEquipmentCatalog {
             &payload.entity_blob_sha256,
             &payload.bindings,
         )?;
+        validate_item_use(&payload.item_use)?;
         let textures = decode_textures(&bytes[payload_end..hash_start])?;
         Ok(Self {
             source_manifest_sha256: payload.source_manifest_sha256,
             entity_blob_sha256: payload.entity_blob_sha256,
             bindings: Arc::from(payload.bindings),
+            item_use: Arc::from(payload.item_use),
             textures: Arc::from(textures),
         })
     }
@@ -203,6 +217,21 @@ impl RuntimeEquipmentCatalog {
     #[must_use]
     pub fn bindings(&self) -> &[EquipmentBinding] {
         &self.bindings
+    }
+
+    /// Use durations sorted by item identifier.
+    #[must_use]
+    pub fn item_use(&self) -> &[ItemUseDuration] {
+        &self.item_use
+    }
+
+    /// Ticks the item can be used for, when the pack states it.
+    #[must_use]
+    pub fn item_use_ticks(&self, identifier: &str) -> Option<u32> {
+        self.item_use
+            .binary_search_by(|entry| entry.identifier.as_ref().cmp(identifier))
+            .ok()
+            .map(|index| self.item_use[index].ticks)
     }
 
     /// Attachable textures sorted by identifier.
@@ -248,12 +277,31 @@ pub fn encode_equipment_catalog_with_textures(
     bindings: &[EquipmentBinding],
     textures: &[EquipmentTexture],
 ) -> Result<Vec<u8>, AssetError> {
+    encode_equipment_catalog_full(
+        source_manifest_sha256,
+        entity_blob_sha256,
+        bindings,
+        textures,
+        &[],
+    )
+}
+
+/// Encodes bindings, textures, and item use durations (sorted, unique identifiers).
+pub fn encode_equipment_catalog_full(
+    source_manifest_sha256: [u8; 32],
+    entity_blob_sha256: [u8; 32],
+    bindings: &[EquipmentBinding],
+    textures: &[EquipmentTexture],
+    item_use: &[ItemUseDuration],
+) -> Result<Vec<u8>, AssetError> {
     validate(&source_manifest_sha256, &entity_blob_sha256, bindings)?;
     validate_textures(textures)?;
+    validate_item_use(item_use)?;
     let payload = EquipmentCatalogPayload {
         source_manifest_sha256,
         entity_blob_sha256,
         bindings: bindings.to_vec().into_boxed_slice(),
+        item_use: item_use.to_vec().into_boxed_slice(),
     };
     let payload_bytes =
         serde_json::to_vec(&payload).map_err(|_| invalid("failed to encode equipment payload"))?;
@@ -307,6 +355,23 @@ fn validate(
             return Err(invalid("invalid or unordered equipment binding"));
         }
         previous = Some(&binding.identifier);
+    }
+    Ok(())
+}
+
+fn validate_item_use(item_use: &[ItemUseDuration]) -> Result<(), AssetError> {
+    let mut previous: Option<&str> = None;
+    for entry in item_use {
+        validate_identifier(&entry.identifier)?;
+        if previous.is_some_and(|previous| previous >= entry.identifier.as_ref())
+            || entry.ticks == 0
+        {
+            return Err(invalid("invalid or unordered item use duration"));
+        }
+        previous = Some(&entry.identifier);
+    }
+    if item_use.len() > MAX_ITEM_USE_DURATIONS {
+        return Err(invalid("item use duration count exceeds bound"));
     }
     Ok(())
 }
@@ -541,6 +606,37 @@ mod tests {
 
         bindings[0].poses = Box::new([pose("sneaking"), pose("default")]);
         assert!(encode_equipment_catalog([1; 32], [2; 32], &bindings).is_err());
+    }
+
+    #[test]
+    fn item_use_durations_round_trip_sorted_and_reject_zero_or_unordered() {
+        let entry = |identifier: &str, ticks: u32| ItemUseDuration {
+            identifier: identifier.into(),
+            ticks,
+        };
+        let sorted = [
+            entry("minecraft:apple", 32),
+            entry("minecraft:honey_bottle", 40),
+        ];
+        let bytes =
+            encode_equipment_catalog_full([1; 32], [2; 32], &sample(), &[], &sorted).unwrap();
+        let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+        assert_eq!(catalog.item_use_ticks("minecraft:honey_bottle"), Some(40));
+        assert_eq!(catalog.item_use_ticks("minecraft:bow"), None);
+        let unordered = [entry("minecraft:b", 1), entry("minecraft:a", 1)];
+        assert!(
+            encode_equipment_catalog_full([1; 32], [2; 32], &sample(), &[], &unordered).is_err()
+        );
+        assert!(
+            encode_equipment_catalog_full(
+                [1; 32],
+                [2; 32],
+                &sample(),
+                &[],
+                &[entry("minecraft:a", 0)]
+            )
+            .is_err()
+        );
     }
 
     #[test]

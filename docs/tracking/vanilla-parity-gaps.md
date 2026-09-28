@@ -77,9 +77,20 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
 - **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
   gliding and swimming are Molang-driven and fall back to `default`.
-- **Not done:** bow/crossbow pull frames, trident geometry, shield re-parent/blocking pose,
-  spyglass/goat-horn poses (attachable-to-hand-bone origin semantics and use state need native
-  measurement), enchant glint and armor trims.
+- **Trident and shield:** single-bone attachable geometry at the hand item bone, placed by the
+  carrier's literal wield transforms (shield poses resolved per hand). Attachable origin rule
+  (behavior only): the attachable's model origin is the parent's `rightItem`/`leftItem` bone
+  origin and bones turn about their own pivots; a geometry with only a `rightitem` locator bone
+  (bow, crossbow) draws the extruded item texture there.
+- **Worn heads:** skeleton, wither skeleton, zombie, player, creeper heads reuse the
+  block-entity carrier's skull textures on the head bone; dragon/piglin heads are not drawn.
+- **Item use:** `main_hand_item_max_duration`/`item_remaining_use_duration` read carrier use
+  durations (behavior-pack food, spears, honey; ticks) and the local player's held items feed
+  the animation runtime. Bow, crossbow, trident, potion, shield and spyglass durations are
+  engine-side and unavailable.
+- **Not done:** bow/crossbow pull frames (frame index and charge semantics are engine-side),
+  spyglass/goat-horn poses, enchant glint (needs an additive pass ordered after the base draw),
+  armor trims (per armor x pattern x material composite textures).
 
 ## Local player rendering
 Third-person body (S1) merged: local player routed through the shared animated rig.
