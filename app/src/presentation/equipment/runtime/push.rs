@@ -29,7 +29,10 @@ impl EquipmentRuntime {
         off_hand: bool,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
-        let (Some(hand), Some(catalog)) = (hand, self.catalog.clone()) else {
+        let Some(hand) = hand else {
+            return false;
+        };
+        let Some((catalog, from_pack)) = self.binding_source(&item.identifier) else {
             return false;
         };
         let Some(binding) = catalog.binding(&item.identifier) else {
@@ -67,14 +70,11 @@ impl EquipmentRuntime {
         let Some(channels) = channels else {
             return false;
         };
-        let Some(location) = self
-            .texture_locations
-            .get(binding.texture.identifier.as_ref())
-            .copied()
-        else {
+        let Some(location) = self.texture_location(&binding.texture.identifier, from_pack) else {
             return false;
         };
-        let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier) else {
+        let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier, from_pack)
+        else {
             return false;
         };
         // Only single-bone models are placed; a hierarchy needs its parent chain composed.
@@ -177,7 +177,7 @@ impl EquipmentRuntime {
         item: &WornItem,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
-        let Some(catalog) = self.catalog.clone() else {
+        let Some((catalog, from_pack)) = self.binding_source(&item.identifier) else {
             return;
         };
         let Some(binding) = catalog.binding(&item.identifier) else {
@@ -188,14 +188,11 @@ impl EquipmentRuntime {
         if binding.category != (EquipmentCategory::Armor { slot }) && !elytra_in_chest {
             return;
         }
-        let Some(location) = self
-            .texture_locations
-            .get(binding.texture.identifier.as_ref())
-            .copied()
-        else {
+        let Some(location) = self.texture_location(&binding.texture.identifier, from_pack) else {
             return;
         };
-        let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier) else {
+        let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier, from_pack)
+        else {
             return;
         };
         if elytra_in_chest {
@@ -228,7 +225,14 @@ impl EquipmentRuntime {
         }
         let map = Arc::clone(
             self.armor_maps
-                .entry((body_geometry, binding.geometry.identifier.clone()))
+                .entry((
+                    body_geometry,
+                    if from_pack {
+                        format!("\u{1}pack:{}", binding.geometry.identifier).into()
+                    } else {
+                        binding.geometry.identifier.clone()
+                    },
+                ))
                 .or_insert_with(|| bone_map(&geometry.names, &bones.names).into()),
         );
         let tint = if binding.material.contains("leather") {

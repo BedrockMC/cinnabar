@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Local, Projection, Res, ResMut, Resource, Time},
@@ -62,16 +64,34 @@ fn apply_session_pack(
     base: &render::ActorArtworkPages,
     pack: Option<&super::entity_pack::SessionEntityPack>,
     effective: &mut Option<render::ActorArtworkPages>,
+    equipment: Option<&mut EquipmentRuntime>,
 ) {
     if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
         bevy::log::warn!(?error, "server pack entity geometry was not applied");
     }
-    let pages = match pack {
+    let mut pages = match pack {
         Some(pack) => base
             .clone()
             .with_pack_artwork(&pack.textures, &pack.bindings),
         None => base.clone(),
     };
+    let mut layer = None;
+    let mut geometries = Vec::new();
+    if let Some(pack) = pack
+        && let Some(catalog) = &pack.equipment
+    {
+        let (extended, locations) =
+            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
+        pages = extended;
+        geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
+        layer = Some((Arc::clone(&pack.assets), Arc::clone(catalog), locations));
+    }
+    if let Err(error) = scene.replace_pack_equipment(geometries) {
+        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
+    }
+    if let Some(equipment) = equipment {
+        equipment.set_pack_layer(layer);
+    }
     scene.configure_artwork(pages.clone());
     *effective = pack.map(|_| pages);
 }
@@ -142,7 +162,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         }
         let pack = session_id.and_then(|_| client_world.pack_entities.clone());
         if pack.is_some() || session_artwork.is_some() {
-            apply_session_pack(&mut scene, &artwork, pack.as_deref(), &mut session_artwork);
+            apply_session_pack(
+                &mut scene,
+                &artwork,
+                pack.as_deref(),
+                &mut session_artwork,
+                equipment.as_deref_mut(),
+            );
         }
     }
     let artwork = session_artwork.as_ref().unwrap_or(&artwork);
