@@ -576,9 +576,8 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 // publishing any StartGame state; optional semantic rejection
                 // remains a live base-assets session.
                 let handoff = session.take_resource_pack_handoff();
-                let custom_blocks = CustomBlocks::from_game_data(&game_data);
-                let packs =
-                    super::resource_packs::prepare_pack_application(handoff, &custom_blocks);
+                let (custom_blocks, packs) =
+                    super::resource_packs::prepare_session_packs(handoff, &game_data);
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let server_authoritative_block_breaking =
                     protocol::server_authoritative_block_breaking(&game_data);

@@ -350,7 +350,7 @@ pub(super) fn font_texture_array_with_hud_and_icons(
     let dynamic_start = pages.len();
     let blank = UiTexturePage::owned([width, height], vec![0; layer_bytes].into())
         .map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    pages.extend(std::iter::repeat_n(blank, 9));
+    pages.extend(std::iter::repeat_n(blank, render::MAX_UI_DYNAMIC_PAGES));
     let mut source = Sha256::new();
     source.update(b"ui-source-catalog-v1");
     source.update(font.identity().carrier_sha256);

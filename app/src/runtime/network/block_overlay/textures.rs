@@ -1,22 +1,14 @@
-//! Terrain texture keys, flipbooks, and bounded image decoding from the stack.
+//! Terrain texture keys and flipbooks resolved across the stack.
 
-use std::{collections::HashMap, io::Cursor};
+use std::collections::HashMap;
 
-use image::{ImageFormat, ImageReader, Limits};
-use resource_pack::{LayeredPackView, normalize_jsonc};
+use resource_pack::LayeredPackView;
 use serde_json::Value;
 
-const MAX_TEXTURE_SOURCE_BYTES: usize = 4 * 1024 * 1024;
-const MAX_TEXTURE_SIDE: u32 = 1024;
-const MAX_DECODE_ALLOC: u64 = 16 * 1024 * 1024;
-const MAX_CATALOG_ENTRIES: usize = 16_384;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct DecodedTexture {
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) rgba8: Box<[u8]>,
-}
+pub(super) use super::super::resource_packs::DecodedTexture;
+use super::super::resource_packs::{
+    MAX_CATALOG_ENTRIES, decode_pack_texture, parse_pack_json, texture_key_paths,
+};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Flipbook {
@@ -34,25 +26,10 @@ pub(super) struct TextureCatalog<'a> {
 
 impl<'a> TextureCatalog<'a> {
     pub(super) fn new(view: &'a LayeredPackView) -> Self {
-        let mut terrain = HashMap::new();
-        for layer in view.read_layers("textures/terrain_texture.json") {
-            let Some(Value::Object(data)) =
-                parse_json(&layer).map(|mut root| root["texture_data"].take())
-            else {
-                continue;
-            };
-            for (key, entry) in data {
-                if terrain.len() >= MAX_CATALOG_ENTRIES && !terrain.contains_key(&key) {
-                    break;
-                }
-                if let Some(path) = first_texture_path(&entry["textures"]) {
-                    terrain.insert(key, path);
-                }
-            }
-        }
+        let terrain = texture_key_paths(view, "textures/terrain_texture.json");
         let mut flipbooks = HashMap::new();
         for layer in view.read_layers("textures/flipbook_textures.json") {
-            let Some(Value::Array(entries)) = parse_json(&layer) else {
+            let Some(Value::Array(entries)) = parse_pack_json(&layer) else {
                 continue;
             };
             for entry in entries.iter().take(MAX_CATALOG_ENTRIES) {
@@ -92,62 +69,10 @@ impl<'a> TextureCatalog<'a> {
         self.flipbooks.get(key)
     }
 
-    /// Decodes the image a terrain key names, trying `.png` then `.tga`.
+    /// Decodes the image a terrain key names.
     pub(super) fn decode(&self, key: &str) -> Option<DecodedTexture> {
-        let path = self.terrain.get(key)?;
-        [("png", ImageFormat::Png), ("tga", ImageFormat::Tga)]
-            .into_iter()
-            .find_map(|(extension, format)| {
-                let bytes = self.view.read(&format!("{path}.{extension}"))?;
-                decode_image(&bytes, format)
-            })
+        decode_pack_texture(self.view, self.terrain.get(key)?)
     }
-}
-
-fn parse_json(bytes: &[u8]) -> Option<Value> {
-    serde_json::from_slice(&normalize_jsonc(bytes)?).ok()
-}
-
-/// A texture entry is a path, an object with `path`, or a variation list whose
-/// first element is used.
-fn first_texture_path(value: &Value) -> Option<String> {
-    let path = match value {
-        Value::String(path) => path.as_str(),
-        Value::Object(entry) => entry.get("path")?.as_str()?,
-        Value::Array(entries) => return first_texture_path(entries.first()?),
-        _ => return None,
-    };
-    let path = path.trim().trim_start_matches("./");
-    (!path.is_empty()).then(|| path.to_owned())
-}
-
-fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedTexture> {
-    if bytes.is_empty() || bytes.len() > MAX_TEXTURE_SOURCE_BYTES {
-        return None;
-    }
-    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
-        .into_dimensions()
-        .ok()?;
-    if width == 0 || height == 0 || width > MAX_TEXTURE_SIDE || height > MAX_TEXTURE_SIDE {
-        return None;
-    }
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_TEXTURE_SIDE);
-    limits.max_image_height = Some(MAX_TEXTURE_SIDE);
-    limits.max_alloc = Some(MAX_DECODE_ALLOC);
-    reader.limits(limits);
-    let rgba8 = reader
-        .decode()
-        .ok()?
-        .into_rgba8()
-        .into_raw()
-        .into_boxed_slice();
-    Some(DecodedTexture {
-        width,
-        height,
-        rgba8,
-    })
 }
 
 /// Splits a vertical strip into square frames when it is one; otherwise the

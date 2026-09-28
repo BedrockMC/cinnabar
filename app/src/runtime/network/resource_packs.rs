@@ -1,9 +1,15 @@
-use std::sync::Arc;
+use std::{collections::HashMap, io::Cursor, sync::Arc};
 
 use bevy::prelude::Resource;
-use resource_pack::{LayeredPackView, PackAdmission};
+use image::{ImageFormat, ImageReader, Limits};
+use resource_pack::{LayeredPackView, PackAdmission, normalize_jsonc};
+use serde_json::Value;
 
-use super::block_overlay::{CompiledBlockOverlay, compile_block_overlay};
+use super::{
+    block_overlay::{CompiledBlockOverlay, compile_block_overlay},
+    item_icons::compile_session_icons,
+};
+use crate::ui_runtime::presentation::SessionIcons;
 
 /// Everything the session applies from its server pack stack.
 #[derive(Debug)]
@@ -11,6 +17,7 @@ pub struct PackApplication {
     pub(crate) admission: PackAdmission,
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
+    pub(crate) item_icons: Option<Arc<SessionIcons>>,
 }
 
 impl Default for PackApplication {
@@ -19,13 +26,26 @@ impl Default for PackApplication {
             admission: PackAdmission::None,
             server_lang: None,
             block_overlay: None,
+            item_icons: None,
         }
     }
+}
+
+/// Reads StartGame's custom blocks and item icon keys, then applies the stack.
+pub(super) fn prepare_session_packs(
+    handoff: protocol::ResourcePackHandoff,
+    game_data: &protocol::GameData,
+) -> (protocol::CustomBlocks, PackApplication) {
+    let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
+    let icon_keys = protocol::item_icon_keys(game_data);
+    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys);
+    (custom_blocks, packs)
 }
 
 pub(super) fn prepare_pack_application(
     handoff: protocol::ResourcePackHandoff,
     custom_blocks: &protocol::CustomBlocks,
+    icon_keys: &[(Arc<str>, Arc<str>)],
 ) -> PackApplication {
     if handoff.is_empty() {
         return PackApplication::default();
@@ -47,6 +67,7 @@ pub(super) fn prepare_pack_application(
     }
     PackApplication {
         server_lang: merged_server_lang(&view),
+        item_icons: compile_session_icons(&view, icon_keys),
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }
@@ -88,6 +109,97 @@ pub(super) fn install_chunk_textures(
     }
 }
 
+const MAX_TEXTURE_SOURCE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_TEXTURE_SIDE: u32 = 1024;
+const MAX_DECODE_ALLOC: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_CATALOG_ENTRIES: usize = 16_384;
+
+/// Straight-alpha RGBA8 pixels decoded from a pack image.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct DecodedTexture {
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) rgba8: Box<[u8]>,
+}
+
+/// Maps each `texture_data` key of a texture catalog (terrain or item) to its
+/// image path; a higher pack replaces a key.
+pub(super) fn texture_key_paths(view: &LayeredPackView, catalog: &str) -> HashMap<String, String> {
+    let mut paths = HashMap::new();
+    for layer in view.read_layers(catalog) {
+        let Some(Value::Object(data)) =
+            parse_pack_json(&layer).map(|mut root| root["texture_data"].take())
+        else {
+            continue;
+        };
+        for (key, entry) in data {
+            if paths.len() >= MAX_CATALOG_ENTRIES && !paths.contains_key(&key) {
+                break;
+            }
+            if let Some(path) = first_texture_path(&entry["textures"]) {
+                paths.insert(key, path);
+            }
+        }
+    }
+    paths
+}
+
+/// Decodes the winning image at `path`, trying `.png` then `.tga` as vanilla does.
+pub(super) fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
+    [("png", ImageFormat::Png), ("tga", ImageFormat::Tga)]
+        .into_iter()
+        .find_map(|(extension, format)| {
+            let bytes = view.read(&format!("{path}.{extension}"))?;
+            decode_image(&bytes, format)
+        })
+}
+
+pub(super) fn parse_pack_json(bytes: &[u8]) -> Option<Value> {
+    serde_json::from_slice(&normalize_jsonc(bytes)?).ok()
+}
+
+/// A texture entry is a path, an object with `path`, or a variation list whose
+/// first element is used.
+fn first_texture_path(value: &Value) -> Option<String> {
+    let path = match value {
+        Value::String(path) => path.as_str(),
+        Value::Object(entry) => entry.get("path")?.as_str()?,
+        Value::Array(entries) => return first_texture_path(entries.first()?),
+        _ => return None,
+    };
+    let path = path.trim().trim_start_matches("./");
+    (!path.is_empty()).then(|| path.to_owned())
+}
+
+fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedTexture> {
+    if bytes.is_empty() || bytes.len() > MAX_TEXTURE_SOURCE_BYTES {
+        return None;
+    }
+    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
+        .into_dimensions()
+        .ok()?;
+    if width == 0 || height == 0 || width > MAX_TEXTURE_SIDE || height > MAX_TEXTURE_SIDE {
+        return None;
+    }
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_TEXTURE_SIDE);
+    limits.max_image_height = Some(MAX_TEXTURE_SIDE);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    reader.limits(limits);
+    let rgba8 = reader
+        .decode()
+        .ok()?
+        .into_rgba8()
+        .into_raw()
+        .into_boxed_slice();
+    Some(DecodedTexture {
+        width,
+        height,
+        rgba8,
+    })
+}
+
 /// The client requests `en_US` at login, so that is the only locale merged.
 const SERVER_LANG_PATH: &str = "texts/en_US.lang";
 
@@ -124,6 +236,17 @@ fn merged_server_lang(view: &LayeredPackView) -> Option<Arc<assets::ServerLangOv
         output.copy_from_slice(&merged);
         true
     })
+}
+
+pub(super) fn install_session_icons(
+    runtime: &mut crate::ui_runtime::UiRuntime,
+    generation: u64,
+    icons: Option<Arc<SessionIcons>>,
+    setup_succeeded: bool,
+) {
+    if runtime.session_id() == generation {
+        runtime.set_session_icons(icons.filter(|_| setup_succeeded));
+    }
 }
 
 pub(super) fn install_server_language(
@@ -234,6 +357,7 @@ mod tests {
         let application = super::prepare_pack_application(
             protocol::ResourcePackHandoff::default(),
             &protocol::CustomBlocks::default(),
+            &[],
         );
         assert!(matches!(application.admission, PackAdmission::None));
         assert!(application.server_lang.is_none());
@@ -246,6 +370,7 @@ mod tests {
         let application = super::prepare_pack_application(
             protocol::ResourcePackHandoff::from_archives(vec![pack]),
             &protocol::CustomBlocks::default(),
+            &[],
         );
         let overlay = application.server_lang;
         let PackAdmission::Validated(stack) = application.admission else {
@@ -292,7 +417,7 @@ mod tests {
             lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
         ]);
         let application =
-            super::prepare_pack_application(handoff, &protocol::CustomBlocks::default());
+            super::prepare_pack_application(handoff, &protocol::CustomBlocks::default(), &[]);
         let overlay = application.server_lang.expect("merged overlay");
         assert_eq!(overlay.lookup("shared"), Some("top"));
         assert_eq!(overlay.lookup("top.only"), Some("T"));

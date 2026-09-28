@@ -125,6 +125,11 @@ impl WorldStream {
     ) -> Option<crate::item::CanonicalItemStack> {
         self.actors.canonical_item_stack(stack)
     }
+    /// Installs the StartGame item registry so server-defined item ids resolve
+    /// before any play-time registry arrives. False when it is refused.
+    pub fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
+        self.actors.seed_item_registry(registry)
+    }
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }
