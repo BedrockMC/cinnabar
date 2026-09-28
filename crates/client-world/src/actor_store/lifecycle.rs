@@ -84,6 +84,7 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            synthetic_local_uuid: None,
             synthetic_local_revision: 0,
             local_first_person: false,
         }
@@ -118,7 +119,7 @@ impl ActorStore {
         };
         self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
         let revision = self.synthetic_local_revision.max(1);
-        let (uuid, username) = self.local_identity(unique_id, feed);
+        let (uuid, username) = self.resolve_local_identity(unique_id, feed);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
             // Adopt the player-list identity once it arrives so the skin resolves by uuid.
             if let ActorKind::Player {
@@ -154,20 +155,45 @@ impl ActorStore {
                 .insert(self.session_id, self.dimension, actor);
         }
     }
-    /// The local player's authoritative `(uuid, username)` from the retained player list, keyed
-    /// by unique id so the skin resolves; falls back to the client-fed identity until it arrives.
-    fn local_identity(
-        &self,
+    /// Resolves the local player's `(uuid, username)` for skin lookup. A real player-list echo
+    /// wins and any prior synthetic profile is dropped; otherwise a synthetic profile carrying the
+    /// fed skin is upserted (only when missing or changed) so `player_profile` resolves by uuid.
+    fn resolve_local_identity(
+        &mut self,
         unique_id: i64,
         feed: &LocalPlayerFeed,
     ) -> ([u8; 16], std::sync::Arc<str>) {
-        self.players
+        let synthetic = self.synthetic_local_uuid;
+        if let Some((uuid, username)) = self
+            .players
             .iter()
-            .find(|(_, profile)| profile.unique_id == unique_id)
-            .map_or_else(
-                || (feed.uuid, std::sync::Arc::clone(&feed.username)),
-                |(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)),
-            )
+            .find(|(uuid, profile)| Some(**uuid) != synthetic && profile.unique_id == unique_id)
+            .map(|(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)))
+        {
+            if let Some(stale) = self.synthetic_local_uuid.take()
+                && stale != uuid
+            {
+                self.players.remove(&stale);
+            }
+            return (uuid, username);
+        }
+        let stale = match self.players.get(&feed.uuid) {
+            Some(profile) => profile.unique_id != unique_id || profile.skin != feed.skin,
+            None => true,
+        };
+        if stale {
+            self.players.insert(
+                feed.uuid,
+                PlayerProfile {
+                    unique_id,
+                    username: std::sync::Arc::clone(&feed.username),
+                    verified: false,
+                    skin: feed.skin.clone(),
+                },
+            );
+        }
+        self.synthetic_local_uuid = Some(feed.uuid);
+        (feed.uuid, std::sync::Arc::clone(&feed.username))
     }
 
     #[cfg(test)]
@@ -179,6 +205,7 @@ impl ActorStore {
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
         self.players.clear();
+        self.synthetic_local_uuid = None;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
         self.items.clear();
@@ -198,6 +225,11 @@ impl ActorStore {
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
+        // The real player list survives a dimension change, but the synthetic local profile is
+        // tied to the cleared actor and is re-inserted on the next pose feed.
+        if let Some(uuid) = self.synthetic_local_uuid.take() {
+            self.players.remove(&uuid);
+        }
         self.animation.clear();
         self.items.clear_actor_state();
         self.actions.clear();

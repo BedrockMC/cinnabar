@@ -32,7 +32,7 @@ async fn login_reaches_start_game_through_bds() {
 
     let (mut session, game_data) = tokio::time::timeout(
         LOGIN_TIMEOUT,
-        LoginSequence::connect(socket_dir.path(), "RustMCBEPhase0"),
+        LoginSequence::connect(socket_dir.path(), "RustMCBEPhase0", None),
     )
     .await
     .unwrap_or_else(|_| {

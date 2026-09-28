@@ -338,11 +338,14 @@ pub struct PlayerProfile {
 }
 
 /// Client-authored identity and pose for the local player's own third-person rig, which the
-/// server never spawns as an actor. The skin resolves from the retained player list by uuid.
+/// server never spawns as an actor. When the player list carries no self entry, the skin backs
+/// a synthetic profile keyed by `uuid`; a real echo overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
+    /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
+    pub skin: PlayerSkin,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub on_ground: bool,
@@ -375,6 +378,9 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// Key of the synthetic local-player profile, present only while the player list carries no
+    /// self entry; cleared when a real echo takes over or the actor set is reset.
+    synthetic_local_uuid: Option<[u8; 16]>,
     /// Monotonic spawn/movement revision for the client-fed local player actor.
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.

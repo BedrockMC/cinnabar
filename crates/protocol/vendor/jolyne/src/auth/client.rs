@@ -217,14 +217,36 @@ fn generate_skin_resource_patch() -> String {
     STANDARD.encode(json.to_string().as_bytes())
 }
 
+/// The base64 skin bytes, dimensions, and arm size for the ClientData payload. `None` keeps the
+/// solid-white 64x64 placeholder so bots and tests upload the historical skin.
+fn client_data_skin_fields(
+    skin: Option<&crate::stream::client::ClientSkin>,
+) -> (String, u32, u32, String) {
+    match skin {
+        Some(skin) => (
+            STANDARD.encode(&skin.rgba8),
+            skin.width,
+            skin.height,
+            skin.arm_size.clone(),
+        ),
+        None => (
+            STANDARD.encode(vec![255u8; 64 * 64 * 4]),
+            64,
+            64,
+            "wide".to_string(),
+        ),
+    }
+}
+
 /// Generates a self-signed chain (for Offline Mode) and a ClientData JWT.
 /// Returns (identity_chain_json_string, client_data_jwt).
 pub fn generate_self_signed_chain(
     key: &SecretKey,
     display_name: &str,
     uuid: Uuid,
+    skin: Option<&crate::stream::client::ClientSkin>,
 ) -> Result<(String, String), JolyneError> {
-    generate_chain_internal(key, display_name, uuid, None)
+    generate_chain_internal(key, display_name, uuid, None, skin)
 }
 
 /// Response structure from Mojang authentication
@@ -259,6 +281,7 @@ pub fn encode_with_mojang_chain(
     display_name: &str,
     uuid: Uuid,
     mojang_chain_json: &str,
+    skin: Option<&crate::stream::client::ClientSkin>,
 ) -> Result<(String, String), JolyneError> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
@@ -358,7 +381,7 @@ pub fn encode_with_mojang_chain(
     .to_string();
 
     // Generate client data token
-    let client_token = generate_client_data_token(key, display_name, uuid)?;
+    let client_token = generate_client_data_token(key, display_name, uuid, skin)?;
 
     Ok((chain_json, client_token))
 }
@@ -372,8 +395,9 @@ pub fn generate_xbox_live_chain(
     display_name: &str,
     uuid: Uuid,
     xuid: &str,
+    skin: Option<&crate::stream::client::ClientSkin>,
 ) -> Result<(String, String), JolyneError> {
-    generate_chain_internal(key, display_name, uuid, Some(xuid))
+    generate_chain_internal(key, display_name, uuid, Some(xuid), skin)
 }
 
 /// Internal chain generation that handles both self-signed and Xbox Live auth.
@@ -382,6 +406,7 @@ fn generate_chain_internal(
     display_name: &str,
     uuid: Uuid,
     xuid: Option<&str>,
+    skin: Option<&crate::stream::client::ClientSkin>,
 ) -> Result<(String, String), JolyneError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -432,17 +457,15 @@ fn generate_chain_internal(
     .to_string();
 
     // 2. ClientData Token
-    // A minimal 64x64 RGBA skin is 16384 bytes (64*64*4).
-    // Create a simple solid-color skin (all white/opaque)
-    let skin_pixels = vec![255u8; 64 * 64 * 4];
-    let skin_data_b64 = STANDARD.encode(&skin_pixels);
+    let (skin_data_b64, skin_image_width, skin_image_height, arm_size) =
+        client_data_skin_fields(skin);
 
     // Device ID is a UUID
     let device_id = Uuid::new_v4().to_string();
 
     let client_claims = ClientDataPayload {
         animated_image_data: vec![],
-        arm_size: "wide".into(), // Standard Steve arm size
+        arm_size,
         cape_data: "".into(),
         cape_id: "".into(),
         cape_image_height: 0,
@@ -479,8 +502,8 @@ fn generate_chain_internal(
         skin_geometry_data: STANDARD.encode(""), // Empty = use default
         skin_geometry_data_engine_version: "".into(),
         skin_id: format!("{}.Custom", uuid),
-        skin_image_height: 64,
-        skin_image_width: 64,
+        skin_image_height,
+        skin_image_width,
         skin_resource_patch: generate_skin_resource_patch(),
         third_party_name: display_name.into(),
         third_party_name_only: false,
@@ -512,6 +535,7 @@ fn generate_client_data_token(
     key: &SecretKey,
     display_name: &str,
     uuid: Uuid,
+    skin: Option<&crate::stream::client::ClientSkin>,
 ) -> Result<String, JolyneError> {
     let public_key_der = key
         .public_key()
@@ -524,14 +548,13 @@ fn generate_client_data_token(
         .map_err(|e| JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string())))?;
     let encoding_key = EncodingKey::from_ec_der(private_der.as_bytes());
 
-    // A minimal 64x64 RGBA skin is 16384 bytes (64*64*4).
-    let skin_pixels = vec![255u8; 64 * 64 * 4];
-    let skin_data_b64 = STANDARD.encode(&skin_pixels);
+    let (skin_data_b64, skin_image_width, skin_image_height, arm_size) =
+        client_data_skin_fields(skin);
     let device_id = Uuid::new_v4().to_string();
 
     let client_claims = ClientDataPayload {
         animated_image_data: vec![],
-        arm_size: "wide".into(),
+        arm_size,
         cape_data: "".into(),
         cape_id: "".into(),
         cape_image_height: 0,
@@ -568,8 +591,8 @@ fn generate_client_data_token(
         skin_geometry_data: STANDARD.encode(""),
         skin_geometry_data_engine_version: "".into(),
         skin_id: format!("{}.Custom", uuid),
-        skin_image_height: 64,
-        skin_image_width: 64,
+        skin_image_height,
+        skin_image_width,
         skin_resource_patch: generate_skin_resource_patch(),
         third_party_name: display_name.into(),
         third_party_name_only: false,
@@ -584,4 +607,57 @@ fn generate_client_data_token(
         .map_err(|e| JolyneError::Auth(crate::error::AuthError::BadSignature(e.to_string())))?;
 
     Ok(client_jwt)
+}
+
+#[cfg(test)]
+mod skin_upload_tests {
+    use super::*;
+    use crate::stream::client::ClientSkin;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    fn client_data_claims(client_jwt: &str) -> serde_json::Value {
+        let payload = client_jwt
+            .split('.')
+            .nth(1)
+            .expect("ClientData JWT payload segment");
+        let bytes = URL_SAFE_NO_PAD
+            .decode(payload)
+            .expect("payload decodes as base64url");
+        serde_json::from_slice(&bytes).expect("payload is ClientData JSON")
+    }
+
+    #[test]
+    fn client_data_carries_the_supplied_skin_bytes() {
+        let key = SecretKey::random(&mut rand::thread_rng());
+        let rgba8: Vec<u8> = (0..64 * 64 * 4).map(|i| (i % 251) as u8).collect();
+        let skin = ClientSkin {
+            rgba8: rgba8.clone(),
+            width: 64,
+            height: 64,
+            arm_size: "slim".to_string(),
+        };
+        let (_, client_jwt) =
+            generate_self_signed_chain(&key, "Skinned", Uuid::new_v4(), Some(&skin)).unwrap();
+        let claims = client_data_claims(&client_jwt);
+        let decoded = STANDARD
+            .decode(claims["SkinData"].as_str().unwrap())
+            .expect("SkinData round-trips through base64");
+        assert_eq!(decoded, rgba8);
+        assert_eq!(claims["SkinImageWidth"].as_u64(), Some(64));
+        assert_eq!(claims["SkinImageHeight"].as_u64(), Some(64));
+        assert_eq!(claims["ArmSize"].as_str(), Some("slim"));
+    }
+
+    #[test]
+    fn absent_skin_keeps_the_solid_white_placeholder() {
+        let key = SecretKey::random(&mut rand::thread_rng());
+        let (_, client_jwt) =
+            generate_self_signed_chain(&key, "Placeholder", Uuid::new_v4(), None).unwrap();
+        let claims = client_data_claims(&client_jwt);
+        let decoded = STANDARD
+            .decode(claims["SkinData"].as_str().unwrap())
+            .expect("placeholder SkinData decodes");
+        assert_eq!(decoded, vec![255u8; 64 * 64 * 4]);
+        assert_eq!(claims["ArmSize"].as_str(), Some("wide"));
+    }
 }

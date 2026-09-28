@@ -330,6 +330,7 @@ fn attempt_connect(
         socket_dir,
         display_name: menu.display_name.clone(),
         client_blob_cache: client_blob_cache.cache(),
+        player_skin: menu.player_skin.clone(),
     }) {
         Ok(replacement) => {
             commands.insert_resource(replacement.movement_ticker());
@@ -791,6 +792,7 @@ mod transfer_follow_tests {
                 2,
                 "Player".to_owned(),
                 missing_core_layout(root.path()),
+                crate::player_skin::LocalPlayerSkin::generated_default("Player"),
             );
             menu.servers.push(super::super::SavedServer {
                 name: "Local".to_owned(),
@@ -839,6 +841,7 @@ mod transfer_follow_tests {
             2,
             "Player".to_owned(),
             missing_core_layout(root.path()),
+            crate::player_skin::LocalPlayerSkin::generated_default("Player"),
         );
         menu.catalog_started = true;
         menu.mark_connected();
@@ -904,6 +907,7 @@ mod transfer_follow_tests {
             2,
             "Player".to_owned(),
             missing_core_layout(root.path()),
+            crate::player_skin::LocalPlayerSkin::generated_default("Player"),
         );
         let old_generation = menu.next_session_generation();
         menu.mark_connected();
