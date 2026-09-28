@@ -218,10 +218,8 @@ type resourcePackOfferConnection interface {
 	ConfigureResourcePackStack(minecraft.ResourcePackStackSnapshot, bool) error
 }
 
-// configureResourcePackOffer offers only the acquired selected archives, in
-// stack order, and replays the exact upstream stack. The private hop is always
-// optional so an unavailable pack never blocks login; the client ignores stack
-// entries it was not offered.
+// configureResourcePackOffer hands off the acquired archives and the upstream
+// stack, always optional so an unavailable pack never blocks login.
 func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *selectedResourcePackStack) error {
 	if stack == nil {
 		return errResourcePackStackUnavailable

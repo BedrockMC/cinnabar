@@ -35,6 +35,16 @@ impl LayeredPackView {
             .find_map(|pack| pack.read_file(path).ok().flatten())
     }
 
+    /// Like [`read`](Self::read) but reads at most `limit` uncompressed bytes; a
+    /// copy over the limit is skipped, so a lower layer's copy can still win.
+    #[must_use]
+    pub fn read_capped(&self, path: &str, limit: u64) -> Option<Box<[u8]>> {
+        self.stack
+            .packs()
+            .iter()
+            .find_map(|pack| pack.read_file_with_limit(path, limit).ok().flatten())
+    }
+
     /// Every readable copy of `path`, lowest precedence first.
     #[must_use]
     pub fn read_layers(&self, path: &str) -> Vec<Box<[u8]>> {
