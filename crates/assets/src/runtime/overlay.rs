@@ -23,6 +23,8 @@ pub struct BlockOverlay {
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
     pub texture: Option<TextureArray>,
+    /// Network hashes parallel to `visuals` for a hashed-id session; empty otherwise.
+    pub hashes: Vec<u32>,
 }
 
 impl RuntimeAssets {
@@ -42,6 +44,9 @@ impl RuntimeAssets {
         }
         if overlay.visuals.len() != overlay.light_properties.len() {
             return Err(invalid("overlay visuals and light properties disagree"));
+        }
+        if !overlay.hashes.is_empty() && overlay.hashes.len() != overlay.visuals.len() {
+            return Err(invalid("overlay hashes and visuals disagree"));
         }
         let layers = overlay.texture.as_ref().map_or(0, |texture| texture.layers);
         if layers as usize > MAX_TEXTURE_LAYERS {
@@ -179,6 +184,15 @@ impl RuntimeAssets {
         }
         let mut light_properties = self.light_properties.to_vec();
         light_properties.extend_from_slice(&overlay.light_properties);
+        // A hash the base or an earlier overlay state already owns keeps its owner.
+        let mut hashed = self.hashed.to_vec();
+        for (index, &hash) in overlay.hashes.iter().enumerate() {
+            if self.sequential_id_for_hash(hash).is_none() {
+                hashed.push((hash, first_id + index as u32));
+            }
+        }
+        hashed.sort_by_key(|entry| entry.0);
+        hashed.dedup_by_key(|entry| entry.0);
         let mut texture_pages = self.texture_pages.to_vec();
         if let Some(texture) = &overlay.texture {
             texture_pages.push(TexturePage::new(texture.clone()));
@@ -186,7 +200,7 @@ impl RuntimeAssets {
         Ok(Self {
             visuals: visuals.into_boxed_slice(),
             light_properties: light_properties.into_boxed_slice(),
-            hashed: self.hashed.clone(),
+            hashed: hashed.into_boxed_slice(),
             materials: materials.into_boxed_slice(),
             model_templates: model_templates.into_boxed_slice(),
             model_quads: model_quads.into_boxed_slice(),
@@ -275,6 +289,18 @@ mod tests {
             texture: Some(texture),
             ..BlockOverlay::default()
         }
+    }
+
+    // Overlay hashes resolve to the overlay's ids and never shadow a base hash.
+    #[test]
+    fn overlay_hashes_extend_the_hash_table() {
+        let base = RuntimeAssets::diagnostic();
+        let mut overlay = cube_overlay(page(16));
+        overlay.hashes = vec![0xdead_beef];
+        let session = base.with_block_overlay(1, &overlay).unwrap();
+        assert_eq!(session.sequential_id_for_hash(0xdead_beef), Some(1));
+        overlay.hashes = vec![1, 2];
+        assert!(base.with_block_overlay(1, &overlay).is_err());
     }
 
     // A 32px page is accepted; malformed mips or dangling ids are refused whole.

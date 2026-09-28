@@ -46,8 +46,10 @@ palette entries resolve to air (no name/state lookup), and block-entity id and
 block-actor-type checks are not emulated. StartGame custom blocks are known only
 when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
 they collide as full cubes with stone's surface facts and render as diagnostic
-cubes until runtime pack application lands. Interleaved or hashed custom blocks
-remain unsupported. No vanilla acceptance gate is closed by this change.
+cubes until runtime pack application lands. Hashed-id sessions now register custom
+states by network hash (pack visuals via the runtime overlay; stone-surface collision
+provisional); interleaved sequential custom blocks remain unsupported. Vanilla
+block/entity retexturing from server packs is not applied yet (incomplete). No vanilla acceptance gate is closed by this change.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.

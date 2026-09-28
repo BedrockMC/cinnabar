@@ -113,8 +113,8 @@ animated rig remotes use. All three below flow from that.
 - Stars: procedural star field landed uncompiled; twinkle unverified *(measure)*.
 - Leaves: Fancy look landed (leaf↔leaf faces kept); live compare pending.
 - Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
-- Server resource packs not applied to rendering: core downloads/admits them but
-  `application=unavailable`, so custom blocks/textures render as magenta missing-texture (HIGH, confirmed live).
+- Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
+  vanilla block/entity retexturing, custom entities, and merged sounds/ui consumption remain unapplied (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky texture uncarried,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 

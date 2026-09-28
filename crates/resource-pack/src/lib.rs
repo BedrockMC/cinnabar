@@ -13,11 +13,13 @@ use thiserror::Error;
 mod crypto;
 mod jsonc;
 mod manifest;
+mod merge;
 mod pack;
 mod parser;
 mod view;
 
 pub use jsonc::normalize_jsonc;
+pub use merge::{MAX_MERGED_ENTRIES, MAX_WINNING_BYTES, MAX_WINNING_FILES};
 pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};
 pub use parser::validate_archive_bytes;
 pub use view::LayeredPackView;

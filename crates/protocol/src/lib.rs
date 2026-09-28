@@ -126,7 +126,7 @@ pub use raw_text::{
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
 };
-pub use socket_transport::{SocketTransport, bridge_endpoint_path};
+pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
@@ -148,9 +148,9 @@ pub use valentine::bedrock::version::v1_26_44::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
     BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockVisuals,
-    CustomBlocks, CustomMaterialInstance, CustomPermutation, CustomStateAxis, CustomStateValue,
-    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange,
-    HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS,
+    CustomBlocks, CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomStateAxis,
+    CustomStateValue, CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
+    DimensionRange, HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS,
     MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
     MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerGameMode,
     PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID,

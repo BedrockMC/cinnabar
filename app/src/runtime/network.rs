@@ -359,21 +359,37 @@ pub(crate) fn receive_network_events(
                         bootstrap.world_spawn_position[2] as f32 + 0.5,
                     ]
                 };
-                let custom_block_ids = if bootstrap.block_network_ids_are_hashes {
+                let hashed_ids = bootstrap.block_network_ids_are_hashes;
+                let custom_block_ids = if hashed_ids {
                     collisions.begin_session_custom_blocks(&protocol::CustomBlocks::default());
+                    if collisions
+                        .begin_session_hashed_custom_blocks(&custom_blocks)
+                        .is_none()
+                    {
+                        warn!("server custom blocks have no collision base in hashed id mode");
+                    }
                     None
                 } else {
                     collisions.begin_session_custom_blocks(&custom_blocks)
                 };
-                if custom_block_ids.is_none() && !custom_blocks.blocks.is_empty() {
+                if !hashed_ids && custom_block_ids.is_none() && !custom_blocks.blocks.is_empty() {
                     warn!(
                         count = custom_blocks.blocks.len(),
-                        "server custom blocks are unsupported in this id mode or ordering"
+                        "server custom blocks are unsupported in this id ordering"
                     );
                 }
+                // Hashed sessions append overlay visuals after the base and index them by hash.
+                let overlay_ids = if hashed_ids {
+                    packs.block_overlay.as_ref().map(|compiled| {
+                        let first = client_world.runtime_assets.visual_count() as u32;
+                        first..first + compiled.overlay.visuals.len() as u32
+                    })
+                } else {
+                    custom_block_ids.clone()
+                };
                 let session_assets = resource_packs::session_runtime_assets(
                     &client_world.runtime_assets,
-                    custom_block_ids.as_ref(),
+                    overlay_ids.as_ref(),
                     packs.block_overlay.as_deref(),
                 );
                 if let Some(textures) = chunk_textures.as_mut() {
