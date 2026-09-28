@@ -27,7 +27,9 @@ mod rig;
 #[path = "actor/witness.rs"]
 mod witness;
 
-pub use asset_geometry::{find_geometry_index, geometry_bone_names, geometry_bone_pivots};
+pub use asset_geometry::{
+    find_geometry_index, geometry_bone_names, geometry_bone_pivots, skull_geometry,
+};
 pub use gpu::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,

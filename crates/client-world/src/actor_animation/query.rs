@@ -114,12 +114,7 @@ const AQUATIC: [&str; 10] = [
 // game-mode source for yet. Each returns its vanilla idle value so the pre-animation formulas
 // (item_use_normalized, helmet_layer_visible) and the use/crossbow animations stay neutral.
 // Wiring the real sources later replaces the entry, not the query name.
-const IDLE_QUERIES: [(&str, f32); 4] = [
-    ("main_hand_item_max_duration", 0.0),
-    ("item_remaining_use_duration", 0.0),
-    ("has_head_gear", 0.0),
-    ("is_spectator", 0.0),
-];
+const IDLE_QUERIES: [(&str, f32); 2] = [("has_head_gear", 0.0), ("is_spectator", 0.0)];
 
 // Head-over-body yaw bound for look-at queries; needs independent measurement.
 const TARGET_YAW_LIMIT: f32 = 85.0;
@@ -216,6 +211,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
         "main_hand_item_use_duration" => input.item_use_ticks as f32 * 0.05,
+        "main_hand_item_max_duration" => context.main_hand_max_use_ticks as f32 * 0.05,
+        "item_remaining_use_duration" => {
+            context
+                .main_hand_max_use_ticks
+                .saturating_sub(input.item_use_ticks) as f32
+                * 0.05
+        }
         "death_ticks" => f32::from(actor.status.death_time),
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
