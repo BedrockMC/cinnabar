@@ -98,6 +98,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
 		return dial(ctx, cfg.Upstream)
 	}
+	prepared.dialTarget = consumeTransferOnDial(prepared.dialTarget, transfers)
 	prepared.resolveTarget = withPendingTransfer(transfers, dial, withLocalTarget(cfg.LocalTarget, online))
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
@@ -161,6 +162,8 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 			if upstream == nil {
 				continue
 			}
+			// Wrapped only now: pack-stack capture needs the concrete upstream Conn.
+			upstream.upstream = observeTransfers(upstream.upstream, transfers, logger)
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()
