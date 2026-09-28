@@ -14,12 +14,14 @@ mod image;
 mod lang;
 mod pack;
 mod ui;
+mod weather_textures;
 
 pub use actor::{
     ActorCompileReport, ActorFallback, ActorTextureEvidence, CompiledActorCarrier,
     compile_actor_assets,
 };
 pub use animation::AnimationInventory;
+pub use weather_textures::{compile_weather_textures, compile_weather_textures_to_file};
 pub use assets::BlockFace;
 pub use atmosphere::{
     AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
