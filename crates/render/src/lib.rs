@@ -14,6 +14,8 @@ mod hand_rig_render;
 mod lightning;
 mod present_mode;
 mod runtime_profile;
+mod screen_overlay;
+mod screen_overlay_render;
 mod ui;
 mod ui_textures;
 
@@ -119,6 +121,11 @@ pub use present_mode::{
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
 };
+pub use screen_overlay::{
+    MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayKind, ScreenOverlayLayer,
+    ScreenOverlayScene, ScreenOverlayTextures,
+};
+pub use screen_overlay_render::ScreenOverlayRenderPlugin;
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
     MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UI_BLEND_ALPHA, UI_BLEND_INVERT, UiRenderBatch,
