@@ -161,6 +161,14 @@ impl WorldStream {
     pub fn dropped_items(&self, partial_tick: f32) -> Vec<crate::DroppedItemView> {
         self.actors.dropped_items(partial_tick)
     }
+    /// Falling blocks and primed TNT with interpolated centres, swell and flash.
+    pub fn block_entities(&self, partial_tick: f32) -> Vec<crate::BlockEntityView> {
+        self.actors.block_entities(partial_tick)
+    }
+    /// Fishing lines and leads with interpolated endpoints.
+    pub fn ropes(&self, partial_tick: f32) -> Vec<crate::RopeView> {
+        self.actors.ropes(partial_tick)
+    }
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }

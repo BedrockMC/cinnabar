@@ -3,10 +3,12 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use std::sync::Arc;
 
 mod mesh;
+mod rope;
 
 pub use mesh::{
     ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, OPAQUE_WHITE, cube_mesh, extruded_sprite_mesh,
 };
+pub use rope::{rope_color, rope_point, rope_ribbon};
 
 /// Side length of every layer on the GPU; larger textures are rejected.
 pub const MAX_ITEM_SPRITE_SIDE: u32 = 32;
