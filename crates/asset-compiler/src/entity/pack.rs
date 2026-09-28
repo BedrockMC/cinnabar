@@ -36,6 +36,8 @@ pub struct EntityPackCompilation {
     pub assets: CompiledEntityAssets,
     pub reference_outcomes: Box<[CompileReferenceOutcome<u32>]>,
     pub skipped: EntityPackSkips,
+    /// Retained source bytes by pack-relative path, for consumers that read rasters.
+    pub payloads: BTreeMap<Box<str>, Box<[u8]>>,
 }
 
 fn in_families(path: &str) -> bool {
@@ -111,7 +113,7 @@ pub fn compile_entity_pack(
     let compilation = assemble(
         Path::new(""),
         sources,
-        payloads,
+        &payloads,
         symbols,
         geometries,
         identity.finalize().into(),
@@ -121,6 +123,7 @@ pub fn compile_entity_pack(
         assets: compilation.assets,
         reference_outcomes: compilation.reference_outcomes,
         skipped,
+        payloads,
     }))
 }
 

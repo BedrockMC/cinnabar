@@ -83,6 +83,7 @@ pub use compiled::{
     MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
 };
+pub use entity::PACK_RIG_ID_BASE;
 pub use entity::{
     CompiledEntityAssets, CompiledMolangExpression, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION,
     EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,

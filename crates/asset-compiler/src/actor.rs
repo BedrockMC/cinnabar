@@ -2,8 +2,8 @@
 use std::{collections::BTreeMap, io::Cursor, path::Path, sync::Arc};
 
 use assets::{
-    ActorArtworkBinding, ActorTexture, AssetError, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
-    MAX_ACTOR_TEXTURES, encode_actor_catalog, encode_entity_blob,
+    ActorArtworkBinding, ActorTexture, AssetError, CompiledEntityAssets, MAX_ACTOR_PIXEL_BYTES,
+    MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, encode_actor_catalog, encode_entity_blob,
     neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
 };
 use image::{ImageFormat, ImageReader, Limits};
@@ -13,6 +13,8 @@ use sha2::{Digest, Sha256};
 
 use crate::entity::{compile_entity_assets, parse_fully_unique_json, read_bounded_source};
 mod eligibility;
+mod pack;
+pub use pack::{ActorPackCompilation, compile_actor_pack};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ActorFallback {
@@ -51,6 +53,65 @@ pub fn compile_actor_assets(
     let entities = compile_entity_assets(root, manifest)?;
     let entity_bytes = encode_entity_blob(&entities)?;
     let runtime_entities = assets::RuntimeEntityAssets::decode(&entity_bytes)?;
+    let mut read = |index: u32| -> Result<Vec<u8>, AssetError> {
+        let source = &entities.sources[index as usize];
+        let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
+        if bytes.len() != source.source_bytes as usize
+            || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
+        {
+            return Err(invalid("actor source changed after entity compilation"));
+        }
+        Ok(bytes)
+    };
+    let ArtworkBuild {
+        textures,
+        bindings,
+        fallbacks,
+        pixel_bytes,
+    } = build_artwork(&entities, &runtime_entities, &mut read)?;
+    let bytes = encode_actor_catalog(&entity_bytes, &textures, &bindings)?;
+    let report = ActorCompileReport {
+        source_manifest_sha256: entities.source_manifest_sha256,
+        entity_carrier_sha256: Sha256::digest(&entity_bytes).into(),
+        carrier_sha256: Sha256::digest(&bytes).into(),
+        textures: textures.len(),
+        bindings: bindings.len(),
+        rest_pose_bindings: bindings
+            .iter()
+            .filter(|binding| binding.pose_mode == assets::ActorPoseMode::RestPose)
+            .count(),
+        pixel_bytes,
+        texture_evidence: textures
+            .iter()
+            .map(|texture| {
+                let source = &entities.sources[texture.source as usize];
+                ActorTextureEvidence {
+                    source_path: source.path.clone(),
+                    source_sha256: source.source_sha256,
+                    width: texture.width,
+                    height: texture.height,
+                    pixel_sha256: texture.pixel_sha256,
+                }
+            })
+            .collect(),
+        fallbacks,
+    };
+    Ok(CompiledActorCarrier { bytes, report })
+}
+
+/// Neutral artwork for every eligible rig of a catalog; `read` returns a source's bytes by index.
+struct ArtworkBuild {
+    textures: Vec<ActorTexture>,
+    bindings: Vec<ActorArtworkBinding>,
+    fallbacks: Vec<ActorFallback>,
+    pixel_bytes: usize,
+}
+
+fn build_artwork(
+    entities: &CompiledEntityAssets,
+    runtime_entities: &assets::RuntimeEntityAssets,
+    read: &mut dyn FnMut(u32) -> Result<Vec<u8>, AssetError>,
+) -> Result<ArtworkBuild, AssetError> {
     let mut json_cache = BTreeMap::<u32, Value>::new();
     let mut textures = Vec::<ActorTexture>::new();
     let mut bindings = Vec::new();
@@ -80,12 +141,7 @@ pub fn compile_actor_assets(
                 json_cache.entry(source_index)
             {
                 let source = &entities.sources[source_index as usize];
-                let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
-                if bytes.len() != source.source_bytes as usize
-                    || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
-                {
-                    return Err(invalid("actor source changed after entity compilation"));
-                }
+                let bytes = read(source_index)?;
                 entry.insert(parse_fully_unique_json(
                     Path::new(source.path.as_ref()),
                     &bytes,
@@ -94,17 +150,12 @@ pub fn compile_actor_assets(
         }
         let entity_json = json_cache[&entity_symbol.source_index].clone();
         let controller_json = json_cache[&controller_symbol.source_index].clone();
-        if !eligibility::supported(&entities, rig_index as usize, &entity_json, |index| {
+        if !eligibility::supported(entities, rig_index as usize, &entity_json, |index| {
             if let Some(value) = json_cache.get(&index) {
                 return Ok(value.clone());
             }
             let source = &entities.sources[index as usize];
-            let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
-            if bytes.len() != source.source_bytes as usize
-                || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
-            {
-                return Err(invalid("actor eligibility source changed"));
-            }
+            let bytes = read(index)?;
             let value = parse_fully_unique_json(Path::new(source.path.as_ref()), &bytes)?;
             json_cache.insert(index, value.clone());
             Ok(value)
@@ -113,7 +164,7 @@ pub fn compile_actor_assets(
             continue;
         }
         let Some(pose_mode) =
-            assets::neutral_actor_pose_mode(&runtime_entities, rig.first_geometry as usize)
+            assets::neutral_actor_pose_mode(runtime_entities, rig.first_geometry as usize)
         else {
             reject(&mut fallbacks, "unsupported_pose_program");
             continue;
@@ -163,12 +214,7 @@ pub fn compile_actor_assets(
             continue;
         }
         let (source_index, source) = possible[0];
-        let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
-        if bytes.len() != source.source_bytes as usize
-            || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
-        {
-            return Err(invalid("actor raster changed after entity compilation"));
-        }
+        let bytes = read(source_index as u32)?;
         let format = if source.path.ends_with(".png") {
             ImageFormat::Png
         } else {
@@ -242,34 +288,12 @@ pub fn compile_actor_assets(
             reject(&mut fallbacks, pose_mode.reason());
         }
     }
-    let bytes = encode_actor_catalog(&entity_bytes, &textures, &bindings)?;
-    let report = ActorCompileReport {
-        source_manifest_sha256: entities.source_manifest_sha256,
-        entity_carrier_sha256: Sha256::digest(&entity_bytes).into(),
-        carrier_sha256: Sha256::digest(&bytes).into(),
-        textures: textures.len(),
-        bindings: bindings.len(),
-        rest_pose_bindings: bindings
-            .iter()
-            .filter(|binding| binding.pose_mode == assets::ActorPoseMode::RestPose)
-            .count(),
-        pixel_bytes,
-        texture_evidence: textures
-            .iter()
-            .map(|texture| {
-                let source = &entities.sources[texture.source as usize];
-                ActorTextureEvidence {
-                    source_path: source.path.clone(),
-                    source_sha256: source.source_sha256,
-                    width: texture.width,
-                    height: texture.height,
-                    pixel_sha256: texture.pixel_sha256,
-                }
-            })
-            .collect(),
+    Ok(ArtworkBuild {
+        textures,
+        bindings,
         fallbacks,
-    };
-    Ok(CompiledActorCarrier { bytes, report })
+        pixel_bytes,
+    })
 }
 
 struct Route<'a> {
