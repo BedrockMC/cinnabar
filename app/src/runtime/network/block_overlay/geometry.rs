@@ -12,6 +12,7 @@ use serde_json::Value;
 const MAX_GEOMETRY_FILES: usize = 4096;
 const MAX_GEOMETRY_FILE_BYTES: usize = 1024 * 1024;
 const MAX_CUBES: usize = 256;
+const MAX_BONES: usize = 256;
 
 /// Face order matches `assets::BlockFace`: west, east, down, up, north, south.
 pub(super) const FACE_NAMES: [&str; 6] = ["west", "east", "down", "up", "north", "south"];
@@ -156,6 +157,7 @@ fn parse_bones(bones: &Value, texture_size: [f32; 2]) -> Geometry {
     let Some(bones) = bones.as_array() else {
         return geometry;
     };
+    let bones = &bones[..bones.len().min(MAX_BONES)];
     let rotated_bones = rotated_bone_names(bones);
     for bone in bones {
         let bone_rotated = bone["name"]
