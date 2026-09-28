@@ -1,7 +1,7 @@
 //! Non-walking locomotion: ability flight, pose-swimming and elytra gliding.
 //!
-//! Every coefficient here is a provisional value with no bedsim oracle; each
-//! needs independent measurement against a native client before parity is claimed.
+//! Coefficients follow the public movement-physics notes' BedSim candidates (flight
+//! damping, swim steering, glide equations); none is oracle-validated against 1.26.30.
 
 use crate::{
     CollisionWorld, Vec3,
@@ -16,14 +16,22 @@ use super::{
 };
 
 const DEFAULT_FLY_SPEED: f64 = 0.05;
+const DEFAULT_VERTICAL_FLY_SPEED: f64 = 1.0;
 const FLY_SPRINT_MULTIPLIER: f64 = 2.0;
-const FLY_VERTICAL_MULTIPLIER: f64 = 3.0;
-const FLY_VERTICAL_DRAG: f64 = 0.6;
-const FLY_HORIZONTAL_DRAG: f64 = 0.91;
+const FLY_ASCEND: f64 = 0.15;
+const FLY_DESCEND: f64 = 0.22;
+const FLY_FRICTION: f64 = 0.91;
+const FLY_HOVER_INPUT_THRESHOLD: f64 = 0.01;
+const FLY_HOVER_FRICTION_CREATIVE: f64 = 0.375;
+const FLY_HOVER_FRICTION_OTHER: f64 = 0.75;
+const FLY_HOVER_VERTICAL_CREATIVE: f64 = 0.375;
 
 const SWIM_ACCELERATION: f64 = 0.02;
-const SWIM_DRAG: f64 = 0.9;
-const SWIM_WATER_GRAVITY: f64 = 0.005;
+const SWIM_HORIZONTAL_DRAG: f64 = 0.9;
+const SWIM_VERTICAL_DRAG: f64 = 0.8;
+const SWIM_STEER_RATE: f64 = 0.06;
+const SWIM_STEER_DIVE_RATE: f64 = 0.085;
+const SWIM_DIVE_THRESHOLD: f64 = -0.2;
 
 const GLIDE_LIFT_SCALE: f64 = 0.75;
 const GLIDE_FALL_CONVERSION: f64 = 0.1;
@@ -64,20 +72,37 @@ pub(super) fn tick_mode(
                 input.yaw_degrees,
                 speed,
             );
-            let vertical = f64::from(i8::from(input.jumping) - i8::from(input.sneaking));
-            next.velocity.y += vertical * base * FLY_VERTICAL_MULTIPLIER;
+            let vertical_speed = input
+                .vertical_fly_speed
+                .unwrap_or(DEFAULT_VERTICAL_FLY_SPEED);
+            if input.jumping && input.sneaking {
+                next.velocity.y = 0.0;
+            } else {
+                let direction = if input.jumping {
+                    FLY_ASCEND
+                } else if input.sneaking {
+                    -FLY_DESCEND
+                } else {
+                    0.0
+                };
+                next.velocity.y += vertical_speed * direction;
+            }
         }
         MovementMode::Swimming if in_water => {
-            let look = look_vector(input.yaw_degrees, input.pitch_degrees);
-            let forward = controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER * SWIM_ACCELERATION;
-            next.velocity += look * forward;
             apply_relative_movement(
                 &mut next.velocity,
                 controls.move_vector[0] * INPUT_IMPULSE_MULTIPLIER,
-                0.0,
+                controls.move_vector[1] * INPUT_IMPULSE_MULTIPLIER,
                 input.yaw_degrees,
                 SWIM_ACCELERATION,
             );
+            let target = -minecraft_sin(input.pitch_degrees.to_radians());
+            let rate = if target < SWIM_DIVE_THRESHOLD {
+                SWIM_STEER_DIVE_RATE
+            } else {
+                SWIM_STEER_RATE
+            };
+            next.velocity.y += (target - next.velocity.y) * rate;
         }
         MovementMode::Gliding => {
             next.velocity = glide_velocity(next.velocity, input);
@@ -116,15 +141,33 @@ pub(super) fn tick_mode(
 
     match input.mode {
         MovementMode::Flying => {
-            next.velocity.x *= FLY_HORIZONTAL_DRAG;
-            next.velocity.z *= FLY_HORIZONTAL_DRAG;
-            next.velocity.y *= FLY_VERTICAL_DRAG;
+            let horizontal_input = controls.move_vector[0]
+                .abs()
+                .max(controls.move_vector[1].abs());
+            let hovering = horizontal_input < FLY_HOVER_INPUT_THRESHOLD;
+            let modifier = match (hovering, input.creative_flight) {
+                (false, _) => 1.0,
+                (true, true) => FLY_HOVER_FRICTION_CREATIVE,
+                (true, false) => FLY_HOVER_FRICTION_OTHER,
+            };
+            if hovering && input.creative_flight && !input.jumping && !input.sneaking {
+                next.velocity.y *= FLY_HOVER_VERTICAL_CREATIVE;
+            }
+            let retention = FLY_FRICTION * modifier;
+            next.velocity.x *= retention;
+            next.velocity.z *= retention;
+            next.velocity.y *= retention;
         }
         MovementMode::Swimming if in_water => {
-            next.velocity.x *= SWIM_DRAG;
-            next.velocity.y *= SWIM_DRAG;
-            next.velocity.z *= SWIM_DRAG;
-            effects::apply_vertical(&mut next.velocity.y, input.effects, SWIM_WATER_GRAVITY, 1.0);
+            let horizontal = if input.sprinting {
+                SWIM_HORIZONTAL_DRAG
+            } else {
+                super::WATER_DRAG
+            };
+            next.velocity.x *= horizontal;
+            next.velocity.z *= horizontal;
+            next.velocity.y *= SWIM_VERTICAL_DRAG;
+            effects::apply_vertical(&mut next.velocity.y, input.effects, 0.0, 1.0);
         }
         MovementMode::Gliding => {}
         _ => {

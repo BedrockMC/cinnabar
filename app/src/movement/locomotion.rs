@@ -16,6 +16,9 @@ pub struct ModeIntent {
     pub fly_toggle: bool,
     /// Ability flight speed, when the server sent a usable one.
     pub fly_speed: Option<f64>,
+    pub vertical_fly_speed: Option<f64>,
+    /// Game mode is creative, which selects the stronger hover damping.
+    pub creative_flight: bool,
     /// An elytra is equipped in the chest slot.
     pub elytra_ready: bool,
     /// Boot enchantment levels the simulator reads.
