@@ -9,9 +9,14 @@ use super::{
     banner::BannerModel,
     beam::BeaconModel,
     bed::BedModel,
+    bell::BellModel,
     chest::ChestModel,
-    crack::emit_crack,
+    conduit::ConduitModel,
+    crack::{CrackShape, emit_crack},
+    frame::ItemFrameModel,
+    heads::HeadModels,
     mesh::{BlockEntityVertex, MeshBuilder},
+    pot::DecoratedPotModel,
     shulker::ShulkerModel,
     sign::SignModel,
     skull::SkullModel,
@@ -26,9 +31,17 @@ pub enum BlockEntityKind {
     Banner(BannerModel),
     Bed(BedModel),
     Sign(SignModel),
-    EnchantTable { facing_yaw_degrees: f32 },
-    Lectern { facing_yaw_degrees: f32 },
-    Bell,
+    EnchantTable {
+        facing_yaw_degrees: f32,
+    },
+    Lectern {
+        facing_yaw_degrees: f32,
+        has_book: bool,
+    },
+    Bell(BellModel),
+    ItemFrame(ItemFrameModel),
+    Conduit(ConduitModel),
+    DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
     EndPortal,
     EndGateway,
@@ -43,10 +56,11 @@ pub struct BlockEntitySubmission {
 }
 
 /// A block with a break-crack overlay at destroy stage `stage` (`0..=9`).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CrackInstance {
     pub block: [i32; 3],
     pub stage: u8,
+    pub shape: CrackShape,
 }
 
 /// Animation time and the position texture scrolls are measured against.
@@ -65,6 +79,8 @@ pub struct BlockEntityFrame {
     pub dynamic_rgba8: Arc<[u8]>,
     pub solid: Arc<[BlockEntityVertex]>,
     pub overlay: Arc<[BlockEntityVertex]>,
+    pub crack: Arc<[BlockEntityVertex]>,
+    pub additive: Arc<[BlockEntityVertex]>,
 }
 
 /// Static atlas pixels plus dimensions for GPU upload.
@@ -82,6 +98,7 @@ pub struct BlockEntityScene {
     image: Option<Arc<BlockEntityAtlasImage>>,
     text: Option<DynamicText>,
     frame: BlockEntityFrame,
+    heads: HeadModels,
     rejected_quads: u64,
 }
 
@@ -97,6 +114,11 @@ impl BlockEntityScene {
         self.text = Some(DynamicText::new(atlas.size()[0]));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
+    }
+
+    /// Builds dragon and piglin heads from the entity catalog's geometry.
+    pub fn install_entity_assets(&mut self, assets: &assets::RuntimeEntityAssets) {
+        self.heads = HeadModels::from_assets(assets);
     }
 
     #[must_use]
@@ -132,11 +154,11 @@ impl BlockEntityScene {
         let mut builder = MeshBuilder::new(atlas.size());
         for submission in submissions {
             builder.light = submission.light.clamp(0.0, 1.0);
-            emit_submission(&mut builder, atlas, submission, clock);
+            emit_submission(&mut builder, atlas, &self.heads, submission, clock);
         }
         builder.light = 1.0;
         for crack in cracks {
-            emit_crack(&mut builder, atlas, *crack);
+            emit_crack(&mut builder, atlas, crack);
         }
         self.rejected_quads = builder.rejected_quads;
         let dynamic_changed = self.frame.dynamic_revision != text.revision();
@@ -151,6 +173,8 @@ impl BlockEntityScene {
             },
             solid: builder.solid.into(),
             overlay: builder.overlay.into(),
+            crack: builder.crack.into(),
+            additive: builder.additive.into(),
         };
         &self.frame
     }
@@ -164,6 +188,7 @@ impl BlockEntityScene {
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
+    heads: &HeadModels,
     submission: &BlockEntitySubmission,
     clock: SceneClock,
 ) {
@@ -171,17 +196,23 @@ fn emit_submission(
     match &submission.kind {
         BlockEntityKind::Chest(model) => super::chest::emit(builder, atlas, block, model),
         BlockEntityKind::Shulker(model) => super::shulker::emit(builder, atlas, block, model),
-        BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, block, model),
+        BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
         BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model),
         BlockEntityKind::Sign(model) => super::sign::emit(builder, block, model),
         BlockEntityKind::EnchantTable { facing_yaw_degrees } => {
             super::book::emit_enchant_table(builder, atlas, block, *facing_yaw_degrees, clock);
         }
-        BlockEntityKind::Lectern { facing_yaw_degrees } => {
-            super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees);
+        BlockEntityKind::Lectern {
+            facing_yaw_degrees,
+            has_book,
+        } => super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees, *has_book),
+        BlockEntityKind::Bell(model) => super::bell::emit(builder, atlas, block, model),
+        BlockEntityKind::ItemFrame(model) => super::frame::emit(builder, atlas, block, model),
+        BlockEntityKind::Conduit(model) => {
+            super::conduit::emit(builder, atlas, block, model, clock)
         }
-        BlockEntityKind::Bell => super::bell::emit(builder, atlas, block),
+        BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
         BlockEntityKind::EndPortal => super::portal::emit(builder, atlas, block, false, clock),
         BlockEntityKind::EndGateway => super::portal::emit(builder, atlas, block, true, clock),
@@ -222,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn chest_and_crack_fill_the_solid_and_overlay_lists() {
+    fn chest_and_crack_fill_the_solid_and_crack_lists() {
         let mut scene = scene_with_chest_and_crack_textures();
         let chest = BlockEntitySubmission {
             block: [1, 2, 3],
@@ -237,11 +268,13 @@ mod tests {
         let crack = CrackInstance {
             block: [1, 2, 3],
             stage: 0,
+            shape: CrackShape::Cube,
         };
         let frame = scene.update(SceneClock::default(), &[crack], &[chest]);
         // Body, lid and latch boxes: three boxes of six two-triangle faces.
         assert_eq!(frame.solid.len(), 3 * 6 * 6);
-        assert_eq!(frame.overlay.len(), 6 * 6);
+        assert_eq!(frame.crack.len(), 6 * 6);
+        assert!(frame.overlay.is_empty());
         assert_eq!(frame.revision, 1);
         assert!(frame.atlas.is_some());
     }
@@ -254,10 +287,11 @@ mod tests {
             &[CrackInstance {
                 block: [0; 3],
                 stage: 7,
+                shape: CrackShape::Cube,
             }],
             &[],
         );
-        assert!(frame.overlay.is_empty());
+        assert!(frame.crack.is_empty());
     }
 
     #[test]
@@ -268,11 +302,17 @@ mod tests {
             &[CrackInstance {
                 block: [0; 3],
                 stage: 0,
+                shape: CrackShape::Cube,
             }],
             &[],
         );
         assert_eq!(frame.revision, 0);
-        assert!(frame.solid.is_empty() && frame.overlay.is_empty());
+        assert!(
+            frame.solid.is_empty()
+                && frame.overlay.is_empty()
+                && frame.crack.is_empty()
+                && frame.additive.is_empty()
+        );
         assert!(!scene.has_assets());
     }
 }

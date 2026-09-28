@@ -28,6 +28,10 @@ pub enum Layer {
     Solid,
     /// Blended over the scene without writing depth.
     Overlay,
+    /// Multiplies the scene (twice source times destination) without writing depth.
+    Crack,
+    /// Adds to the scene without writing depth.
+    Additive,
 }
 
 /// A box in entity-geometry authoring space: pixels, front toward -Z, +Y up.
@@ -72,6 +76,8 @@ pub struct MeshBuilder {
     atlas_size: [f32; 2],
     pub solid: Vec<BlockEntityVertex>,
     pub overlay: Vec<BlockEntityVertex>,
+    pub crack: Vec<BlockEntityVertex>,
+    pub additive: Vec<BlockEntityVertex>,
     /// Multiplier applied to every emitted color; carries per-instance light.
     pub light: f32,
     pub rejected_quads: u64,
@@ -84,6 +90,8 @@ impl MeshBuilder {
             atlas_size: [atlas_size[0] as f32, atlas_size[1] as f32],
             solid: Vec::new(),
             overlay: Vec::new(),
+            crack: Vec::new(),
+            additive: Vec::new(),
             light: 1.0,
             rejected_quads: 0,
         }
@@ -153,16 +161,33 @@ impl MeshBuilder {
     /// Emits one quad from corners `[top-left, top-right, bottom-right, bottom-left]`
     /// and atlas-pixel UVs `[u0, v0, u1, v1]`.
     pub fn quad(&mut self, layer: Layer, corners: [[f32; 3]; 4], uv: [f32; 4], color: [f32; 4]) {
+        let [u0, v0, u1, v1] = uv;
+        self.quad_uv(
+            layer,
+            corners,
+            [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
+            color,
+        );
+    }
+
+    /// Emits one quad with an atlas-pixel UV per corner, in corner order.
+    pub fn quad_uv(
+        &mut self,
+        layer: Layer,
+        corners: [[f32; 3]; 4],
+        uvs: [[f32; 2]; 4],
+        color: [f32; 4],
+    ) {
         let target = match layer {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
+            Layer::Crack => &mut self.crack,
+            Layer::Additive => &mut self.additive,
         };
         if target.len() + 6 > MAX_BLOCK_ENTITY_VERTICES {
             self.rejected_quads = self.rejected_quads.saturating_add(1);
             return;
         }
-        let [u0, v0, u1, v1] = uv;
-        let normalize = |u: f32, v: f32| [u / self.atlas_size[0], v / self.atlas_size[1]];
         let light = self.light;
         let color = [
             color[0] * light,
@@ -170,23 +195,67 @@ impl MeshBuilder {
             color[2] * light,
             color[3],
         ];
-        let vertex = |corner: usize, u: f32, v: f32| BlockEntityVertex {
+        let atlas_size = self.atlas_size;
+        let vertex = |corner: usize| BlockEntityVertex {
             position: corners[corner],
-            uv: normalize(u, v),
+            uv: [
+                uvs[corner][0] / atlas_size[0],
+                uvs[corner][1] / atlas_size[1],
+            ],
             color,
         };
-        let top_left = vertex(0, u0, v0);
-        let top_right = vertex(1, u1, v0);
-        let bottom_right = vertex(2, u1, v1);
-        let bottom_left = vertex(3, u0, v1);
-        target.extend_from_slice(&[
-            top_left,
-            bottom_left,
-            bottom_right,
-            top_left,
-            bottom_right,
-            top_right,
-        ]);
+        let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
+        target.extend_from_slice(&[second, third, first, first, third, fourth]);
+    }
+
+    /// A box whose faces each show one whole atlas rect, in `[west, east, down, up, north,
+    /// south]` order; `min`/`max` are authoring pixels mapped through `model`.
+    pub fn tile_cuboid(
+        &mut self,
+        layer: Layer,
+        model: Mat4,
+        min: [f32; 3],
+        max: [f32; 3],
+        rects: [AtlasRect; 6],
+        tint: [f32; 4],
+    ) {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+        let faces: [([[f32; 3]; 4], f32); 6] = [
+            (
+                [[x0, y1, z0], [x0, y1, z1], [x0, y0, z1], [x0, y0, z0]],
+                SHADE_X,
+            ),
+            (
+                [[x1, y1, z1], [x1, y1, z0], [x1, y0, z0], [x1, y0, z1]],
+                SHADE_X,
+            ),
+            (
+                [[x1, y0, z0], [x0, y0, z0], [x0, y0, z1], [x1, y0, z1]],
+                SHADE_DOWN,
+            ),
+            (
+                [[x1, y1, z1], [x0, y1, z1], [x0, y1, z0], [x1, y1, z0]],
+                SHADE_UP,
+            ),
+            (
+                [[x1, y1, z0], [x0, y1, z0], [x0, y0, z0], [x1, y0, z0]],
+                SHADE_Z,
+            ),
+            (
+                [[x0, y1, z1], [x1, y1, z1], [x1, y0, z1], [x0, y0, z1]],
+                SHADE_Z,
+            ),
+        ];
+        for ((corners, shade), rect) in faces.into_iter().zip(rects) {
+            let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
+            self.textured_quad(
+                layer,
+                world.map(|point| point.to_array()),
+                rect,
+                [tint[0] * shade, tint[1] * shade, tint[2] * shade, tint[3]],
+            );
+        }
     }
 
     /// A quad covering `rect` (atlas pixels) with the given world corners.

@@ -12,7 +12,7 @@ use bevy::{
 use client_world::{BlockEntityKind, RopeKind, WorldStream};
 use render::{
     ChunkTextureAssets, DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene,
-    DroppedItemSprite, ItemMeshVertex, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
+    DroppedItemSprite, ItemMeshVertex, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, StaticItemPlacements,
     dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
 };
 
@@ -79,6 +79,7 @@ pub(super) struct DroppedItemPublisher<'w, 's> {
     scene: Option<ResMut<'w, DroppedItemScene>>,
     icons: Option<Res<'w, UiPresentationRuntime>>,
     textures: Option<Res<'w, ChunkTextureAssets>>,
+    placements: Option<Res<'w, StaticItemPlacements>>,
     cache: Local<'s, ModelCache>,
 }
 
@@ -219,6 +220,28 @@ impl DroppedItemPublisher<'_, '_> {
                 instances.push(DroppedItemInstance {
                     model,
                     world_from_item: dropped_item_transform(center, view.yaw_radians, scale),
+                    block_level: u32::from(block_level),
+                    sky_level: u32::from(sky_level),
+                    overlay_rgba8: 0,
+                });
+            }
+        }
+
+        // Items held by block entities (item frames, campfires) use the same sprite path.
+        if let Some(placements) = self.placements.as_ref() {
+            for placement in &placements.0 {
+                let Some(model) =
+                    Self::icon_model(cache, icons, &placement.identifier, placement.metadata)
+                else {
+                    continue;
+                };
+                let rows = placement.world_from_item;
+                let (block_level, sky_level) = placement
+                    .light
+                    .unwrap_or_else(|| stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]]));
+                instances.push(DroppedItemInstance {
+                    model,
+                    world_from_item: rows,
                     block_level: u32::from(block_level),
                     sky_level: u32::from(sky_level),
                     overlay_rgba8: 0,

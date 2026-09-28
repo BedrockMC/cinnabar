@@ -1,11 +1,12 @@
 //! Skulls and heads: an 8x8x8 head cube, plus a hat layer for humanoid heads.
 //!
-//! Dragon and piglin heads need their own geometry (jaw, ears) and are not drawn yet.
+//! Dragon and piglin heads are drawn from the entity geometry via [`HeadModels`].
 
 use bevy::math::Mat4;
 
 use super::{
     atlas::{BlockEntityAtlas, TextureRef},
+    heads::HeadModels,
     mesh::{BoxSpec, Facing, Layer, MeshBuilder, WHITE, model_matrix},
 };
 
@@ -81,12 +82,10 @@ pub fn floor_yaw_degrees(rotation_degrees: f32) -> f32 {
 pub(super) fn emit(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
+    heads: &HeadModels,
     block: [i32; 3],
     model: &SkullModel,
 ) {
-    let Some(texture) = model.kind.texture(atlas) else {
-        return;
-    };
     let matrix = match model.mount {
         SkullMount::Floor { rotation_degrees } => {
             model_matrix(block, [0.5, 0.0, 0.5], floor_yaw_degrees(rotation_degrees))
@@ -96,6 +95,33 @@ pub(super) fn emit(
             model_matrix(block, [0.5, 0.25, 0.5], facing.yaw_degrees())
                 * Mat4::from_translation(bevy::math::Vec3::new(0.0, 0.0, 4.0))
         }
+    };
+    let geometry = match model.kind {
+        SkullKind::Piglin => heads
+            .piglin
+            .as_ref()
+            .zip(atlas.texture("textures/entity/piglin/piglin", [64.0, 64.0])),
+        SkullKind::Dragon => heads.dragon.as_ref().and_then(|head| {
+            atlas
+                .texture("textures/entity/dragon/dragon", head.texture)
+                .map(|texture| (head, texture))
+        }),
+        _ => None,
+    };
+    if let Some((head, texture)) = geometry {
+        for head_box in &head.boxes {
+            builder.cuboid(
+                Layer::Solid,
+                &texture,
+                matrix * head_box.matrix,
+                head_box.spec,
+                WHITE,
+            );
+        }
+        return;
+    }
+    let Some(texture) = model.kind.texture(atlas) else {
+        return;
     };
     builder.cuboid(
         Layer::Solid,

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use client_world::ActiveBlockCrack;
-use render::CrackInstance;
+use render::{CrackInstance, CrackShape};
 
 /// Server progress units for a fully broken block.
 const PROGRESS_UNITS: f32 = 65_535.0;
@@ -43,6 +43,7 @@ impl CrackClock {
         &mut self,
         entries: &[ActiveBlockCrack],
         now_seconds: f64,
+        mut shape_of: impl FnMut(&ActiveBlockCrack) -> CrackShape,
     ) -> Vec<CrackInstance> {
         self.tracks
             .retain(|position, _| entries.iter().any(|entry| entry.position == *position));
@@ -70,6 +71,7 @@ impl CrackClock {
                 CrackInstance {
                     block: entry.position,
                     stage: stage_for_progress(track.progress(now_seconds)),
+                    shape: shape_of(entry),
                 }
             })
             .collect()
@@ -94,28 +96,46 @@ mod tests {
         let mut clock = CrackClock::default();
         // 1/20 of the block per tick: half done after ten ticks (half a second).
         let entries = [crack([1, 2, 3], 7, 3_277)];
-        assert_eq!(clock.instances(&entries, 0.0)[0].stage, 0);
-        assert_eq!(clock.instances(&entries, 0.5)[0].stage, 5);
-        assert_eq!(clock.instances(&entries, 100.0)[0].stage, 9);
+        assert_eq!(
+            clock.instances(&entries, 0.0, |_| CrackShape::Cube)[0].stage,
+            0
+        );
+        assert_eq!(
+            clock.instances(&entries, 0.5, |_| CrackShape::Cube)[0].stage,
+            5
+        );
+        assert_eq!(
+            clock.instances(&entries, 100.0, |_| CrackShape::Cube)[0].stage,
+            9
+        );
     }
 
     #[test]
     fn rate_changes_keep_progress_and_new_starts_reset_it() {
         let mut clock = CrackClock::default();
         let slow = [crack([0; 3], 1, 3_277)];
-        clock.instances(&slow, 0.0);
-        assert_eq!(clock.instances(&slow, 0.5)[0].stage, 5);
+        clock.instances(&slow, 0.0, |_| CrackShape::Cube);
+        assert_eq!(
+            clock.instances(&slow, 0.5, |_| CrackShape::Cube)[0].stage,
+            5
+        );
         let faster = [crack([0; 3], 1, 6_554)];
-        assert_eq!(clock.instances(&faster, 0.5)[0].stage, 5);
+        assert_eq!(
+            clock.instances(&faster, 0.5, |_| CrackShape::Cube)[0].stage,
+            5
+        );
         let restarted = [crack([0; 3], 2, 3_277)];
-        assert_eq!(clock.instances(&restarted, 0.6)[0].stage, 0);
+        assert_eq!(
+            clock.instances(&restarted, 0.6, |_| CrackShape::Cube)[0].stage,
+            0
+        );
     }
 
     #[test]
     fn stopped_cracks_are_forgotten() {
         let mut clock = CrackClock::default();
-        clock.instances(&[crack([5; 3], 1, 100)], 0.0);
-        clock.instances(&[], 1.0);
+        clock.instances(&[crack([5; 3], 1, 100)], 0.0, |_| CrackShape::Cube);
+        clock.instances(&[], 1.0, |_| CrackShape::Cube);
         assert!(clock.tracks.is_empty());
     }
 }
