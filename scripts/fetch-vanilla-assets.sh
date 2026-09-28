@@ -335,7 +335,10 @@ if [[ -e "$cache_path" ]]; then
     exit 1
 fi
 
-for command_name in curl unzip od awk find stat cc; do
+# CINNABAR_PUBLISHER_BINARY: prebuilt helper shipped in installs so end users need no C compiler.
+required_commands=(curl unzip od awk find stat)
+[[ -n "${CINNABAR_PUBLISHER_BINARY:-}" ]] || required_commands+=(cc)
+for command_name in "${required_commands[@]}"; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         printf 'required command is unavailable: %s\n' "$command_name" >&2
         exit 1
@@ -368,7 +371,10 @@ chmod 700 "$publisher_work" || fatal 'atomic publication helper workspace permis
 publisher_work_identity="$(directory_identity "$publisher_work")" ||
     fatal 'atomic publication helper workspace identity unavailable'
 publisher_binary="$publisher_work/publisher"
-if ! cc -std=c11 -O2 -Wall -Wextra -Werror "$publisher_source" -o "$publisher_binary"; then
+if [[ -n "${CINNABAR_PUBLISHER_BINARY:-}" ]]; then
+    [[ -x "$CINNABAR_PUBLISHER_BINARY" ]] || fatal 'CINNABAR_PUBLISHER_BINARY is not executable'
+    cp "$CINNABAR_PUBLISHER_BINARY" "$publisher_binary" || fatal 'prebuilt publication helper could not be staged'
+elif ! cc -std=c11 -O2 -Wall -Wextra -Werror "$publisher_source" -o "$publisher_binary"; then
     fatal 'atomic no-replace directory publication helper could not be compiled'
 fi
 
