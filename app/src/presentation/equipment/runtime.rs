@@ -18,6 +18,7 @@ use render::{
 use super::{
     armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{Placement, SpriteAtlas},
+    attachable::{self, BoneChannels},
     blocks::{self, BlockSheets},
     display::{
         ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
@@ -137,6 +138,7 @@ struct BodyBones {
 struct ArmorGeometry {
     rig: EntityRigId,
     names: Vec<Box<str>>,
+    pivots: Vec<[f32; 3]>,
 }
 
 #[derive(Resource)]
@@ -233,11 +235,10 @@ impl EquipmentRuntime {
             .iter()
             .flat_map(|catalog| catalog.bindings())
             .filter(|binding| {
-                matches!(
-                    binding.category,
-                    EquipmentCategory::Armor { .. } | EquipmentCategory::Elytra
-                ) && binding.geometry.resolution == EntityDependencyResolution::Catalog
+                !matches!(binding.category, EquipmentCategory::Held)
+                    || binding.third_person.literal().is_some()
             })
+            .filter(|binding| binding.geometry.resolution == EntityDependencyResolution::Catalog)
             .filter_map(|binding| find_geometry_index(&assets, &binding.geometry.identifier))
             .collect::<Vec<_>>();
         geometries.sort_unstable();
@@ -426,7 +427,98 @@ impl EquipmentRuntime {
         hand: Option<usize>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
+        if self.push_attachable(body, item, layer, hand, layer == LAYER_OFF_HAND, layers) {
+            return;
+        }
         self.push_attached(body, item, layer, hand, None, layers);
+    }
+
+    /// A held item whose attachable ships its own single-bone geometry and a literal
+    /// third-person placement (trident, shield). `false` when the item is not one, or its
+    /// placement is Molang-driven (then the sprite/cube path draws it).
+    fn push_attachable(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        layer: u8,
+        hand: Option<usize>,
+        off_hand: bool,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) -> bool {
+        let (Some(hand), Some(catalog)) = (hand, self.catalog.clone()) else {
+            return false;
+        };
+        let Some(binding) = catalog.binding(&item.identifier) else {
+            return false;
+        };
+        let channels = match binding.category {
+            EquipmentCategory::Held => {
+                binding
+                    .third_person
+                    .literal()
+                    .map(|transform| BoneChannels {
+                        translation: transform.translation.map(|value| value.get()),
+                        rotation: transform.rotation.map(|value| value.get()),
+                        scale: transform.scale.map(|value| value.get()),
+                    })
+            }
+            EquipmentCategory::Shield => {
+                let slot = if off_hand { "off_hand" } else { "main_hand" };
+                binding
+                    .pose(&format!("wield_third_person@{slot}"))
+                    .and_then(|pose| pose.bones.first())
+                    .map(|bone| {
+                        let channel = |value: Option<[assets::ItemDisplayScalar; 3]>, rest: f32| {
+                            value.map_or([rest; 3], |value| value.map(|scalar| scalar.get()))
+                        };
+                        BoneChannels {
+                            translation: channel(bone.translation, 0.0),
+                            rotation: channel(bone.rotation, 0.0),
+                            scale: channel(bone.scale, 1.0),
+                        }
+                    })
+            }
+            _ => None,
+        };
+        let Some(channels) = channels else {
+            return false;
+        };
+        let Some(location) = self
+            .texture_locations
+            .get(binding.texture.identifier.as_ref())
+            .copied()
+        else {
+            return false;
+        };
+        let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier) else {
+            return false;
+        };
+        // Only single-bone models are placed; a hierarchy needs its parent chain composed.
+        let [pivot] = geometry.pivots[..] else {
+            return false;
+        };
+        let (Some(previous), Some(current)) = (
+            body.input.previous_bones.get(hand),
+            body.input.current_bones.get(hand),
+        ) else {
+            return false;
+        };
+        let (Some(previous), Some(current)) = (
+            attachable::attach(*previous, pivot, channels),
+            attachable::attach(*current, pivot, channels),
+        ) else {
+            return false;
+        };
+        layers.push(layer_presentation(
+            body,
+            layer,
+            geometry.rig,
+            vec![previous],
+            vec![current],
+            location,
+            0,
+        ));
+        true
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
@@ -617,6 +709,7 @@ impl EquipmentRuntime {
             Some(Arc::new(ArmorGeometry {
                 rig: equipment_rig_id(index),
                 names: geometry_bone_names(&self.assets, index as usize)?,
+                pivots: geometry_bone_pivots(&self.assets, index as usize)?,
             }))
         });
         self.armor_geometry.insert(identifier.into(), entry.clone());
