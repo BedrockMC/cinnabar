@@ -26,6 +26,7 @@ const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const MIN_TILE: u32 = 16;
 const MAX_TILE: u32 = 128;
 const MAX_OVERLAY_LAYERS: usize = 2048;
+const MAX_OVERLAY_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_QUADS_PER_TEMPLATE: usize = 32;
 const DIAGNOSTIC_MATERIAL: u32 = 0;
 
@@ -341,7 +342,12 @@ impl Builder<'_> {
             })
             .max()
             .unwrap_or(MIN_TILE);
-        let tile = largest.next_power_of_two().clamp(MIN_TILE, MAX_TILE);
+        let mut tile = largest.next_power_of_two().clamp(MIN_TILE, MAX_TILE);
+        // A full mip chain costs about 4/3 of its base level.
+        let page_bytes = |tile: u32| self.sources.len() * (tile * tile) as usize * 16 / 3;
+        while tile > MIN_TILE && page_bytes(tile) > MAX_OVERLAY_TEXTURE_BYTES {
+            tile /= 2;
+        }
         let mut mips: Vec<Vec<u8>> = Vec::new();
         for source in &self.sources {
             let base = match source {
