@@ -36,7 +36,8 @@ pub use actor::{
     PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 pub use audio::{
-    AudioEvent, LevelAudioEvent, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent, StopAudioEvent,
+    AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
+    StopAudioEvent,
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,

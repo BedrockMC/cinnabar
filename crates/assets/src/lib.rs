@@ -13,6 +13,7 @@ mod environment_settings;
 mod equipment;
 mod error;
 mod font;
+mod fsb;
 mod hud;
 mod hud_extras;
 mod icon;
@@ -27,6 +28,8 @@ mod provenance;
 mod registry;
 mod runtime;
 mod server_lang;
+mod sound_bank;
+mod sound_events;
 mod texture;
 mod ui;
 mod weather_textures;
@@ -127,6 +130,7 @@ pub use font::{
     MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
     encode_font_catalog,
 };
+pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use hud::{
     HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_SOURCE_MANIFEST_SHA256, HudCatalogError,
     HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
@@ -180,6 +184,11 @@ pub use runtime::{
     SequentialIdRemap,
 };
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
+pub use sound_bank::{
+    MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
+    SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,
+};
+pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
     downsample_linear_premultiplied,
