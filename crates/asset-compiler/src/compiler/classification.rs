@@ -40,6 +40,29 @@ pub(in crate::compiler) fn is_chain(record: &RegistryRecord) -> bool {
             .is_some_and(|name| name.ends_with("chain") && !name.contains("command"))
 }
 
+/// Full cubes whose source art carries alpha (or that lack cube flags in the registry) and draw as one unit cube.
+pub(in crate::compiler) fn is_translucent_cube(record: &RegistryRecord) -> bool {
+    !record.flags.contains(BlockFlags::AIR)
+        && matches!(
+            record.name.as_bytes(),
+            b"minecraft:ice"
+                | b"minecraft:frosted_ice"
+                | b"minecraft:slime"
+                | b"minecraft:honey_block"
+                | b"minecraft:tinted_glass"
+                | b"minecraft:powder_snow"
+        )
+}
+
+/// Powder snow's art is fully opaque, so it stays on the opaque model path.
+pub(in crate::compiler) fn translucent_cube_material_flags(name: &str) -> u32 {
+    if name == "minecraft:powder_snow" {
+        0
+    } else {
+        MATERIAL_FLAG_ALPHA_BLEND
+    }
+}
+
 pub(in crate::compiler) fn is_ladder(record: &RegistryRecord) -> bool {
     record.name.as_ref() == "minecraft:ladder"
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -275,6 +298,7 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
     is_stained_glass_cube(record)
         || is_copper_grate(record)
+        || is_translucent_cube(record)
         || is_cutout_model_visual(record)
         || is_slab(record)
         || is_stair(record)
