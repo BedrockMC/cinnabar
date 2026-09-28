@@ -613,6 +613,7 @@ mod tests {
                 state_count: 1,
                 collides: true,
                 collision_box: None,
+                selection: Default::default(),
                 visual: Default::default(),
             }]
             .into(),

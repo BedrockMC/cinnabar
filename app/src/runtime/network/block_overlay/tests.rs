@@ -89,6 +89,7 @@ fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBloc
         state_count,
         collides: true,
         collision_box: None,
+        selection: Default::default(),
         visual: Arc::new(visual),
     }
 }
