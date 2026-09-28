@@ -421,7 +421,7 @@ pub(crate) fn rig_world_from_actor(
 }
 
 /// Tips the rig sideways about its feet as death progresses; the ease-out curve needs measurement.
-fn death_tilted(mut rows: [[f32; 4]; 3], progress: Option<f32>) -> [[f32; 4]; 3] {
+pub(crate) fn death_tilted(mut rows: [[f32; 4]; 3], progress: Option<f32>) -> [[f32; 4]; 3] {
     let Some(progress) = progress else {
         return rows;
     };

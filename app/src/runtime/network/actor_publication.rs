@@ -231,6 +231,19 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         });
         (visibility.visible(), local)
     });
+    // The visibility override rebuilds the local transform, so re-apply the death tip-over.
+    let local_death = client_world
+        .stream
+        .as_ref()
+        .and_then(|stream| stream.actor(local_runtime_id))
+        .and_then(|actor| actor.status.death_progress(step.partial_tick));
+    let local = local.map(|mut local| {
+        local.submission.world_from_actor = crate::presentation::actors::death_tilted(
+            local.submission.world_from_actor,
+            local_death,
+        );
+        local
+    });
     let batch = select_actor_presentations_for_view(
         local_runtime_id,
         local_visible,
