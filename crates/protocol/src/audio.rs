@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use valentine::bedrock::borrowed::BorrowedStr;
 use valentine::bedrock::version::v1_26_44::{
-    BorrowedMcpePacketData, LevelSoundEventPacket, PlaySoundPacket, StopSoundPacket,
+    BorrowedMcpePacketData, LevelEventPacket, LevelSoundEventPacket, PlaySoundPacket,
+    StopSoundPacket,
 };
 
 use crate::WorldPacketError;
@@ -20,6 +21,15 @@ pub enum AudioEvent {
     Play(PlayAudioEvent),
     Stop(StopAudioEvent),
     Level(LevelAudioEvent),
+    /// A sound-only `LevelEventPacket` (the 1000-range ids).
+    LevelEvent(LevelEventSound),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LevelEventSound {
+    pub event_id: i32,
+    pub position: [f32; 3],
+    pub data: i32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,6 +59,24 @@ pub struct LevelAudioEvent {
     pub is_global: bool,
     pub actor_unique_id: i64,
     pub fire_at_position: Option<[f32; 3]>,
+}
+
+/// Returns the sound event for `LevelEventPacket` ids in the sound range; others and
+/// non-finite positions are skipped.
+pub(crate) fn normalize_level_event_sound(packet: &LevelEventPacket) -> Option<AudioEvent> {
+    if !(1000..2000).contains(&packet.event_id) {
+        return None;
+    }
+    let position = [packet.position.x, packet.position.y, packet.position.z];
+    position
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(())?;
+    Some(AudioEvent::LevelEvent(LevelEventSound {
+        event_id: packet.event_id,
+        position,
+        data: packet.data,
+    }))
 }
 
 pub(crate) fn validate_borrowed_audio_packet(
@@ -177,4 +205,32 @@ fn validate_finite(value: f32, field: &'static str) -> Result<(), WorldPacketErr
         return Err(WorldPacketError::NonFiniteAudioField { field });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod level_event_tests {
+    use super::*;
+    use valentine::bedrock::version::v1_26_44::Vec3;
+
+    fn level(event_id: i32, x: f32) -> LevelEventPacket {
+        LevelEventPacket {
+            event_id,
+            position: Vec3 { x, y: 1.0, z: 2.0 },
+            data: 7,
+        }
+    }
+
+    #[test]
+    fn sound_range_level_events_normalize_and_others_are_skipped() {
+        let Some(AudioEvent::LevelEvent(event)) = normalize_level_event_sound(&level(1003, 4.0))
+        else {
+            panic!("sound-range event");
+        };
+        assert_eq!(
+            (event.event_id, event.data, event.position),
+            (1003, 7, [4.0, 1.0, 2.0])
+        );
+        assert!(normalize_level_event_sound(&level(2001, 0.0)).is_none());
+        assert!(normalize_level_event_sound(&level(1003, f32::NAN)).is_none());
+    }
 }

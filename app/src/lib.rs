@@ -1,5 +1,6 @@
 pub mod args;
 pub mod asset_startup;
+mod audio;
 mod block_cracks;
 mod block_entities;
 mod block_use;

@@ -68,7 +68,11 @@ pub fn decode_fsb5(input: &[u8]) -> Result<DecodedSound, FsbError> {
     let data_start = names_start
         .checked_add(names_len)
         .ok_or(FsbError::Malformed("name size"))?;
-    if header_len < 8 || data_start.checked_add(data_len).is_none_or(|end| end > input.len()) {
+    if header_len < 8
+        || data_start
+            .checked_add(data_len)
+            .is_none_or(|end| end > input.len())
+    {
         return Err(FsbError::Malformed("section lengths"));
     }
     let header = &input[BASE_HEADER..names_start];
@@ -140,10 +144,8 @@ fn decode_fadpcm(data: &[u8], frames: usize, channels: u8) -> Result<Vec<i16>, F
         .ok_or(FsbError::Malformed("truncated FADPCM"))?;
     let mut samples = Vec::with_capacity(frames * channel_count);
     for (index, group) in data.chunks_exact(group_bytes).enumerate() {
-        let decoded: Vec<[i16; BLOCK_FRAMES]> = group
-            .chunks_exact(BLOCK_BYTES)
-            .map(decode_block)
-            .collect();
+        let decoded: Vec<[i16; BLOCK_FRAMES]> =
+            group.chunks_exact(BLOCK_BYTES).map(decode_block).collect();
         let count = (frames - index * BLOCK_FRAMES).min(BLOCK_FRAMES);
         for frame in 0..count {
             for channel in &decoded {
@@ -190,16 +192,7 @@ mod tests {
         let mut header = mode.to_le_bytes().to_vec();
         header.extend_from_slice(chunks);
         let mut out = b"FSB5".to_vec();
-        for value in [
-            1,
-            1,
-            header.len() as u32,
-            0,
-            data.len() as u32,
-            codec,
-            0,
-            0,
-        ] {
+        for value in [1, 1, header.len() as u32, 0, data.len() as u32, codec, 0, 0] {
             out.extend(value.to_le_bytes());
         }
         out.resize(BASE_HEADER, 0);
@@ -210,7 +203,10 @@ mod tests {
 
     #[test]
     fn pcm16_mono_round_trips() {
-        let data: Vec<u8> = [1_i16, -2, 3].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let data: Vec<u8> = [1_i16, -2, 3]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
         // Rate index 9 (48 kHz), one channel, three frames.
         let mode = (9_u64 << 1) | (3_u64 << 34);
         let sound = decode_fsb5(&bank(CODEC_PCM16, mode, &[], &data)).expect("decode");

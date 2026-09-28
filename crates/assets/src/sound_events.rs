@@ -181,21 +181,51 @@ fn bare(identifier: &str) -> &str {
     identifier.strip_prefix("minecraft:").unwrap_or(identifier)
 }
 
-fn resolve(set: &EventSet, event: &str, material: Option<&str>) -> Option<SoundRoute> {
-    let found = set.events.get(event).or_else(|| set.events.get("default"))?;
-    let base = match found {
-        Entry::Silent => return None,
-        Entry::Route(route) => route.clone(),
-        Entry::ByMaterial(map) => map
-            .get(material.unwrap_or("default"))
-            .or_else(|| map.get("default"))?
-            .clone()?,
+/// Outcome of an event lookup; `Silent` is an explicit empty sound, `Absent` means no entry.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RouteLookup {
+    Absent,
+    Silent,
+    Route(SoundRoute),
+}
+
+impl RouteLookup {
+    pub fn route(self) -> Option<SoundRoute> {
+        match self {
+            Self::Route(route) => Some(route),
+            _ => None,
+        }
+    }
+}
+
+fn lookup(set: &EventSet, event: &str, material: Option<&str>) -> RouteLookup {
+    let Some(found) = set.events.get(event).or_else(|| set.events.get("default")) else {
+        return RouteLookup::Absent;
     };
-    Some(SoundRoute {
+    let base = match found {
+        Entry::Silent => return RouteLookup::Silent,
+        Entry::Route(route) => route.clone(),
+        Entry::ByMaterial(map) => {
+            match map
+                .get(material.unwrap_or("default"))
+                .or_else(|| map.get("default"))
+                .cloned()
+                .flatten()
+            {
+                Some(route) => route,
+                None => return RouteLookup::Silent,
+            }
+        }
+    };
+    RouteLookup::Route(SoundRoute {
         sound: base.sound,
         volume: base.volume.scaled(set.volume),
         pitch: base.pitch.scaled(set.pitch),
     })
+}
+
+fn resolve(set: &EventSet, event: &str, material: Option<&str>) -> Option<SoundRoute> {
+    lookup(set, event, material).route()
 }
 
 impl SoundEventTables {
@@ -204,11 +234,17 @@ impl SoundEventTables {
     pub fn from_json(sounds: &Value, block_materials: &Value) -> Self {
         let mut tables = Self::default();
         tables.blocks = set_map(sounds.get("block_sounds"));
-        if let Some(defaults) = sounds.pointer("/entity_sounds/defaults").and_then(event_set) {
+        if let Some(defaults) = sounds
+            .pointer("/entity_sounds/defaults")
+            .and_then(event_set)
+        {
             tables.entity_defaults = defaults;
         }
         tables.entities = entity_map(sounds.pointer("/entity_sounds/entities"));
-        for section in ["/individual_event_sounds/events", "/individual_named_sounds/sounds"] {
+        for section in [
+            "/individual_event_sounds/events",
+            "/individual_named_sounds/sounds",
+        ] {
             if let Some(Value::Object(events)) = sounds.pointer(section) {
                 for (name, value) in events {
                     if let Some(found) = route(value) {
@@ -229,7 +265,9 @@ impl SoundEventTables {
         if let Value::Object(map) = block_materials {
             tables.materials = map
                 .iter()
-                .filter_map(|(block, material)| Some((bare(block).into(), material.as_str()?.into())))
+                .filter_map(|(block, material)| {
+                    Some((bare(block).into(), material.as_str()?.into()))
+                })
                 .collect();
         }
         tables
@@ -257,7 +295,9 @@ impl SoundEventTables {
 
     /// Sound material name (`stone`, `wood`, ...) of a block identifier.
     pub fn material_of(&self, block_identifier: &str) -> Option<&str> {
-        self.materials.get(bare(block_identifier)).map(AsRef::as_ref)
+        self.materials
+            .get(bare(block_identifier))
+            .map(AsRef::as_ref)
     }
 
     /// Break/place/hit/etc. route of a block sound material.
@@ -266,26 +306,42 @@ impl SoundEventTables {
     }
 
     /// Route of an actor event; `variant` selects a `variants.map` entry when the base lacks it.
-    pub fn entity(&self, identifier: &str, event: &str, variant: Option<&str>) -> Option<SoundRoute> {
-        let name = bare(identifier);
-        if let Some(entity) = self.entities.get(name) {
-            let variant_set = variant
-                .and_then(|key| entity.variants.get(key))
-                .or_else(|| entity.variants.get("default"));
-            let explicit = |set: &EventSet| set.events.contains_key(event);
-            if let Some(set) = variant_set.filter(|set| explicit(set)) {
-                return resolve(set, event, None);
-            }
-            if explicit(&entity.base) {
-                return resolve(&entity.base, event, None);
-            }
-            return resolve(&self.entity_defaults, event, None).map(|found| SoundRoute {
+    pub fn entity(
+        &self,
+        identifier: &str,
+        event: &str,
+        variant: Option<&str>,
+    ) -> Option<SoundRoute> {
+        self.entity_lookup(identifier, event, variant).route()
+    }
+
+    /// Like [`Self::entity`] but distinguishing an explicit silent entry from no entry.
+    pub fn entity_lookup(
+        &self,
+        identifier: &str,
+        event: &str,
+        variant: Option<&str>,
+    ) -> RouteLookup {
+        let Some(entity) = self.entities.get(bare(identifier)) else {
+            return lookup(&self.entity_defaults, event, None);
+        };
+        let variant_set = variant
+            .and_then(|key| entity.variants.get(key))
+            .or_else(|| entity.variants.get("default"));
+        if let Some(set) = variant_set.filter(|set| set.events.contains_key(event)) {
+            return lookup(set, event, None);
+        }
+        if entity.base.events.contains_key(event) {
+            return lookup(&entity.base, event, None);
+        }
+        match lookup(&self.entity_defaults, event, None) {
+            RouteLookup::Route(found) => RouteLookup::Route(SoundRoute {
                 volume: found.volume.scaled(entity.base.volume),
                 pitch: found.pitch.scaled(entity.base.pitch),
                 ..found
-            });
+            }),
+            other => other,
         }
-        resolve(&self.entity_defaults, event, None)
     }
 
     /// Footstep/fall/jump/land route of an actor moving over a block sound material.
@@ -344,11 +400,17 @@ mod tests {
     #[test]
     fn entity_override_beats_defaults_and_empty_string_is_silence() {
         let tables = tables();
-        assert_eq!(&*tables.entity("minecraft:cow", "hurt", None).unwrap().sound, "mob.cow.hurt");
+        assert_eq!(
+            &*tables.entity("minecraft:cow", "hurt", None).unwrap().sound,
+            "mob.cow.hurt"
+        );
         assert!(tables.entity("cow", "step", None).is_none());
         let eat = tables.entity("minecraft:cow", "eat", None).unwrap();
         assert_eq!(eat.pitch, FloatRange { min: 0.8, max: 1.2 });
-        assert_eq!(&*tables.entity("pig", "hurt", None).unwrap().sound, "game.hurt");
+        assert_eq!(
+            &*tables.entity("pig", "hurt", None).unwrap().sound,
+            "game.hurt"
+        );
     }
 
     #[test]
@@ -368,7 +430,10 @@ mod tests {
             &json!({}),
         );
         base.merge(later);
-        assert_eq!(&*base.individual("random.click").unwrap().sound, "custom.click");
+        assert_eq!(
+            &*base.individual("random.click").unwrap().sound,
+            "custom.click"
+        );
         assert!(base.block("stone", "break").is_some());
     }
 }
