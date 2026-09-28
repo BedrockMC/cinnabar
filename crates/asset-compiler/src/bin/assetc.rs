@@ -38,6 +38,8 @@ mod lang_command;
 mod output_validation;
 #[path = "assetc/registry_version.rs"]
 mod registry_version;
+#[path = "assetc/block_entity_command.rs"]
+mod block_entity_command;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
 
@@ -128,6 +130,18 @@ enum Command {
         report: PathBuf,
     },
     HudAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Pack block-entity model textures and the version-pinned inventory into
+    /// the block-entity carrier.
+    BlockEntityAssets {
         #[arg(long)]
         pack: PathBuf,
         #[arg(long)]
@@ -431,6 +445,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             actor_command::compile_actor_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::BlockEntityAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            block_entity_command::compile_block_entity_assets_command(
+                &pack,
+                &source_manifest,
+                &out,
+                &report,
+            )?;
         }
         Command::UiAssets {
             pack,
