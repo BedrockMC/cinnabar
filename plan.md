@@ -1920,6 +1920,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     globally zero diagnostic and zero provisional-fallback counters,
     vanilla-reference screenshots, upload/memory/CPU
     metrics, and teleport-remesh evidence.
+    - [x] Torch, ladder, rail, tulip, golden-dandelion, and coral-plant exact
+      routes (97 states) supersede their envelope inventory entries; leaves
+      render Fancy. Wall-torch pivot, ladder/rail offsets, and rail curve
+      sprite orientation need native measurement; the coverage baseline must
+      be regenerated. Residual names: `docs/phase-2-family-inventory.md`.
     - [x] Lava implementation: all 32 `minecraft:lava` and
       `minecraft:flowing_lava` depth states compile through the animated liquid
       mesher without water tint or alpha blending, use an immutable packed route

@@ -104,7 +104,6 @@ impl AxisColumns {
 pub(crate) struct VisibilityMasks {
     geometry: AxisColumns,
     occluders: AxisColumns,
-    leaves: AxisColumns,
 }
 
 impl VisibilityMasks {
@@ -113,7 +112,6 @@ impl VisibilityMasks {
             PaletteSource::Air => Self {
                 geometry: AxisColumns::empty(),
                 occluders: AxisColumns::empty(),
-                leaves: AxisColumns::empty(),
             },
             PaletteSource::Uniform(contributors) => {
                 let entry = contributors.geometry_entry();
@@ -128,18 +126,12 @@ impl VisibilityMasks {
                     } else {
                         AxisColumns::empty()
                     },
-                    leaves: if entry.flags.contains(BlockFlags::LEAF_MODEL) {
-                        AxisColumns::full()
-                    } else {
-                        AxisColumns::empty()
-                    },
                 }
             }
             PaletteSource::Mixed(_) => {
                 let mut masks = Self {
                     geometry: AxisColumns::empty(),
                     occluders: AxisColumns::empty(),
-                    leaves: AxisColumns::empty(),
                 };
                 for x in 0..SIDE {
                     for y in 0..SIDE {
@@ -150,9 +142,6 @@ impl VisibilityMasks {
                             }
                             if entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
                                 masks.occluders.set(x, y, z);
-                            }
-                            if entry.flags.contains(BlockFlags::LEAF_MODEL) {
-                                masks.leaves.set(x, y, z);
                             }
                         }
                     }
@@ -166,7 +155,6 @@ impl VisibilityMasks {
 pub(crate) fn exposed_columns<'a>(
     context: PaletteResolutionContext<'_, 'a>,
     face: Face,
-    facts: &PaletteFacts<'a>,
     masks: &VisibilityMasks,
     neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
 ) -> Columns {
@@ -194,31 +182,21 @@ pub(crate) fn exposed_columns<'a>(
         for (u, exposed_cell) in exposed_row.iter_mut().enumerate() {
             let geometry_column = masks.geometry.column(face, u, v);
             let occluder_column = masks.occluders.column(face, u, v);
-            let leaf_column = masks.leaves.column(face, u, v);
             let neighbour_occluders = if face.is_negative() {
                 occluder_column << 1
             } else {
                 occluder_column >> 1
             };
-            let neighbour_leaves = if face.is_negative() {
-                leaf_column << 1
-            } else {
-                leaf_column >> 1
-            };
-            let leaf_pairs = leaf_column & neighbour_leaves;
-            let mut faces = geometry_column & !neighbour_occluders & !leaf_pairs & FULL_COLUMN;
+            let mut faces = geometry_column & !neighbour_occluders & FULL_COLUMN;
 
             if faces & boundary_bit != 0 {
-                let slice = if face.is_negative() { 0 } else { SIDE - 1 };
-                let [source_x, source_y, source_z] = block_coordinate(face, slice, u, v);
-                let source = facts.at(source_x, source_y, source_z);
                 let neighbour = neighbour
                     .as_ref()
                     .map_or(ResolvedPaletteEntry::AIR, |facts| {
                         let [x, y, z] = neighbour_boundary_coordinate(face, u, v);
                         facts.at(x, y, z)
                     });
-                if culls_face(source.flags, neighbour.flags) {
+                if culls_face(neighbour.flags) {
                     faces &= !boundary_bit;
                 }
             }
@@ -239,9 +217,8 @@ pub(crate) const fn face_offset(face: Face) -> [i8; 3] {
     }
 }
 
-const fn culls_face(source: BlockFlags, neighbour: BlockFlags) -> bool {
+const fn culls_face(neighbour: BlockFlags) -> bool {
     neighbour.contains(BlockFlags::OCCLUDES_FULL_FACE)
-        || (source.contains(BlockFlags::LEAF_MODEL) && neighbour.contains(BlockFlags::LEAF_MODEL))
 }
 
 const fn neighbour_boundary_coordinate(face: Face, u: usize, v: usize) -> [usize; 3] {

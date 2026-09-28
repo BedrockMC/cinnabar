@@ -111,7 +111,7 @@ animated rig remotes use. All three below flow from that.
 - Daylight/lightmap curve wrong: `sin·0.8+0.2` vs vanilla `ramp(cos(easedCelestialAngle))`;
   night too bright (0.2/0.04 floors), no day plateau (HIGH).
 - Stars at night — absent (MED-HIGH).
-- Leaves: leaf↔leaf faces culled (Fast look) → hollow/speckled; want Fancy (MED-HIGH).
+- Leaves: Fancy look landed (leaf↔leaf faces kept); live compare pending.
 - Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
 - Server resource packs not applied to rendering: core downloads/admits them but
   `application=unavailable`, so custom blocks/textures render as magenta missing-texture (HIGH, confirmed live).
