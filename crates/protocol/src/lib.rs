@@ -103,7 +103,7 @@ pub use item::{
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, item_custom_color, item_enchantment_level, item_extra_damage, item_icon_keys,
+    NetworkItemStack, item_charged_projectile, item_custom_color, item_enchantment_level, item_extra_damage, item_icon_keys,
     item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::vanilla_item_capacity;

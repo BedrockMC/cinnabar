@@ -175,6 +175,30 @@ pub fn item_custom_color(extra_data: &[u8]) -> Option<u32> {
     Some(read_i32_le(&mut payload)? as u32 & 0x00ff_ffff)
 }
 
+/// Reads the `Name` of the root `chargedItem` compound a loaded crossbow carries; `None` when the
+/// stack is not charged or the compound names no projectile.
+#[must_use]
+pub fn item_charged_projectile(extra_data: &[u8]) -> Option<std::sync::Arc<str>> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut payload = root_tag(&mut cursor, 10, b"chargedItem")?;
+    loop {
+        let entry = read_u8(&mut payload)?;
+        if entry == 0 {
+            return None;
+        }
+        let name_len = usize::from(read_u16_le(&mut payload)?);
+        let name = payload.get(..name_len)?;
+        payload = payload.get(name_len..)?;
+        if entry == 8 && name == b"Name" {
+            let len = usize::from(read_u16_le(&mut payload)?);
+            let value = std::str::from_utf8(payload.get(..len)?).ok()?;
+            return Some(std::sync::Arc::from(value));
+        }
+        skip_le_payload(&mut payload, entry, 1)?;
+    }
+}
+
 /// Positions `cursor` at the payload of the named root tag of type `tag`.
 fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8]> {
     if read_u8(cursor)? != 10 {

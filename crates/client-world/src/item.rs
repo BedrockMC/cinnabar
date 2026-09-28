@@ -23,6 +23,8 @@ pub struct CanonicalItemStack {
     pub identity: ItemStackIdentity,
     pub identifier: Option<Arc<str>>,
     pub visual: ItemVisualRoute,
+    /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
+    pub charged_projectile: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -277,7 +279,9 @@ impl ItemStateStore {
                 &mut snapshot.boots,
                 &mut snapshot.body,
             ] {
+                let charged = piece.item.charged_projectile.take();
                 piece.item = self.resolve_identity(piece.item.identity);
+                piece.item.charged_projectile = charged;
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -292,7 +296,11 @@ impl ItemStateStore {
             else {
                 continue;
             };
-            let item = self.resolve_identity(identity);
+            let mut item = self.resolve_identity(identity);
+            item.charged_projectile = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.charged_projectile.clone());
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
             if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
@@ -343,7 +351,9 @@ impl ItemStateStore {
         } else {
             identity
         };
-        Some(self.resolve_identity(identity))
+        let mut item = self.resolve_identity(identity);
+        item.charged_projectile = protocol::item_charged_projectile(&stack.extra_data);
+        Some(item)
     }
 
     fn resolve_identity(&self, identity: ItemStackIdentity) -> CanonicalItemStack {
@@ -352,6 +362,7 @@ impl ItemStateStore {
                 identity,
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
+                charged_projectile: None,
             };
         }
         let identifier = self
@@ -370,6 +381,7 @@ impl ItemStateStore {
             identity,
             identifier,
             visual,
+            charged_projectile: None,
         }
     }
 
@@ -532,6 +544,27 @@ mod armor_tests {
         assert!(store.armor(8).is_some());
         store.clear_actor_state();
         assert!(store.armor(8).is_some());
+    }
+
+    #[test]
+    fn canonical_stack_keeps_the_charged_crossbow_projectile() {
+        let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x0a];
+        extra.extend_from_slice(&11u16.to_le_bytes());
+        extra.extend_from_slice(b"chargedItem");
+        extra.push(0x08);
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"Name");
+        extra.extend_from_slice(&15u16.to_le_bytes());
+        extra.extend_from_slice(b"minecraft:arrow");
+        extra.extend_from_slice(&[0x00, 0x00]);
+        let store = ItemStateStore::diagnostic();
+        let charged = store.canonicalize(&stack(1, &extra)).unwrap();
+        assert_eq!(
+            charged.charged_projectile.as_deref(),
+            Some("minecraft:arrow")
+        );
+        let plain = store.canonicalize(&stack(1, &dyed_extra())).unwrap();
+        assert_eq!(plain.charged_projectile, None);
     }
 
     #[test]
