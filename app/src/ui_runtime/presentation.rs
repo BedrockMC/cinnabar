@@ -35,6 +35,7 @@ use crate::{
 mod chat;
 mod dynamic_textures;
 mod forms;
+mod hud_extras;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod item_sprite;
@@ -47,6 +48,7 @@ mod primitives;
 mod publish;
 mod retained_hud;
 mod session_icons;
+pub(crate) use hud_extras::load_optional as load_optional_hud_extras;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
 mod text_metrics;
@@ -150,6 +152,8 @@ pub struct UiPresentationRuntime {
     below_name_anchors: Vec<BelowNameAnchor>,
     /// World-projected nametags for players without a below-name score.
     nametag_anchors: Vec<nametags::NametagAnchor>,
+    /// Hardcore heart sprites when the optional extras carrier is installed.
+    hardcore_hearts: Option<hud_extras::HardcoreHearts>,
     /// Stable reserved logical page for the optional preview raster.
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
@@ -237,6 +241,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
+            hardcore_hearts: None,
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
@@ -425,6 +430,7 @@ impl UiPresentationRuntime {
         {
             let mut frame = self.hud_frame.clone();
             frame.now_millis = now_millis;
+            frame.hardcore_hearts = self.hardcore_hearts;
             let mut layout = HudLayout::new(
                 &mut nodes,
                 &mut next_id,
