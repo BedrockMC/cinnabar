@@ -14,7 +14,7 @@ use assets::{
     ArmorSlot, AssetError, AttachablePose, AttachablePoseBone, EntityAssetKind, EntityAssetSource,
     EntityAssetSymbol, EntityDependencyResolution, EquipmentBinding, EquipmentCategory,
     EquipmentReference, EquipmentTexture, EquipmentTransform, ItemDisplayScalar,
-    ItemDisplayTransform, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_IDENTIFIER_BYTES,
+    ItemDisplayTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_IDENTIFIER_BYTES,
     MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
 };
 use image::{ImageFormat, ImageReader, Limits};
@@ -99,6 +99,64 @@ pub(super) fn transform_lookup(
             )
         })
         .collect()
+}
+
+/// Item use durations the behavior pack states, sorted by identifier: `use_modifiers.use_duration`
+/// in seconds or the older `minecraft:use_duration` in ticks. Unreadable items are skipped.
+pub fn compile_item_use(behavior_pack: &Path) -> Result<Vec<ItemUseDuration>, AssetError> {
+    const MAX_ITEM_JSON_BYTES: u64 = 256 * 1024;
+    let directory = behavior_pack.join("items");
+    let entries = std::fs::read_dir(&directory).map_err(|source| AssetError::Io {
+        path: directory.clone(),
+        source,
+    })?;
+    let mut durations = BTreeMap::<Box<str>, u32>::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let bounded = entry
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() <= MAX_ITEM_JSON_BYTES);
+        if !bounded || path.extension().is_none_or(|extension| extension != "json") {
+            continue;
+        }
+        let Some(item) = std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|document| document.get("minecraft:item").cloned())
+        else {
+            continue;
+        };
+        let (Some(identifier), Some(components)) = (
+            item.pointer("/description/identifier")
+                .and_then(Value::as_str),
+            item.get("components"),
+        ) else {
+            continue;
+        };
+        let seconds = components
+            .pointer("/minecraft:use_modifiers/use_duration")
+            .and_then(Value::as_f64)
+            .map(|seconds| seconds * 20.0);
+        let ticks = seconds.or_else(|| {
+            components
+                .get("minecraft:use_duration")
+                .and_then(Value::as_f64)
+        });
+        let Some(ticks) = ticks.filter(|ticks| ticks.is_finite() && *ticks >= 1.0) else {
+            continue;
+        };
+        let (Ok(identifier), Ok(ticks)) = (
+            bounded_identifier(identifier),
+            u32::try_from(ticks.round() as u64),
+        ) else {
+            continue;
+        };
+        durations.insert(identifier, ticks);
+    }
+    Ok(durations
+        .into_iter()
+        .map(|(identifier, ticks)| ItemUseDuration { identifier, ticks })
+        .collect())
 }
 
 /// Decodes every binding's default texture found among the collected sources, sorted by
@@ -788,6 +846,41 @@ mod tests {
         assert_eq!(
             off.bones[0].scale.unwrap().map(|v| v.get()),
             [-1.0, -1.0, 1.0]
+        );
+    }
+
+    #[test]
+    fn item_use_durations_read_seconds_and_ticks_and_skip_the_rest() {
+        let root = tempfile::tempdir().unwrap();
+        let items = root.path().join("items");
+        std::fs::create_dir(&items).unwrap();
+        let write = |name: &str, body: &str| std::fs::write(items.join(name), body).unwrap();
+        write(
+            "honey.json",
+            r#"{"minecraft:item":{"description":{"identifier":"minecraft:honey_bottle"},
+                "components":{"minecraft:use_modifiers":{"use_duration":1.6}}}}"#,
+        );
+        write(
+            "spear.json",
+            r#"{"minecraft:item":{"description":{"identifier":"minecraft:iron_spear"},
+                "components":{"minecraft:use_duration":72000}}}"#,
+        );
+        write(
+            "seed.json",
+            r#"{"minecraft:item":{"description":{"identifier":"minecraft:seeds"},"components":{}}}"#,
+        );
+        write("broken.json", "{");
+        let durations = compile_item_use(root.path()).unwrap();
+        let pairs = durations
+            .iter()
+            .map(|entry| (entry.identifier.as_ref(), entry.ticks))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pairs,
+            [
+                ("minecraft:honey_bottle", 32),
+                ("minecraft:iron_spear", 72000)
+            ]
         );
     }
 }
