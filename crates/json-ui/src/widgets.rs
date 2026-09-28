@@ -91,12 +91,12 @@ pub(crate) fn hidden_state_children(
             } else {
                 "default_control"
             };
-            (&BUTTON_STATES, shown)
+            (&BUTTON_STATES[..], shown)
         }
         "toggle" | "dropdown" => {
             let checked = toggle_checked(control);
             let index = usize::from(checked) + 2 * usize::from(hovered) + 4 * usize::from(locked);
-            (&TOGGLE_STATES, TOGGLE_STATES[index])
+            (&TOGGLE_STATES[..], TOGGLE_STATES[index])
         }
         "slider" => {
             let shown = if hovered || pressed {
@@ -104,7 +104,7 @@ pub(crate) fn hidden_state_children(
             } else {
                 "default_control"
             };
-            (&["default_control", "hover_control"], shown)
+            (&BUTTON_STATES[..2], shown)
         }
         _ => return Vec::new(),
     };
