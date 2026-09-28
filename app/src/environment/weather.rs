@@ -1,0 +1,238 @@
+//! Client-side weather presentation: eased levels, lightning flash and the precipitation scene.
+
+use assets::BiomeRule;
+use bevy::{
+    prelude::{Local, Query, Res, ResMut, Resource, Time, Transform, With},
+    time::Real,
+};
+use client_world::WorldStream;
+use meshing::CameraMedium;
+use render::{
+    AtmosphereFrame, ColumnSample, ColumnSampler, PRECIPITATION_LEVEL_PER_SECOND,
+    PrecipitationScene, RainSplashQueue, SkyKind, approach_level, build_precipitation_columns,
+    lightning_flash_level, pick_rain_splashes, precipitation_clock,
+};
+
+use super::WeatherState;
+use crate::{camera::FlyCamera, runtime::world::ClientWorld};
+
+const MAX_FRAME_STEP_SECONDS: f64 = 1.0;
+const REBUILD_INTERVAL_SECONDS: f64 = 0.1;
+const MAX_QUEUED_SPLASHES: usize = 256;
+
+/// Time of the latest lightning strike; the sky and lightmap flash for a moment after it.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct LightningFlashState {
+    struck_at: Option<f64>,
+}
+
+impl LightningFlashState {
+    /// Starts a flash; called when a lightning bolt actor appears.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "wired by the actor lane when bolts spawn")
+    )]
+    pub(crate) fn trigger(&mut self, elapsed_seconds: f64) {
+        self.struck_at = Some(elapsed_seconds);
+    }
+
+    pub(crate) fn level(&self, elapsed_seconds: f64) -> f32 {
+        self.struck_at.map_or(0.0, |struck| {
+            lightning_flash_level((elapsed_seconds - struck) as f32)
+        })
+    }
+}
+
+/// Rain and thunder levels eased toward the server targets, plus time spent submerged.
+#[derive(Debug, Default)]
+pub(crate) struct WeatherDisplay {
+    generation: Option<u64>,
+    rain: f32,
+    thunder: f32,
+    last_elapsed: Option<f64>,
+    step_seconds: f64,
+    submerged: f32,
+}
+
+impl WeatherDisplay {
+    /// Moves the displayed levels toward `target`; a new session snaps to it.
+    pub(crate) fn advance(&mut self, target: WeatherState, elapsed_seconds: f64) -> WeatherState {
+        let previous = self.last_elapsed.replace(elapsed_seconds);
+        self.step_seconds = previous.map_or(0.0, |previous| {
+            (elapsed_seconds - previous).clamp(0.0, MAX_FRAME_STEP_SECONDS)
+        });
+        if self.generation != Some(target.session_generation) {
+            self.generation = Some(target.session_generation);
+            self.rain = target.rain_level;
+            self.thunder = target.lightning_level;
+        } else {
+            let step = PRECIPITATION_LEVEL_PER_SECOND * self.step_seconds as f32;
+            self.rain = approach_level(self.rain, target.rain_level, step);
+            self.thunder = approach_level(self.thunder, target.lightning_level, step);
+        }
+        WeatherState {
+            rain_level: self.rain,
+            lightning_level: self.thunder,
+            ..target
+        }
+    }
+
+    /// Seconds continuously spent in water as of the last `advance`; zero elsewhere.
+    pub(crate) fn submerged_seconds(&mut self, medium: CameraMedium) -> f32 {
+        if medium == CameraMedium::Water {
+            self.submerged += self.step_seconds as f32;
+        } else {
+            self.submerged = 0.0;
+        }
+        self.submerged
+    }
+}
+
+struct StreamColumns<'a> {
+    stream: &'a WorldStream,
+    rules: &'a [BiomeRule],
+}
+
+impl ColumnSampler for StreamColumns<'_> {
+    fn sample(&mut self, x: i32, z: i32) -> Option<ColumnSample> {
+        let top = self.stream.top_non_air_block_y(x, z)?;
+        let biome =
+            self.stream
+                .camera_biome_id([x as f32 + 0.5, top as f32 + 0.5, z as f32 + 0.5])?;
+        let rule = &self.rules[self
+            .rules
+            .binary_search_by_key(&biome, |rule| rule.id)
+            .ok()?];
+        Some(ColumnSample {
+            surface_y: top.saturating_add(1),
+            temperature: rule.temperature(),
+            downfall: rule.downfall(),
+        })
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PrecipitationCadence {
+    last_rebuild: Option<f64>,
+    last_tick: u64,
+}
+
+/// Rebuilds the precipitation scene around the camera and queues rain splashes for the particle system.
+pub(crate) fn update_precipitation_scene(
+    frame: Res<AtmosphereFrame>,
+    client_world: Res<ClientWorld>,
+    camera: Query<&Transform, With<FlyCamera>>,
+    time: Res<Time<Real>>,
+    mut scene: ResMut<PrecipitationScene>,
+    mut splashes: ResMut<RainSplashQueue>,
+    mut cadence: Local<PrecipitationCadence>,
+) {
+    let level = frame.rain_level();
+    let stream = client_world.stream.as_ref();
+    let camera = camera.single().ok();
+    let (Some(stream), Some(camera), true) = (
+        stream,
+        camera,
+        level > 0.0 && frame.sky_kind() == SkyKind::Overworld,
+    ) else {
+        scene.columns.clear();
+        scene.level = 0.0;
+        cadence.last_rebuild = None;
+        return;
+    };
+    let elapsed = time.elapsed_secs_f64();
+    scene.level = level;
+    scene.clock = precipitation_clock(elapsed);
+    if cadence
+        .last_rebuild
+        .is_none_or(|last| elapsed - last >= REBUILD_INTERVAL_SECONDS)
+    {
+        cadence.last_rebuild = Some(elapsed);
+        let mut columns = StreamColumns {
+            stream,
+            rules: &client_world.runtime_assets.biome_assets().rules,
+        };
+        build_precipitation_columns(
+            &mut columns,
+            camera.translation.to_array(),
+            &mut scene.columns,
+        );
+    }
+    let tick = (elapsed * 20.0) as u64;
+    if tick != cadence.last_tick {
+        cadence.last_tick = tick;
+        if splashes.positions.len() > MAX_QUEUED_SPLASHES {
+            splashes.positions.clear();
+        }
+        let mut picked = Vec::new();
+        pick_rain_splashes(&scene.columns, level, tick, &mut picked);
+        splashes.positions.extend(picked);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::environment::{WorldClock, replace_session};
+    use protocol::WorldEnvironmentBootstrap;
+
+    fn target(rain: f32, thunder: f32, generation: u64) -> WeatherState {
+        let mut weather = WeatherState::default();
+        let mut clock = WorldClock::default();
+        replace_session(
+            &mut clock,
+            &mut weather,
+            WorldEnvironmentBootstrap {
+                initial_time: 0,
+                day_cycle_lock_time: 0,
+                daylight_cycle_enabled: true,
+                rain_level: rain,
+                lightning_level: thunder,
+            },
+            0.0,
+        );
+        weather.session_generation = generation;
+        weather
+    }
+
+    #[test]
+    fn first_frame_snaps_then_levels_ease_at_a_fixed_rate() {
+        let mut display = WeatherDisplay::default();
+        assert_eq!(display.advance(target(1.0, 0.0, 1), 10.0).rain_level(), 1.0);
+        let fading = display.advance(target(0.0, 0.0, 1), 11.0);
+        assert!((fading.rain_level() - 0.8).abs() < 1.0e-6);
+        let mut done = fading;
+        for second in 12..20 {
+            done = display.advance(target(0.0, 0.0, 1), f64::from(second));
+        }
+        assert_eq!(done.rain_level(), 0.0);
+    }
+
+    #[test]
+    fn a_new_session_snaps_instead_of_fading() {
+        let mut display = WeatherDisplay::default();
+        display.advance(target(1.0, 1.0, 1), 0.0);
+        let next = display.advance(target(0.0, 0.0, 2), 0.1);
+        assert_eq!((next.rain_level(), next.lightning_level()), (0.0, 0.0));
+    }
+
+    #[test]
+    fn submerged_time_accumulates_only_in_water() {
+        let mut display = WeatherDisplay::default();
+        display.advance(target(0.0, 0.0, 1), 0.0);
+        display.advance(target(0.0, 0.0, 1), 1.0);
+        assert_eq!(display.submerged_seconds(CameraMedium::Water), 1.0);
+        display.advance(target(0.0, 0.0, 1), 2.0);
+        assert_eq!(display.submerged_seconds(CameraMedium::Water), 2.0);
+        assert_eq!(display.submerged_seconds(CameraMedium::Air), 0.0);
+    }
+
+    #[test]
+    fn lightning_flash_starts_bright_and_expires() {
+        let mut flash = LightningFlashState::default();
+        assert_eq!(flash.level(5.0), 0.0);
+        flash.trigger(5.0);
+        assert_eq!(flash.level(5.0), 1.0);
+        assert_eq!(flash.level(6.0), 0.0);
+    }
+}

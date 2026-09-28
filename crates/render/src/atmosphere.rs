@@ -7,7 +7,9 @@ use bevy::{
 };
 use meshing::CameraMedium;
 
-pub const BEDROCK_DAY_TICKS: f64 = 24_000.0;
+use crate::celestial;
+
+pub const BEDROCK_DAY_TICKS: f64 = celestial::DAY_TICKS;
 pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = 256.0;
 pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03;
 const CLOUD_DIRECTIONAL_AMBIENT: f32 = 0.55;
@@ -16,10 +18,43 @@ const RAIN_CLOUD_CHANNEL: f32 = 191.0 / 255.0;
 const THUNDER_CLOUD_CHANNEL: f32 = 30.0 / 255.0;
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
 
-const WATER_FOG_COLOR: [f32; 3] = [0.02, 0.12, 0.2];
-const WATER_FOG_END: f32 = 32.0;
-const LAVA_FOG_COLOR: [f32; 3] = [0.45, 0.08, 0.0];
-const LAVA_FOG_END: f32 = 3.0;
+// Fallbacks mirroring the vanilla default fog profile, used only without a compiled carrier.
+const WATER_FOG_RGB8: u32 = 0x44AF_F5;
+const WATER_FOG_END: f32 = 60.0;
+const LAVA_FOG_RGB8: u32 = 0x991A_00;
+const LAVA_FOG_END: f32 = 0.64;
+const AIR_FOG_RGB8: u32 = 0xABD2_FF;
+const WEATHER_FOG_RGB8: u32 = 0x6666_66;
+const FALLBACK_RENDER_DISTANCE: f32 = 256.0;
+const AIR_FOG_FRACTIONS: [f32; 2] = [0.92, 1.0];
+const WEATHER_FOG_FRACTIONS: [f32; 2] = [0.23, 0.7];
+/// Temperature of the plains biome, used until the camera biome is known.
+const DEFAULT_SKY_TEMPERATURE: f32 = 0.8;
+/// Provisional lightning-flash sky pull; needs native calibration.
+const PROVISIONAL_FLASH_SKY_PULL: f32 = 0.6;
+const PROVISIONAL_FLASH_COLOUR: [f32; 3] = [0.85, 0.87, 1.0];
+const NETHER_FOG_RGB8: u32 = 0x3308_08;
+/// Provisional flat end sky until `end_sky.png` is carried; needs native calibration.
+const PROVISIONAL_END_SKY: [f32; 3] = [0.035, 0.028, 0.05];
+
+/// Which sky model the shader draws.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SkyKind {
+    Overworld = 0,
+    Nether = 1,
+    End = 2,
+}
+
+impl SkyKind {
+    #[must_use]
+    pub const fn from_dimension(dimension: i32) -> Self {
+        match dimension {
+            1 => Self::Nether,
+            2 => Self::End,
+            _ => Self::Overworld,
+        }
+    }
+}
 
 /// Explicitly provisional boss-environment response constants. No
 /// version-matched native Bedrock capture of the boss-driven sky darkening
@@ -141,12 +176,12 @@ pub fn cloud_directional_illuminance(
         * lerp(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional)
 }
 
-/// Finite legacy-cloud distance fog with explicit collapsed-range semantics.
+/// Finite linear cloud distance fog with explicit collapsed-range semantics.
 ///
 /// Cloud coverage ends one block before the 256-block texture period. Valid
 /// render-relative fog can therefore collapse at, or extend beyond, that cap.
 /// A collapsed or reversed range becomes a deterministic step at the bounded
-/// end instead of relying on undefined `smoothstep` behavior. Non-finite input
+/// end instead of dividing by zero. Non-finite input
 /// fails closed to full fog so the derived transparent alpha remains finite.
 #[must_use]
 pub fn cloud_fog_factor(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
@@ -165,12 +200,12 @@ pub fn cloud_fog_factor(world_distance: f32, fog_start: f32, fog_end: f32) -> f3
     }
     let amount =
         ((bounded_distance - bounded_start) / (bounded_end - bounded_start)).clamp(0.0, 1.0);
-    amount * amount * (3.0 - 2.0 * amount)
+    amount
 }
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.
 ///
-/// The six `vec4`-shaped records are also the complete GPU uniform. Keeping the
+/// The eight `vec4`-shaped records are also the complete GPU uniform. Keeping the
 /// CPU and GPU contracts identical avoids per-frame allocation or conversion.
 #[repr(C)]
 #[derive(
@@ -191,9 +226,13 @@ pub struct AtmosphereFrame {
     sky_horizon_thunder: Vec4,
     fog_color_start: Vec4,
     fog_end_time: Vec4,
+    /// Sunrise/sunset glow: linear rgb and alpha (zero outside the band).
+    sunrise_band: Vec4,
+    /// Star alpha, celestial angle in turns, lightning flash, then `sky kind + 4 * medium`.
+    sky_extra: Vec4,
 }
 
-const _: () = assert!(std::mem::size_of::<AtmosphereFrame>() == 96);
+const _: () = assert!(std::mem::size_of::<AtmosphereFrame>() == 128);
 
 impl Default for AtmosphereFrame {
     fn default() -> Self {
@@ -211,33 +250,41 @@ impl AtmosphereFrame {
         };
         let rain = bounded_level(rain_level);
         let thunder = bounded_level(thunder_level);
-        let day_ticks = absolute_ticks.rem_euclid(BEDROCK_DAY_TICKS);
-        let day_fraction = (day_ticks / BEDROCK_DAY_TICKS) as f32;
-        let angle = day_fraction * TAU;
-        let (sin, cos) = angle.sin_cos();
-        let sun_direction = [clean_unit(cos), clean_unit(sin), 0.0];
+        let day_fraction =
+            (absolute_ticks.rem_euclid(BEDROCK_DAY_TICKS) / BEDROCK_DAY_TICKS) as f32;
+        let angle = celestial::celestial_angle(absolute_ticks);
+        let sun_direction = celestial::sun_direction(angle);
         let moon_direction = sun_direction.map(|component| -component);
         let moon_phase = ((absolute_ticks / BEDROCK_DAY_TICKS).floor().rem_euclid(8.0)) as u8;
         let cloud_offset = cloud_texture_offset(absolute_ticks);
 
-        let daylight = (sun_direction[1] * 0.8 + 0.2).clamp(0.0, 1.0);
-        let sunrise = (1.0 - sun_direction[1].abs()).powi(3) * (0.25 + daylight * 0.75);
-        let storm = (rain * 0.55 + thunder * 0.3).clamp(0.0, 0.8);
-        let clear_zenith = mix3([0.004, 0.008, 0.03], [0.18, 0.48, 0.88], daylight);
-        let clear_horizon = mix3([0.018, 0.024, 0.065], [0.58, 0.78, 1.0], daylight);
-        let warm_horizon = mix3(clear_horizon, [1.0, 0.36, 0.12], sunrise * 0.55);
-        let storm_zenith = mix3(clear_zenith, [0.12, 0.14, 0.16], storm);
-        let storm_horizon = mix3(warm_horizon, [0.22, 0.24, 0.26], storm);
-        let fog_color = mix3(storm_horizon, storm_zenith, 0.18);
-        let fog_start = lerp(192.0, 64.0, (rain * 0.8 + thunder * 0.2).clamp(0.0, 1.0));
-        let fog_end = lerp(256.0, 112.0, (rain * 0.75 + thunder * 0.25).clamp(0.0, 1.0));
+        let zenith = overworld_zenith(angle, DEFAULT_SKY_TEMPERATURE, rain, thunder);
+        let fog_color = overworld_fog_colour(
+            angle,
+            rgb8_to_gamma(AIR_FOG_RGB8),
+            rgb8_to_gamma(WEATHER_FOG_RGB8),
+            rain,
+            thunder,
+        );
+        let fog_start = celestial::lerp(
+            AIR_FOG_FRACTIONS[0] * FALLBACK_RENDER_DISTANCE,
+            WEATHER_FOG_FRACTIONS[0] * FALLBACK_RENDER_DISTANCE,
+            rain,
+        );
+        let fog_end = celestial::lerp(
+            AIR_FOG_FRACTIONS[1] * FALLBACK_RENDER_DISTANCE,
+            WEATHER_FOG_FRACTIONS[1] * FALLBACK_RENDER_DISTANCE,
+            rain,
+        );
+        let band = celestial::sunrise_band(angle, rain);
+        let band_rgb = celestial::rgb_to_linear([band[0], band[1], band[2]]);
 
         Self {
             sun_direction_daylight: Vec4::new(
                 sun_direction[0],
                 sun_direction[1],
                 sun_direction[2],
-                daylight,
+                celestial::daylight(angle, rain, thunder),
             ),
             moon_direction_phase: Vec4::new(
                 moon_direction[0],
@@ -245,30 +292,99 @@ impl AtmosphereFrame {
                 moon_direction[2],
                 f32::from(moon_phase),
             ),
-            sky_zenith_rain: Vec4::new(storm_zenith[0], storm_zenith[1], storm_zenith[2], rain),
-            sky_horizon_thunder: Vec4::new(
-                storm_horizon[0],
-                storm_horizon[1],
-                storm_horizon[2],
-                thunder,
-            ),
+            sky_zenith_rain: Vec4::new(zenith[0], zenith[1], zenith[2], rain),
+            sky_horizon_thunder: Vec4::new(fog_color[0], fog_color[1], fog_color[2], thunder),
             fog_color_start: Vec4::new(fog_color[0], fog_color[1], fog_color[2], fog_start),
             fog_end_time: Vec4::new(fog_end, day_fraction, cloud_offset[0], cloud_offset[1]),
+            sunrise_band: Vec4::new(band_rgb[0], band_rgb[1], band_rgb[2], band[3]),
+            sky_extra: Vec4::new(celestial::star_brightness(angle, rain), angle, 0.0, 0.0),
         }
     }
 
+    /// Re-derives the clear-sky colour from the camera biome temperature.
+    #[must_use]
+    pub fn with_biome_temperature(mut self, temperature: f32) -> Self {
+        if self.sky_kind() == SkyKind::Overworld {
+            let zenith = overworld_zenith(
+                self.celestial_angle(),
+                temperature,
+                self.rain_level(),
+                self.thunder_level(),
+            );
+            self.sky_zenith_rain =
+                Vec4::new(zenith[0], zenith[1], zenith[2], self.sky_zenith_rain.w);
+        }
+        self
+    }
+
+    /// Selects the dimension sky model. Nether and End have no day cycle, sun, moon or stars.
+    #[must_use]
+    pub fn with_sky_kind(mut self, kind: SkyKind) -> Self {
+        let medium_code = self.sky_extra.w - self.sky_extra.w % 4.0;
+        self.sky_extra.w = medium_code + kind as u32 as f32;
+        if kind == SkyKind::Overworld {
+            return self;
+        }
+        self.sun_direction_daylight.w = 1.0;
+        self.sunrise_band.w = 0.0;
+        self.sky_extra.x = 0.0;
+        let colour = match kind {
+            SkyKind::Nether => rgb8_to_linear(NETHER_FOG_RGB8),
+            SkyKind::End | SkyKind::Overworld => PROVISIONAL_END_SKY,
+        };
+        self.sky_zenith_rain = Vec4::new(colour[0], colour[1], colour[2], self.sky_zenith_rain.w);
+        self.sky_horizon_thunder =
+            Vec4::new(colour[0], colour[1], colour[2], self.sky_horizon_thunder.w);
+        self
+    }
+
+    /// Adds a lightning flash in `0..=1`: brightens the lightmap and pulls sky and fog toward white.
+    #[must_use]
+    pub fn with_lightning_flash(mut self, flash: f32) -> Self {
+        let flash = bounded_level(flash);
+        if flash <= 0.0 || self.sky_kind() != SkyKind::Overworld {
+            return self;
+        }
+        self.sky_extra.z = flash;
+        self.sun_direction_daylight.w = celestial::lerp(self.daylight(), 1.0, flash);
+        let pull = flash * PROVISIONAL_FLASH_SKY_PULL;
+        for record in [
+            &mut self.sky_zenith_rain,
+            &mut self.sky_horizon_thunder,
+            &mut self.fog_color_start,
+        ] {
+            *record = Vec4::new(
+                celestial::lerp(record.x, PROVISIONAL_FLASH_COLOUR[0], pull),
+                celestial::lerp(record.y, PROVISIONAL_FLASH_COLOUR[1], pull),
+                celestial::lerp(record.z, PROVISIONAL_FLASH_COLOUR[2], pull),
+                record.w,
+            );
+        }
+        self
+    }
+
     /// Applies camera-medium distance fog while retaining the exact celestial
-    /// and weather snapshot. The bounded constants are the Phase 2.7 baseline;
-    /// native reference calibration remains part of visual acceptance.
+    /// and weather snapshot. The fallbacks mirror the default vanilla fog profile.
     #[must_use]
     pub fn with_camera_medium(mut self, medium: CameraMedium) -> Self {
-        let (color, end) = match medium {
+        let (rgb8, end, code) = match medium {
             CameraMedium::Air => return self,
-            CameraMedium::Water => (WATER_FOG_COLOR, WATER_FOG_END),
-            CameraMedium::Lava => (LAVA_FOG_COLOR, LAVA_FOG_END),
+            CameraMedium::Water => (WATER_FOG_RGB8, WATER_FOG_END, 1.0),
+            CameraMedium::Lava => (LAVA_FOG_RGB8, LAVA_FOG_END, 2.0),
         };
+        let color = rgb8_to_linear(rgb8);
         self.fog_color_start = Vec4::new(color[0], color[1], color[2], 0.0);
         self.fog_end_time.x = end;
+        self.sky_extra.w = self.sky_extra.w % 4.0 + code * 4.0;
+        self
+    }
+
+    /// Scales the underwater fog reach by the time-submerged fraction; no effect outside water.
+    #[must_use]
+    pub fn with_underwater_fog_fraction(mut self, fraction: f32) -> Self {
+        if self.camera_medium() == CameraMedium::Water {
+            self.fog_end_time.x *= bounded_level(fraction);
+        }
         self
     }
 
@@ -282,7 +398,17 @@ impl AtmosphereFrame {
         fog: Option<ResolvedFog>,
     ) -> Self {
         if let Some(rgb) = sky_rgb8.filter(|rgb| *rgb <= 0x00ff_ffff) {
-            let colour = rgb8_to_linear(rgb);
+            let lit = if self.sky_kind() == SkyKind::Overworld {
+                celestial::day_plateau(self.celestial_angle())
+            } else {
+                1.0
+            };
+            let gamma = rgb8_to_gamma(rgb).map(|channel| channel * lit);
+            let colour = celestial::rgb_to_linear(celestial::storm_tint(
+                gamma,
+                self.rain_level(),
+                self.thunder_level(),
+            ));
             self.sky_zenith_rain.x = colour[0];
             self.sky_zenith_rain.y = colour[1];
             self.sky_zenith_rain.z = colour[2];
@@ -290,16 +416,47 @@ impl AtmosphereFrame {
             self.sky_horizon_thunder.y = colour[1];
             self.sky_horizon_thunder.z = colour[2];
         }
-        if let Some(fog) = fog.filter(|fog| {
-            fog.start.is_finite()
-                && fog.end.is_finite()
-                && fog.start >= 0.0
-                && fog.end >= fog.start
-                && fog.rgb8 <= 0x00ff_ffff
-        }) {
+        if let Some(fog) = fog.filter(valid_fog) {
             let colour = rgb8_to_linear(fog.rgb8);
             self.fog_color_start = Vec4::new(colour[0], colour[1], colour[2], fog.start);
             self.fog_end_time.x = fog.end;
+        }
+        self
+    }
+
+    /// Applies the profile fog, blending air toward weather fog by the rain level, and
+    /// tints the horizon to match. Overworld fog follows the day cycle; other dimensions are fixed.
+    #[must_use]
+    pub fn with_blended_fog(
+        mut self,
+        air: Option<ResolvedFog>,
+        weather: Option<ResolvedFog>,
+    ) -> Self {
+        let Some(air) = air.filter(valid_fog) else {
+            return self;
+        };
+        let rain = self.rain_level();
+        let fog = match weather.filter(valid_fog) {
+            Some(weather) if rain > 0.0 => ResolvedFog {
+                start: celestial::lerp(air.start, weather.start, rain),
+                end: celestial::lerp(air.end, weather.end, rain),
+                rgb8: blend_rgb8(air.rgb8, weather.rgb8, rain),
+            },
+            _ => air,
+        };
+        let mut gamma = rgb8_to_gamma(fog.rgb8);
+        if self.sky_kind() == SkyKind::Overworld {
+            let brightness = celestial::fog_brightness(self.celestial_angle());
+            gamma = celestial::storm_tint(gamma.map(|c| c * brightness), 0.0, self.thunder_level());
+        }
+        let colour = celestial::rgb_to_linear(gamma);
+        self.fog_color_start = Vec4::new(colour[0], colour[1], colour[2], fog.start);
+        self.fog_end_time.x = fog.end;
+        self.sky_horizon_thunder =
+            Vec4::new(colour[0], colour[1], colour[2], self.sky_horizon_thunder.w);
+        if self.sky_kind() == SkyKind::Nether {
+            self.sky_zenith_rain =
+                Vec4::new(colour[0], colour[1], colour[2], self.sky_zenith_rain.w);
         }
         self
     }
@@ -435,13 +592,48 @@ impl AtmosphereFrame {
 
     #[must_use]
     pub fn camera_medium(self) -> CameraMedium {
-        if self.fog_end_time.x == WATER_FOG_END && self.fog_color() == WATER_FOG_COLOR {
-            CameraMedium::Water
-        } else if self.fog_end_time.x == LAVA_FOG_END && self.fog_color() == LAVA_FOG_COLOR {
-            CameraMedium::Lava
-        } else {
-            CameraMedium::Air
+        match (self.sky_extra.w / 4.0) as u32 {
+            1 => CameraMedium::Water,
+            2 => CameraMedium::Lava,
+            _ => CameraMedium::Air,
         }
+    }
+
+    #[must_use]
+    pub fn sky_kind(self) -> SkyKind {
+        match (self.sky_extra.w % 4.0) as u32 {
+            1 => SkyKind::Nether,
+            2 => SkyKind::End,
+            _ => SkyKind::Overworld,
+        }
+    }
+
+    /// Eased celestial angle in turns; 0 is noon.
+    #[must_use]
+    pub fn celestial_angle(self) -> f32 {
+        self.sky_extra.y
+    }
+
+    /// Sky-light transfer every lit pass multiplies the sky channel by, including lightning.
+    #[must_use]
+    pub fn daylight(self) -> f32 {
+        self.sun_direction_daylight.w
+    }
+
+    #[must_use]
+    pub fn star_brightness(self) -> f32 {
+        self.sky_extra.x
+    }
+
+    #[must_use]
+    pub fn lightning_flash(self) -> f32 {
+        self.sky_extra.z
+    }
+
+    /// Sunrise/sunset glow as linear rgb plus alpha.
+    #[must_use]
+    pub fn sunrise_band(self) -> [f32; 4] {
+        self.sunrise_band.to_array()
     }
 
     #[must_use]
@@ -458,10 +650,6 @@ fn bounded_level(level: f32) -> f32 {
     }
 }
 
-fn clean_unit(value: f32) -> f32 {
-    if value.abs() < 1.0e-6 { 0.0 } else { value }
-}
-
 fn lerp(left: f32, right: f32, amount: f32) -> f32 {
     left + (right - left) * amount
 }
@@ -472,6 +660,45 @@ fn mix3(left: [f32; 3], right: [f32; 3], amount: f32) -> [f32; 3] {
         lerp(left[1], right[1], amount),
         lerp(left[2], right[2], amount),
     ]
+}
+
+fn overworld_zenith(angle: f32, temperature: f32, rain: f32, thunder: f32) -> [f32; 3] {
+    let plateau = celestial::day_plateau(angle);
+    let clear = celestial::sky_colour_for_temperature(temperature).map(|channel| channel * plateau);
+    celestial::rgb_to_linear(celestial::storm_tint(clear, rain, thunder))
+}
+
+fn overworld_fog_colour(
+    angle: f32,
+    air: [f32; 3],
+    weather: [f32; 3],
+    rain: f32,
+    thunder: f32,
+) -> [f32; 3] {
+    let brightness = celestial::fog_brightness(angle);
+    let gamma = mix3(air, weather, rain).map(|channel| channel * brightness);
+    celestial::rgb_to_linear(celestial::storm_tint(gamma, 0.0, thunder))
+}
+
+fn valid_fog(fog: &ResolvedFog) -> bool {
+    fog.start.is_finite()
+        && fog.end.is_finite()
+        && fog.start >= 0.0
+        && fog.end >= fog.start
+        && fog.rgb8 <= 0x00ff_ffff
+}
+
+fn rgb8_to_gamma(rgb: u32) -> [f32; 3] {
+    [16, 8, 0].map(|shift| ((rgb >> shift) & 0xff) as f32 / 255.0)
+}
+
+fn blend_rgb8(left: u32, right: u32, amount: f32) -> u32 {
+    let mix = |shift: u32| {
+        let a = ((left >> shift) & 0xff) as f32;
+        let b = ((right >> shift) & 0xff) as f32;
+        (celestial::lerp(a, b, amount).round() as u32).min(255) << shift
+    };
+    mix(16) | mix(8) | mix(0)
 }
 
 fn rgb8_to_linear(rgb: u32) -> [f32; 3] {
@@ -501,11 +728,85 @@ mod tests {
         assert_eq!(water.rain_level(), clear.rain_level());
         assert_eq!(water.thunder_level(), clear.thunder_level());
         assert_eq!(water.fog_start(), 0.0);
-        assert_eq!(water.fog_end(), 32.0);
+        assert_eq!(water.fog_end(), 60.0);
         assert_eq!(lava.fog_start(), 0.0);
-        assert_eq!(lava.fog_end(), 3.0);
-        assert_eq!(water.fog_color(), [0.02, 0.12, 0.2]);
-        assert_eq!(lava.fog_color(), [0.45, 0.08, 0.0]);
+        assert_eq!(lava.fog_end(), 0.64);
+        assert_eq!(water.fog_color(), super::rgb8_to_linear(0x44AF_F5));
+        assert_eq!(lava.fog_color(), super::rgb8_to_linear(0x991A_00));
+    }
+
+    #[test]
+    fn medium_survives_profile_fog_and_underwater_fraction_scales_only_water() {
+        let water = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0)
+            .with_camera_medium(CameraMedium::Water);
+        let profiled = water.with_environment_profile(
+            None,
+            Some(assets::ResolvedFog {
+                start: 0.0,
+                end: 40.0,
+                rgb8: 0x112233,
+            }),
+        );
+        assert_eq!(profiled.camera_medium(), CameraMedium::Water);
+        assert_eq!(profiled.with_underwater_fog_fraction(0.5).fog_end(), 20.0);
+        let air = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+        assert_eq!(air.with_underwater_fog_fraction(0.1), air);
+    }
+
+    #[test]
+    fn night_darkens_sky_and_fog_and_shows_stars() {
+        let noon = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+        let midnight = AtmosphereFrame::from_bedrock_time(18_000.0, 0.0, 0.0);
+        assert!(midnight.sky_zenith()[2] < 0.01 && noon.sky_zenith()[2] > 0.9);
+        assert!(midnight.fog_color()[2] < noon.fog_color()[2] * 0.2);
+        assert_eq!(noon.star_brightness(), 0.0);
+        assert!(midnight.star_brightness() > 0.4);
+        assert!(midnight.daylight() < noon.daylight());
+    }
+
+    #[test]
+    fn rain_pulls_fog_inward_and_lightning_flash_lights_the_world() {
+        let clear = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0);
+        let rain = AtmosphereFrame::from_bedrock_time(6_000.0, 1.0, 0.0);
+        assert!(rain.fog_start() < clear.fog_start() && rain.fog_end() < clear.fog_end());
+        let night = AtmosphereFrame::from_bedrock_time(18_000.0, 1.0, 1.0);
+        let flashed = night.with_lightning_flash(1.0);
+        assert!((flashed.daylight() - 1.0).abs() < 1.0e-6);
+        assert!(flashed.sky_zenith()[2] > night.sky_zenith()[2]);
+        assert_eq!(night.with_lightning_flash(0.0), night);
+    }
+
+    #[test]
+    fn nether_and_end_have_no_day_cycle() {
+        let frame = AtmosphereFrame::from_bedrock_time(18_000.0, 0.5, 0.0)
+            .with_sky_kind(super::SkyKind::Nether);
+        assert_eq!(frame.sky_kind(), super::SkyKind::Nether);
+        assert_eq!(frame.daylight(), 1.0);
+        assert_eq!(frame.star_brightness(), 0.0);
+        assert_eq!(frame.sunrise_band()[3], 0.0);
+        assert_eq!(super::SkyKind::from_dimension(2), super::SkyKind::End);
+        assert_eq!(super::SkyKind::from_dimension(7), super::SkyKind::Overworld);
+    }
+
+    #[test]
+    fn blended_fog_interpolates_air_to_weather_by_rain() {
+        let air = assets::ResolvedFog {
+            start: 235.0,
+            end: 256.0,
+            rgb8: 0xABD2FF,
+        };
+        let weather = assets::ResolvedFog {
+            start: 59.0,
+            end: 179.0,
+            rgb8: 0x666666,
+        };
+        let clear = AtmosphereFrame::from_bedrock_time(6_000.0, 0.0, 0.0)
+            .with_blended_fog(Some(air), Some(weather));
+        assert_eq!((clear.fog_start(), clear.fog_end()), (235.0, 256.0));
+        let half = AtmosphereFrame::from_bedrock_time(6_000.0, 0.5, 0.0)
+            .with_blended_fog(Some(air), Some(weather));
+        assert_eq!((half.fog_start(), half.fog_end()), (147.0, 217.5));
+        assert_eq!(half.sky_horizon(), half.fog_color());
     }
 
     #[test]
