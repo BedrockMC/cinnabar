@@ -130,12 +130,16 @@ animated rig remotes use. All three below flow from that.
 - Third-person boom collapses onto the player (camera reads as "too close"): the collision
   avoidance fails closed to radius 0 when the sweep errors or hits geometry; boom radius 4.0
   is itself vanilla-correct. Model height is correct — this is distance only (MED, confirmed live).
-- Dynamic FOV modifiers (sprint/speed/slowness/fly/bow; spyglass 0.1) — absent (HIGH).
-- Walk view-bob — absent (HIGH). First-person hand bob evaluator exists but is dead code.
-- Mouse sensitivity mapping placeholder `0.002` *(measure)* (HIGH).
-- Hurt-direction tilt, nausea/portal warp, spyglass scope — absent (MED).
-- FOV projection model (linear-by-aspect vs tangent), default/range *(measure)*; pitch clamp 89.9 vs 90;
-  analog look framerate-dependent; server camera instructions decoded but unapplied (MED).
+- Dynamic FOV (sprint/speed/slowness/flying/bow/spyglass 0.1, tick smoothing, FOV-effects scale), walk view-bob,
+  hurt tilt, nausea/portal wobble, server shake and `CameraInstruction` set/clear/fade/FOV are implemented
+  presentation-only under `app/src/camera/`; every magnitude, curve and sign is provisional *(measure)* (MED).
+- Screen overlays (pumpkin blur, spyglass scope, portal, freezing, suffocation, fire, server fade) are derived as
+  `ScreenOverlays` but not yet drawn; head-medium probe, on-fire and in-portal facts need their producers (HIGH).
+- Not applied: `CameraPresetsPacket` registry (dropped before decode), instruction target/attach (needs actor
+  positions), blindness/darkness/night-vision consumers (`VisionEffects`), bow-draw and spyglass-scoping producers,
+  flying FOV producer, first-person hand consumer of `FirstPersonHandMotion` (MED).
+- Look sensitivity now follows a provisional slider curve, gamepad look is frame-rate normalized, optional
+  cinematic smoothing; pitch clamp 89.9 vs 90 and FOV range/default still *(measure)* (MED).
 
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
