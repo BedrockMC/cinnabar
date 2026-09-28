@@ -547,8 +547,13 @@ fn development_layout_in(root: &Path) -> crate::install_layout::InstallLayout {
 fn menu_runtime_binding_replaces_releases_and_drops_cleanly() {
     let root = TempRoot::new("menu-wiring");
     let layout = development_layout_in(root.path());
-    let mut menu =
-        crate::menu::MenuRuntime::new_with_layout(true, 2, "Player".to_owned(), layout.clone());
+    let mut menu = crate::menu::MenuRuntime::new_with_layout(
+        true,
+        2,
+        "Player".to_owned(),
+        layout.clone(),
+        crate::player_skin::LocalPlayerSkin::generated_default("Player"),
+    );
 
     let first = SessionDirectoryGuard::bind(layout.connect_socket_dir(process::id(), 1))
         .expect("bind first");

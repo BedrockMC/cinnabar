@@ -127,6 +127,16 @@ impl XblCredentials {
     }
 }
 
+/// The client's own skin bytes for the ClientData login payload. `None` on a config keeps the
+/// solid-white placeholder used by bots and tests.
+#[derive(Debug, Clone)]
+pub struct ClientSkin {
+    pub rgba8: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub arm_size: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ClientHandshakeConfig {
     pub server_addr: SocketAddr,
@@ -137,6 +147,8 @@ pub struct ClientHandshakeConfig {
     pub xbl_credentials: Option<XblCredentials>,
     /// Advertise the Bedrock client blob cache only when the caller installed a resolver.
     pub client_cache_enabled: bool,
+    /// The uploaded skin; `None` keeps the solid-white placeholder.
+    pub skin: Option<ClientSkin>,
 }
 
 impl ClientHandshakeConfig {
@@ -150,6 +162,7 @@ impl ClientHandshakeConfig {
             uuid: Uuid::new_v4(),
             xbl_credentials: None,
             client_cache_enabled: false,
+            skin: None,
         }
     }
 
@@ -168,6 +181,7 @@ impl ClientHandshakeConfig {
             uuid,
             xbl_credentials: Some(xbl_credentials),
             client_cache_enabled: false,
+            skin: None,
         }
     }
 
@@ -175,6 +189,13 @@ impl ClientHandshakeConfig {
     #[must_use]
     pub fn with_client_cache_enabled(mut self, enabled: bool) -> Self {
         self.client_cache_enabled = enabled;
+        self
+    }
+
+    /// Uploads the caller's skin in the ClientData payload instead of the placeholder.
+    #[must_use]
+    pub fn with_skin(mut self, skin: ClientSkin) -> Self {
+        self.skin = Some(skin);
         self
     }
 }
@@ -392,12 +413,14 @@ impl<T: Transport> BedrockStream<Login, Client, T> {
                 &config.display_name,
                 config.uuid,
                 &mojang_chain,
+                config.skin.as_ref(),
             )?
         } else {
             crate::auth::client::generate_self_signed_chain(
                 &config.identity_key,
                 &config.display_name,
                 config.uuid,
+                config.skin.as_ref(),
             )?
         };
 
