@@ -85,6 +85,7 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             synthetic_local_revision: 0,
+            local_first_person: false,
         }
     }
 
@@ -108,6 +109,7 @@ impl ActorStore {
         if runtime_id == 0 {
             return;
         }
+        self.local_first_person = feed.first_person;
         let pose = ActorPose {
             position: feed.position,
             pitch: feed.pitch,
@@ -448,6 +450,9 @@ impl ActorStore {
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
+            let local_first_person = self
+                .remote_state_excluded_runtime_id
+                .filter(|_| self.local_first_person);
             self.animation.advance_tick(actors, |actor| {
                 let lifetime = ActorLifetimeId {
                     session_id,
@@ -490,6 +495,7 @@ impl ActorStore {
                         }),
                     has_rider,
                     has_player_rider,
+                    is_local_first_person: local_first_person == Some(actor.runtime_id),
                 }
             });
             self.actions.advance_tick();

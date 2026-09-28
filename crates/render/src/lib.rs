@@ -7,6 +7,7 @@ mod atmosphere_render;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+mod hand_rig_render;
 mod present_mode;
 mod runtime_profile;
 mod ui;
@@ -20,6 +21,7 @@ mod ui_render;
 mod viewmodel;
 mod viewmodel_render;
 
+pub use hand_rig_render::{HandRigLight, HandRigRenderPlugin, HandRigScene};
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,
     ViewmodelScene, ViewmodelSkin, ViewmodelToken, viewmodel_depth_bytes,

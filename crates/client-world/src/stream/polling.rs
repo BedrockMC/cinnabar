@@ -136,6 +136,31 @@ impl WorldStream {
             local_position,
         )
     }
+    /// Retained block and sky light (0..=15) at `position`'s block cell in the current
+    /// dimension, for lighting the first-person hand to match the player's standing block. A
+    /// non-finite position or a sub-chunk whose light is not resident reads dark `(0, 0)`.
+    #[must_use]
+    pub fn light_level_at(&self, position: [f32; 3]) -> (u8, u8) {
+        if !position.iter().all(|value| value.is_finite()) {
+            return (0, 0);
+        }
+        let block = position.map(floor_to_i32);
+        let key = SubChunkKey::new(
+            self.current_dimension,
+            block[0].div_euclid(16),
+            block[1].div_euclid(16),
+            block[2].div_euclid(16),
+        );
+        let Some(light) = self.light_store.light(key) else {
+            return (0, 0);
+        };
+        let local = |axis: usize| block[axis].rem_euclid(16) as u8;
+        let (x, y, z) = (local(0), local(1), local(2));
+        (
+            light.get(LightChannel::Block, x, y, z).unwrap_or(0),
+            light.get(LightChannel::Sky, x, y, z).unwrap_or(0),
+        )
+    }
     #[must_use]
     pub fn camera_biome_id(&self, position: [f32; 3]) -> Option<u32> {
         if !position.iter().all(|value| value.is_finite()) {

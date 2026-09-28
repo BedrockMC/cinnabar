@@ -14,6 +14,8 @@ pub const MAX_VIEWMODEL_DEPTH_BYTES: u64 = 64 * 1024 * 1024;
 pub enum ViewmodelMode {
     EmptyHandNeutralStaticFallback,
     OpaqueCubeNeutralStaticFallback,
+    /// The local player's own first-person rig drawn near-camera; retires the static fallbacks.
+    AnimatedRig,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
