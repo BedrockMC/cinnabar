@@ -558,6 +558,7 @@ pub(crate) fn receive_network_events(
                 origin,
             } => {
                 UiRuntime::retire_crafting_observation();
+                render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
@@ -582,6 +583,7 @@ pub(crate) fn receive_network_events(
                 decode_error_count,
             } => {
                 UiRuntime::retire_crafting_observation();
+                render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();
@@ -601,6 +603,7 @@ pub(crate) fn receive_network_events(
             }
             NetworkControlEvent::Stopped { decode_error_count } => {
                 UiRuntime::retire_crafting_observation();
+                render::ViewmodelCompletionGate::retire_observation();
                 resource_pack_admission.clear_current();
                 ui_runtime.set_server_lang(None);
                 ui_runtime.clear_block_breaking_mode();

@@ -1,5 +1,121 @@
 use super::*;
 
+fn cube_carrier() -> assets::CompiledAssets {
+    use assets::*;
+    CompiledAssets {
+        visuals: vec![
+            BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary),
+            BlockVisual {
+                faces: [1, 2, 3, 4, 5, 6],
+                flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                kind: VisualKind::Cube,
+                support: VisualSupport::Exact,
+                contributor_role: ContributorRole::Primary,
+                model_template: NO_MODEL_TEMPLATE,
+                animation: NO_ANIMATION,
+                variant: 0,
+            },
+        ]
+        .into(),
+        light_properties: vec![LightProperties::default(); 2].into(),
+        hashed: Box::new([]),
+        materials: (0_u32..7)
+            .map(|id| Material {
+                texture: TextureRef::new(0, id.saturating_sub(1)).unwrap(),
+                flags: 0,
+                animation: NO_ANIMATION,
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: vec![TexturePage::new(TextureArray {
+            layers: 6,
+            mips: [16, 8, 4, 2, 1]
+                .into_iter()
+                .map(|size| TextureMip {
+                    size,
+                    rgba8: (0..6)
+                        .flat_map(|face| {
+                            (0..size * size).flat_map(move |_| [face as u8 + 1, 20, 40, 255])
+                        })
+                        .collect::<Vec<_>>()
+                        .into(),
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        })]
+        .into(),
+        biomes: CompiledBiomeAssets::diagnostic(),
+        provenance: BlobProvenance {
+            source_manifest_sha256: [1; 32],
+            block_registry_sha256: [2; 32],
+            light_registry_sha256: [3; 32],
+            biome_registry_sha256: [4; 32],
+        },
+    }
+}
+
+#[test]
+fn opaque_cube_transports_all_six_face_layers_without_sprite_extrusion() {
+    let source = cube_carrier();
+    let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+    let (geometry, pixels) =
+        ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).unwrap();
+    assert_eq!(geometry.vertices.len(), 36);
+    assert_eq!(pixels.rgba8.len(), 64 * 64 * 4);
+    for face in 0..6 {
+        let offset = ((face / 3 * 16) * 64 + face % 3 * 16) * 4;
+        assert_eq!(
+            &pixels.rgba8[offset..offset + 4],
+            &[face as u8 + 1, 20, 40, 255]
+        );
+        for vertex in &geometry.vertices[face * 6..face * 6 + 6] {
+            assert!(vertex.position.iter().all(|p| p.is_finite()));
+            assert!(vertex.position[2] < 0.);
+            assert!(vertex.uv[0] >= (face % 3 * 16) as f32 / 64.);
+            assert!(vertex.uv[0] < (face % 3 * 16 + 16) as f32 / 64.);
+            assert!(vertex.uv[1] >= (face / 3 * 16) as f32 / 64.);
+            assert!(vertex.uv[1] < (face / 3 * 16 + 16) as f32 / 64.);
+        }
+    }
+    assert!(pixels.rgba8[(48 * 4)..64 * 4].iter().all(|b| *b == 0));
+    assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(0)).is_none());
+    assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(2)).is_none());
+    let mut changed = source.clone();
+    changed.texture_pages[0].texture.mips[0].rgba8[0] += 1;
+    let changed = assets::RuntimeAssets::decode(&assets::encode_blob(&changed).unwrap()).unwrap();
+    let (changed_geometry, changed_pixels) =
+        ViewmodelGeometry::opaque_cube(&changed, assets::BlockVisualId(1)).unwrap();
+    assert_ne!(geometry.identity, changed_geometry.identity);
+    assert_ne!(pixels.identity, changed_pixels.identity);
+}
+
+#[test]
+fn opaque_cube_refuses_tint_cutout_and_fallback_visuals() {
+    for flags in [
+        assets::MATERIAL_FLAG_GRASS_TINT,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ROTATE_UV,
+    ] {
+        let mut source = cube_carrier();
+        source.materials[1].flags = flags;
+        let runtime =
+            assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+        assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).is_none());
+    }
+    let mut source = cube_carrier();
+    source.visuals[1].support = assets::VisualSupport::VanillaFallback;
+    let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+    assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).is_none());
+    let mut source = cube_carrier();
+    source.texture_pages[0].texture.mips[0].rgba8[3] = 0;
+    let runtime = assets::RuntimeAssets::decode(&assets::encode_blob(&source).unwrap()).unwrap();
+    assert!(ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).is_none());
+}
+
 #[test]
 fn neutral_anchor_pins_all_independent_camera_local_corners() {
     let expected = [
@@ -306,6 +422,87 @@ fn fallback_scene(gate: &ViewmodelCompletionGate) -> ViewmodelScene {
     let geometry = geometry::validated_geometry(&profile(), [5; 32]).unwrap();
     assert!(scene.publish(test_token(), &skin, &geometry, gate));
     scene
+}
+#[test]
+fn cube_fallback_binds_rotated_edge_quad_but_never_relaxes_empty_hand() {
+    let runtime =
+        assets::RuntimeAssets::decode(&assets::encode_blob(&cube_carrier()).unwrap()).unwrap();
+    let (geometry, pixels) =
+        ViewmodelGeometry::opaque_cube(&runtime, assets::BlockVisualId(1)).unwrap();
+    let token = ViewmodelToken {
+        geometry: geometry.identity,
+        skin: pixels.identity,
+        ..test_token()
+    };
+    let gate = ViewmodelCompletionGate::default();
+    let mut input = fallback_input();
+    let rotation = Mat2::from_angle(-0.04);
+    let mut vertices = input.vertices.to_vec();
+    for vertex in &mut vertices {
+        vertex.position = (rotation * (Vec2::from(vertex.position) - Vec2::new(2., 3.))
+            + Vec2::new(1920., 1079.))
+        .to_array();
+    }
+    input.vertices = vertices.into();
+    let mut scene = ViewmodelScene::default();
+    assert!(scene.publish(token, &pixels, &geometry, &gate));
+    assert!(scene.is_opaque_cube());
+    assert!(scene.bind_cube_cpu_fallback(&input, 0, [4, 8, 12, 24], &gate));
+    assert_eq!(scene.frame.as_ref().unwrap().fallback, Some((1, 0, 0)));
+    assert!(!gate.completed(token));
+    assert!(gate.complete(gate.reserve(token).unwrap()));
+    assert!(gate.completed(token));
+    assert!(
+        input
+            .vertices
+            .iter()
+            .any(|vertex| vertex.position[0] > 1920.)
+    );
+    let mut empty = fallback_scene(&gate);
+    assert!(!empty.bind_cpu_fallback(&input, 0, [4, 8, 12, 24], &gate));
+    assert!(empty.frame.is_none());
+    assert!(!gate.completed(token));
+    for hostile in 0..7 {
+        assert!(scene.publish(token, &pixels, &geometry, &gate));
+        let mut invalid = input.clone();
+        match hostile {
+            0 => {
+                let mut vertices = invalid.vertices.to_vec();
+                vertices[2].position[0] += 1.;
+                invalid.vertices = vertices.into();
+            }
+            1 => invalid.indices = Arc::from([0, 1, 2, 0, 2, 1]),
+            2 => invalid.batches = Arc::from([invalid.batches[0], invalid.batches[0]]),
+            3 => {
+                let mut vertices = invalid.vertices.to_vec();
+                vertices[0].style_flags = 1;
+                invalid.vertices = vertices.into();
+            }
+            4 => {
+                let mut vertices = invalid.vertices.to_vec();
+                vertices[0].uv[0] += 1;
+                invalid.vertices = vertices.into();
+            }
+            5 => {
+                let mut batch = invalid.batches[0];
+                batch.scissor.width = 0;
+                invalid.batches = Arc::from([batch]);
+            }
+            _ => {
+                let mut vertices = invalid.vertices.to_vec();
+                for vertex in &mut vertices {
+                    vertex.position[0] += 100.;
+                }
+                invalid.vertices = vertices.into();
+            }
+        }
+        assert!(!scene.bind_cube_cpu_fallback(&invalid, 0, [4, 8, 12, 24], &gate));
+        assert!(scene.frame.is_none());
+        assert!(!gate.completed(token));
+    }
+    let mut empty = fallback_scene(&gate);
+    assert!(!empty.bind_cube_cpu_fallback(&fallback_input(), 0, [4, 8, 12, 24], &gate));
+    assert!(empty.frame.is_none());
 }
 #[test]
 fn cpu_fallback_join_is_unique_bounded_and_ui_revision_does_not_reset_lifetime_completion() {

@@ -48,6 +48,7 @@ pub(super) fn validated_geometry(
         vertices: vertices.into(),
         identity,
         allowed_rigs: Arc::from([]),
+        cube_origin: false,
     })
 }
 
