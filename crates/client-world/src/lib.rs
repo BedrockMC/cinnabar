@@ -17,8 +17,9 @@ pub use actor_animation::{
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
 };
 pub use actor_store::{
-    ActorPickup, ActorPose, DroppedItemView, MAX_DROPPED_ITEM_COPIES, ActorSnapshot, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
-    LocalPlayerFeed, PICKUP_DURATION_TICKS, PlayerProfile, dropped_item_copy_count,
+    ActorPickup, ActorPose, ActorSnapshot, ActorStatus, DEATH_DURATION_TICKS, DroppedItemView,
+    HURT_DURATION_TICKS, LightningBoltView, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
+    PICKUP_DURATION_TICKS, PlayerProfile, dropped_item_copy_count,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,

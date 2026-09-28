@@ -36,7 +36,8 @@ use bevy::{
 
 use crate::{
     AtmosphereFrame, AtmosphereTextureAssets, PrecipitationScene, RainSplashQueue,
-    cloud_render::install_cloud_render, weather_render::install_weather_render,
+    cloud_render::install_cloud_render, lightning_render::install_lightning_render,
+    weather_render::install_weather_render,
 };
 
 const ATMOSPHERE_SHADER_HANDLE: Handle<Shader> =
@@ -65,6 +66,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<AtmosphereTextureAssets>();
     app.init_resource::<PrecipitationScene>();
     app.init_resource::<RainSplashQueue>();
+    app.init_resource::<crate::LightningScene>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -79,6 +81,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
         ExtractResourcePlugin::<AtmosphereFrame>::default(),
         ExtractResourcePlugin::<AtmosphereTextureAssets>::default(),
         ExtractResourcePlugin::<PrecipitationScene>::default(),
+        ExtractResourcePlugin::<crate::LightningScene>::default(),
     ));
     load_internal_asset!(
         app,
@@ -88,6 +91,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     );
     install_cloud_render(app);
     install_weather_render(app);
+    install_lightning_render(app);
 
     app.sub_app_mut(RenderApp)
         .insert_resource(AtmosphereRenderInstalled)

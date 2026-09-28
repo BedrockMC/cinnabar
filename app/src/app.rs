@@ -42,7 +42,7 @@ use crate::{
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
-        update_atmosphere_frame, update_precipitation_scene,
+        update_atmosphere_frame, update_lightning, update_precipitation_scene,
     },
     install_layout::InstallLayout,
     local_player::{
@@ -307,6 +307,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 update_camera_medium,
                 update_atmosphere_frame,
                 update_precipitation_scene,
+                update_lightning,
                 refresh_cave_visibility,
                 update_visibility_diagnostics.after(ChunkRenderApplySet),
                 emit_world_ready,

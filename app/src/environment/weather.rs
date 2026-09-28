@@ -10,7 +10,8 @@ use meshing::CameraMedium;
 use render::{
     AtmosphereFrame, ColumnSample, ColumnSampler, PRECIPITATION_LEVEL_PER_SECOND,
     PrecipitationScene, RainSplashQueue, SkyKind, approach_level, build_precipitation_columns,
-    lightning_flash_level, pick_rain_splashes, precipitation_clock,
+    LightningScene, lightning_bolt_segments, lightning_flash_level,
+    pick_rain_splashes, precipitation_clock, push_bolt_records,
 };
 
 use super::WeatherState;
@@ -19,6 +20,8 @@ use crate::{camera::FlyCamera, runtime::world::ClientWorld};
 const MAX_FRAME_STEP_SECONDS: f64 = 1.0;
 const REBUILD_INTERVAL_SECONDS: f64 = 0.1;
 const MAX_QUEUED_SPLASHES: usize = 256;
+/// Ticks a bolt stays drawn after it spawns; needs native measurement.
+const BOLT_VISIBLE_TICKS: u32 = 8;
 
 /// Time of the latest lightning strike; the sky and lightmap flash for a moment after it.
 #[derive(Resource, Debug, Default)]
@@ -28,10 +31,6 @@ pub(crate) struct LightningFlashState {
 
 impl LightningFlashState {
     /// Starts a flash; called when a lightning bolt actor appears.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by the actor lane when bolts spawn")
-    )]
     pub(crate) fn trigger(&mut self, elapsed_seconds: f64) {
         self.struck_at = Some(elapsed_seconds);
     }
@@ -167,6 +166,37 @@ pub(crate) fn update_precipitation_scene(
         let mut picked = Vec::new();
         pick_rain_splashes(&scene.columns, level, tick, &mut picked);
         splashes.positions.extend(picked);
+    }
+}
+
+/// Flashes the sky when a lightning-bolt actor first appears and draws live bolts.
+pub(crate) fn update_lightning(
+    client_world: Res<ClientWorld>,
+    time: Res<Time<Real>>,
+    mut flash: ResMut<LightningFlashState>,
+    mut scene: ResMut<LightningScene>,
+    mut seen: Local<std::collections::HashSet<i64>>,
+) {
+    scene.records.clear();
+    let Some(stream) = client_world.stream.as_ref() else {
+        seen.clear();
+        return;
+    };
+    let bolts = stream.lightning_bolts();
+    seen.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
+    for bolt in bolts {
+        if seen.insert(bolt.unique_id) {
+            flash.trigger(time.elapsed_secs_f64());
+        }
+        if bolt.age_ticks >= BOLT_VISIBLE_TICKS {
+            continue;
+        }
+        let intensity = if bolt.age_ticks % 2 == 0 { 1.0 } else { 0.6 };
+        push_bolt_records(
+            &lightning_bolt_segments(bolt.unique_id as u64, bolt.position),
+            intensity,
+            &mut scene.records,
+        );
     }
 }
 
