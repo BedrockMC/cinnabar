@@ -177,7 +177,7 @@ pub struct PackRejection {
     pub reason: AdmissionError,
 }
 
-/// Admitted packs in exact server stack order; index 0 has the highest precedence.
+/// Admitted packs in exact server stack order; the last has the highest precedence.
 pub struct ValidatedPackStack {
     pub(crate) packs: Box<[ValidatedPack]>,
     pub(crate) rejections: Box<[PackRejection]>,
