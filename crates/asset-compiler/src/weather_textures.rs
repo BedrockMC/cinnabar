@@ -1,9 +1,9 @@
 use std::{fs, io::Cursor, path::Path};
 
+use ::image::{ImageFormat, ImageReader};
 use assets::{
     END_SKY_SIDE, WEATHER_SHEET_SIDE, WeatherImage, WeatherTextures, encode_weather_textures,
 };
-use ::image::{ImageFormat, ImageReader};
 
 const MAX_SOURCE_BYTES: u64 = 64 * 1024;
 
@@ -11,7 +11,10 @@ fn read_png(root: &Path, relative: &str, side: u32) -> Result<WeatherImage, Stri
     let path = root.join(relative);
     let metadata = fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     if metadata.len() > MAX_SOURCE_BYTES {
-        return Err(format!("{} exceeds {MAX_SOURCE_BYTES} bytes", path.display()));
+        return Err(format!(
+            "{} exceeds {MAX_SOURCE_BYTES} bytes",
+            path.display()
+        ));
     }
     let bytes = fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     let decoded = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png)

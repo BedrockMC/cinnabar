@@ -53,7 +53,9 @@ impl WeatherTextures {
     }
 }
 
-pub fn encode_weather_textures(textures: &WeatherTextures) -> Result<Vec<u8>, WeatherTexturesError> {
+pub fn encode_weather_textures(
+    textures: &WeatherTextures,
+) -> Result<Vec<u8>, WeatherTexturesError> {
     textures.validate()?;
     let mut bytes = Vec::with_capacity(MAX_WEATHER_TEXTURES_BYTES / 2);
     bytes.extend_from_slice(&WEATHER_TEXTURES_MAGIC);
@@ -81,8 +83,7 @@ pub fn decode_weather_textures(
     if hash != expected {
         return Err(invalid("hash mismatch"));
     }
-    if body[..8] != WEATHER_TEXTURES_MAGIC
-        || body[8..12] != WEATHER_TEXTURES_VERSION.to_le_bytes()
+    if body[..8] != WEATHER_TEXTURES_MAGIC || body[8..12] != WEATHER_TEXTURES_VERSION.to_le_bytes()
     {
         return Err(invalid("unsupported header"));
     }
@@ -112,7 +113,9 @@ pub fn decode_weather_textures(
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(bytes.get(offset..offset + 4)?.try_into().ok()?))
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
 }
 
 #[cfg(test)]

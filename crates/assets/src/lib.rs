@@ -30,11 +30,6 @@ mod texture;
 mod ui;
 mod weather_textures;
 
-pub use weather_textures::{
-    END_SKY_SIDE, MAX_WEATHER_TEXTURES_BYTES, WEATHER_SHEET_SIDE, WEATHER_TEXTURES_MAGIC,
-    WEATHER_TEXTURES_VERSION, WeatherImage, WeatherTextures, WeatherTexturesError,
-    decode_weather_textures, encode_weather_textures,
-};
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
     MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
@@ -186,4 +181,9 @@ pub use ui::{
     MAX_UI_KEY_BYTES, MAX_UI_SIDECARS, MAX_UI_TEXTURES, RuntimeUiAssets, UI_CARRIER_MAGIC,
     UI_CARRIER_VERSION, UiAtlasPage, UiFile, UiNineSlice, UiSidecar, UiSidecarEntry,
     UiTexturePlacement, UiTextureUv, encode_ui_catalog,
+};
+pub use weather_textures::{
+    END_SKY_SIDE, MAX_WEATHER_TEXTURES_BYTES, WEATHER_SHEET_SIDE, WEATHER_TEXTURES_MAGIC,
+    WEATHER_TEXTURES_VERSION, WeatherImage, WeatherTextures, WeatherTexturesError,
+    decode_weather_textures, encode_weather_textures,
 };
