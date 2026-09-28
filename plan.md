@@ -51,8 +51,9 @@ states by network hash (pack visuals via the runtime overlay; stone-surface coll
 provisional); sequential customs sorting among vanilla remap wire ids, custom collision
 uses `minecraft:collision_box`, and vanilla blocks retexture from a pack's terrain keys
 via the `.matkeys.json` sidecar (rebuild assets to emit it). Vanilla item icons override by
-short-name key (provisional). Vanilla entity retexturing and custom entities from server
-packs are not applied (incomplete); pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
+short-name key (provisional). Custom-block selection boxes drive the pick ray. Server-pack entities have a lenient in-memory
+compile (`compile_entity_pack`) but are not applied: catalog indices are shared with the actor
+and equipment carriers, so a session catalog needs its own index space (incomplete); pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
