@@ -201,6 +201,21 @@ impl WorldStream {
         self.connectivity.get(&key).copied()
     }
     pub fn surface_eye_position(&self, block_x: i32, block_z: i32) -> Option<[f32; 3]> {
+        let block_y = self.top_non_air_block_y(block_x, block_z)?;
+        // Rest the anchor exactly on the surface: movement feet
+        // are recovered as network Y minus PLAYER_NETWORK_OFFSET,
+        // so the former eye-height guess (`+ 2.62`) left feet
+        // 1e-5 blocks inside the surface block and every surface
+        // spawn started embedded in terrain.
+        Some([
+            block_x as f32 + 0.5,
+            block_y as f32 + 1.0 + PLAYER_NETWORK_OFFSET,
+            block_z as f32 + 0.5,
+        ])
+    }
+    /// Y of the highest non-air block in a loaded column, or `None` when it is unloaded or empty.
+    #[must_use]
+    pub fn top_non_air_block_y(&self, block_x: i32, block_z: i32) -> Option<i32> {
         let range = vanilla_dimension_range(self.current_dimension)?;
         let chunk = ChunkKey::new(
             self.current_dimension,
@@ -229,17 +244,7 @@ impl WorldStream {
                         .is_some_and(|runtime_id| !self.classifier.is_air(runtime_id))
                 });
                 if solid {
-                    let block_y = key.y.saturating_mul(16) + i32::from(local_y);
-                    // Rest the anchor exactly on the surface: movement feet
-                    // are recovered as network Y minus PLAYER_NETWORK_OFFSET,
-                    // so the former eye-height guess (`+ 2.62`) left feet
-                    // 1e-5 blocks inside the surface block and every surface
-                    // spawn started embedded in terrain.
-                    return Some([
-                        block_x as f32 + 0.5,
-                        block_y as f32 + 1.0 + PLAYER_NETWORK_OFFSET,
-                        block_z as f32 + 0.5,
-                    ]);
+                    return Some(key.y.saturating_mul(16) + i32::from(local_y));
                 }
             }
         }
