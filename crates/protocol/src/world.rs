@@ -17,7 +17,10 @@ use crate::{
         normalize_remove_entity, normalize_set_entity_data, normalize_set_entity_link,
         normalize_update_attributes,
     },
-    audio::{normalize_level_sound, normalize_play_sound, normalize_stop_sound},
+    audio::{
+        normalize_level_event_sound, normalize_level_sound, normalize_play_sound,
+        normalize_stop_sound,
+    },
     inventory::{
         normalize_armor_equipment, normalize_container_close, normalize_container_data,
         normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
@@ -870,6 +873,9 @@ pub fn into_world_event(
                     | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
             ) {
                 return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
+            }
+            if let Some(event) = normalize_level_event_sound(&packet) {
+                return Ok(Some(WorldEvent::Audio(event)));
             }
             if let Some(event) = crate::particle::normalize_level_event(&packet) {
                 return Ok(Some(WorldEvent::Particle(event)));
