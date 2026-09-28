@@ -554,6 +554,14 @@ mod tests {
             panic!("--gui-scale must parse into a run outcome");
         };
         assert_eq!(parsed.gui_scale, Some(3));
+        // Container routing defaults to the Java-styled screens.
+        assert!(!parsed.json_ui_containers);
+        let ParseOutcome::Run(parsed) =
+            ClientArgs::parse_from(["client", "--json-ui-containers"]).unwrap()
+        else {
+            panic!("--json-ui-containers must parse into a run outcome");
+        };
+        assert!(parsed.json_ui_containers);
         assert!(matches!(
             ClientArgs::parse_from(["client", "--unknown"]),
             Err(ArgsError::Unknown(_))
