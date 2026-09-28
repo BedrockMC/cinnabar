@@ -6,6 +6,7 @@ members = [
     "crates/bridge",
     "crates/client-world",
     "crates/input",
+    "crates/json-ui",
     "crates/meshing",
     "crates/protocol",
     "crates/resource-pack",

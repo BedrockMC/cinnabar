@@ -1,0 +1,241 @@
+//! Variable environment and `$var` substitution. Keys are stored without the
+//! leading `$`. Substitution replaces `$name` tokens in property values; it never
+//! evaluates size/`view` arithmetic, so an expression like `"100% - 15px"` is
+//! copied verbatim.
+
+use std::collections::BTreeMap;
+
+use serde_json::{Map, Value};
+
+/// A flat variable scope. Descending the tree clones the parent scope and layers
+/// the control's own declarations on top, so inner definitions shadow outer ones.
+#[derive(Clone, Debug, Default)]
+pub struct Env {
+    vars: BTreeMap<String, Value>,
+}
+
+impl Env {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Value> {
+        self.vars.get(name)
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.vars.contains_key(name)
+    }
+
+    pub fn set(&mut self, name: impl Into<String>, value: Value) {
+        self.vars.insert(name.into(), value);
+    }
+}
+
+/// Apply a control's `$decl` properties onto `env`. A `$x|default` fills `x` only
+/// when it is otherwise unset (inherited or concrete definitions win); a plain
+/// `$x` always overrides. Values are substituted as they are applied, so a
+/// declaration may reference variables already in scope.
+pub fn apply_declarations(env: &mut Env, props: &Map<String, Value>) {
+    let mut sink = Vec::new();
+    let mut concretes = Vec::new();
+    for (key, value) in props {
+        let Some((name, is_default)) = parse_var_key(key) else {
+            continue;
+        };
+        if is_default {
+            if !env.contains(&name) {
+                let resolved = substitute(value, env, &mut sink);
+                env.set(name, resolved);
+            }
+        } else {
+            concretes.push((name, value));
+        }
+    }
+    for (name, value) in concretes {
+        let resolved = substitute(value, env, &mut sink);
+        env.set(name, resolved);
+    }
+}
+
+/// Strip a leading `$` and, for a declaration key, the `|default` suffix.
+/// Returns `(name, is_default)`; a non-`$` key yields `None`.
+pub fn parse_var_key(key: &str) -> Option<(String, bool)> {
+    let rest = key.strip_prefix('$')?;
+    match rest.split_once('|') {
+        Some((name, _modifier)) => Some((name.to_owned(), true)),
+        None => Some((rest.to_owned(), false)),
+    }
+}
+
+/// Substitute `$var` references throughout a value using `env`. Unknown variables
+/// are left in place and reported through `unresolved`.
+pub fn substitute(value: &Value, env: &Env, unresolved: &mut Vec<String>) -> Value {
+    match value {
+        Value::String(text) => substitute_string(text, env, unresolved),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| substitute(item, env, unresolved))
+                .collect(),
+        ),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| (key.clone(), substitute(item, env, unresolved)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn substitute_string(text: &str, env: &Env, unresolved: &mut Vec<String>) -> Value {
+    let Some(first) = text.find('$') else {
+        return Value::String(text.to_owned());
+    };
+    // Exact single-token form (`"$var"`): preserve the referenced value's type.
+    if first == 0
+        && let Some(name) = whole_token(text)
+    {
+        return match env.get(&name) {
+            Some(value) => value.clone(),
+            None => {
+                unresolved.push(name);
+                Value::String(text.to_owned())
+            }
+        };
+    }
+    Value::String(replace_tokens(text, env, unresolved))
+}
+
+/// The full string is one `$name` token, or `None` if there is trailing text.
+fn whole_token(text: &str) -> Option<String> {
+    let name = &text[1..];
+    if !name.is_empty() && name.bytes().all(is_ident_byte) {
+        Some(name.to_owned())
+    } else {
+        None
+    }
+}
+
+fn replace_tokens(text: &str, env: &Env, unresolved: &mut Vec<String>) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$' {
+            let start = i + 1;
+            let mut end = start;
+            while end < bytes.len() && is_ident_byte(bytes[end]) {
+                end += 1;
+            }
+            if end > start {
+                let name = &text[start..end];
+                match env.get(name) {
+                    Some(value) => out.push_str(&scalar_string(value).unwrap_or_default()),
+                    None => {
+                        unresolved.push(name.to_owned());
+                        out.push_str(&text[i..end]);
+                    }
+                }
+                i = end;
+                continue;
+            }
+        }
+        // Advance by one full UTF-8 char to keep the output well-formed.
+        let ch = text[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn scalar_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    }
+}
+
+fn is_ident_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Env, apply_declarations, parse_var_key, substitute};
+    use serde_json::{Map, json};
+
+    fn props(value: serde_json::Value) -> Map<String, serde_json::Value> {
+        match value {
+            serde_json::Value::Object(map) => map,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn default_fills_only_when_absent_concrete_always_overrides() {
+        let mut env = Env::new();
+        env.set("provided", json!("outer"));
+        apply_declarations(
+            &mut env,
+            &props(json!({
+                "$provided|default": "fallback",
+                "$fresh|default": "made",
+                "$explicit": "set",
+            })),
+        );
+        assert_eq!(env.get("provided"), Some(&json!("outer")));
+        assert_eq!(env.get("fresh"), Some(&json!("made")));
+        assert_eq!(env.get("explicit"), Some(&json!("set")));
+    }
+
+    #[test]
+    fn concrete_declaration_resolves_against_scope() {
+        let mut env = Env::new();
+        env.set("custom_background", json!("dialog_background_hollow_3"));
+        apply_declarations(
+            &mut env,
+            &props(json!({ "$dialog_background": "$custom_background" })),
+        );
+        assert_eq!(
+            env.get("dialog_background"),
+            Some(&json!("dialog_background_hollow_3"))
+        );
+    }
+
+    fn env() -> Env {
+        let mut env = Env::new();
+        env.set("title_size", json!(["100% - 15px", 10]));
+        env.set("name", json!("#title_text"));
+        env
+    }
+
+    #[test]
+    fn exact_reference_preserves_array_type() {
+        let out = substitute(&json!("$title_size"), &env(), &mut Vec::new());
+        assert_eq!(out, json!(["100% - 15px", 10]));
+    }
+
+    #[test]
+    fn arithmetic_strings_are_left_symbolic() {
+        let out = substitute(&json!("100% - 15px"), &env(), &mut Vec::new());
+        assert_eq!(out, json!("100% - 15px"));
+    }
+
+    #[test]
+    fn unknown_variable_is_reported_and_kept() {
+        let mut missing = Vec::new();
+        let out = substitute(&json!("$nope"), &env(), &mut missing);
+        assert_eq!(out, json!("$nope"));
+        assert_eq!(missing, vec!["nope".to_owned()]);
+    }
+
+    #[test]
+    fn default_declaration_key_is_recognised() {
+        assert_eq!(parse_var_key("$x|default"), Some(("x".to_owned(), true)));
+        assert_eq!(parse_var_key("$x"), Some(("x".to_owned(), false)));
+        assert_eq!(parse_var_key("size"), None);
+    }
+}

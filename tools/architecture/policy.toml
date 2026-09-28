@@ -66,6 +66,12 @@ allowed_dependencies = ["assets"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
+name = "json-ui"
+path = "crates/json-ui"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
 name = "meshing"
 path = "crates/meshing"
 allowed_dependencies = ["assets", "world"]
