@@ -10,6 +10,16 @@ use crate::{
     compiled::visual_semantics_are_valid, model::model_quad_flags_are_valid,
 };
 
+/// Repoints a base material at an overlay texture, keeping its flags (tint, alpha).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MaterialOverride {
+    /// Index into the base carrier's material table; never the diagnostic material.
+    pub material: u32,
+    pub texture: TextureRef,
+    /// Overlay-local animation index, or `NO_ANIMATION`.
+    pub animation: u32,
+}
+
 /// Server block visuals whose indices are local to the overlay: face and quad
 /// material ids index `materials`, templates index `model_templates`, and
 /// texture references use page 1 layers of `texture`.
@@ -25,6 +35,7 @@ pub struct BlockOverlay {
     pub texture: Option<TextureArray>,
     /// Network hashes parallel to `visuals` for a hashed-id session; empty otherwise.
     pub hashes: Vec<u32>,
+    pub material_overrides: Vec<MaterialOverride>,
 }
 
 impl RuntimeAssets {
@@ -99,6 +110,23 @@ impl RuntimeAssets {
                     "animation",
                 )?,
             });
+        }
+        for replacement in &overlay.material_overrides {
+            if replacement.material == 0 || replacement.material >= material_base {
+                return Err(invalid(
+                    "overlay material override is outside the base table",
+                ));
+            }
+            materials[replacement.material as usize] = Material {
+                texture: page_ref(replacement.texture)?,
+                animation: optional(
+                    replacement.animation,
+                    overlay.animations.len(),
+                    animation_base,
+                    "animation",
+                )?,
+                ..materials[replacement.material as usize]
+            };
         }
         let mut animation_frames = self.animation_frames.to_vec();
         for &frame in &overlay.animation_frames {
@@ -209,6 +237,7 @@ impl RuntimeAssets {
             texture_pages: texture_pages.into_boxed_slice(),
             biomes: self.biomes.clone(),
             provenance: self.provenance,
+            material_keys: self.material_keys.clone(),
             missing: AtomicU64::new(0),
         })
     }
@@ -300,6 +329,19 @@ mod tests {
         let session = base.with_block_overlay(1, &overlay).unwrap();
         assert_eq!(session.sequential_id_for_hash(0xdead_beef), Some(1));
         overlay.hashes = vec![1, 2];
+        assert!(base.with_block_overlay(1, &overlay).is_err());
+    }
+
+    // A base material can be repointed at the overlay page; the diagnostic material cannot.
+    #[test]
+    fn material_overrides_repoint_base_materials() {
+        let base = RuntimeAssets::diagnostic();
+        let mut overlay = cube_overlay(page(16));
+        overlay.material_overrides = vec![MaterialOverride {
+            material: 0,
+            texture: TextureRef::new(1, 0).unwrap(),
+            animation: NO_ANIMATION,
+        }];
         assert!(base.with_block_overlay(1, &overlay).is_err());
     }
 
