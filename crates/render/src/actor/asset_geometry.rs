@@ -31,6 +31,18 @@ pub(super) fn geometry_from_runtime_assets(
     )
 }
 
+/// Rig geometry for every binding of a session pack catalog, under pack rig ids;
+/// an unbuildable binding is omitted so its actors take the missing-rig route.
+pub(super) fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeometry> {
+    (0..assets.rig_geometries().len())
+        .filter_map(|binding| {
+            let id = super::pack_rig_id(u32::try_from(binding).ok()?);
+            let geometry = assets.rig_geometries().get(binding)?.geometry as usize;
+            geometry_from_geometry_index(assets, geometry, id).ok()
+        })
+        .collect()
+}
+
 pub(super) fn geometry_from_geometry_index(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
