@@ -30,6 +30,8 @@ pub enum Layer {
     Overlay,
     /// Multiplies the scene (twice source times destination) without writing depth.
     Crack,
+    /// Adds to the scene without writing depth.
+    Additive,
 }
 
 /// A box in entity-geometry authoring space: pixels, front toward -Z, +Y up.
@@ -75,6 +77,7 @@ pub struct MeshBuilder {
     pub solid: Vec<BlockEntityVertex>,
     pub overlay: Vec<BlockEntityVertex>,
     pub crack: Vec<BlockEntityVertex>,
+    pub additive: Vec<BlockEntityVertex>,
     /// Multiplier applied to every emitted color; carries per-instance light.
     pub light: f32,
     pub rejected_quads: u64,
@@ -88,6 +91,7 @@ impl MeshBuilder {
             solid: Vec::new(),
             overlay: Vec::new(),
             crack: Vec::new(),
+            additive: Vec::new(),
             light: 1.0,
             rejected_quads: 0,
         }
@@ -178,6 +182,7 @@ impl MeshBuilder {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
             Layer::Crack => &mut self.crack,
+            Layer::Additive => &mut self.additive,
         };
         if target.len() + 6 > MAX_BLOCK_ENTITY_VERTICES {
             self.rejected_quads = self.rejected_quads.saturating_add(1);

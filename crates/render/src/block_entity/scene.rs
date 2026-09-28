@@ -80,6 +80,7 @@ pub struct BlockEntityFrame {
     pub solid: Arc<[BlockEntityVertex]>,
     pub overlay: Arc<[BlockEntityVertex]>,
     pub crack: Arc<[BlockEntityVertex]>,
+    pub additive: Arc<[BlockEntityVertex]>,
 }
 
 /// Static atlas pixels plus dimensions for GPU upload.
@@ -173,6 +174,7 @@ impl BlockEntityScene {
             solid: builder.solid.into(),
             overlay: builder.overlay.into(),
             crack: builder.crack.into(),
+            additive: builder.additive.into(),
         };
         &self.frame
     }
@@ -305,7 +307,12 @@ mod tests {
             &[],
         );
         assert_eq!(frame.revision, 0);
-        assert!(frame.solid.is_empty() && frame.overlay.is_empty() && frame.crack.is_empty());
+        assert!(
+            frame.solid.is_empty()
+                && frame.overlay.is_empty()
+                && frame.crack.is_empty()
+                && frame.additive.is_empty()
+        );
         assert!(!scene.has_assets());
     }
 }

@@ -86,13 +86,15 @@ fn install(app: &mut App) {
         .add_render_command::<Opaque3d, DrawSolidCommands>()
         .add_render_command::<Transparent3d, DrawOverlayCommands>()
         .add_render_command::<Transparent3d, DrawCrackCommands>()
+        .add_render_command::<Transparent3d, DrawAdditiveCommands>()
         .add_systems(RenderStartup, init_gpu)
         .add_systems(
             Render,
             (
                 prepare_resources.in_set(RenderSystems::PrepareResources),
                 prepare_bind_groups.in_set(RenderSystems::PrepareBindGroups),
-                (queue_solid, queue_overlay, queue_crack).in_set(RenderSystems::Queue),
+                (queue_solid, queue_overlay, queue_crack, queue_additive)
+                    .in_set(RenderSystems::Queue),
             ),
         );
 }
@@ -149,6 +151,7 @@ struct BlockEntityGpu {
     solid: VertexList,
     overlay: VertexList,
     crack: VertexList,
+    additive: VertexList,
     texture: Option<Texture>,
     view: Option<TextureView>,
     atlas_identity: [u8; 32],
@@ -164,6 +167,7 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         solid: VertexList::new(),
         overlay: VertexList::new(),
         crack: VertexList::new(),
+        additive: VertexList::new(),
         texture: None,
         view: None,
         atlas_identity: [0; 32],
@@ -194,6 +198,7 @@ fn prepare_resources(
         gpu.solid.count = 0;
         gpu.overlay.count = 0;
         gpu.crack.count = 0;
+        gpu.additive.count = 0;
         return;
     };
     if gpu.atlas_identity != atlas.identity || gpu.texture.is_none() {
@@ -227,6 +232,7 @@ fn prepare_resources(
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
         gpu.crack.bind_group = None;
+        gpu.additive.bind_group = None;
     }
     let dynamic_rows = atlas.size[1].saturating_sub(atlas.static_height);
     if gpu.dynamic_revision != frame.dynamic_revision
@@ -262,6 +268,12 @@ fn prepare_resources(
             &render_device,
             &render_queue,
             "block-entity crack vertices",
+        );
+        gpu.additive.upload(
+            &frame.additive,
+            &render_device,
+            &render_queue,
+            "block-entity additive vertices",
         );
         gpu.frame_revision = frame.revision;
     }
@@ -316,6 +328,7 @@ enum PipelineMode {
     Solid,
     Overlay,
     Crack,
+    Additive,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
@@ -418,6 +431,7 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
                 PipelineMode::Solid => "block_entity_solid",
                 PipelineMode::Overlay => "block_entity_overlay",
                 PipelineMode::Crack => "block_entity_crack",
+                PipelineMode::Additive => "block_entity_additive",
             }
             .into(),
         );
@@ -430,6 +444,18 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         target.blend = match key.mode {
             PipelineMode::Solid => None,
             PipelineMode::Overlay => Some(BlendState::ALPHA_BLENDING),
+            PipelineMode::Additive => Some(BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::One,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+            }),
             // Twice source times destination, like the classic destroy overlay.
             PipelineMode::Crack => Some(BlendState {
                 color: BlendComponent {
@@ -464,6 +490,7 @@ fn prepare_bind_groups(
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
         gpu.crack.bind_group = None;
+        gpu.additive.bind_group = None;
         return;
     };
     let view_buffer = view_uniforms
@@ -474,12 +501,14 @@ fn prepare_bind_groups(
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
         gpu.crack.bind_group = None;
+        gpu.additive.bind_group = None;
         gpu.view_buffer_id = Some(view_buffer.id());
     }
     let BlockEntityGpu {
         solid,
         overlay,
         crack,
+        additive,
         view,
         sampler,
         ..
@@ -488,6 +517,7 @@ fn prepare_bind_groups(
         solid.bind_group = None;
         overlay.bind_group = None;
         crack.bind_group = None;
+        additive.bind_group = None;
         return;
     };
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
@@ -495,6 +525,7 @@ fn prepare_bind_groups(
         (solid, "block-entity solid bind group"),
         (overlay, "block-entity overlay bind group"),
         (crack, "block-entity crack bind group"),
+        (additive, "block-entity additive bind group"),
     ] {
         let (Some(buffer), None) = (list.buffer.as_ref(), list.bind_group.as_ref()) else {
             continue;
@@ -613,6 +644,26 @@ fn queue_crack(
     );
 }
 
+fn queue_additive(
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: ResMut<BlockEntityPipeline>,
+    gpu: Res<BlockEntityGpu>,
+    phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    draw_functions: Res<DrawFunctions<Transparent3d>>,
+    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+) {
+    let draw_function = draw_functions.read().id::<DrawAdditiveCommands>();
+    queue_blended(
+        &gpu.additive,
+        PipelineMode::Additive,
+        draw_function,
+        &pipeline_cache,
+        pipeline,
+        phases,
+        &views,
+    );
+}
+
 fn queue_blended(
     list: &VertexList,
     mode: PipelineMode,
@@ -655,10 +706,12 @@ fn queue_blended(
 type DrawSolidCommands = (SetItemPipeline, DrawList<SOLID>);
 type DrawOverlayCommands = (SetItemPipeline, DrawList<OVERLAY>);
 type DrawCrackCommands = (SetItemPipeline, DrawList<CRACK>);
+type DrawAdditiveCommands = (SetItemPipeline, DrawList<ADDITIVE>);
 
 const SOLID: u8 = 0;
 const OVERLAY: u8 = 1;
 const CRACK: u8 = 2;
+const ADDITIVE: u8 = 3;
 
 struct DrawList<const LIST: u8>;
 
@@ -678,6 +731,7 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         let list = match LIST {
             OVERLAY => &gpu.overlay,
             CRACK => &gpu.crack,
+            ADDITIVE => &gpu.additive,
             _ => &gpu.solid,
         };
         let Some(bind_group) = &list.bind_group else {
