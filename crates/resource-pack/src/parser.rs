@@ -176,8 +176,9 @@ pub(crate) fn validate_archive_parts(
         .into_iter()
         .filter_map(|(path, entry)| Some((path.strip_prefix(root.as_str())?.into(), entry)))
         .collect();
+    let archive_bytes = bytes.len();
     let keys = match key {
-        Some(pack_key) => attach_file_keys(&bytes, &mut rooted, &pack_key)?,
+        Some(pack_key) => attach_file_keys(&zip, &mut rooted, &pack_key)?,
         None => Box::default(),
     };
     let manifest_path = ["manifest.json", "pack_manifest.json"]
@@ -195,7 +196,8 @@ pub(crate) fn validate_archive_parts(
         pack_id,
         version: version.into(),
         sub_pack_name: sub_pack_name.into(),
-        archive: bytes,
+        archive_bytes,
+        zip,
         files,
         folded,
         file_order: file_order.into_boxed_slice(),
@@ -240,14 +242,14 @@ fn pack_root(physical: &HashMap<Box<str>, EntryIndex>) -> String {
 }
 
 fn attach_file_keys(
-    archive: &Arc<[u8]>,
+    zip: &crate::pack::PackZip,
     rooted: &mut HashMap<Box<str>, EntryIndex>,
     pack_key: &ContentKey,
 ) -> Result<Box<[ContentKey]>, AdmissionError> {
     let contents = rooted
         .get("contents.json")
         .ok_or(AdmissionError::MissingContentsIndex)?;
-    let raw = read_entry(archive, contents, MAX_CONTENTS_INDEX_BYTES)
+    let raw = read_entry(zip, contents, MAX_CONTENTS_INDEX_BYTES)
         .map_err(|_| AdmissionError::MalformedContentsIndex)?;
     let mut file_keys = contents_file_keys(&raw, pack_key)?;
     let mut keys = Vec::with_capacity(file_keys.len());

@@ -1,8 +1,8 @@
 //! Precedence-ordered reads over an admitted stack.
 //!
-//! The first `ResourcePackStack` entry has the highest precedence: servers list
-//! built-in base packs last, and the client applies stack layers from the last
-//! entry to the first so earlier entries override later ones.
+//! The first `ResourcePackStack` entry wins: base packs are appended last and
+//! layers apply bottom to top (PocketMine `resource_packs.yml`: "applied from
+//! the bottom to the top"). Verify against a live 26.30 two-pack capture.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -35,8 +35,7 @@ impl LayeredPackView {
             .find_map(|pack| pack.read_file(path).ok().flatten())
     }
 
-    /// Returns every readable copy of `path`, lowest precedence first, so a
-    /// merge that lets later entries override earlier ones matches the stack.
+    /// Every readable copy of `path`, lowest precedence first.
     #[must_use]
     pub fn read_layers(&self, path: &str) -> Vec<Box<[u8]>> {
         self.layers()

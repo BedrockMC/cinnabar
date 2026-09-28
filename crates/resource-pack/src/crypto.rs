@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use aes::cipher::{BlockEncrypt, KeyInit};
 use serde::Deserialize;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, MAX_PATH_BYTES, normalize_jsonc};
 
@@ -88,32 +88,35 @@ pub(crate) fn contents_file_keys(
     raw: &[u8],
     pack_key: &ContentKey,
 ) -> Result<HashMap<Box<str>, ContentKey>, AdmissionError> {
+    // The decrypted index and its per-file keys are secrets: wipe them on drop.
     let json = match normalize_jsonc(raw) {
-        Some(json) => json,
+        Some(json) => Zeroizing::new(json),
         None => {
-            let mut body = raw
-                .get(CONTENTS_HEADER_BYTES..)
-                .filter(|body| !body.is_empty())
-                .ok_or(AdmissionError::MalformedContentsIndex)?
-                .to_vec();
+            let mut body = Zeroizing::new(
+                raw.get(CONTENTS_HEADER_BYTES..)
+                    .filter(|body| !body.is_empty())
+                    .ok_or(AdmissionError::MalformedContentsIndex)?
+                    .to_vec(),
+            );
             pack_key.decrypt(&mut body);
-            normalize_jsonc(&body).ok_or(AdmissionError::MalformedContentsIndex)?
+            Zeroizing::new(normalize_jsonc(&body).ok_or(AdmissionError::MalformedContentsIndex)?)
         }
     };
-    let contents: Contents =
+    let mut contents: Contents =
         serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedContentsIndex)?;
     if contents.content.len() > MAX_ENTRIES_PER_PACK {
         return Err(AdmissionError::TooManyEntries);
     }
     let mut keys = HashMap::with_capacity(contents.content.len());
-    for entry in contents.content {
-        let path = entry.path.replace('\\', "/");
-        let path = path.trim_start_matches("./");
-        let Some(key) = entry
+    for entry in &mut contents.content {
+        let key = entry
             .key
             .as_deref()
-            .and_then(|key| ContentKey::new(key.as_bytes()))
-        else {
+            .and_then(|key| ContentKey::new(key.as_bytes()));
+        entry.key.zeroize();
+        let path = entry.path.replace('\\', "/");
+        let path = path.trim_start_matches("./");
+        let Some(key) = key else {
             continue;
         };
         if !path.is_empty() && path.len() <= MAX_PATH_BYTES {
