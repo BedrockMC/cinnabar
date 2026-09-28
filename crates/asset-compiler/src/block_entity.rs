@@ -34,6 +34,9 @@ const SOURCE_DIRECTORIES: &[&str] = &[
 
 /// Individual textures packed by exact logical name (no extension).
 const SOURCE_FILES: &[&str] = &[
+    "textures/blocks/bell_bottom",
+    "textures/blocks/bell_side",
+    "textures/blocks/bell_top",
     "textures/blocks/conduit_base",
     "textures/blocks/conduit_cage",
     "textures/blocks/conduit_closed",
@@ -45,6 +48,10 @@ const SOURCE_FILES: &[&str] = &[
     "textures/blocks/end_gateway",
     "textures/blocks/glow_item_frame",
     "textures/blocks/itemframe_background",
+    "textures/blocks/lectern_base",
+    "textures/blocks/lectern_front",
+    "textures/blocks/lectern_sides",
+    "textures/blocks/lectern_top",
     "textures/blocks/mob_spawner",
     "textures/entity/alex",
     "textures/entity/beacon_beam",

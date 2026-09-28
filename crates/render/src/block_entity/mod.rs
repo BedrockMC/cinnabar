@@ -11,10 +11,14 @@ mod bed;
 mod bell;
 mod book;
 mod chest;
+mod conduit;
 mod crack;
+mod frame;
 mod gpu;
+mod items;
 mod mesh;
 mod portal;
+mod pot;
 mod scene;
 mod shulker;
 mod sign;
@@ -26,10 +30,15 @@ pub use banner::{
 };
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
+pub use bell::{BellAttachment, BellModel, swing_degrees};
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
+pub use conduit::ConduitModel;
 pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
+pub use frame::{ItemFrameModel, item_frame_item_transform};
 pub use gpu::BlockEntityRenderPlugin;
+pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
 pub use mesh::{BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES};
+pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
     BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
     BlockEntitySubmission, CrackInstance, SceneClock,
