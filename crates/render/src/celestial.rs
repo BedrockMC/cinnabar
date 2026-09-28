@@ -148,8 +148,9 @@ pub(crate) fn unit(value: f32) -> f32 {
     }
 }
 
+/// Exact at both endpoints, unlike `left + (right - left) * amount`.
 pub(crate) fn lerp(left: f32, right: f32, amount: f32) -> f32 {
-    left + (right - left) * amount
+    left * (1.0 - amount) + right * amount
 }
 
 fn clean_unit(value: f32) -> f32 {

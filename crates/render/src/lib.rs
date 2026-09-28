@@ -9,6 +9,7 @@ mod chunk;
 mod cloud_config;
 mod cloud_render;
 mod hand_rig_render;
+mod lightning;
 mod present_mode;
 mod runtime_profile;
 mod ui;
@@ -29,6 +30,8 @@ pub use viewmodel::{
 };
 pub use viewmodel_render::ViewmodelRenderPlugin;
 mod visibility_diagnostics;
+mod weather;
+mod weather_render;
 
 use meshing::{
     ChunkMesh, PackedBiomeRecord, PackedCloudQuad, PackedLiquidQuad, PackedModelDrawRef,
@@ -97,6 +100,10 @@ pub use cloud_config::{
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
     CloudMatchingView, CloudQuality, CloudRenderConfig,
 };
+pub use lightning::{
+    BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, lightning_bolt_segments,
+    lightning_flash_level,
+};
 pub use present_mode::{
     Dx12PresentModePolicy, Dx12PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
     resolve_dx12_present_mode_remedy,
@@ -115,4 +122,11 @@ pub use visibility_diagnostics::{
     ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,
     MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
     VisibilityDiagnostics, VisibilityDiagnosticsInput, VisibilityKeyDelta, VisibilityKeyDigest,
+};
+pub use weather::{
+    ColumnSample, ColumnSampler, MAX_PRECIPITATION_COLUMNS, PRECIPITATION_ABOVE_CAMERA,
+    PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_RADIUS, Precipitation, PrecipitationColumn,
+    PrecipitationScene, RainSplashQueue, altitude_adjusted_temperature, approach_level,
+    build_precipitation_columns, classify_precipitation, pick_rain_splashes, precipitation_clock,
+    precipitation_wind,
 };
