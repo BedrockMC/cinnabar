@@ -3,8 +3,10 @@
 mod armor;
 mod atlas;
 mod display;
+mod input;
 mod runtime;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use input::{local_input, remote_input};
 pub(crate) use runtime::{ActorEquipmentInput, EquipmentPresentation, EquipmentRuntime, WornItem};

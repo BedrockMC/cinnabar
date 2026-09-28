@@ -19,6 +19,7 @@ use crate::{
         local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
         update_actor_rig_scene,
     },
+    presentation::equipment::{EquipmentRuntime, local_input, remote_input},
     runtime::world::ClientWorld,
 };
 
@@ -65,6 +66,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
     local_skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
+    equipment: Option<ResMut<'w, EquipmentRuntime>>,
+    ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -81,6 +84,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut hand_scene,
         mut hand_revision,
         local_skin,
+        mut equipment,
+        ui,
     } = params;
     let ActorPresentationState {
         avatar,
@@ -224,7 +229,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         });
         (visibility.visible(), local)
     });
-    let batch = select_actor_presentations_for_view(
+    let mut batch = select_actor_presentations_for_view(
         local_runtime_id,
         local_visible,
         local,
@@ -232,6 +237,30 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         cull_view,
     );
     let selected_count = batch.submissions.len();
+    if let (Some(equipment), Some(stream)) =
+        (equipment.as_deref_mut(), client_world.stream.as_ref())
+    {
+        // Equipment rides each selected body's pose, so culled bodies never build layers.
+        let bodies = batch.submissions.clone();
+        for body in &bodies {
+            let runtime_id = body.input.identity.runtime_id;
+            let input = if runtime_id == local_runtime_id {
+                local_input(stream, ui.as_deref(), runtime_id)
+            } else {
+                remote_input(stream, runtime_id)
+            };
+            for layer in equipment.layers_for(body, &input) {
+                batch
+                    .artwork
+                    .insert(layer.submission.input.identity, layer.location);
+                batch.submissions.push(layer.submission);
+            }
+        }
+        for geometry in equipment.take_pending_geometries() {
+            // A rejected mesh only leaves that item undrawn.
+            let _ = scene.insert_geometry(geometry);
+        }
+    }
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
