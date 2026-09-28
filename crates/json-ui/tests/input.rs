@@ -342,3 +342,52 @@ fn innermost_global_mapping_wins() {
         Some("popup.escape")
     );
 }
+
+struct CellLibrary;
+impl json_ui::ControlLibrary for CellLibrary {
+    fn resolve(&self, _reference: &json_ui::ControlRef) -> Option<ResolvedControl> {
+        Some(ctrl(
+            "cell",
+            "input_panel",
+            json!({ "size": [18, 18] }),
+            vec![ctrl(
+                "button",
+                "button",
+                json!({
+                    "button_mappings": [
+                        { "from_button_id": "button.menu_select", "to_button_id": "button.container_take_all_place_all", "mapping_type": "pressed" }
+                    ]
+                }),
+                vec![],
+            )],
+        ))
+    }
+}
+
+#[test]
+fn bound_grid_cells_report_their_collection_and_index() {
+    let grid = ctrl(
+        "grid",
+        "grid",
+        json!({
+            "size": [54, 18], "anchor_from": "top_left", "anchor_to": "top_left",
+            "grid_dimensions": [3, 1], "grid_item_template": "common.cell",
+            "collection_name": "container_items"
+        }),
+        vec![],
+    );
+    let bound = json_ui::bind(
+        &screen(vec![grid]),
+        &json_ui::DataSource::new(),
+        &CellLibrary,
+    );
+    let (laid, _) = layout_with(&bound, [200.0, 100.0], &env(), &ViewState::default());
+    let regions = hit_regions(&laid);
+    let cell = hit_test(&regions, [40.0, 5.0]).expect("third cell");
+    assert_eq!(cell.collection.as_deref(), Some("container_items"));
+    assert_eq!(cell.collection_index, Some(2));
+    assert_eq!(
+        cell.pressed.as_deref(),
+        Some("button.container_take_all_place_all")
+    );
+}

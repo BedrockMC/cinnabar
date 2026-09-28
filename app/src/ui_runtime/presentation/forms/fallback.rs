@@ -272,6 +272,7 @@ impl UiPresentationRuntime {
             window_rect(cancel, self.safe_area)?,
         ));
         state.engine = self.form_presentation.engine.take();
+        state.container = self.form_presentation.container.take();
         self.form_presentation = state;
         Ok(())
     }

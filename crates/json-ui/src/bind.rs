@@ -287,7 +287,12 @@ impl Binder<'_> {
             .map(|index| {
                 let mut child_scope = scope.clone();
                 child_scope.indices.insert(collection.to_owned(), index);
-                self.build(&with_index(resolved.clone(), index), &child_scope)
+                let mut cell = with_index(resolved.clone(), index);
+                cell.properties.insert(
+                    "collection_scope".to_owned(),
+                    Value::String(collection.to_owned()),
+                );
+                self.build(&cell, &child_scope)
             })
             .collect()
     }

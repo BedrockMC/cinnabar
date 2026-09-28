@@ -5,10 +5,8 @@
 
 use crate::bind::{DataSource, bind};
 use crate::catalog::Catalog;
-use crate::emit::emit;
-use crate::form::{CatalogLibrary, FormRender};
-use crate::input::{global_mapping, hit_regions};
-use crate::layout::{LayoutEnv, layout_with};
+use crate::form::{CatalogLibrary, FormRender, finish};
+use crate::layout::LayoutEnv;
 use crate::state::ViewState;
 use crate::{Context, resolve};
 
@@ -68,22 +66,7 @@ pub fn render_screen(
     let root = resolve(catalog, reference, context).control?;
     let library = CatalogLibrary { catalog, context };
     let bound = bind(&root, data, &library);
-    let (nodes, hits, report, cancel_target) = {
-        let (laid, report) = layout_with(&bound, root_size, env, state);
-        (
-            emit(&laid, env),
-            hit_regions(&laid),
-            report,
-            global_mapping(&laid, "button.menu_cancel"),
-        )
-    };
-    Some(ScreenRender {
-        bound,
-        nodes,
-        hits,
-        report,
-        cancel_target,
-    })
+    Some(finish(bound, root_size, env, state))
 }
 
 #[cfg(test)]
