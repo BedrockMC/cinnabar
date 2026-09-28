@@ -202,6 +202,29 @@ impl RuntimeEquipmentCatalog {
         })
     }
 
+    /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
+    /// nonzero digest of the pack sources). Bindings and textures are sorted by identifier
+    /// and the first of a repeated identifier is kept; nothing is carried for item use.
+    pub fn from_parts(
+        identity: [u8; 32],
+        mut bindings: Vec<EquipmentBinding>,
+        mut textures: Vec<EquipmentTexture>,
+    ) -> Result<Self, AssetError> {
+        bindings.sort_by(|left, right| left.identifier.cmp(&right.identifier));
+        bindings.dedup_by(|later, earlier| later.identifier == earlier.identifier);
+        textures.sort_by(|left, right| left.identifier.cmp(&right.identifier));
+        textures.dedup_by(|later, earlier| later.identifier == earlier.identifier);
+        validate(&identity, &identity, &bindings)?;
+        validate_textures(&textures)?;
+        Ok(Self {
+            source_manifest_sha256: identity,
+            entity_blob_sha256: identity,
+            bindings: Arc::from(bindings),
+            textures: Arc::from(textures),
+            item_use: Arc::from(Vec::new()),
+        })
+    }
+
     #[must_use]
     pub const fn source_manifest_sha256(&self) -> [u8; 32] {
         self.source_manifest_sha256
