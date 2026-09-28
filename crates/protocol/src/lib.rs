@@ -165,5 +165,5 @@ pub use world::{
     SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
     WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, WorldWireError, air_network_id,
     block_name_sort_key, into_world_event, request_sub_chunk_column,
-    server_authoritative_block_breaking, vanilla_dimension_range,
+    is_hardcore, server_authoritative_block_breaking, vanilla_dimension_range,
 };
