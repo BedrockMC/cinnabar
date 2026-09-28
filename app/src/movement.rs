@@ -18,6 +18,7 @@ mod local_facts;
 mod locomotion;
 mod outbox;
 mod physics;
+mod prediction_sync;
 mod runtime_system;
 mod speed_authority;
 mod state;
@@ -46,6 +47,7 @@ pub use physics::{
     PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
     physics_movement_input,
 };
+pub(crate) use prediction_sync::send_movement_prediction_sync;
 pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
 pub(crate) use speed_authority::LocalMovementSpeedAuthority;
