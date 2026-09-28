@@ -6,6 +6,8 @@ use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, Vec3, WorldQueryError};
 const SNEAK_HEIGHT: f64 = 1.5;
 /// Swimming, crawling and gliding hitbox height. Public wiki value.
 const LOW_POSE_HEIGHT: f64 = 0.6;
+/// Vertical inset applied before the fit test so exact contact still fits.
+const FIT_INSET: f64 = 1.0e-3;
 
 /// Locomotion mode the client selected for one tick; the simulator never picks it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,7 +50,10 @@ pub fn pose_fits(
     let query = Aabb::player_with_height_at(feet, mode.hitbox_height(sneaking));
     crate::world::validate_collision_query(query)?;
     let boxes = world.collision_boxes(query)?;
-    Ok(!boxes.value.into_iter().any(|shape| shape.intersects(query)))
+    // Contact within float noise is not overlap.
+    let inset = Vec3::new(0.0, FIT_INSET, 0.0);
+    let probe = Aabb::new(query.min + inset, query.max - inset);
+    Ok(!boxes.value.into_iter().any(|shape| shape.intersects(probe)))
 }
 
 #[cfg(test)]

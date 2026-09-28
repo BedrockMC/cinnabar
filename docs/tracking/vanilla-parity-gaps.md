@@ -166,10 +166,14 @@ animated rig remotes use. All three below flow from that.
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
 - Live movement still `FreeCamera`; validated physics not yet the production source (known).
-- Sprint activation (double-tap / sprint-on-movement) and toggle-sneak/sprint absent (HIGH).
-- Scaffolding empty collision + wrong climb (fall-through); honey block behaviors unconsumed (HIGH).
-- Step height 0.6 vs ~0.5625 *(measure)*; swimming pose/swim-sprint; creative flight prediction;
-  lava strata; depth strider; scroll-notch magnitude; UI key-repeat (MED/LOW).
+- Sprint latch (key, double-tap, toggle option) and toggle-sneak are implemented but provisional
+  (double-tap window unmeasured); item-use sprint stop is not classified yet.
+- Ability flight, pose-swimming, elytra gliding and crawl/forced-sneak are provisional simulator
+  modes (no oracle; coefficients need measurement); firework boost relies on server motion only.
+- Scaffolding is solid only from above and sneak descends (provisional rate); honey slide,
+  depth strider, soul speed and riding input remain open (HIGH/MED).
+- Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
+  scroll-notch magnitude; UI key-repeat (MED/LOW).
 
 ## Audio
 - Not yet audited. Earlier note: no footstep/block-sound lookups by runtime id exist — likely a large gap.

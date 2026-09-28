@@ -38,6 +38,10 @@ pub struct ProcessedMovementState {
     /// preserves Cinnabar's existing policy, pending exact retail acceptance.
     /// The encoder masks this to direction bits; raw/analogue never substitute.
     pub direction_flags: Option<protocol::PlayerInputFlags>,
+    /// Locomotion mode the simulator ran this tick; drives the mode start/stop edges.
+    pub mode: sim::MovementMode,
+    /// A low ceiling holds the sneak pose although the button is up.
+    pub forced_sneak: bool,
 }
 
 impl ProcessedMovementState {
@@ -62,6 +66,8 @@ impl ProcessedMovementState {
             sneaking,
             sprinting,
             direction_flags: None,
+            mode: sim::MovementMode::Walking,
+            forced_sneak: false,
         }
     }
 }
