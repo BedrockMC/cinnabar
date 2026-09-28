@@ -1,14 +1,14 @@
 //! Regression witnesses for the bounded spawn-anchor depenetration cure.
 //!
-//! Live third-party evidence (2026-08-22/25) showed spawn anchors installed
-//! inside solids producing genuine oscillating motion under zero input —
-//! the exact signature third-party anti-cheats reject ("movement cheats").
-//! These witnesses pin the provisional recovery contract: probed anchors
-//! rest clear of solids before their first transmitted sample, unresolvable
-//! embedment freezes advancement and transmission until a server anchor
-//! re-probes or the unchanged cap fails open, and the per-epoch failure
-//! budget bounds correction fight-loops. All constants are provisional
-//! recovery policy, not vanilla parity claims.
+//! Spawn anchors installed inside solids used to turn depenetration
+//! minimal-translation vectors into oscillating motion under zero input — the
+//! "movement cheats" signature. These witnesses pin the contract: a probed
+//! anchor rests clear of solids before its first sample when a bounded push-out
+//! exists; an unresolvable embedment simply proceeds and streams a driftless
+//! pose (the simulator reports no inputless horizontal motion from an embedded
+//! start), never freezing transmission; and the failed probe optionally renders
+//! one diagnostic marker without changing any decision. All constants are
+//! provisional recovery policy, not vanilla parity claims.
 
 use std::time::Duration;
 
@@ -27,8 +27,6 @@ use protocol::PLAYER_NETWORK_OFFSET;
 use sim::{
     Aabb, CollisionQuery, CollisionWorld, MovementInput, ProvenancedCollider, Vec3, WorldQueryError,
 };
-
-const SETTLE_TIMEOUT_TICKS: u64 = super::settle::SETTLE_TIMEOUT_TICKS;
 
 /// Flat surface whose walkable top is exactly `y = 70`.
 struct SurfaceFloor;
@@ -97,10 +95,6 @@ fn reanchor_into_solid_probes_before_first_sample() {
     // anchor's first tick is a settled standing tick rather than an airborne
     // settling one.
     physics.reanchor_network_position([0.5, 71.0, 0.5], 0, true);
-    assert!(
-        !ticker.holding_embedded_anchor(),
-        "a fresh anchor starts outside any hold"
-    );
 
     let frame = physics.advance(
         Duration::from_millis(50),
@@ -108,12 +102,7 @@ fn reanchor_into_solid_probes_before_first_sample() {
         &SurfaceFloor,
     );
     assert!(frame.blocked.is_none());
-    assert!(
-        !frame.embedded_anchor_hold_engaged,
-        "a resolvable embedment clears"
-    );
     assert_eq!(frame.samples.len(), 1, "exactly one fixed tick completed");
-    assert_eq!(frame.embedded_hold_ticks, 0);
 
     let sample = frame.samples.into_iter().next().expect("one sample");
     let player = Aabb::player_at(feet_of(sample.position));
@@ -134,8 +123,8 @@ fn reanchor_into_solid_probes_before_first_sample() {
     );
     assert!(!sample.horizontal_collision);
 
-    // The MOVEMENT_TX_GATE episode engaged at reset precedes any hand-off:
-    // the probed sample stays withheld by the armed settle window.
+    // Transmission is unconditional: the probed sample is handed off on the very
+    // first flush, with no spawn-settle window withholding it.
     ticker.enqueue_completed_physics(sample).unwrap();
     let mut sent = Vec::new();
     flush_player_auth_inputs(
@@ -148,136 +137,55 @@ fn reanchor_into_solid_probes_before_first_sample() {
         },
     )
     .unwrap();
-    assert!(
-        sent.is_empty(),
-        "the engaged gate withholds the probed sample"
-    );
+    assert_eq!(sent, vec![1], "the probed sample transmits immediately");
 }
 
 #[test]
-fn unresolvable_embedment_holds_until_server_reanchors() {
-    // --- Stage 1: the failed probe freezes advancement and transmission.
+fn unresolvable_embedment_streams_driftless_instead_of_freezing() {
+    // A sealed pocket cannot be walked clear. Rather than freeze transmission,
+    // the tick proceeds: the simulator reports no inputless horizontal motion
+    // from an embedded start, so every tick still transmits and carries no
+    // horizontal PosDelta the server could read as a movement cheat.
     let mut physics = LocalPhysicsController::default();
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 40, [0.5, 66.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
     physics.reanchor_network_position([0.5, 66.620_01, 0.5], 40, false);
 
-    let mut sent_total = 0usize;
-    fn flush_sends(ticker: &mut MovementTicker) -> usize {
-        let mut sent = 0usize;
-        flush_player_auth_inputs(
-            ticker,
-            16,
-            Some(evidence_context()),
-            |_identity, _packet| {
-                sent += 1;
-                Ok::<_, ()>(())
-            },
-        )
-        .unwrap();
-        sent
-    }
-
-    let engage = physics.advance(
+    let frame = physics.advance(
         Duration::from_millis(50),
         MovementInput::default(),
         &SealedRoom,
     );
-    assert!(
-        engage.embedded_anchor_hold_engaged,
-        "an unresolvable embedment freezes advancement"
-    );
-    assert!(engage.samples.is_empty());
-    assert_eq!(engage.embedded_hold_ticks, 0);
-    ticker.note_embedded_anchor();
-    assert!(ticker.holding_embedded_anchor());
-    sent_total += flush_sends(&mut ticker);
-    assert_eq!(sent_total, 0, "ZERO PlayerAuthInput while held");
-
-    // --- Stage 2: repeated advances produce no new samples and each hold
-    // episode fails open at exactly the unchanged 200-tick cap.
-    let mut engaged = 1_u32;
-    let mut lifted = 0_u32;
-    let mut episode_held = 0_u64;
-    let mut held_at_lift = Vec::new();
-    for _ in 0..600 {
-        let frame = physics.advance(
-            Duration::from_millis(50),
-            MovementInput::default(),
-            &SealedRoom,
-        );
-        if frame.embedded_anchor_hold_engaged {
-            engaged += 1;
-            episode_held = 0;
-            ticker.note_embedded_anchor();
-            assert!(frame.samples.is_empty());
-        } else if frame.embedded_hold_ticks != 0 {
-            assert!(
-                frame.samples.is_empty() && ticker.holding_embedded_anchor(),
-                "held frames carry no samples"
-            );
-            episode_held += frame.embedded_hold_ticks;
-            if ticker.observe_embedded_anchor_hold(frame.embedded_hold_ticks) {
-                lifted += 1;
-                held_at_lift.push(episode_held);
-                physics.release_embedded_anchor_hold();
-            }
-        }
-        sent_total += flush_sends(&mut ticker);
-        if engaged == 2 && lifted == 2 {
-            break;
-        }
-    }
+    assert!(frame.blocked.is_none());
     assert_eq!(
-        engaged, 2,
-        "the second failed probe re-enters one more bounded hold"
+        frame.samples.len(),
+        1,
+        "an unresolvable embedment still simulates and transmits"
     );
-    assert_eq!(lifted, 2, "every hold fails open at the unchanged cap");
+    let sample = frame.samples.into_iter().next().expect("one sample");
     assert_eq!(
-        held_at_lift,
-        vec![SETTLE_TIMEOUT_TICKS, SETTLE_TIMEOUT_TICKS],
+        (sample.movement[0], sample.movement[2]),
+        (0.0, 0.0),
+        "a sealed embedment reports no inputless horizontal PosDelta",
     );
-    sent_total += flush_sends(&mut ticker);
-    assert_eq!(sent_total, 0, "still ZERO PlayerAuthInput handed off");
 
-    // --- Stage 3: the third failure spends the epoch budget and degrades to
-    // today's fail-open streaming behavior instead of holding again.
-    let mut degrade_samples = 0_usize;
-    for _ in 0..10 {
-        let frame = physics.advance(
-            Duration::from_millis(50),
-            MovementInput::default(),
-            &SealedRoom,
-        );
-        assert!(
-            !frame.embedded_anchor_hold_engaged,
-            "a spent epoch must never freeze again"
-        );
-        degrade_samples += frame.samples.len();
-    }
-    assert!(
-        degrade_samples > 0,
-        "degraded epochs stream today's behavior"
-    );
-    assert!(!ticker.holding_embedded_anchor());
+    ticker.enqueue_completed_physics(sample).unwrap();
+    let mut sent = Vec::new();
+    flush_player_auth_inputs(
+        &mut ticker,
+        16,
+        Some(evidence_context()),
+        |identity, _packet| {
+            sent.push(identity.tick);
+            Ok::<_, ()>(())
+        },
+    )
+    .unwrap();
+    assert_eq!(sent, vec![41], "the embedded tick transmits like any other");
 
-    // --- Exit (a): a server snap to a clear position re-anchors, re-probes,
-    // and resumes within one frame.
-    let mut physics = LocalPhysicsController::default();
-    let mut ticker = MovementTicker::default();
-    ticker.reset(7, 100, [0.5, 66.620_01, 0.5]);
-    ticker.set_source(MovementSource::Physics);
-    physics.reanchor_network_position([0.5, 66.620_01, 0.5], 100, false);
-    let engage = physics.advance(
-        Duration::from_millis(50),
-        MovementInput::default(),
-        &SealedRoom,
-    );
-    assert!(engage.embedded_anchor_hold_engaged);
-    ticker.note_embedded_anchor();
-    assert!(ticker.holding_embedded_anchor());
-
+    // A server snap to a clear position re-probes and rests clear within one
+    // frame (reanchor-before-advance discards exactly the pre-anchor elapsed).
     let snap_tick = ticker.next_tick();
     reconcile_candidate_physics_correction(
         &mut ticker,
@@ -289,14 +197,6 @@ fn unresolvable_embedment_holds_until_server_reanchors() {
         &SurfaceFloor,
     )
     .expect("a clear-position snap applies");
-    assert!(
-        !ticker.holding_embedded_anchor(),
-        "the snap reanchor ends the hold with a fresh settle window"
-    );
-    assert!(ticker.pending_snapshots().is_empty());
-
-    // Reanchor-before-advance discards exactly the elapsed time that
-    // preceded the new anchor, so the following frame probes and resumes.
     let discarded = physics.advance(Duration::ZERO, MovementInput::default(), &SurfaceFloor);
     assert!(discarded.samples.is_empty());
     let resume = physics.advance(
@@ -304,7 +204,6 @@ fn unresolvable_embedment_holds_until_server_reanchors() {
         MovementInput::default(),
         &SurfaceFloor,
     );
-    assert!(!resume.embedded_anchor_hold_engaged);
     assert_eq!(
         resume.samples.len(),
         1,
@@ -317,7 +216,70 @@ fn unresolvable_embedment_holds_until_server_reanchors() {
         .expect("one resumed sample");
     let player = Aabb::player_at(feet_of(resumed.position));
     let floor = Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0));
-    assert!(!player.intersects(floor));
+    assert!(!player.intersects(floor), "the snap re-probe rests clear");
+}
+
+#[test]
+fn a_replay_that_lands_embedded_reprobes_and_pushes_out_on_the_next_tick() {
+    // Corrections replay from a server anchor that can land inside solids just
+    // like a hard anchor. The replay must re-arm the depenetration probe so the
+    // next tick pushes the anchor out positionally instead of streaming an
+    // embedded pose forever.
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 71.620_01, 0.5], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.5, 71.620_01, 0.5]);
+    ticker.set_source(MovementSource::Physics);
+
+    // One clean tick on the surface so a retained tick exists to replay from.
+    let mut frame = physics
+        .advance(
+            Duration::from_millis(50),
+            MovementInput::default(),
+            &SurfaceFloor,
+        )
+        .samples;
+    let established = frame.pop().expect("one established sample");
+    let established_tick = established.tick;
+    ticker.enqueue_completed_physics(established).unwrap();
+
+    // A replay of that tick to a feet-embedded network position (feet below the
+    // surface top) lands the anchor inside the floor.
+    let embedded_position = [0.5, 71.0, 0.5];
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        embedded_position,
+        established_tick,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &SurfaceFloor,
+    )
+    .expect("the replay applies");
+
+    // The next simulated tick re-probes and pushes the anchor clear.
+    let resume = physics.advance(
+        Duration::from_millis(50),
+        MovementInput::default(),
+        &SurfaceFloor,
+    );
+    let resumed = resume
+        .samples
+        .into_iter()
+        .next()
+        .expect("one resumed sample");
+    let player = Aabb::player_at(feet_of(resumed.position));
+    let floor = Aabb::new(Vec3::new(-64.0, 69.0, -64.0), Vec3::new(64.0, 70.0, 64.0));
+    assert!(
+        !player.intersects(floor),
+        "the replay re-probe must push the embedded anchor clear, feet {:?}",
+        feet_of(resumed.position),
+    );
+    assert_eq!(
+        (resumed.movement[0], resumed.movement[2]),
+        (0.0, 0.0),
+        "the re-probe tick reports no inputless horizontal PosDelta",
+    );
 }
 
 #[test]
@@ -355,15 +317,17 @@ fn transient_collision_unavailability_keeps_todays_blocked_behavior() {
         ),
         "unavailable data keeps today's transient-blocked behavior exactly"
     );
-    assert!(!blocked.embedded_anchor_hold_engaged);
-    assert_eq!(blocked.embedded_hold_ticks, 0);
     assert_eq!(blocked.dropped_ticks, 0);
 
-    // Once data arrives the probe observes the sealed pocket and holds
-    // instead of simulating garbage.
+    // Once data arrives the probe observes the sealed pocket, fails to clear it,
+    // and proceeds — the tick simulates and produces a driftless sample rather
+    // than freezing.
     room.available.set(true);
-    let engaged = physics.advance(Duration::from_millis(50), MovementInput::default(), &room);
-    assert!(engaged.embedded_anchor_hold_engaged);
+    let resumed = physics.advance(Duration::from_millis(50), MovementInput::default(), &room);
+    assert!(resumed.blocked.is_none());
+    assert_eq!(resumed.samples.len(), 1);
+    let sample = resumed.samples.into_iter().next().expect("one sample");
+    assert_eq!((sample.movement[0], sample.movement[2]), (0.0, 0.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -591,11 +555,14 @@ fn shaft_failure_lines(
 
 #[test]
 fn failed_probe_marker_names_exact_unit_cell_sealing_colliders() {
-    // The failed attempt itself must hold transmission exactly as before.
+    // A failed probe proceeds (no freeze) while still rendering its marker.
     let mut state = AnchorProbeState::new();
     state.note_hard_anchor();
     state.testing_set_evidence_enabled(true);
-    assert_eq!(state.before_tick(&UnitShaft, SHAFT_FEET), BeforeTick::Hold);
+    assert_eq!(
+        state.before_tick(&UnitShaft, SHAFT_FEET),
+        BeforeTick::Proceed
+    );
 
     let lines = shaft_failure_lines(&UnitShaft, true, false);
     assert_eq!(lines.len(), 1, "exactly one marker per failed attempt");
@@ -704,7 +671,7 @@ fn failed_probe_marker_reports_merged_multicell_colliders_without_block_ids() {
 }
 
 #[test]
-fn epoch_degrade_transition_emits_one_additional_degraded_marker() {
+fn failure_marker_lines_render_an_optional_degraded_variant() {
     let colliders = UnitShaft
         .collision_boxes_with_provenance(probe_query(SHAFT_FEET))
         .expect("loaded stub world")
@@ -758,26 +725,6 @@ fn epoch_degrade_transition_emits_one_additional_degraded_marker() {
             true
         )
         .is_empty()
-    );
-
-    // The state machine reaches exactly three failures before degrading.
-    let mut state = AnchorProbeState::new();
-    state.note_hard_anchor();
-    state.testing_set_evidence_enabled(true);
-    assert_eq!(state.before_tick(&UnitShaft, SHAFT_FEET), BeforeTick::Hold);
-    state.release_after_cap();
-    assert_eq!(state.before_tick(&UnitShaft, SHAFT_FEET), BeforeTick::Hold);
-    state.release_after_cap();
-    assert_eq!(
-        state.before_tick(&UnitShaft, SHAFT_FEET),
-        BeforeTick::Proceed,
-        "the third failure degrades instead of holding again"
-    );
-    assert_eq!(state.failed_probes(), 3);
-    assert_eq!(
-        state.before_tick(&UnitShaft, SHAFT_FEET),
-        BeforeTick::Proceed,
-        "a spent epoch stops probing entirely"
     );
 }
 
@@ -954,45 +901,39 @@ fn provenance_attribution_wins_over_geometric_cell_inference() {
 }
 
 #[test]
-fn evidence_instrumentation_never_changes_gate_or_hold_decisions() {
+fn evidence_instrumentation_never_changes_probe_decisions() {
     fn drive_shaft_epoch(world: &impl CollisionWorld, evidence_enabled: bool) -> Vec<BeforeTick> {
         let mut state = AnchorProbeState::new();
         state.testing_set_evidence_enabled(evidence_enabled);
         state.note_hard_anchor();
         let mut decisions = Vec::new();
-        decisions.push(state.before_tick(world, SHAFT_FEET)); // fail #1
-        decisions.push(state.before_tick(world, SHAFT_FEET)); // frozen-hold guard
-        state.release_after_cap();
-        decisions.push(state.before_tick(world, SHAFT_FEET)); // fail #2
-        state.release_after_cap();
-        decisions.push(state.before_tick(world, SHAFT_FEET)); // fail #3: degrade
-        decisions.push(state.before_tick(world, SHAFT_FEET)); // spent epoch
+        decisions.push(state.before_tick(world, SHAFT_FEET)); // failed probe: proceeds
+        decisions.push(state.before_tick(world, SHAFT_FEET)); // already resolved: proceeds
+        decisions.push(state.before_tick(world, SHAFT_FEET));
         decisions
     }
 
+    // A failed probe proceeds regardless of instrumentation; the marker path is
+    // purely additive and must never move the transmission decision.
     let expected = vec![
-        BeforeTick::Hold,
         BeforeTick::Proceed,
-        BeforeTick::Hold,
         BeforeTick::Proceed,
         BeforeTick::Proceed,
     ];
     assert_eq!(
         drive_shaft_epoch(&UnitShaft, false),
         expected,
-        "instrumentation off keeps today's exact decision sequence"
+        "instrumentation off keeps the exact decision sequence"
     );
     assert_eq!(
         drive_shaft_epoch(&UnitShaft, true),
         expected,
         "instrumentation on must produce the identical decision sequence",
     );
-    // The identical guarantee with per-collider runtime-id provenance flowing
-    // through the evidence path.
     assert_eq!(
         drive_shaft_epoch(&ProvenancedShaft, false),
         expected,
-        "provenanced evidence off keeps today's exact decision sequence"
+        "provenanced evidence off keeps the exact decision sequence"
     );
     assert_eq!(
         drive_shaft_epoch(&ProvenancedShaft, true),

@@ -158,10 +158,34 @@ fn resolve_axes_reverse(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aab
         for collider in colliders.iter().rev().copied() {
             axis_velocity = current.clip_against(collider, axis_velocity);
         }
-        current = current.translated(axis_velocity);
-        resolved += axis_velocity;
+        // Per-axis resolution moves only along `axis`. From a fully embedded
+        // start `clip_against` returns a minimal-translation ejection on the
+        // deepest axis; on a horizontal axis that would fabricate inputless
+        // horizontal motion the server reads as a movement cheat. Vanilla only
+        // shortens intended motion toward zero on each axis, so keep just this
+        // axis's component and, horizontally, clamp it into the intended range.
+        // The vertical axis keeps the ejection as the provisional embedded
+        // push-out this recovery envelope still relies on.
+        let mut moved = axis_velocity[axis];
+        if axis != 1 {
+            moved = clamp_toward_zero(moved, velocity[axis]);
+        }
+        let mut applied = Vec3::ZERO;
+        applied[axis] = moved;
+        current = current.translated(applied);
+        resolved += applied;
     }
     (current, resolved)
+}
+
+/// Reduces `value` into the closed interval between zero and `limit`, so a clip
+/// can only shorten intended motion, never create or reverse it.
+fn clamp_toward_zero(value: f64, limit: f64) -> f64 {
+    if limit >= 0.0 {
+        value.clamp(0.0, limit)
+    } else {
+        value.clamp(limit, 0.0)
+    }
 }
 
 fn resolve_step(start: Aabb, velocity: Vec3, colliders: &[Aabb]) -> (Aabb, Vec3) {

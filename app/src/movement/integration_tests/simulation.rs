@@ -36,6 +36,43 @@ fn run_one_tick(physics: &mut LocalPhysicsController, world: &VersionedFloor) ->
 }
 
 #[test]
+fn pos_delta_is_per_tick_displacement_not_carried_velocity() {
+    // gophertunnel PlayerAuthInput.Delta is "the delta between the old and the
+    // new position": this tick's resolved displacement, not the post-tick
+    // velocity. A grounded forward tick decays velocity by friction after it
+    // resolves motion, so the two genuinely differ and the wire delta must be
+    // the displacement.
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let t1 = run_one_tick(&mut physics, &VersionedFloor(1));
+    let t2 = run_one_tick(&mut physics, &VersionedFloor(1));
+
+    for axis in 0..3 {
+        let reported = t2.position[axis] - t1.position[axis];
+        assert!(
+            (t2.movement[axis] - reported).abs() < 1.0e-4,
+            "movement must equal position[t]-position[t-1] on axis {axis}: {:?} vs {reported}",
+            t2.movement[axis],
+        );
+    }
+    assert_ne!(
+        t2.movement, t2.velocity,
+        "a friction-decayed forward tick proves delta is not carried velocity"
+    );
+
+    let mut ticker = MovementTicker::default();
+    ticker.reset(9, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(t1.clone()).unwrap();
+    ticker.enqueue_completed_physics(t2.clone()).unwrap();
+    let snapshots = ticker.pending_snapshots();
+    assert_eq!(
+        snapshots[1].delta, t2.movement,
+        "the wire PosDelta must carry the tick's displacement"
+    );
+}
+
+#[test]
 fn queued_server_motion_replaces_exactly_one_ticks_velocity() {
     let mut walking = LocalPhysicsController::default();
     walking.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
