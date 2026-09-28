@@ -163,6 +163,87 @@ fn personal_main_and_hotbar_counts_do_not_depend_on_item_icons() {
 }
 
 #[test]
+fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
+    use crate::ui_runtime::presentation::refresh_hud_frame;
+    let stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert_eq!(
+        stream
+            .canonical_item_stack(&stack(22))
+            .unwrap()
+            .identifier
+            .as_deref(),
+        Some("minecraft:stone"),
+        "the fixture must follow the retained real registry"
+    );
+    let sprite = assets::IconSprite {
+        width: 16,
+        height: 16,
+        rgba8: vec![255; 16 * 16 * 4].into(),
+    };
+    let icon = Arc::new(
+        assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog(
+                [5; 32],
+                &[sprite],
+                &[assets::IconEntry {
+                    identifier: "minecraft:stone".into(),
+                    metadata: 0,
+                    sprite: 0,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap(),
+    );
+    for slot in [0, 9] {
+        let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+            fixture_font(),
+            fixture_hud(),
+            Arc::clone(&icon),
+        )
+        .unwrap();
+        let mut runtime = personal_inventory(Some((slot, 22)));
+        let mut without_icon =
+            UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+        refresh_hud_frame(
+            &mut runtime,
+            &mut without_icon,
+            Some(&stream),
+            &crate::camera::CameraSettingsAuthority::default(),
+            1,
+        );
+        let baseline = build_vertices(&mut without_icon, &runtime);
+        let resolved = presentation.item_icon("minecraft:stone", 0).unwrap();
+        refresh_hud_frame(
+            &mut runtime,
+            &mut presentation,
+            Some(&stream),
+            &crate::camera::CameraSettingsAuthority::default(),
+            1,
+        );
+        assert_eq!(
+            presentation.hud_frame().inventory_icons.0[slot],
+            Some(resolved)
+        );
+        if slot < 9 {
+            assert_eq!(presentation.hud_frame().hotbar_icons[slot], Some(resolved));
+        }
+        let with_icon = build_vertices(&mut presentation, &runtime);
+        assert_eq!(with_icon, baseline + 4);
+        assert_eq!(presentation.item_icon("minecraft:stone", 1), Some(resolved));
+        assert!(presentation.item_icon("minecraft:unknown", 0).is_none());
+    }
+}
+
+#[test]
 fn storage_27_and_54_counts_do_not_depend_on_item_icons() {
     for slot_count in [27, 54] {
         let mut presentation =
