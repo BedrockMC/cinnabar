@@ -3,7 +3,10 @@ mod controls;
 mod effects;
 mod environment;
 mod input;
+mod mode;
+mod scaffolding;
 mod state;
+mod travel;
 
 use crate::{
     Aabb, CollisionWorld, Vec3,
@@ -16,6 +19,7 @@ pub use controls::{ControlledTickResult, ProcessedControls};
 pub use effects::MovementEffects;
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
+pub use mode::{MovementMode, pose_fits};
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
 
 pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
@@ -43,6 +47,8 @@ pub const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = 1.0e-5;
 /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 const CLIMB_SPEED: f64 = 0.2;
+/// Provisional scaffolding sneak-descent speed; needs independent measurement.
+const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
 /// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
 /// runs on ticks whose resolved vertical movement is exactly zero, so `yMov` is
 /// zero and the factor collapses to its constant term.
@@ -103,6 +109,20 @@ impl Simulator {
         let grounded_at_start = next.on_ground;
         let retained_collisions = next.collisions;
         let sampled = sample(world, next.position, next.velocity)?;
+        if matches!(
+            input.mode,
+            MovementMode::Swimming | MovementMode::Gliding | MovementMode::Flying
+        ) {
+            return travel::tick_mode(
+                next,
+                state,
+                input,
+                controls,
+                sampled,
+                grounded_at_start,
+                world,
+            );
+        }
         let friction = if grounded_at_start {
             DEFAULT_AIR_FRICTION * sampled.friction
         } else {
@@ -160,8 +180,13 @@ impl Simulator {
                 sampled.movement.on_climbable && (retained_collisions.x || retained_collisions.z);
             if input.jumping || wall_climb {
                 next.velocity.y = CLIMB_SPEED;
-            } else if input.sneaking && next.velocity.y < 0.0 {
-                next.velocity.y = 0.0;
+            } else if input.sneaking {
+                // Sneaking descends scaffolding but holds position on a ladder.
+                if sampled.movement.in_scaffolding {
+                    next.velocity.y = -SCAFFOLDING_SNEAK_DESCENT;
+                } else if next.velocity.y < 0.0 {
+                    next.velocity.y = 0.0;
+                }
             }
         }
         if sampled.movement.in_water || sampled.movement.in_lava {
@@ -180,7 +205,11 @@ impl Simulator {
             next.velocity.z *= sampled.movement.horizontal_speed_factor;
         }
         let mut identity = sampled.identity;
-        if input.sneaking && grounded_at_start && next.velocity.y <= 0.0 {
+        if input.sneaking
+            && input.mode != MovementMode::Crawling
+            && grounded_at_start
+            && next.velocity.y <= 0.0
+        {
             let (clipped, edge_identity) = clip_sneak_edge(world, next.position, next.velocity)?;
             next.velocity = clipped;
             if let Some(edge_identity) = edge_identity {
@@ -189,7 +218,13 @@ impl Simulator {
         }
 
         let pre_collision_velocity = next.velocity;
-        let motion = resolve_motion(world, next.position, next.velocity, grounded_at_start)?;
+        let motion = resolve_motion(
+            &scaffolding::ScaffoldingView::new(world, next.position.y, input.sneaking),
+            next.position,
+            next.velocity,
+            grounded_at_start,
+            input.mode.hitbox_height(input.sneaking),
+        )?;
         identity = identity.merge(&motion.identity)?;
         next.position += motion.resolved;
         next.on_ground = motion.stepped

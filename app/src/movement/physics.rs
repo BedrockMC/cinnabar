@@ -9,6 +9,7 @@ use sim::{
 use thiserror::Error;
 
 use super::anchor_probe::BeforeTick;
+use super::locomotion::{ModeIntent, ModeObservation, ModeTracker};
 use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
@@ -80,6 +81,7 @@ pub fn physics_movement_input(
         item_use_movement_modifier: None,
         movement_speed: None,
         effects: sim::MovementEffects::default(),
+        ..MovementInput::default()
     }
 }
 
@@ -93,6 +95,7 @@ pub struct PhysicsSampleContext {
     pub raw_move_vector: [f32; 2],
     /// Analog-axis sample of the controlling device.
     pub analogue_move_vector: [f32; 2],
+    pub mode_intent: ModeIntent,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +221,9 @@ pub struct LocalPhysicsController {
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
     anchor_state: super::anchor_probe::AnchorProbeState,
+    /// Locomotion mode selector and the previous tick's sampled environment it reads.
+    modes: ModeTracker,
+    last_environment: sim::MovementEnvironment,
 }
 
 impl Default for LocalPhysicsController {
@@ -238,6 +244,8 @@ impl Default for LocalPhysicsController {
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             server_motions: VecDeque::with_capacity(LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY),
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
+            modes: ModeTracker::default(),
+            last_environment: sim::MovementEnvironment::default(),
         }
     }
 }
@@ -263,6 +271,8 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        self.modes.reset();
+        self.last_environment = sim::MovementEnvironment::default();
         self.anchor_state.reset();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
@@ -346,6 +356,8 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        self.modes.reset();
+        self.last_environment = sim::MovementEnvironment::default();
         // Every hard anchor starts a fresh bounded probe epoch: the new
         // position is probed before its first simulated tick, and any prior
         // failure budget or frozen embedded-anchor hold is replaced.
@@ -432,11 +444,19 @@ impl LocalPhysicsController {
             ..LocalPhysicsFrame::default()
         };
 
+        let sprint_request = input.sprinting;
+        let sneak_request = input.sneaking;
+        let mut fly_toggle = context.mode_intent.fly_toggle;
+        input.pitch_degrees = f64::from(context.pitch);
+        input.fly_speed = context.mode_intent.fly_speed;
         for tick_index in 0..allowed {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
             // recovery policy; see `anchor_probe`).
-            if tick_index == 0 {
+            if tick_index == 0 && !self.modes.mode().is_walking() {
+                // The probe only knows the standing box, so a low pose cannot be depenetrated by it.
+                self.anchor_state.reset();
+            } else if tick_index == 0 {
                 match self.anchor_state.before_tick(world, state.position) {
                     BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
                     BeforeTick::Proceed => {}
@@ -462,6 +482,38 @@ impl LocalPhysicsController {
                 && !self.jump_edge_pending;
             input.jump_pressed = self.jump_edge_pending || jump_repeated;
             input.effects = effects.snapshot();
+            input.sprinting = sprint_request;
+            let mut forced_sneak = false;
+            let mut mode_error = None;
+            match self.modes.select(
+                context.mode_intent,
+                std::mem::take(&mut fly_toggle),
+                ModeObservation {
+                    feet: state.position,
+                    on_ground: state.on_ground,
+                    velocity_y: state.velocity.y,
+                    in_water: self.last_environment.in_water,
+                    in_lava: self.last_environment.in_lava,
+                    sprinting: sprint_request,
+                    moving_forward: input.forward > 0.0,
+                    jumping: input.jumping,
+                    jump_edge: self.jump_edge_pending,
+                },
+                world,
+            ) {
+                Ok(choice) => {
+                    input.mode = choice.mode;
+                    input.sneaking = sneak_request || choice.forced_sneak;
+                    forced_sneak = choice.forced_sneak;
+                }
+                Err(error) => mode_error = Some(error),
+            }
+            if matches!(
+                input.mode,
+                sim::MovementMode::Crawling | sim::MovementMode::Gliding
+            ) {
+                input.sprinting = false;
+            }
             // A queued server impulse replaces this tick's starting velocity,
             // mirroring how Bedrock applies knockback as an absolute velocity.
             // The overlay is retained after application so a correction
@@ -476,12 +528,18 @@ impl LocalPhysicsController {
                 state.velocity = overlay.velocity;
             }
             let before = state.position;
-            match self
-                .history
-                .predict_with_controls(state, input, &self.simulator, world)
-            {
+            let predicted = match mode_error {
+                Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
+                    error,
+                ))),
+                None => self
+                    .history
+                    .predict_with_controls(state, input, &self.simulator, world),
+            };
+            match predicted {
                 Ok(output) => {
                     let result = output.tick_result;
+                    self.last_environment = result.environment;
                     effects.commit_successful_tick();
                     self.previous_position = before;
                     let world_identity = result.world_identity;
@@ -500,6 +558,8 @@ impl LocalPhysicsController {
                         input.sneaking,
                         input.sprinting,
                     );
+                    processed.mode = input.mode;
+                    processed.forced_sneak = forced_sneak;
                     processed.direction_flags = Some(super::encoding::direction_flags([
                         -input.strafe as f32,
                         input.forward as f32,
@@ -857,6 +917,18 @@ impl LocalPhysicsController {
     pub fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
         let sample = self.sample_history.back()?;
         Some((sample.processed.sneaking, sample.processed.sprinting))
+    }
+
+    #[must_use]
+    pub fn latest_horizontal_collision(&self) -> bool {
+        self.sample_history
+            .back()
+            .is_some_and(|sample| sample.horizontal_collision)
+    }
+
+    #[must_use]
+    pub const fn mode(&self) -> sim::MovementMode {
+        self.modes.mode()
     }
 
     #[must_use]

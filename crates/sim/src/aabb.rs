@@ -22,14 +22,16 @@ impl Aabb {
 
     #[must_use]
     pub fn player_at(feet: Vec3) -> Self {
+        Self::player_with_height_at(feet, PLAYER_HEIGHT)
+    }
+
+    /// Player box with a pose-dependent height (sneaking, swimming, crawling).
+    #[must_use]
+    pub fn player_with_height_at(feet: Vec3, height: f64) -> Self {
         let half_width = PLAYER_WIDTH * 0.5 - PLAYER_HORIZONTAL_EPSILON;
         Self::new(
             Vec3::new(feet.x - half_width, feet.y, feet.z - half_width),
-            Vec3::new(
-                feet.x + half_width,
-                feet.y + PLAYER_HEIGHT,
-                feet.z + half_width,
-            ),
+            Vec3::new(feet.x + half_width, feet.y + height, feet.z + half_width),
         )
     }
 

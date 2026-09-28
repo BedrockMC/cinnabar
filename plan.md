@@ -2822,6 +2822,12 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
+  **Provisional (incomplete, closes no acceptance gate):** sprint latch/double-tap/toggle
+  options, forced sneak and crawl under low ceilings, ability flight, pose-swimming and elytra
+  gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
+  double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
+  edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
+  against a native client. Not started: honey slide, depth strider, soul speed, riding input.
 
 ## Phase 4 — Entities and other players
 
