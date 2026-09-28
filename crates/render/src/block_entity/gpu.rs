@@ -67,7 +67,8 @@ struct BlockEntityRenderInstalled;
 
 fn install(app: &mut App) {
     app.init_resource::<BlockEntityFrame>()
-        .init_resource::<BlockEntityScene>();
+        .init_resource::<BlockEntityScene>()
+        .init_resource::<super::items::StaticItemPlacements>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };

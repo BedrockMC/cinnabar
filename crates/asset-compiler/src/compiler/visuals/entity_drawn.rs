@@ -33,6 +33,7 @@ pub(in crate::compiler) fn is_entity_drawn_name(name: &str) -> bool {
             | "bell"
             | "frame"
             | "glow_frame"
+            | "lectern"
             | "copper_chest"
             | "exposed_copper_chest"
             | "weathered_copper_chest"

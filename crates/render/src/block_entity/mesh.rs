@@ -203,6 +203,56 @@ impl MeshBuilder {
         target.extend_from_slice(&[second, third, first, first, third, fourth]);
     }
 
+    /// A box whose faces each show one whole atlas rect, in `[west, east, down, up, north,
+    /// south]` order; `min`/`max` are authoring pixels mapped through `model`.
+    pub fn tile_cuboid(
+        &mut self,
+        layer: Layer,
+        model: Mat4,
+        min: [f32; 3],
+        max: [f32; 3],
+        rects: [AtlasRect; 6],
+        tint: [f32; 4],
+    ) {
+        let [x0, y0, z0] = min;
+        let [x1, y1, z1] = max;
+        let faces: [([[f32; 3]; 4], f32); 6] = [
+            (
+                [[x0, y1, z0], [x0, y1, z1], [x0, y0, z1], [x0, y0, z0]],
+                SHADE_X,
+            ),
+            (
+                [[x1, y1, z1], [x1, y1, z0], [x1, y0, z0], [x1, y0, z1]],
+                SHADE_X,
+            ),
+            (
+                [[x1, y0, z0], [x0, y0, z0], [x0, y0, z1], [x1, y0, z1]],
+                SHADE_DOWN,
+            ),
+            (
+                [[x1, y1, z1], [x0, y1, z1], [x0, y1, z0], [x1, y1, z0]],
+                SHADE_UP,
+            ),
+            (
+                [[x1, y1, z0], [x0, y1, z0], [x0, y0, z0], [x1, y0, z0]],
+                SHADE_Z,
+            ),
+            (
+                [[x0, y1, z1], [x1, y1, z1], [x1, y0, z1], [x0, y0, z1]],
+                SHADE_Z,
+            ),
+        ];
+        for ((corners, shade), rect) in faces.into_iter().zip(rects) {
+            let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
+            self.textured_quad(
+                layer,
+                world.map(|point| point.to_array()),
+                rect,
+                [tint[0] * shade, tint[1] * shade, tint[2] * shade, tint[3]],
+            );
+        }
+    }
+
     /// A quad covering `rect` (atlas pixels) with the given world corners.
     pub fn textured_quad(
         &mut self,

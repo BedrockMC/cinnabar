@@ -9,9 +9,13 @@ use super::{
     banner::BannerModel,
     beam::BeaconModel,
     bed::BedModel,
+    bell::BellModel,
     chest::ChestModel,
+    conduit::ConduitModel,
     crack::{CrackShape, emit_crack},
+    frame::ItemFrameModel,
     mesh::{BlockEntityVertex, MeshBuilder},
+    pot::DecoratedPotModel,
     shulker::ShulkerModel,
     sign::SignModel,
     skull::SkullModel,
@@ -26,9 +30,17 @@ pub enum BlockEntityKind {
     Banner(BannerModel),
     Bed(BedModel),
     Sign(SignModel),
-    EnchantTable { facing_yaw_degrees: f32 },
-    Lectern { facing_yaw_degrees: f32 },
-    Bell,
+    EnchantTable {
+        facing_yaw_degrees: f32,
+    },
+    Lectern {
+        facing_yaw_degrees: f32,
+        has_book: bool,
+    },
+    Bell(BellModel),
+    ItemFrame(ItemFrameModel),
+    Conduit(ConduitModel),
+    DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
     EndPortal,
     EndGateway,
@@ -181,10 +193,16 @@ fn emit_submission(
         BlockEntityKind::EnchantTable { facing_yaw_degrees } => {
             super::book::emit_enchant_table(builder, atlas, block, *facing_yaw_degrees, clock);
         }
-        BlockEntityKind::Lectern { facing_yaw_degrees } => {
-            super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees);
+        BlockEntityKind::Lectern {
+            facing_yaw_degrees,
+            has_book,
+        } => super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees, *has_book),
+        BlockEntityKind::Bell(model) => super::bell::emit(builder, atlas, block, model),
+        BlockEntityKind::ItemFrame(model) => super::frame::emit(builder, atlas, block, model),
+        BlockEntityKind::Conduit(model) => {
+            super::conduit::emit(builder, atlas, block, model, clock)
         }
-        BlockEntityKind::Bell => super::bell::emit(builder, atlas, block),
+        BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
         BlockEntityKind::EndPortal => super::portal::emit(builder, atlas, block, false, clock),
         BlockEntityKind::EndGateway => super::portal::emit(builder, atlas, block, true, clock),
