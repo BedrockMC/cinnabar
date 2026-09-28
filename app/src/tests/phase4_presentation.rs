@@ -122,6 +122,7 @@ fn rig<'a>(
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        bone_names: &[],
     }
 }
 

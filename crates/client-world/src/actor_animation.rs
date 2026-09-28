@@ -62,6 +62,8 @@ pub struct ActorRigSnapshot<'a> {
     pub body_yaw: f32,
     /// Texture layers the rig's render controllers select this tick, in draw order.
     pub render: &'a [RenderTextureLayer],
+    /// Lowercase bone names in pose order.
+    pub bone_names: &'a [Box<str>],
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -507,6 +509,7 @@ impl ActorAnimationStore {
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
+            bone_names: &state.bone_names,
         })
     }
 

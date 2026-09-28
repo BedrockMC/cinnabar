@@ -28,7 +28,7 @@ mod rig;
 mod witness;
 
 pub use asset_geometry::{
-    find_geometry_index, geometry_bone_names, geometry_bone_pivots, skull_geometry,
+    entity_geometry, find_geometry_index, geometry_bone_names, geometry_bone_pivots, skull_geometry,
 };
 pub use gpu::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
