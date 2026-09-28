@@ -84,6 +84,7 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            synthetic_local_revision: 0,
         }
     }
 
@@ -94,6 +95,79 @@ impl ActorStore {
             self.actions.remove(lifetime);
         }
     }
+
+    /// Feeds the client-authored local-player pose into the shared actor rig, spawning the
+    /// synthetic actor on the first call so `actor_rigs()` drives its third-person body.
+    /// Items and actions stay client-owned via `exclude_remote_state_for`.
+    pub(crate) fn sync_local_player(
+        &mut self,
+        runtime_id: u64,
+        unique_id: i64,
+        feed: &LocalPlayerFeed,
+    ) {
+        if runtime_id == 0 {
+            return;
+        }
+        let pose = ActorPose {
+            position: feed.position,
+            pitch: feed.pitch,
+            yaw: feed.yaw,
+            head_yaw: feed.head_yaw,
+        };
+        self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
+        let revision = self.synthetic_local_revision.max(1);
+        let (uuid, username) = self.local_identity(unique_id, feed);
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            // Adopt the player-list identity once it arrives so the skin resolves by uuid.
+            if let ActorKind::Player {
+                uuid: current_uuid,
+                username: current_username,
+            } = &mut actor.kind
+                && *current_uuid != uuid
+            {
+                *current_uuid = uuid;
+                *current_username = username;
+            }
+            actor.received_pose = pose;
+            actor.velocity = feed.velocity;
+            actor.on_ground = Some(feed.on_ground);
+            actor.movement_revision = revision;
+            actor.teleported = feed.teleported;
+            // A zero remaining count lands each tick exactly on the fed pose (no server-style
+            // easing), so the body tracks local physics without lag.
+            actor.interpolation_ticks_remaining = 0;
+            if feed.teleported {
+                actor.previous_pose = pose;
+                actor.set_current_pose(pose);
+                self.animation.mark_reset(runtime_id);
+            }
+            return;
+        }
+        let actor =
+            ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
+        self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.actors.insert(runtime_id, actor);
+        if let Some(actor) = self.actors.get(&runtime_id) {
+            self.animation
+                .insert(self.session_id, self.dimension, actor);
+        }
+    }
+    /// The local player's authoritative `(uuid, username)` from the retained player list, keyed
+    /// by unique id so the skin resolves; falls back to the client-fed identity until it arrives.
+    fn local_identity(
+        &self,
+        unique_id: i64,
+        feed: &LocalPlayerFeed,
+    ) -> ([u8; 16], std::sync::Arc<str>) {
+        self.players
+            .iter()
+            .find(|(_, profile)| profile.unique_id == unique_id)
+            .map_or_else(
+                || (feed.uuid, std::sync::Arc::clone(&feed.username)),
+                |(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)),
+            )
+    }
+
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
@@ -144,6 +218,11 @@ impl ActorStore {
             ActorEvent::Spawn(spawn) => self.apply_spawn(sequence, spawn),
             ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
             ActorEvent::Move(movement) => {
+                // The local player's pose is client-fed each tick; server movement
+                // (authoritative reconciliation) must not fight that feed.
+                if self.remote_state_excluded_runtime_id == Some(movement.runtime_id) {
+                    return ActorApplyResult::MissingActor;
+                }
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
