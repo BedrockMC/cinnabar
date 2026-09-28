@@ -1158,3 +1158,39 @@ fn dimension_reset_respawns_the_local_player_on_the_next_sync() {
     store.sync_local_player(1, -100, &local_feed(0.0, 0.0));
     assert!(store.get(1).is_some());
 }
+
+#[test]
+fn local_player_identity_resolves_when_the_player_list_arrives_after_the_first_sync() {
+    let skin = PlayerSkin::Standard(StandardSkin {
+        width: 64,
+        height: 64,
+        rgba8: vec![3; 64 * 64 * 4].into(),
+    });
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    // First sync before any player list: spawns with the placeholder feed identity.
+    let mut feed = local_feed(0.0, 0.0);
+    feed.uuid = [0; 16];
+    feed.username = "".into();
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.player_profile(1).is_none());
+
+    store.apply(
+        1,
+        1,
+        ActorEvent::PlayerList(PlayerListUpdateEvent {
+            entries: Arc::from([PlayerListEntry::Add {
+                uuid: [8; 16],
+                unique_id: -100,
+                username: "local".into(),
+                verified: true,
+                skin: skin.clone(),
+            }]),
+        }),
+    );
+    store.sync_local_player(1, -100, &feed);
+    let profile = store
+        .player_profile(1)
+        .expect("identity adopted from the player list");
+    assert_eq!(profile.skin, skin);
+}

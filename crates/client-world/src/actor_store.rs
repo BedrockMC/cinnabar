@@ -128,10 +128,13 @@ impl ActorSnapshot {
 
     /// Builds the client-owned local-player snapshot; `revision` seeds both the spawn and the
     /// initial movement revision so the rig identity is exact from the first presented frame.
+    /// `uuid`/`username` are the resolved identity by which the skin is looked up.
     fn local_player(
         unique_id: i64,
         runtime_id: u64,
         revision: u64,
+        uuid: [u8; 16],
+        username: std::sync::Arc<str>,
         feed: &LocalPlayerFeed,
     ) -> Self {
         let pose = ActorPose {
@@ -145,10 +148,7 @@ impl ActorSnapshot {
             runtime_id,
             spawn_revision: revision,
             movement_revision: revision,
-            kind: ActorKind::Player {
-                uuid: feed.uuid,
-                username: std::sync::Arc::clone(&feed.username),
-            },
+            kind: ActorKind::Player { uuid, username },
             position: feed.position,
             velocity: feed.velocity,
             pitch: feed.pitch,

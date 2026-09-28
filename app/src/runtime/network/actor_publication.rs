@@ -3,7 +3,7 @@ use bevy::{
     prelude::{Local, Res, ResMut, Time},
     time::Real,
 };
-use client_world::WorldStream;
+use client_world::{LocalPlayerFeed, WorldStream};
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
@@ -63,7 +63,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         *published_session = session_id;
     }
     let step = actor_clock.advance(time.delta());
+    let local_feed = build_local_player_feed(&local_physics, view.rotation());
     if let Some(stream) = client_world.stream.as_mut() {
+        // Feed the client-authored local pose before the tick advance and rig read so the
+        // local body/hand are driven by the shared rig, not the static fallback.
+        if let Some(feed) = &local_feed {
+            stream.sync_local_player_pose(feed);
+        }
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
     let authoritative_subject_eye = authoritative_local_actor_eye(
@@ -137,27 +143,31 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         if visibility.runtime_id() != local_runtime_id {
             return (false, None);
         }
-        let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
-        let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-        let pitch_degrees = -pitch.to_degrees();
-        let mut position = visibility.eye();
-        position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
-        let diagnostic = local_diagnostic_presentation(
-            actor_session_id,
-            dimension,
-            visibility.runtime_id(),
-            visibility.pose_generation(),
-            position.to_array(),
-            yaw_degrees,
-            pitch_degrees,
-        );
-        let local = local_actor_presentation_for_visibility(
-            local_runtime_id,
-            visibility.runtime_id(),
-            canonical_local,
-            diagnostic,
-            yaw_degrees,
-        );
+        // The driven rig already carries the motion model's body yaw and head-over-body split,
+        // so it is placed by its own transform. The static diagnostic is only a pre-rig fallback.
+        let local = canonical_local.or_else(|| {
+            let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
+            let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
+            let pitch_degrees = -pitch.to_degrees();
+            let mut position = visibility.eye();
+            position.y -= crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+            let diagnostic = local_diagnostic_presentation(
+                actor_session_id,
+                dimension,
+                visibility.runtime_id(),
+                visibility.pose_generation(),
+                position.to_array(),
+                yaw_degrees,
+                pitch_degrees,
+            );
+            local_actor_presentation_for_visibility(
+                local_runtime_id,
+                visibility.runtime_id(),
+                None,
+                diagnostic,
+                yaw_degrees,
+            )
+        });
         (visibility.visible(), local)
     });
     let batch = select_actor_presentations_for_view(
@@ -187,4 +197,47 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         rejects: frame.rig.rejects,
         unrigged_actors,
     });
+}
+
+/// Builds this frame's client-authored local-player feed from the predicted physics state and
+/// the look pose. The yaw/pitch come from the look input (`LocalViewPose`), never the boomed
+/// third-person camera. Returns `None` before physics or on any non-finite value.
+fn build_local_player_feed(
+    physics: &crate::movement::LocalPhysicsController,
+    look: bevy::math::Quat,
+) -> Option<LocalPlayerFeed> {
+    let state = physics.state()?;
+    let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
+    let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
+    let pitch_degrees = -pitch.to_degrees();
+    let position = [
+        state.position.x as f32,
+        state.position.y as f32,
+        state.position.z as f32,
+    ];
+    let velocity = [
+        state.velocity.x as f32,
+        state.velocity.y as f32,
+        state.velocity.z as f32,
+    ];
+    if !position
+        .iter()
+        .chain(&velocity)
+        .chain(&[yaw_degrees, pitch_degrees])
+        .all(|value| value.is_finite())
+    {
+        return None;
+    }
+    Some(LocalPlayerFeed {
+        // The stream adopts the authoritative identity and skin from the retained player list.
+        uuid: [0; 16],
+        username: std::sync::Arc::from(""),
+        position,
+        velocity,
+        on_ground: state.on_ground,
+        yaw: yaw_degrees,
+        head_yaw: yaw_degrees,
+        pitch: pitch_degrees,
+        teleported: false,
+    })
 }
