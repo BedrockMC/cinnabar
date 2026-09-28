@@ -1,13 +1,13 @@
 package proxy
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net"
 	"path/filepath"
 	"slices"
@@ -174,10 +174,7 @@ func TestSelectedResourcePackStackRetainsExactOrderAndOwnsClones(t *testing.T) {
 	second := testAdmissionPack(t).WithDownloadURL("https://example.invalid/second")
 	third := testAdmissionPack(t).WithDownloadURL("https://example.invalid/third")
 
-	stack, err := newSelectedResourcePackStack([]*resource.Pack{third, first}, true, resourcePackSize)
-	if err != nil {
-		t.Fatalf("newSelectedResourcePackStack() error = %v", err)
-	}
+	stack := newSelectedResourcePackStack([]*resource.Pack{third, first}, true, resourcePackSize)
 	if !stack.required || len(stack.packs) != 2 {
 		t.Fatalf("selected stack = (required=%t, count=%d), want (true, 2)", stack.required, len(stack.packs))
 	}
@@ -236,28 +233,38 @@ func TestConfigureResourcePackOfferStripsIgnoredSelection(t *testing.T) {
 	}
 }
 
-func TestSelectedResourcePackStackFailsClosedForMissingNilAndBounds(t *testing.T) {
+func TestSelectedResourcePackStackSkipsUnavailableNilAndOverBudgetPacks(t *testing.T) {
 	if _, err := captureSelectedResourcePackStack(newFakeUpstream(nil)); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("missing post-negotiation snapshot error = %v", err)
 	}
-	if _, err := newSelectedResourcePackStack([]*resource.Pack{nil}, false, resourcePackSize); !errors.Is(err, errResourcePackStackInvalid) {
-		t.Fatalf("nil selected pack error = %v", err)
+	// A nil entry is skipped, not fatal.
+	if stack := newSelectedResourcePackStack([]*resource.Pack{nil}, false, resourcePackSize); len(stack.packs) != 0 {
+		t.Fatalf("nil selected pack count = %d, want 0", len(stack.packs))
 	}
+	// Count beyond the bound truncates to the first maxSelectedResourcePacks.
 	tooMany := make([]*resource.Pack, maxSelectedResourcePacks+1)
-	if _, err := newSelectedResourcePackStack(tooMany, false, resourcePackSize); !errors.Is(err, errResourcePackStackInvalid) {
-		t.Fatalf("selected count overflow error = %v", err)
+	for index := range tooMany {
+		tooMany[index] = testAdmissionPack(t)
 	}
-	packs := []*resource.Pack{testAdmissionPack(t), testAdmissionPack(t)}
+	if stack := newSelectedResourcePackStack(tooMany, false, resourcePackSize); len(stack.packs) != maxSelectedResourcePacks {
+		t.Fatalf("count overflow kept %d packs, want %d", len(stack.packs), maxSelectedResourcePacks)
+	}
+	// A pack whose size would break the byte bound is skipped while later packs
+	// that still fit are kept.
+	first, second, third := testAdmissionPack(t), testAdmissionPack(t), testAdmissionPack(t)
 	index := 0
-	overflowingSize := func(*resource.Pack) (uint64, bool) {
+	sizes := func(*resource.Pack) (uint64, bool) {
 		index++
-		if index == 1 {
-			return math.MaxUint64, true
+		switch index {
+		case 2:
+			return maxSelectedResourcePackTotalBytes + 1, true
+		default:
+			return 1, true
 		}
-		return 1, true
 	}
-	if _, err := newSelectedResourcePackStack(packs, false, overflowingSize); !errors.Is(err, errResourcePackStackInvalid) {
-		t.Fatalf("selected byte overflow error = %v", err)
+	stack := newSelectedResourcePackStack([]*resource.Pack{first, second, third}, false, sizes)
+	if len(stack.packs) != 2 {
+		t.Fatalf("byte overflow kept %d packs, want the 2 that fit", len(stack.packs))
 	}
 	if err := configureResourcePackOffer(new(offerTestDownstream), nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("nil prepared stack policy error = %v", err)
@@ -1769,13 +1776,70 @@ func TestAcquisitionBudgetDeclinesUndecodableOffer(t *testing.T) {
 	}
 }
 
-func TestAcquisitionBudgetCancelsOversizedTransferAndSlowAcquisition(t *testing.T) {
-	budget, causes := observedBudget(t, packInfos(1))
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, &packet.ResourcePackDataInfo{UUID: "x_1.0.0", DataChunkSize: 1, Size: maxResourcePackArchiveBytes + 1, Hash: make([]byte, 32)}))
-	if len(*causes) != 1 || !errors.Is((*causes)[0], errResourcePackArchiveTooLarge) {
-		t.Fatalf("oversized transfer causes = %v", *causes)
+func admissionPackWithUUID(t *testing.T, id string) *resource.Pack {
+	t.Helper()
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	manifest, err := writer.Create("manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"t","description":"t","uuid":"%s","version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	pack, err := resource.ReadBytes(archive.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pack
+}
+
+// A pack whose transfer grew past its offer is dropped from the handoff while
+// the honest packs still apply; the join is never failed.
+func TestSelectedStackDropsBudgetExcludedGrownPacks(t *testing.T) {
+	const grownID = "aaaaaaaa-0000-0000-0000-000000000000"
+	grown := admissionPackWithUUID(t, grownID)
+	honest := admissionPackWithUUID(t, "bbbbbbbb-0000-0000-0000-000000000000")
+	stack := newSelectedResourcePackStack([]*resource.Pack{grown, honest}, false, resourcePackSize)
+	if len(stack.packs) != 2 {
+		t.Fatalf("selected count = %d, want 2 before exclusion", len(stack.packs))
+	}
+	stack.withoutPacks(func(pack *resource.Pack) bool { return pack.UUID().String() == grownID })
+	if len(stack.packs) != 1 || stack.packs[0].UUID().String() != honest.UUID().String() {
+		t.Fatalf("post-exclusion packs = %v, want only the honest pack", stack.packs)
+	}
+}
+
+func dataInfo(id string, size uint64) *packet.ResourcePackDataInfo {
+	return &packet.ResourcePackDataInfo{UUID: id + "_1.0.0", DataChunkSize: 1, Size: size, Hash: make([]byte, 32)}
+}
+
+// A transfer larger than its offer, or for an unadvertised pack, is dropped from
+// the handoff without cancelling the join; only the memory ceiling cancels.
+func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(t *testing.T) {
+	const mib = 1024 * 1024
+	info := packInfos(mib, mib)
+	grown, honest := info.TexturePacks[0].UUID.String(), info.TexturePacks[1].UUID.String()
+	budget, causes := observedBudget(t, info)
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(grown, 5*mib)))
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(honest, mib)))
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo("unadvertised", mib)))
+	budget.mu.Lock()
+	excluded := map[string]bool{grown: budget.excluded[grown], honest: budget.excluded[honest], "unadvertised": budget.excluded["unadvertised"]}
+	budget.mu.Unlock()
+	if !excluded[grown] || excluded[honest] || !excluded["unadvertised"] || len(*causes) != 0 {
+		t.Fatalf("excluded = %v causes = %v, want only grown+unadvertised dropped and no cancel", excluded, *causes)
 	}
 
+	over, overCauses := observedBudget(t, packInfos(mib))
+	over.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo("flood", maxResourcePackTransferBytes+1)))
+	if len(*overCauses) != 1 || !errors.Is((*overCauses)[0], errResourcePackTransferTooLarge) {
+		t.Fatalf("memory ceiling causes = %v", *overCauses)
+	}
+}
+
+func TestAcquisitionBudgetCancelsSlowAcquisitionButNotCompletion(t *testing.T) {
 	fired := make(chan error, 1)
 	slow := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
 	slow.limit = time.Millisecond
