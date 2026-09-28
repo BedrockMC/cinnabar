@@ -4,6 +4,7 @@ mod atmosphere;
 mod audio;
 mod audio_pcm;
 mod biome;
+mod block_entity;
 mod compiler;
 mod entity;
 mod fadpcm;
@@ -32,6 +33,9 @@ pub use audio_pcm::{
     AudioPcmCompileError, AudioPcmCompileReport, CompiledAudioPcmCarrier, compile_audio_pcm_assets,
 };
 pub use biome::compile_biome_assets;
+pub use block_entity::{
+    BlockEntityCompileReport, CompiledBlockEntityCarrier, compile_block_entity_assets,
+};
 pub use compiler::{compile_pack, compile_pack_with_biomes, inspect_animation_inventory};
 pub use entity::{
     CompileReferenceOutcome, EntityAssetCompilation, FallbackReason, RejectReason,

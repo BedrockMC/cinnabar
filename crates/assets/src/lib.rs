@@ -6,6 +6,7 @@ mod audio;
 mod audio_pcm;
 mod biome;
 mod blob;
+mod block_entity;
 mod compiled;
 mod entity;
 mod environment_settings;
@@ -59,6 +60,12 @@ pub use biome::{
     colormap_coordinate, read_biome_registry,
 };
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, encode_blob, write_blob_atomic};
+pub use block_entity::{
+    BLOCK_ENTITY_CARRIER_MAGIC, BLOCK_ENTITY_CARRIER_VERSION, BLOCK_ENTITY_ROUTES,
+    BlockEntityPlacement, BlockEntityRouteKind, MAX_BLOCK_ENTITY_ATLAS_SIDE,
+    MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_KEY_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
+    RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
+};
 pub use compiled::{
     BlockFace, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,
