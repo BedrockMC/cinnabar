@@ -130,10 +130,7 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         // responses echo it; slot updates use index 0.
         Some(CONTAINER_NAME_OFFHAND) => matches!(slot, 0 | 1).then_some(CanonicalCell::Offhand),
         // Vanilla requests name hotbar cells this way; responses echo it.
-        Some(CONTAINER_NAME_HOTBAR)
-            if identity.dynamic_id.is_none()
-                && matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID)) =>
-        {
+        Some(CONTAINER_NAME_HOTBAR) if is_player_inventory_window(identity) => {
             (slot < 9).then(|| player_inventory_cell(slot)).flatten()
         }
         Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY)
@@ -144,10 +141,7 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         // Servers name player traffic `InventoryContainer` on legacy window
         // 0, and vanilla requests name main-inventory cells this way with
         // responses echoing it without a window.
-        Some(CONTAINER_NAME_INVENTORY)
-            if identity.dynamic_id.is_none()
-                && matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID)) =>
-        {
+        Some(CONTAINER_NAME_INVENTORY) if is_player_inventory_window(identity) => {
             player_inventory_cell(slot)
         }
         Some(CONTAINER_NAME_LEVEL_ENTITY) => Some(CanonicalCell::GenericStorage {
@@ -164,6 +158,14 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
             _ => None,
         },
     }
+}
+
+/// The player-inventory windows ride legacy window 0 with either no dynamic id
+/// or a zero one; live servers (e.g. Lifeboat) send `Some(0)`. A nonzero dynamic
+/// id marks a real dynamic-storage container, which must not route here.
+fn is_player_inventory_window(identity: &ContainerIdentity) -> bool {
+    matches!(identity.dynamic_id, None | Some(0))
+        && matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID))
 }
 
 fn armor_cell(slot: u16) -> Option<CanonicalCell> {
@@ -221,6 +223,37 @@ pub fn personal_craft_slot_index(identity: &ContainerIdentity, slot: u16) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn player_inventory_routes_with_a_zero_dynamic_id() {
+        // Live servers (Lifeboat) send the player inventory as InventoryContainer
+        // on window 0 with dynamic_id Some(0); it must route, not drop.
+        let live = ContainerIdentity {
+            window_id: Some(PLAYER_INVENTORY_WINDOW_ID),
+            slot_type: Some(CONTAINER_NAME_INVENTORY),
+            dynamic_id: Some(0),
+        };
+        for slot in 0..36 {
+            assert_eq!(
+                project_container_cell(&live, slot),
+                Some(CanonicalCell::PlayerInventory(u8::try_from(slot).unwrap()))
+            );
+        }
+        let hotbar = ContainerIdentity {
+            slot_type: Some(CONTAINER_NAME_HOTBAR),
+            ..live
+        };
+        assert_eq!(
+            project_container_cell(&hotbar, 3),
+            Some(CanonicalCell::PlayerInventory(3))
+        );
+        // A nonzero dynamic id is a real dynamic-storage container, not the inventory.
+        let dynamic = ContainerIdentity {
+            dynamic_id: Some(7),
+            ..live
+        };
+        assert_eq!(project_container_cell(&dynamic, 0), None);
+    }
 
     #[test]
     fn contextual_personal_inputs_require_exact_identity_and_snapshot_shape() {
