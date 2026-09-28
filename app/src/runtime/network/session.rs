@@ -38,6 +38,8 @@ pub struct NetworkConfig {
     pub display_name: String,
     /// Verified blobs outlive a Play session; each login creates a fresh resolver around this cache.
     pub client_blob_cache: ClientBlobCache,
+    /// The client's own skin, uploaded in the ClientData login payload.
+    pub player_skin: crate::player_skin::LocalPlayerSkin,
 }
 
 /// Which transport leg or lifecycle stage produced a session failure.
@@ -559,6 +561,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         &config.socket_dir,
                         &config.display_name,
                         config.client_blob_cache.clone(),
+                        Some(config.player_skin.to_client_skin()),
                     ),
                     &mut shutdown_rx,
                 )

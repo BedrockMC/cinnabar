@@ -588,12 +588,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         preflight_bridge_endpoint(&socket_dir)?;
     }
 
+    // The local player's own skin, loaded once here and shared by Arc into the login upload, the
+    // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
+    let local_player_skin = crate::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
             session_generation: 1,
             socket_dir,
             display_name: args.display_name.clone(),
             client_blob_cache: client_blob_cache.cache(),
+            player_skin: local_player_skin.clone(),
         })
         .context("spawn Bedrock network worker")
         {
@@ -694,11 +698,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         } else {
             PhysicsAuthorityGate::ProductionEnabled
         })
+        .insert_resource(local_player_skin.clone())
         .insert_resource(MenuRuntime::new_with_layout(
             !connection_requested,
             args.gui_scale.unwrap_or(args::DEFAULT_GUI_SCALE),
             args.display_name.clone(),
             layout,
+            local_player_skin,
         ))
         .init_resource::<crate::menu::MenuClipboard>()
         .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
@@ -935,65 +941,4 @@ mod direct_session_directory_tests {
 }
 
 #[cfg(test)]
-mod schedule_tests {
-    use bevy::ecs::schedule::Schedules;
-
-    use super::*;
-
-    #[test]
-    fn network_config_call_sites_share_the_process_blob_cache() {
-        let replacing_initializer = [
-            "client_blob_cache: protocol::ClientBlobCache",
-            "::default()",
-        ]
-        .concat();
-        for source in [include_str!("app.rs"), include_str!("menu/input.rs")] {
-            assert!(
-                !source.contains(&replacing_initializer),
-                "network configuration must clone the app-owned cache"
-            );
-        }
-
-        let owner = ClientBlobCacheOwner::default();
-        let first = NetworkConfig {
-            session_generation: 7,
-            socket_dir: std::path::PathBuf::from("first-core.sock"),
-            display_name: "cache-owner".to_owned(),
-            client_blob_cache: owner.cache(),
-        };
-        let hash = first
-            .client_blob_cache
-            .insert(b"verified-across-session")
-            .expect("seed verified blob before replacement");
-        let replacement = NetworkConfig {
-            session_generation: 8,
-            socket_dir: std::path::PathBuf::from("replacement-core.sock"),
-            display_name: "cache-owner".to_owned(),
-            client_blob_cache: owner.cache(),
-        };
-
-        assert!(replacement.client_blob_cache.contains(hash));
-    }
-
-    #[test]
-    fn production_update_schedule_initializes_without_dependency_cycles() {
-        let mut app = App::new();
-        configure_client_frame_schedule(&mut app);
-        app.add_plugins(FlyCameraPlugin::default());
-        configure_client_production_frame_systems(&mut app);
-        configure_client_runtime_frame_systems(&mut app);
-        configure_acceptance_finish_system(&mut app);
-
-        let mut schedules = app
-            .world_mut()
-            .remove_resource::<Schedules>()
-            .expect("Schedules resource");
-        let result = schedules
-            .get_mut(Update)
-            .expect("production Update schedule")
-            .initialize(app.world_mut());
-        app.world_mut().insert_resource(schedules);
-
-        assert!(result.is_ok(), "production Update schedule: {result:?}");
-    }
-}
+mod schedule_tests;

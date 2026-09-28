@@ -16,6 +16,7 @@ pub mod metrics;
 mod mining;
 pub mod movement;
 mod named_audio;
+mod player_skin;
 mod present_mode;
 pub mod semantic_controls;
 pub mod server_camera;

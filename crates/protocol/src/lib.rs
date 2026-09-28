@@ -106,6 +106,7 @@ pub use item::{
 };
 pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;
+pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{

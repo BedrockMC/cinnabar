@@ -34,11 +34,12 @@ impl LoginSequence {
     pub async fn connect(
         socket_dir: &Path,
         display_name: &str,
+        skin: Option<crate::ClientSkin>,
     ) -> Result<(PlaySession, GameData), ProtocolError> {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport(transport, display_name).await
+        Self::connect_transport_inner(transport, display_name, None, skin).await
     }
 
     /// Connects with a persistent verified cache and a fresh session-owned resolver.
@@ -46,11 +47,12 @@ impl LoginSequence {
         socket_dir: &Path,
         display_name: &str,
         cache: ClientBlobCache,
+        skin: Option<crate::ClientSkin>,
     ) -> Result<(PlaySession, GameData), ProtocolError> {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport_with_blob_cache(transport, display_name, cache).await
+        Self::connect_transport_inner(transport, display_name, Some(cache), skin).await
     }
 
     /// Generic transport seam used by deterministic protocol state tests.
@@ -59,7 +61,7 @@ impl LoginSequence {
         transport: T,
         display_name: &str,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
-        Self::connect_transport_inner(transport, display_name, None).await
+        Self::connect_transport_inner(transport, display_name, None, None).await
     }
 
     /// Deterministic enabled negotiation seam used by protocol tests and live integration.
@@ -69,20 +71,24 @@ impl LoginSequence {
         display_name: &str,
         cache: ClientBlobCache,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
-        Self::connect_transport_inner(transport, display_name, Some(cache)).await
+        Self::connect_transport_inner(transport, display_name, Some(cache), None).await
     }
 
     async fn connect_transport_inner<T: Transport>(
         transport: T,
         display_name: &str,
         cache: Option<ClientBlobCache>,
+        skin: Option<crate::ClientSkin>,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let peer_addr = transport.peer_addr();
         let mut transport = BedrockTransport::new(transport);
         transport.set_max_decompressed_batch_size(Some(MAX_DECOMPRESSED_BATCH_SIZE));
         let stream: BedrockStream<Handshake, Client, T> = BedrockStream::from_transport(transport);
-        let config = ClientHandshakeConfig::random(peer_addr, display_name)
+        let mut config = ClientHandshakeConfig::random(peer_addr, display_name)
             .with_client_cache_enabled(cache.is_some());
+        if let Some(skin) = skin {
+            config = config.with_skin(skin);
+        }
         let (stream, game_data) = stream.join(config).await?;
         Ok((PlaySession::new(stream, cache), game_data))
     }
@@ -979,21 +985,7 @@ mod tests;
 mod wire_provenance_tests;
 
 #[cfg(test)]
-mod recipe_ingress_tests {
-    #[test]
-    fn empty_clear_recipe_packet_is_published_without_generic_materialization() {
-        let mut bytes = bytes::Bytes::from_static(&[13, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-        let raw = jolyne::raw::decode_packet_raw(&mut bytes).unwrap();
-        let event = super::decode_world_raw_with(raw, 0, |_| {
-            panic!("recipe ingress must not call the generic decoder")
-        })
-        .unwrap();
-        assert!(
-            matches!(event, Some(crate::WorldEvent::Inventory(_))),
-            "an empty clear update must retire old recipe authority"
-        );
-    }
-}
+mod recipe_ingress_tests;
 
 #[cfg(test)]
 mod ability_ingress_tests;

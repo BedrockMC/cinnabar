@@ -151,6 +151,13 @@ impl InstallLayout {
         self.compiled_assets.join("vanilla-v2168.mcbea")
     }
 
+    /// The local player's own skin PNG, shipped beside the other assets under `resources/assets`
+    /// (installed) or `.local/assets` (development). Cosmetic: absence falls back to the default.
+    #[must_use]
+    pub fn player_skin_asset(&self) -> PathBuf {
+        self.resource_root.join("assets/skin/player.png")
+    }
+
     #[must_use]
     pub fn auth_cache(&self) -> PathBuf {
         self.user_data_root.join("auth/microsoft-token.json")
