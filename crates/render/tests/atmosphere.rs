@@ -554,8 +554,14 @@ fn sky_shader_draws_stars_sunrise_glow_and_dimension_skies() {
         ("model", include_str!("../src/model.wgsl")),
         ("liquid", include_str!("../src/liquid.wgsl")),
     ] {
-        assert!(!shader.contains("smoothstep(\n        atmosphere.fog"), "{name} fog is linear");
-        assert!(!shader.contains("smoothstep(atmosphere.fog"), "{name} fog is linear");
+        assert!(
+            !shader.contains("smoothstep(\n        atmosphere.fog"),
+            "{name} fog is linear"
+        );
+        assert!(
+            !shader.contains("smoothstep(atmosphere.fog"),
+            "{name} fog is linear"
+        );
     }
 }
 

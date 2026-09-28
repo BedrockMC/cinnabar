@@ -305,7 +305,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
     for control in controls {
         if matches!(
             control,
-            CommittedControlEvent::PlayerListChanged { .. } | CommittedControlEvent::LocalHurt { .. }
+            CommittedControlEvent::PlayerListChanged { .. }
+                | CommittedControlEvent::LocalHurt { .. }
         ) {
             continue;
         }
