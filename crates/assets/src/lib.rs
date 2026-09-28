@@ -108,9 +108,10 @@ pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, Precipi
 pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, EQUIPMENT_CARRIER_MAGIC,
     EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory, EquipmentReference,
-    EquipmentTexture, EquipmentTransform, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES,
-    MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
-    RuntimeEquipmentCatalog, encode_equipment_catalog, encode_equipment_catalog_with_textures,
+    EquipmentTexture, EquipmentTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS,
+    MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE,
+    MAX_EQUIPMENT_TEXTURES, RuntimeEquipmentCatalog, encode_equipment_catalog,
+    encode_equipment_catalog_full, encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;
 pub use font::{

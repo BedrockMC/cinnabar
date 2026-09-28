@@ -17,6 +17,7 @@ DIST_GIT_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_NOTICES ?= THIRD_PARTY_NOTICES.md
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
+BEHAVIOR_PACK_DIR ?= $(patsubst %/resource_pack,%/behavior_pack,$(PACK_DIR))
 PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
 HUD_PACK_DIR ?= $(PACK_DIR)
@@ -83,7 +84,7 @@ AUDIO_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- au
 AUDIO_PCM_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-pcm-assets --pack "$(PACK_DIR)" --catalog "$(AUDIO_ASSET_BLOB)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_PCM_BLOB)" --report "$(AUDIO_PCM_REPORT)"
 ICON_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- icon-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ICON_ASSET_BLOB)" --report "$(ICON_ASSET_REPORT)" --block-assets "$(ASSET_BLOB)"
 ACTOR_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- actor-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ACTOR_ASSET_BLOB)" --report "$(ACTOR_ASSET_REPORT)"
-EQUIPMENT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- equipment-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(EQUIPMENT_ASSET_BLOB)" --report "$(EQUIPMENT_ASSET_REPORT)"
+EQUIPMENT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- equipment-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(EQUIPMENT_ASSET_BLOB)" --report "$(EQUIPMENT_ASSET_REPORT)" $(if $(wildcard $(BEHAVIOR_PACK_DIR)/items),--behavior-pack "$(BEHAVIOR_PACK_DIR)")
 BLOCK_ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- block-entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(BLOCK_ENTITY_ASSET_BLOB)" --report "$(BLOCK_ENTITY_ASSET_REPORT)"
 UI_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ui-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(UI_ASSET_BLOB)" --report "$(UI_ASSET_REPORT)"
 PARTICLE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- particle-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(PARTICLE_ASSET_BLOB)" --report "$(PARTICLE_ASSET_REPORT)"
