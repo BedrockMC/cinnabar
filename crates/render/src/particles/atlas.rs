@@ -1,7 +1,7 @@
 //! CPU-side particle texture atlas: static particle textures shelf-packed once, plus a
 //! bounded dynamic region for per-block terrain tiles uploaded on demand.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use assets::RuntimeParticleAssets;
 
@@ -36,24 +36,39 @@ impl Placement {
     }
 }
 
+/// One uploaded tile rectangle; the newest patch per slot supersedes older ones.
+#[derive(Clone, Debug)]
+pub struct AtlasPatch {
+    pub seq: u64,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub rgba8: Arc<[u8]>,
+}
+
 pub struct ParticleAtlas {
     pixels: Vec<u8>,
+    base: Option<Arc<[u8]>>,
+    patches: HashMap<usize, AtlasPatch>,
+    seq: u64,
     placements: HashMap<Box<str>, Placement>,
     tiles: HashMap<u64, (usize, u64)>,
     next_slot: usize,
     tick: u64,
-    generation: u64,
 }
 
 impl Default for ParticleAtlas {
     fn default() -> Self {
         Self {
             pixels: vec![0; (ATLAS_SIDE * ATLAS_SIDE * 4) as usize],
+            base: None,
+            patches: HashMap::new(),
+            seq: 0,
             placements: HashMap::new(),
             tiles: HashMap::new(),
             next_slot: 0,
             tick: 0,
-            generation: 0,
         }
     }
 }
@@ -100,8 +115,31 @@ impl ParticleAtlas {
             x += w + 1;
             shelf = shelf.max(h);
         }
-        atlas.generation = 1;
+        atlas.base = Some(Arc::from(atlas.pixels.as_slice()));
         atlas
+    }
+
+    /// The static-region snapshot uploaded once; the dynamic region starts empty.
+    #[must_use]
+    pub fn base(&mut self) -> Arc<[u8]> {
+        Arc::clone(
+            self.base
+                .get_or_insert_with(|| Arc::from(vec![0u8; self.pixels.len()])),
+        )
+    }
+
+    /// Bumps whenever a dynamic tile is written.
+    #[must_use]
+    pub fn patch_seq(&self) -> u64 {
+        self.seq
+    }
+
+    /// Current tile patches, oldest first.
+    #[must_use]
+    pub fn patches(&self) -> Vec<AtlasPatch> {
+        let mut list: Vec<_> = self.patches.values().cloned().collect();
+        list.sort_by_key(|patch| patch.seq);
+        list
     }
 
     #[must_use]
@@ -123,12 +161,6 @@ impl ParticleAtlas {
     #[must_use]
     pub fn pixels(&self) -> &[u8] {
         &self.pixels
-    }
-
-    /// Bumps whenever the pixels change.
-    #[must_use]
-    pub fn generation(&self) -> u64 {
-        self.generation
     }
 
     /// Returns the slot for a caller-keyed tile, uploading `pixels` (`size * size * 4`,
@@ -162,7 +194,18 @@ impl ParticleAtlas {
                 }
             }
             self.blit(placement.x, placement.y, TILE_SLOT, TILE_SLOT, &resampled);
-            self.generation += 1;
+            self.seq += 1;
+            self.patches.insert(
+                slot,
+                AtlasPatch {
+                    seq: self.seq,
+                    x: placement.x,
+                    y: placement.y,
+                    width: TILE_SLOT,
+                    height: TILE_SLOT,
+                    rgba8: Arc::from(resampled),
+                },
+            );
             self.tiles.insert(key, (slot, self.tick));
             slot
         };
@@ -198,13 +241,26 @@ mod tests {
         let mut atlas = ParticleAtlas::default();
         let pixels = vec![9u8; 16 * 16 * 4];
         let first = atlas.tile(1, 16, &pixels).unwrap();
-        let generation = atlas.generation();
+        let generation = atlas.patch_seq();
         assert_eq!(atlas.tile(1, 16, &pixels), Some(first));
-        assert_eq!(atlas.generation(), generation);
+        assert_eq!(atlas.patch_seq(), generation);
         for key in 2..=(MAX_SLOTS as u64 + 1) {
             assert!(atlas.tile(key, 16, &pixels).is_some());
         }
         assert_eq!(atlas.tiles.len(), MAX_SLOTS);
+    }
+
+    #[test]
+    fn patches_keep_only_the_newest_write_per_slot() {
+        let mut atlas = ParticleAtlas::default();
+        let pixels = vec![1u8; 16 * 16 * 4];
+        atlas.tile(1, 16, &pixels).unwrap();
+        atlas.tile(2, 16, &pixels).unwrap();
+        atlas.tile(1, 16, &pixels).unwrap();
+        let patches = atlas.patches();
+        assert_eq!(patches.len(), 2);
+        assert!(patches[0].seq < patches[1].seq);
+        assert_eq!(atlas.patch_seq(), 2);
     }
 
     #[test]

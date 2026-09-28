@@ -111,6 +111,10 @@ impl ActorStore {
         self.items.canonicalize(stack)
     }
 
+    pub(crate) fn item_identifier(&self, network_id: i32) -> Option<std::sync::Arc<str>> {
+        self.items.identifier_for_network_id(network_id)
+    }
+
     pub(crate) fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
         self.items.apply_registry(registry)
     }

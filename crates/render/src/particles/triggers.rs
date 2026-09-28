@@ -124,6 +124,10 @@ pub enum LevelParticle {
     BlockCrack { runtime_id: i32, face: u8 },
     /// A legacy `Terrain` particle: block-textured pieces.
     Terrain { runtime_id: i32 },
+    /// Item-icon pieces for an item network id and aux value (item break, food crumbs).
+    ItemIcon { network_id: i32, aux: i32 },
+    /// Item-icon pieces for a fixed item (snowball and slime impacts).
+    FixedItemIcon { identifier: &'static str },
 }
 
 fn argb(data: i32) -> [f32; 4] {
@@ -153,6 +157,16 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
         let particle_type = event_id & !LEVEL_EVENT_PARTICLE_FLAG;
         return match particle_type {
             19 => Some(LevelParticle::Terrain { runtime_id: data }),
+            13 | 50 => Some(LevelParticle::ItemIcon {
+                network_id: data >> 16,
+                aux: data & 0xffff,
+            }),
+            14 => Some(LevelParticle::FixedItemIcon {
+                identifier: "minecraft:snowball",
+            }),
+            36 => Some(LevelParticle::FixedItemIcon {
+                identifier: "minecraft:slime_ball",
+            }),
             32..=34 => Some(LevelParticle::Named {
                 effect: legacy_particle_effect(particle_type)?,
                 spell_color: Some(argb(data)),
@@ -295,6 +309,23 @@ pub fn block_break_request(
     }
 }
 
+/// Item-icon pieces at `position` (item break, eating crumbs, snowball and egg impacts).
+#[must_use]
+pub fn item_icon_request(position: [f32; 3], tile: TileRequest, count: f32) -> SpawnRequest {
+    SpawnRequest {
+        effect: "minecraft:breaking_item_icon".to_owned(),
+        position,
+        variables: variables(&[
+            ("num_particles", count),
+            ("emitter_radius", 0.1),
+            ("size_modifier", 1.0),
+            ("speed_modifier", 1.0),
+        ]),
+        tile: Some(tile),
+        ..SpawnRequest::default()
+    }
+}
+
 /// Spawn request for crack pieces on `face` (0 down, 1 up, 2 north, 3 south, 4 west, 5 east).
 #[must_use]
 pub fn block_crack_request(
@@ -384,6 +415,21 @@ mod tests {
         assert!(matches!(
             classify_level_event(2002, 0x00ff_0000u32 as i32),
             Some(LevelParticle::Named { spell_color: Some(color), .. }) if color[0] == 1.0
+        ));
+    }
+
+    #[test]
+    fn icon_crack_events_split_item_id_and_aux() {
+        assert_eq!(
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 13, (300 << 16) | 2),
+            Some(LevelParticle::ItemIcon {
+                network_id: 300,
+                aux: 2
+            })
+        );
+        assert!(matches!(
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 14, 0),
+            Some(LevelParticle::FixedItemIcon { .. })
         ));
     }
 

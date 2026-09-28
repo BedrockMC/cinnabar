@@ -37,7 +37,7 @@ use bevy::{
 };
 
 use super::{
-    atlas::ATLAS_SIDE,
+    atlas::{ATLAS_SIDE, AtlasPatch},
     draw::{DrawLists, ParticleInstance, ParticleView},
     system::ParticleSystem,
     world::ParticleWorld,
@@ -50,8 +50,9 @@ const MIN_CAPACITY: usize = 256;
 /// The frame's particle draw data, extracted to the render world each frame.
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct ParticleGpuFrame {
-    atlas_generation: u64,
-    atlas: Option<Arc<[u8]>>,
+    base: Option<Arc<[u8]>>,
+    patch_seq: u64,
+    patches: Arc<[AtlasPatch]>,
     blend: Arc<[ParticleInstance]>,
     add: Arc<[ParticleInstance]>,
     centroid: [f32; 3],
@@ -113,10 +114,13 @@ pub fn update_particle_frame(
     system.tick(dt, world);
     let lists = system.build_draw(view, world);
     frame.set_lists(lists, view.position);
-    let generation = system.atlas().generation();
-    if generation != frame.atlas_generation {
-        frame.atlas = Some(Arc::from(system.atlas().pixels()));
-        frame.atlas_generation = generation;
+    if frame.base.is_none() {
+        frame.base = Some(system.atlas_base());
+    }
+    let seq = system.atlas().patch_seq();
+    if seq != frame.patch_seq {
+        frame.patches = system.atlas().patches().into();
+        frame.patch_seq = seq;
     }
 }
 
@@ -158,7 +162,7 @@ struct ParticleGpu {
     sampler: Sampler,
     texture_view: Option<TextureView>,
     texture: Option<Texture>,
-    uploaded_generation: u64,
+    uploaded_seq: u64,
     buffer: Option<Buffer>,
     capacity: usize,
     blend_range: Range<u32>,
@@ -183,7 +187,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sampler,
         texture_view: None,
         texture: None,
-        uploaded_generation: 0,
+        uploaded_seq: 0,
         buffer: None,
         capacity: 0,
         blend_range: 0..0,
@@ -200,56 +204,50 @@ fn prepare_particle_resources(
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<ParticleGpu>,
 ) {
-    if let Some(pixels) = &frame.atlas
-        && frame.atlas_generation != gpu.uploaded_generation
-        && pixels.len() == (ATLAS_SIDE * ATLAS_SIDE * 4) as usize
+    if gpu.texture.is_none()
+        && let Some(base) = &frame.base
+        && base.len() == (ATLAS_SIDE * ATLAS_SIDE * 4) as usize
     {
-        if gpu.texture.is_none() {
-            let texture = render_device.create_texture(&TextureDescriptor {
-                label: Some("particle atlas"),
-                size: Extent3d {
-                    width: ATLAS_SIDE,
-                    height: ATLAS_SIDE,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            gpu.texture_view = Some(texture.create_view(&TextureViewDescriptor::default()));
-            gpu.texture = Some(texture);
-            gpu.bind_group = None;
-        }
-        let written = if let Some(texture) = &gpu.texture {
-            render_queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect: Default::default(),
-                },
-                pixels,
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(ATLAS_SIDE * 4),
-                    rows_per_image: Some(ATLAS_SIDE),
-                },
-                Extent3d {
-                    width: ATLAS_SIDE,
-                    height: ATLAS_SIDE,
-                    depth_or_array_layers: 1,
-                },
+        let texture = render_device.create_texture(&TextureDescriptor {
+            label: Some("particle atlas"),
+            size: Extent3d {
+                width: ATLAS_SIDE,
+                height: ATLAS_SIDE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        write_rect(
+            &render_queue,
+            &texture,
+            [0, 0],
+            [ATLAS_SIDE, ATLAS_SIDE],
+            base,
+        );
+        gpu.texture_view = Some(texture.create_view(&TextureViewDescriptor::default()));
+        gpu.texture = Some(texture);
+        gpu.uploaded_seq = 0;
+        gpu.bind_group = None;
+    }
+    if let Some(texture) = &gpu.texture
+        && frame.patch_seq != gpu.uploaded_seq
+    {
+        for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
+            write_rect(
+                &render_queue,
+                texture,
+                [patch.x, patch.y],
+                [patch.width, patch.height],
+                &patch.rgba8,
             );
-            true
-        } else {
-            false
-        };
-        if written {
-            gpu.uploaded_generation = frame.atlas_generation;
         }
+        let seq = frame.patch_seq;
+        gpu.uploaded_seq = seq;
     }
 
     let (blend, add) = (frame.blend.len(), frame.add.len());
@@ -279,6 +277,38 @@ fn prepare_particle_resources(
             bytemuck::cast_slice(&frame.add[..]),
         );
     }
+}
+
+fn write_rect(
+    queue: &RenderQueue,
+    texture: &Texture,
+    origin: [u32; 2],
+    size: [u32; 2],
+    rgba: &[u8],
+) {
+    queue.write_texture(
+        TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: Origin3d {
+                x: origin[0],
+                y: origin[1],
+                z: 0,
+            },
+            aspect: Default::default(),
+        },
+        rgba,
+        TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(size[0] * 4),
+            rows_per_image: Some(size[1]),
+        },
+        Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 struct ParticleSpecializer;
@@ -433,7 +463,7 @@ fn prepare_particle_bind_group(
     let key = (
         Some(view_buffer.id()),
         Some(buffer.id()),
-        gpu.uploaded_generation.min(1),
+        gpu.uploaded_seq.min(1),
     );
     if gpu.bind_group.is_some() && gpu.bound == key {
         return;
