@@ -132,6 +132,10 @@ impl WorldStream {
     ) -> Option<crate::item::CanonicalItemStack> {
         self.actors.canonical_item_stack(stack)
     }
+    /// The item identifier registered for a network id.
+    pub fn item_identifier(&self, network_id: i32) -> Option<std::sync::Arc<str>> {
+        self.actors.item_identifier(network_id)
+    }
     /// Installs the StartGame item registry so server-defined item ids resolve
     /// before any play-time registry arrives. False when it is refused.
     pub fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {

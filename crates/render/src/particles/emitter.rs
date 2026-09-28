@@ -34,6 +34,9 @@ pub struct SpawnRequest {
     pub inherit_velocity: Option<[f32; 3]>,
     /// Emit exactly this many particles from a manual-rate emitter.
     pub manual_count: Option<u32>,
+    /// Follows an actor (`runtime_id`, offset from its feet); the host moves the emitter each
+    /// frame from [`ParticleSystem::bound_emitters`].
+    pub bound: Option<(u64, [f32; 3])>,
     pub depth: u8,
     pub seed: u64,
 }
@@ -68,6 +71,7 @@ pub struct Emitter {
     pub inherit_velocity: [f32; 3],
     pub depth: u8,
     pub done: bool,
+    pub bound: Option<(u64, [f32; 3])>,
     active_time: f32,
     sleep_time: f32,
     cycle: u64,
@@ -143,6 +147,7 @@ impl Emitter {
             inherit_velocity: request.inherit_velocity.unwrap_or([0.0; 3]),
             depth: request.depth,
             done: false,
+            bound: request.bound,
             active_time: active_time.max(0.0),
             sleep_time: sleep_time.max(0.0),
             cycle: u64::MAX,
@@ -257,9 +262,20 @@ impl Emitter {
 
         let (offset, direction) = self.sample_shape(&mut vars);
         let offset = transform(&self.basis, offset);
-        let direction = transform(&self.basis, direction);
+        // Local-space velocity stays in the emitter frame and is rotated as the particle moves.
+        let local_velocity = def.emitter.local_velocity;
+        let direction = if local_velocity {
+            direction
+        } else {
+            transform(&self.basis, direction)
+        };
         let mut velocity = if let Some(velocity) = &def.particle.initial_velocity {
-            transform(&self.basis, self.eval3(&mut vars, velocity))
+            let vector = self.eval3(&mut vars, velocity);
+            if local_velocity {
+                vector
+            } else {
+                transform(&self.basis, vector)
+            }
         } else {
             let speed = match &def.particle.initial_speed {
                 Some(speed) => speed.eval(&mut vars, &mut self.rng, &self.queries),
@@ -433,9 +449,19 @@ impl Emitter {
                 if self.depth >= MAX_SPAWN_DEPTH {
                     return;
                 }
+                let bound = match kind {
+                    SpawnKind::EmitterBound => self.bound.map(|(actor, offset)| {
+                        (
+                            actor,
+                            std::array::from_fn(|i| offset[i] + position[i] - self.pos[i]),
+                        )
+                    }),
+                    _ => None,
+                };
                 output.spawns.push(SpawnRequest {
                     effect: effect.to_string(),
                     position,
+                    bound,
                     basis: Some(self.basis),
                     queries: self.queries,
                     inherit_velocity: matches!(kind, SpawnKind::ParticleWithVelocity)

@@ -212,12 +212,17 @@ pub struct ParticleDef {
     pub expiration_events: Vec<Box<str>>,
     /// Sorted by time in seconds.
     pub timeline: Vec<(f32, Box<str>)>,
+    /// Sorted by travelled distance in blocks; each fires once.
+    pub travel_events: Vec<(f32, Box<str>)>,
+    /// `(interval, event)`; each fires every interval blocks travelled.
+    pub looping_travel_events: Vec<(f32, Box<str>)>,
 }
 
 pub struct EmitterDef {
     pub creation: Option<Program>,
     pub per_update: Option<Program>,
     pub local_position: bool,
+    pub local_velocity: bool,
     pub rate: Rate,
     pub lifetime: Lifetime,
     pub shape: EmitterShape,
@@ -298,6 +303,7 @@ pub fn parse_effect(bytes: &[u8]) -> Option<EffectDef> {
             .and_then(|c| c.get("per_update_expression"))
             .and_then(|v| program(v, it)),
         local_position: local_flag(component("minecraft:emitter_local_space"), "position"),
+        local_velocity: local_flag(component("minecraft:emitter_local_space"), "velocity"),
         rate: parse_rate(components, it),
         lifetime: parse_lifetime(components, it),
         shape: parse_shape(components, it),
@@ -637,6 +643,27 @@ fn string_list(value: Option<&Value>) -> Vec<Box<str>> {
     }
 }
 
+/// `[{ "distance": d, "events": [...] }]` flattened to sorted `(distance, event)` pairs.
+fn parse_travel(value: Option<&Value>) -> Vec<(f32, Box<str>)> {
+    let mut out: Vec<(f32, Box<str>)> = value
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .flat_map(|entry| {
+                    let distance = number(entry.get("distance"), 0.0);
+                    let events = entry.get("events").or_else(|| entry.get("event"));
+                    string_list(events)
+                        .into_iter()
+                        .map(move |event| (distance, event))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out
+}
+
 fn parse_particle(
     components: &serde_json::Map<String, Value>,
     it: &mut Interner,
@@ -670,6 +697,13 @@ fn parse_particle(
         }
     } else {
         Motion::None
+    };
+    let (travel_events, looping_travel_events) = match get("minecraft:particle_lifetime_events") {
+        Some(c) => (
+            parse_travel(c.get("travel_distance_events")),
+            parse_travel(c.get("looping_travel_distance_events")),
+        ),
+        None => (Vec::new(), Vec::new()),
     };
     let (creation_events, expiration_events, timeline) =
         match get("minecraft:particle_lifetime_events") {
@@ -729,6 +763,8 @@ fn parse_particle(
         creation_events,
         expiration_events,
         timeline,
+        travel_events,
+        looping_travel_events,
     })
 }
 

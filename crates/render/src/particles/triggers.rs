@@ -124,6 +124,10 @@ pub enum LevelParticle {
     BlockCrack { runtime_id: i32, face: u8 },
     /// A legacy `Terrain` particle: block-textured pieces.
     Terrain { runtime_id: i32 },
+    /// Item-icon pieces for an item network id and aux value (item break, food crumbs).
+    ItemIcon { network_id: i32, aux: i32 },
+    /// Item-icon pieces for a fixed item (snowball and slime impacts).
+    FixedItemIcon { identifier: &'static str },
 }
 
 fn argb(data: i32) -> [f32; 4] {
@@ -153,6 +157,16 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
         let particle_type = event_id & !LEVEL_EVENT_PARTICLE_FLAG;
         return match particle_type {
             19 => Some(LevelParticle::Terrain { runtime_id: data }),
+            13 | 50 => Some(LevelParticle::ItemIcon {
+                network_id: data >> 16,
+                aux: data & 0xffff,
+            }),
+            14 => Some(LevelParticle::FixedItemIcon {
+                identifier: "minecraft:snowball",
+            }),
+            36 => Some(LevelParticle::FixedItemIcon {
+                identifier: "minecraft:slime_ball",
+            }),
             32..=34 => Some(LevelParticle::Named {
                 effect: legacy_particle_effect(particle_type)?,
                 spell_color: Some(argb(data)),
@@ -289,6 +303,23 @@ pub fn block_break_request(
             ("color.g", tint[1]),
             ("color.b", tint[2]),
             ("color.a", tint[3]),
+        ]),
+        tile: Some(tile),
+        ..SpawnRequest::default()
+    }
+}
+
+/// Item-icon pieces at `position` (item break, eating crumbs, snowball and egg impacts).
+#[must_use]
+pub fn item_icon_request(position: [f32; 3], tile: TileRequest, count: f32) -> SpawnRequest {
+    SpawnRequest {
+        effect: "minecraft:breaking_item_icon".to_owned(),
+        position,
+        variables: variables(&[
+            ("num_particles", count),
+            ("emitter_radius", 0.1),
+            ("size_modifier", 1.0),
+            ("speed_modifier", 1.0),
         ]),
         tile: Some(tile),
         ..SpawnRequest::default()

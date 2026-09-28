@@ -21,6 +21,6 @@ pub use system::{MAX_EMITTERS, MAX_LIVE_PARTICLES, MAX_SPAWN_DISTANCE, ParticleS
 pub use triggers::{
     BLOCK_BREAK_PARTICLES, BLOCK_CRACK_PARTICLES, LEVEL_EVENT_PARTICLE_FLAG, LevelParticle,
     block_break_request, block_crack_request, classify_level_event, is_particle_level_event,
-    legacy_particle_effect, named_request, parse_molang_variables,
+    item_icon_request, legacy_particle_effect, named_request, parse_molang_variables,
 };
 pub use world::{EmptyWorld, Fluid, ParticleWorld};
