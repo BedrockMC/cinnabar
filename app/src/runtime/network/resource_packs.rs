@@ -149,7 +149,10 @@ pub(super) fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<
     [("png", ImageFormat::Png), ("tga", ImageFormat::Tga)]
         .into_iter()
         .find_map(|(extension, format)| {
-            let bytes = view.read(&format!("{path}.{extension}"))?;
+            let bytes = view.read_capped(
+                &format!("{path}.{extension}"),
+                MAX_TEXTURE_SOURCE_BYTES as u64,
+            )?;
             decode_image(&bytes, format)
         })
 }

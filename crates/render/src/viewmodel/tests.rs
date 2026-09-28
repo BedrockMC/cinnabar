@@ -604,3 +604,54 @@ fn fallback_identity_is_logical_even_when_its_layer_is_in_another_bucket() {
     assert_eq!(scene.frame.as_ref().unwrap().fallback, Some((1, 0, 1)));
     assert!(!scene.bind_cpu_fallback(&input, 0, [4, 8, 12, 24], &gate));
 }
+
+// The held-block viewmodel reads the base carrier, and even against session
+// assets a server overlay cube (page-1 material, vanilla-fallback support) is
+// refused, so overlay ids never build viewmodel geometry.
+#[test]
+fn opaque_cube_refuses_server_block_overlay_ids() {
+    use assets::*;
+    let base = RuntimeAssets::decode(&encode_blob(&cube_carrier()).unwrap()).unwrap();
+    let base_count = base.visual_count() as u32;
+    // An id past the base carrier is out of range on the base assets.
+    assert!(ViewmodelGeometry::opaque_cube(&base, BlockVisualId(base_count)).is_none());
+
+    let mip = |size: u32| TextureMip {
+        size,
+        rgba8: (0..size * size)
+            .flat_map(|_| [200, 200, 200, 255])
+            .collect(),
+    };
+    let overlay = BlockOverlay {
+        visuals: vec![BlockVisual {
+            faces: [0; 6],
+            flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            kind: VisualKind::Cube,
+            support: VisualSupport::VanillaFallback,
+            contributor_role: ContributorRole::Primary,
+            model_template: NO_MODEL_TEMPLATE,
+            animation: NO_ANIMATION,
+            variant: 0,
+        }],
+        light_properties: vec![LightProperties::OPAQUE_DARK],
+        materials: vec![Material {
+            texture: TextureRef::new(1, 0).unwrap(),
+            flags: 0,
+            animation: NO_ANIMATION,
+        }],
+        texture: Some(TextureArray {
+            layers: 1,
+            mips: [16, 8, 4, 2, 1].into_iter().map(mip).collect(),
+        }),
+        ..BlockOverlay::default()
+    };
+    let session = base.with_block_overlay(base_count, &overlay).unwrap();
+    // The overlay id resolves on the session carrier, but its vanilla-fallback
+    // support keeps it out of the opaque-cube viewmodel.
+    assert!(
+        session
+            .resolve(NetworkIdMode::Sequential, base_count)
+            .is_known()
+    );
+    assert!(ViewmodelGeometry::opaque_cube(&session, BlockVisualId(base_count)).is_none());
+}
