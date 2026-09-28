@@ -25,6 +25,7 @@ mod player;
 mod status_motion;
 mod status_rows;
 mod titles;
+mod toasts;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
 use pinned::{
@@ -244,6 +245,7 @@ impl<'a> HudLayout<'a> {
         self.effects(runtime, now_tick)?;
         self.boss_bars(runtime)?;
         self.titles(runtime, frame.now_millis)?;
+        self.toasts(runtime, frame.now_millis)?;
         Ok(())
     }
 
