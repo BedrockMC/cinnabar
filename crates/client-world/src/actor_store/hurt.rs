@@ -15,6 +15,21 @@ const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
 
 const HURT_DIRECTION_METADATA_KEY: u32 = 12;
 
+/// Most undrained status notices retained; further ones are dropped.
+pub const MAX_STATUS_NOTICES: usize = 256;
+
+/// A decoded actor status event with the actor's pose at the time, for particle and sound consumers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorStatusNotice {
+    pub runtime_id: u64,
+    pub kind: ActorStatusKind,
+    pub data: i32,
+    /// Actor feet position.
+    pub position: [f32; 3],
+    /// Bounding-box height, when the actor streams one.
+    pub height: Option<f32>,
+}
+
 /// A dropped item flying to the actor that collected it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ActorPickup {
@@ -112,6 +127,15 @@ impl ActorStore {
         let Some(actor) = self.actors.get_mut(&event.runtime_id) else {
             return ActorApplyResult::MissingActor;
         };
+        if self.status_notices.len() < MAX_STATUS_NOTICES {
+            self.status_notices.push(ActorStatusNotice {
+                runtime_id: event.runtime_id,
+                kind: event.kind,
+                data: event.data,
+                position: actor.position,
+                height: actor.bounding_box().map(|(min, max)| max[1] - min[1]),
+            });
+        }
         match event.kind {
             ActorStatusKind::Hurt => {
                 actor.status.hurt_time = HURT_DURATION_TICKS;
@@ -138,6 +162,11 @@ impl ActorStore {
             ticks: 0,
         });
         ActorApplyResult::Updated
+    }
+
+    /// Drains the status events decoded since the last call, in arrival order.
+    pub(crate) fn take_status_notices(&mut self) -> Vec<ActorStatusNotice> {
+        std::mem::take(&mut self.status_notices)
     }
 
     /// Remembers the latest horizontal knockback impulse the local player received.
@@ -252,7 +281,10 @@ mod tests {
         assert_eq!(store.hurt_source_direction(1), None);
         store.note_local_knockback(5, [2.0, 0.3, 0.0]);
         assert_eq!(store.hurt_source_direction(6), Some([-1.0, 0.0]));
-        assert_eq!(store.hurt_source_direction(5 + KNOCKBACK_FRESH_SEQUENCES + 1), None);
+        assert_eq!(
+            store.hurt_source_direction(5 + KNOCKBACK_FRESH_SEQUENCES + 1),
+            None
+        );
     }
 
     #[test]
