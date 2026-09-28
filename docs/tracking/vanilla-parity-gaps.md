@@ -48,11 +48,16 @@ the physical→virtual UI scale factor.
 Held/offhand items are decoded+stored but never drawn; remote armor is decoded then
 dropped (`sequencing.rs:688`); the first-person near-camera rig pass exists but is fed
 `None`. Vanilla binds item/armor geometry to the biped bones (`rightItem`/`leftItem`
-exist; non-arm bones zero-scaled for first person) via attachables. 6 tranches: T0 asset
-ingestion (attachables/, armor textures — compiler doesn't collect these yet), T1
-third-person held item, T2 worn armor (both layers, tiers, dye), T3 first-person arm +
-held item (populate the disabled pass — replaces the removed stopgap), T4 offhand +
-shield/elytra/pumpkin-head/bow-frames, T5 polish (glint, trims, PBR).
+exist; non-arm bones zero-scaled for first person) via attachables. 6 tranches: **T0 asset
+ingestion — landed** (entity compiler now collects `attachables/` + `textures/models/armor/`;
+per-item `EquipmentBinding` table — geometry/texture/material/render-controller, armor `.player`
+variant preferred so its geometry resolves in-catalog — emitted to a new hash-pinned `.mcbeeqp`
+carrier; only the trident's `wield_first_person`/`wield_third_person` are literal and populate
+`ItemVisualDefinition`, everything Molang/query-derived is flagged `NeedsMeasurement`; no
+fail-closed startup bail until a consumer lands). Next: T1 third-person held item, T2 worn armor
+(both layers, tiers, dye), T3 first-person arm + held item (populate the disabled pass — replaces
+the removed stopgap), T4 offhand + shield/elytra/pumpkin-head/bow-frames, T5 polish (glint,
+trims, PBR).
 
 ## Local player rendering
 Third-person body (S1) merged: local player routed through the shared animated rig.
