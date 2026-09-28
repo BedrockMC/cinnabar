@@ -55,6 +55,9 @@ impl CollectionItem {
 pub struct DataSource {
     globals: BTreeMap<String, Scalar>,
     collections: BTreeMap<String, Vec<CollectionItem>>,
+    /// Screen-controller semantics: an unbound `#name` reads as `false` rather
+    /// than leaving the template's literal in place.
+    strict: bool,
 }
 
 impl DataSource {
@@ -65,6 +68,19 @@ impl DataSource {
     /// Set a `global` binding value, keyed with its leading `#`.
     pub fn set_global(&mut self, name: impl Into<String>, value: Scalar) {
         self.globals.insert(name.into(), value);
+    }
+
+    /// Read unbound globals as `false`, as a screen controller answers bindings
+    /// it does not provide. Menu screens bind this way; forms stay lenient.
+    pub fn set_strict(&mut self, strict: bool) {
+        self.strict = strict;
+    }
+
+    /// Select `index` in the radio toggle group named `toggle_name`: the toggle
+    /// whose `toggle_group_forced_index` matches reads as checked.
+    pub fn select_radio(&mut self, toggle_name: &str, index: usize) {
+        self.globals
+            .insert(format!("#radio:{toggle_name}"), Scalar::Num(index as f64));
     }
 
     /// Replace a named collection's per-index items.
@@ -107,7 +123,7 @@ pub fn bind(
         diagnostics: Vec::new(),
     };
     let node = binder.build(root, &Scope::default());
-    binder.bake(&node, &[])
+    binder.bake(&node, &[], &node)
 }
 
 /// The active collection cursors: `collection_name` → the current index its
@@ -182,7 +198,9 @@ impl Binder<'_> {
                     else {
                         continue;
                     };
-                    if let Some(value) = lookup(source, &item.values, &own, &self.env) {
+                    if let Some(value) =
+                        lookup(source, &item.values, &own, self.data.strict, &self.env)
+                    {
                         own.insert(target_name(binding, source), value);
                     }
                 }
@@ -197,14 +215,51 @@ impl Binder<'_> {
                     let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
                         continue;
                     };
-                    if let Some(value) = lookup(source, &self.data.globals, &own, &self.env) {
-                        own.insert(target_name(binding, source), value);
+                    match lookup(
+                        source,
+                        &self.data.globals,
+                        &own,
+                        self.data.strict,
+                        &self.env,
+                    ) {
+                        Some(value) => {
+                            own.insert(target_name(binding, source), value);
+                        }
+                        // A controller answers a visibility flag it does not know
+                        // with `false`; text and other values stay unbound.
+                        None if self.data.strict && target_name(binding, source) == "#visible" => {
+                            own.insert("#visible".to_owned(), Scalar::Bool(false));
+                        }
+                        None => {}
                     }
                 }
                 Some(_) => {}
             }
         }
+        self.radio_state(control, &mut own);
         own
+    }
+
+    /// A radio-group toggle is checked when the screen selected its index.
+    fn radio_state(&self, control: &ResolvedControl, own: &mut BTreeMap<String, Scalar>) {
+        if control.properties.get("radio_toggle_group") != Some(&Value::Bool(true)) {
+            return;
+        }
+        let (Some(name), Some(index)) = (
+            control
+                .properties
+                .get("toggle_name")
+                .and_then(Value::as_str),
+            control
+                .properties
+                .get("toggle_group_forced_index")
+                .and_then(Value::as_f64),
+        ) else {
+            return;
+        };
+        if let Some(Scalar::Num(selected)) = self.data.globals.get(&format!("#radio:{name}")) {
+            own.insert("#toggle_state".to_owned(), Scalar::Bool(*selected == index));
+        }
     }
 
     fn expand_factory(&mut self, control: &ResolvedControl, scope: &Scope) -> Vec<Node> {
@@ -299,14 +354,14 @@ impl Binder<'_> {
 
     /// Pass two: resolve `view` bindings against sibling/child values, then bake
     /// binding-driven properties into literals.
-    fn bake(&self, node: &Node, siblings: &[Node]) -> ResolvedControl {
+    fn bake(&self, node: &Node, siblings: &[Node], root: &Node) -> ResolvedControl {
         let mut own = node.own.clone();
-        self.resolve_views(node, siblings, &mut own);
+        self.resolve_views(node, siblings, root, &mut own);
         let properties = bake_properties(&node.control.properties, &own);
         let children = node
             .children
             .iter()
-            .map(|child| self.bake(child, &node.children))
+            .map(|child| self.bake(child, &node.children, root))
             .collect();
         ResolvedControl {
             properties,
@@ -315,7 +370,13 @@ impl Binder<'_> {
         }
     }
 
-    fn resolve_views(&self, node: &Node, siblings: &[Node], own: &mut BTreeMap<String, Scalar>) {
+    fn resolve_views(
+        &self,
+        node: &Node,
+        siblings: &[Node],
+        root: &Node,
+        own: &mut BTreeMap<String, Scalar>,
+    ) {
         for binding in bindings_of(&node.control) {
             let Some(binding) = binding.as_object() else {
                 continue;
@@ -335,17 +396,19 @@ impl Binder<'_> {
                 .filter(|name| !name.is_empty());
             let snapshot;
             let scope_values = match source {
+                // Nearby first, then anywhere on the screen (tab toggles sit far
+                // from the content they show), then the screen's globals.
                 Some(name) => find_own(name, &node.children)
                     .or_else(|| find_own(name, siblings))
+                    .or_else(|| find_own(name, std::slice::from_ref(root)))
                     .unwrap_or(&self.data.globals),
                 None => {
                     snapshot = own.clone();
                     &snapshot
                 }
             };
-            if let Some(value) =
-                predicate::eval_scalar(expression, &self.env, &MapBindings(scope_values))
-            {
+            let scope = LayeredBindings(scope_values, &EMPTY, self.data.strict);
+            if let Some(value) = predicate::eval_scalar(expression, &self.env, &scope) {
                 own.insert(target.to_owned(), value);
             }
         }
@@ -466,19 +529,31 @@ fn lookup(
     source: &str,
     values: &BTreeMap<String, Scalar>,
     own: &BTreeMap<String, Scalar>,
+    strict: bool,
     env: &Env,
 ) -> Option<Scalar> {
     if source.starts_with('(') {
-        return predicate::eval_scalar(source, env, &LayeredBindings(values, own));
+        return predicate::eval_scalar(source, env, &LayeredBindings(values, own, strict));
     }
     values.get(source).cloned()
 }
 
-struct LayeredBindings<'a>(&'a BTreeMap<String, Scalar>, &'a BTreeMap<String, Scalar>);
+static EMPTY: BTreeMap<String, Scalar> = BTreeMap::new();
+
+/// Values, then fallbacks; under strict semantics a name neither holds is `false`.
+struct LayeredBindings<'a>(
+    &'a BTreeMap<String, Scalar>,
+    &'a BTreeMap<String, Scalar>,
+    bool,
+);
 
 impl Bindings for LayeredBindings<'_> {
     fn get(&self, name: &str) -> Option<Scalar> {
-        self.0.get(name).or_else(|| self.1.get(name)).cloned()
+        self.0
+            .get(name)
+            .or_else(|| self.1.get(name))
+            .cloned()
+            .or_else(|| self.2.then_some(Scalar::Bool(false)))
     }
 }
 
@@ -538,13 +613,5 @@ fn scalar_to_value(scalar: &Scalar) -> Value {
         Scalar::Num(number) => serde_json::Number::from_f64(*number)
             .map(Value::Number)
             .unwrap_or(Value::Null),
-    }
-}
-
-struct MapBindings<'a>(&'a BTreeMap<String, Scalar>);
-
-impl Bindings for MapBindings<'_> {
-    fn get(&self, name: &str) -> Option<Scalar> {
-        self.0.get(name).cloned()
     }
 }
