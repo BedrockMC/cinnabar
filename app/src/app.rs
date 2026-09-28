@@ -522,6 +522,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let named_audio = crate::named_audio::NamedAudio::new(pcm);
     let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
     let particle_assets = crate::particles::load_optional_carrier(&loaded_assets.selected_path);
+    let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let block_entity_scene =
         crate::block_entities::load_block_entity_scene(&loaded_assets.selected_path);
     let font_runtime = loaded_assets.fonts.into_runtime();
@@ -804,6 +805,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render::ParticleSystem::from_assets(particle_assets));
     }
+    app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
