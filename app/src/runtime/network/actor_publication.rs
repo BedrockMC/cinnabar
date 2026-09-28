@@ -353,6 +353,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         remotes,
         cull_view,
     );
+    if let Some(stream) = client_world.stream.as_ref() {
+        crate::presentation::entity_layers::apply_render_layers(
+            &mut batch,
+            |runtime_id| stream.actor_rig(runtime_id),
+            &artwork,
+        );
+    }
     let selected_count = batch.submissions.len();
     if let (Some(equipment), Some(stream)) =
         (equipment.as_deref_mut(), client_world.stream.as_ref())
@@ -378,7 +385,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
-            if identity.layer == render::ACTOR_LAYER_BODY
+            if (identity.layer == render::ACTOR_LAYER_BODY
+                || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream
                     .actor(identity.runtime_id)
                     .is_some_and(|actor| actor.is_invisible())

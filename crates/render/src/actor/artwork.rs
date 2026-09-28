@@ -322,9 +322,13 @@ impl ActorArtworkPages {
     pub fn route(&self, rig: EntityRigId) -> Option<ActorArtworkLocation> {
         self.routes.get(&rig).copied()
     }
-    /// Where the catalog texture drawn from entity-catalog source `source` lives.
-    pub fn texture_location(&self, source: u32) -> Option<ActorArtworkLocation> {
-        self.source_locations.get(&source).copied()
+    /// Where the catalog texture drawn from entity-catalog source `source` lives, for a body of
+    /// rig `rig`; `None` when the rig has no artwork or the source was not built.
+    pub fn variant_location(&self, rig: EntityRigId, source: u32) -> Option<ActorArtworkLocation> {
+        let route = self.route(rig)?;
+        let mut location = self.source_locations.get(&source).copied()?;
+        location.pose_mode = route.pose_mode;
+        Some(location)
     }
     pub fn rejected_bindings(&self) -> usize {
         self.rejected_bindings
@@ -344,7 +348,9 @@ impl ActorArtworkPages {
             Some(route) => {
                 route == location
                     || (route.pose_mode == location.pose_mode
-                        && self.entity_locations.contains(&(location.page, location.layer)))
+                        && self
+                            .entity_locations
+                            .contains(&(location.page, location.layer)))
             }
             None => false,
         }
