@@ -22,8 +22,8 @@ pub use math::Vec3;
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
     AxisCollisions, ControlledTickResult, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
-    MovementEffects, MovementEnvironment, MovementInput, PlayerState, ProcessedControls,
-    SimulationError, Simulator, TICKS_PER_SECOND, TickResult,
+    MovementEffects, MovementEnvironment, MovementInput, MovementMode, PlayerState,
+    ProcessedControls, SimulationError, Simulator, TICKS_PER_SECOND, TickResult, pose_fits,
 };
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,

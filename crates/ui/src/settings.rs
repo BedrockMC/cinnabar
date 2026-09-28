@@ -59,4 +59,8 @@ impl Default for VideoSettings {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct GameplaySettings {
     pub default_perspective: PerspectiveMode,
+    /// Sprint key toggles a persistent sprint instead of requiring hold.
+    pub toggle_sprint: bool,
+    /// Sneak key toggles a persistent sneak instead of requiring hold.
+    pub toggle_sneak: bool,
 }

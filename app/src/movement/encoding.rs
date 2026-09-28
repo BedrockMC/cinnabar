@@ -16,6 +16,7 @@ pub(super) struct HeldInput {
     jumping: bool,
     sneaking: bool,
     sprinting: bool,
+    mode: sim::MovementMode,
 }
 
 impl From<&PhysicsMovementSample> for HeldInput {
@@ -24,6 +25,7 @@ impl From<&PhysicsMovementSample> for HeldInput {
             jumping: sample.jumping,
             sneaking: sample.processed.sneaking,
             sprinting: sample.processed.sprinting,
+            mode: sample.processed.mode,
         }
     }
 }
@@ -123,6 +125,53 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         }
     } else if previous.sprinting {
         flags |= PlayerInputFlags::STOP_SPRINTING;
+    }
+    if sample.processed.forced_sneak {
+        flags |= PlayerInputFlags::PERSIST_SNEAK;
+    }
+    flags | mode_flags(sample, previous)
+}
+
+/// Start/stop edges for each locomotion mode, plus flight's vertical intent.
+fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
+    use sim::MovementMode::{Crawling, Flying, Gliding, Swimming};
+    let mut flags = PlayerInputFlags::NONE;
+    let current = sample.processed.mode;
+    for (mode, start, stop) in [
+        (
+            Swimming,
+            PlayerInputFlags::START_SWIMMING,
+            PlayerInputFlags::STOP_SWIMMING,
+        ),
+        (
+            Gliding,
+            PlayerInputFlags::START_GLIDING,
+            PlayerInputFlags::STOP_GLIDING,
+        ),
+        (
+            Crawling,
+            PlayerInputFlags::START_CRAWLING,
+            PlayerInputFlags::STOP_CRAWLING,
+        ),
+        (
+            Flying,
+            PlayerInputFlags::START_FLYING,
+            PlayerInputFlags::STOP_FLYING,
+        ),
+    ] {
+        match (current == mode, previous.mode == mode) {
+            (true, false) => flags |= start,
+            (false, true) => flags |= stop,
+            _ => {}
+        }
+    }
+    if current == Flying {
+        if sample.jumping {
+            flags |= PlayerInputFlags::ASCEND;
+        }
+        if sample.sneaking {
+            flags |= PlayerInputFlags::DESCEND;
+        }
     }
     flags
 }
