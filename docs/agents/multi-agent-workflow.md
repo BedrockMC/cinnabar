@@ -5,6 +5,16 @@ review loops) has been removed — use as many subagents as help, in whatever
 shape fits. Only the mechanical build/cache/verify rules below remain, because
 they still catch real breakage regardless of model.
 
+## Concurrent compiles: cap at 2
+
+Any number of agents may read, reason, and edit in parallel — but **at most two
+`cargo` compiles (build/test/clippy) may run at once** across all worktrees.
+Beyond two, Rust build contention drives the machine load into the range where
+agents stall. Enforce it with a shared 2-slot build semaphore that every heavy
+cargo invocation passes through (a macOS-portable one uses an atomic `mkdir`
+lock over two slot dirs with dead-PID reclaim; `flock` is not on macOS). Editing
+is unbounded; only the compile step is gated.
+
 ## Build cache
 
 - Give each concurrently active worktree its own Cargo `target` directory. A
