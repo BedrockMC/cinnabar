@@ -89,6 +89,28 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
 }
 
 #[test]
+fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
+    // A 1024-route ceiling is six 256px pages at the retained 18px pitch.
+    // This exercises the actual merged font/HUD/icon allocator, not a
+    // separately budgeted icon cache or a truncated prefix.
+    let font = independent_font(&[1024, 2048, 2048, 2048]);
+    let presentation = UiPresentationRuntime::with_hud_and_icons(
+        Arc::clone(&font),
+        fixture_hud(),
+        independent_icons(1024, 16),
+    )
+    .unwrap();
+    assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 1024);
+    assert!(presentation.textures.dynamic_start() < presentation.textures.pages().len());
+    assert!(presentation.textures.plan().bytes() <= 64 * 1024 * 1024);
+    assert!(
+        UiPresentationRuntime::with_hud_and_icons(font, fixture_hud(), independent_icons(900, 64))
+            .is_err(),
+        "an oversized merged catalog must refuse as a whole"
+    );
+}
+
+#[test]
 fn mixed_font_shadow_and_fill_keep_logical_page_order() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let mut runtime = UiRuntime::new(1);

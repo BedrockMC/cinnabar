@@ -42,7 +42,9 @@ pub use font::{
     compile_fonts, compile_outline_font, compile_outline_font_with_fallback,
 };
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
-pub use icon::{CompiledIconCarrier, IconCompileReport, compile_icon_assets};
+pub use icon::{
+    CompiledIconCarrier, IconCompileReport, compile_icon_assets, compile_icon_assets_with_blocks,
+};
 pub use lang::{CompiledLangCarrier, LangCompileError, LangCompileReport, compile_lang_assets};
 pub use pack::{
     BlockTextureMap, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, PackSources,
