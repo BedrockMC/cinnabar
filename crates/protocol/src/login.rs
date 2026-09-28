@@ -846,6 +846,7 @@ fn decode_world_raw_with(
             | McpePacketName::UpdateBlockPacket
             | McpePacketName::UpdateSubChunkBlocksPacket
             | McpePacketName::BlockActorDataPacket
+            | McpePacketName::BlockEventPacket
             | McpePacketName::ChunkRadiusUpdatedPacket
             | McpePacketName::NetworkChunkPublisherUpdatePacket
             | McpePacketName::ChangeDimensionPacket

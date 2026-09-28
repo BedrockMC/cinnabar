@@ -146,6 +146,16 @@ pub struct BlockEntityUpdateEvent {
     pub nbt: Vec<u8>,
 }
 
+/// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockEventEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+    pub event_type: i32,
+    pub event_value: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublisherUpdateEvent {
     /// Absolute block coordinates in X/Y/Z order.
@@ -364,6 +374,7 @@ pub enum WorldEvent {
     SubChunks(SubChunkBatchEvent),
     BlockUpdates(Vec<BlockUpdateEvent>),
     BlockEntityUpdate(BlockEntityUpdateEvent),
+    BlockEvent(BlockEventEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),

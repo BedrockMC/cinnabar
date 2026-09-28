@@ -107,6 +107,7 @@ impl WorldStream {
         Self {
             store: ChunkStore::new(),
             block_cracks: block_cracks::BlockCracks::default(),
+            block_events: block_events::BlockEvents::default(),
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors,
             actor_session_id,
