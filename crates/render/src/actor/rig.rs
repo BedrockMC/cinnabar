@@ -30,6 +30,16 @@ pub const fn equipment_rig_id(geometry_index: u32) -> EntityRigId {
     EntityRigId(EQUIPMENT_RIG_ID_BASE + geometry_index)
 }
 
+/// Rig id of a geometry binding in the session's server-pack entity catalog.
+#[must_use]
+pub const fn pack_rig_id(binding_index: u32) -> EntityRigId {
+    EntityRigId(assets::PACK_RIG_ID_BASE + binding_index)
+}
+
+pub(crate) fn is_pack_rig_id(id: EntityRigId) -> bool {
+    (assets::PACK_RIG_ID_BASE..EQUIPMENT_RIG_ID_BASE).contains(&id.0)
+}
+
 pub(crate) fn is_equipment_rig_id(id: EntityRigId) -> bool {
     id.0 >= EQUIPMENT_RIG_ID_BASE && id != DIAGNOSTIC_RIG_ID
 }
@@ -439,6 +449,47 @@ impl ActorRigFrameBuilder {
                     Some(previous) => self.geometries.insert(id, previous),
                     None => self.geometries.remove(&id),
                 };
+                Err(error)
+            }
+        }
+    }
+
+    /// Replaces every pack-range geometry with `geometries` (empty removes them) and
+    /// republishes the catalog; on error the catalog is unchanged.
+    pub fn replace_pack_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        let old_ids = self
+            .geometries
+            .keys()
+            .copied()
+            .filter(|id| is_pack_rig_id(*id))
+            .collect::<Vec<_>>();
+        let removed = old_ids
+            .into_iter()
+            .filter_map(|id| self.geometries.remove(&id).map(|geometry| (id, geometry)))
+            .collect::<Vec<_>>();
+        let mut added = Vec::new();
+        for geometry in geometries {
+            if is_pack_rig_id(geometry.id) {
+                added.push(geometry.id);
+                self.geometries.insert(geometry.id, geometry);
+            }
+        }
+        match catalog_layout(&self.geometries) {
+            Ok((geometry_indices, vertices, spans)) => {
+                self.geometry_revision = geometry_catalog_revision(&vertices, &spans);
+                self.geometry_indices = geometry_indices;
+                self.geometry_vertices = Arc::from(vertices);
+                self.geometry_spans = Arc::from(spans);
+                Ok(())
+            }
+            Err(error) => {
+                for id in added {
+                    self.geometries.remove(&id);
+                }
+                self.geometries.extend(removed);
                 Err(error)
             }
         }

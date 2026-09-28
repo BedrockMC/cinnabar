@@ -218,6 +218,85 @@ impl ActorArtworkPages {
         }
         (self, locations)
     }
+    /// Appends pages for a session pack's artwork and routes its bindings under pack rig ids;
+    /// a texture group over the page or byte budget is dropped and its bindings counted
+    /// as rejected. The identity changes to cover the additions.
+    #[must_use]
+    pub fn with_pack_artwork(
+        mut self,
+        textures: &[assets::ActorTexture],
+        bindings: &[assets::ActorArtworkBinding],
+    ) -> Self {
+        let mut groups = BTreeMap::<(u16, u16), Vec<usize>>::new();
+        for (index, texture) in textures.iter().enumerate() {
+            groups
+                .entry((texture.width, texture.height))
+                .or_default()
+                .push(index);
+        }
+        let mut pages = self.pages.to_vec();
+        let mut gpu_bytes = pages
+            .iter()
+            .fold(MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES, |total, page| {
+                total + page.rgba8.len()
+            });
+        let mut locations = BTreeMap::new();
+        let mut hasher = Sha256::new();
+        hasher.update(self.identity);
+        for ((width, height), indices) in groups {
+            let length = indices
+                .iter()
+                .map(|index| textures[*index].rgba8.len())
+                .sum::<usize>();
+            if gpu_bytes
+                .checked_add(length)
+                .is_none_or(|total| !within_page_budget(pages.len() + 1, total))
+            {
+                continue;
+            }
+            let page = (pages.len() + 1) as u8;
+            let mut pixels = Vec::with_capacity(length);
+            for (layer, index) in indices.iter().enumerate() {
+                pixels.extend_from_slice(&textures[*index].rgba8);
+                locations.insert(
+                    *index as u32,
+                    ActorArtworkLocation {
+                        page,
+                        layer: layer as u32,
+                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                    },
+                );
+            }
+            hasher.update(width.to_le_bytes());
+            hasher.update(height.to_le_bytes());
+            hasher.update(&pixels);
+            gpu_bytes += length;
+            pages.push(ActorTexturePage {
+                width,
+                height,
+                layers: indices.len() as u32,
+                rgba8: pixels.into(),
+            });
+        }
+        let mut routes = (*self.routes).clone();
+        let mut accepted = 0;
+        for binding in bindings {
+            let Some(mut location) = locations.get(&binding.texture).copied() else {
+                continue;
+            };
+            location.pose_mode = binding.pose_mode;
+            routes.insert(super::pack_rig_id(binding.geometry_candidate), location);
+            accepted += 1;
+        }
+        self.rejected_bindings += bindings.len() - accepted;
+        if pages.len() != self.pages.len() {
+            self.identity = hasher.finalize().into();
+            self.pages = pages.into();
+        }
+        self.routes = Arc::new(routes);
+        self
+    }
+
     pub fn route(&self, rig: EntityRigId) -> Option<ActorArtworkLocation> {
         self.routes.get(&rig).copied()
     }
@@ -258,6 +337,35 @@ mod tests {
             MAX_ACTOR_TEXTURE_PAGES - 1,
             MAX_ACTOR_GPU_PIXEL_BYTES + 1
         ));
+    }
+
+    #[test]
+    fn pack_artwork_routes_bindings_under_pack_rig_ids() {
+        let texture = |side: u16| assets::ActorTexture {
+            source: 0,
+            width: side,
+            height: side,
+            pixel_sha256: [1; 32],
+            rgba8: vec![7; usize::from(side) * usize::from(side) * 4].into(),
+        };
+        let binding = |candidate: u32, texture: u32| assets::ActorArtworkBinding {
+            rig: 0,
+            geometry_candidate: candidate,
+            entity_symbol: 0,
+            geometry: 0,
+            render_controller: 0,
+            texture,
+            material: "entity".into(),
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+        };
+        let pages = ActorArtworkPages::default()
+            .with_pack_artwork(&[texture(2)], &[binding(5, 0), binding(6, 9)]);
+        assert_eq!(pages.pages().len(), 1);
+        let location = pages.route(crate::actor::pack_rig_id(5)).unwrap();
+        assert!(pages.valid(crate::actor::pack_rig_id(5), location));
+        assert_eq!(pages.route(crate::actor::pack_rig_id(6)), None);
+        assert_eq!(pages.rejected_bindings(), 1);
+        assert_ne!(pages.identity(), [0; 32]);
     }
 
     #[test]

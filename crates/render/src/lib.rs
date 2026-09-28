@@ -69,7 +69,7 @@ pub use actor::{
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, equipment_rig_id,
     extruded_sprite_vertices, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
-    item_mesh_rig_id, normalize_actor_skin, pack_overlay_rgba8, skull_geometry,
+    item_mesh_rig_id, normalize_actor_skin, pack_overlay_rgba8, pack_rig_id, skull_geometry,
     standard_biped_overlay_vertices, standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
