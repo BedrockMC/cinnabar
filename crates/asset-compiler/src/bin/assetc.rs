@@ -14,7 +14,7 @@ use assets::{
     ItemVisualDefinitionRoute, MATERIAL_FLAG_ALPHA_CUTOUT, encode_atmosphere_blob, encode_blob,
     encode_entity_blob, read_biome_registry, write_blob_atomic,
 };
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -24,6 +24,10 @@ mod actor_command;
 mod audio_command;
 #[path = "assetc/audio_pcm_command.rs"]
 mod audio_pcm_command;
+#[path = "assetc/block_entity_command.rs"]
+mod block_entity_command;
+#[path = "assetc/cli.rs"]
+mod cli;
 #[path = "assetc/equipment_command.rs"]
 mod equipment_command;
 #[path = "assetc/font_command.rs"]
@@ -40,13 +44,12 @@ mod output_validation;
 mod particle_command;
 #[path = "assetc/registry_version.rs"]
 mod registry_version;
-#[path = "assetc/block_entity_command.rs"]
-mod block_entity_command;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
 
 use audio_command::compile_audio_assets_command;
 use audio_pcm_command::compile_audio_pcm_command;
+use cli::{Cli, Command};
 use equipment_command::compile_equipment_assets_command;
 use hud_command::compile_hud_assets_command;
 use icon_command::compile_icon_assets_command;
@@ -57,259 +60,6 @@ use ui_command::compile_ui_assets_command;
 
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
-#[derive(Debug, Parser)]
-#[command(
-    about = "Compile verified local Bedrock resource-pack assets",
-    after_help = "Compile inputs:\n  assetc compile --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --registry <BLOCK_REGISTRY_BIN> --light-registry <LIGHT_REGISTRY_BIN> --biome-registry <BIOME_REGISTRY_BIN> --out <IGNORED_DIR>/vanilla-v2168.mcbea\n\nAtmosphere inputs:\n  assetc atmosphere --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeatm --report <IGNORED_DIR>/atmosphere-assets.json\n\nEntity catalog and geometry payloads:\n  assetc entity-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeent --report <IGNORED_DIR>/entity-assets.json\n\nDormant sound-definition lookup:\n  assetc audio-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeaud --report <IGNORED_DIR>/audio-assets.json\n\nBitmap font payloads:\n  assetc font-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbefont --report <IGNORED_DIR>/font-assets.json\n\nPinned official Mojang sample HUD sprites:\n  assetc hud-assets --pack <RESOURCE_PACK> --source-manifest assets/hud-source-v1001.json --out <IGNORED_DIR>/vanilla-v1.mcbehud --report <IGNORED_DIR>/hud-assets.json\n\nJSON-UI atlas, sidecars, and raw ui json:\n  assetc ui-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbeui --report <IGNORED_DIR>/ui-assets.json\n\nParticle effects and textures:\n  assetc particle-assets --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --out <IGNORED_DIR>/vanilla-v1.mcbept --report <IGNORED_DIR>/particle-assets.json\n\nAnimation inventory:\n  assetc animation-inventory --pack <RESOURCE_PACK> --source-manifest <VANILLA_SOURCE_JSON> --max-layers-per-page 2048 --max-pages 2 --out <IGNORED_DIR>/animation-inventory.json"
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Compile the fixed vanilla sun, moon-phase, and cloud textures.
-    Atmosphere {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        clouds_override: Option<PathBuf>,
-        /// Ignored/local MCBEATM2 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile bounded entity geometry, animation, controller, and texture metadata.
-    EntityAssets {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEENT3 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the pinned pack's attachable equipment bindings into the
-    /// equipment carrier, pinned to the sibling entity carrier.
-    EquipmentAssets {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEEQP1 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile bounded bitmap-font metrics and raw RGBA8 texture pages.
-    FontAssets {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEFONT1 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the optional precipitation sheet and End sky carrier.
-    WeatherAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-    },
-    HudAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Pack block-entity model textures and the version-pinned inventory into
-    /// the block-entity carrier.
-    BlockEntityAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Pack the pinned pack's `textures/ui` sprites into atlas pages and store
-    /// the nine-slice sidecars plus the raw `ui/*.json` catalog for the JSON-UI
-    /// engine. Not yet wired into startup.
-    UiAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the pack's `particles/*.json` effects and particle textures into the
-    /// particle carrier.
-    ParticleAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the pinned pack's sprite-routed item icons into the bounded
-    /// icon carrier.
-    IconAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Optional checked world carrier for ordinary opaque-cube thumbnails.
-        #[arg(long)]
-        block_assets: Option<PathBuf>,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile unconditional neutral binary-alpha actor artwork.
-    ActorAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the pinned pack's en_US language table into the bounded
-    /// localization carrier.
-    LangAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile the pinned vanilla sound definitions into a dormant lookup catalog.
-    AudioAssets {
-        /// Root of the pinned vanilla resource pack.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEAUD1 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile one reviewed sample into finite PCM; does not activate playback.
-    AudioPcmAssets {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        catalog: PathBuf,
-        #[arg(long)]
-        source_manifest: PathBuf,
-        #[arg(long)]
-        out: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Rasterize a pinned open-licensed outline font into a bounded bitmap carrier.
-    OutlineFontAssets {
-        /// Exact hash-verified local TTF/OTF source.
-        #[arg(long)]
-        font: PathBuf,
-        /// Exact hash-verified secondary source required by a fallback manifest.
-        #[arg(long)]
-        fallback_font: Option<PathBuf>,
-        /// Tracked manifest pinning font URL, hash, license, and raster settings.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Ignored/local MCBEFONT1 output path.
-        #[arg(long)]
-        out: PathBuf,
-        /// Ignored/local deterministic JSON provenance report path.
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Compile a resource pack and Dragonfly registry into a runtime blob.
-    Compile {
-        /// Root containing blocks.json and the textures directory.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Tracked manifest that pins the local resource-pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// BREG1003 registry exported by tools/registrygen.
-        #[arg(long)]
-        registry: PathBuf,
-        /// LREG1001 state light metadata bound to the exact BREG1003 input.
-        #[arg(long)]
-        light_registry: PathBuf,
-        /// BIOREG01 registry exported by tools/registrygen.
-        #[arg(long)]
-        biome_registry: PathBuf,
-        /// Ignored/local output path, conventionally ending in .mcbea.
-        #[arg(long)]
-        out: PathBuf,
-    },
-    /// Compile a bounded read-only animation plan and write its deterministic inventory.
-    AnimationInventory {
-        /// Root containing blocks.json and the textures directory.
-        #[arg(long)]
-        pack: PathBuf,
-        /// Pinned source manifest whose exact bytes identify the local pack source.
-        #[arg(long)]
-        source_manifest: PathBuf,
-        /// Maximum physical array layers in each texture page (1..=2048).
-        #[arg(long)]
-        max_layers_per_page: u32,
-        /// Maximum physical texture pages (1..=2).
-        #[arg(long)]
-        max_pages: u32,
-        /// Ignored/local deterministic JSON report path.
-        #[arg(long)]
-        out: PathBuf,
-    },
-}
 
 #[derive(Serialize)]
 struct AnimationInventoryReport {
