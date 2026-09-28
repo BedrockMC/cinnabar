@@ -14,6 +14,7 @@ use super::{
     conduit::ConduitModel,
     crack::{CrackShape, emit_crack},
     frame::ItemFrameModel,
+    heads::HeadModels,
     mesh::{BlockEntityVertex, MeshBuilder},
     pot::DecoratedPotModel,
     shulker::ShulkerModel,
@@ -96,6 +97,7 @@ pub struct BlockEntityScene {
     image: Option<Arc<BlockEntityAtlasImage>>,
     text: Option<DynamicText>,
     frame: BlockEntityFrame,
+    heads: HeadModels,
     rejected_quads: u64,
 }
 
@@ -111,6 +113,11 @@ impl BlockEntityScene {
         self.text = Some(DynamicText::new(atlas.size()[0]));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
+    }
+
+    /// Builds dragon and piglin heads from the entity catalog's geometry.
+    pub fn install_entity_assets(&mut self, assets: &assets::RuntimeEntityAssets) {
+        self.heads = HeadModels::from_assets(assets);
     }
 
     #[must_use]
@@ -146,7 +153,7 @@ impl BlockEntityScene {
         let mut builder = MeshBuilder::new(atlas.size());
         for submission in submissions {
             builder.light = submission.light.clamp(0.0, 1.0);
-            emit_submission(&mut builder, atlas, submission, clock);
+            emit_submission(&mut builder, atlas, &self.heads, submission, clock);
         }
         builder.light = 1.0;
         for crack in cracks {
@@ -179,6 +186,7 @@ impl BlockEntityScene {
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
+    heads: &HeadModels,
     submission: &BlockEntitySubmission,
     clock: SceneClock,
 ) {
@@ -186,7 +194,7 @@ fn emit_submission(
     match &submission.kind {
         BlockEntityKind::Chest(model) => super::chest::emit(builder, atlas, block, model),
         BlockEntityKind::Shulker(model) => super::shulker::emit(builder, atlas, block, model),
-        BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, block, model),
+        BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
         BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model),
         BlockEntityKind::Sign(model) => super::sign::emit(builder, block, model),

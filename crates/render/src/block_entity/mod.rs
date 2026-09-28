@@ -15,6 +15,7 @@ mod conduit;
 mod crack;
 mod frame;
 mod gpu;
+mod heads;
 mod items;
 mod mesh;
 mod portal;
@@ -36,6 +37,7 @@ pub use conduit::ConduitModel;
 pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
 pub use frame::{ItemFrameModel, item_frame_item_transform};
 pub use gpu::BlockEntityRenderPlugin;
+pub use heads::{HeadBox, HeadModel, HeadModels};
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
 pub use mesh::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,
