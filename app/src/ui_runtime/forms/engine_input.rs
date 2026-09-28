@@ -378,6 +378,14 @@ fn move_focus(runtime: &mut UiRuntime, frame: &EngineFrame, backwards: bool) {
     };
     engine.view.focused = Some(order[next].key.clone());
     engine.view.hovered = engine.view.focused.clone();
+    // Keep the focused control inside its scroll view.
+    let region = order[next];
+    if let Some(view) = owning_view(frame, region)
+        && let Some(metrics) = frame.report.scrolls.get(&view.key)
+    {
+        let offset = metrics.offset_revealing(region.rect.y, region.rect.y + region.rect.h);
+        engine.view.scroll.insert(view.key.clone(), offset);
+    }
 }
 
 fn focused_region<'a>(runtime: &UiRuntime, frame: &'a EngineFrame) -> Option<&'a HitRegion> {
