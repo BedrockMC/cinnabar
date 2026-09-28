@@ -50,6 +50,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         first_person: false,
         sneaking: false,
         sprinting: false,
+        item_use: Default::default(),
     }
 }
 
@@ -166,4 +167,21 @@ fn dimension_reset_clears_the_synthetic_profile_then_respawns_it() {
     store.sync_local_player(1, -100, &local_feed(0.0, 0.0));
     assert!(store.get(1).is_some());
     assert_eq!(profile_skin(&store, 1), Some(fed_skin()));
+}
+
+#[test]
+fn predicted_item_use_sets_and_clears_use_and_block_flags_but_unpredicted_leaves_them() {
+    use super::super::LocalItemUse;
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.item_use = LocalItemUse::Using { shield: true };
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.get(1).unwrap().flag(4) && store.get(1).unwrap().flag(72));
+    feed.item_use = LocalItemUse::Unpredicted;
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.get(1).unwrap().flag(4));
+    feed.item_use = LocalItemUse::Idle;
+    store.sync_local_player(1, -100, &feed);
+    assert!(!store.get(1).unwrap().flag(4) && !store.get(1).unwrap().flag(72));
 }

@@ -3,7 +3,7 @@ use bevy::{
     prelude::{Local, Projection, Res, ResMut, Resource, Time},
     time::Real,
 };
-use client_world::{LocalPlayerFeed, WorldStream};
+use client_world::{LocalItemUse, LocalPlayerFeed, WorldStream};
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRigFrameBuilder,
     ActorRigSubmission, HandItemAtlas, HandRigLight, HandRigScene,
@@ -72,6 +72,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
+    semantic_input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
 }
 
@@ -91,6 +92,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         local_skin,
         mut equipment,
         collisions,
+        semantic_input,
         ui,
         mut dropped_items,
     } = params;
@@ -117,8 +119,21 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     }
     let step = actor_clock.advance(time.delta());
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let local_feed =
-        build_local_player_feed(&local_physics, view.rotation(), first_person, &local_skin);
+    let item_use = client_world
+        .stream
+        .as_ref()
+        .zip(ui.as_deref())
+        .zip(semantic_input.as_deref())
+        .map_or(LocalItemUse::Unpredicted, |((stream, ui), input)| {
+            local_item_use(stream, ui, input.phase(semantic_input::Action::Use).held)
+        });
+    let local_feed = build_local_player_feed(
+        &local_physics,
+        view.rotation(),
+        first_person,
+        &local_skin,
+        item_use,
+    );
     if let Some(stream) = client_world.stream.as_mut() {
         // Feed the client-authored local pose before the tick advance and rig read so the
         // local body/hand are driven by the shared rig, not the static fallback.
@@ -448,6 +463,36 @@ struct HandSource {
 /// Marks an instance's texture layer as an item-atlas layer for the first-person shader.
 const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 
+/// Items whose use the client animates without waiting for the server; food and drink wait for
+/// the server flag, since the client cannot tell whether eating is allowed.
+fn local_item_use(
+    stream: &WorldStream,
+    ui: &crate::ui_runtime::UiRuntime,
+    use_held: bool,
+) -> LocalItemUse {
+    let Some(stack) = ui
+        .selected_stack()
+        .and_then(|stack| stream.canonical_item_stack(stack))
+    else {
+        return LocalItemUse::Unpredicted;
+    };
+    let Some(identifier) = stack.identifier.as_deref() else {
+        return LocalItemUse::Unpredicted;
+    };
+    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+    let shield = name == "shield";
+    let predicted = shield
+        || matches!(name, "bow" | "trident" | "spyglass")
+        || name.ends_with("_spear")
+        // A loaded crossbow fires instead of charging.
+        || (name == "crossbow" && stack.charged_projectile.is_none());
+    match (predicted, use_held) {
+        (false, _) => LocalItemUse::Unpredicted,
+        (true, false) => LocalItemUse::Idle,
+        (true, true) => LocalItemUse::Using { shield },
+    }
+}
+
 /// Builds this frame's client-authored local-player feed from the predicted physics state and
 /// the look pose. The yaw/pitch come from the look input (`LocalViewPose`), never the boomed
 /// third-person camera. Returns `None` before physics or on any non-finite value.
@@ -456,6 +501,7 @@ fn build_local_player_feed(
     look: bevy::math::Quat,
     first_person: bool,
     local_skin: &crate::player_skin::LocalPlayerSkin,
+    item_use: LocalItemUse,
 ) -> Option<LocalPlayerFeed> {
     let state = physics.state()?;
     let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
@@ -496,5 +542,6 @@ fn build_local_player_feed(
         first_person,
         sneaking,
         sprinting,
+        item_use,
     })
 }
