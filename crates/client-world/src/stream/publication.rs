@@ -149,6 +149,10 @@ impl WorldStream {
     pub fn actor_fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {
         self.actors.fluid_sample_points()
     }
+    /// Installs the per-mount seat layouts riders fall back to when the server streams no offset.
+    pub fn set_actor_seat_defaults(&mut self, defaults: std::sync::Arc<crate::SeatDefaults>) {
+        self.actors.set_seat_defaults(defaults);
+    }
     /// Bed block under every sleeping actor, for [`Self::set_actor_bed_rotations`] sampling.
     #[must_use]
     pub fn actor_bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
