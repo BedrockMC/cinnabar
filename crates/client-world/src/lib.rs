@@ -16,7 +16,10 @@ pub use actor_animation::{
     MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
 };
-pub use actor_store::{ActorPose, ActorSnapshot, LocalPlayerFeed, PlayerProfile};
+pub use actor_store::{
+    ActorPickup, ActorPose, DroppedItemView, MAX_DROPPED_ITEM_COPIES, ActorSnapshot, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
+    LocalPlayerFeed, PICKUP_DURATION_TICKS, PlayerProfile, dropped_item_copy_count,
+};
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
 };

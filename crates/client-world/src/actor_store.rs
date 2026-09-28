@@ -86,6 +86,7 @@ pub struct ActorSnapshot {
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<u32, i32>,
     pub float_properties: HashMap<u32, f32>,
+    pub status: ActorStatus,
 }
 
 impl ActorSnapshot {
@@ -119,6 +120,7 @@ impl ActorSnapshot {
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
+            status: ActorStatus::default(),
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -166,6 +168,7 @@ impl ActorSnapshot {
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
+            status: ActorStatus::default(),
         }
     }
 
@@ -385,10 +388,19 @@ pub(crate) struct ActorStore {
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
+    /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
+    camera_rotation: [f32; 2],
 }
 
+mod dropped;
+mod hurt;
 mod lifecycle;
 mod query;
+
+pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
+pub use hurt::{
+    ActorPickup, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS, PICKUP_DURATION_TICKS,
+};
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
@@ -404,7 +416,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) => None,
+        ActorEvent::PlayerList(_) | ActorEvent::Status(_) | ActorEvent::TakeItem(_) => None,
     }
 }
 

@@ -37,6 +37,7 @@ mod dynamic_textures;
 mod forms;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
+mod item_sprite;
 mod item_viewmodel;
 mod menu;
 mod menu_artwork;

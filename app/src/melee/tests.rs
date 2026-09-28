@@ -50,6 +50,7 @@ fn actor(
         attributes: HashMap::new(),
         int_properties: HashMap::new(),
         float_properties: HashMap::new(),
+        status: Default::default(),
     }
 }
 

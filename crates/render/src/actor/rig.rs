@@ -114,6 +114,8 @@ pub struct ActorRigSubmission {
     pub world_from_actor: [[f32; 4]; 3],
     pub texture_layer: u32,
     pub route: ActorRigRoute,
+    /// Packed RGBA8 overlay blended over the lit skin (see [`pack_overlay_rgba8`]); 0 disables it.
+    pub overlay_rgba8: u32,
 }
 
 #[repr(C)]
@@ -126,9 +128,23 @@ pub struct ActorGpuInstance {
     pub texture_layer: u32,
     pub partial_tick: f32,
     pub reset_generation: u32,
+    pub overlay_rgba8: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == 72);
+const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == 76);
+
+/// Packs a non-premultiplied RGBA overlay (components clamped to 0..=1) into little-endian RGBA8.
+#[must_use]
+pub fn pack_overlay_rgba8(rgba: [f32; 4]) -> u32 {
+    let byte = |value: f32| {
+        if value.is_finite() {
+            (value.clamp(0.0, 1.0) * 255.0).round() as u32
+        } else {
+            0
+        }
+    };
+    byte(rgba[0]) | (byte(rgba[1]) << 8) | (byte(rgba[2]) << 16) | (byte(rgba[3]) << 24)
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -535,6 +551,7 @@ impl ActorRigFrameBuilder {
                 texture_layer: submission.texture_layer,
                 partial_tick,
                 reset_generation,
+                overlay_rgba8: submission.overlay_rgba8,
             });
             manifest.push(ActorDrawManifestEntry {
                 identity: submission.input.identity,

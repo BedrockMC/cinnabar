@@ -32,7 +32,7 @@ pub use rig::{
     ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible,
+    actor_rig_submission_is_visible, pack_overlay_rgba8,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -318,6 +318,7 @@ impl ActorRenderScene {
                 ],
                 texture_layer: skin_layer,
                 route: ActorRigRoute::Diagnostic,
+                overlay_rgba8: 0,
             });
             skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));
         }
