@@ -611,6 +611,14 @@ impl WorldStream {
                     event,
                 });
             }
+            WorldEvent::Particle(event) => {
+                let sequence = sequence.expect("sequenced particle events commit through submit");
+                self.push_committed_particle(CommittedParticleEvent {
+                    sequence,
+                    dimension: self.current_dimension,
+                    event,
+                });
+            }
             WorldEvent::Camera(event) => {
                 self.stats.audio_nondefault_camera_observed = true;
                 let sequence = sequence.expect("sequenced camera events commit through submit");
@@ -747,6 +755,25 @@ impl WorldStream {
             }
             WorldEvent::ItemActor(event) => {
                 let sequence = sequence.expect("sequenced item/actor events commit through submit");
+                if let protocol::ItemActorEvent::Action(action) = &event
+                    && matches!(
+                        action.kind,
+                        protocol::ActorActionKind::CriticalHit
+                            | protocol::ActorActionKind::MagicCriticalHit
+                    )
+                {
+                    let magic = matches!(action.kind, protocol::ActorActionKind::MagicCriticalHit);
+                    for &actor_runtime_id in action.actor_runtime_ids.iter() {
+                        self.push_committed_particle(CommittedParticleEvent {
+                            sequence,
+                            dimension: self.current_dimension,
+                            event: protocol::ParticleEvent::ActorCritical {
+                                actor_runtime_id,
+                                magic,
+                            },
+                        });
+                    }
+                }
                 let _ = self
                     .actors
                     .apply_item_actor(self.actor_session_id, sequence, event);
@@ -858,6 +885,13 @@ impl WorldStream {
             "audio admission invariant exceeded bounded commit-delta capacity"
         );
         self.committed_audio.push_back(event);
+    }
+    /// Particle triggers are visual-only: under backpressure the oldest is dropped.
+    pub(super) fn push_committed_particle(&mut self, event: CommittedParticleEvent) {
+        if self.committed_particles.len() >= COMMITTED_PARTICLE_CAPACITY {
+            self.committed_particles.pop_front();
+        }
+        self.committed_particles.push_back(event);
     }
     pub(super) fn push_committed_camera(&mut self, event: CommittedCameraEvent) {
         assert!(

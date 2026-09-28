@@ -19,6 +19,7 @@ mod lang;
 mod light_registry;
 mod material_keys;
 mod model;
+mod particle;
 mod physics_registry;
 mod provenance;
 mod registry;
@@ -146,6 +147,12 @@ pub use model::{
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
     MODEL_TEMPLATE_FLAG_WALL, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
     TexturePage, TextureRef, VisualKind, VisualSupport,
+};
+pub use particle::{
+    MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES, MAX_PARTICLE_EFFECTS,
+    MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,
+    PARTICLE_CARRIER_MAGIC, PARTICLE_CARRIER_VERSION, ParticleEffectFile, ParticleTexture,
+    RuntimeParticleAssets, encode_particle_catalog, strip_json_comments,
 };
 pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse,

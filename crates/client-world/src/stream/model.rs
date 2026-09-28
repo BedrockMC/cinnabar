@@ -462,6 +462,14 @@ pub struct CommittedAudioEvent {
     pub event: AudioEvent,
 }
 
+/// One packet-order-preserving particle trigger committed by the world stream.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommittedParticleEvent {
+    pub sequence: u64,
+    pub dimension: i32,
+    pub event: protocol::ParticleEvent,
+}
+
 /// One packet-order-preserving server camera command committed by the world stream.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommittedCameraEvent {

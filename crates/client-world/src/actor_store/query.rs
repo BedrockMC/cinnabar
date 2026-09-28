@@ -65,6 +65,10 @@ impl ActorStore {
         players.sort_unstable_by_key(|(actor, _)| actor.runtime_id);
         players
     }
+    pub(crate) fn snapshot_by_unique(&self, unique_id: i64) -> Option<&ActorSnapshot> {
+        self.actors.get(self.unique_to_runtime.get(&unique_id)?)
+    }
+
     /// Resolves an actor's authoritative health attribute by unique id, for
     /// the mount-health HUD row. Non-finite or inverted values fail closed.
     pub(crate) fn health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {
