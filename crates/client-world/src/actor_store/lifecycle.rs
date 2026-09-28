@@ -761,8 +761,14 @@ impl ActorStore {
         }
     }
 
-    /// Applies worn armor to a live remote actor, or to the client-owned local runtime even
-    /// before its synthetic actor exists.
+    /// Layers a session's server-pack entity catalog over the vanilla one.
+    pub(crate) fn set_pack_entities(
+        &mut self,
+        assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+    ) {
+        self.animation.set_pack(assets);
+    }
+
     pub(crate) fn set_item_use_durations(
         &mut self,
         durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
@@ -770,6 +776,8 @@ impl ActorStore {
         self.items.set_use_durations(durations);
     }
 
+    /// Applies worn armor to a live remote actor, or to the client-owned local runtime even
+    /// before its synthetic actor exists.
     pub(crate) fn apply_armor(
         &mut self,
         session_id: u64,

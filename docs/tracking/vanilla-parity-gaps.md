@@ -149,7 +149,7 @@ animated rig remotes use. All three below flow from that.
   light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
   terrain models and exact bell/lectern/pot dimensions remain open (MED-HIGH).
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
-  vanilla entity retexturing, custom entities, custom-block selection boxes, and audio consumption of merged sounds remain unapplied (HIGH).
+  custom entities apply in the neutral material profile only (no attachables, custom materials, or property defaults); vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; audio consumption of merged sounds remains unapplied (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 
