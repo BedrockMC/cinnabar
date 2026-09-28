@@ -138,7 +138,10 @@ pub(super) fn core_command_for_address(
         .arg(layout.resource_pack_cache_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(
+            crate::lifecycle::core_health::open_core_log(layout)
+                .map_or_else(Stdio::null, Stdio::from),
+        );
     // Passed only when the spawning session provably owns the verified blob
     // cache whose resolver advertises cache support downstream: the core's
     // upstream advertisement must never lead the downstream one.
