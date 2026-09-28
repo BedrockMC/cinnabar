@@ -13,6 +13,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) has_player_rider: bool,
     /// The local player rendered from its own camera; selects the first-person render controller.
     pub(crate) is_local_first_person: bool,
+    /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
+    pub(crate) camera_rotation: [f32; 2],
 }
 
 // Babies' legs cycle faster by this factor; needs independent measurement.

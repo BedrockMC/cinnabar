@@ -388,6 +388,8 @@ pub(crate) struct ActorStore {
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
+    /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
+    camera_rotation: [f32; 2],
 }
 
 mod dropped;

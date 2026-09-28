@@ -288,7 +288,10 @@ fn per_axis_bone_scale_scales_matrix_columns_and_zero_scale_is_drawable() {
 fn overlay_packs_little_endian_rgba8_and_rejects_non_finite() {
     assert_eq!(pack_overlay_rgba8([1.0, 0.0, 0.0, 1.0]), 0xff00_00ff);
     assert_eq!(pack_overlay_rgba8([0.0, 0.0, 0.0, 0.0]), 0);
-    assert_eq!(pack_overlay_rgba8([f32::NAN, 2.0, -1.0, 0.5]), 0x80_00_ff_00);
+    assert_eq!(
+        pack_overlay_rgba8([f32::NAN, 2.0, -1.0, 0.5]),
+        0x80_00_ff_00
+    );
 }
 
 #[test]
