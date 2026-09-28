@@ -221,7 +221,6 @@ impl GameplayHudState {
         Some((current, maximum))
     }
 
-    #[cfg(test)]
     #[must_use]
     pub const fn freezing_strength(&self) -> f32 {
         self.freezing_strength

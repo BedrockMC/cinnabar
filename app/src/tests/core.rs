@@ -82,6 +82,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         attributes: Default::default(),
         int_properties: Default::default(),
         float_properties: Default::default(),
+        status: Default::default(),
     };
     let profile = client_world::PlayerProfile {
         unique_id: 9,

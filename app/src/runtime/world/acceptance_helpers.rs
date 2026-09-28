@@ -18,6 +18,7 @@ pub(crate) fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
+        | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => return false,
     };
     acceptance.refresh_mutation_surface_anchor(acceptance_surface_anchor(resolved.position))

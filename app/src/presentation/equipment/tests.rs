@@ -188,6 +188,7 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
+        overlay_rgba8: 0x6600_00ff,
     };
     let layer = layer_presentation(
         &body,
@@ -206,6 +207,7 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
     assert_eq!(submission.world_from_actor, body.world_from_actor);
     assert_eq!(submission.texture_layer, location.layer());
     assert_eq!(submission.tint, 0xff00_00ff);
+    assert_eq!(submission.overlay_rgba8, 0x6600_00ff);
 }
 
 #[test]

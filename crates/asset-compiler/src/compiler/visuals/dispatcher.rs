@@ -1,7 +1,7 @@
 use super::super::*;
 use super::context::{
     ButtonTemplateKey, CuboidTemplateKey, GateTemplateKey, ModelStorage, PaleMossCarpetTemplateKey,
-    PressurePlateTemplateKey, RuleInputs, SignTemplateKey, diagnostic_visual,
+    PressurePlateTemplateKey, RuleInputs, SignTemplateKey, ThinTemplateKey, diagnostic_visual,
 };
 use super::fallback::FallbackInventory;
 
@@ -122,6 +122,7 @@ struct VisualCompiler {
     pane_templates: BTreeMap<[u32; 2], u32>,
     fence_templates: BTreeMap<[u32; 2], u32>,
     sign_templates: BTreeMap<SignTemplateKey, u32>,
+    thin_templates: BTreeMap<ThinTemplateKey, u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
 }
 
@@ -286,6 +287,33 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.stair_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::torches::compile_rule(
+            record,
+            inputs,
+            &mut self.thin_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::ladders::compile_rule(
+            record,
+            inputs,
+            &mut self.thin_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::rails::compile_rule(
+            record,
+            inputs,
+            &mut self.thin_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

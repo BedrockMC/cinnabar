@@ -109,17 +109,17 @@ animated rig remotes use. All three below flow from that.
 - Panel palette/slot geometry already correct.
 
 ## World rendering / atmosphere (Bedrock target)
-- Weather precipitation (rain/snow) — absent (HIGH).
+- Weather precipitation: procedural rain/snow sheets, biome/height classification and per-column surface limits landed uncompiled; `weather.png` not yet carried, splash particles and bolt renderer unwired *(measure)*.
 - Particles — no system at all; block-break etc. absent (HIGH).
-- Daylight/lightmap curve wrong: `sin·0.8+0.2` vs vanilla `ramp(cos(easedCelestialAngle))`;
-  night too bright (0.2/0.04 floors), no day plateau (HIGH).
-- Stars at night — absent (MED-HIGH).
-- Leaves: leaf↔leaf faces culled (Fast look) → hollow/speckled; want Fancy (MED-HIGH).
+- Daylight: eased celestial angle, day plateau and night transfer landed uncompiled; the shader night floors
+  (`lighting.wgsl`, `chunk/gpu/upload/lighting.rs`, cloud) still clamp at 0.2/0.04 and must drop to `NIGHT_SKY_TRANSFER` (HIGH).
+- Stars: procedural star field landed uncompiled; twinkle unverified *(measure)*.
+- Leaves: Fancy look landed (leaf↔leaf faces kept); live compare pending.
 - Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
-- Server resource packs not applied to rendering: core downloads/admits them but
-  `application=unavailable`, so custom blocks/textures render as magenta missing-texture (HIGH, confirmed live).
-- Sky gradient hand-tuned vs biome-temperature-derived; clouds uncalibrated *(measure)*;
-  fog uses smoothstep vs linear; AO darkening step, sun/moon size, water surface alpha *(measure)*.
+- Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
+  vanilla block/entity retexturing, custom entities, and merged sounds/ui consumption remain unapplied (HIGH).
+- Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky texture uncarried,
+  sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar: left-anchored, unscaled, no fade — should be centered, scaled, alpha-faded (HIGH).
@@ -133,12 +133,16 @@ animated rig remotes use. All three below flow from that.
 - Third-person boom collapses onto the player (camera reads as "too close"): the collision
   avoidance fails closed to radius 0 when the sweep errors or hits geometry; boom radius 4.0
   is itself vanilla-correct. Model height is correct — this is distance only (MED, confirmed live).
-- Dynamic FOV modifiers (sprint/speed/slowness/fly/bow; spyglass 0.1) — absent (HIGH).
-- Walk view-bob — absent (HIGH). First-person hand bob evaluator exists but is dead code.
-- Mouse sensitivity mapping placeholder `0.002` *(measure)* (HIGH).
-- Hurt-direction tilt, nausea/portal warp, spyglass scope — absent (MED).
-- FOV projection model (linear-by-aspect vs tangent), default/range *(measure)*; pitch clamp 89.9 vs 90;
-  analog look framerate-dependent; server camera instructions decoded but unapplied (MED).
+- Dynamic FOV (sprint/speed/slowness/flying/bow/spyglass 0.1, tick smoothing, FOV-effects scale), walk view-bob,
+  hurt tilt, nausea/portal wobble, server shake and `CameraInstruction` set/clear/fade/FOV are implemented
+  presentation-only under `app/src/camera/`; every magnitude, curve and sign is provisional *(measure)* (MED).
+- Screen overlays (pumpkin blur, spyglass scope, portal, freezing, suffocation, fire, server fade) are derived as
+  `ScreenOverlays` but not yet drawn; head-medium probe, on-fire and in-portal facts need their producers (HIGH).
+- Not applied: `CameraPresetsPacket` registry (dropped before decode), instruction target/attach (needs actor
+  positions), blindness/darkness/night-vision consumers (`VisionEffects`), bow-draw and spyglass-scoping producers,
+  flying FOV producer, first-person hand consumer of `FirstPersonHandMotion` (MED).
+- Look sensitivity now follows a provisional slider curve, gamepad look is frame-rate normalized, optional
+  cinematic smoothing; pitch clamp 89.9 vs 90 and FOV range/default still *(measure)* (MED).
 
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:

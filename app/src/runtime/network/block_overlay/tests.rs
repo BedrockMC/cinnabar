@@ -156,7 +156,7 @@ fn compiled() -> super::CompiledBlockOverlay {
         blocks: vec![lucky, generator(), missing].into(),
         skipped: 0,
     };
-    compile_block_overlay(&view(), &blocks).expect("overlay")
+    compile_block_overlay(&view(), &blocks, false).expect("overlay")
 }
 
 // Full blocks become cubes on page 1; missing textures stay diagnostic and are counted.
@@ -371,7 +371,7 @@ fn light_components_drive_state_light() {
         blocks: vec![lit, plain].into(),
         skipped: 0,
     };
-    let compiled = compile_block_overlay(&view(), &blocks).expect("overlay");
+    let compiled = compile_block_overlay(&view(), &blocks, false).expect("overlay");
     let light = &compiled.overlay.light_properties;
     assert_eq!((light[0].emission(), light[0].filter()), (13, 2));
     assert_eq!(
@@ -379,4 +379,24 @@ fn light_components_drive_state_light() {
         (0, 15),
         "vanilla default"
     );
+}
+
+// Hashed sessions get one visual and one distinct hash per state combination.
+#[test]
+fn hashed_mode_emits_a_visual_and_hash_per_state() {
+    let blocks = CustomBlocks {
+        blocks: vec![generator()].into(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, true).expect("overlay");
+    assert_eq!(compiled.overlay.visuals.len(), 4);
+    assert_eq!(compiled.overlay.hashes.len(), 4);
+    let unique: std::collections::HashSet<_> = compiled.overlay.hashes.iter().collect();
+    assert_eq!(unique.len(), 4);
+    let base = RuntimeAssets::diagnostic();
+    let session = base
+        .with_block_overlay(1, &compiled.overlay)
+        .expect("session assets");
+    let hash = compiled.overlay.hashes[2];
+    assert_eq!(session.sequential_id_for_hash(hash), Some(3));
 }

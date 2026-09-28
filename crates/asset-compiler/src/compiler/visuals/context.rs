@@ -63,6 +63,14 @@ pub(in crate::compiler) struct PressurePlateTemplateKey {
     pub(in crate::compiler) pressed: bool,
 }
 
+/// Template identity for the torch, ladder, and rail families: one selector byte plus up to two materials.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::compiler) struct ThinTemplateKey {
+    pub(in crate::compiler) family: u8,
+    pub(in crate::compiler) shape: u8,
+    pub(in crate::compiler) materials: [u32; 2],
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::compiler) struct ButtonTemplateKey {
     pub(in crate::compiler) materials: [u32; 6],

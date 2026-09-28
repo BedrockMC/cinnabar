@@ -35,3 +35,33 @@ func TestStoreResetsAtNewAttemptAndRejectsStaleFinal(t *testing.T) {
 		t.Fatalf("same-attempt final did not replace reset: %+v", got)
 	}
 }
+
+func TestApplicationIsReportedOnlyForTheHandedOffLatestAttempt(t *testing.T) {
+	store := NewStore()
+	handed := snapshot(3, proxy.ResourcePackOfferOptional)
+	handed.DownstreamOutcome = proxy.ResourcePackDownstreamHandedOffOptional
+	store.Observe(handed)
+
+	store.SetApplied(2, true)
+	if got := store.Status().PackAdmission.Application; got != proxy.ResourcePackApplicationUnavailable {
+		t.Fatalf("stale attempt applied: %q", got)
+	}
+	store.SetApplied(3, true)
+	if got := store.Status().PackAdmission.Application; got != proxy.ResourcePackApplicationApplied {
+		t.Fatalf("application = %q, want applied", got)
+	}
+	store.SetApplied(3, false)
+	if got := store.Status().PackAdmission.Application; got != proxy.ResourcePackApplicationUnavailable {
+		t.Fatalf("revert kept applied: %q", got)
+	}
+
+	store.SetApplied(3, true)
+	store.Observe(snapshot(4, proxy.ResourcePackOfferOptional))
+	if got := store.Status().PackAdmission.Application; got != proxy.ResourcePackApplicationUnavailable {
+		t.Fatalf("new attempt inherited application: %q", got)
+	}
+	store.SetApplied(4, true)
+	if got := store.Status().PackAdmission.Application; got != proxy.ResourcePackApplicationUnavailable {
+		t.Fatalf("attempt without a handoff applied: %q", got)
+	}
+}

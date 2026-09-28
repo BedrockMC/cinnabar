@@ -4,10 +4,14 @@ mod actor;
 mod actor_render;
 mod atmosphere;
 mod atmosphere_render;
+mod celestial;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+mod dropped_item;
+mod dropped_item_render;
 mod hand_rig_render;
+mod lightning;
 mod present_mode;
 mod runtime_profile;
 mod ui;
@@ -28,6 +32,8 @@ pub use viewmodel::{
 };
 pub use viewmodel_render::ViewmodelRenderPlugin;
 mod visibility_diagnostics;
+mod weather;
+mod weather_render;
 
 use meshing::{
     ChunkMesh, PackedBiomeRecord, PackedCloudQuad, PackedLiquidQuad, PackedModelDrawRef,
@@ -49,18 +55,22 @@ pub use actor::{
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, equipment_rig_id,
     extruded_sprite_vertices, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
-    item_mesh_rig_id, normalize_actor_skin, standard_biped_overlay_vertices,
+    item_mesh_rig_id, normalize_actor_skin, pack_overlay_rgba8, standard_biped_overlay_vertices,
     standard_biped_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
     CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH,
-    PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS, PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS,
+    PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS, PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, SkyKind,
     cloud_directional_illuminance, cloud_fog_factor, cloud_texture_offset, cloud_weather_colour,
     moon_phase_tile,
 };
 pub use atmosphere_render::AtmospherePlugin;
+pub use celestial::{
+    NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,
+    sun_direction, sunrise_band, underwater_fog_fraction,
+};
 pub use chunk::{
     AnimationFrameSample, BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderApplySet,
     ChunkRenderInstance, ChunkRenderPlugin, ChunkRenderQueue, ChunkRenderQueueLimits,
@@ -95,6 +105,15 @@ pub use cloud_config::{
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
     CloudMatchingView, CloudQuality, CloudRenderConfig,
 };
+pub use dropped_item::{
+    DroppedItemInstance, DroppedItemScene, DroppedItemSprite, MAX_DROPPED_ITEM_INSTANCES,
+    MAX_ITEM_SPRITE_SIDE, MAX_ITEM_SPRITES, dropped_item_transform,
+};
+pub use dropped_item_render::DroppedItemRenderPlugin;
+pub use lightning::{
+    BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, lightning_bolt_segments,
+    lightning_flash_level,
+};
 pub use present_mode::{
     Dx12PresentModePolicy, Dx12PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
     resolve_dx12_present_mode_remedy,
@@ -113,4 +132,11 @@ pub use visibility_diagnostics::{
     ExtractedCameraIdentity, ExtractedViewGenerations, GraphicsAdapterMetadata,
     MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
     VisibilityDiagnostics, VisibilityDiagnosticsInput, VisibilityKeyDelta, VisibilityKeyDigest,
+};
+pub use weather::{
+    ColumnSample, ColumnSampler, MAX_PRECIPITATION_COLUMNS, PRECIPITATION_ABOVE_CAMERA,
+    PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_RADIUS, Precipitation, PrecipitationColumn,
+    PrecipitationScene, RainSplashQueue, altitude_adjusted_temperature, approach_level,
+    build_precipitation_columns, classify_precipitation, pick_rain_splashes, precipitation_clock,
+    precipitation_wind,
 };
