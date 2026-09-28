@@ -88,6 +88,7 @@ impl ActorStore {
             synthetic_local_revision: 0,
             local_first_person: false,
             camera_rotation: [0.0; 2],
+            seat_defaults: Default::default(),
             local_knockback: None,
             status_notices: Vec::new(),
         }

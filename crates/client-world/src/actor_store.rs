@@ -443,6 +443,8 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
+    /// Seat layouts for mounts whose riders stream no seat offset.
+    seat_defaults: std::sync::Arc<SeatDefaults>,
     /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
     local_knockback: Option<(u64, [f32; 2])>,
     /// Status events awaiting a particle or sound consumer.
@@ -464,6 +466,7 @@ pub use hurt::{
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
+pub use placement::{RideSeat, SeatDefaults};
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {

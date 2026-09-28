@@ -111,6 +111,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         scene.reset();
         actor_clock.reset();
         *published_session = session_id;
+        if let Some(stream) = client_world.stream.as_mut() {
+            stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
+        }
     }
     let step = actor_clock.advance(time.delta());
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
