@@ -18,41 +18,8 @@ the work touches them.
 
 | Load this | When |
 | --- | --- |
-| `docs/agents/multi-agent-workflow.md` | Coordinating subagents, worktrees, review, integration, or pushing |
+| `docs/agents/multi-agent-workflow.md` | Per-worktree target dirs, cache, and verify-before-push rules |
 | `docs/agents/live-testing.md` | Running the client or BDS on Windows, capturing frames, closing a native/visual/performance gate |
-
-## Luna workers are in-process research subagents
-
-For bounded, dependency-independent Luna work, spawn an in-process subagent and
-select `gpt-5.6-luna` explicitly. Use Luna subagents for read-only investigation;
-do not give them a shipping worktree or ask them to edit, commit, integrate, or
-push. Give each subagent a self-contained assignment and a non-overlapping
-research lane so the Sol coordinator can inspect and synthesize its evidence.
-
-Luna is a capable focused coding and reasoning worker, not merely a mechanical
-scanner. Use it for deep repository tracing, bug/test/log triage,
-dependency/protocol mapping, bounded correctness analysis, and independent
-checking of a well-specified change. It is not the authority for ambiguous
-architecture, vanilla parity contracts, high-stakes integration decisions, or
-final acceptance.
-
-Pin every Luna subagent to `gpt-5.6-luna`. `xhigh` is the capable default for
-normal bounded work. `max` is a meaningful quality step and should be preferred
-when the task has subtle cross-file reasoning, competing hypotheses, protocol
-ambiguity, or a costly false conclusion; accept its extra latency rather than
-treating it as interchangeable with `xhigh`. These are Cinnabar routing
-judgments, not a claim that either effort exactly equals a GPT-5.4 or GPT-5.5
-effort level. If the in-process runtime cannot expose or honor the requested
-model and effort, report the affected lane unavailable instead of silently
-substituting another route.
-
-Apply the decomposition, evidence, isolation, and reporting contracts in the
-multi-agent workflow. Luna subagents gather evidence for the root
-`gpt-5.6-sol` `high` coordinator; they do not make shipping edits, give final
-approval, integrate, push, or close a vanilla acceptance gate. The Sol-high
-coordinator must review Luna's evidence before relying on it. When the workflow
-requires an independent gate, spawn a fresh `gpt-5.6-sol` `high` reviewer
-instead of treating coordinator review as independent review.
 
 ## Remote server data: be lenient, not strict
 
