@@ -19,8 +19,8 @@ use crate::{
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
     mining::{
-        FrozenMiningSelection, creative_reach, protocol_input_mode, survival_reach,
-        verified_selection,
+        FrozenMiningSelection, creative_reach, hand_interaction_selection, protocol_input_mode,
+        survival_reach,
     },
     movement::{
         LocalMovementEffectTimeline, MiningEffects, MovementTicker, PhysicsCollisionRegistries,
@@ -402,7 +402,7 @@ pub(crate) fn produce_melee(
         player_position: sample.position,
         input_mode,
         local_runtime_id: stream.local_player_runtime_id(),
-        selection: verified_selection(&context.ui),
+        selection: hand_interaction_selection(&context.ui),
         swing_duration: swing_duration(context.effects.mining_effects()),
         now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
@@ -435,7 +435,7 @@ fn resolve_crosshair(
         survival_reach(input_mode)
     };
     let origin = ray.origin().to_array();
-    let block_distance = verified_selection(&context.ui)
+    let block_distance = hand_interaction_selection(&context.ui)
         .and_then(|selection| {
             observe_block(
                 &context.origin,

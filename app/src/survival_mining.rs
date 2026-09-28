@@ -21,7 +21,9 @@ use crate::{
     local_player::InteractionOriginSnapshot,
     melee::{MeleeRuntime, SwingTracker, swing_duration},
     menu::MenuRuntime,
-    mining::{FrozenMiningSelection, protocol_input_mode, survival_reach, verified_selection},
+    mining::{
+        FrozenMiningSelection, hand_interaction_selection, protocol_input_mode, survival_reach,
+    },
     movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
@@ -517,7 +519,7 @@ fn observe_destroy_target(
     if ui.ui_focused() || ui.player_game_mode()? != PlayerGameMode::Survival {
         return None;
     }
-    let selection = verified_selection(ui)?;
+    let selection = hand_interaction_selection(ui)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = observe_block(
         &context.origin,
