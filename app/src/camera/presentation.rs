@@ -66,9 +66,16 @@ pub(super) fn collect_fov_inputs(
     input: Res<SemanticInputSnapshot>,
     settings: Res<CameraSettingsAuthority>,
     ui: Option<Res<UiRuntime>>,
+    physics: Option<Res<LocalPhysicsController>>,
     mut inputs: ResMut<CameraFovInputs>,
 ) {
-    inputs.sprinting = input.phase(Action::Sprint).held && input.movement()[1] > 0.0;
+    inputs.sprinting = physics
+        .as_deref()
+        .and_then(LocalPhysicsController::latest_sneak_sprint)
+        .map_or_else(
+            || input.phase(Action::Sprint).held && input.movement()[1] > 0.0,
+            |(_, sprinting)| sprinting,
+        );
     inputs.fov_effects_scale = settings.feel().fov_effects_scale;
     let (mut speed, mut slowness) = (0, 0);
     if let Some(ui) = ui {

@@ -10,6 +10,8 @@ use sim::{CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
 pub struct ModeIntent {
     /// Abilities permit flight.
     pub can_fly: bool,
+    /// The server's ability layers currently say the player is flying.
+    pub server_flying: bool,
     /// The flight double-tap completed this frame.
     pub fly_toggle: bool,
     /// Ability flight speed, when the server sent a usable one.
@@ -43,11 +45,13 @@ pub(super) struct ModeChoice {
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ModeTracker {
     mode: MovementMode,
+    last_server_flying: bool,
 }
 
 impl ModeTracker {
     pub(super) fn reset(&mut self) {
         self.mode = MovementMode::Walking;
+        self.last_server_flying = false;
     }
 
     pub(super) const fn mode(&self) -> MovementMode {
@@ -62,12 +66,17 @@ impl ModeTracker {
         observed: ModeObservation,
         world: &impl CollisionWorld,
     ) -> Result<ModeChoice, WorldQueryError> {
-        let flying = match self.mode {
-            MovementMode::Flying => {
-                intent.can_fly && !fly_toggle && !(observed.on_ground && !observed.jumping)
-            }
-            _ => intent.can_fly && fly_toggle,
-        };
+        // A server-set flying state is entered on its rising edge and pins flight until toggled off.
+        let server_rise = intent.server_flying && !self.last_server_flying;
+        self.last_server_flying = intent.server_flying;
+        let flying = intent.can_fly
+            && match self.mode {
+                MovementMode::Flying => {
+                    !fly_toggle
+                        && (intent.server_flying || !(observed.on_ground && !observed.jumping))
+                }
+                _ => fly_toggle || server_rise,
+            };
         let liquid = observed.in_water || observed.in_lava;
         let gliding = !flying
             && intent.elytra_ready
@@ -191,6 +200,36 @@ mod tests {
     }
 
     #[test]
+    fn server_set_flight_starts_on_its_edge_and_survives_the_ground() {
+        let mut tracker = ModeTracker::default();
+        let server = ModeIntent {
+            can_fly: true,
+            server_flying: true,
+            ..ModeIntent::default()
+        };
+        let landed = ModeObservation {
+            on_ground: true,
+            ..airborne()
+        };
+        assert_eq!(
+            pick(&mut tracker, server, false, landed),
+            MovementMode::Flying
+        );
+        assert_eq!(
+            pick(&mut tracker, server, false, landed),
+            MovementMode::Flying
+        );
+        assert_eq!(
+            pick(&mut tracker, server, true, landed),
+            MovementMode::Walking
+        );
+        assert_eq!(
+            pick(&mut tracker, server, false, landed),
+            MovementMode::Walking
+        );
+    }
+
+    #[test]
     fn losing_flight_permission_ends_flight() {
         let mut tracker = ModeTracker::default();
         let can = ModeIntent {
@@ -301,6 +340,7 @@ mod tests {
     fn a_gap_too_low_to_stand_or_sneak_in_squeezes_a_swimmer_into_crawling() {
         let mut tracker = ModeTracker {
             mode: MovementMode::Swimming,
+            ..ModeTracker::default()
         };
         let observed = ModeObservation {
             on_ground: true,
