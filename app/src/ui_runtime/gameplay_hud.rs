@@ -133,6 +133,7 @@ pub struct GameplayHudState {
     max_air_supply_ticks: Option<i16>,
     freezing_strength: f32,
     saturation: Option<f32>,
+    hardcore: bool,
     mount_unique_id: Option<i64>,
     diagnostics: GameplayHudDiagnostics,
 }
@@ -252,6 +253,15 @@ impl GameplayHudState {
             }
         }
         variant
+    }
+
+    pub fn set_hardcore(&mut self, hardcore: bool) {
+        self.hardcore = hardcore;
+    }
+
+    #[must_use]
+    pub const fn hardcore(&self) -> bool {
+        self.hardcore
     }
 
     /// Records the authoritative saturation level; non-finite values are ignored.
