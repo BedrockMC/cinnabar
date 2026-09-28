@@ -190,7 +190,7 @@ pub struct UiPresentationRuntime {
     icon_refs: Option<Box<[IconRef]>>,
     layouts: TextLayoutCache,
     revision: u64,
-    last_input: Option<UiRenderInput>, // last published frame; see `stabilize_revision`
+    last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
