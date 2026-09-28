@@ -141,6 +141,58 @@ impl TextLayout {
     }
 }
 
+/// Same-width glyph pools for the `§k` (obfuscation) draw-time glyph swap.
+///
+/// Keyed by native raster width so a replacement fills a run's existing cell
+/// without distortion. The layout cache is content-hashed and cannot hold the
+/// per-frame scramble, so the draw list selects a replacement each frame while
+/// the pen advance stays fixed.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ObfuscationGlyphs {
+    pools: BTreeMap<u16, Box<[ObfuscationCandidate]>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ObfuscationCandidate {
+    page: u16,
+    uv: [u16; 4],
+}
+
+impl ObfuscationGlyphs {
+    pub fn from_catalog(font: &CompiledFontCatalog) -> Self {
+        let mut grouped: BTreeMap<u16, Vec<ObfuscationCandidate>> = BTreeMap::new();
+        for glyph in font.glyphs() {
+            let width = glyph.uv[2].saturating_sub(glyph.uv[0]);
+            let height = glyph.uv[3].saturating_sub(glyph.uv[1]);
+            // A zero-area raster (space, control) would blank the scrambled cell.
+            if width == 0 || height == 0 {
+                continue;
+            }
+            grouped
+                .entry(width)
+                .or_default()
+                .push(ObfuscationCandidate {
+                    page: glyph.page,
+                    uv: glyph.uv,
+                });
+        }
+        Self {
+            pools: grouped
+                .into_iter()
+                .map(|(width, candidates)| (width, candidates.into_boxed_slice()))
+                .collect(),
+        }
+    }
+
+    /// A same-`width` replacement `(page, uv)` chosen by `selector`, or `None`
+    /// when no visible glyph shares that width.
+    pub fn pick(&self, width: u16, selector: u64) -> Option<(u16, [u16; 4])> {
+        let pool = self.pools.get(&width)?;
+        let candidate = pool.get((selector % pool.len() as u64) as usize)?;
+        Some((candidate.page, candidate.uv))
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct TextLayoutRequest<'a> {
     pub text: &'a str,

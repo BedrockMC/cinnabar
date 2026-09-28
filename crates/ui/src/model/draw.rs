@@ -1,11 +1,19 @@
-use crate::{BedrockColor, UiLimits, UiPoint, UiRect};
+use crate::{BedrockColor, GlyphQuad, UiLimits, UiPoint, UiRect};
 
-use super::{TextShadow, UiBlendMode, UiDrawBatch, UiError, UiVertex, UiVisual};
+use super::{TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiError, UiVertex, UiVisual};
+
+/// Design-pixel lean of an italic glyph's top edge, scaled by the layout
+/// scale. Native visual confirmation pending.
+const ITALIC_SHEAR_PX: f32 = 1.0;
+/// Design-pixel offset of bold's second, emboldening copy, scaled by the
+/// layout scale. Native visual confirmation pending.
+const BOLD_OFFSET_PX: f32 = 1.0;
 
 pub(super) fn emit_visual(
     visual: &UiVisual,
     bounds: UiRect,
     clip: UiRect,
+    effects: TextEffects<'_>,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
     batches: &mut Vec<UiDrawBatch>,
@@ -116,15 +124,14 @@ pub(super) fn emit_visual(
             // Mojang's client draws the entire shadowed run before the run
             // itself, so an overlapping glyph never casts a shadow over an
             // already-drawn neighbour.
+            let scale = f32::from(layout.key().scale_1024) / 1_024.0;
+            let layout_id = layout.id();
             let shadow_pass = match shadow {
                 TextShadow::None => None,
-                TextShadow::Offset64(offset_64) => Some((
-                    f32::from(layout.key().scale_1024) / 1_024.0 * *offset_64 as f32 / 64.0,
-                    true,
-                )),
+                TextShadow::Offset64(offset_64) => Some((scale * *offset_64 as f32 / 64.0, true)),
             };
             for (offset, shadowed) in shadow_pass.into_iter().chain(std::iter::once((0.0, false))) {
-                for glyph in layout.glyphs() {
+                for (index, glyph) in layout.glyphs().iter().enumerate() {
                     let glyph_bounds = UiRect::new(
                         UiPoint::new(
                             bounds.min().x() + glyph.bounds_64[0] as f32 / 64.0 + offset,
@@ -150,18 +157,23 @@ pub(super) fn emit_visual(
                     let style_flags = u8::from(glyph.style.obfuscated)
                         | (u8::from(glyph.style.bold) << 1)
                         | (u8::from(glyph.style.italic) << 2);
-                    emit_quad(
+                    // §k swaps to a same-width raster, stable within a frame
+                    // (so both passes agree) and animated across frames.
+                    let (page, uv) = obfuscated_raster(glyph, index, layout_id, effects);
+                    let shear = if glyph.style.italic {
+                        ITALIC_SHEAR_PX * scale
+                    } else {
+                        0.0
+                    };
+                    let bold_offset = glyph.style.bold.then_some(BOLD_OFFSET_PX * scale);
+                    emit_text_glyph(
                         glyph_bounds,
-                        [
-                            [glyph.uv[0], glyph.uv[1]],
-                            [glyph.uv[2], glyph.uv[1]],
-                            [glyph.uv[2], glyph.uv[3]],
-                            [glyph.uv[0], glyph.uv[3]],
-                        ],
-                        glyph.page,
+                        uv,
+                        page,
                         glyph_color,
                         style_flags,
-                        UiBlendMode::Alpha,
+                        shear,
+                        bold_offset,
                         clip,
                         vertices,
                         indices,
@@ -172,6 +184,87 @@ pub(super) fn emit_visual(
             Ok(())
         }
     }
+}
+
+/// The `(page, uv)` to draw for one glyph: a same-width scramble target when
+/// obfuscated and a pool is present, otherwise the glyph's own raster.
+fn obfuscated_raster(
+    glyph: &GlyphQuad,
+    index: usize,
+    layout_id: u64,
+    effects: TextEffects<'_>,
+) -> (u16, [u16; 4]) {
+    if glyph.style.obfuscated
+        && let Some(pool) = effects.obfuscation
+    {
+        let width = glyph.uv[2].saturating_sub(glyph.uv[0]);
+        let selector = obfuscation_selector(effects.obfuscation_seed, layout_id, index);
+        if let Some(swapped) = pool.pick(width, selector) {
+            return swapped;
+        }
+    }
+    (glyph.page, glyph.uv)
+}
+
+/// splitmix64 mix so a `(seed, layout, glyph)` triple selects one pool slot;
+/// keying on the glyph index decorrelates adjacent cells and both draw passes
+/// resolve the same slot within a frame.
+fn obfuscation_selector(seed: u64, layout_id: u64, index: usize) -> u64 {
+    let mut value = seed
+        ^ layout_id.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (index as u64).wrapping_mul(0xD1B5_4A32_D192_ED03);
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^ (value >> 31)
+}
+
+/// Emits one glyph: italic leans the top edge right by `shear`, and a
+/// `Some(bold_offset)` draws a second copy shifted right to embolden it.
+#[allow(clippy::too_many_arguments)]
+fn emit_text_glyph(
+    glyph_bounds: UiRect,
+    uv: [u16; 4],
+    page: u16,
+    color: [u8; 4],
+    style_flags: u8,
+    shear: f32,
+    bold_offset: Option<f32>,
+    clip: UiRect,
+    vertices: &mut Vec<UiVertex>,
+    indices: &mut Vec<u32>,
+    batches: &mut Vec<UiDrawBatch>,
+) -> Result<(), UiError> {
+    let uv_corners = [
+        [uv[0], uv[1]],
+        [uv[2], uv[1]],
+        [uv[2], uv[3]],
+        [uv[0], uv[3]],
+    ];
+    let x0 = glyph_bounds.min().x();
+    let y0 = glyph_bounds.min().y();
+    let x1 = glyph_bounds.max().x();
+    let y1 = glyph_bounds.max().y();
+    for dx in [Some(0.0_f32), bold_offset].into_iter().flatten() {
+        let positions = [
+            [x0 + shear + dx, y0],
+            [x1 + shear + dx, y0],
+            [x1 + dx, y1],
+            [x0 + dx, y1],
+        ];
+        emit_positioned_quad(
+            positions,
+            uv_corners,
+            page,
+            color,
+            style_flags,
+            UiBlendMode::Alpha,
+            clip,
+            vertices,
+            indices,
+            batches,
+        )?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
