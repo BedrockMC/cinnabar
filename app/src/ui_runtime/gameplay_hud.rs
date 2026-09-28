@@ -132,6 +132,7 @@ pub struct GameplayHudState {
     air_supply_ticks: Option<i16>,
     max_air_supply_ticks: Option<i16>,
     freezing_strength: f32,
+    saturation: Option<f32>,
     mount_unique_id: Option<i64>,
     diagnostics: GameplayHudDiagnostics,
 }
@@ -251,6 +252,27 @@ impl GameplayHudState {
             }
         }
         variant
+    }
+
+    /// Records the authoritative saturation level; non-finite values are ignored.
+    pub fn set_saturation(&mut self, saturation: f32) {
+        if saturation.is_finite() {
+            self.saturation = Some(saturation);
+        }
+    }
+
+    /// True once saturation is known to be exhausted, which shakes the hunger row.
+    #[must_use]
+    pub fn saturation_empty(&self) -> bool {
+        self.saturation.is_some_and(|value| value <= 0.0)
+    }
+
+    /// Whether Regeneration (Bedrock effect 10) is active, which bobs the hearts.
+    #[must_use]
+    pub fn regeneration_active(&self, now_tick: Option<u64>) -> bool {
+        self.effects
+            .iter()
+            .any(|effect| effect.effect_id == 10 && effect.visible_at_tick(now_tick))
     }
 
     /// Whether the pinned hunger-effect recolor applies (Bedrock effect 17).

@@ -456,6 +456,9 @@ impl UiRuntime {
                     Some(stat) => hunger = Some(stat),
                     None => self.gameplay_hud.note_odd_attribute(),
                 },
+                "minecraft:player.saturation" => {
+                    self.gameplay_hud.set_saturation(attribute.current);
+                }
                 // Absorption is an ordinary bounded attribute; zero is common
                 // and simply hides the golden hearts.
                 "minecraft:absorption" => {
