@@ -7,6 +7,8 @@ mod atmosphere_render;
 mod chunk;
 mod cloud_config;
 mod cloud_render;
+mod dropped_item;
+mod dropped_item_render;
 mod hand_rig_render;
 mod present_mode;
 mod runtime_profile;
@@ -40,16 +42,22 @@ pub use actor::{
     ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
     ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects,
-    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, pack_overlay_rgba8,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex,
     ActorRuntimeWitness, ActorSkinPixels, ActorTexturePage, ActorVertex, DEFAULT_SKIN_PROVENANCE,
     EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,
     MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, normalize_actor_skin,
+    pack_overlay_rgba8,
     standard_biped_overlay_vertices, standard_biped_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
+pub use dropped_item::{
+    DroppedItemInstance, DroppedItemScene, DroppedItemSprite, MAX_DROPPED_ITEM_INSTANCES,
+    MAX_ITEM_SPRITE_SIDE, MAX_ITEM_SPRITES, dropped_item_transform,
+};
+pub use dropped_item_render::DroppedItemRenderPlugin;
 pub use atmosphere::{
     AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
     CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH,
