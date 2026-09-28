@@ -896,6 +896,23 @@ mod tests {
     }
 
     #[test]
+    fn travel_distance_events_flatten_and_sort() {
+        let json = SAMPLE.replace(
+            "\"minecraft:particle_appearance_billboard\"",
+            "\"minecraft:particle_lifetime_events\": {\"travel_distance_events\": [{\"distance\": 2, \"events\": [\"b\"]}, {\"distance\": 1, \"events\": [\"a\"]}], \"looping_travel_distance_events\": [{\"distance\": 0.5, \"events\": \"c\"}]},\n          \"minecraft:particle_appearance_billboard\"",
+        );
+        let effect = parse_effect(json.as_bytes()).unwrap();
+        let travel: Vec<_> = effect
+            .particle
+            .travel_events
+            .iter()
+            .map(|e| &*e.1)
+            .collect();
+        assert_eq!(travel, ["a", "b"]);
+        assert_eq!(effect.particle.looping_travel_events.len(), 1);
+    }
+
+    #[test]
     fn rejects_documents_without_lifetime_or_billboard() {
         let bad = br#"{"particle_effect":{"description":{"identifier":"a","basic_render_parameters":{"texture":"t"}},"components":{}}}"#;
         assert!(parse_effect(bad).is_none());

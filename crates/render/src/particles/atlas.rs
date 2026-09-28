@@ -251,6 +251,19 @@ mod tests {
     }
 
     #[test]
+    fn patches_keep_only_the_newest_write_per_slot() {
+        let mut atlas = ParticleAtlas::default();
+        let pixels = vec![1u8; 16 * 16 * 4];
+        atlas.tile(1, 16, &pixels).unwrap();
+        atlas.tile(2, 16, &pixels).unwrap();
+        atlas.tile(1, 16, &pixels).unwrap();
+        let patches = atlas.patches();
+        assert_eq!(patches.len(), 2);
+        assert!(patches[0].seq < patches[1].seq);
+        assert_eq!(atlas.patch_seq(), 2);
+    }
+
+    #[test]
     fn rejects_mismatched_tile_buffers() {
         let mut atlas = ParticleAtlas::default();
         assert!(atlas.tile(1, 16, &[0; 12]).is_none());
