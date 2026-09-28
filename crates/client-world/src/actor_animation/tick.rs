@@ -7,6 +7,8 @@ pub(crate) struct ActorTickContext {
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub(crate) main_hand: Option<Arc<str>>,
     pub(crate) off_hand: Option<Arc<str>>,
+    /// A held crossbow is loaded.
+    pub(crate) hand_charged: bool,
     /// Namespaced identifier of the actor being ridden.
     pub(crate) ridden: Option<Arc<str>>,
     pub(crate) has_rider: bool,
