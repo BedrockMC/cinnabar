@@ -8,6 +8,7 @@ mod chunk;
 mod cloud_config;
 mod cloud_render;
 mod hand_rig_render;
+mod particles;
 mod present_mode;
 mod runtime_profile;
 mod ui;
@@ -22,6 +23,14 @@ mod viewmodel;
 mod viewmodel_render;
 
 pub use hand_rig_render::{HandRigLight, HandRigRenderPlugin, HandRigScene};
+pub use particles::{
+    ATLAS_SIDE as PARTICLE_ATLAS_SIDE, DrawLists as ParticleDrawLists,
+    EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, LevelParticle, MAX_LIVE_PARTICLES,
+    ParticleGpuFrame, ParticleInstance, ParticleRenderPlugin, ParticleSound, ParticleSystem,
+    ParticleView, ParticleWorld, SpawnRequest, TileRequest, block_break_request,
+    block_crack_request, classify_level_event, is_particle_level_event, named_request,
+    parse_molang_variables, particle_view, update_particle_frame,
+};
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,
     ViewmodelScene, ViewmodelSkin, ViewmodelToken, viewmodel_depth_bytes,

@@ -4566,6 +4566,7 @@ dependencies = [
  "meshing",
  "naga",
  "rayon",
+ "serde_json",
  "sha2",
  "tempfile",
  "wgpu",
