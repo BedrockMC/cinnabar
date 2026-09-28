@@ -32,7 +32,7 @@ pub use item::{
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 pub use stream::{
-    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, BuildProfileIdentity,
+    ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, BlockEventCue, BuildProfileIdentity,
     COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
     CohortManifestIdentity, CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent,
     CommittedParticleEvent, CommittedUiEvent, DECODE_DISPATCH_BUDGET_PER_POLL,

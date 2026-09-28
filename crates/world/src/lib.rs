@@ -13,6 +13,7 @@ mod light;
 mod light_solver;
 mod mesh_neighbourhood;
 mod mutation;
+mod nbt_tree;
 mod palette;
 mod store;
 mod sub_chunk;
@@ -39,6 +40,7 @@ pub use light_solver::{
 };
 pub use mesh_neighbourhood::{MeshDependencyMask, MeshNeighbourhood, MeshSample};
 pub use mutation::BlockUpdate;
+pub use nbt_tree::{NbtCompound, NbtValue};
 pub use palette::{BLOCKS_PER_SUB_CHUNK, Palette, PalettedStorage};
 pub use store::{
     ApplyLevelChunk, ChunkCollisionRevision, ChunkStore, DecodedLevelChunk, DimensionSlots,

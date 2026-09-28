@@ -1,0 +1,121 @@
+//! Turns the server's cracking speeds into destroy stages against the client clock.
+
+use std::collections::HashMap;
+
+use client_world::ActiveBlockCrack;
+use render::CrackInstance;
+
+/// Server progress units for a fully broken block.
+const PROGRESS_UNITS: f32 = 65_535.0;
+const TICKS_PER_SECOND: f64 = 20.0;
+const STAGES: f32 = 10.0;
+
+#[derive(Debug)]
+struct Track {
+    start_sequence: u64,
+    rate_per_tick: u16,
+    /// Progress accumulated before the current rate took effect, `0.0..=1.0`.
+    base_progress: f32,
+    rate_since_seconds: f64,
+}
+
+impl Track {
+    fn progress(&self, now_seconds: f64) -> f32 {
+        let ticks = (now_seconds - self.rate_since_seconds).max(0.0) * TICKS_PER_SECOND;
+        (self.base_progress + ticks as f32 * f32::from(self.rate_per_tick) / PROGRESS_UNITS)
+            .clamp(0.0, 1.0)
+    }
+}
+
+/// Client-side progress per cracked block; the server value is a speed, not a clock.
+#[derive(Debug, Default)]
+pub(super) struct CrackClock {
+    tracks: HashMap<[i32; 3], Track>,
+}
+
+/// The destroy stage (`0..=9`) for `progress` in `0.0..=1.0`.
+pub(super) fn stage_for_progress(progress: f32) -> u8 {
+    ((progress * STAGES).floor().max(0.0) as u8).min(9)
+}
+
+impl CrackClock {
+    pub(super) fn instances(
+        &mut self,
+        entries: &[ActiveBlockCrack],
+        now_seconds: f64,
+    ) -> Vec<CrackInstance> {
+        self.tracks
+            .retain(|position, _| entries.iter().any(|entry| entry.position == *position));
+        entries
+            .iter()
+            .map(|entry| {
+                let track = self.tracks.entry(entry.position).or_insert(Track {
+                    start_sequence: entry.start_sequence,
+                    rate_per_tick: entry.server_value,
+                    base_progress: 0.0,
+                    rate_since_seconds: now_seconds,
+                });
+                if track.start_sequence != entry.start_sequence {
+                    *track = Track {
+                        start_sequence: entry.start_sequence,
+                        rate_per_tick: entry.server_value,
+                        base_progress: 0.0,
+                        rate_since_seconds: now_seconds,
+                    };
+                } else if track.rate_per_tick != entry.server_value {
+                    track.base_progress = track.progress(now_seconds);
+                    track.rate_per_tick = entry.server_value;
+                    track.rate_since_seconds = now_seconds;
+                }
+                CrackInstance {
+                    block: entry.position,
+                    stage: stage_for_progress(track.progress(now_seconds)),
+                }
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crack(position: [i32; 3], sequence: u64, rate: u16) -> ActiveBlockCrack {
+        ActiveBlockCrack {
+            position,
+            start_sequence: sequence,
+            server_value: rate,
+            layers: [None; world::MAX_STORAGE_COUNT],
+        }
+    }
+
+    #[test]
+    fn stages_advance_with_the_client_clock() {
+        let mut clock = CrackClock::default();
+        // 1/20 of the block per tick: half done after ten ticks (half a second).
+        let entries = [crack([1, 2, 3], 7, 3_277)];
+        assert_eq!(clock.instances(&entries, 0.0)[0].stage, 0);
+        assert_eq!(clock.instances(&entries, 0.5)[0].stage, 5);
+        assert_eq!(clock.instances(&entries, 100.0)[0].stage, 9);
+    }
+
+    #[test]
+    fn rate_changes_keep_progress_and_new_starts_reset_it() {
+        let mut clock = CrackClock::default();
+        let slow = [crack([0; 3], 1, 3_277)];
+        clock.instances(&slow, 0.0);
+        assert_eq!(clock.instances(&slow, 0.5)[0].stage, 5);
+        let faster = [crack([0; 3], 1, 6_554)];
+        assert_eq!(clock.instances(&faster, 0.5)[0].stage, 5);
+        let restarted = [crack([0; 3], 2, 3_277)];
+        assert_eq!(clock.instances(&restarted, 0.6)[0].stage, 0);
+    }
+
+    #[test]
+    fn stopped_cracks_are_forgotten() {
+        let mut clock = CrackClock::default();
+        clock.instances(&[crack([5; 3], 1, 100)], 0.0);
+        clock.instances(&[], 1.0);
+        assert!(clock.tracks.is_empty());
+    }
+}

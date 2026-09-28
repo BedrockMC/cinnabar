@@ -455,9 +455,14 @@ impl WorldStream {
                 }
                 self.provisional_publisher_rebase = false;
             }
+            WorldEvent::BlockEvent(event) => {
+                let sequence = sequence.expect("sequenced block events commit through submit");
+                self.consume_block_event(sequence, event);
+            }
             WorldEvent::ChangeDimension(change) => {
                 let sequence = sequence.expect("sequenced dimension changes commit through submit");
                 self.replace_block_crack_dimension(sequence);
+                self.clear_block_events();
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);

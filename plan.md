@@ -2052,6 +2052,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       - [ ] Implement the reviewed per-ID renderer routes and gallery builders,
         then close every required NBT-variant witness and GPU/no-draw witness so
         the block-entity strict-final gate reaches 22 proven with no deferrals.
+        - [ ] Provisional, uncompiled and unmeasured (never closes a gate): the
+          `.mcbeben` carrier (`make block-entity-assets`) and a dedicated
+          block-entity pass draw chests (single/double, lid cue), ender and copper
+          chests, beds, shulker boxes, skulls, banners, bell, enchant/lectern book,
+          beacon beam, end portal, sign text and the break-crack overlay.
+          Conduit, decorated pots, campfire, item frames, spawner, dragon/piglin
+          heads, hanging-sign extents, banner/beam scroll and native lighting
+          remain open; every hand-authored dimension is marked for measurement.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
       into their respective `main` branches through reviewed PRs using normal
       history-preserving merge commits (never squash or rebase the feature
