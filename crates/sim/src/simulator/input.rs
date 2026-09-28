@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{MovementEffects, SimulationError};
+use super::{MovementEffects, MovementMode, SimulationError};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -30,6 +30,19 @@ pub struct MovementInput {
     pub movement_speed: Option<f64>,
     #[serde(default, skip_serializing_if = "MovementEffects::is_empty")]
     pub effects: MovementEffects,
+    /// Client-selected locomotion mode; `Walking` runs the oracle-validated path.
+    #[serde(default, skip_serializing_if = "MovementMode::is_walking")]
+    pub mode: MovementMode,
+    /// Look pitch, degrees positive downward. Read only by swimming and gliding.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub pitch_degrees: f64,
+    /// Ability flight speed; `None` selects the vanilla default. Read only when flying.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fly_speed: Option<f64>,
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
 }
 
 pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
@@ -37,6 +50,7 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
         ("strafe", input.strafe),
         ("forward", input.forward),
         ("yaw_degrees", input.yaw_degrees),
+        ("pitch_degrees", input.pitch_degrees),
     ] {
         if !value.is_finite() {
             return Err(SimulationError::NonFiniteInput { field });
@@ -50,6 +64,12 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
     }
     if input
         .movement_speed
+        .is_some_and(|value| !value.is_finite() || value < 0.0)
+    {
+        return Err(SimulationError::InvalidMovementSpeed);
+    }
+    if input
+        .fly_speed
         .is_some_and(|value| !value.is_finite() || value < 0.0)
     {
         return Err(SimulationError::InvalidMovementSpeed);
