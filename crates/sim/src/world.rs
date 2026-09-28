@@ -461,6 +461,16 @@ impl CollisionRegistry {
         self.blocks.split_off(&first_runtime_id);
     }
 
+    /// Drops one registration; returns whether it existed.
+    pub fn remove_runtime_id(&mut self, runtime_id: u32) -> bool {
+        self.blocks.remove(&runtime_id).is_some()
+    }
+
+    #[must_use]
+    pub fn contains_runtime_id(&self, runtime_id: u32) -> bool {
+        self.blocks.contains_key(&runtime_id)
+    }
+
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
         self.blocks.get(&runtime_id)
     }

@@ -49,11 +49,12 @@ pub(crate) struct CompiledBlockOverlay {
     pub(crate) gaps: OverlayGaps,
 }
 
-/// Returns visuals for every custom block state in palette order, or `None`
-/// when the session defines no custom blocks.
+/// Returns visuals for every custom block state (palette order, or
+/// `hashed_states` order for hashed ids), or `None` without custom blocks.
 pub(super) fn compile_block_overlay(
     view: &LayeredPackView,
     blocks: &CustomBlocks,
+    hashed: bool,
 ) -> Option<CompiledBlockOverlay> {
     if blocks.blocks.is_empty() {
         return None;
@@ -91,12 +92,18 @@ pub(super) fn compile_block_overlay(
         animation: NO_ANIMATION,
     });
     for block in blocks.blocks.iter() {
+        if hashed {
+            for state in block.hashed_states() {
+                let components =
+                    condition::assignment_components(block, &state.values, &mut builder.gaps);
+                builder.push_state(&components);
+                builder.overlay.hashes.push(state.hash);
+            }
+            continue;
+        }
         for state in 0..block.state_count {
             let components = condition::state_components(block, state, &mut builder.gaps);
-            let light = state_light(&components);
-            let visual = builder.visual(&components);
-            builder.overlay.visuals.push(visual);
-            builder.overlay.light_properties.push(light);
+            builder.push_state(&components);
         }
     }
     builder.finish()
@@ -126,6 +133,13 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
+    fn push_state(&mut self, components: &CustomVisualComponents) {
+        let light = state_light(components);
+        let visual = self.visual(components);
+        self.overlay.visuals.push(visual);
+        self.overlay.light_properties.push(light);
+    }
+
     fn visual(&mut self, components: &CustomVisualComponents) -> BlockVisual {
         let key = format!("{components:?}");
         if let Some(visual) = self.visuals.get(&key) {

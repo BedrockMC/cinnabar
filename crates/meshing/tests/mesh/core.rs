@@ -139,12 +139,12 @@ fn different_materials_split_coplanar_runs_but_still_cull_internal_faces() {
 }
 
 #[test]
-fn asymmetric_internal_culling_uses_ordered_occluder_and_leaf_facts() {
+fn asymmetric_internal_culling_uses_ordered_occluder_facts_and_keeps_leaf_pairs() {
     let cases = [
         (OPAQUE_A, OPAQUE_B, false, false, 10),
         (OPAQUE_A, LEAF_A, true, false, 11),
         (LEAF_A, OPAQUE_A, false, true, 11),
-        (LEAF_A, LEAF_B, false, false, 10),
+        (LEAF_A, LEAF_B, true, true, 12),
         (DIAGNOSTIC, LEAF_A, true, true, 12),
         (DIAGNOSTIC, OPAQUE_A, false, true, 11),
     ];
@@ -190,7 +190,7 @@ fn asymmetric_boundary_culling_matches_internal_semantics_on_every_face() {
         (OPAQUE_A, OPAQUE_B, 5),
         (OPAQUE_A, LEAF_A, 6),
         (LEAF_A, OPAQUE_A, 5),
-        (LEAF_A, LEAF_B, 5),
+        (LEAF_A, LEAF_B, 6),
         (DIAGNOSTIC, OPAQUE_A, 5),
         (DIAGNOSTIC, LEAF_A, 6),
         (DIAGNOSTIC, DIAGNOSTIC, 6),
@@ -666,7 +666,7 @@ fn uniform_solid_fast_path_merges_planes_and_respects_boundary_neighbours() {
 }
 
 #[test]
-fn uniform_leaf_meshes_outer_planes_but_is_cave_open() {
+fn uniform_leaf_meshes_every_slice_plane_and_is_cave_open() {
     let mesh = mesh(
         &classifier(),
         NetworkIdMode::Sequential,
@@ -674,7 +674,7 @@ fn uniform_leaf_meshes_outer_planes_but_is_cave_open() {
         &uniform(LEAF_A),
     );
 
-    assert_eq!(mesh.quad_count(), 6);
+    assert_eq!(mesh.quad_count(), 96);
     assert!(
         mesh.quads()
             .iter()

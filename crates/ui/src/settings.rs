@@ -30,6 +30,12 @@ pub struct VideoSettings {
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
     pub brightness: f32,
+    /// Scales speed-driven FOV changes, `0..=1`.
+    pub fov_effects_scale: f32,
+    /// Scales portal and nausea distortion, `0..=1`.
+    pub distortion_scale: f32,
+    pub view_bobbing: bool,
+    pub cinematic_camera: bool,
 }
 
 impl Default for VideoSettings {
@@ -42,6 +48,10 @@ impl Default for VideoSettings {
             ui_scale: 1.0,
             render_distance_chunks: 16,
             brightness: 0.5,
+            fov_effects_scale: 1.0,
+            distortion_scale: 1.0,
+            view_bobbing: true,
+            cinematic_camera: false,
         }
     }
 }

@@ -144,6 +144,8 @@ pub struct ActorRigSubmission {
     pub route: ActorRigRoute,
     /// Packed `0xAABBGGRR` dye multiplier for fully opaque texels; `0` leaves the texture untouched.
     pub tint: u32,
+    /// Packed RGBA8 overlay blended over the lit skin (see [`pack_overlay_rgba8`]); 0 disables it.
+    pub overlay_rgba8: u32,
 }
 
 #[repr(C)]
@@ -157,10 +159,24 @@ pub struct ActorGpuInstance {
     pub partial_tick: f32,
     pub reset_generation: u32,
     pub tint: u32,
+    pub overlay_rgba8: u32,
 }
 
-pub const ACTOR_GPU_INSTANCE_WORDS: usize = 19;
+pub const ACTOR_GPU_INSTANCE_WORDS: usize = 20;
 const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == ACTOR_GPU_INSTANCE_WORDS * 4);
+
+/// Packs a non-premultiplied RGBA overlay (components clamped to 0..=1) into little-endian RGBA8.
+#[must_use]
+pub fn pack_overlay_rgba8(rgba: [f32; 4]) -> u32 {
+    let byte = |value: f32| {
+        if value.is_finite() {
+            (value.clamp(0.0, 1.0) * 255.0).round() as u32
+        } else {
+            0
+        }
+    };
+    byte(rgba[0]) | (byte(rgba[1]) << 8) | (byte(rgba[2]) << 16) | (byte(rgba[3]) << 24)
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -617,6 +633,7 @@ impl ActorRigFrameBuilder {
                 partial_tick,
                 reset_generation,
                 tint: submission.tint,
+                overlay_rgba8: submission.overlay_rgba8,
             });
             body_count += usize::from(is_body);
             manifest.push(ActorDrawManifestEntry {

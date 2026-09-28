@@ -43,6 +43,8 @@ pub struct PhysicsCollisionRegistries {
     hashed_interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
     max_vanilla_sort_key: u64,
     custom_block_physics: Option<CustomBlockPhysics>,
+    /// Hashes this session added to `hashed`, dropped when the next session begins.
+    session_hashes: Vec<u32>,
 }
 
 /// Provisional movement facts for server-defined blocks: stone's surface facts.
@@ -209,6 +211,7 @@ impl PhysicsCollisionRegistries {
             hashed_interaction_blocks,
             max_vanilla_sort_key,
             custom_block_physics,
+            session_hashes: Vec::new(),
         })
     }
 
@@ -251,6 +254,48 @@ impl PhysicsCollisionRegistries {
             }
         }
         Some(first..next)
+    }
+
+    /// Registers this session's custom block states under their network hashes
+    /// and returns how many were added; a hash vanilla or an earlier state owns
+    /// is skipped. Returns `None` when the carrier lacks stone physics to borrow.
+    pub fn begin_session_hashed_custom_blocks(
+        &mut self,
+        custom: &protocol::CustomBlocks,
+    ) -> Option<usize> {
+        for hash in self.session_hashes.drain(..) {
+            self.hashed.remove_runtime_id(hash);
+        }
+        if custom.blocks.is_empty() {
+            return Some(0);
+        }
+        let physics = self.custom_block_physics?;
+        let full_cube = collision_box_to_aabb(FULL_CUBE);
+        for block in custom.blocks.iter() {
+            for state in block.hashed_states() {
+                if self.hashed.contains_runtime_id(state.hash) {
+                    continue;
+                }
+                let boxes = block.collides.then_some(full_cube);
+                if self
+                    .hashed
+                    .register_primitives(
+                        state.hash,
+                        boxes,
+                        physics.friction,
+                        physics.horizontal_speed,
+                        physics.vertical_speed,
+                        0.0,
+                        physics.flags,
+                        physics.surface_response,
+                    )
+                    .is_ok()
+                {
+                    self.session_hashes.push(state.hash);
+                }
+            }
+        }
+        Some(self.session_hashes.len())
     }
 
     pub(crate) fn block_identifier(
@@ -431,6 +476,31 @@ mod tests {
             skipped: 0,
         };
         assert_eq!(registries.begin_session_custom_blocks(&interleaved), None);
+    }
+
+    /// Hashed custom states register under their hashes and are dropped by the next session.
+    #[test]
+    fn session_hashed_custom_blocks_register_and_reset() {
+        let records =
+            assets::read_registry_for_protocol(BREG_V2168, active_content_registry_protocol())
+                .unwrap();
+        let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2168, &records);
+        let mut registries = bind(BREG_V2168, &preg, active_content_registry_protocol()).unwrap();
+        let custom = protocol::CustomBlocks {
+            blocks: vec![custom_block("test:hashed", 1)].into(),
+            skipped: 0,
+        };
+        let hash = custom.blocks[0].hashed_states()[0].hash;
+        assert_eq!(
+            registries.begin_session_hashed_custom_blocks(&custom),
+            Some(1)
+        );
+        assert!(registries.hashed.contains_runtime_id(hash));
+        assert_eq!(
+            registries.begin_session_hashed_custom_blocks(&protocol::CustomBlocks::default()),
+            Some(0)
+        );
+        assert!(!registries.hashed.contains_runtime_id(hash));
     }
 
     /// The live LBSG aliasing mechanism: a byte-valid PREG whose stamped

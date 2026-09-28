@@ -203,24 +203,19 @@ pub(crate) fn update_camera_medium(
     };
     let position = camera.translation.to_array();
     medium.0 = stream.camera_medium(position);
-    let camera_biome_identifier = stream
+    let camera_biome = stream
         .camera_biome_id(camera.translation.to_array())
         .and_then(|raw_id| {
-            client_world
-                .runtime_assets
-                .biome_assets()
-                .rules
+            let rules = &client_world.runtime_assets.biome_assets().rules;
+            rules
                 .binary_search_by_key(&raw_id, |rule| rule.id)
                 .ok()
-                .map(|index| {
-                    client_world.runtime_assets.biome_assets().rules[index]
-                        .name
-                        .clone()
-                })
+                .map(|index| &rules[index])
         });
     *context = environment::EnvironmentContext {
         dimension: stream.current_dimension(),
-        camera_biome_identifier,
+        camera_biome_identifier: camera_biome.map(|rule| rule.name.clone()),
+        camera_biome_temperature: camera_biome.map(|rule| rule.temperature()),
         render_distance_blocks: Some(stream.render_distance_blocks()),
     };
 }
@@ -308,7 +303,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
-        if matches!(control, CommittedControlEvent::PlayerListChanged { .. }) {
+        if matches!(
+            control,
+            CommittedControlEvent::PlayerListChanged { .. }
+                | CommittedControlEvent::LocalHurt { .. }
+        ) {
             continue;
         }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
@@ -538,6 +537,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
+            | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
                 unreachable!(
                     "environment-only and impulse controls return before spatial reconciliation"

@@ -53,11 +53,13 @@ pub enum PackDownstreamOutcome {
     StrippedIgnored,
 }
 
-/// Resource-pack application capability of this client build.
+/// Whether the client has applied the newest attempt's handed-off packs.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PackApplication {
     Unavailable,
+    /// The client confirmed it applied the handed-off packs for this attempt.
+    Applied,
 }
 
 /// Secret-safe summary of the newest resource-pack admission attempt.
@@ -94,6 +96,20 @@ struct StatusRequest {
     method: &'static str,
 }
 
+#[derive(Serialize)]
+struct PackApplicationRequest {
+    jsonrpc: &'static str,
+    id: u64,
+    method: &'static str,
+    params: PackApplicationParams,
+}
+
+#[derive(Serialize)]
+struct PackApplicationParams {
+    attempt_id: u64,
+    applied: bool,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StatusResponse {
@@ -117,6 +133,29 @@ pub async fn read_status(socket_dir: &Path) -> Result<StatusV1, BridgeError> {
     let stream = crate::endpoint::connect(socket_dir, EndpointKind::Control).await?;
     let mut framed = FramedStream::with_max(stream, CONTROL_MAX_FRAME_LEN);
     let request = serde_json::to_vec(&status_request())?;
+    framed.send(Bytes::from(request)).await?;
+    let response = framed.next().await.ok_or(BridgeError::ControlClosed)??;
+    parse_status_response(&response)
+}
+
+/// Tells the core whether the client applied (or reverted) the packs of `attempt_id`
+/// and returns the resulting status.
+pub async fn report_pack_application(
+    socket_dir: &Path,
+    attempt_id: u64,
+    applied: bool,
+) -> Result<StatusV1, BridgeError> {
+    let stream = crate::endpoint::connect(socket_dir, EndpointKind::Control).await?;
+    let mut framed = FramedStream::with_max(stream, CONTROL_MAX_FRAME_LEN);
+    let request = serde_json::to_vec(&PackApplicationRequest {
+        jsonrpc: "2.0",
+        id: STATUS_REQUEST_ID,
+        method: "pack_application.v1",
+        params: PackApplicationParams {
+            attempt_id,
+            applied,
+        },
+    })?;
     framed.send(Bytes::from(request)).await?;
     let response = framed.next().await.ok_or(BridgeError::ControlClosed)??;
     parse_status_response(&response)
@@ -238,6 +277,34 @@ mod tests {
                 PackApplication::Unavailable
             );
         }
+    }
+
+    #[test]
+    fn parses_applied_application() {
+        let payload = VALID_RESULT.replace(
+            r#""application":"unavailable""#,
+            r#""application":"applied""#,
+        );
+        let status = parse_status_response(payload.as_bytes()).expect("applied status");
+        assert_eq!(status.pack_admission.application, PackApplication::Applied);
+    }
+
+    #[test]
+    fn application_report_request_carries_strict_params() {
+        let encoded = serde_json::to_string(&PackApplicationRequest {
+            jsonrpc: "2.0",
+            id: STATUS_REQUEST_ID,
+            method: "pack_application.v1",
+            params: PackApplicationParams {
+                attempt_id: 9,
+                applied: true,
+            },
+        })
+        .expect("encode request");
+        assert_eq!(
+            encoded,
+            r#"{"jsonrpc":"2.0","id":1,"method":"pack_application.v1","params":{"attempt_id":9,"applied":true}}"#
+        );
     }
 
     #[test]

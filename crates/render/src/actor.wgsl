@@ -11,8 +11,8 @@ struct BoneMatrix {
     row_2: vec4<f32>,
 }
 
-// ActorGpuInstance is deliberately read as 19 packed words. Its Rust contract
-// is 76 bytes; a WGSL struct containing vec4 rows would round the array stride
+// ActorGpuInstance is deliberately read as 20 packed words. Its Rust contract
+// is 80 bytes; a WGSL struct containing vec4 rows would round the array stride
 // to 80 bytes under storage-buffer layout rules.
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
@@ -32,6 +32,7 @@ struct VertexOutput {
     @location(3) world_normal: vec3<f32>,
     @location(4) back_uv: vec2<f32>,
     @location(5) @interpolate(flat) tint: u32,
+    @location(5) @interpolate(flat) overlay: vec4<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -70,17 +71,19 @@ fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 19u;
+    let instance_base = instance_index * 20u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
     let texture_layer = instance_words[instance_base + 15u];
     let partial_tick = clamp(word_f32(instance_base + 16u), 0.0, 1.0);
+    let overlay_rgba8 = instance_words[instance_base + 19u];
     let span = geometry_spans[geometry_id];
 
     var out: VertexOutput;
     out.skin_layer = texture_layer;
     out.tint = instance_words[instance_base + 18u];
+    out.overlay = unpack4x8unorm(overlay_rgba8);
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
@@ -152,5 +155,6 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (input.tint != 0u && color.a > 0.99) {
         color = vec4(color.rgb * pow(unpack4x8unorm(input.tint).rgb, vec3(2.2)), color.a);
     }
-    return color;
+    // The hurt/death overlay blends after the dye.
+    return vec4(mix(color.rgb, input.overlay.rgb, input.overlay.a), color.a);
 }

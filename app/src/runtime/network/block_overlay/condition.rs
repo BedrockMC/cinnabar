@@ -1,7 +1,8 @@
 //! Per-state component resolution from permutation conditions.
 //!
 //! Only `q.block_state('name') ==/!= literal` conjunctions are evaluated, and
-//! only when one state axis varies; anything else is counted and left at base.
+//! only when one state axis varies (sequential ids); hashed ids evaluate any
+//! combination. Anything else is counted and left at base.
 
 use protocol::{CustomBlock, CustomStateValue, CustomVisualComponents};
 
@@ -41,8 +42,38 @@ pub(super) fn state_components(
         };
         axis.values.get(index)
     };
-    for permutation in visuals.permutations.iter() {
-        match evaluate(&permutation.condition, &state_value) {
+    apply_permutations(block, &state_value, &mut resolved, gaps);
+    resolved
+}
+
+/// Components for one hashed-id state, whose `values` follow the block's
+/// `state_axes`; every axis combination is evaluated exactly.
+pub(super) fn assignment_components(
+    block: &CustomBlock,
+    values: &[CustomStateValue],
+    gaps: &mut OverlayGaps,
+) -> CustomVisualComponents {
+    let visuals = &block.visual;
+    let mut resolved = visuals.base.clone();
+    let state_value = |name: &str| {
+        let position = visuals
+            .state_axes
+            .iter()
+            .position(|axis| axis.name.as_ref() == name)?;
+        values.get(position)
+    };
+    apply_permutations(block, &state_value, &mut resolved, gaps);
+    resolved
+}
+
+fn apply_permutations<'v>(
+    block: &CustomBlock,
+    state_value: &impl Fn(&str) -> Option<&'v CustomStateValue>,
+    resolved: &mut CustomVisualComponents,
+    gaps: &mut OverlayGaps,
+) {
+    for permutation in block.visual.permutations.iter() {
+        match evaluate(&permutation.condition, state_value) {
             Some(true) => {
                 let components = &permutation.components;
                 if components.geometry.is_some() {
@@ -65,7 +96,6 @@ pub(super) fn state_components(
             None => gaps.unevaluated_permutations += 1,
         }
     }
-    resolved
 }
 
 /// Evaluates `term && term ...`; `None` when any term is unsupported.

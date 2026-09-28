@@ -67,10 +67,8 @@ pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
 
-const INTEGER_QUERIES: [(&str, u32); 10] = [
+const INTEGER_QUERIES: [(&str, u32); 8] = [
     ("fuse_time", 55),
-    ("hurt_direction", 12),
-    ("hurt_time", 11),
     ("invulnerable_ticks", 48),
     ("mark_variant", 43),
     ("skin_id", 104),
@@ -175,6 +173,16 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                     input.position_delta[axis as usize] / length.sqrt()
                 })
         }
+        // Degrees; billboards turn to face the view, sampled at the last camera feed.
+        "camera_rotation" => argument(0).map_or(0.0, |axis| match axis as i32 {
+            0 => context.camera_rotation[0],
+            1 => context.camera_rotation[1],
+            _ => 0.0,
+        }),
+        "texture_frame_index" => texture_frame_index(actor),
+        // Client-derived from the Hurt event; streamed metadata is not authoritative.
+        "hurt_time" => f32::from(actor.status.hurt_time),
+        "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
         "is_on_ground" => truth(input.on_ground),
         "is_riding" => truth(input.is_riding),
@@ -243,6 +251,25 @@ fn item_name_matches(context: &ActorTickContext, arguments: &[MolangValue]) -> b
             .iter()
             .any(|name| matches!(name, MolangValue::String(name) if name.as_ref() == item))
     })
+}
+
+const KEY_ACTOR_VALUE: u32 = 15;
+
+/// Sprite frame of an experience orb, chosen by its XP value; other actors use frame 0.
+fn texture_frame_index(actor: &ActorSnapshot) -> f32 {
+    let is_orb = matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:xp_orb");
+    if !is_orb {
+        return 0.0;
+    }
+    let value = metadata_number(actor, KEY_ACTOR_VALUE).unwrap_or(0.0);
+    // Value bands per the public Experience Orb documentation.
+    const UPPER_BOUNDS: [f32; 10] = [
+        2.0, 6.0, 16.0, 36.0, 72.0, 148.0, 306.0, 616.0, 1236.0, 2476.0,
+    ];
+    UPPER_BOUNDS
+        .iter()
+        .position(|bound| value <= *bound)
+        .unwrap_or(UPPER_BOUNDS.len()) as f32
 }
 
 fn health(actor: &ActorSnapshot) -> Option<f32> {

@@ -11,7 +11,7 @@ use render::{
 
 use super::{
     ActorFrameClock, ActorPresentationState, authoritative_local_actor_eye,
-    publish_local_actor_visibility,
+    dropped_items::DroppedItemPublisher, publish_local_actor_visibility,
 };
 use crate::{
     presentation::actors::{
@@ -68,6 +68,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     local_skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
+    dropped_items: DroppedItemPublisher<'w, 's>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -86,6 +87,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         local_skin,
         mut equipment,
         ui,
+        mut dropped_items,
     } = params;
     let ActorPresentationState {
         avatar,
@@ -115,6 +117,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         if let Some(feed) = &local_feed {
             stream.sync_local_player_pose(feed);
         }
+        let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
+        stream.set_actor_camera_rotation([
+            -pitch.to_degrees(),
+            (180.0 - yaw.to_degrees()).rem_euclid(360.0),
+        ]);
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
     let authoritative_subject_eye = authoritative_local_actor_eye(
@@ -315,6 +322,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             }
         },
     );
+    dropped_items.publish(client_world.stream.as_ref(), step.partial_tick);
     publish_hand_rig(
         &mut hand_builder.0,
         &mut hand_scene,

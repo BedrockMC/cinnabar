@@ -11,7 +11,7 @@ pub use error::BridgeError;
 pub use framed::FramedStream;
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
-    StatusV1, read_status,
+    StatusV1, read_status, report_pack_application,
 };
 
 /// Returns the platform endpoint used for the logical socket directory.

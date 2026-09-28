@@ -46,8 +46,10 @@ palette entries resolve to air (no name/state lookup), and block-entity id and
 block-actor-type checks are not emulated. StartGame custom blocks are known only
 when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
 they collide as full cubes with stone's surface facts and render as diagnostic
-cubes until runtime pack application lands. Interleaved or hashed custom blocks
-remain unsupported. No vanilla acceptance gate is closed by this change.
+cubes until runtime pack application lands. Hashed-id sessions now register custom
+states by network hash (pack visuals via the runtime overlay; stone-surface collision
+provisional); interleaved sequential custom blocks remain unsupported. Vanilla
+block/entity retexturing from server packs is not applied yet (incomplete). No vanilla acceptance gate is closed by this change.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
@@ -1920,6 +1922,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     globally zero diagnostic and zero provisional-fallback counters,
     vanilla-reference screenshots, upload/memory/CPU
     metrics, and teleport-remesh evidence.
+    - [x] Torch, ladder, rail, tulip, golden-dandelion, and coral-plant exact
+      routes (97 states) supersede their envelope inventory entries; leaves
+      render Fancy. Wall-torch pivot, ladder/rail offsets, and rail curve
+      sprite orientation need native measurement; the coverage baseline must
+      be regenerated. Residual names: `docs/phase-2-family-inventory.md`.
     - [x] Lava implementation: all 32 `minecraft:lava` and
       `minecraft:flowing_lava` depth states compile through the animated liquid
       mesher without water tint or alpha blending, use an immutable packed route

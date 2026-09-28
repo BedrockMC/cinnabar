@@ -80,7 +80,50 @@ pub enum CustomStateValue {
     Bool(bool),
 }
 
+/// One block state a hashed-id session can send: its network hash and its value
+/// on each of the block's `state_axes`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomHashedState {
+    pub hash: u32,
+    pub values: Box<[CustomStateValue]>,
+}
+
 impl CustomBlock {
+    /// Every combination of the named state axes (last axis varies fastest) with
+    /// its network block hash, for sessions whose block ids are hashes.
+    #[must_use]
+    pub fn hashed_states(&self) -> Vec<CustomHashedState> {
+        let axes = &self.visual.state_axes;
+        if axes.iter().any(|axis| axis.values.is_empty()) {
+            return Vec::new();
+        }
+        let total = axes.iter().fold(1_u64, |total, axis| {
+            total.saturating_mul(axis.values.len() as u64)
+        });
+        if total > MAX_STATES_PER_BLOCK {
+            return Vec::new();
+        }
+        (0..total)
+            .map(|mut index| {
+                let mut picks = vec![0_usize; axes.len()];
+                for (pick, axis) in picks.iter_mut().zip(axes.iter()).rev() {
+                    let len = axis.values.len() as u64;
+                    *pick = (index % len) as usize;
+                    index /= len;
+                }
+                let values: Box<[CustomStateValue]> = picks
+                    .iter()
+                    .zip(axes.iter())
+                    .map(|(&pick, axis)| axis.values[pick].clone())
+                    .collect();
+                CustomHashedState {
+                    hash: network_block_hash(&self.name, axes, &values),
+                    values,
+                }
+            })
+            .collect()
+    }
+
     /// Vanilla orders the sequential block palette by FNV-1 64 of the name, then the name.
     #[must_use]
     pub fn sort_key(&self) -> u64 {
@@ -93,6 +136,50 @@ impl CustomBlock {
 pub fn block_name_sort_key(name: &str) -> u64 {
     name.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
         hash.wrapping_mul(0x0000_0100_0000_01b3) ^ u64::from(byte)
+    })
+}
+
+/// FNV-1a 32 of the little-endian NBT `{name, states}` with state keys sorted:
+/// the id a hashed-palette server sends for a block state.
+fn network_block_hash(name: &str, axes: &[CustomStateAxis], values: &[CustomStateValue]) -> u32 {
+    let mut states: Vec<(&str, &CustomStateValue)> = axes
+        .iter()
+        .map(|axis| axis.name.as_ref())
+        .zip(values.iter())
+        .collect();
+    states.sort_by(|left, right| left.0.cmp(right.0));
+    let mut data = vec![10, 0, 0];
+    let push_string = |data: &mut Vec<u8>, text: &str| {
+        data.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        data.extend_from_slice(text.as_bytes());
+    };
+    data.push(8);
+    push_string(&mut data, "name");
+    push_string(&mut data, name);
+    data.push(10);
+    push_string(&mut data, "states");
+    for (key, value) in states {
+        match value {
+            CustomStateValue::String(text) => {
+                data.push(8);
+                push_string(&mut data, key);
+                push_string(&mut data, text);
+            }
+            CustomStateValue::Bool(flag) => {
+                data.push(1);
+                push_string(&mut data, key);
+                data.push(u8::from(*flag));
+            }
+            CustomStateValue::Int(number) => {
+                data.push(3);
+                push_string(&mut data, key);
+                data.extend_from_slice(&(*number as i32).to_le_bytes());
+            }
+        }
+    }
+    data.extend_from_slice(&[0, 0]);
+    data.iter().fold(0x811c_9dc5_u32, |hash, &byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
     })
 }
 
@@ -184,11 +271,19 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
     }) {
         states = states.checked_mul(trait_state_values(&name))?;
         if let Some(values) = trait_state_names(&name) {
+            let integer = name == "facing_direction";
             state_axes.push(CustomStateAxis {
                 name: format!("minecraft:{name}").into(),
                 values: values
                     .iter()
-                    .map(|value| CustomStateValue::String((*value).into()))
+                    .enumerate()
+                    .map(|(index, value)| {
+                        if integer {
+                            CustomStateValue::Int(index as i64)
+                        } else {
+                            CustomStateValue::String((*value).into())
+                        }
+                    })
                     .collect(),
             });
         }
@@ -356,7 +451,50 @@ fn enabled_flags(value: &Nbt) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{block_name_sort_key, parse_definition};
+    use super::{
+        CustomBlock, CustomBlockVisuals, CustomStateAxis, CustomStateValue, block_name_sort_key,
+        parse_definition,
+    };
+
+    // Every state axis combination appears once with a distinct hash.
+    #[test]
+    fn hashed_states_enumerate_axes_and_hash_distinctly() {
+        let block = CustomBlock {
+            name: "ns:b".into(),
+            state_count: 6,
+            collides: true,
+            visual: std::sync::Arc::new(CustomBlockVisuals {
+                state_axes: Box::new([
+                    CustomStateAxis {
+                        name: "ns:a".into(),
+                        values: Box::new([
+                            CustomStateValue::Bool(false),
+                            CustomStateValue::Bool(true),
+                        ]),
+                    },
+                    CustomStateAxis {
+                        name: "ns:c".into(),
+                        values: Box::new([
+                            CustomStateValue::Int(0),
+                            CustomStateValue::Int(1),
+                            CustomStateValue::Int(2),
+                        ]),
+                    },
+                ]),
+                ..CustomBlockVisuals::default()
+            }),
+        };
+        let states = block.hashed_states();
+        assert_eq!(states.len(), 6);
+        assert_eq!(states[1].values[1], CustomStateValue::Int(1));
+        let hashes: std::collections::HashSet<_> = states.iter().map(|state| state.hash).collect();
+        assert_eq!(hashes.len(), 6);
+        let plain = CustomBlock {
+            visual: std::sync::Arc::new(CustomBlockVisuals::default()),
+            ..block
+        };
+        assert_eq!(plain.hashed_states().len(), 1);
+    }
 
     fn string(value: &str) -> Vec<u8> {
         let mut bytes = vec![value.len() as u8];

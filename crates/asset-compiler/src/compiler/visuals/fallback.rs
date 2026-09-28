@@ -135,7 +135,15 @@ impl<'a> FallbackInventory<'a> {
         )
     }
 
+    /// Inventory hit for `record`, ignoring families that now compile to exact geometry.
     fn entry(&self, record: &RegistryRecord) -> Option<([i16; 3], [i16; 3], u8)> {
+        if has_exact_family_route(record) {
+            return None;
+        }
+        self.entry_unfiltered(record)
+    }
+
+    fn entry_unfiltered(&self, record: &RegistryRecord) -> Option<([i16; 3], [i16; 3], u8)> {
         let mut left = 0;
         let mut right = self.entry_count;
         while left < right {
@@ -216,6 +224,11 @@ impl<'a> FallbackInventory<'a> {
             unresolved.join("; "),
         )))
     }
+}
+
+/// Families with a dedicated exact compile rule, which supersede their inventory envelope.
+fn has_exact_family_route(record: &RegistryRecord) -> bool {
+    is_cross_visual(record) || is_torch(record) || is_ladder(record) || is_rail(record)
 }
 
 fn invalid_fallback(detail: &'static str) -> AssetError {
@@ -358,7 +371,7 @@ mod tests {
         let table = inventory(1001).expect("resolve the legacy-stamped inventory");
         let matched = records
             .iter()
-            .filter(|record| table.contains(record))
+            .filter(|record| table.entry_unfiltered(record).is_some())
             .collect::<Vec<_>>();
         let names = matched
             .iter()
@@ -388,7 +401,7 @@ mod tests {
         let table = inventory(2168).expect("resolve the current-stamped inventory");
         let matched = records
             .iter()
-            .filter(|record| table.contains(record))
+            .filter(|record| table.entry_unfiltered(record).is_some())
             .collect::<Vec<_>>();
         let names = matched
             .iter()
