@@ -852,6 +852,10 @@ fn overlay_geometry_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBo
     if child.reset.is_some() {
         base.reset = child.reset;
     }
+    // `reset` drops the cubes a bone inherited; it is how derived geometries hide a bone.
+    if child.reset == Some(true) {
+        base.cubes = Box::default();
+    }
     if !child.cubes.is_empty() {
         base.cubes.clone_from(&child.cubes);
     }
@@ -998,4 +1002,50 @@ fn diagnostic_geometry() -> ActorRigGeometry {
     ];
     ActorRigGeometry::new(DIAGNOSTIC_RIG_ID, Arc::from(vertices), Arc::from(pivots))
         .expect("authored diagnostic actor geometry is finite and bounded")
+}
+
+#[cfg(test)]
+mod tests {
+    use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv};
+
+    use super::overlay_geometry_bone;
+
+    fn bone(reset: Option<bool>, cubes: usize) -> EntityGeometryBone {
+        let zero = EntityGeometryScalar::ZERO;
+        let cube = EntityGeometryCube {
+            origin: [zero; 3],
+            size: [zero; 3],
+            pivot: [zero; 3],
+            rotation: [zero; 3],
+            uv: EntityGeometryUv::Box([zero; 2]),
+            inflate: zero,
+            mirror: false,
+        };
+        EntityGeometryBone {
+            name: "body".into(),
+            parent: None,
+            pivot: None,
+            rotation: None,
+            mirror: None,
+            inflate: None,
+            never_render: None,
+            reset,
+            cubes: vec![cube; cubes].into(),
+        }
+    }
+
+    #[test]
+    fn reset_drops_inherited_cubes_but_a_plain_overlay_keeps_them() {
+        let mut kept = bone(None, 2);
+        overlay_geometry_bone(&mut kept, &bone(None, 0));
+        assert_eq!(kept.cubes.len(), 2);
+
+        let mut hidden = bone(None, 2);
+        overlay_geometry_bone(&mut hidden, &bone(Some(true), 0));
+        assert!(hidden.cubes.is_empty());
+
+        let mut replaced = bone(None, 2);
+        overlay_geometry_bone(&mut replaced, &bone(Some(true), 1));
+        assert_eq!(replaced.cubes.len(), 1);
+    }
 }
