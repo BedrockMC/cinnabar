@@ -55,6 +55,16 @@ pub struct HandRigLight {
 
 const _: () = assert!(size_of::<HandRigLight>() == 16);
 
+/// The equipment atlas page an item instance samples (layer chosen by the instance's
+/// `texture_layer` with its top bit set).
+#[derive(Clone, Debug)]
+pub struct HandItemAtlas {
+    pub width: u16,
+    pub height: u16,
+    pub layers: u32,
+    pub rgba8: Arc<[u8]>,
+}
+
 /// One frame's local first-person rig: a single-instance rig frame whose `world_from_actor`
 /// already places the rig in camera space, plus its skin, lighting, and base FOV.
 #[derive(Clone, Debug)]
@@ -64,6 +74,7 @@ pub(crate) struct HandRigFrame {
     pub(crate) light: HandRigLight,
     pub(crate) fov_radians: f32,
     pub(crate) revision: u64,
+    pub(crate) item_atlas: Option<HandItemAtlas>,
 }
 
 /// Published by the app each frame the first-person hand should draw; empty otherwise.
@@ -104,8 +115,27 @@ impl HandRigScene {
             light,
             fov_radians,
             revision,
+            item_atlas: None,
         });
         true
+    }
+
+    /// Supplies the atlas page for item instances of the published frame; ignored when inactive
+    /// or when the page is malformed.
+    pub fn set_item_atlas(&mut self, atlas: Option<HandItemAtlas>) {
+        let valid = |atlas: &HandItemAtlas| {
+            atlas.width != 0
+                && atlas.height != 0
+                && atlas.layers != 0
+                && atlas.rgba8.len()
+                    == usize::from(atlas.width)
+                        * usize::from(atlas.height)
+                        * atlas.layers as usize
+                        * 4
+        };
+        if let Some(frame) = &mut self.frame {
+            frame.item_atlas = atlas.filter(valid);
+        }
     }
 
     #[must_use]
@@ -170,6 +200,12 @@ struct HandRigDepth {
     samples: u32,
 }
 
+struct HandRigAtlas {
+    _texture: Texture,
+    view: TextureView,
+    pixels: Arc<[u8]>,
+}
+
 struct HandRigSkin {
     _texture: Texture,
     view: TextureView,
@@ -189,6 +225,8 @@ struct HandRigGpu {
     previous_bones: Option<Buffer>,
     current_bones: Option<Buffer>,
     skin: Option<HandRigSkin>,
+    atlas: Option<HandRigAtlas>,
+    instance_count: u32,
     depth: Option<HandRigDepth>,
     bind_group: Option<BindGroup>,
     pipeline: Option<CachedRenderPipelineId>,
@@ -232,6 +270,8 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         previous_bones: None,
         current_bones: None,
         skin: None,
+        atlas: None,
+        instance_count: 0,
         depth: None,
         bind_group: None,
         pipeline: None,
@@ -268,6 +308,7 @@ fn prepare(
     upload_geometry(&mut gpu, &device, frame);
     upload_pose(&mut gpu, &device, frame);
     upload_skin(&mut gpu, &device, &queue, frame);
+    upload_atlas(&mut gpu, &device, &queue, frame);
     ensure_depth(&mut gpu, &device, size, samples);
     let aspect = viewport.z as f32 / viewport.w as f32;
     let projection =
@@ -292,6 +333,7 @@ fn prepare(
 fn deactivate(gpu: &mut HandRigGpu) {
     gpu.bind_group = None;
     gpu.maximum_vertex_count = 0;
+    gpu.instance_count = 0;
     gpu.revision = None;
 }
 
@@ -336,6 +378,7 @@ fn upload_pose(gpu: &mut HandRigGpu, device: &RenderDevice, frame: &HandRigFrame
         &frame.rig.current_bones,
     ));
     gpu.maximum_vertex_count = frame.rig.maximum_vertex_count;
+    gpu.instance_count = u32::try_from(frame.rig.instances.len()).unwrap_or(0);
     gpu.revision = Some(frame.revision);
     gpu.bind_group = None;
 }
@@ -382,6 +425,57 @@ fn upload_skin(
         _texture: texture,
         view,
         pixels: Arc::clone(&frame.skin),
+    });
+    gpu.bind_group = None;
+}
+
+fn upload_atlas(
+    gpu: &mut HandRigGpu,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    frame: &HandRigFrame,
+) {
+    let Some(atlas) = &frame.item_atlas else {
+        if gpu.atlas.take().is_some() {
+            gpu.bind_group = None;
+        }
+        return;
+    };
+    if gpu
+        .atlas
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(&current.pixels, &atlas.rgba8))
+    {
+        return;
+    }
+    let texture = device.create_texture_with_data(
+        queue,
+        &TextureDescriptor {
+            label: Some("first-person item atlas"),
+            size: Extent3d {
+                width: u32::from(atlas.width),
+                height: u32::from(atlas.height),
+                depth_or_array_layers: atlas.layers,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::LayerMajor,
+        &atlas.rgba8,
+    );
+    let view = texture.create_view(&TextureViewDescriptor {
+        label: Some("first-person item atlas layers"),
+        dimension: Some(TextureViewDimension::D2Array),
+        ..default()
+    });
+    gpu.atlas = Some(HandRigAtlas {
+        _texture: texture,
+        view,
+        pixels: Arc::clone(&atlas.rgba8),
     });
     gpu.bind_group = None;
 }
@@ -475,6 +569,13 @@ fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cache: &Pipelin
             BindGroupEntry {
                 binding: 9,
                 resource: gpu.light_uniform.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 10,
+                // Without an item atlas the skin view stands in; no instance selects it.
+                resource: BindingResource::TextureView(
+                    gpu.atlas.as_ref().map_or(&skin.view, |atlas| &atlas.view),
+                ),
             },
         ],
     ));
@@ -616,6 +717,16 @@ fn hand_rig_layout() -> BindGroupLayoutDescriptor {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
                     min_binding_size: BufferSize::new(16),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 10,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
                 },
                 count: None,
             },

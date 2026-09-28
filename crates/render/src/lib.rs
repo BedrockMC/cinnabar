@@ -25,7 +25,7 @@ mod ui_render;
 mod viewmodel;
 mod viewmodel_render;
 
-pub use hand_rig_render::{HandRigLight, HandRigRenderPlugin, HandRigScene};
+pub use hand_rig_render::{HandItemAtlas, HandRigLight, HandRigRenderPlugin, HandRigScene};
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,
     ViewmodelScene, ViewmodelSkin, ViewmodelToken, viewmodel_depth_bytes,
@@ -56,7 +56,7 @@ pub use actor::{
     actor_rig_submission_is_visible, default_actor_skin_rgba8, equipment_rig_id,
     extruded_sprite_vertices, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
     item_mesh_rig_id, normalize_actor_skin, pack_overlay_rgba8, standard_biped_overlay_vertices,
-    standard_biped_vertices,
+    standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

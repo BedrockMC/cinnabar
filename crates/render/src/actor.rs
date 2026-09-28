@@ -17,7 +17,7 @@ pub use artwork::{
     ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
-pub use item_mesh::extruded_sprite_vertices;
+pub use item_mesh::{extruded_sprite_vertices, textured_cube_vertices};
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
 #[path = "actor/item_mesh.rs"]

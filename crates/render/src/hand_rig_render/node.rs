@@ -69,7 +69,7 @@ impl ViewNode for HandRigViewNode {
         });
         pass.set_render_pipeline(pipeline);
         pass.set_bind_group(0, binding, &[]);
-        pass.draw(0..gpu.maximum_vertex_count, 0..1);
+        pass.draw(0..gpu.maximum_vertex_count, 0..gpu.instance_count.max(1));
         Ok(())
     }
 }

@@ -63,3 +63,13 @@ pub(super) fn attach_to_bone(
     };
     bone.is_finite().then_some(bone)
 }
+
+/// Third-person placement of a held block cube: a small cube turned to show its corner, resting
+/// in front of the fist. Provisional; needs native measurement like the sprite placement.
+pub(super) fn held_block_display() -> ItemDisplay {
+    ItemDisplay {
+        rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
+        translation: Vec3::new(0.0, 0.05, -0.2),
+        scale: 0.4,
+    }
+}

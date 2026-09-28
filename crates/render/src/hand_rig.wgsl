@@ -37,6 +37,8 @@ struct HandLight {
 @group(0) @binding(7) var skin_sampler: sampler;
 @group(0) @binding(8) var<uniform> material_class: vec4<u32>;
 @group(0) @binding(9) var<uniform> hand_light: HandLight;
+// Instances whose texture layer has its top bit set sample this equipment atlas page instead.
+@group(0) @binding(10) var item_atlas: texture_2d_array<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -126,7 +128,10 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if (input.valid == 0u) {
         discard;
     }
-    let color = textureSample(skins, skin_sampler, select(input.back_uv, input.uv, front), i32(input.skin_layer));
+    let uv = select(input.back_uv, input.uv, front);
+    let skin_color = textureSample(skins, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
+    let item_color = textureSample(item_atlas, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
+    let color = select(skin_color, item_color, (input.skin_layer & 0x80000000u) != 0u);
     if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
         discard;
     }

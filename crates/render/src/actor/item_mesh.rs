@@ -103,6 +103,54 @@ pub fn extruded_sprite_vertices(
     any.then_some(vertices)
 }
 
+/// A unit cube centred on the origin. Face `f` samples `face_rects[f]` (`[u0, v0, u1, v1]`, one
+/// 16-texel tile); face order and corner UV directions follow the world block cube pipeline.
+#[must_use]
+pub fn textured_cube_vertices(face_rects: [[f32; 4]; 6]) -> Vec<ActorRigVertex> {
+    const CORNERS: [[[f32; 3]; 4]; 6] = [
+        [[0., 0., 0.], [0., 0., 1.], [0., 1., 1.], [0., 1., 0.]],
+        [[1., 0., 0.], [1., 1., 0.], [1., 1., 1.], [1., 0., 1.]],
+        [[0., 0., 0.], [1., 0., 0.], [1., 0., 1.], [0., 0., 1.]],
+        [[0., 1., 0.], [0., 1., 1.], [1., 1., 1.], [1., 1., 0.]],
+        [[0., 0., 0.], [0., 1., 0.], [1., 1., 0.], [1., 0., 0.]],
+        [[0., 0., 1.], [1., 0., 1.], [1., 1., 1.], [0., 1., 1.]],
+    ];
+    const HORIZONTAL: [[f32; 2]; 4] = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]];
+    const TRANSPOSED: [[f32; 2]; 4] = [[0., 0.], [0., 1.], [1., 1.], [1., 0.]];
+    const VERTICAL: [[f32; 2]; 4] = [[0., 1.], [1., 1.], [1., 0.], [0., 0.]];
+    const VERTICAL_TRANSPOSED: [[f32; 2]; 4] = [[0., 1.], [0., 0.], [1., 0.], [1., 1.]];
+    // Half a texel inside the tile so nearest sampling never reads a neighbouring tile.
+    const INSET: f32 = 0.5 / 16.0;
+    let mut vertices = Vec::with_capacity(36);
+    for (face, corners) in CORNERS.into_iter().enumerate() {
+        let directions = match face {
+            0 | 5 => VERTICAL,
+            1 | 4 => VERTICAL_TRANSPOSED,
+            3 => TRANSPOSED,
+            _ => HORIZONTAL,
+        };
+        let rect = face_rects[face];
+        let uvs = directions.map(|[u, v]| {
+            let (u, v) = (
+                INSET + u * (1.0 - 2.0 * INSET),
+                INSET + v * (1.0 - 2.0 * INSET),
+            );
+            [
+                rect[0] + (rect[2] - rect[0]) * u,
+                rect[1] + (rect[3] - rect[1]) * v,
+            ]
+        });
+        let corners = corners.map(|corner| corner.map(|axis| axis - 0.5));
+        let centroid = std::array::from_fn::<f32, 3, _>(|axis| {
+            corners.iter().map(|corner| corner[axis]).sum::<f32>() / 4.0
+        });
+        // Every face centre lies on one axis, which is its outward normal.
+        let normal = centroid.map(|value| value.signum() * f32::from(value.abs() > 0.25));
+        push_quad(&mut vertices, corners, uvs, uvs, normal);
+    }
+    vertices
+}
+
 fn push_quad(
     vertices: &mut Vec<ActorRigVertex>,
     corners: [[f32; 3]; 4],
@@ -199,6 +247,38 @@ mod tests {
                 assert!((vertex.uv[0] - (1.0 - other.uv[0])).abs() < 1e-6);
                 assert_eq!(vertex.uv[1], other.uv[1]);
                 assert_eq!(vertex.back_uv, other.uv);
+            }
+        }
+    }
+
+    #[test]
+    fn cube_has_six_outward_faces_inside_their_tiles() {
+        let rects = std::array::from_fn(|face| {
+            let x = face as f32 * 0.1;
+            [x, 0.0, x + 0.1, 0.5]
+        });
+        let vertices = super::textured_cube_vertices(rects);
+        assert_eq!(vertices.len(), 36);
+        for (index, triangle) in vertices.chunks_exact(3).enumerate() {
+            let rect = rects[index / 2];
+            let a = triangle[0].position;
+            let (b, c) = (triangle[1].position, triangle[2].position);
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cross = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            let normal = triangle[0].normal;
+            assert_eq!(normal.iter().map(|value| value.abs()).sum::<f32>(), 1.0);
+            assert!(cross[0] * normal[0] + cross[1] * normal[1] + cross[2] * normal[2] > 0.0);
+            // The face plane sits half a unit out along its normal.
+            let plane = a[0] * normal[0] + a[1] * normal[1] + a[2] * normal[2];
+            assert!((plane - 0.5).abs() < 1e-6);
+            for vertex in triangle {
+                assert!((rect[0]..=rect[2]).contains(&vertex.uv[0]));
+                assert!((rect[1]..=rect[3]).contains(&vertex.uv[1]));
             }
         }
     }
