@@ -1,4 +1,4 @@
-//! Packs sound-event routing JSON and every `.fsb` under `sounds/` into an MCBESND1 bank.
+//! Packs sound-event routing JSON and every `.fsb` and `.ogg` under `sounds/` into an MCBESND1 bank.
 
 use std::{
     fs,

@@ -10,7 +10,7 @@ use std::{
 
 use assets::{
     AudioDefinition, RuntimeAudioCatalog, SoundBankEntry, SoundBankIndex, SoundEventTables,
-    decode_fsb5, sound_bank_prefix_len,
+    decode_sound, sound_bank_prefix_len,
 };
 use serde_json::Value;
 
@@ -156,7 +156,7 @@ impl SoundBank {
         let decoded = entry
             .and_then(|entry| self.read_entry(entry))
             .and_then(|bytes| {
-                decode_fsb5(&bytes)
+                decode_sound(&bytes)
                     .map_err(|error| bevy::log::debug!(%error, path, "sound decode failed"))
                     .ok()
             });
