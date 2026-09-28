@@ -181,11 +181,6 @@ fn assert_frames_equal(left: &LocalPhysicsFrame, right: &LocalPhysicsFrame) {
     assert_eq!(left.dropped_ticks, right.dropped_ticks);
     assert_eq!(left.blocked_tick_index, right.blocked_tick_index);
     assert_eq!(left.blocked, right.blocked);
-    assert_eq!(
-        left.embedded_anchor_hold_engaged,
-        right.embedded_anchor_hold_engaged
-    );
-    assert_eq!(left.embedded_hold_ticks, right.embedded_hold_ticks);
     assert_eq!(left.samples, right.samples);
     for (left, right) in left.samples.iter().zip(&right.samples) {
         assert_eq!(sample_bits(left), sample_bits(right));

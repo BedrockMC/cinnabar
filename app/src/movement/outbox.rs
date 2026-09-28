@@ -148,17 +148,6 @@ pub(crate) fn flush_player_auth_inputs_guarded<E>(
         ticker.refresh_outbox_reconciliation();
         return Ok(0);
     }
-    if ticker.tx_gate.suppressing() {
-        // Provisional spawn-settle window (see the `settle` module): the
-        // simulation, admission, and tick scheduling continue unchanged, but
-        // queued completed samples are withheld from the transport instead of
-        // being encoded or staged. Suppressed ticks never reach the wire and
-        // are never replayed; no evidence context is required because nothing
-        // is encoded on this path.
-        ticker.withhold_settled_outbox(budget);
-        ticker.refresh_outbox_reconciliation();
-        return Ok(0);
-    }
     if !ticker.outbox.is_empty() && evidence_context.is_none() {
         return Err(MovementSendError::MissingEvidenceContext);
     }
@@ -240,7 +229,6 @@ impl MovementTicker {
         self.physics_is_authorized()
             && !self.terminal_drain
             && !self.has_unresolved_position_authority_change()
-            && !self.tx_gate.suppressing()
     }
 
     /// Drops interaction payloads whose frozen target, selection, ability, or

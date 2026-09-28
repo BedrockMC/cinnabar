@@ -1,28 +1,20 @@
 //! Bounded spawn-anchor depenetration probing (PROVISIONAL recovery policy).
 //!
-//! Live third-party evidence (2026-08-22/25): hard movement anchors are
-//! installed without any collision check, and when the anchor overlaps solids
-//! the pinned tick resolution turns depenetration minimal-translation vectors
-//! into genuine oscillating position AND velocity under zero input — exactly
-//! the inputless-drift signature third-party anti-cheats reject as
-//! "movement cheats". After every hard anchor this module probes the anchor
-//! against the same collision [`sim::PaletteWorld`] the frame already builds
-//! and, while a bounded fix exists, moves the anchor out of any overlap
-//! before the first simulated tick runs.
+//! Hard movement anchors (and Replay corrections) can be installed without a
+//! collision check. Before the first simulated tick of a freshly anchored
+//! epoch this module probes the anchor against the same collision
+//! [`sim::PaletteWorld`] the frame already builds and, when a bounded
+//! minimal-translation walk exists, moves the anchor out of the overlap. A
+//! positional push-out is applied to the anchor's position only; it never
+//! becomes reported movement or velocity.
 //!
-//! When no bounded fix exists (a sealed pocket, or an embedment deeper than
-//! the displacement budget), the state machine degrades honestly instead of
-//! manufacturing garbage motion:
-//!
-//! 1. the first failed probe freezes simulation advancement inside an
-//!    embedded-anchor hold (`settle::SpawnSettleGate::enter_embedded_hold`)
-//!    that withholds transmission until a server correction, MovePlayer,
-//!    respawn, or StartGame snap re-anchors and re-probes;
-//! 2. the unchanged provisional fail-open cap bounds each hold episode;
-//! 3. after [`EMBEDDED_HOLD_MAX_FAILED_PROBES_PER_EPOCH`] failed probes in
-//!    one re-anchor epoch probing stops entirely and today's fail-open
-//!    streaming behavior resumes, so a server that keeps snapping the player
-//!    into geometry can never create an unbounded correction fight-loop.
+//! When no bounded push-out exists (a sealed pocket, or an embedment deeper
+//! than the displacement budget) the tick simply proceeds. The simulator's
+//! per-axis resolution reports zero inputless horizontal motion from an
+//! embedded start, so proceeding streams a stable pose rather than the
+//! oscillating drift a minimal-translation ejection into transmitted velocity
+//! used to produce. A failed probe optionally renders one diagnostic marker
+//! (see below) but changes no transmission decision.
 //!
 //! Every constant here is explicitly provisional pending version-matched
 //! native Bedrock measurement (VPA-109 family); none is a vanilla parity
@@ -31,15 +23,12 @@
 //! data stays pending and the ordinary tick path reproduces the error.
 //!
 //! Failure-evidence markers (`RUST_MCBE_ANCHOR_PROBE` family): each failed
-//! probe attempt may additionally render ONE bounded single-line stdout
-//! marker naming the sealing colliders, plus one `phase:"degraded"` marker
-//! when that attempt spends the per-epoch budget. Emission is opt-in via
-//! the registered environment literal [`crate::acceptance::markers::
-//! ANCHOR_PROBE`] with value exactly `1`; any other value, or unset, keeps
-//! every decision and allocation byte-identical to the un-gated build.
-//! Formatting lives in the pure [`super::anchor_probe_evidence`] module;
-//! during an embedded hold nothing is ever emitted because this state
-//! machine short-circuits before any evidence path.
+//! probe attempt may render ONE bounded single-line stdout marker naming the
+//! sealing colliders. Emission is opt-in via the registered environment
+//! literal [`crate::acceptance::markers::ANCHOR_PROBE`] with value exactly
+//! `1`; any other value, or unset, keeps every decision and allocation
+//! byte-identical to the un-gated build. Formatting lives in the pure
+//! [`super::anchor_probe_evidence`] module.
 
 use std::ffi::OsStr;
 use std::sync::OnceLock;
@@ -57,25 +46,18 @@ pub(crate) const ANCHOR_PROBE_MAX_ITERATIONS: usize = 8;
 /// walking an anchor out of solids.
 pub(crate) const ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS: f64 = 1.5;
 
-/// PROVISIONAL number of failed probes allowed per re-anchor epoch. Once
-/// spent, probing stops for that epoch and the pre-existing fail-open
-/// streaming behavior resumes unchanged.
-const EMBEDDED_HOLD_MAX_FAILED_PROBES_PER_EPOCH: u32 = 3;
-
 const _: () = assert!(
     ANCHOR_PROBE_MAX_ITERATIONS > 0 && ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS > 0.0,
     "the anchor probe budget must be able to act"
 );
 
-/// What the first simulated tick after a hard anchor must do.
+/// What the first simulated tick after a fresh anchor must do.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum BeforeTick {
     /// Run the tick from the current position.
     Proceed,
     /// Move the anchor to a cleared feet origin first, then run the tick.
     Adjust(Vec3),
-    /// Enter the embedded-anchor hold instead of simulating garbage motion.
-    Hold,
 }
 
 enum AnchorResolution {
@@ -146,12 +128,10 @@ fn probe_anchor(
     )
 }
 
-/// Per-controller spawn-anchor probe state. One epoch per hard anchor.
+/// Per-controller spawn-anchor probe state. One epoch per fresh anchor.
 #[derive(Debug, Clone)]
 pub(super) struct AnchorProbeState {
     pending: bool,
-    failed_probes: u32,
-    holding: bool,
     evidence_enabled: bool,
 }
 
@@ -159,19 +139,19 @@ impl AnchorProbeState {
     pub(super) fn new() -> Self {
         Self {
             pending: false,
-            failed_probes: 0,
-            holding: false,
             evidence_enabled: evidence_enabled_from_env(),
         }
     }
 
-    /// Arms a fresh probe epoch: any prior failure budget or frozen hold is
-    /// replaced by the newly anchored position.
+    /// Arms a fresh probe epoch for a hard anchor.
     pub(super) fn note_hard_anchor(&mut self) {
-        *self = Self {
-            pending: true,
-            ..Self::new()
-        };
+        self.pending = true;
+    }
+
+    /// Re-arms one probe for the next tick after a Replay correction whose
+    /// landing may be embedded, without disturbing evidence configuration.
+    pub(super) fn rearm(&mut self) {
+        self.pending = true;
     }
 
     /// Clears all probe state with movement authority itself.
@@ -179,17 +159,15 @@ impl AnchorProbeState {
         *self = Self::new();
     }
 
-    pub(super) const fn holding(&self) -> bool {
-        self.holding
-    }
-
     /// Decides what must happen before the first simulated tick of a frame.
     ///
     /// Collision-data unavailability keeps today's transient-blocked behavior
     /// exactly: the probe stays pending and the ordinary tick reproduces the
-    /// query error.
+    /// query error. An unresolvable embedment proceeds — the simulator reports
+    /// no inputless horizontal motion from an embedded start — after optionally
+    /// rendering one diagnostic marker.
     pub(super) fn before_tick(&mut self, world: &impl CollisionWorld, feet: Vec3) -> BeforeTick {
-        if self.holding || !self.pending {
+        if !self.pending {
             return BeforeTick::Proceed;
         }
         match probe_anchor(world, feet) {
@@ -205,9 +183,7 @@ impl AnchorProbeState {
             }
             Ok(AnchorResolution::Unresolvable { colliders }) => {
                 self.pending = false;
-                self.failed_probes = self.failed_probes.saturating_add(1);
-                let epoch_spent = self.failed_probes >= EMBEDDED_HOLD_MAX_FAILED_PROBES_PER_EPOCH;
-                // Bounded, purely additive evidence: when disabled this
+                // Bounded, purely additive diagnostic: when disabled this
                 // returns an empty vector before formatting anything, so
                 // decisions and allocations are byte-identical either way.
                 for line in evidence::failure_marker_lines(
@@ -216,34 +192,13 @@ impl AnchorProbeState {
                     &colliders,
                     ANCHOR_PROBE_MAX_ITERATIONS,
                     ANCHOR_PROBE_MAX_DISPLACEMENT_BLOCKS,
-                    epoch_spent,
+                    false,
                 ) {
                     write_trace_line(&line);
                 }
-                if epoch_spent {
-                    // Bounded degrade: stop probing this epoch and fall back
-                    // to today's fail-open streaming behavior so a server
-                    // that keeps snapping the player into geometry cannot
-                    // create an unbounded correction fight-loop.
-                    BeforeTick::Proceed
-                } else {
-                    self.holding = true;
-                    BeforeTick::Hold
-                }
+                BeforeTick::Proceed
             }
         }
-    }
-
-    /// Releases a frozen hold after the gate's cap failed it open, re-arming
-    /// one more probe attempt while this epoch still has failure budget.
-    pub(super) fn release_after_cap(&mut self) {
-        self.holding = false;
-        self.pending = self.failed_probes < EMBEDDED_HOLD_MAX_FAILED_PROBES_PER_EPOCH;
-    }
-
-    #[cfg(test)]
-    pub(super) const fn failed_probes(&self) -> u32 {
-        self.failed_probes
     }
 
     #[cfg(test)]

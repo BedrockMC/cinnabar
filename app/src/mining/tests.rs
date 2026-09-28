@@ -117,6 +117,7 @@ fn completed(tick: u64) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position: [0.5, 2.620_01, 0.5],
+        movement: [0.0; 3],
         velocity: [0.0; 3],
         move_vector: [0.0; 2],
         raw_move_vector: [0.0; 2],
@@ -143,7 +144,6 @@ fn ticker_with_ticks(count: usize) -> MovementTicker {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
     for offset in 0..count {
         ticker
             .enqueue_completed_physics(completed(101 + offset as u64))
@@ -378,7 +378,10 @@ fn press_waits_for_and_attaches_to_the_exact_frozen_tick() {
 }
 
 #[test]
-fn spawn_settle_rejects_the_press_and_requires_a_fresh_edge_after_lift() {
+fn a_press_attaches_immediately_without_a_spawn_settle_gate() {
+    // The former spawn-settle window rejected mining presses until it lifted.
+    // Transmission is unconditional now, so a press on an authorized, already
+    // enqueued tick attaches its break immediately after StartGame.
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
@@ -388,23 +391,12 @@ fn spawn_settle_rejects_the_press_and_requires_a_fresh_edge_after_lift() {
     let current = observation(101, [0, 1, -3], 2);
 
     assert_eq!(
-        runtime.update_press(true, authority, Some(current.clone()), &mut ticker),
-        None
-    );
-    assert!(!runtime.has_pending_press());
-    assert!(!ticker.has_queued_creative_mining());
-
-    ticker.testing_lift_spawn_settle_gate();
-    assert_eq!(
-        runtime.update_press(false, authority, Some(current.clone()), &mut ticker),
-        None
-    );
-    assert!(!runtime.has_pending_press());
-    assert!(!ticker.has_queued_creative_mining());
-    assert_eq!(
         runtime.update_press(true, authority, Some(current), &mut ticker),
-        Some(101)
+        Some(101),
+        "no settle gate delays the break; it attaches to the queued tick"
     );
+    assert!(!runtime.has_pending_press());
+    assert!(ticker.has_queued_creative_mining());
 }
 
 #[test]

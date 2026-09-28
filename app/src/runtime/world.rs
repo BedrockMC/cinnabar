@@ -397,15 +397,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
             } => {
                 let tick = correction.source_tick;
                 if movement.physics_is_authorized() {
-                    // Opt-in HandledTeleport acknowledgement, gated exactly
-                    // like every other arming site: only the event's explicit
-                    // teleported flag is a server teleport; unmarked local
-                    // MovePlayers stay counter-only.
-                    if correction.teleported {
-                        movement.note_server_teleport(ServerTeleportKind::MovePlayer);
-                    } else {
-                        movement.note_unmarked_local_move_player();
-                    }
                     let world = sim::PaletteWorld::new(
                         stream.collision_store(),
                         collisions.registry(stream.network_id_mode()),
@@ -414,15 +405,38 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    if let Ok(outcome) = reconcile_candidate_physics_correction(
-                        &mut movement,
-                        &mut local_physics,
-                        resolved.position,
-                        tick,
-                        correction.on_ground,
-                        PhysicsCorrectionMode::Snap,
-                        &world,
-                    ) {
+                    // Only a MovePlayer explicitly flagged as a teleport hard
+                    // re-anchors. An unmarked MovePlayer is an ordinary position
+                    // sync: classify it (confirm / replay / far-teleport) like a
+                    // CorrectPlayerMovePrediction so a small server nudge replays
+                    // instead of forcing a hard snap. Opt-in HandledTeleport
+                    // acknowledgement arms on the teleport path only.
+                    let outcome = if correction.teleported {
+                        movement.note_server_teleport(ServerTeleportKind::MovePlayer);
+                        reconcile_candidate_physics_correction(
+                            &mut movement,
+                            &mut local_physics,
+                            resolved.position,
+                            tick,
+                            correction.on_ground,
+                            PhysicsCorrectionMode::Snap,
+                            &world,
+                        )
+                        .ok()
+                    } else {
+                        movement.note_unmarked_local_move_player();
+                        reconcile_committed_correction(
+                            &mut movement,
+                            &mut local_physics,
+                            resolved.position,
+                            tick,
+                            correction.on_ground,
+                            &world,
+                        )
+                        .ok()
+                        .flatten()
+                    };
+                    if let Some(outcome) = outcome {
                         phase3_evidence.note_correction(
                             outcome,
                             position_distance(previous, resolved.position),
