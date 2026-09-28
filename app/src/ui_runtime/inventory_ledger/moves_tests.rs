@@ -139,7 +139,7 @@ fn drop_shrinks_the_source_until_rejected() {
 }
 
 /// Quick moves go hotbar to main inventory and back, merging into a
-/// compatible partial stack before an empty cell.
+/// compatible partial stack first and spilling the rest into empty cells.
 #[test]
 fn quick_move_prefers_compatible_partial_stacks() {
     let mut ledger = open_ledger(&[
@@ -154,21 +154,22 @@ fn quick_move_prefers_compatible_partial_stacks() {
         ..
     }) = ledger.newest_action()
     else {
-        panic!("a single place");
+        panic!("a merge place first");
     };
     assert_eq!(
         (amount, destination.slot, destination.stack_network_id),
         (4, 30, 11)
     );
     assert_eq!(ledger.displayed_stack(30).unwrap().count, 64);
-    assert_eq!(ledger.displayed_stack(0).unwrap().count, 6);
+    assert_eq!(ledger.displayed_stack(0), None);
+    assert_eq!(ledger.displayed_stack(9).unwrap().count, 6);
 
     ledger.begin_quick_move(InventoryTarget::Player(4)).unwrap();
     let Some(StackRequestAction::Place { destination, .. }) = ledger.newest_action() else {
         panic!("a single place");
     };
-    assert_eq!((destination.slot, destination.stack_network_id), (9, 0));
-    assert_eq!(ledger.displayed_stack(9).unwrap().stack_network_id, 12);
+    assert_eq!((destination.slot, destination.stack_network_id), (10, 0));
+    assert_eq!(ledger.displayed_stack(10).unwrap().stack_network_id, 12);
 }
 
 /// With storage open, player stacks quick-move into the storage window.
