@@ -73,8 +73,18 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   leather colour and colour-space multiply need measurement). No enchant glint/trim/elytra/
   shield/pumpkin head.
 - **First person:** near-camera rig pass fed with arm-only masking per the pack's first-person
-  part visibility (arm shows for empty hand/map only); camera-to-rig offset is still the
-  provisional constant; held items keep the CPU icon viewmodel.
+  part visibility (arm shows for empty hand/map only) plus a drawable held sprite or block cube
+  on the posed `rightItem` bone (item atlas bound to the pass); camera-to-rig offset and item
+  placement are provisional. Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
+  poses are neutral: `query.main_hand_item_use_duration`/`max_duration` have no source (no
+  item-use state; only food durations exist in pack data).
+- **Block items:** plain opaque cubes in hand (third and first person) and on the head
+  (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
+- **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
+  gliding and swimming are Molang-driven and fall back to `default`.
+- **Not done:** bow/crossbow pull frames, trident geometry, shield re-parent/blocking pose,
+  spyglass/goat-horn poses (attachable-to-hand-bone origin semantics and use state need native
+  measurement), enchant glint and armor trims.
 
 ## Local player rendering
 Third-person body (S1) merged: local player routed through the shared animated rig.
