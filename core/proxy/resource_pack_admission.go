@@ -6,8 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,26 +32,35 @@ const (
 	maxSelectedResourcePacks          = 32
 	maxSelectedResourcePackTotalBytes = 128 * 1024 * 1024
 	maxResourcePackArchiveBytes       = 64 * 1024 * 1024
+	// Transfers may claim more bytes than their offer, so downloads are bounded
+	// separately: gophertunnel holds every downloaded pack in memory until the
+	// handoff is captured, and past this ceiling the dial is cancelled.
+	maxResourcePackTransferBytes = 2 * maxSelectedResourcePackTotalBytes
 	// Cinnabar safety bound on the download phase, below the client's login timeout.
 	maxResourcePackAcquisitionTime = 60 * time.Second
 )
 
 var (
 	errResourcePackAcquisitionTimeout = errors.New("proxy: resource-pack acquisition exceeded its time bound")
-	errResourcePackArchiveTooLarge    = errors.New("proxy: resource-pack archive exceeds its size bound")
+	errResourcePackTransferTooLarge   = errors.New("proxy: resource-pack transfers exceeded their memory bound")
 )
 
 // resourcePackAcquisitionBudget admits offered packs for download in offer
-// order until the count or byte bound is reached; later packs are ignored, not
-// fatal. A transfer that outgrows its bounds cancels the upstream dial.
+// order within the count and byte bounds; later packs are ignored, not fatal.
+// A pack whose transfer disagrees with its offer is dropped from the handoff so
+// login still succeeds, while transfers past the memory ceiling or the time
+// bound cancel the upstream dial.
 type resourcePackAcquisitionBudget struct {
 	proto  minecraft.Protocol
 	cancel context.CancelCauseFunc
 	limit  time.Duration
 
-	mu       sync.Mutex
-	accepted []bool
-	timer    *time.Timer
+	mu          sync.Mutex
+	accepted    []bool
+	offered     map[string]uint64
+	excluded    map[string]bool
+	transferred uint64
+	timer       *time.Timer
 }
 
 func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.CancelCauseFunc) *resourcePackAcquisitionBudget {
@@ -67,9 +77,8 @@ func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, paylo
 		info, ok := decodeInboundPacket[*packet.ResourcePacksInfo](budget.proto, header.PacketID, payload)
 		budget.admitOffer(info, ok)
 	case packet.IDResourcePackDataInfo:
-		info, ok := decodeInboundPacket[*packet.ResourcePackDataInfo](budget.proto, header.PacketID, payload)
-		if ok && info.Size > maxResourcePackArchiveBytes {
-			budget.cancel(errResourcePackArchiveTooLarge)
+		if info, ok := decodeInboundPacket[*packet.ResourcePackDataInfo](budget.proto, header.PacketID, payload); ok {
+			budget.observeTransfer(info)
 		}
 	case packet.IDResourcePackStack, packet.IDStartGame:
 		budget.stop()
@@ -79,7 +88,8 @@ func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, paylo
 func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePacksInfo, decoded bool) {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	budget.accepted = nil
+	budget.accepted, budget.offered = nil, map[string]uint64{}
+	budget.excluded, budget.transferred = map[string]bool{}, 0
 	if !decoded {
 		return
 	}
@@ -94,6 +104,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 		total += pack.Size
 		admitted++
 		budget.accepted[index] = true
+		budget.offered[pack.UUID.String()] = pack.Size
 	}
 	if budget.timer != nil {
 		budget.timer.Stop()
@@ -102,6 +113,34 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	if admitted != 0 {
 		budget.timer = time.AfterFunc(budget.limit, func() { budget.cancel(errResourcePackAcquisitionTimeout) })
 	}
+}
+
+// observeTransfer accounts one downloaded pack. A transfer larger than its
+// offer, or one for an unadvertised pack, is dropped from the handoff; the
+// running total past the memory ceiling cancels the dial.
+func (budget *resourcePackAcquisitionBudget) observeTransfer(info *packet.ResourcePackDataInfo) {
+	id, _, _ := strings.Cut(info.UUID, "_")
+	budget.mu.Lock()
+	offered, known := budget.offered[id]
+	if !known || info.Size > offered {
+		budget.excluded[id] = true
+	}
+	budget.transferred = saturatingAdd(budget.transferred, info.Size)
+	overflow := budget.transferred > maxResourcePackTransferBytes
+	budget.mu.Unlock()
+	if overflow {
+		budget.cancel(errResourcePackTransferTooLarge)
+	}
+}
+
+// excludes reports whether a downloaded pack must be kept out of the handoff.
+func (budget *resourcePackAcquisitionBudget) excludes(pack *resource.Pack) bool {
+	if budget == nil {
+		return false
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	return budget.excluded[pack.UUID().String()]
 }
 
 // admit is the Dialer's DownloadResourcePack callback.
@@ -195,7 +234,6 @@ func configureResourcePackOffer(downstream resourcePackOfferConnection, stack *s
 
 var (
 	errResourcePackStackUnavailable = errors.New("proxy: validated resource-pack stack unavailable")
-	errResourcePackStackInvalid     = errors.New("proxy: validated resource-pack stack is invalid")
 )
 
 // resourcePackStackSource is the post-negotiation seam implemented by a
@@ -223,27 +261,7 @@ func captureSelectedResourcePackStack(upstream upstreamSession) (*selectedResour
 	if !ok {
 		return nil, errResourcePackStackUnavailable
 	}
-	stack, err := newSelectedResourcePackStack(snapshot.Packs(), snapshot.Required(), resourcePackSize)
-	if err != nil {
-		return nil, err
-	}
-	entries := snapshot.Entries()
-	packIndex := 0
-	for _, entry := range entries {
-		pack := entry.Pack()
-		if pack == nil {
-			continue
-		}
-		if packIndex >= len(stack.packs) || pack.UUID() != stack.packs[packIndex].UUID() || pack.Version() != stack.packs[packIndex].Version() {
-			stack.release()
-			return nil, errResourcePackStackInvalid
-		}
-		packIndex++
-	}
-	if packIndex != len(stack.packs) {
-		stack.release()
-		return nil, errResourcePackStackInvalid
-	}
+	stack := newSelectedResourcePackStack(snapshot.Packs(), snapshot.Required(), resourcePackSize)
 	stack.snapshot = snapshot
 	return stack, nil
 }
@@ -255,24 +273,32 @@ func resourcePackSize(pack *resource.Pack) (uint64, bool) {
 	return uint64(size), size >= 0
 }
 
-func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf resourcePackSizer) (*selectedResourcePackStack, error) {
-	if len(packs) > maxSelectedResourcePacks || sizeOf == nil {
-		return nil, errResourcePackStackInvalid
-	}
-	owned := make([]*resource.Pack, len(packs))
+// newSelectedResourcePackStack clones the downloaded packs in stack order while
+// they fit the count and byte bounds. Packs beyond either bound are left out
+// rather than failing the session; the client ignores stack entries it was not
+// offered.
+func newSelectedResourcePackStack(packs []*resource.Pack, required bool, sizeOf resourcePackSizer) *selectedResourcePackStack {
+	owned := make([]*resource.Pack, 0, min(len(packs), maxSelectedResourcePacks))
 	var total uint64
-	for index, pack := range packs {
-		if pack == nil {
-			return nil, errResourcePackStackInvalid
+	for _, pack := range packs {
+		if pack == nil || len(owned) == maxSelectedResourcePacks || sizeOf == nil {
+			continue
 		}
 		size, ok := sizeOf(pack)
-		if !ok || size > math.MaxUint64-total || total+size > maxSelectedResourcePackTotalBytes {
-			return nil, errResourcePackStackInvalid
+		if !ok || size > maxSelectedResourcePackTotalBytes-total {
+			continue
 		}
 		total += size
-		owned[index] = pack.Clone()
+		owned = append(owned, pack.Clone())
 	}
-	return &selectedResourcePackStack{packs: owned, required: required}, nil
+	return &selectedResourcePackStack{packs: owned, required: required}
+}
+
+// withoutPacks drops the packs whose transfer the acquisition budget rejected.
+func (stack *selectedResourcePackStack) withoutPacks(excluded func(*resource.Pack) bool) {
+	if stack != nil {
+		stack.packs = slices.DeleteFunc(stack.packs, excluded)
+	}
 }
 
 func (stack *selectedResourcePackStack) release() {
@@ -534,14 +560,17 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)
 	budget.stop()
+	// The dialed upstream owns its own context; releasing dialCtx now cannot
+	// affect it and frees the cancellation goroutine on either outcome.
+	cancelDial(nil)
 	if err != nil {
-		cancelDial(nil)
 		return nil, err
 	}
 	packStack, err = connections.captureResourcePackStack(upstream)
 	if err != nil {
 		return nil, err
 	}
+	packStack.withoutPacks(budget.excludes)
 	packAdmission.observeOffer(upstream)
 	result = &preparedConnection{
 		upstream:      upstream,
