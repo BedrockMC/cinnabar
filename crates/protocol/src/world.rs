@@ -39,9 +39,9 @@ mod events;
 mod game_mode;
 mod requests;
 pub use self::custom_blocks::{
-    CustomBlock, CustomBlockVisuals, CustomBlocks, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomStateAxis, CustomStateValue, CustomTransformation,
-    CustomVisualComponents, block_name_sort_key,
+    CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
+    CustomMaterialInstance, CustomPermutation, CustomStateAxis, CustomStateValue,
+    CustomTransformation, CustomVisualComponents, block_name_sort_key,
 };
 pub use self::events::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
