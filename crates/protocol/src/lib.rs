@@ -116,10 +116,11 @@ pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePa
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
-    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputError,
-    PlayerAuthInputInteractions, PlayerAuthInputSnapshot, PlayerAuthInputTraceSample,
-    PlayerInputFlags, PlayerInputMode, player_auth_input, player_auth_input_trace_sample,
-    player_auth_input_with_interactions, player_auth_input_with_mining_request,
+    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,
+    PlayerAuthInputError, PlayerAuthInputInteractions, PlayerAuthInputSnapshot,
+    PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode, client_movement_prediction_sync,
+    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
+    player_auth_input_with_mining_request,
 };
 pub use packet::Packet;
 pub use particle::{

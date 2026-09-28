@@ -2840,6 +2840,21 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   crates/assets/data/block-physics-v2168.sha256 -physics-v2168-breg <v2168 BREG>
   -physics-v2168-manifest <manifest> -pmmp <pmmp root> -prismarine <prismarine root>` and
   fix any count or provenance mismatch it reports for `minecraft:sweet_berry_bush`.
+  Client-predicted vehicles, precisely: the 26.30 reconstruction shows vanilla registers
+  boat and horse "client predicted" systems (`SetIsClientPredictedBoatSystem`,
+  `SetIsClientPredictedHorseSystem`) plus boat paddle/move/friction systems, and a boat's
+  friction comes from the block under it. It does NOT contain the predicate that sets the
+  predicted state, the boat paddle/turn/acceleration coefficients (all in unresolved global
+  constants), or the horse travel coefficients, so no vehicle simulator was built and no
+  value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
+  mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
+  delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
+  `ClientMovementPredictionSync` is sent (fields from the reconstruction's sender and the
+  pinned gophertunnel) after a server correction is applied, at most once per second, and is
+  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
+  live-test gate item: confirm anti-cheat servers accept the sync; the
+  vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
+  1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
   `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
   not imply prediction and no vehicle simulator exists, so all rides send ordinary player
   input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw

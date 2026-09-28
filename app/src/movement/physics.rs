@@ -226,6 +226,8 @@ pub struct LocalPhysicsController {
     /// Locomotion mode selector and the previous tick's sampled environment it reads.
     modes: ModeTracker,
     last_environment: sim::MovementEnvironment,
+    /// Server corrections applied to this controller; drives the prediction sync.
+    corrections_applied: u64,
 }
 
 impl Default for LocalPhysicsController {
@@ -248,6 +250,7 @@ impl Default for LocalPhysicsController {
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
+            corrections_applied: 0,
         }
     }
 }
@@ -727,6 +730,11 @@ impl LocalPhysicsController {
     #[must_use]
     pub const fn mode(&self) -> sim::MovementMode {
         self.modes.mode()
+    }
+
+    #[must_use]
+    pub const fn corrections_applied(&self) -> u64 {
+        self.corrections_applied
     }
 
     #[must_use]

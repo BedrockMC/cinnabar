@@ -7,12 +7,14 @@ use valentine::bedrock::version::v1_26_44::{
 };
 
 mod interactions;
+mod prediction_sync;
 mod trace;
 
 pub use interactions::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
     InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputInteractions,
 };
+pub use prediction_sync::{MovementPredictionSync, client_movement_prediction_sync};
 pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
 
 use crate::Packet;
