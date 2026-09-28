@@ -476,6 +476,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             Arc::clone(&entity_runtime),
             equipment_catalog,
             Arc::clone(icon_assets.runtime()),
+            Some(Arc::clone(&loaded_assets.runtime)),
             actor_artwork,
         );
     let lang_assets = crate::asset_startup::require_lang_assets(

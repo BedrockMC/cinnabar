@@ -237,3 +237,10 @@ fn first_person_arms_follow_the_render_controller_visibility() {
     assert!(!arms(Some("minecraft:filled_map"), Some("minecraft:shield")).left);
     assert!(arms(None, Some("minecraft:filled_map")).left);
 }
+
+#[test]
+fn block_face_rects_tile_the_three_by_two_sheet() {
+    let rects = super::blocks::face_rects([0.0, 0.0, 0.75, 0.5]);
+    assert_eq!(rects[0], [0.0, 0.0, 0.25, 0.25]);
+    assert_eq!(rects[5], [0.5, 0.25, 0.75, 0.5]);
+}

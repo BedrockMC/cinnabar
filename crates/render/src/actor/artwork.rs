@@ -63,6 +63,9 @@ impl ActorTexturePage {
     pub fn pixels(&self) -> &[u8] {
         &self.rgba8
     }
+    pub fn shared_pixels(&self) -> Arc<[u8]> {
+        Arc::clone(&self.rgba8)
+    }
 }
 
 #[derive(Clone, Debug, Default, Resource)]

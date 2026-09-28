@@ -3,23 +3,24 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{
-    ArmorSlot, EntityDependencyResolution, EquipmentCategory, RuntimeEntityAssets,
-    RuntimeEquipmentCatalog, RuntimeIconCatalog,
+    ArmorSlot, EntityDependencyResolution, EquipmentCategory, IconSprite, RuntimeAssets,
+    RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog,
 };
 use bevy::prelude::Resource;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, EntityRigId, EquipmentRaster,
     RenderBoneTransform, equipment_rig_id, extruded_sprite_vertices, find_geometry_index,
-    geometry_bone_names, item_mesh_rig_id,
+    geometry_bone_names, item_mesh_rig_id, textured_cube_vertices,
 };
 
 use super::{
     armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{Placement, SpriteAtlas},
+    blocks::{self, BlockSheets},
     display::{
         ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
-        LAYER_OFF_HAND, attach_to_bone, held_sprite_display,
+        LAYER_OFF_HAND, attach_to_bone, held_block_display, held_sprite_display,
     },
 };
 
@@ -31,9 +32,24 @@ const MAX_ITEM_MESHES: usize = 512;
 pub(crate) struct WornItem {
     pub(crate) identifier: Arc<str>,
     pub(crate) metadata: u32,
-    /// Whether the stack routes to a flat compiled sprite.
-    pub(crate) sprite: bool,
+    pub(crate) kind: HeldKind,
     pub(crate) dye_rgb: Option<u32>,
+}
+
+/// How a held stack is drawn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HeldKind {
+    /// A flat compiled sprite.
+    Sprite,
+    /// A block item, by block visual id.
+    Block(u32),
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum MeshKey {
+    Sprite(usize),
+    Block(u32),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -88,12 +104,14 @@ pub(crate) struct EquipmentRuntime {
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
     placements: Vec<Option<Placement>>,
+    /// Block visual id to its sheet's index in `placements` (after the icon sprites).
+    block_sheets: BTreeMap<u32, usize>,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     armor_maps: BTreeMap<(u32, Box<str>), Arc<[Option<usize>]>>,
-    meshes: BTreeMap<usize, Option<EntityRigId>>,
+    meshes: BTreeMap<MeshKey, Option<EntityRigId>>,
     pending: Vec<ActorRigGeometry>,
 }
 
@@ -104,9 +122,24 @@ impl EquipmentRuntime {
         assets: Arc<RuntimeEntityAssets>,
         catalog: Option<Arc<RuntimeEquipmentCatalog>>,
         icons: Arc<RuntimeIconCatalog>,
+        world: Option<Arc<RuntimeAssets>>,
         artwork: ActorArtworkPages,
     ) -> (Self, ActorArtworkPages, Vec<u32>) {
-        let atlas = SpriteAtlas::pack(icons.sprites());
+        let BlockSheets { sheets, by_visual } = world.as_deref().map_or_else(
+            || BlockSheets {
+                sheets: Vec::new(),
+                by_visual: BTreeMap::new(),
+            },
+            |world| blocks::collect(world, &assets),
+        );
+        let icon_count = icons.sprites().len();
+        let packed = icons
+            .sprites()
+            .iter()
+            .cloned()
+            .chain(sheets)
+            .collect::<Vec<IconSprite>>();
+        let atlas = SpriteAtlas::pack(&packed);
         let atlas_layers = atlas.layers.len();
         let textures = catalog
             .as_ref()
@@ -139,6 +172,10 @@ impl EquipmentRuntime {
             catalog,
             icons,
             placements: atlas.placements,
+            block_sheets: by_visual
+                .into_iter()
+                .map(|(visual, sheet)| (visual, icon_count + sheet))
+                .collect(),
             atlas_locations: locations[..atlas_layers].to_vec(),
             texture_locations,
             body_bones: BTreeMap::new(),
@@ -178,7 +215,6 @@ impl EquipmentRuntime {
         {
             return layers;
         }
-        let display = held_sprite_display();
         if let Some(item) = &input.main {
             self.push_held(
                 body,
@@ -247,6 +283,24 @@ impl EquipmentRuntime {
         Some(masked)
     }
 
+    /// The main-hand item as a first-person layer on the posed `rightItem` bone, when it is
+    /// drawable.
+    pub(crate) fn first_person_item(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+    ) -> Option<EquipmentPresentation> {
+        let (_, bones) = self.body_bones_for(body.input.rig)?;
+        let pose_len = bones.names.len();
+        if body.input.previous_bones.len() != pose_len || body.input.current_bones.len() != pose_len
+        {
+            return None;
+        }
+        let mut layers = Vec::new();
+        self.push_held(body, item, LAYER_MAIN_HAND, bones.right_item, &mut layers);
+        layers.pop()
+    }
+
     fn body_bones_for(&mut self, rig: EntityRigId) -> Option<(u32, Arc<BodyBones>)> {
         let geometry = self
             .assets
@@ -275,14 +329,25 @@ impl EquipmentRuntime {
         item: &WornItem,
         layer: u8,
         hand: Option<usize>,
-        display: ItemDisplay,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
-        let Some(hand) = hand.filter(|_| item.sprite) else {
+        let Some(hand) = hand else {
             return;
         };
-        let Some(sprite_index) = self.icons.lookup_index(&item.identifier, item.metadata) else {
-            return;
+        let (sprite_index, key, display) = match item.kind {
+            HeldKind::Sprite => {
+                let Some(index) = self.icons.lookup_index(&item.identifier, item.metadata) else {
+                    return;
+                };
+                (index, MeshKey::Sprite(index), held_sprite_display())
+            }
+            HeldKind::Block(visual) => {
+                let Some(index) = self.block_sheets.get(&visual).copied() else {
+                    return;
+                };
+                (index, MeshKey::Block(visual), held_block_display())
+            }
+            HeldKind::Other => return,
         };
         let Some(placement) = self.placements.get(sprite_index).copied().flatten() else {
             return;
@@ -290,7 +355,7 @@ impl EquipmentRuntime {
         let Some(location) = self.atlas_locations.get(placement.layer).copied().flatten() else {
             return;
         };
-        let Some(mesh) = self.mesh_for(sprite_index, placement) else {
+        let Some(mesh) = self.mesh_for(key, sprite_index, placement) else {
             return;
         };
         let (Some(previous), Some(current)) = (
@@ -381,26 +446,41 @@ impl EquipmentRuntime {
         entry
     }
 
-    fn mesh_for(&mut self, sprite_index: usize, placement: Placement) -> Option<EntityRigId> {
-        if let Some(entry) = self.meshes.get(&sprite_index) {
+    fn mesh_for(
+        &mut self,
+        key: MeshKey,
+        placement_index: usize,
+        placement: Placement,
+    ) -> Option<EntityRigId> {
+        if let Some(entry) = self.meshes.get(&key) {
             return *entry;
         }
-        let entry = self.build_mesh(sprite_index, placement);
-        self.meshes.insert(sprite_index, entry);
+        let entry = self.build_mesh(key, placement_index, placement);
+        self.meshes.insert(key, entry);
         entry
     }
 
-    fn build_mesh(&mut self, sprite_index: usize, placement: Placement) -> Option<EntityRigId> {
+    fn build_mesh(
+        &mut self,
+        key: MeshKey,
+        placement_index: usize,
+        placement: Placement,
+    ) -> Option<EntityRigId> {
         if self.meshes.len() >= MAX_ITEM_MESHES {
             return None;
         }
-        let sprite = self.icons.sprites().get(sprite_index)?;
-        let vertices = extruded_sprite_vertices(
-            usize::from(sprite.width),
-            usize::from(sprite.height),
-            &sprite.rgba8,
-            placement.uv_rect(),
-        )?;
+        let vertices = match key {
+            MeshKey::Sprite(_) => {
+                let sprite = self.icons.sprites().get(placement_index)?;
+                extruded_sprite_vertices(
+                    usize::from(sprite.width),
+                    usize::from(sprite.height),
+                    &sprite.rgba8,
+                    placement.uv_rect(),
+                )?
+            }
+            MeshKey::Block(_) => textured_cube_vertices(blocks::face_rects(placement.uv_rect())),
+        };
         let id = item_mesh_rig_id(u32::try_from(self.meshes.len()).ok()?);
         let geometry = ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()?;
         self.pending.push(geometry);

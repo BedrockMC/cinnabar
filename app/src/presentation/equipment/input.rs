@@ -5,7 +5,7 @@ use assets::ItemVisualRoute;
 use client_world::{ActorArmorSnapshot, CanonicalItemStack, WorldStream};
 use protocol::ActorHandedness;
 
-use super::runtime::{ActorEquipmentInput, WornItem};
+use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
 use crate::ui_runtime::UiRuntime;
 
 /// A drawable worn item, or `None` for an empty or unresolved stack.
@@ -16,7 +16,11 @@ pub(super) fn worn_item(item: &CanonicalItemStack, dye_rgb: Option<u32>) -> Opti
     Some(WornItem {
         identifier: item.identifier.clone()?,
         metadata: item.identity.metadata,
-        sprite: matches!(item.visual, ItemVisualRoute::Compiled(_)),
+        kind: match item.visual {
+            ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
+            ItemVisualRoute::BlockItem(visual) => HeldKind::Block(visual.0),
+            _ => HeldKind::Other,
+        },
         dye_rgb,
     })
 }
