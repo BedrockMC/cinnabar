@@ -1,0 +1,70 @@
+#import bevy_render::view::View
+#import cinnabar::lighting::{lit_colour, light_brightness}
+
+@group(0) @binding(0) var<uniform> view: View;
+@group(0) @binding(1) var sprites: texture_2d_array<f32>;
+@group(0) @binding(2) var sprite_sampler: sampler;
+// x = daylight scale for the sky channel.
+@group(0) @binding(3) var<uniform> environment: vec4<f32>;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) normal: vec3<f32>,
+    @location(3) row_0: vec4<f32>,
+    @location(4) row_1: vec4<f32>,
+    @location(5) row_2: vec4<f32>,
+    // x = sprite layer, y = block light level, z = sky light level.
+    @location(6) meta: vec4<u32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) @interpolate(flat) layer: u32,
+    @location(2) shade: f32,
+    @location(3) @interpolate(flat) levels: vec2<u32>,
+}
+
+// Provisional directional shade: full on top faces, half on bottom faces.
+const SHADE_BASE: f32 = 0.75;
+const SHADE_SLOPE: f32 = 0.25;
+
+@vertex
+fn item_vertex(input: VertexInput) -> VertexOutput {
+    let local = vec4(input.position, 1.0);
+    let world = vec4(
+        dot(input.row_0, local),
+        dot(input.row_1, local),
+        dot(input.row_2, local),
+        1.0,
+    );
+    let world_normal = normalize(vec3(
+        dot(input.row_0.xyz, input.normal),
+        dot(input.row_1.xyz, input.normal),
+        dot(input.row_2.xyz, input.normal),
+    ));
+    var out: VertexOutput;
+    out.position = view.clip_from_world * world;
+    out.uv = input.uv;
+    out.layer = input.meta.x;
+    out.shade = SHADE_BASE + SHADE_SLOPE * world_normal.y;
+    out.levels = vec2(input.meta.y, input.meta.z);
+    return out;
+}
+
+@fragment
+fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
+    let color = textureSample(sprites, sprite_sampler, input.uv, i32(input.layer));
+    if (color.a < 0.1) {
+        discard;
+    }
+    let lit = lit_colour(
+        color.rgb * input.shade,
+        light_brightness(input.levels.x),
+        light_brightness(input.levels.y),
+        1.0,
+        environment.x,
+    );
+    return vec4(lit, color.a);
+}
