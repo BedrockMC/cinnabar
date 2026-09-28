@@ -1,5 +1,6 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
+mod container_kinds;
 mod containers;
 mod engine;
 mod fallback;
@@ -11,7 +12,7 @@ mod tests;
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
-pub(crate) use containers::{engine_cell_hit, engine_panel_contains};
+pub(crate) use containers::engine_panel_contains;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
@@ -28,8 +29,8 @@ pub(super) struct FormPresentation {
     frame: Option<EngineFrame>,
     /// The JSON-UI engine; carried across the per-frame reset.
     engine: Option<Box<engine::FormEngine>>,
-    /// The container screen the engine drew this build.
-    container: Option<EngineFrame>,
+    /// The container screen the engine drew this build, with its cell layout.
+    container: Option<(EngineFrame, containers::ScreenLayout)>,
 }
 
 impl UiPresentationRuntime {
@@ -53,7 +54,6 @@ impl UiPresentationRuntime {
         self.form_presentation.engine = Some(Box::new(engine::FormEngine::new(
             assets, catalog, first_page,
         )));
-        self.hud_frame.engine_containers = true;
         Ok(())
     }
 
@@ -144,7 +144,7 @@ impl UiPresentationRuntime {
         }
         self.append_engine_container(
             runtime,
-            previous_container.as_ref(),
+            previous_container.as_ref().map(|(frame, _)| frame),
             nodes,
             next,
             metrics,

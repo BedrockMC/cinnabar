@@ -70,8 +70,8 @@ impl UiPresentationRuntime {
         screen: InventoryScreen,
     ) -> Option<InventoryCellHit> {
         // An engine-drawn container answers from its own hit regions.
-        if let Some(frame) = self.engine_container_frame() {
-            return super::forms::engine_cell_hit(frame, gui);
+        if self.engine_container_frame().is_some() {
+            return self.engine_container_hit(gui);
         }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
         cell_hit(gui, geometry, screen)

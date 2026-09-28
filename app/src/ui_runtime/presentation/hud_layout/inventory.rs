@@ -39,7 +39,8 @@ impl HudLayout<'_> {
             InventoryScreen, WORKBENCH_GRID, WORKBENCH_OUTPUT,
         };
         let screen = InventoryScreen::of(runtime.inventory_ledger());
-        if frame.engine_containers && matches!(screen, InventoryScreen::Storage(_)) {
+        // The container-routing setting hands every inventory screen to JSON-UI.
+        if frame.engine_containers {
             return Ok(());
         }
         if let InventoryScreen::Storage(slot_count) = screen {
