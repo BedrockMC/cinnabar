@@ -301,9 +301,7 @@ mod tests {
     fn hurt_tilt_rotates_the_first_person_camera() {
         let mut app = camera_app();
         let mut hurt = CameraHurtState::default();
-        hurt.register(LocalHurtEvent {
-            source_direction: None,
-        });
+        hurt.register(LocalHurtEvent::default());
         hurt.advance(0.08);
         app.world_mut().resource_mut::<FirstPersonHandMotion>().hurt = hurt.view_matrix(0.0);
         app.update();
