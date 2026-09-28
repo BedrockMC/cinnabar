@@ -75,14 +75,14 @@ fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
 }
 
 #[test]
-fn atmosphere_frame_is_a_uniform_compatible_six_vec4_abi() {
+fn atmosphere_frame_is_a_uniform_compatible_eight_vec4_abi() {
     AtmosphereFrame::assert_uniform_compat();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.75);
     let mut encoded = UniformBuffer::new(Vec::<u8>::new());
     encoded.write(&frame).expect("encode atmosphere uniform");
     let encoded = encoded.into_inner();
-    assert_eq!(AtmosphereFrame::min_size().get(), 96);
-    assert_eq!(encoded.len(), 96);
+    assert_eq!(AtmosphereFrame::min_size().get(), 128);
+    assert_eq!(encoded.len(), 128);
     assert_eq!(encoded.as_slice(), bytemuck::bytes_of(&frame));
 }
 
@@ -526,7 +526,7 @@ fn every_world_shader_uses_the_shared_distance_fog_uniform() {
 #[test]
 fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_composition() {
     let shader = include_str!("../src/atmosphere.wgsl");
-    let guard = "if (atmosphere.fog_end_time.x <= 32.0)";
+    let guard = "if (code / 4u != 0u)";
     let fog_return = "return vec4(atmosphere.fog_color_start.rgb, 1.0);";
     assert!(shader.contains(guard));
     assert!(shader.contains(fog_return));
@@ -534,6 +534,29 @@ fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_compositio
         shader.find(guard).unwrap() < shader.find("let sun = sample_sun(").unwrap(),
         "medium fog must hide the infinite sky before sun/moon/cloud composition"
     );
+}
+
+#[test]
+fn sky_shader_draws_stars_sunrise_glow_and_dimension_skies() {
+    let shader = include_str!("../src/atmosphere.wgsl");
+    for needle in [
+        "fn star_field(",
+        "fn sunrise_glow(",
+        "if (kind == 1u)",
+        "if (kind == 2u)",
+        "sunrise_band: vec4<f32>",
+        "sky_extra: vec4<f32>",
+    ] {
+        assert!(shader.contains(needle), "missing {needle}");
+    }
+    for (name, shader) in [
+        ("chunk", include_str!("../src/chunk.wgsl")),
+        ("model", include_str!("../src/model.wgsl")),
+        ("liquid", include_str!("../src/liquid.wgsl")),
+    ] {
+        assert!(!shader.contains("smoothstep(\n        atmosphere.fog"), "{name} fog is linear");
+        assert!(!shader.contains("smoothstep(atmosphere.fog"), "{name} fog is linear");
+    }
 }
 
 #[test]
