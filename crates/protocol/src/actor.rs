@@ -242,6 +242,39 @@ pub struct StandardSkin {
     pub width: u32,
     pub height: u32,
     pub rgba8: Arc<[u8]>,
+    /// The skin's cape image when it carries a valid one; counts toward the skin byte budget.
+    pub cape: Option<CapeImage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapeImage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba8: Arc<[u8]>,
+}
+
+/// Cape image sizes Bedrock skins use, as `(width, height)`.
+const CAPE_DIMENSIONS: [(u32, u32); 4] = [(64, 32), (128, 64), (256, 128), (1024, 512)];
+
+fn normalize_cape(
+    image: &valentine::bedrock::version::v1_26_44::SkinImage,
+    retained_bytes: &mut usize,
+) -> Option<CapeImage> {
+    let (width, height) = (image.width, image.height);
+    if !CAPE_DIMENSIONS.contains(&(width, height)) {
+        return None;
+    }
+    let expected = usize::try_from(width).ok()? * usize::try_from(height).ok()? * 4;
+    let next = retained_bytes.checked_add(expected)?;
+    if image.image_bytes.len() != expected || next > MAX_PLAYER_LIST_SKIN_BYTES {
+        return None;
+    }
+    *retained_bytes = next;
+    Some(CapeImage {
+        width,
+        height,
+        rgba8: Arc::from(image.image_bytes.as_slice()),
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -725,10 +758,12 @@ fn normalize_player_skin(skin: SerializedSkinRef, retained_bytes: &mut usize) ->
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
     }
     *retained_bytes = next_bytes;
+    let cape = normalize_cape(&skin.cape_image_data, retained_bytes);
     PlayerSkin::Standard(StandardSkin {
         width,
         height,
         rgba8: Arc::from(skin.image_data.image_bytes),
+        cape,
     })
 }
 

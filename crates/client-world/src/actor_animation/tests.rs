@@ -602,3 +602,26 @@ fn property_query_resolves_names_against_synced_definitions() {
     assert_eq!(read("minecraft:amount"), MolangValue::Number(0.5));
     assert_eq!(read("minecraft:missing"), MolangValue::Number(0.0));
 }
+
+#[test]
+fn has_cape_reads_the_tick_context() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    let capeless = read_with(
+        &actor,
+        &input,
+        &ActorTickContext::default(),
+        0,
+        "query.has_cape",
+        &[],
+    );
+    assert_eq!(capeless.number(), 0.0);
+    let context = ActorTickContext {
+        has_cape: true,
+        ..ActorTickContext::default()
+    };
+    assert_eq!(
+        read_with(&actor, &input, &context, 0, "query.has_cape", &[]).number(),
+        1.0
+    );
+}

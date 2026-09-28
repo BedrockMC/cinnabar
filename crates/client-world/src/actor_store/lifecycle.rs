@@ -506,6 +506,7 @@ impl ActorStore {
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
             let camera_rotation = self.camera_rotation;
             let property_registry = &self.property_registry;
+            let players = &self.players;
             let local_first_person = self
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);
@@ -566,6 +567,12 @@ impl ActorStore {
                     camera_rotation,
                     armor: worn_armor(items.armor(actor.runtime_id)),
                     properties: property_registry.for_kind(&actor.kind),
+                    has_cape: match &actor.kind {
+                        ActorKind::Player { uuid, .. } => players.get(uuid).is_some_and(|profile| {
+                            matches!(&profile.skin, protocol::PlayerSkin::Standard(skin) if skin.cape.is_some())
+                        }),
+                        ActorKind::Entity { .. } => false,
+                    },
                 }
             });
             self.actions.advance_tick();

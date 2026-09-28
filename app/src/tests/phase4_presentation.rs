@@ -89,6 +89,7 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         username: "player".into(),
         verified: true,
         skin: PlayerSkin::Standard(StandardSkin {
+            cape: None,
             width: 64,
             height: 64,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
