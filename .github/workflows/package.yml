@@ -1,0 +1,139 @@
+name: Package
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
+  CINNABAR_SENTRY_DSN: ${{ secrets.CINNABAR_SENTRY_DSN }}
+  UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
+
+jobs:
+  macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-latest }
+          - { arch: x86_64, runner: macos-15-intel }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Install icon renderer
+        run: brew install librsvg
+      - name: Import signing certificate
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "$MACOS_CERT_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$MACOS_CERT_PASSWORD" "$keychain"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$MACOS_CERT_PASSWORD" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+      - name: Package, sign, notarize
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: make package-macos
+      - name: Name the artifact by architecture
+        run: mv .local/dist/macos-release/Cinnabar-*.dmg ".local/dist/macos-release/Cinnabar-${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: .local/dist/macos-release/Cinnabar-${{ matrix.arch }}.dmg
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Install WiX and ImageMagick
+        shell: powershell
+        run: |
+          dotnet tool install --global wix
+          choco install imagemagick --no-progress -y
+      - name: Package and sign
+        shell: powershell
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: make package-windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: .local/dist/windows-release/*.msi
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Install build and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev librsvg2-bin libfuse2
+          curl --fail --location --output "$RUNNER_TEMP/appimagetool" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+      - run: make package-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: .local/dist/linux-release/*.AppImage
+
+  release:
+    needs: [macos, windows, linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Sign the update manifest
+        env:
+          CINNABAR_UPDATE_SIGNING_KEY: ${{ secrets.CINNABAR_UPDATE_SIGNING_KEY }}
+        run: |
+          base="${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+          version="${GITHUB_REF_NAME#v}"
+          arm="dist/macos-arm64/Cinnabar-arm64.dmg"; x64="dist/macos-x86_64/Cinnabar-x86_64.dmg"
+          msi="$(ls dist/windows-x86_64/*.msi)"; appimage="$(ls dist/linux-x86_64/*.AppImage)"
+          go -C core run ./cmd/release-manifest sign -version "$version" -channel stable \
+            -artifact "macos-arm64=$base/$(basename "$arm")=$GITHUB_WORKSPACE/$arm" \
+            -artifact "macos-x86_64=$base/$(basename "$x64")=$GITHUB_WORKSPACE/$x64" \
+            -artifact "windows-x86_64=$base/$(basename "$msi")=$GITHUB_WORKSPACE/$msi" \
+            -artifact "linux-x86_64=$base/$(basename "$appimage")=$GITHUB_WORKSPACE/$appimage" \
+            > update-stable.json
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --generate-notes dist/*/* update-stable.json
