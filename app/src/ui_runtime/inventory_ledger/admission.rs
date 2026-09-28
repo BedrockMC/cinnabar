@@ -373,6 +373,7 @@ impl PlayerInventoryLedger {
             window_id,
             window_type: open.window_type,
             kind,
+            position: open.position,
             data: std::collections::BTreeMap::new(),
             generation,
             identity: None,

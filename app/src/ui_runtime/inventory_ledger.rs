@@ -12,9 +12,9 @@ mod cells;
 mod crafting;
 #[cfg(test)]
 mod crafting_tests;
+mod distribute;
 #[cfg(test)]
 mod fixed_window_tests;
-mod distribute;
 mod gesture;
 #[cfg(test)]
 mod gesture_tests;
@@ -30,14 +30,14 @@ mod moves_tests;
 mod overlay;
 #[cfg(test)]
 mod overlay_tests;
-#[cfg(test)]
-mod screens_tests;
 mod personal;
 mod queue;
 mod quick_move;
 mod registry;
 mod response;
 mod screen_actions;
+#[cfg(test)]
+mod screens_tests;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
@@ -103,6 +103,8 @@ struct StorageWindow {
     window_id: i32,
     window_type: i8,
     kind: protocol::WindowKind,
+    /// Block position the server opened the window on.
+    position: [i32; 3],
     /// Server-pushed window properties (furnace progress, brew time, ...).
     data: BTreeMap<i32, i32>,
     generation: u64,
@@ -290,6 +292,12 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn window_kind(&self) -> Option<protocol::WindowKind> {
         Some(self.storage.as_ref()?.kind)
+    }
+
+    /// Where the open window's container sits in the world.
+    #[must_use]
+    pub fn window_position(&self) -> Option<[i32; 3]> {
+        Some(self.storage.as_ref()?.position)
     }
 
     /// A server-pushed property of the open window (`ContainerSetData`), if sent.
