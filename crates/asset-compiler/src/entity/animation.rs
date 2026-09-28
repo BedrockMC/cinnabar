@@ -16,6 +16,7 @@ mod controller;
 mod environment;
 mod outcome;
 mod render;
+mod selection;
 mod rig;
 pub(crate) mod roots;
 
