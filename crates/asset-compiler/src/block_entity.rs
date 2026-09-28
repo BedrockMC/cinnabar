@@ -19,6 +19,12 @@ use sha2::{Digest, Sha256};
 
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_TEXTURE_SIDE: u32 = 256;
+/// Animation strips packed frame-stacked; only these names may exceed the side bound in height.
+const STRIP_TEXTURES: &[&str] = &[
+    "textures/blocks/conduit_wind_horizontal",
+    "textures/blocks/conduit_wind_vertical",
+];
+const MAX_STRIP_HEIGHT: u32 = 1024;
 const ATLAS_WIDTH: u32 = 1024;
 const GUTTER: u32 = 1;
 
@@ -28,6 +34,7 @@ const SOURCE_DIRECTORIES: &[&str] = &[
     "textures/entity/bed",
     "textures/entity/bell",
     "textures/entity/chest",
+    "textures/entity/copper_golem",
     "textures/entity/shulker",
     "textures/entity/skulls",
 ];
@@ -258,13 +265,18 @@ fn decode(path: &Path, name: &str) -> Result<Outcome, AssetError> {
     else {
         return Ok(Outcome::Undecodable);
     };
-    if width == 0 || height == 0 || width > MAX_TEXTURE_SIDE || height > MAX_TEXTURE_SIDE {
+    let max_height = if STRIP_TEXTURES.contains(&name) {
+        MAX_STRIP_HEIGHT
+    } else {
+        MAX_TEXTURE_SIDE
+    };
+    if width == 0 || height == 0 || width > MAX_TEXTURE_SIDE || height > max_height {
         return Ok(Outcome::Oversized);
     }
     let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_TEXTURE_SIDE);
-    limits.max_image_height = Some(MAX_TEXTURE_SIDE);
+    limits.max_image_height = Some(max_height);
     limits.max_alloc = Some(4 * 1024 * 1024);
     reader.limits(limits);
     let Ok(image) = reader.decode() else {

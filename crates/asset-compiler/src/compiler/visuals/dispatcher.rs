@@ -167,6 +167,10 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        match super::literal::compile_rule(record, inputs) {
+            CompileRuleResult::NoMatch => {}
+            outcome => return Ok(outcome),
+        }
         let mut exact_visual = diagnostic_visual(record);
         ordered_rule!(super::exact::compile_exact_families(
             record,

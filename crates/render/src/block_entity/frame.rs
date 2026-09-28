@@ -6,7 +6,7 @@
 use bevy::math::{Mat4, Vec3};
 
 use super::{
-    atlas::BlockEntityAtlas,
+    atlas::{AtlasRect, BlockEntityAtlas},
     items::matrix_rows,
     mesh::{Facing, Layer, MeshBuilder, WHITE},
 };
@@ -18,6 +18,7 @@ const PANEL_BACK: f32 = 8.0;
 /// Local depth of the item plane, in front of the panel.
 const ITEM_DEPTH: f32 = 6.0;
 const ITEM_SCALE: f32 = 0.5;
+const MAP_LIFT: f32 = 0.05;
 const ROTATION_STEP_DEGREES: f32 = 45.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -26,6 +27,8 @@ pub struct ItemFrameModel {
     /// Direction the frame faces, as a Bedrock face id: 0 down, 1 up, 2 north, 3 south, 4 west,
     /// 5 east; other values read as north.
     pub outward: u8,
+    /// The atlas cell of a filled map's image, shown in place of an item sprite.
+    pub map: Option<AtlasRect>,
 }
 
 /// Maps frame-local block-center space (front toward -Z, pixels scaled to blocks) into the world.
@@ -71,6 +74,18 @@ pub(super) fn emit(
         [texture.rect; 6],
         WHITE,
     );
+    if let Some(rect) = model.map {
+        // Just in front of the panel, filling its inner area.
+        let z = PANEL_FRONT - MAP_LIFT;
+        let corners = [
+            [PANEL_HALF, PANEL_HALF, z],
+            [-PANEL_HALF, PANEL_HALF, z],
+            [-PANEL_HALF, -PANEL_HALF, z],
+            [PANEL_HALF, -PANEL_HALF, z],
+        ]
+        .map(|corner| matrix.transform_point3(Vec3::from_array(corner)).to_array());
+        builder.textured_quad(Layer::Solid, corners, rect, WHITE);
+    }
 }
 
 /// Pose of the framed item; `rotation_steps` counts 45-degree turns.

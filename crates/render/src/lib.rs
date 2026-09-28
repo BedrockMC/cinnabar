@@ -86,11 +86,12 @@ pub use block_entity::{
     BlockEntityKind, BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission,
     BlockEntityVertex, ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance,
     CrackQuad, CrackShape, DecoratedPotModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
-    MAX_BLOCK_ENTITY_VERTICES, SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind,
-    SkullModel, SkullMount, StaticItemPlacement, StaticItemPlacements, TEXT_CELL, TEXT_SLOT_COUNT,
-    TextureRef, banner_color, bed_color, block_matrix, crack_shape_from_template,
-    crack_texture_name, floor_yaw_degrees, item_frame_item_transform, lid_angle_radians,
-    matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, swing_degrees,
+    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
+    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
+    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
+    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
+    sherd_pattern, shulker_color_from_block_name, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,

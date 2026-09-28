@@ -279,6 +279,7 @@ fn compile_pack_inner(
             || is_model_visual(record)
             || is_liquid(record)
             || record.name.as_ref() == "minecraft:enchanting_table"
+            || visuals::literal::is_literal_cube(record)
             || fallback.contains(record)
     }) {
         if fallback.contains(record) {

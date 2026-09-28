@@ -39,6 +39,7 @@ pub(in crate::compiler) fn is_entity_drawn_name(name: &str) -> bool {
             | "weathered_copper_chest"
             | "oxidized_copper_chest"
     ) || name.ends_with("_shulker_box")
+        || name.ends_with("copper_golem_statue")
 }
 
 pub(in crate::compiler) fn compile_rule(

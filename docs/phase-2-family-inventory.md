@@ -401,3 +401,8 @@ conduits, bells and item frames compile to `VisualKind::Invisible`/`Exact` in
 a 12/16-tall terrain base. The `visual-coverage-v1001.json` diagnostic baseline must be
 regenerated to drop these states; campfire, hopper, brewing stand and copper-golem statues
 remain diagnostic.
+
+### Round-3 terrain conversions (visual-coverage baseline not regenerated)
+
+The pinned pack carries textures but no block geometry, so only literal facts are promoted:
+

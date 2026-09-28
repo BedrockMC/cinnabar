@@ -455,6 +455,7 @@ impl WorldStream {
                 }
                 self.provisional_publisher_rebase = false;
             }
+            WorldEvent::MapData(event) => self.consume_map_data(&event),
             WorldEvent::BlockEvent(event) => {
                 let sequence = sequence.expect("sequenced block events commit through submit");
                 self.consume_block_event(sequence, event);
