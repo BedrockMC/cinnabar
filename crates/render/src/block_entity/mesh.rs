@@ -146,7 +146,7 @@ impl MeshBuilder {
             let uv = texture.rect_uv(texels);
             let color = [tint[0] * shade, tint[1] * shade, tint[2] * shade, tint[3]];
             let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
-            self.quad(layer, world.map(Vec3::to_array), uv, color);
+            self.quad(layer, world.map(|point| point.to_array()), uv, color);
         }
     }
 

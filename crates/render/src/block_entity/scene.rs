@@ -188,6 +188,74 @@ fn emit_submission(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block_entity::{
+        chest::{ChestModel, ChestPair, ChestVariant},
+        mesh::Facing,
+    };
+
+    fn scene_with_chest_and_crack_textures() -> BlockEntityScene {
+        let placement =
+            |name: &str, x: u32, width: u32, height: u32| assets::BlockEntityPlacement {
+                name: name.into(),
+                x,
+                y: 0,
+                width,
+                height,
+            };
+        let bytes = assets::encode_block_entity_catalog(
+            b"{}",
+            128,
+            64,
+            &vec![255u8; 128 * 64 * 4],
+            &[
+                placement("textures/entity/chest/normal", 0, 64, 64),
+                placement("textures/environment/destroy_stage_0", 64, 16, 16),
+            ],
+        )
+        .unwrap();
+        let mut scene = BlockEntityScene::default();
+        scene.install_assets(&assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap());
+        scene
+    }
+
+    #[test]
+    fn chest_and_crack_fill_the_solid_and_overlay_lists() {
+        let mut scene = scene_with_chest_and_crack_textures();
+        let chest = BlockEntitySubmission {
+            block: [1, 2, 3],
+            light: 1.0,
+            kind: BlockEntityKind::Chest(ChestModel {
+                variant: ChestVariant::Normal,
+                facing: Facing::North,
+                pair: ChestPair::Single,
+                lid: 0.0,
+            }),
+        };
+        let crack = CrackInstance {
+            block: [1, 2, 3],
+            stage: 0,
+        };
+        let frame = scene.update(SceneClock::default(), &[crack], &[chest]);
+        // Body, lid and latch boxes: three boxes of six two-triangle faces.
+        assert_eq!(frame.solid.len(), 3 * 6 * 6);
+        assert_eq!(frame.overlay.len(), 6 * 6);
+        assert_eq!(frame.revision, 1);
+        assert!(frame.atlas.is_some());
+    }
+
+    #[test]
+    fn missing_textures_skip_a_model_without_failing_the_frame() {
+        let mut scene = scene_with_chest_and_crack_textures();
+        let frame = scene.update(
+            SceneClock::default(),
+            &[CrackInstance {
+                block: [0; 3],
+                stage: 7,
+            }],
+            &[],
+        );
+        assert!(frame.overlay.is_empty());
+    }
 
     #[test]
     fn update_without_assets_keeps_the_empty_frame() {
