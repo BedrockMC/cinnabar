@@ -16,9 +16,8 @@ use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
 use ui::{
-    DpiScale, HudViewRole, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache,
-    TextShadow, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree,
-    UiVisual,
+    DpiScale, HudViewRole, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache, TextShadow,
+    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -75,8 +74,8 @@ use retained_hud::{
     ScoreboardOwnerNameAuthority,
 };
 use startup::{StartupPresentationState, StartupReadinessInput};
-pub(crate) use texture_atlas::IconRef;
 use text_metrics::{TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextMetrics};
+pub(crate) use texture_atlas::IconRef;
 use texture_atlas::{
     HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
