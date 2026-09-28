@@ -126,6 +126,49 @@ impl ActorSnapshot {
         snapshot
     }
 
+    /// Builds the client-owned local-player snapshot; `revision` seeds both the spawn and the
+    /// initial movement revision so the rig identity is exact from the first presented frame.
+    /// `uuid`/`username` are the resolved identity by which the skin is looked up.
+    fn local_player(
+        unique_id: i64,
+        runtime_id: u64,
+        revision: u64,
+        uuid: [u8; 16],
+        username: std::sync::Arc<str>,
+        feed: &LocalPlayerFeed,
+    ) -> Self {
+        let pose = ActorPose {
+            position: feed.position,
+            pitch: feed.pitch,
+            yaw: feed.yaw,
+            head_yaw: feed.head_yaw,
+        };
+        Self {
+            unique_id,
+            runtime_id,
+            spawn_revision: revision,
+            movement_revision: revision,
+            kind: ActorKind::Player { uuid, username },
+            position: feed.position,
+            velocity: feed.velocity,
+            pitch: feed.pitch,
+            yaw: feed.yaw,
+            head_yaw: feed.head_yaw,
+            previous_pose: pose,
+            received_pose: pose,
+            interpolation_ticks_remaining: 0,
+            body_yaw: feed.yaw,
+            on_ground: Some(feed.on_ground),
+            teleported: feed.teleported,
+            player_mode: None,
+            source_tick: None,
+            metadata: HashMap::new(),
+            attributes: HashMap::new(),
+            int_properties: HashMap::new(),
+            float_properties: HashMap::new(),
+        }
+    }
+
     fn current_pose(&self) -> ActorPose {
         ActorPose {
             position: self.position,
@@ -294,6 +337,23 @@ pub struct PlayerProfile {
     pub skin: PlayerSkin,
 }
 
+/// Client-authored identity and pose for the local player's own third-person rig, which the
+/// server never spawns as an actor. The skin resolves from the retained player list by uuid.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalPlayerFeed {
+    pub uuid: [u8; 16],
+    pub username: std::sync::Arc<str>,
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub on_ground: bool,
+    /// Look-input yaw driving the body target, not the camera boom.
+    pub yaw: f32,
+    pub head_yaw: f32,
+    pub pitch: f32,
+    /// Snaps the pose and resets the rig instead of interpolating.
+    pub teleported: bool,
+}
+
 /// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.
 #[derive(Debug)]
 pub(crate) struct ActorStore {
@@ -313,6 +373,8 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// Monotonic spawn/movement revision for the client-fed local player actor.
+    synthetic_local_revision: u64,
 }
 
 mod lifecycle;

@@ -40,7 +40,7 @@ use world::{
 };
 
 use super::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use super::actor_store::{ActorSnapshot, ActorStore, PlayerProfile};
+use super::actor_store::{ActorSnapshot, ActorStore, LocalPlayerFeed, PlayerProfile};
 use super::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };

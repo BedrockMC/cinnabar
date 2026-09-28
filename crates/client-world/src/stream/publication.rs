@@ -128,6 +128,16 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }
+    /// Feeds this frame's client-authored local-player pose into the shared actor rig. Call
+    /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
+    /// third-person body and first-person hand read a driven rig instead of a static fallback.
+    pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
+        self.actors.sync_local_player(
+            self.local_player_runtime_id,
+            self.local_player_unique_id,
+            feed,
+        );
+    }
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
     }

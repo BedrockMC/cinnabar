@@ -221,7 +221,6 @@ pub(crate) fn local_diagnostic_presentation(
         axis_scale: render::UNIT_AXIS_SCALE,
     });
     bones[0].rotation = head_rotation;
-    let (sine, cosine) = yaw_degrees.to_radians().sin_cos();
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
             input: ActorRigRenderInput {
@@ -241,11 +240,8 @@ pub(crate) fn local_diagnostic_presentation(
                 completed_tick: pose_generation,
                 reset_generation: actor_session_id,
             },
-            world_from_actor: [
-                [cosine, 0.0, sine, position[0]],
-                [0.0, 1.0, 0.0, position[1]],
-                [-sine, 0.0, cosine, position[2]],
-            ],
+            // Same facing convention as the driven rig so the pre-rig fallback and the rig agree.
+            world_from_actor: rig_world_from_actor(position, yaw_degrees, 1.0),
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
         },
