@@ -20,6 +20,18 @@ pub(crate) enum PropertyKind {
 pub(crate) struct PropertyDefinition {
     pub(crate) name: Arc<str>,
     pub(crate) kind: PropertyKind,
+    /// Stored number an actor reads before the server sets it (enums: the value index).
+    pub(crate) default: f32,
+}
+
+/// A property default from a pack's behavior definition of an entity type.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PropertyDefault {
+    pub name: Arc<str>,
+    /// Enum value names; `None` for int, float, and bool properties.
+    pub values: Option<Arc<[Arc<str>]>>,
+    /// The stored number: the number itself, 0/1 for bool, the value index for enums.
+    pub default: f32,
 }
 
 /// Property definitions of every entity type, in wire index order.
@@ -40,6 +52,32 @@ impl PropertyRegistry {
 
     pub(crate) fn get(&self, entity_type: &str) -> Option<&Arc<[PropertyDefinition]>> {
         self.by_type.get(entity_type)
+    }
+
+    /// Seeds one type's definitions from pack defaults, in the given order, unless the
+    /// server has already synced that type.
+    pub(crate) fn seed(&mut self, entity_type: Arc<str>, defaults: &[PropertyDefault]) {
+        if self.by_type.contains_key(&entity_type)
+            || self.by_type.len() >= MAX_PROPERTY_TYPES
+            || defaults.is_empty()
+        {
+            return;
+        }
+        let definitions = defaults
+            .iter()
+            .take(MAX_PROPERTIES_PER_TYPE)
+            .map(|default| PropertyDefinition {
+                name: Arc::clone(&default.name),
+                kind: default
+                    .values
+                    .as_ref()
+                    .map_or(PropertyKind::Number, |values| {
+                        PropertyKind::Enum(Arc::clone(values))
+                    }),
+                default: default.default,
+            })
+            .collect::<Vec<_>>();
+        self.by_type.insert(entity_type, definitions.into());
     }
 
     /// Retains one type's definitions; malformed or over-budget syncs are dropped.
@@ -70,6 +108,7 @@ fn parse(data: &[u8]) -> Option<(Arc<str>, Vec<PropertyDefinition>)> {
             definitions.push(PropertyDefinition {
                 name: Arc::from(""),
                 kind: PropertyKind::Number,
+                default: 0.0,
             });
             continue;
         };
@@ -90,12 +129,20 @@ fn parse(data: &[u8]) -> Option<(Arc<str>, Vec<PropertyDefinition>)> {
         definitions.push(PropertyDefinition {
             name: Arc::from(entry.string("name").unwrap_or("")),
             kind,
+            default: 0.0,
         });
     }
     Some((entity_type, definitions))
 }
 
 impl ActorStore {
+    pub(crate) fn seed_property_defaults(&mut self, types: &[(Arc<str>, Vec<PropertyDefault>)]) {
+        for (entity_type, defaults) in types {
+            self.property_registry
+                .seed(Arc::clone(entity_type), defaults);
+        }
+    }
+
     pub(crate) fn apply_property_sync(&mut self, event: &ActorPropertySyncEvent) -> bool {
         self.property_registry.apply(event)
     }
@@ -138,6 +185,25 @@ mod tests {
         }
         nbt.push(0);
         ActorPropertySyncEvent { data: nbt.into() }
+    }
+
+    // Pack defaults seed an unsynced type and never replace a server sync.
+    #[test]
+    fn pack_defaults_seed_only_unsynced_types() {
+        let mut registry = PropertyRegistry::default();
+        let default = |name: &str, value: f32| PropertyDefault {
+            name: name.into(),
+            values: None,
+            default: value,
+        };
+        registry.seed("pack:mob".into(), &[default("pack:level", 3.0)]);
+        assert_eq!(registry.get("pack:mob").unwrap()[0].default, 3.0);
+        assert!(registry.apply(&sync(&[("minecraft:angry", 2, &[])])));
+        registry.seed("minecraft:wolf".into(), &[default("x", 1.0)]);
+        assert_eq!(
+            &*registry.get("minecraft:wolf").unwrap()[0].name,
+            "minecraft:angry"
+        );
     }
 
     #[test]
