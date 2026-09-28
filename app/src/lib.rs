@@ -13,6 +13,8 @@ mod interaction_authority;
 pub mod lifecycle;
 pub mod local_player;
 mod local_player_camera_receipt;
+#[allow(dead_code, unused_imports, reason = "embedded by the menu module")]
+mod local_worlds;
 mod melee;
 mod menu;
 pub mod metrics;

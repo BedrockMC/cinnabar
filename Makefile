@@ -108,7 +108,7 @@ else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
 
-.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets icon-assets physics-assets core local-server client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
@@ -130,6 +130,7 @@ help:
 	@echo make audio-assets    - Compile the pinned sound-definition lookup catalog
 	@echo make physics-assets  - Install and verify the pinned protocol-2168 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
+	@echo make local-server    - Build the dragonfly local-world server beside the core binary
 	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows
 	@echo make client-macos    - Run the client on macOS
@@ -298,6 +299,12 @@ core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))
 	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
+
+# Separate module: dragonfly needs a newer gophertunnel than the core, so it cannot join go.work.
+LOCAL_SERVER_OUT ?= target/release/bedrock-local-server$(if $(filter windows,$(DIST_PLATFORM)),.exe)
+
+local-server:
+	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
 client: assets physics-assets
 	$(CLIENT_RUN)
