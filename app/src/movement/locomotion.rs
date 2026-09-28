@@ -93,7 +93,10 @@ impl ModeTracker {
             (MovementMode::Walking, false)
         } else if pose_fits(world, observed.feet, MovementMode::Walking, true)? {
             (MovementMode::Walking, true)
-        } else if pose_fits(world, observed.feet, MovementMode::Crawling, false)? {
+        } else if matches!(self.mode, MovementMode::Swimming | MovementMode::Crawling)
+            && pose_fits(world, observed.feet, MovementMode::Crawling, false)?
+        {
+            // Only a swimmer or an existing crawler is squeezed into a gap; walking never enters one.
             (MovementMode::Crawling, false)
         } else {
             (MovementMode::Walking, false)
@@ -295,8 +298,10 @@ mod tests {
     }
 
     #[test]
-    fn a_gap_too_low_to_stand_or_sneak_in_forces_crawling() {
-        let mut tracker = ModeTracker::default();
+    fn a_gap_too_low_to_stand_or_sneak_in_squeezes_a_swimmer_into_crawling() {
+        let mut tracker = ModeTracker {
+            mode: MovementMode::Swimming,
+        };
         let observed = ModeObservation {
             on_ground: true,
             feet: Vec3::new(0.0, 0.0, 0.0),
@@ -311,6 +316,20 @@ mod tests {
             .unwrap();
         assert_eq!(open.mode, MovementMode::Walking);
         assert!(!open.forced_sneak);
+    }
+
+    #[test]
+    fn a_walker_is_never_squeezed_into_a_gap_it_does_not_fit() {
+        let mut tracker = ModeTracker::default();
+        let observed = ModeObservation {
+            on_ground: true,
+            feet: Vec3::new(0.0, 0.0, 0.0),
+            ..airborne()
+        };
+        let choice = tracker
+            .select(ModeIntent::default(), false, observed, &Ceiling(Some(1.0)))
+            .unwrap();
+        assert_eq!(choice.mode, MovementMode::Walking);
     }
 
     #[test]

@@ -31,7 +31,7 @@ pub struct MovementInput {
     #[serde(default, skip_serializing_if = "MovementEffects::is_empty")]
     pub effects: MovementEffects,
     /// Client-selected locomotion mode; `Walking` runs the oracle-validated path.
-    #[serde(default, skip_serializing_if = "MovementMode::is_walking")]
+    #[serde(default, skip_serializing_if = "is_walking")]
     pub mode: MovementMode,
     /// Look pitch, degrees positive downward. Read only by swimming and gliding.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -39,6 +39,10 @@ pub struct MovementInput {
     /// Ability flight speed; `None` selects the vanilla default. Read only when flying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fly_speed: Option<f64>,
+}
+
+fn is_walking(mode: &MovementMode) -> bool {
+    mode.is_walking()
 }
 
 fn is_zero(value: &f64) -> bool {
