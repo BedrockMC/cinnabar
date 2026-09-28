@@ -12,7 +12,7 @@ use valentine::bedrock::version::v1_26_44::{
 use crate::{
     ActorPacketError, InventoryPacketError, ItemPacketError, Packet,
     actor::{
-        normalize_add_entity, normalize_add_player, normalize_mob_effect, normalize_move_entity,
+        normalize_add_entity, normalize_add_item_actor, normalize_add_player, normalize_mob_effect, normalize_move_entity,
         normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
         normalize_set_entity_data, normalize_set_entity_link, normalize_update_attributes,
     },
@@ -406,6 +406,12 @@ pub fn into_world_event(
         }
         McpePacketData::PlayerListPacket(packet) => {
             WorldEvent::Actor(normalize_player_list(packet)?)
+        }
+        McpePacketData::AddItemActorPacket(packet) => {
+            WorldEvent::Actor(normalize_add_item_actor(*packet, current_dimension)?)
+        }
+        McpePacketData::TakeItemActorPacket(packet) => {
+            WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet))
         }
         McpePacketData::ActorEventPacket(packet) => {
             let Some(event) = crate::actor::normalize_actor_event(*packet) else {

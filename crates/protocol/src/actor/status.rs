@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_44::{ActorEventPacket, EnumsActorEvent};
+use valentine::bedrock::version::v1_26_44::{ActorEventPacket, EnumsActorEvent, TakeItemActorPacket};
 
 use crate::ActorEvent;
 
@@ -39,6 +39,20 @@ pub struct ActorStatusEvent {
     pub kind: ActorStatusKind,
     /// Event-specific payload; its meaning depends on `kind` and is unused for most kinds.
     pub data: i32,
+}
+
+/// A dropped item was picked up: the item flies to `collector_runtime_id` and is then removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorTakeItemEvent {
+    pub item_runtime_id: u64,
+    pub collector_runtime_id: u64,
+}
+
+pub(crate) fn normalize_take_item_actor(packet: TakeItemActorPacket) -> ActorEvent {
+    ActorEvent::TakeItem(ActorTakeItemEvent {
+        item_runtime_id: packet.item_runtime_id.actor_runtime_id,
+        collector_runtime_id: packet.actor_runtime_id.actor_runtime_id,
+    })
 }
 
 /// Maps an ActorEvent packet to a status event, or `None` for ids the client draws nothing for.

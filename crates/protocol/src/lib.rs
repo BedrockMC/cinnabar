@@ -26,7 +26,7 @@ pub use actor::{
     ActorEffectEvent, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind,
+    ActorStatusKind, ActorTakeItemEvent,
     MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
     MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES,
     MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES,

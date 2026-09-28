@@ -394,7 +394,9 @@ mod hurt;
 mod lifecycle;
 mod query;
 
-pub use hurt::{ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS};
+pub use hurt::{
+    ActorPickup, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS, PICKUP_DURATION_TICKS,
+};
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
@@ -410,7 +412,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) | ActorEvent::Status(_) => None,
+        ActorEvent::PlayerList(_) | ActorEvent::Status(_) | ActorEvent::TakeItem(_) => None,
     }
 }
 

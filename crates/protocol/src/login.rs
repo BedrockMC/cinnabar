@@ -824,6 +824,8 @@ fn decode_world_raw_with(
             | McpePacketName::SetActorDataPacket
             | McpePacketName::UpdateAttributesPacket
             | McpePacketName::ActorEventPacket
+            | McpePacketName::AddItemActorPacket
+            | McpePacketName::TakeItemActorPacket
             | McpePacketName::PlayerListPacket
             | McpePacketName::ItemRegistryPacket
             | McpePacketName::MobEquipmentPacket

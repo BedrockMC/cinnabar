@@ -4,7 +4,7 @@ use bytes::{Buf, Bytes};
 use thiserror::Error;
 use valentine::{
     bedrock::version::v1_26_44::{
-        ActorLink as VendorActorLink, AddActorPacket, AddPlayerPacket, AttributeData,
+        ActorLink as VendorActorLink, AddActorPacket, AddItemActorPacket, AddPlayerPacket, AttributeData,
         DataItemEntryPayload, EnumsActorLinkType as VendorActorLinkType,
         EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobEffectPacket,
         MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
@@ -18,8 +18,8 @@ use valentine::{
 use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
 mod status;
-pub(crate) use status::normalize_actor_event;
-pub use status::{ActorStatusEvent, ActorStatusKind};
+pub(crate) use status::{normalize_actor_event, normalize_take_item_actor};
+pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 
 pub const MAX_ACTOR_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_ACTOR_NAME_BYTES: usize = 256;
@@ -270,6 +270,7 @@ pub enum ActorEvent {
     Attributes(ActorAttributesUpdateEvent),
     PlayerList(PlayerListUpdateEvent),
     Status(ActorStatusEvent),
+    TakeItem(ActorTakeItemEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -359,6 +360,44 @@ pub(crate) fn normalize_add_entity(
         attributes,
         properties,
         links,
+    }))
+}
+
+/// Dropped-item spawn; the stack rides in `held_item` and the identifier is fixed.
+pub(crate) fn normalize_add_item_actor(
+    packet: AddItemActorPacket,
+    dimension: i32,
+) -> Result<ActorEvent, ActorPacketError> {
+    for (field, value) in [
+        ("position.x", packet.position.x),
+        ("position.y", packet.position.y),
+        ("position.z", packet.position.z),
+        ("velocity.x", packet.velocity.x),
+        ("velocity.y", packet.velocity.y),
+        ("velocity.z", packet.velocity.z),
+    ] {
+        validate_finite(field, value)?;
+    }
+    let held_item = normalize_item(packet.item)?;
+    let metadata = normalize_metadata(packet.entity_data)?;
+    Ok(ActorEvent::Spawn(ActorSpawnEvent {
+        dimension,
+        unique_id: packet.target_actor_id.actor_unique_id,
+        runtime_id: packet.target_runtime_id.actor_runtime_id,
+        kind: ActorKind::Entity {
+            identifier: Arc::from("minecraft:item"),
+        },
+        position: [packet.position.x, packet.position.y, packet.position.z],
+        velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        body_yaw: 0.0,
+        held_item,
+        metadata,
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
     }))
 }
 
