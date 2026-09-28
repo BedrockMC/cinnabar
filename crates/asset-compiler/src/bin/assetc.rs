@@ -127,6 +127,13 @@ enum Command {
         #[arg(long)]
         report: PathBuf,
     },
+    /// Compile the optional precipitation sheet and End sky carrier.
+    WeatherAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     HudAssets {
         #[arg(long)]
         pack: PathBuf,
@@ -423,6 +430,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::WeatherAssets { pack, out } => {
+            asset_compiler::compile_weather_textures_to_file(&pack, &out)?;
+            println!("compiled weather textures to {}", out.display());
         }
         Command::ActorAssets {
             pack,
