@@ -190,8 +190,10 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
 - Scaffolding is solid only from above and sneak descends (provisional rate). Honey jump/slide,
   soul speed and depth strider are simulated with provisional coefficients; sweet berry bush
   slowdown, dolphin's grace and client-predicted vehicles are open.
-- Riding: player physics is suspended while mounted and boat paddle flags are sent; rider seat
-  following and horse-jump wire signalling are open (HIGH).
+- Riding: player physics is suspended while mounted, the rider follows its mount seat, and boat
+  paddle flags are sent; client-predicted vehicles (no vehicle simulator) and
+  `ClientMovementPredictionSync` (never sent) are open (HIGH). Sweet berry bush needs the
+  registry regeneration described in plan.md.
 - Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
   scroll-notch magnitude; UI key-repeat (MED/LOW).
 

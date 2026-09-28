@@ -522,6 +522,22 @@ impl LocalPhysicsController {
             ) {
                 input.sprinting = false;
             }
+            // A rider's position is its seat on the mount, not a simulated result.
+            let mut ride_delta = None;
+            if input.mode == sim::MovementMode::Riding
+                && let Some(seat) = context
+                    .mode_intent
+                    .ride_seat
+                    .filter(|seat| seat.iter().all(|axis| axis.is_finite()))
+            {
+                let seat = Vec3::new(f64::from(seat[0]), f64::from(seat[1]), f64::from(seat[2]));
+                ride_delta = Some([
+                    (seat.x - state.position.x) as f32,
+                    (seat.y - state.position.y) as f32,
+                    (seat.z - state.position.z) as f32,
+                ]);
+                state.position = seat;
+            }
             // A queued server impulse replaces this tick's starting velocity,
             // mirroring how Bedrock applies knockback as an absolute velocity.
             // The overlay is retained after application so a correction
@@ -573,6 +589,11 @@ impl LocalPhysicsController {
                         -input.strafe as f32,
                         input.forward as f32,
                     ]));
+                    if input.mode == sim::MovementMode::Riding {
+                        // The mount owns jumping; only the raw button flags describe it.
+                        processed.jump_initiated = false;
+                        processed.jump_arc_active = false;
+                    }
                     self.processed_jump_arc_active = processed.jump_arc_active;
                     frame.samples.push(PhysicsMovementSample {
                         tick: state.tick,
@@ -613,6 +634,9 @@ impl LocalPhysicsController {
                         processed,
                         world_identity,
                     });
+                    if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
+                        sample.movement = delta;
+                    }
                     if self.sample_history.len() == LOCAL_PHYSICS_HISTORY_CAPACITY {
                         self.sample_history.pop_front();
                     }

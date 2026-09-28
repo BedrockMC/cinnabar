@@ -74,7 +74,7 @@ pub(crate) fn advance_local_physics(
     let analogue_movement = input.analogue_movement();
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
-    let facts = local_facts::read(ui.as_deref(), stream);
+    let facts = local_facts::read(ui.as_deref(), stream, input.phase(Action::Use).held);
     let gameplay = settings
         .as_deref()
         .map(|settings| settings.user_settings_update().1.gameplay)
@@ -127,6 +127,7 @@ pub(crate) fn advance_local_physics(
             analogue_move_vector: analogue_movement,
             mode_intent: ModeIntent {
                 ride: facts.ride,
+                ride_seat: facts.ride_seat,
                 can_fly: facts.can_fly,
                 server_flying: facts.server_flying,
                 fly_toggle,

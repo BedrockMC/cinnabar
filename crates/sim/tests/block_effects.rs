@@ -150,3 +150,23 @@ fn depth_strider_speeds_water_travel() {
     };
     assert!(swim(3) > swim(0));
 }
+
+#[test]
+fn a_passable_slowing_block_slows_an_overlapping_body_like_powder_snow() {
+    let bush = Blocks {
+        floor: false,
+        flags: BlockPhysicsFlags::PASSABLE,
+        horizontal_factor: 0.5,
+        ..Blocks::plain()
+    };
+    let drift = |world: &Blocks| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 50.0, 0.5));
+        state.velocity.x = 0.5;
+        run(world, state, MovementInput::default(), 1).movement.x
+    };
+    let free = Blocks {
+        floor: false,
+        ..Blocks::plain()
+    };
+    assert!(drift(&bush) < drift(&free) * 0.75);
+}

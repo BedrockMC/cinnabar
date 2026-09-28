@@ -2833,7 +2833,17 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
   following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire
-  signalling and sweet berry bush slowdown are not implemented.
+  signalling are not implemented. Sweet berry bush slowdown is written in `tools/registrygen`
+  (unverified state count and coefficients) and the sim, but the physics carrier is not
+  regenerated: at reconcile run `go -C tools/registrygen run . -physics-v2168-out
+  crates/assets/data/block-physics-v2168.bin -physics-v2168-sha-out
+  crates/assets/data/block-physics-v2168.sha256 -physics-v2168-breg <v2168 BREG>
+  -physics-v2168-manifest <manifest> -pmmp <pmmp root> -prismarine <prismarine root>` and
+  fix any count or provenance mismatch it reports for `minecraft:sweet_berry_bush`.
+  `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
+  not imply prediction and no vehicle simulator exists, so all rides send ordinary player
+  input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw
+  jump flags and the mount's jump strength.
 
 ## Phase 4 — Entities and other players
 

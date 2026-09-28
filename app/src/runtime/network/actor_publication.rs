@@ -529,7 +529,7 @@ const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 
 /// Items whose use the client animates without waiting for the server; food and drink wait for
 /// the server flag, since the client cannot tell whether eating is allowed.
-fn local_item_use(
+pub(crate) fn local_item_use(
     stream: &WorldStream,
     ui: &crate::ui_runtime::UiRuntime,
     use_held: bool,
