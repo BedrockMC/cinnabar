@@ -17,14 +17,22 @@ use sha2::{Digest, Sha256};
 
 mod animation;
 mod attachable;
+mod collect;
 mod geometry;
 mod item;
 mod item_bindings;
 mod json;
 mod molang;
+mod pack;
 mod source;
 
+pub use pack::{
+    EntityPackCompilation, EntityPackSkips, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES,
+    compile_entity_pack,
+};
+
 pub(crate) use animation::roots::authored_roots;
+use collect::{collect_family, collect_optional_family, collect_optional_file};
 use geometry::parse_geometry;
 pub(crate) use json::parse_fully_unique_json;
 use json::{parse_semantic_json, parse_unique_json};
@@ -182,6 +190,28 @@ pub fn compile_entity_assets_with_report(
         source_bytes: binding_bytes.len() as u32,
         source_sha256: Sha256::digest(binding_bytes).into(),
     });
+    assemble(
+        root,
+        sources,
+        source_payloads,
+        symbols,
+        geometries,
+        source_manifest_sha256,
+        true,
+    )
+}
+
+/// Resolves symbols and geometry inheritance, compiles animation and Molang
+/// payloads, and (for the vanilla carrier) item visuals and equipment bindings.
+fn assemble(
+    root: &Path,
+    mut sources: Vec<EntityAssetSource>,
+    source_payloads: SourcePayloads,
+    symbols: BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
+    geometries: BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
+    source_manifest_sha256: [u8; 32],
+    include_items: bool,
+) -> Result<EntityAssetCompilation, AssetError> {
     sources.sort_by(|left, right| left.path.cmp(&right.path));
     if symbols.is_empty() || symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
@@ -284,9 +314,22 @@ pub fn compile_entity_assets_with_report(
     )?;
     validate_reference_coverage(&symbols, &animation)?;
     let molang = molang_compiler.finish()?;
-    let equipment_bindings = attachable::compile_bindings(&source_payloads, &symbols, &sources)?;
-    let item_transforms = attachable::transform_lookup(&equipment_bindings);
-    let items = item::compile(root, &source_payloads, &sources, &item_transforms)?;
+    let (equipment_bindings, items) = if include_items {
+        let equipment_bindings =
+            attachable::compile_bindings(&source_payloads, &symbols, &sources)?;
+        let item_transforms = attachable::transform_lookup(&equipment_bindings);
+        let items = item::compile(root, &source_payloads, &sources, &item_transforms)?;
+        (equipment_bindings, items)
+    } else {
+        (
+            Box::default(),
+            item::ItemPayload {
+                block_visual_count: 0,
+                visuals: Box::default(),
+                aliases: Box::default(),
+            },
+        )
+    };
     let reference_outcomes = animation.outcomes;
     let assets = CompiledEntityAssets {
         source_manifest_sha256,
@@ -313,7 +356,9 @@ pub fn compile_entity_assets_with_report(
         item_visuals: items.visuals,
         item_visual_aliases: items.aliases,
     };
-    assets.validate()?;
+    if include_items {
+        assets.validate()?;
+    }
     Ok(EntityAssetCompilation {
         assets,
         reference_outcomes,
@@ -390,137 +435,6 @@ fn resolve_geometry_dimension(
         current = parent;
     }
     Err(invalid("entity geometry dimension inheritance is cyclic"))
-}
-
-fn collect_family(
-    root: &Path,
-    relative_root: &str,
-    allowed_extensions: &[&str],
-    output: &mut Vec<(Box<str>, PathBuf)>,
-) -> Result<(), AssetError> {
-    let absolute_root = root.join(relative_root);
-    let metadata = fs::symlink_metadata(&absolute_root).map_err(|source| AssetError::Io {
-        path: absolute_root.clone(),
-        source,
-    })?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(invalid("entity asset family root must be a real directory"));
-    }
-    collect_directory(root, &absolute_root, allowed_extensions, output, 0, true)
-}
-
-fn collect_optional_family(
-    root: &Path,
-    relative_root: &str,
-    allowed_extensions: &[&str],
-    output: &mut Vec<(Box<str>, PathBuf)>,
-) -> Result<(), AssetError> {
-    let absolute_root = root.join(relative_root);
-    match fs::symlink_metadata(&absolute_root) {
-        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-            collect_directory(root, &absolute_root, allowed_extensions, output, 0, false)
-        }
-        Ok(_) => Err(invalid(
-            "optional entity asset family must be a real directory",
-        )),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(source) => Err(AssetError::Io {
-            path: absolute_root,
-            source,
-        }),
-    }
-}
-
-fn collect_optional_file(
-    root: &Path,
-    relative_path: &str,
-    output: &mut Vec<(Box<str>, PathBuf)>,
-) -> Result<(), AssetError> {
-    let path = root.join(relative_path);
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
-            output.push((relative_path.into(), path));
-            if output.len() > MAX_ENTITY_ASSET_SOURCES {
-                return Err(invalid("entity asset source count exceeds bound"));
-            }
-            Ok(())
-        }
-        Ok(_) => Err(invalid("optional entity asset source must be a real file")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(source) => Err(AssetError::Io { path, source }),
-    }
-}
-
-fn collect_directory(
-    root: &Path,
-    directory: &Path,
-    allowed_extensions: &[&str],
-    output: &mut Vec<(Box<str>, PathBuf)>,
-    depth: usize,
-    reject_unsupported: bool,
-) -> Result<(), AssetError> {
-    if depth > MAX_ENTITY_SOURCE_DIRECTORY_DEPTH {
-        return Err(invalid("entity asset source directory depth exceeds bound"));
-    }
-    let mut entries = fs::read_dir(directory)
-        .map_err(|source| AssetError::Io {
-            path: directory.to_path_buf(),
-            source,
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| AssetError::Io {
-            path: directory.to_path_buf(),
-            source,
-        })?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for entry in entries {
-        let path = entry.path();
-        let metadata = fs::symlink_metadata(&path).map_err(|source| AssetError::Io {
-            path: path.clone(),
-            source,
-        })?;
-        if metadata.file_type().is_symlink() {
-            return Err(invalid(
-                "entity asset source trees may not contain symlinks",
-            ));
-        }
-        if metadata.is_dir() {
-            collect_directory(
-                root,
-                &path,
-                allowed_extensions,
-                output,
-                depth + 1,
-                reject_unsupported,
-            )?;
-            continue;
-        }
-        if !metadata.is_file() {
-            return Err(invalid(
-                "entity asset source tree contains a non-file entry",
-            ));
-        }
-        let extension = path.extension().and_then(|extension| extension.to_str());
-        if !extension.is_some_and(|extension| allowed_extensions.contains(&extension)) {
-            if !reject_unsupported {
-                continue;
-            }
-            return Err(invalid(format!(
-                "unsupported entity asset source extension at {}",
-                path.display()
-            )));
-        }
-        let relative = path
-            .strip_prefix(root)
-            .map_err(|_| invalid("entity asset source escaped the pack root"))?
-            .to_string_lossy()
-            .replace('\\', "/");
-        output.push((relative.into_boxed_str(), path));
-        if output.len() > MAX_ENTITY_ASSET_SOURCES {
-            return Err(invalid("entity asset source count exceeds bound"));
-        }
-    }
-    Ok(())
 }
 
 fn parse_source(
