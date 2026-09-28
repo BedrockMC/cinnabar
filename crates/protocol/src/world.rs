@@ -808,6 +808,9 @@ pub fn into_world_event(
             ) {
                 return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
             }
+            if let Some(event) = crate::particle::normalize_level_event(&packet) {
+                return Ok(Some(WorldEvent::Particle(event)));
+            }
             let update = match packet.event_id {
                 LEVEL_EVENT_START_RAINING => WeatherUpdateEvent {
                     channel: WeatherChannel::Rain,
@@ -828,6 +831,12 @@ pub fn into_world_event(
                 _ => return Ok(None),
             };
             WorldEvent::Weather(update)
+        }
+        McpePacketData::SpawnParticleEffectPacket(packet) => {
+            match crate::particle::normalize_spawn(*packet) {
+                Some(event) => WorldEvent::Particle(event),
+                None => return Ok(None),
+            }
         }
         _ => return Ok(None),
     };

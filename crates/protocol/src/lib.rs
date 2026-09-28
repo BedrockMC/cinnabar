@@ -14,6 +14,7 @@ mod login;
 mod movement;
 mod nbt_tree;
 mod packet;
+mod particle;
 mod permissions;
 mod raw_text;
 mod socket_transport;
@@ -118,6 +119,10 @@ pub use movement::{
     player_auth_input_with_interactions, player_auth_input_with_mining_request,
 };
 pub use packet::Packet;
+pub use particle::{
+    LevelParticleEvent, MAX_PARTICLE_NAME_BYTES, MAX_PARTICLE_VARIABLES_BYTES, ParticleEvent,
+    SpawnParticleEffectEvent,
+};
 pub use permissions::{
     AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence, MAX_ABILITY_LAYERS,
     decode_abilities_update,

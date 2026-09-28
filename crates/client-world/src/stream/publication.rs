@@ -91,6 +91,9 @@ impl WorldStream {
     pub fn take_committed_audio(&mut self) -> Vec<CommittedAudioEvent> {
         self.committed_audio.drain(..).collect()
     }
+    pub fn take_committed_particles(&mut self) -> Vec<CommittedParticleEvent> {
+        self.committed_particles.drain(..).collect()
+    }
     pub fn take_committed_camera(&mut self) -> Vec<CommittedCameraEvent> {
         self.committed_camera.drain(..).collect()
     }
@@ -157,6 +160,9 @@ impl WorldStream {
     }
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
+    }
+    pub fn actor_by_unique_id(&self, unique_id: i64) -> Option<&ActorSnapshot> {
+        self.actors.snapshot_by_unique(unique_id)
     }
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)

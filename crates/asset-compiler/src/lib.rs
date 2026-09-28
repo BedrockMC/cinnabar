@@ -13,6 +13,7 @@ mod icon;
 mod image;
 mod lang;
 mod pack;
+mod particle;
 mod ui;
 mod weather_textures;
 
@@ -55,5 +56,9 @@ pub use lang::{CompiledLangCarrier, LangCompileError, LangCompileReport, compile
 pub use pack::{
     BlockTextureMap, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, PackSources,
     TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,
+};
+pub use particle::{
+    CompiledParticleCarrier, ParticleCompileReport, compile_particle_assets,
+    decode_particle_carrier,
 };
 pub use ui::{CompiledUiCarrier, UiCompileReport, compile_ui_assets, decode_ui_carrier};
