@@ -468,6 +468,19 @@ impl PlayerInventoryLedger {
         Ok(())
     }
 
+    /// Submits a request that also carries anvil text for its filter index.
+    pub(super) fn submit_filtered(
+        &mut self,
+        submission: Submission,
+        filter_strings: Vec<String>,
+    ) -> Result<i32, InventoryGestureError> {
+        let request_id = self.submit(submission)?;
+        if let Some(pending) = self.queue.back_mut() {
+            pending.filter_strings = filter_strings;
+        }
+        Ok(request_id)
+    }
+
     pub(super) fn submit(&mut self, submission: Submission) -> Result<i32, InventoryGestureError> {
         self.check_surfaces(submission.groups.iter().flat_map(DeltaGroup::touched))?;
         let request_id = self.peek_request_id()?;
@@ -475,6 +488,7 @@ impl PlayerInventoryLedger {
         self.enqueue(PendingRequest {
             request_id,
             actions: submission.actions,
+            filter_strings: Vec::new(),
             groups: submission.groups,
             state: InventoryPendingState::AwaitingTransport,
             transport_deadline_millis: None,

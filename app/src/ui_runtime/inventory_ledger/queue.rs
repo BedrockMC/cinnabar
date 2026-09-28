@@ -22,6 +22,8 @@ pub const MAX_PENDING_REQUESTS: usize = 256;
 pub(super) struct PendingRequest {
     pub(super) request_id: i32,
     pub(super) actions: Vec<StackRequestAction>,
+    /// Anvil text a craft-optional action's filter index points into.
+    pub(super) filter_strings: Vec<String>,
     pub(super) groups: Vec<DeltaGroup>,
     pub(super) state: InventoryPendingState,
     pub(super) transport_deadline_millis: Option<u64>,
@@ -244,6 +246,8 @@ impl PlayerInventoryLedger {
                 }
                 merge_response_overlay(&mut held.overlay, correction);
             }
+            // Screen cells restate through slot updates that follow the response.
+            None if matches!(cell, Cell::Craft(_) | Cell::CreatedOutput) => {}
             None => self.mark_cell_recovery(cell),
         }
     }
@@ -400,6 +404,7 @@ impl PlayerInventoryLedger {
             PendingRequest {
                 request_id,
                 actions: Vec::new(),
+                filter_strings: Vec::new(),
                 groups: Vec::new(),
                 state: InventoryPendingState::AwaitingResponse,
                 transport_deadline_millis: None,
