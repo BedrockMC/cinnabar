@@ -9,9 +9,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use client_world::ActorSnapshot;
-use protocol::{
-    ActorUseAction, ActorUseRequest, BedrockSession, PlayerGameMode, PlayerInputMode, SwingSource,
-};
+use protocol::{ActorUseAction, ActorUseRequest, BedrockSession, PlayerInputMode, SwingSource};
 use semantic_input::Action;
 
 use crate::{
@@ -30,10 +28,6 @@ use crate::{
     ui_runtime::UiRuntime,
 };
 
-/// Documented survival melee reach from the eye.
-const SURVIVAL_ATTACK_REACH: f64 = 3.0;
-/// Creative melee reach. Needs independent measurement.
-const CREATIVE_ATTACK_REACH: f64 = 7.0;
 /// Pick-box inflation and actor-versus-block bias. Needs independent measurement.
 const ACTOR_PICK_RADIUS: f64 = 0.1;
 /// Documented default swing length of 0.3 seconds.
@@ -359,14 +353,11 @@ pub(crate) fn produce_melee(
     runtime.synchronize(movement.interaction_authority_identity());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
-    let attack_reach = match context.ui.player_game_mode() {
-        Some(PlayerGameMode::Survival | PlayerGameMode::Adventure) => SURVIVAL_ATTACK_REACH,
-        Some(PlayerGameMode::Creative) => CREATIVE_ATTACK_REACH,
-        _ => 0.0,
-    };
+    let caps = context.ui.game_mode_capabilities();
+    let attack_reach = caps.map_or(0.0, |caps| caps.attack_reach);
     let Some(input) = context.input.snapshot().filter(|_| {
         focused
-            && attack_reach > 0.0
+            && caps.is_some_and(|caps| caps.can_attack)
             && !context.ui.ui_focused()
             && movement.accepts_creative_mining()
     }) else {
@@ -384,6 +375,7 @@ pub(crate) fn produce_melee(
             &context,
             input_mode,
             attack_reach,
+            caps.is_some_and(|caps| caps.creative_reach),
             (input.authority_generation, input.frame_sequence),
             movement.interaction_authority_identity().1,
         ),
@@ -419,6 +411,7 @@ fn resolve_crosshair(
     context: &MeleeContext,
     input_mode: PlayerInputMode,
     attack_reach: f64,
+    creative_pick_reach: bool,
     input_authority: (std::num::NonZeroU64, u64),
     position_authority_generation: u64,
 ) -> Option<Crosshair> {
@@ -429,7 +422,7 @@ fn resolve_crosshair(
     {
         return None;
     }
-    let reach = if context.ui.player_game_mode() == Some(PlayerGameMode::Creative) {
+    let reach = if creative_pick_reach {
         creative_reach(input_mode)
     } else {
         survival_reach(input_mode)

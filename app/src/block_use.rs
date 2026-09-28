@@ -346,13 +346,11 @@ pub(crate) fn produce_block_use(
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     let game_mode = context.ui.player_game_mode();
+    let caps = context.ui.game_mode_capabilities();
     let Some(input) = context.input.snapshot().filter(|input| {
         focused
             && !context.ui.ui_focused()
-            && matches!(
-                game_mode,
-                Some(PlayerGameMode::Survival | PlayerGameMode::Creative)
-            )
+            && caps.is_some_and(|caps| caps.can_edit)
             && input.input_mode != semantic_input::InputMode::Touch
             && movement.accepts_creative_mining()
     }) else {

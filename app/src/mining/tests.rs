@@ -300,9 +300,12 @@ fn creative_break_payload_is_complete_and_ordered_before_attachment() {
 }
 
 #[test]
-fn only_explicit_creative_mode_grants_the_first_slice_ability() {
+fn only_instant_break_capability_grants_the_first_slice_ability() {
+    use crate::game_mode_capabilities::GameModeCapabilities;
     assert_eq!(
-        creative_mining_ability(protocol::PlayerGameMode::Creative),
+        creative_mining_ability(GameModeCapabilities::for_mode(
+            protocol::PlayerGameMode::Creative
+        )),
         Some(CreativeMiningAbility::InstantBreak)
     );
     for mode in [
@@ -311,18 +314,20 @@ fn only_explicit_creative_mode_grants_the_first_slice_ability() {
         protocol::PlayerGameMode::Spectator,
         protocol::PlayerGameMode::Unknown,
     ] {
-        assert_eq!(creative_mining_ability(mode), None);
+        assert_eq!(
+            creative_mining_ability(GameModeCapabilities::for_mode(mode)),
+            None
+        );
     }
 }
 
 #[test]
 fn ui_ownership_revokes_even_an_explicit_creative_ability() {
+    use crate::game_mode_capabilities::GameModeCapabilities;
+    let creative = GameModeCapabilities::for_mode(protocol::PlayerGameMode::Creative);
+    assert_eq!(creative_mining_ui_ability(true, creative), None);
     assert_eq!(
-        creative_mining_ui_ability(true, protocol::PlayerGameMode::Creative),
-        None
-    );
-    assert_eq!(
-        creative_mining_ui_ability(false, protocol::PlayerGameMode::Creative),
+        creative_mining_ui_ability(false, creative),
         Some(CreativeMiningAbility::InstantBreak)
     );
 }
