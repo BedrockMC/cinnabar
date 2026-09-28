@@ -36,8 +36,8 @@ pub use particles::{
     EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, LevelParticle, MAX_LIVE_PARTICLES,
     ParticleGpuFrame, ParticleInstance, ParticleRenderPlugin, ParticleSound, ParticleSystem,
     ParticleView, ParticleWorld, SpawnRequest, TileRequest, block_break_request,
-    block_crack_request, classify_level_event, is_particle_level_event, named_request,
-    parse_molang_variables, particle_view, update_particle_frame,
+    block_crack_request, classify_level_event, is_particle_level_event, item_icon_request,
+    named_request, parse_molang_variables, particle_view, update_particle_frame,
 };
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,

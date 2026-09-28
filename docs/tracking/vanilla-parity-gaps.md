@@ -125,9 +125,11 @@ animated rig remotes use. All three below flow from that.
   SpawnParticleEffect triggers, critical hits. Provisional *(measure)*: break/crack piece
   counts and radii, particle size as half-extent, `particles_alpha` treated as blended
   with a low alpha cutoff, collision-drag model, light mapping, spawn/draw distance caps,
-  Molang variable wire layout. Missing: biome tint on break pieces, item-icon particles,
-  local mining crack trigger, entity/animation-driven emitters (spawn API exists),
-  particle sound routing, `emitter_bound`/travel-distance events (HIGH until measured).
+  Molang variable wire layout. Missing:
+  local-player eating crumbs (needs the animation lane's item-use state; remote and server
+  Feed notices work), fireworks, particle sound playback (queued via
+  `ParticleSystem::take_sounds`), actor-bound emitters follow position only, not rotation
+  (HIGH until measured).
 - Daylight: eased celestial angle, day plateau and night transfer landed uncompiled; the shader night floors
   (`lighting.wgsl`, `chunk/gpu/upload/lighting.rs`, cloud) still clamp at 0.2/0.04 and must drop to `NIGHT_SKY_TRANSFER` (HIGH).
 - Stars: procedural star field landed uncompiled; twinkle unverified *(measure)*.

@@ -188,6 +188,12 @@ pub(crate) struct DestroyMachine {
 }
 
 impl DestroyMachine {
+    /// The block and face currently being destroyed.
+    pub(crate) fn destroying_target(&self) -> Option<([i32; 3], u8)> {
+        self.destroying
+            .map(|destroying| (destroying.position, destroying.face))
+    }
+
     /// Forgets unsent progress; an in-flight destroy is aborted on the next step.
     pub(crate) fn interrupt(&mut self) {
         if let Some(destroying) = self.destroying.take() {
@@ -363,6 +369,11 @@ pub(crate) struct SurvivalMiningRuntime {
 }
 
 impl SurvivalMiningRuntime {
+    /// The block and face the local player is breaking, for hit particles.
+    pub(crate) fn destroying_target(&self) -> Option<([i32; 3], u8)> {
+        self.machine.destroying_target()
+    }
+
     /// Steps every unsent tick once, attaching nonempty payloads to their
     /// samples, and returns the mining request ids no tick carried.
     pub(crate) fn step_ticks(
