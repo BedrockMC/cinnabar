@@ -132,7 +132,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
     // The hand rig shares the main camera's vertical FOV; with no dynamic FOV modifiers yet this
-    // is the base FOV (getFovWithoutGameplay). Wire it to the base setting once modifiers land.
+    // is the base field of view before gameplay modifiers. Wire it to the base setting once modifiers land.
     let hand_camera_fov = camera
         .single()
         .ok()
