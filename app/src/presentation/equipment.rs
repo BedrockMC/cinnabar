@@ -4,6 +4,7 @@ mod armor;
 mod atlas;
 mod blocks;
 mod display;
+mod elytra;
 mod input;
 mod runtime;
 #[cfg(test)]

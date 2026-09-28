@@ -39,7 +39,40 @@ pub struct EquipmentBinding {
     pub first_person: EquipmentTransform,
     pub third_person: EquipmentTransform,
     pub dropped: EquipmentTransform,
+    /// Literal-only named poses of the attachable's own bones (elytra states); empty otherwise.
+    #[serde(default)]
+    pub poses: Box<[AttachablePose]>,
 }
+
+/// One literal animation of an attachable: per-bone offsets in pixels and degrees.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachablePose {
+    /// The attachable's local animation key (for example `default`, `sneaking`).
+    pub key: Box<str>,
+    pub bones: Box<[AttachablePoseBone]>,
+}
+
+/// A bone's literal channels; an absent channel keeps the rest value.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachablePoseBone {
+    pub bone: Box<str>,
+    pub translation: Option<[ItemDisplayScalar; 3]>,
+    pub rotation: Option<[ItemDisplayScalar; 3]>,
+    pub scale: Option<[ItemDisplayScalar; 3]>,
+}
+
+impl EquipmentBinding {
+    /// The literal pose stored under `key`.
+    #[must_use]
+    pub fn pose(&self, key: &str) -> Option<&AttachablePose> {
+        self.poses.iter().find(|pose| pose.key.as_ref() == key)
+    }
+}
+
+const MAX_POSES_PER_BINDING: usize = 16;
+const MAX_BONES_PER_POSE: usize = 32;
 
 /// Where the attachment renders, which selects the biped bone a later tranche binds.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -269,6 +302,7 @@ fn validate(
             || !transform_is_canonical(binding.first_person)
             || !transform_is_canonical(binding.third_person)
             || !transform_is_canonical(binding.dropped)
+            || !poses_are_valid(&binding.poses)
         {
             return Err(invalid("invalid or unordered equipment binding"));
         }
@@ -350,6 +384,24 @@ fn take<'a>(cursor: &mut &'a [u8], length: usize) -> Result<&'a [u8], AssetError
     Ok(head)
 }
 
+fn poses_are_valid(poses: &[AttachablePose]) -> bool {
+    let canonical = |channel: &Option<[ItemDisplayScalar; 3]>| {
+        channel.is_none_or(|values| values.iter().all(|value| scalar_is_canonical(*value)))
+    };
+    poses.len() <= MAX_POSES_PER_BINDING
+        && poses.windows(2).all(|pair| pair[0].key < pair[1].key)
+        && poses.iter().all(|pose| {
+            validate_identifier(&pose.key).is_ok()
+                && pose.bones.len() <= MAX_BONES_PER_POSE
+                && pose.bones.iter().all(|bone| {
+                    validate_identifier(&bone.bone).is_ok()
+                        && canonical(&bone.translation)
+                        && canonical(&bone.rotation)
+                        && canonical(&bone.scale)
+                })
+        })
+}
+
 fn transform_is_canonical(transform: EquipmentTransform) -> bool {
     match transform.literal() {
         None => true,
@@ -425,6 +477,7 @@ mod tests {
                 first_person: EquipmentTransform::NeedsMeasurement,
                 third_person: EquipmentTransform::NeedsMeasurement,
                 dropped: EquipmentTransform::NeedsMeasurement,
+                poses: Box::new([]),
             },
             EquipmentBinding {
                 identifier: "minecraft:trident".into(),
@@ -446,6 +499,7 @@ mod tests {
                     transform: transform([1.5, -2.5, -10.5], [97.0, -1.5, -49.0]),
                 },
                 dropped: EquipmentTransform::NeedsMeasurement,
+                poses: Box::new([]),
             },
         ]
     }
@@ -463,6 +517,30 @@ mod tests {
             -7.0
         );
         assert!(catalog.binding("minecraft:absent").is_none());
+    }
+
+    #[test]
+    fn poses_round_trip_and_must_be_sorted_by_key() {
+        let scalar = |value: f32| ItemDisplayScalar::new(value).unwrap();
+        let pose = |key: &str| AttachablePose {
+            key: key.into(),
+            bones: Box::new([AttachablePoseBone {
+                bone: "left_wing".into(),
+                translation: Some([scalar(4.5), scalar(4.0), scalar(-2.0)]),
+                rotation: None,
+                scale: Some([scalar(1.0), scalar(1.0), scalar(2.0)]),
+            }]),
+        };
+        let mut bindings = sample();
+        bindings[0].poses = Box::new([pose("default"), pose("sneaking")]);
+        let bytes = encode_equipment_catalog([1; 32], [2; 32], &bindings).unwrap();
+        let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+        let helmet = catalog.binding("minecraft:diamond_helmet").unwrap();
+        assert_eq!(helmet.pose("sneaking").unwrap().bones.len(), 1);
+        assert!(helmet.pose("gliding").is_none());
+
+        bindings[0].poses = Box::new([pose("sneaking"), pose("default")]);
+        assert!(encode_equipment_catalog([1; 32], [2; 32], &bindings).is_err());
     }
 
     #[test]
