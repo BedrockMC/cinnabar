@@ -107,7 +107,10 @@ animated rig remotes use. All three below flow from that.
   night too bright (0.2/0.04 floors), no day plateau (HIGH).
 - Stars at night — absent (MED-HIGH).
 - Leaves: leaf↔leaf faces culled (Fast look) → hollow/speckled; want Fancy (MED-HIGH).
-- Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
+- Block-entity models: chests (single/double, lid cue), shulkers, banners, skulls, bell, enchant/lectern book, beacon
+  beam, end portal, sign text, break-crack overlay are drawn from the `.mcbeben` carrier but uncompiled/unmeasured
+  and lit only by retained light; beds, conduit, pots, campfire, frames, spawner, dragon/piglin heads, banner/beam
+  scroll and hanging-sign extents remain absent or provisional (MED-HIGH).
 - Server resource packs not applied to rendering: core downloads/admits them but
   `application=unavailable`, so custom blocks/textures render as magenta missing-texture (HIGH, confirmed live).
 - Sky gradient hand-tuned vs biome-temperature-derived; clouds uncalibrated *(measure)*;
