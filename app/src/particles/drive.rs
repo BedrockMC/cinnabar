@@ -25,6 +25,14 @@ use crate::{
 pub(crate) struct ParticleInbox {
     events: Vec<CommittedParticleEvent>,
     notices: Vec<ActorStatusNotice>,
+    /// Level events `(id, position, data)` the audio runtime drains; separate so particles can consume theirs.
+    level_audio: Vec<(i32, [f32; 3], i32)>,
+}
+
+impl ParticleInbox {
+    pub(crate) fn take_level_audio(&mut self) -> Vec<(i32, [f32; 3], i32)> {
+        std::mem::take(&mut self.level_audio)
+    }
 }
 
 /// Item icons the particle system can turn into break/crumb pieces.
@@ -46,7 +54,17 @@ const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 const ITEM_ICON_PIECES: f32 = 6.0;
 
 pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut ParticleInbox) {
-    inbox.events.extend(stream.take_committed_particles());
+    let committed = stream.take_committed_particles();
+    for committed in &committed {
+        if let ParticleEvent::Level(level) = &committed.event
+            && inbox.level_audio.len() < MAX_QUEUED_INBOX
+        {
+            inbox
+                .level_audio
+                .push((level.event_id, level.position, level.data));
+        }
+    }
+    inbox.events.extend(committed);
     inbox.notices.extend(stream.take_actor_status_notices());
     let events_excess = inbox.events.len().saturating_sub(MAX_QUEUED_INBOX);
     inbox.events.drain(..events_excess);

@@ -392,3 +392,17 @@ behind unnamed data symbols, so each needs a native measurement pass. Random
 plant offsets are a per-block data component with an RNG-derived offset and no
 vanilla ranges in the pack; per-biome `surface_opacity` (3 biomes) needs a
 carrier format bump.
+
+## Entity-drawn blocks (block-entity lane)
+
+Chests (all variants), beds, shulker boxes, standing/wall banners, skulls, decorated pots,
+conduits, bells and item frames compile to `VisualKind::Invisible`/`Exact` in
+`entity_drawn.rs`; the block-entity renderer owns their whole model. The enchanting table keeps
+a 12/16-tall terrain base. The `visual-coverage-v1001.json` diagnostic baseline must be
+regenerated to drop these states; campfire, hopper, brewing stand and copper-golem statues
+remain diagnostic.
+
+### Round-3 terrain conversions (visual-coverage baseline not regenerated)
+
+The pinned pack carries textures but no block geometry, so only literal facts are promoted:
+

@@ -1,9 +1,11 @@
+use std::sync::Arc;
+
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Local, Projection, Res, ResMut, Resource, Time},
     time::Real,
 };
-use client_world::{LocalPlayerFeed, WorldStream};
+use client_world::{LocalItemUse, LocalPlayerFeed, WorldStream};
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRigFrameBuilder,
     ActorRigSubmission, HandItemAtlas, HandRigLight, HandRigScene,
@@ -55,6 +57,45 @@ fn hand_camera_from_rig(scale: f32) -> [[f32; 4]; 3] {
     rig_world_from_actor(HAND_RIG_CAMERA_OFFSET, HAND_RIG_CAMERA_YAW_DEGREES, scale)
 }
 
+/// Rebuilds the scene's pack geometry and artwork for a new session, or restores the
+/// startup artwork when a pack session ends.
+fn apply_session_pack(
+    scene: &mut ActorRenderScene,
+    base: &render::ActorArtworkPages,
+    pack: Option<&super::entity_pack::SessionEntityPack>,
+    effective: &mut Option<render::ActorArtworkPages>,
+    equipment: Option<&mut EquipmentRuntime>,
+) {
+    if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
+        bevy::log::warn!(?error, "server pack entity geometry was not applied");
+    }
+    let mut pages = match pack {
+        Some(pack) => base
+            .clone()
+            .with_pack_artwork(&pack.textures, &pack.bindings),
+        None => base.clone(),
+    };
+    let mut layer = None;
+    let mut geometries = Vec::new();
+    if let Some(pack) = pack
+        && let Some(catalog) = &pack.equipment
+    {
+        let (extended, locations) =
+            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
+        pages = extended;
+        geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
+        layer = Some((Arc::clone(&pack.assets), Arc::clone(catalog), locations));
+    }
+    if let Err(error) = scene.replace_pack_equipment(geometries) {
+        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
+    }
+    if let Some(equipment) = equipment {
+        equipment.set_pack_layer(layer);
+    }
+    scene.configure_artwork(pages.clone());
+    *effective = pack.map(|_| pages);
+}
+
 #[derive(SystemParam)]
 pub(crate) struct ActorFramePublication<'w, 's> {
     client_world: ResMut<'w, ClientWorld>,
@@ -65,6 +106,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     actor_clock: Local<'s, ActorFrameClock>,
     presentation: ActorPresentationState<'w, 's>,
     artwork: Res<'w, render::ActorArtworkPages>,
+    /// The startup artwork plus the session's server-pack pages; `None` in a vanilla session.
+    session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -72,6 +115,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
+    semantic_input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
 }
 
@@ -85,12 +129,14 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut actor_clock,
         presentation,
         artwork,
+        mut session_artwork,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
         local_skin,
         mut equipment,
         collisions,
+        semantic_input,
         ui,
         mut dropped_items,
     } = params;
@@ -111,12 +157,48 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         scene.reset();
         actor_clock.reset();
         *published_session = session_id;
+        if let Some(stream) = client_world.stream.as_mut() {
+            stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
+        }
+        let pack = session_id.and_then(|_| client_world.pack_entities.clone());
+        if pack.is_some() || session_artwork.is_some() {
+            apply_session_pack(
+                &mut scene,
+                &artwork,
+                pack.as_deref(),
+                &mut session_artwork,
+                equipment.as_deref_mut(),
+            );
+        }
     }
+    let artwork = session_artwork.as_ref().unwrap_or(&artwork);
     let step = actor_clock.advance(time.delta());
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let local_feed =
-        build_local_player_feed(&local_physics, view.rotation(), first_person, &local_skin);
+    let item_use = client_world
+        .stream
+        .as_ref()
+        .zip(ui.as_deref())
+        .zip(semantic_input.as_deref())
+        .map_or(LocalItemUse::Unpredicted, |((stream, ui), input)| {
+            local_item_use(stream, ui, input.phase(semantic_input::Action::Use).held)
+        });
+    let mut local_feed = build_local_player_feed(
+        &local_physics,
+        view.rotation(),
+        first_person,
+        &local_skin,
+        item_use,
+    );
+    if let (Some(feed), Some(stream)) = (local_feed.as_mut(), client_world.stream.as_ref()) {
+        // The local player's held items are client-owned; the rig's item queries read them here.
+        let input = local_input(stream, ui.as_deref(), stream.local_player_runtime_id());
+        feed.main_hand = input.main.map(|item| item.identifier);
+        feed.off_hand = input.off.map(|item| item.identifier);
+    }
     if let Some(stream) = client_world.stream.as_mut() {
+        if let Some(equipment) = equipment.as_deref() {
+            stream.set_item_use_durations(equipment.item_use_durations());
+        }
         // Feed the client-authored local pose before the tick advance and rig read so the
         // local body/hand are driven by the shared rig, not the static fallback.
         if let Some(feed) = &local_feed {
@@ -128,8 +210,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             (180.0 - yaw.to_degrees()).rem_euclid(360.0),
         ]);
         if let Some(collisions) = collisions.as_deref() {
-            let samples = sample_actor_fluids(stream, collisions);
-            stream.set_actor_fluids(&samples);
+            super::actor_sampling::sample_actor_world_state(stream, collisions);
         }
         stream.advance_actor_interpolation_ticks(step.ticks);
     }
@@ -394,42 +475,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     );
 }
 
-/// Samples the water and lava at each actor's body; an unreadable block reads as dry.
-fn sample_actor_fluids(
-    stream: &WorldStream,
-    collisions: &crate::movement::PhysicsCollisionRegistries,
-) -> Vec<(u64, bool, bool)> {
-    use sim::{BlockPhysicsFlags, CollisionWorld};
-    let world = sim::PaletteWorld::new(
-        stream.collision_store(),
-        collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
-    );
-    stream
-        .actor_fluid_sample_points()
-        .into_iter()
-        .filter(|(_, position)| position.iter().all(|axis| axis.is_finite()))
-        .map(|(runtime_id, position)| {
-            // A hair above the feet, so a fish resting on the bed still samples its own water.
-            let y = position[1] + 0.1;
-            let block = [
-                position[0].floor() as i32,
-                y.floor() as i32,
-                position[2].floor() as i32,
-            ];
-            let (mut water, mut lava) = (false, false);
-            if let Ok(sample) = world.block_physics(block) {
-                for layer in sample.layers.iter() {
-                    let submerged = f64::from(y) < f64::from(block[1]) + layer.fluid_height_blocks;
-                    water |= submerged && layer.flags.contains(BlockPhysicsFlags::WATER);
-                    lava |= submerged && layer.flags.contains(BlockPhysicsFlags::LAVA);
-                }
-            }
-            (runtime_id, water, lava)
-        })
-        .collect()
-}
-
 /// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
 /// it when not in first person, when the look FOV is unavailable, or when no skin resolved.
 fn publish_hand_rig(
@@ -482,6 +527,36 @@ struct HandSource {
 /// Marks an instance's texture layer as an item-atlas layer for the first-person shader.
 const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 
+/// Items whose use the client animates without waiting for the server; food and drink wait for
+/// the server flag, since the client cannot tell whether eating is allowed.
+fn local_item_use(
+    stream: &WorldStream,
+    ui: &crate::ui_runtime::UiRuntime,
+    use_held: bool,
+) -> LocalItemUse {
+    let Some(stack) = ui
+        .selected_stack()
+        .and_then(|stack| stream.canonical_item_stack(stack))
+    else {
+        return LocalItemUse::Unpredicted;
+    };
+    let Some(identifier) = stack.identifier.as_deref() else {
+        return LocalItemUse::Unpredicted;
+    };
+    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+    let shield = name == "shield";
+    let predicted = shield
+        || matches!(name, "bow" | "trident" | "spyglass")
+        || name.ends_with("_spear")
+        // A loaded crossbow fires instead of charging.
+        || (name == "crossbow" && stack.charged_projectile.is_none());
+    match (predicted, use_held) {
+        (false, _) => LocalItemUse::Unpredicted,
+        (true, false) => LocalItemUse::Idle,
+        (true, true) => LocalItemUse::Using { shield },
+    }
+}
+
 /// Builds this frame's client-authored local-player feed from the predicted physics state and
 /// the look pose. The yaw/pitch come from the look input (`LocalViewPose`), never the boomed
 /// third-person camera. Returns `None` before physics or on any non-finite value.
@@ -490,6 +565,7 @@ fn build_local_player_feed(
     look: bevy::math::Quat,
     first_person: bool,
     local_skin: &crate::player_skin::LocalPlayerSkin,
+    item_use: LocalItemUse,
 ) -> Option<LocalPlayerFeed> {
     let state = physics.state()?;
     let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
@@ -526,9 +602,12 @@ fn build_local_player_feed(
         yaw: yaw_degrees,
         head_yaw: yaw_degrees,
         pitch: pitch_degrees,
+        main_hand: None,
+        off_hand: None,
         teleported: false,
         first_person,
         sneaking,
         sprinting,
+        item_use,
     })
 }

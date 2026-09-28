@@ -57,6 +57,8 @@ pub struct ActorStatus {
     pub pickup: Option<ActorPickup>,
     /// `(in_water, in_lava)` sampled from the block at the actor; `None` before the first sample.
     pub fluid: Option<(bool, bool)>,
+    /// Bed orientation in degrees under a sleeping actor, sampled from the world.
+    pub sleep_rotation: Option<f32>,
 }
 
 impl ActorStatus {

@@ -19,9 +19,9 @@ pub use actor_animation::{
 pub use actor_store::{
     ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityKind,
     BlockEntityView, DEATH_DURATION_TICKS, DroppedItemView, HURT_DURATION_TICKS,
-    HURT_OVERLAY_ALPHA, LightningBoltView, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
-    MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS, PlayerProfile, RopeKind, RopeView,
-    dropped_item_copy_count, tnt_presentation,
+    HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
+    MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault, RideSeat, RopeKind,
+    RopeView, SeatDefaults, dropped_item_copy_count, tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
@@ -39,7 +39,7 @@ pub use stream::{
     DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState,
     LIGHT_DISPATCH_BUDGET_PER_POLL, MAX_ACTIVE_BLOCK_CRACKS, MAX_ADMITTED_HEAVY_EVENTS,
     MAX_ADMITTED_WORLD_EVENTS, MAX_IN_FLIGHT_DECODE_JOBS, MAX_IN_FLIGHT_LIGHT_JOBS,
-    MAX_LOCAL_RESET_DISPATCH_EVIDENCE, MAX_PENDING_MESH_CHANGES, MAX_SUB_CHUNK_RETRIES,
+    MAX_LOCAL_RESET_DISPATCH_EVIDENCE, MAX_PENDING_MESH_CHANGES, MAX_SUB_CHUNK_RETRIES, MapImage,
     OUTBOUND_REQUEST_CAPACITY, PHASE0_MAX_VIEW_RADIUS_CHUNKS, PendingSubChunkRequest,
     Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,

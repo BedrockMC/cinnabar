@@ -9,6 +9,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) off_hand: Option<Arc<str>>,
     /// A held crossbow is loaded.
     pub(crate) hand_charged: bool,
+    /// Ticks the main-hand item can be used for, or 0 when unknown.
+    pub(crate) main_hand_max_use_ticks: u32,
     /// Namespaced identifier of the actor being ridden.
     pub(crate) ridden: Option<Arc<str>>,
     pub(crate) has_rider: bool,
@@ -19,6 +21,10 @@ pub(crate) struct ActorTickContext {
     pub(crate) camera_rotation: [f32; 2],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
     pub(crate) armor: [Option<WornArmor>; 5],
+    /// The player's skin carries a cape image.
+    pub(crate) has_cape: bool,
+    /// The actor type's synced property definitions, in wire index order.
+    pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
 }
 
 /// One worn armor stack as the armor queries read it.

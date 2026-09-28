@@ -17,6 +17,7 @@ DIST_GIT_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_NOTICES ?= THIRD_PARTY_NOTICES.md
 
 PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
+BEHAVIOR_PACK_DIR ?= $(patsubst %/resource_pack,%/behavior_pack,$(PACK_DIR))
 PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
 HUD_PACK_DIR ?= $(PACK_DIR)
@@ -51,6 +52,8 @@ LANG_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbelang
 LANG_ASSET_REPORT ?= .local/assets/compiled/lang-assets.json
 AUDIO_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeaud
 AUDIO_ASSET_REPORT ?= .local/assets/compiled/audio-assets.json
+AUDIO_BANK_BLOB ?= .local/assets/compiled/vanilla-v1.mcbesnd
+AUDIO_BANK_REPORT ?= .local/assets/compiled/audio-bank.json
 AUDIO_PCM_BLOB ?= .local/assets/compiled/vanilla-v1.mcbepcm
 AUDIO_PCM_REPORT ?= .local/assets/compiled/audio-pcm-assets.json
 ICON_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeico
@@ -81,10 +84,11 @@ LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc 
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 LANG_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- lang-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LANG_ASSET_BLOB)" --report "$(LANG_ASSET_REPORT)"
 AUDIO_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_ASSET_BLOB)" --report "$(AUDIO_ASSET_REPORT)"
+AUDIO_BANK_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-bank --pack "$(PACK_DIR)" --out "$(AUDIO_BANK_BLOB)" --report "$(AUDIO_BANK_REPORT)"
 AUDIO_PCM_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-pcm-assets --pack "$(PACK_DIR)" --catalog "$(AUDIO_ASSET_BLOB)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_PCM_BLOB)" --report "$(AUDIO_PCM_REPORT)"
 ICON_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- icon-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ICON_ASSET_BLOB)" --report "$(ICON_ASSET_REPORT)" --block-assets "$(ASSET_BLOB)"
 ACTOR_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- actor-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ACTOR_ASSET_BLOB)" --report "$(ACTOR_ASSET_REPORT)"
-EQUIPMENT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- equipment-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(EQUIPMENT_ASSET_BLOB)" --report "$(EQUIPMENT_ASSET_REPORT)"
+EQUIPMENT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- equipment-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(EQUIPMENT_ASSET_BLOB)" --report "$(EQUIPMENT_ASSET_REPORT)" $(if $(wildcard $(BEHAVIOR_PACK_DIR)/items),--behavior-pack "$(BEHAVIOR_PACK_DIR)")
 BLOCK_ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- block-entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(BLOCK_ENTITY_ASSET_BLOB)" --report "$(BLOCK_ENTITY_ASSET_REPORT)"
 UI_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ui-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(UI_ASSET_BLOB)" --report "$(UI_ASSET_REPORT)"
 PARTICLE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- particle-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(PARTICLE_ASSET_BLOB)" --report "$(PARTICLE_ASSET_REPORT)"
@@ -107,7 +111,7 @@ else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
 
-.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets audio-bank icon-assets physics-assets core local-server client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
@@ -127,8 +131,10 @@ help:
 	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make audio-assets    - Compile the pinned sound-definition lookup catalog
+	@echo make audio-bank      - Pack sound routing and FSB sound files for playback
 	@echo make physics-assets  - Install and verify the pinned protocol-2168 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
+	@echo make local-server    - Build the dragonfly local-world server beside the core binary
 	@echo make client          - Refresh stale assets, then run the release Rust client
 	@echo make client-windows  - Run the client on Windows
 	@echo make client-macos    - Run the client on macOS
@@ -145,7 +151,7 @@ registry-foundation-check:
 
 vanilla-assets: $(PACK_SENTINEL)
 
-assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT) $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT) $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT)
+assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT) $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT) $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT) $(AUDIO_BANK_BLOB) $(AUDIO_BANK_REPORT)
 assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 assets: $(EQUIPMENT_ASSET_BLOB) $(EQUIPMENT_ASSET_REPORT)
 assets: $(UI_ASSET_BLOB) $(UI_ASSET_REPORT)
@@ -213,6 +219,8 @@ hud-assets-local:
 lang-assets: $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT)
 
 audio-assets: $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT)
+
+audio-bank: $(AUDIO_BANK_BLOB) $(AUDIO_BANK_REPORT)
 
 # Explicit opt-in finite predecode; not part of startup or playback activation.
 .PHONY: audio-pcm-assets
@@ -287,6 +295,12 @@ $(AUDIO_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_
 $(AUDIO_ASSET_REPORT): $(AUDIO_ASSET_BLOB)
 	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(AUDIO_ASSET_COMPILE); fi
 
+$(AUDIO_BANK_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)
+	$(AUDIO_BANK_COMPILE)
+
+$(AUDIO_BANK_REPORT): $(AUDIO_BANK_BLOB)
+	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(AUDIO_BANK_COMPILE); fi
+
 $(AUDIO_PCM_BLOB): $(AUDIO_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) $(PACK_DIR)/sounds/ambient/underwater/loop/underwater_ambience.fsb
 	$(AUDIO_PCM_COMPILE)
 
@@ -297,6 +311,12 @@ core:
 	$(if $(strip $(UPSTREAM)),,$(error UPSTREAM is required; run make core UPSTREAM=host:port))
 	@echo bedrock-core: build starting package=./core/cmd/bedrock-core
 	$(GO) run ./core/cmd/bedrock-core -socket-dir "$(SOCKET_DIR)" -upstream "$(UPSTREAM)" -auth-cache "$(AUTH_CACHE)"
+
+# Separate module: dragonfly needs a newer gophertunnel than the core, so it cannot join go.work.
+LOCAL_SERVER_OUT ?= target/release/bedrock-local-server$(if $(filter windows,$(DIST_PLATFORM)),.exe)
+
+local-server:
+	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
 client: assets physics-assets
 	$(CLIENT_RUN)
@@ -311,3 +331,24 @@ client-x11:
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --assets "$(dir $(ASSET_BLOB))" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"
+
+# Release packaging (see packaging/README.md). Signing credentials come from the environment.
+PKG_VERSION ?= $(shell sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml | head -n 1)
+UPDATE_TRUSTED_KEYS ?=
+PKG_CORE_LDFLAGS = -s -w -X main.releaseVersion=$(PKG_VERSION) -X main.trustedUpdateKeys=$(UPDATE_TRUSTED_KEYS)
+.PHONY: package-binaries package-macos package-windows package-linux
+package-binaries:
+	$(CARGO) build --release --locked -p bedrock-client -p asset-compiler --bin bedrock-client --bin assetc
+	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
+
+package-macos: package-binaries
+	bash packaging/macos/build-app.sh
+	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar.app
+	bash packaging/macos/make-dmg.sh .local/dist/macos-release/Cinnabar.app .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
+	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
+
+package-windows: package-binaries
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build-installer.ps1
+
+package-linux: package-binaries
+	bash packaging/linux/build-appimage.sh

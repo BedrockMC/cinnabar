@@ -72,6 +72,7 @@ impl EquipmentBinding {
 }
 
 const MAX_POSES_PER_BINDING: usize = 16;
+const MAX_ITEM_USE_DURATIONS: usize = 2048;
 const MAX_BONES_PER_POSE: usize = 32;
 
 /// Where the attachment renders, which selects the biped bone a later tranche binds.
@@ -135,6 +136,16 @@ struct EquipmentCatalogPayload {
     source_manifest_sha256: [u8; 32],
     entity_blob_sha256: [u8; 32],
     bindings: Box<[EquipmentBinding]>,
+    #[serde(default)]
+    item_use: Box<[ItemUseDuration]>,
+}
+
+/// How long one item can be used (eaten, drunk, drawn) before it completes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemUseDuration {
+    pub identifier: Box<str>,
+    pub ticks: u32,
 }
 
 /// Decoded, validated equipment catalog pinned to one entity carrier build.
@@ -144,6 +155,7 @@ pub struct RuntimeEquipmentCatalog {
     entity_blob_sha256: [u8; 32],
     bindings: Arc<[EquipmentBinding]>,
     textures: Arc<[EquipmentTexture]>,
+    item_use: Arc<[ItemUseDuration]>,
 }
 
 impl RuntimeEquipmentCatalog {
@@ -179,12 +191,37 @@ impl RuntimeEquipmentCatalog {
             &payload.entity_blob_sha256,
             &payload.bindings,
         )?;
+        validate_item_use(&payload.item_use)?;
         let textures = decode_textures(&bytes[payload_end..hash_start])?;
         Ok(Self {
             source_manifest_sha256: payload.source_manifest_sha256,
             entity_blob_sha256: payload.entity_blob_sha256,
             bindings: Arc::from(payload.bindings),
+            item_use: Arc::from(payload.item_use),
             textures: Arc::from(textures),
+        })
+    }
+
+    /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
+    /// nonzero digest of the pack sources). Bindings and textures are sorted by identifier
+    /// and the first of a repeated identifier is kept; nothing is carried for item use.
+    pub fn from_parts(
+        identity: [u8; 32],
+        mut bindings: Vec<EquipmentBinding>,
+        mut textures: Vec<EquipmentTexture>,
+    ) -> Result<Self, AssetError> {
+        bindings.sort_by(|left, right| left.identifier.cmp(&right.identifier));
+        bindings.dedup_by(|later, earlier| later.identifier == earlier.identifier);
+        textures.sort_by(|left, right| left.identifier.cmp(&right.identifier));
+        textures.dedup_by(|later, earlier| later.identifier == earlier.identifier);
+        validate(&identity, &identity, &bindings)?;
+        validate_textures(&textures)?;
+        Ok(Self {
+            source_manifest_sha256: identity,
+            entity_blob_sha256: identity,
+            bindings: Arc::from(bindings),
+            textures: Arc::from(textures),
+            item_use: Arc::from(Vec::new()),
         })
     }
 
@@ -203,6 +240,21 @@ impl RuntimeEquipmentCatalog {
     #[must_use]
     pub fn bindings(&self) -> &[EquipmentBinding] {
         &self.bindings
+    }
+
+    /// Use durations sorted by item identifier.
+    #[must_use]
+    pub fn item_use(&self) -> &[ItemUseDuration] {
+        &self.item_use
+    }
+
+    /// Ticks the item can be used for, when the pack states it.
+    #[must_use]
+    pub fn item_use_ticks(&self, identifier: &str) -> Option<u32> {
+        self.item_use
+            .binary_search_by(|entry| entry.identifier.as_ref().cmp(identifier))
+            .ok()
+            .map(|index| self.item_use[index].ticks)
     }
 
     /// Attachable textures sorted by identifier.
@@ -248,12 +300,31 @@ pub fn encode_equipment_catalog_with_textures(
     bindings: &[EquipmentBinding],
     textures: &[EquipmentTexture],
 ) -> Result<Vec<u8>, AssetError> {
+    encode_equipment_catalog_full(
+        source_manifest_sha256,
+        entity_blob_sha256,
+        bindings,
+        textures,
+        &[],
+    )
+}
+
+/// Encodes bindings, textures, and item use durations (sorted, unique identifiers).
+pub fn encode_equipment_catalog_full(
+    source_manifest_sha256: [u8; 32],
+    entity_blob_sha256: [u8; 32],
+    bindings: &[EquipmentBinding],
+    textures: &[EquipmentTexture],
+    item_use: &[ItemUseDuration],
+) -> Result<Vec<u8>, AssetError> {
     validate(&source_manifest_sha256, &entity_blob_sha256, bindings)?;
     validate_textures(textures)?;
+    validate_item_use(item_use)?;
     let payload = EquipmentCatalogPayload {
         source_manifest_sha256,
         entity_blob_sha256,
         bindings: bindings.to_vec().into_boxed_slice(),
+        item_use: item_use.to_vec().into_boxed_slice(),
     };
     let payload_bytes =
         serde_json::to_vec(&payload).map_err(|_| invalid("failed to encode equipment payload"))?;
@@ -307,6 +378,23 @@ fn validate(
             return Err(invalid("invalid or unordered equipment binding"));
         }
         previous = Some(&binding.identifier);
+    }
+    Ok(())
+}
+
+fn validate_item_use(item_use: &[ItemUseDuration]) -> Result<(), AssetError> {
+    let mut previous: Option<&str> = None;
+    for entry in item_use {
+        validate_identifier(&entry.identifier)?;
+        if previous.is_some_and(|previous| previous >= entry.identifier.as_ref())
+            || entry.ticks == 0
+        {
+            return Err(invalid("invalid or unordered item use duration"));
+        }
+        previous = Some(&entry.identifier);
+    }
+    if item_use.len() > MAX_ITEM_USE_DURATIONS {
+        return Err(invalid("item use duration count exceeds bound"));
     }
     Ok(())
 }
@@ -544,6 +632,37 @@ mod tests {
     }
 
     #[test]
+    fn item_use_durations_round_trip_sorted_and_reject_zero_or_unordered() {
+        let entry = |identifier: &str, ticks: u32| ItemUseDuration {
+            identifier: identifier.into(),
+            ticks,
+        };
+        let sorted = [
+            entry("minecraft:apple", 32),
+            entry("minecraft:honey_bottle", 40),
+        ];
+        let bytes =
+            encode_equipment_catalog_full([1; 32], [2; 32], &sample(), &[], &sorted).unwrap();
+        let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+        assert_eq!(catalog.item_use_ticks("minecraft:honey_bottle"), Some(40));
+        assert_eq!(catalog.item_use_ticks("minecraft:bow"), None);
+        let unordered = [entry("minecraft:b", 1), entry("minecraft:a", 1)];
+        assert!(
+            encode_equipment_catalog_full([1; 32], [2; 32], &sample(), &[], &unordered).is_err()
+        );
+        assert!(
+            encode_equipment_catalog_full(
+                [1; 32],
+                [2; 32],
+                &sample(),
+                &[],
+                &[entry("minecraft:a", 0)]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn rejects_unordered_bindings_and_zero_provenance() {
         let mut reversed = sample();
         reversed.reverse();
@@ -587,6 +706,52 @@ mod tests {
         let unordered = [texture("textures/b", 1, 1), texture("textures/a", 1, 1)];
         assert!(
             encode_equipment_catalog_with_textures([1; 32], [2; 32], &sample(), &unordered)
+                .is_err()
+        );
+    }
+}
+
+#[cfg(test)]
+mod from_parts_tests {
+    use super::*;
+
+    fn binding(identifier: &str) -> EquipmentBinding {
+        let reference = |identifier: &str| EquipmentReference {
+            identifier: identifier.into(),
+            resolution: EntityDependencyResolution::Catalog,
+        };
+        EquipmentBinding {
+            identifier: identifier.into(),
+            category: EquipmentCategory::Held,
+            geometry: reference("geometry.a"),
+            texture: reference("textures/entity/a"),
+            material: "entity".into(),
+            render_controller: "controller.render.a".into(),
+            first_person: EquipmentTransform::NeedsMeasurement,
+            third_person: EquipmentTransform::NeedsMeasurement,
+            dropped: EquipmentTransform::NeedsMeasurement,
+            poses: Box::new([]),
+        }
+    }
+
+    // Bindings sort and dedupe by identifier; a zero identity is refused.
+    #[test]
+    fn from_parts_sorts_dedupes_and_requires_an_identity() {
+        let catalog = RuntimeEquipmentCatalog::from_parts(
+            [1; 32],
+            vec![binding("b:item"), binding("a:item"), binding("b:item")],
+            Vec::new(),
+        )
+        .unwrap();
+        let identifiers = catalog
+            .bindings()
+            .iter()
+            .map(|binding| binding.identifier.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!(identifiers, ["a:item", "b:item"]);
+        assert!(catalog.binding("b:item").is_some());
+        assert!(
+            RuntimeEquipmentCatalog::from_parts([0; 32], vec![binding("a:item")], Vec::new())
                 .is_err()
         );
     }

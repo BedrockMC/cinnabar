@@ -1,23 +1,54 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
+use std::sync::Arc;
+
 use render::{
-    BannerLayer, BannerModel, BannerMount, BeaconModel, BedModel, BlockEntityKind, ChestModel,
-    ChestPair, ChestVariant, CopperAge, Facing, MAX_BANNER_LAYERS, ShulkerModel, SignMount,
-    SkullKind, SkullModel, SkullMount, banner_color, bed_color, pattern_texture,
+    BannerLayer, BannerModel, BannerMount, BedModel, BellAttachment, BlockEntityKind, ChestModel,
+    ChestPair, ChestVariant, CopperAge, DecoratedPotModel, Facing, ItemFrameModel,
+    MAX_BANNER_LAYERS, Oxidation, ShulkerModel, SignMount, SkullKind, SkullModel, SkullMount,
+    SpawnerModel, StatueModel, StatuePose, banner_color, bed_color, pattern_texture, sherd_pattern,
     shulker_color_from_block_name,
 };
 use world::NbtCompound;
 
 use super::{sign_text::SignTextSpec, state::BlockState};
 
-/// Highest world Y a beacon beam is drawn to; the beam stops at the build limit.
-const BEAM_TOP: i32 = 320;
 const DEFAULT_SIGN_COLOR: i32 = -0x1000000;
+
+/// An item stack held by a block entity.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct HeldItem {
+    pub(super) identifier: Arc<str>,
+    pub(super) metadata: u32,
+}
 
 /// A block entity's drawing plan before per-frame animation and text resolution.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Template {
     Static(BlockEntityKind),
+    ItemFrame {
+        model: ItemFrameModel,
+        item: Option<HeldItem>,
+        rotation_steps: u8,
+        /// The filled map's id when the framed item is a map.
+        map_id: Option<i64>,
+    },
+    FlowerPot {
+        plant: HeldItem,
+    },
+    Campfire {
+        yaw_degrees: f32,
+        items: Vec<HeldItem>,
+    },
+    Bell {
+        attachment: BellAttachment,
+        direction: u8,
+    },
+    Conduit {
+        active: bool,
+        hunting: bool,
+    },
+    Beacon,
     Chest(ChestModel),
     Shulker(ShulkerModel),
     Sign {
@@ -47,6 +78,17 @@ fn ground_rotation(state: &BlockState) -> f32 {
         .unwrap_or(0)
         .rem_euclid(16) as f32
         * 22.5
+}
+
+fn held_item(stack: &NbtCompound) -> Option<HeldItem> {
+    let name = stack.string("Name").filter(|name| !name.is_empty())?;
+    Some(HeldItem {
+        identifier: Arc::from(name),
+        metadata: stack
+            .integer("Damage")
+            .and_then(|damage| u32::try_from(damage).ok())
+            .unwrap_or(0),
+    })
 }
 
 fn chest_variant(block_name: &str) -> Option<ChestVariant> {
@@ -213,21 +255,94 @@ pub(super) fn describe(
         "Banner" => banner(block_name, state, nbt),
         "Sign" | "HangingSign" => sign(block_name, state, nbt),
         "EnchantTable" => Some(Template::EnchantTable),
-        "Lectern" => nbt.boolean("hasBook").unwrap_or(false).then(|| {
-            Template::Static(BlockEntityKind::Lectern {
-                facing_yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
-            })
+        "Lectern" => Some(Template::Static(BlockEntityKind::Lectern {
+            facing_yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
+            has_book: nbt.boolean("hasBook").unwrap_or(false),
+        })),
+        "Bell" => Some(Template::Bell {
+            attachment: state
+                .text("attachment")
+                .and_then(BellAttachment::from_state)
+                .unwrap_or(BellAttachment::Standing),
+            direction: state
+                .int("direction")
+                .and_then(|value| u8::try_from(value.rem_euclid(4)).ok())
+                .unwrap_or(0),
         }),
-        "Bell" => Some(Template::Static(BlockEntityKind::Bell)),
-        "Beacon" => {
-            let height = (BEAM_TOP - position[1] - 1).max(0) as u32;
-            (nbt.integer("Levels").unwrap_or(0) > 0 && height > 0).then_some(Template::Static(
-                BlockEntityKind::Beacon(BeaconModel {
-                    height,
-                    tint: [1.0; 3],
-                }),
-            ))
+        "Beacon" => (nbt.integer("Levels").unwrap_or(0) > 0).then_some(Template::Beacon),
+        "ItemFrame" | "GlowItemFrame" => {
+            // The state stores the face toward the wall; the frame looks the other way.
+            let toward_wall = u8::try_from(state.int("facing_direction")?).ok()?;
+            (toward_wall < 6).then(|| Template::ItemFrame {
+                model: ItemFrameModel {
+                    glow: id == "GlowItemFrame",
+                    outward: toward_wall ^ 1,
+                    map: None,
+                },
+                item: nbt.compound("Item").and_then(held_item),
+                map_id: nbt
+                    .compound("Item")
+                    .and_then(|stack| stack.compound("tag"))
+                    .and_then(|tag| tag.integer("map_uuid")),
+                rotation_steps: nbt
+                    .integer("ItemRotation")
+                    .and_then(|steps| u8::try_from(steps.rem_euclid(8)).ok())
+                    .unwrap_or(0),
+            })
         }
+        "FlowerPot" => nbt
+            .compound("PlantBlock")
+            .and_then(|plant| plant.string("name"))
+            .filter(|name| !name.is_empty() && *name != "minecraft:air")
+            .map(|name| Template::FlowerPot {
+                plant: HeldItem {
+                    identifier: Arc::from(name),
+                    metadata: 0,
+                },
+            }),
+        "Campfire" => Some(Template::Campfire {
+            yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
+            items: (1..=4)
+                .filter_map(|slot| nbt.compound(&format!("Item{slot}")).and_then(held_item))
+                .collect(),
+        }),
+        "Conduit" => Some(Template::Conduit {
+            active: nbt.boolean("Active").unwrap_or(false),
+            hunting: nbt.integer("Target").is_some_and(|target| target != -1),
+        }),
+        "DecoratedPot" => {
+            let mut sherds: [Option<String>; 4] = Default::default();
+            for (slot, entry) in nbt
+                .list("sherds")
+                .unwrap_or_default()
+                .iter()
+                .take(4)
+                .enumerate()
+            {
+                if let world::NbtValue::String(item) = entry {
+                    sherds[slot] = sherd_pattern(item);
+                }
+            }
+            Some(Template::Static(BlockEntityKind::DecoratedPot(
+                DecoratedPotModel {
+                    facing: facing(state).unwrap_or(Facing::North),
+                    sherds,
+                },
+            )))
+        }
+        "CopperGolemStatue" => Some(Template::Static(BlockEntityKind::Statue(StatueModel {
+            pose: StatuePose::from_nbt(nbt.string("Pose"), nbt.integer("Pose"))?,
+            oxidation: Oxidation::from_block_name(block_name)?,
+            facing: facing(state).unwrap_or(Facing::North),
+        }))),
+        "MobSpawner" => nbt
+            .string("EntityIdentifier")
+            .filter(|mob| !mob.is_empty())
+            .map(|mob| {
+                Template::Static(BlockEntityKind::Spawner(SpawnerModel {
+                    mob: Arc::from(mob),
+                }))
+            }),
         "EndPortal" => Some(Template::Static(BlockEntityKind::EndPortal)),
         "EndGateway" => Some(Template::Static(BlockEntityKind::EndGateway)),
         _ => None,
@@ -354,6 +469,22 @@ mod tests {
                 direction: 3,
             })))
         );
+    }
+
+    #[test]
+    fn item_frames_face_away_from_the_wall_the_state_names() {
+        // facing_direction 2 (north) is the wall side, so the frame looks south (3).
+        let template = describe(
+            "GlowItemFrame",
+            "minecraft:glow_frame",
+            &state(r#"{"facing_direction":{"type":"int","value":2}}"#),
+            &nbt(|_| {}),
+            [0; 3],
+        );
+        let Some(Template::ItemFrame { model, item, .. }) = template else {
+            panic!("frame expected");
+        };
+        assert!(model.glow && model.outward == 3 && item.is_none());
     }
 
     #[test]

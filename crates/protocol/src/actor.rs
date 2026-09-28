@@ -8,8 +8,8 @@ use valentine::{
         DataItemEntryPayload, EnumsActorLinkType as VendorActorLinkType,
         EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobEffectPacket,
         MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
-        PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket, SerializedSkinRef,
-        SetActorDataPacket, SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
+        PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket, SetActorDataPacket,
+        SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
         UpdateAttributesPacket,
     },
     protocol::wire,
@@ -17,7 +17,10 @@ use valentine::{
 
 use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
+mod skin;
 mod status;
+use skin::normalize_player_skin;
+pub use skin::{CapeImage, PlayerSkin, PlayerSkinUnavailable, StandardSkin};
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{
     normalize_actor_event, normalize_add_item_actor, normalize_take_item_actor,
@@ -235,27 +238,6 @@ pub enum PlayerListEntry {
     Remove {
         uuid: [u8; 16],
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StandardSkin {
-    pub width: u32,
-    pub height: u32,
-    pub rgba8: Arc<[u8]>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlayerSkinUnavailable {
-    UnsupportedPersona,
-    InvalidDimensions,
-    InvalidByteLength,
-    RetainedBudgetExceeded,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PlayerSkin {
-    Standard(StandardSkin),
-    Unavailable(PlayerSkinUnavailable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -697,39 +679,6 @@ pub(crate) fn normalize_player_list(
     Ok(ActorEvent::PlayerList(PlayerListUpdateEvent {
         entries: Arc::from(entries),
     }))
-}
-
-fn normalize_player_skin(skin: SerializedSkinRef, retained_bytes: &mut usize) -> PlayerSkin {
-    if skin.is_persona {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona);
-    }
-    let (width, height) = (skin.image_data.width, skin.image_data.height);
-    if width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE) {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    }
-    let Some(expected_bytes) = usize::try_from(width)
-        .ok()
-        .and_then(|width| usize::try_from(height).ok().map(|height| (width, height)))
-        .and_then(|(width, height)| width.checked_mul(height))
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
-    };
-    if skin.image_data.image_bytes.len() != expected_bytes {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength);
-    }
-    let Some(next_bytes) = retained_bytes.checked_add(expected_bytes) else {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
-    };
-    if next_bytes > MAX_PLAYER_LIST_SKIN_BYTES {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
-    }
-    *retained_bytes = next_bytes;
-    PlayerSkin::Standard(StandardSkin {
-        width,
-        height,
-        rgba8: Arc::from(skin.image_data.image_bytes),
-    })
 }
 
 /// Normalizes the four-field spawn attribute list AddActor carries.

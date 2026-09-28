@@ -13,7 +13,9 @@ mod environment_settings;
 mod equipment;
 mod error;
 mod font;
+mod fsb;
 mod hud;
+mod hud_extras;
 mod icon;
 mod item;
 mod lang;
@@ -26,10 +28,11 @@ mod provenance;
 mod registry;
 mod runtime;
 mod server_lang;
+mod sound_bank;
+mod sound_events;
 mod texture;
 mod ui;
 mod weather_textures;
-mod hud_extras;
 
 pub use hud_extras::{
     HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
@@ -110,13 +113,15 @@ pub use entity::{
     MolangEaseMode, MolangFunction, MolangOp, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets,
     encode_entity_blob, molang_call, molang_program_stack, validate_entity_geometry_inheritance,
 };
+pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, EQUIPMENT_CARRIER_MAGIC,
     EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory, EquipmentReference,
-    EquipmentTexture, EquipmentTransform, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES,
-    MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
-    RuntimeEquipmentCatalog, encode_equipment_catalog, encode_equipment_catalog_with_textures,
+    EquipmentTexture, EquipmentTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS,
+    MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE,
+    MAX_EQUIPMENT_TEXTURES, RuntimeEquipmentCatalog, encode_equipment_catalog,
+    encode_equipment_catalog_full, encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;
 pub use font::{
@@ -125,6 +130,7 @@ pub use font::{
     MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
     encode_font_catalog,
 };
+pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use hud::{
     HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_SOURCE_MANIFEST_SHA256, HudCatalogError,
     HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
@@ -178,6 +184,11 @@ pub use runtime::{
     SequentialIdRemap,
 };
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
+pub use sound_bank::{
+    MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
+    SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,
+};
+pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
     downsample_linear_premultiplied,

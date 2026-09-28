@@ -1,15 +1,21 @@
 //! Session-bound form authority and bounded, single-enqueue responses.
+mod engine_input;
 mod interaction;
 mod network;
 mod shape_probe;
+#[cfg(test)]
+mod store_tests;
+mod values;
 use super::UiRuntime;
 pub(crate) use interaction::drive_server_form_input;
 pub(crate) use network::flush_server_form_network;
 use protocol::{
-    FormKind, FormRequestEvent, ModalFormResponseSelection, Packet, ServerFormModel,
-    modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
+    CustomFormValue, FormKind, FormRequestEvent, ModalFormResponseSelection, Packet,
+    ServerFormModel, custom_form_submit_response, modal_form_busy_response,
+    modal_form_cancel_response, modal_form_submit_response,
 };
 use std::{collections::VecDeque, sync::Arc};
+pub(crate) use values::{EngineFrame, FormEngineState, FormValue};
 
 /// One displayed form; at most eight pending busy cancellations.
 pub const MAX_RETAINED_SERVER_FORMS: usize = 8;
@@ -32,9 +38,12 @@ impl ServerFormEntry {
     pub const fn fifo_sequence(&self) -> u64 {
         self.fifo_sequence
     }
+    /// Answerable buttons: menu buttons, or a modal's two.
     pub fn button_count(&self) -> usize {
         match &self.model {
             ServerFormModel::TextMenu(menu) => menu.buttons.len(),
+            ServerFormModel::ElementMenu(menu) => menu.button_count(),
+            ServerFormModel::Modal(_) => 2,
             _ => 0,
         }
     }
@@ -53,13 +62,15 @@ pub enum FormRespondError {
     UnsupportedControls,
     CustomElementsUnsupported,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum RetainedAnswer {
     ButtonIndex(u32),
+    Modal(bool),
+    Custom(Arc<[CustomFormValue]>),
     Dismissed,
     Busy,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct PendingFormResponse {
     identity: ServerFormIdentity,
     answer: RetainedAnswer,
@@ -83,6 +94,7 @@ pub struct ServerFormStore {
     watched_epoch: Option<(u64, u64)>,
     focus: usize,
     scroll: usize,
+    engine: FormEngineState,
 }
 impl ServerFormStore {
     pub fn admit(
@@ -107,6 +119,7 @@ impl ServerFormStore {
             .is_some_and(|entry| entry.form_id == event.form_id)
             || self
                 .pending
+                .as_ref()
                 .is_some_and(|response| response.identity.form_id == event.form_id);
         self.busy
             .retain(|response| response.identity.form_id != event.form_id);
@@ -128,6 +141,7 @@ impl ServerFormStore {
         }
         self.focus = 0;
         self.scroll = 0;
+        self.engine = FormEngineState::for_model(&event.model);
         self.active = Some(ServerFormEntry {
             identity,
             form_id: event.form_id,
@@ -170,6 +184,13 @@ impl ServerFormStore {
     pub fn set_scroll(&mut self, offset: usize) {
         self.scroll = offset.min(1 << 20);
     }
+    /// The JSON-UI path's live interaction state and custom-form values.
+    pub(crate) const fn engine(&self) -> &FormEngineState {
+        &self.engine
+    }
+    pub(crate) fn engine_mut(&mut self) -> &mut FormEngineState {
+        &mut self.engine
+    }
     pub fn reject_active_busy(&mut self) {
         if let Some(entry) = self.active.take() {
             if self.busy.len() < MAX_RETAINED_SERVER_FORMS {
@@ -196,22 +217,33 @@ impl ServerFormStore {
             .filter(|entry| entry.identity == identity)
             .ok_or(FormRespondError::StaleIdentity)?;
         let answer = match action {
-            LocalFormAction::CustomElements => {
-                return Err(FormRespondError::CustomElementsUnsupported);
-            }
+            LocalFormAction::CustomElements => match &entry.model {
+                ServerFormModel::Custom(_) => RetainedAnswer::Custom(self.engine.submission()),
+                _ => return Err(FormRespondError::CustomElementsUnsupported),
+            },
             LocalFormAction::Dismiss => RetainedAnswer::Dismissed,
             LocalFormAction::SubmitButton(index) => {
-                if !matches!(entry.model, ServerFormModel::TextMenu(_)) {
+                if !matches!(
+                    entry.model,
+                    ServerFormModel::TextMenu(_)
+                        | ServerFormModel::ElementMenu(_)
+                        | ServerFormModel::Modal(_)
+                ) {
                     return Err(FormRespondError::UnsupportedControls);
                 }
                 if index as usize >= entry.button_count() {
                     return Err(FormRespondError::InvalidButton);
                 }
-                RetainedAnswer::ButtonIndex(index)
+                match entry.model {
+                    // button1 answers true, button2 false.
+                    ServerFormModel::Modal(_) => RetainedAnswer::Modal(index == 0),
+                    _ => RetainedAnswer::ButtonIndex(index),
+                }
             }
         };
         self.pending = Some(PendingFormResponse { identity, answer });
         self.active = None;
+        self.engine = FormEngineState::default();
         Ok(())
     }
     pub fn note_stream_dimension(&mut self, dimension: i32) {
@@ -238,6 +270,7 @@ impl ServerFormStore {
         self.watched_epoch = None;
         self.focus = 0;
         self.scroll = 0;
+        self.engine = FormEngineState::default();
     }
     pub const fn replaced_by_reissue(&self) -> u64 {
         self.replaced_by_reissue
@@ -249,12 +282,19 @@ impl ServerFormStore {
         self.busy.len()
     }
 }
-fn pending_packet(pending: PendingFormResponse) -> Packet {
-    match pending.answer {
+fn pending_packet(pending: &PendingFormResponse) -> Packet {
+    match &pending.answer {
         RetainedAnswer::ButtonIndex(index) => modal_form_submit_response(
             pending.identity.form_id,
-            ModalFormResponseSelection::ButtonIndex(index),
+            ModalFormResponseSelection::ButtonIndex(*index),
         ),
+        RetainedAnswer::Modal(choice) => modal_form_submit_response(
+            pending.identity.form_id,
+            ModalFormResponseSelection::ModalButton(*choice),
+        ),
+        RetainedAnswer::Custom(values) => {
+            custom_form_submit_response(pending.identity.form_id, values)
+        }
         RetainedAnswer::Dismissed => modal_form_cancel_response(pending.identity.form_id),
         RetainedAnswer::Busy => modal_form_busy_response(pending.identity.form_id),
     }
@@ -274,7 +314,7 @@ pub fn flush_form_response(
     if pending.identity.session != session {
         return Ok(false);
     }
-    match send(pending_packet(pending)) {
+    match send(pending_packet(&pending)) {
         Ok(()) => Ok(true),
         Err(FormTransportError::Full) => {
             if local {

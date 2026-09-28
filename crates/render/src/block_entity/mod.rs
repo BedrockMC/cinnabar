@@ -11,14 +11,22 @@ mod bed;
 mod bell;
 mod book;
 mod chest;
+mod conduit;
 mod crack;
+mod frame;
 mod gpu;
+mod heads;
+mod items;
 mod mesh;
+mod mob;
 mod portal;
+mod pot;
 mod scene;
 mod shulker;
 mod sign;
 mod skull;
+mod spawner;
+mod statue;
 
 pub use atlas::{AtlasRect, BlockEntityAtlas, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
 pub use banner::{
@@ -26,10 +34,20 @@ pub use banner::{
 };
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
+pub use bell::{BellAttachment, BellModel, swing_degrees};
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
-pub use crack::crack_texture_name;
+pub use conduit::ConduitModel;
+pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
+pub use frame::{ItemFrameModel, item_frame_item_transform};
 pub use gpu::BlockEntityRenderPlugin;
-pub use mesh::{BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES};
+pub use heads::{HeadBox, HeadModel, HeadModels};
+pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
+pub use mesh::{
+    BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,
+    model_matrix as block_matrix,
+};
+pub use mob::SPAWNER_MOBS;
+pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
     BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
     BlockEntitySubmission, CrackInstance, SceneClock,
@@ -37,3 +55,5 @@ pub use scene::{
 pub use shulker::{ShulkerModel, shulker_color_from_block_name};
 pub use sign::{SignFace, SignModel, SignMount};
 pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees};
+pub use spawner::SpawnerModel;
+pub use statue::{Oxidation, StatueModel, StatuePose};

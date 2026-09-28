@@ -548,3 +548,113 @@ fn sampled_fluid_overrides_the_heuristic_and_armor_queries_read_worn_stacks() {
     assert_eq!(number("query.armor_color_slot", &[0.0, 0.0]), 1.0);
     assert_eq!(number("query.armor_color_slot", &[0.0, 1.0]), 0.0);
 }
+
+#[test]
+fn item_duration_queries_report_max_and_remaining_seconds() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput {
+        item_use_ticks: 20,
+        ..ActorTickInput::default()
+    };
+    let context = ActorTickContext {
+        main_hand_max_use_ticks: 32,
+        ..ActorTickContext::default()
+    };
+    let number = |name: &str| read_with(&actor, &input, &context, 0, name, &[]).number();
+    assert!((number("query.main_hand_item_use_duration") - 1.0).abs() < 1e-6);
+    assert!((number("query.main_hand_item_max_duration") - 1.6).abs() < 1e-6);
+    assert!((number("query.item_remaining_use_duration") - 0.6).abs() < 1e-6);
+    let unknown = ActorTickContext::default();
+    assert_eq!(
+        read_with(
+            &actor,
+            &input,
+            &unknown,
+            0,
+            "query.main_hand_item_max_duration",
+            &[]
+        )
+        .number(),
+        0.0
+    );
+}
+
+#[test]
+fn charged_hand_and_bed_rotation_queries_read_their_feeds() {
+    let mut actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    assert_eq!(read(&actor, &input, 0, "query.item_is_charged"), 0.0);
+    assert_eq!(read(&actor, &input, 0, "query.sleep_rotation"), 0.0);
+    actor.status.sleep_rotation = Some(90.0);
+    assert_eq!(read(&actor, &input, 0, "query.sleep_rotation"), 90.0);
+    let context = ActorTickContext {
+        hand_charged: true,
+        ..ActorTickContext::default()
+    };
+    let charged = read_with(&actor, &input, &context, 0, "query.item_is_charged", &[]);
+    assert_eq!(charged.number(), 1.0);
+}
+
+#[test]
+fn property_query_resolves_names_against_synced_definitions() {
+    use crate::actor_store::properties::{PropertyDefinition, PropertyKind};
+    let mut actor = actor_with_metadata(HashMap::new());
+    actor.int_properties.insert(0, 1);
+    actor.int_properties.insert(1, 1);
+    actor.float_properties.insert(2, 0.5);
+    let context = ActorTickContext {
+        properties: Some(Arc::from([
+            PropertyDefinition {
+                name: "minecraft:angry".into(),
+                kind: PropertyKind::Number,
+                default: 0.0,
+            },
+            PropertyDefinition {
+                name: "minecraft:variant".into(),
+                kind: PropertyKind::Enum(Arc::from([Arc::from("pale"), Arc::from("ashen")])),
+                default: 0.0,
+            },
+            PropertyDefinition {
+                name: "minecraft:amount".into(),
+                kind: PropertyKind::Number,
+                default: 0.0,
+            },
+        ])),
+        ..ActorTickContext::default()
+    };
+    let input = ActorTickInput::default();
+    let read = |name: &str| {
+        let argument = [MolangValue::String(name.into())];
+        read_with(&actor, &input, &context, 0, "query.property", &argument)
+    };
+    assert_eq!(read("minecraft:angry"), MolangValue::Number(1.0));
+    assert_eq!(
+        read("minecraft:variant"),
+        MolangValue::String("ashen".into())
+    );
+    assert_eq!(read("minecraft:amount"), MolangValue::Number(0.5));
+    assert_eq!(read("minecraft:missing"), MolangValue::Number(0.0));
+}
+
+#[test]
+fn has_cape_reads_the_tick_context() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    let capeless = read_with(
+        &actor,
+        &input,
+        &ActorTickContext::default(),
+        0,
+        "query.has_cape",
+        &[],
+    );
+    assert_eq!(capeless.number(), 0.0);
+    let context = ActorTickContext {
+        has_cape: true,
+        ..ActorTickContext::default()
+    };
+    assert_eq!(
+        read_with(&actor, &input, &context, 0, "query.has_cape", &[]).number(),
+        1.0
+    );
+}

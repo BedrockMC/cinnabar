@@ -133,7 +133,7 @@ impl InstallLayout {
     pub fn discover() -> Result<Self, LayoutError> {
         let platform = current_platform();
         let home = std::env::var_os(home_variable(platform)).map(PathBuf::from);
-        Self::resolve(
+        let layout = Self::resolve(
             platform,
             &InstallEnvironment {
                 executable: std::env::current_exe().map_err(|_| LayoutError::MissingExecutable)?,
@@ -143,7 +143,52 @@ impl InstallLayout {
                 xdg_data_home: std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
                 xdg_runtime_dir: std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
             },
-        )
+        )?;
+        Ok(layout.with_prepared_assets())
+    }
+
+    /// True for a packaged install (not a `target/` checkout), where Mojang-derived carriers are
+    /// prepared per user instead of shipped.
+    #[must_use]
+    pub fn is_installed(&self) -> bool {
+        self.compiled_assets != self.resource_root.join("assets/compiled")
+    }
+
+    /// Redirects carrier loading to the per-user prepared directory when the bundle ships none.
+    #[must_use]
+    pub fn with_prepared_assets(mut self) -> Self {
+        let bundled = self.world_assets();
+        if self.is_installed() && !bundled.is_file() {
+            self.compiled_assets = self.prepared_assets_dir();
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn prepared_assets_dir(&self) -> PathBuf {
+        self.user_data_root.join("assets/compiled")
+    }
+
+    /// Scratch tree where first-run preparation fetches and compiles the vanilla pack.
+    #[must_use]
+    pub fn prepare_workspace(&self) -> PathBuf {
+        self.user_data_root.join("prepare")
+    }
+
+    /// Bundled scripts, manifests, registries and `assetc` used by first-run preparation.
+    #[must_use]
+    pub fn prep_kit(&self) -> PathBuf {
+        self.resource_root.join("prep-kit")
+    }
+
+    #[must_use]
+    pub fn log_dir(&self) -> PathBuf {
+        self.user_data_root.join("logs")
+    }
+
+    #[must_use]
+    pub fn crash_dir(&self) -> PathBuf {
+        self.user_data_root.join("crashes")
     }
 
     #[must_use]
@@ -166,6 +211,11 @@ impl InstallLayout {
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")
+    }
+
+    #[must_use]
+    pub fn local_worlds_dir(&self) -> PathBuf {
+        self.user_data_root.join("worlds")
     }
 
     #[must_use]
@@ -596,5 +646,39 @@ mod tests {
             InstallLayout::resolve(Platform::Linux, &linux_environment),
             Err(LayoutError::InvalidLinuxLayout(_))
         ));
+    }
+
+    #[test]
+    fn installed_layout_without_bundled_carriers_uses_prepared_assets() {
+        let mut env = environment("/nonexistent/opt/cinnabar/bin/bedrock-client", "/home/dev");
+        env.xdg_data_home = Some(PathBuf::from("/data"));
+        env.xdg_config_home = Some(PathBuf::from("/cfg"));
+        let layout = InstallLayout::resolve(Platform::Linux, &env)
+            .unwrap()
+            .with_prepared_assets();
+        assert!(layout.is_installed());
+        assert_eq!(
+            layout.compiled_assets,
+            PathBuf::from("/data/cinnabar/assets/compiled")
+        );
+        assert_eq!(
+            layout.prep_kit(),
+            PathBuf::from("/nonexistent/opt/cinnabar/share/cinnabar/prep-kit")
+        );
+    }
+
+    #[test]
+    fn development_layout_is_not_installed() {
+        let layout = InstallLayout::resolve(
+            Platform::Linux,
+            &environment("/work/cinnabar/target/release/bedrock-client", "/home/dev"),
+        )
+        .unwrap()
+        .with_prepared_assets();
+        assert!(!layout.is_installed());
+        assert_eq!(
+            layout.compiled_assets,
+            PathBuf::from("/work/cinnabar/.local/assets/compiled")
+        );
     }
 }

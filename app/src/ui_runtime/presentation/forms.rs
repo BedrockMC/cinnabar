@@ -1,9 +1,21 @@
-//! A clipped, scrollable text-only server dialog using existing menu surfaces.
-use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, rect};
-use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime};
-use protocol::ServerFormModel;
+//! Server-form presentation: the vanilla JSON-UI templates through the engine
+//! when the UI carrier is loaded, else the programmatic fallback dialog.
+mod container_kinds;
+mod containers;
+mod engine;
+mod fallback;
+mod model;
+mod pages;
+mod server_pack;
+#[cfg(test)]
+mod tests;
+
+use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
+use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
+use assets::RuntimeUiAssets;
+pub(crate) use containers::engine_panel_contains;
 use std::sync::Arc;
-use ui::{SafeArea, TextLayout, UiNode, UiNodeId, UiPoint, UiRect, UiVisual};
+use ui::{UiNode, UiPoint, UiRect};
 
 #[derive(Default)]
 pub(super) struct FormPresentation {
@@ -14,9 +26,82 @@ pub(super) struct FormPresentation {
     height: usize,
     pub(super) maximum: usize,
     row_height: usize,
+    /// The engine frame drawn this build, when the engine drew the form.
+    frame: Option<EngineFrame>,
+    /// The JSON-UI engine; carried across the per-frame reset.
+    engine: Option<Box<engine::FormEngine>>,
+    /// The container screen the engine drew this build, with its cell layout.
+    container: Option<(EngineFrame, containers::ScreenLayout)>,
 }
 
 impl UiPresentationRuntime {
+    /// Bind the compiled UI carrier: its atlas pages join the texture array and
+    /// its catalog drives server forms. On failure the fallback dialog stays.
+    pub(crate) fn enable_json_ui(&mut self, assets: Arc<RuntimeUiAssets>) -> Result<(), String> {
+        let catalog = json_ui::Catalog::from_files(
+            assets
+                .ui_files()
+                .iter()
+                .map(|file| (&*file.path, &*file.bytes)),
+        )
+        .map_err(|error| format!("ui catalog: {error}"))?;
+        let (textures, first_page) = pages::with_ui_pages(&self.textures, &assets)
+            .map_err(|error| format!("ui atlas pages: {error}"))?;
+        self.textures = Arc::new(textures);
+        // Dynamic pages moved up; their references rebuild from the new start.
+        self.preview_dirty = true;
+        self.menu_artwork_dirty = true;
+        self.rebuild_dynamic_textures();
+        self.form_presentation.engine = Some(Box::new(engine::FormEngine::new(
+            assets, catalog, first_page,
+        )));
+        Ok(())
+    }
+
+    /// Overlay a joined server's resource pack (pack-relative paths): its
+    /// `ui/*.json` merge over the vanilla catalog and its `textures/**` images
+    /// shadow the carrier's. An empty set restores vanilla.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "fed once server resource-pack application lands")
+    )]
+    pub(crate) fn set_server_ui_pack(&mut self, files: &[(String, Vec<u8>)]) {
+        let Some(engine) = self.form_presentation.engine.as_mut() else {
+            return;
+        };
+        engine.set_server_pack(files);
+        let packed = server_pack::pack(files, engine.page_side());
+        let start = engine.server_page_start();
+        let old = engine.server_pages();
+        let dynamic_start = self.textures.dynamic_start();
+        let mut pages = self.textures.pages()[..start].to_vec();
+        let added = packed.pages.len();
+        pages.extend(packed.pages);
+        pages.extend_from_slice(&self.textures.pages()[start + old..]);
+        let Ok(textures) = render::UiRenderTextureArray::with_source_identity(
+            pages,
+            dynamic_start - old + added,
+            server_pack_identity(self.textures.static_identity(), files),
+        ) else {
+            engine.set_server_textures(Default::default(), old);
+            return;
+        };
+        engine.set_server_textures(packed.textures, added);
+        self.textures = Arc::new(textures);
+        // Dynamic pages moved; their references rebuild from the new start.
+        self.preview_dirty = true;
+        self.menu_artwork_dirty = true;
+        self.rebuild_dynamic_textures();
+    }
+
+    /// The engine frame for `identity`, when the engine drew that form.
+    pub(crate) fn form_engine_frame(&self, identity: ServerFormIdentity) -> Option<&EngineFrame> {
+        self.form_presentation
+            .frame
+            .as_ref()
+            .filter(|frame| frame.identity == Some(identity))
+    }
+
     pub(crate) fn form_button_count(&self, identity: ServerFormIdentity) -> Option<usize> {
         (self.form_presentation.identity == Some(identity))
             .then_some(self.form_presentation.offsets.len().saturating_sub(1))
@@ -73,335 +158,72 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<(), UiPresentationError> {
-        self.form_presentation = FormPresentation::default();
+        let engine = self.form_presentation.engine.take();
+        let previous_container = self.form_presentation.container.take();
+        self.form_presentation = FormPresentation {
+            engine,
+            ..FormPresentation::default()
+        };
         if self.menu_view.is_some() {
             return Ok(());
         }
+        self.append_engine_container(
+            runtime,
+            previous_container.as_ref().map(|(frame, _)| frame),
+            nodes,
+            next,
+            metrics,
+            width,
+            height,
+        )?;
         let Some(entry) = runtime.server_forms().active() else {
             return Ok(());
         };
-        // Tiny viewports fail closed to no pointer actions; Escape still works.
-        if width < 96.0 || height < 180.0 {
-            return Ok(());
-        }
-        let panel_width = (width - 32.0).min(640.0);
-        let panel_height = (height - 48.0).min(640.0);
-        let left = (width - panel_width) * 0.5;
-        let top = (height - panel_height) * 0.5;
-        let text_width = panel_width - 32.0;
-        let row_height =
-            (metrics.line_height_64 as f32 / 64.0 * metrics.scale.get() + 20.0).max(44.0);
-        let list_top = top + 64.0;
-        let list_height = (panel_height - 80.0 - row_height).max(1.0);
-        let list_bottom = list_top + list_height;
-        let (title, mut body, mut buttons): (&str, &str, &[Arc<str>]) = match &entry.model {
-            ServerFormModel::TextMenu(menu) => (&menu.title, &menu.content, &menu.buttons),
-            ServerFormModel::Unsupported(_) => (
-                "Unsupported server form",
-                "This form uses controls that are not supported yet. You can close it without submitting an answer.",
-                &[],
-            ),
-        };
-        let notice = match &entry.model {
-            ServerFormModel::TextMenu(menu) if menu.omitted_images > 0 => Some(format!(
-                "{} button images omitted. Text-only buttons.",
-                menu.omitted_images
-            )),
-            _ => None,
-        };
-        // Controlled diagnostic text has its own layout budget, never reducing
-        // the valid server-authored body's 16 KiB text budget.
-        let notice_layout = notice
-            .as_deref()
-            .map(|notice| {
-                self.layouts
-                    .layout(metrics.request(notice, (text_width * 64.0) as u32, &self.font))
-                    .map_err(UiPresentationError::Text)
-            })
-            .transpose()?;
-        let notice_height = notice_layout
-            .as_ref()
-            .map_or(0.0, |layout| layout.size_64()[1] as f32 / 64.0 + 16.0);
-        let title_layout = fit_line(self, metrics, title, text_width)?;
-        let body_layout =
-            match self
-                .layouts
-                .layout(metrics.request(body, (text_width * 64.0) as u32, &self.font))
-            {
-                Ok(layout) => layout,
-                Err(_) => {
-                    // Server-authored formatting can exhaust the renderer's own
-                    // span budget. Remain nonfatal and offer cancel, not fake controls.
-                    body = "The server's text could not be displayed. Close this form.";
-                    buttons = &[];
-                    self.layouts
-                        .layout(metrics.request(body, (text_width * 64.0) as u32, &self.font))
-                        .map_err(UiPresentationError::Text)?
+        if let Some(renderer) = self.form_presentation.engine.as_deref() {
+            let translate = |key: &str| runtime.translation(key);
+            let state = runtime.server_forms().engine();
+            if let Some(form) = model::engine_model(&entry.model, state, &translate) {
+                let rollback = (nodes.len(), *next);
+                let inputs = engine::EngineInputs {
+                    layouts: &mut self.layouts,
+                    font: &self.font,
+                    metrics,
+                    solid_page: self.solid_texture_page,
+                    safe_area: self.safe_area,
+                    content: [width, height],
+                    translate: &translate,
+                };
+                let out = engine::EngineOutput {
+                    nodes: &mut *nodes,
+                    next: &mut *next,
+                    overlay: &[],
+                };
+                match renderer.render(&form, &state.view, entry.identity, inputs, out) {
+                    Ok(Some(frame)) => {
+                        self.form_presentation.frame = Some(frame);
+                        return Ok(());
+                    }
+                    // A missing template or a node the tree rejects falls back
+                    // to the programmatic dialog rather than a blank screen.
+                    Ok(None) | Err(_) => {
+                        nodes.truncate(rollback.0);
+                        *next = rollback.1;
+                    }
                 }
-            };
-        let body_height = if body.is_empty() {
-            0.0
-        } else {
-            body_layout.size_64()[1] as f32 / 64.0 + 16.0
-        };
-        let text_height = notice_height + body_height;
-        let content_height = text_height + buttons.len() as f32 * row_height;
-        let maximum = (content_height - list_height).max(0.0) as usize;
-        let scroll = runtime.server_forms().scroll().min(maximum);
-        let mut state = FormPresentation {
-            identity: Some(entry.identity),
-            scroll,
-            height: list_height as usize,
-            maximum,
-            row_height: row_height as usize,
-            ..FormPresentation::default()
-        };
-        solid(
-            nodes,
-            next,
-            self.solid_texture_page,
-            rect(0.0, 0.0, width, height)?,
-            [4, 6, 10, 214],
-        );
-        solid(
-            nodes,
-            next,
-            self.solid_texture_page,
-            rect(left, top, left + panel_width, top + panel_height)?,
-            [22, 29, 39, 255],
-        );
-        let title_clip = clip(
-            nodes,
-            next,
-            rect(
-                left + 16.0,
-                top + 16.0,
-                left + panel_width - 16.0,
-                top + 56.0,
-            )?,
-        );
-        text(
-            nodes,
-            next,
-            title_clip,
-            title_layout,
-            metrics,
-            rect(0.0, 0.0, text_width, 40.0)?,
-            [239, 243, 247, 255],
-        );
-        let list_clip = clip(
-            nodes,
-            next,
-            rect(
-                left + 16.0,
-                list_top,
-                left + panel_width - 16.0,
-                list_bottom,
-            )?,
-        );
-        if let Some(notice_layout) = notice_layout {
-            text(
-                nodes,
-                next,
-                list_clip,
-                notice_layout,
-                metrics,
-                rect(
-                    0.0,
-                    -(scroll as f32),
-                    text_width,
-                    notice_height - scroll as f32,
-                )?,
-                [166, 178, 193, 255],
-            );
-        }
-        if !body.is_empty() {
-            text(
-                nodes,
-                next,
-                list_clip,
-                body_layout,
-                metrics,
-                rect(
-                    0.0,
-                    notice_height - scroll as f32,
-                    text_width,
-                    text_height - scroll as f32,
-                )?,
-                [166, 178, 193, 255],
-            );
-        }
-        for (index, label) in buttons.iter().enumerate() {
-            let offset = text_height + index as f32 * row_height;
-            state.offsets.push(offset as usize);
-            let y = offset - scroll as f32;
-            if y + row_height <= 0.0 || y >= list_height {
-                continue;
-            }
-            let bounds = rect(0.0, y, text_width, y + row_height - 6.0)?;
-            nodes.push(
-                UiNode::new(UiNodeId::new(*next), Some(list_clip), bounds).with_visual(
-                    UiVisual::Solid {
-                        texture_page: self.solid_texture_page,
-                        color: if runtime.server_forms().focus() == index {
-                            [55, 112, 151, 255]
-                        } else {
-                            [43, 54, 70, 255]
-                        },
-                    },
-                ),
-            );
-            *next = next.saturating_add(1);
-            let label_layout = fit_line(self, metrics, label, (text_width - 24.0).max(1.0))?;
-            text(
-                nodes,
-                next,
-                list_clip,
-                label_layout,
-                metrics,
-                rect(12.0, y + 10.0, text_width - 12.0, y + row_height - 8.0)?,
-                [239, 243, 247, 255],
-            );
-            // Only whole visible controls are actionable, never cropped rows.
-            if y >= 0.0 && y + row_height - 6.0 <= list_height {
-                state.hits.push((
-                    LocalFormAction::SubmitButton(index as u32),
-                    window_rect(
-                        rect(
-                            left + 16.0,
-                            list_top + y,
-                            left + panel_width - 16.0,
-                            list_top + y + row_height - 6.0,
-                        )?,
-                        self.safe_area,
-                    )?,
-                ));
             }
         }
-        state.offsets.push(scroll); // fixed cancel never needs list movement
-        let cancel_top = top + panel_height - row_height - 12.0;
-        let cancel = rect(
-            left + 16.0,
-            cancel_top,
-            left + panel_width - 16.0,
-            cancel_top + row_height - 6.0,
-        )?;
-        solid(
-            nodes,
-            next,
-            self.solid_texture_page,
-            cancel,
-            if runtime.server_forms().focus() == buttons.len() {
-                [55, 112, 151, 255]
-            } else {
-                [43, 54, 70, 255]
-            },
-        );
-        let cancel_clip = clip(nodes, next, cancel);
-        let cancel_layout = fit_line(self, metrics, "Close", text_width - 24.0)?;
-        text(
-            nodes,
-            next,
-            cancel_clip,
-            cancel_layout,
-            metrics,
-            rect(12.0, 10.0, text_width - 12.0, row_height - 8.0)?,
-            [239, 243, 247, 255],
-        );
-        state.hits.push((
-            LocalFormAction::Dismiss,
-            window_rect(cancel, self.safe_area)?,
-        ));
-        self.form_presentation = state;
-        Ok(())
+        self.append_fallback_form(runtime, nodes, next, metrics, width, height)
     }
 }
 
-fn fit_line(
-    presentation: &mut UiPresentationRuntime,
-    metrics: TextMetrics,
-    value: &str,
-    width: f32,
-) -> Result<Arc<TextLayout>, UiPresentationError> {
-    let ends = value
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain(std::iter::once(value.len()))
-        .collect::<Vec<_>>();
-    let wrap = (width.max(1.0) * 64.0) as u32;
-    let mut low = 0;
-    let mut high = ends.len();
-    let mut best = presentation
-        .layouts
-        .layout(metrics.request("", wrap, &presentation.font))
-        .map_err(UiPresentationError::Text)?;
-    while low < high {
-        let middle = low + (high - low) / 2;
-        let end = ends[middle];
-        let text = if end < value.len() {
-            format!("{}…", &value[..end])
-        } else {
-            value.to_owned()
-        };
-        let candidate =
-            presentation
-                .layouts
-                .layout(metrics.request(&text, wrap, &presentation.font));
-        let Ok(candidate) = candidate else {
-            high = middle;
-            continue;
-        };
-        let shadow = match metrics.shadow() {
-            ui::TextShadow::None => 0.0,
-            ui::TextShadow::Offset64(offset) => offset as f32 / 64.0,
-        };
-        if candidate.line_count() <= 1 && candidate.size_64()[0] as f32 / 64.0 + shadow <= width {
-            best = candidate;
-            low = middle + 1;
-        } else {
-            high = middle;
-        }
+fn server_pack_identity(base: [u8; 32], files: &[(String, Vec<u8>)]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"ui-server-pack-v1");
+    digest.update(base);
+    for (path, bytes) in files {
+        digest.update(path.as_bytes());
+        digest.update(Sha256::digest(bytes));
     }
-    Ok(best)
-}
-fn solid(nodes: &mut Vec<UiNode>, next: &mut u32, page: u16, bounds: UiRect, color: [u8; 4]) {
-    nodes.push(
-        UiNode::new(UiNodeId::new(*next), None, bounds).with_visual(UiVisual::Solid {
-            texture_page: page,
-            color,
-        }),
-    );
-    *next = next.saturating_add(1);
-}
-fn clip(nodes: &mut Vec<UiNode>, next: &mut u32, bounds: UiRect) -> UiNodeId {
-    let id = UiNodeId::new(*next);
-    nodes.push(UiNode::new(id, None, bounds).with_clip_children(true));
-    *next = next.saturating_add(1);
-    id
-}
-fn text(
-    nodes: &mut Vec<UiNode>,
-    next: &mut u32,
-    parent: UiNodeId,
-    layout: Arc<TextLayout>,
-    metrics: TextMetrics,
-    bounds: UiRect,
-    color: [u8; 4],
-) {
-    nodes.push(
-        UiNode::new(UiNodeId::new(*next), Some(parent), bounds).with_visual(UiVisual::Text {
-            layout,
-            color,
-            shadow: metrics.shadow(),
-        }),
-    );
-    *next = next.saturating_add(1);
-}
-fn window_rect(bounds: UiRect, safe: SafeArea) -> Result<UiRect, UiPresentationError> {
-    rect(
-        bounds.min().x() + safe.left(),
-        bounds.min().y() + safe.top(),
-        bounds.max().x() + safe.left(),
-        bounds.max().y() + safe.top(),
-    )
+    digest.finalize().into()
 }
