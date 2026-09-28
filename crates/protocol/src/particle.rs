@@ -16,6 +16,11 @@ const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
 pub enum ParticleEvent {
     Level(LevelParticleEvent),
     Spawn(SpawnParticleEffectEvent),
+    /// A critical or magic-critical hit animation on an actor.
+    ActorCritical {
+        actor_runtime_id: u64,
+        magic: bool,
+    },
 }
 
 /// A level event that may present particles; the id is classified by the consumer.
