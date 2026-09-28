@@ -50,6 +50,8 @@ pub struct ActorStatus {
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
     pub death_time: u8,
     pub dead: bool,
+    /// `age_ticks` when the fuse metadata was last received.
+    pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
     pub pickup: Option<ActorPickup>,

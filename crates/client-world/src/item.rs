@@ -272,6 +272,11 @@ impl ItemStateStore {
         }
     }
 
+    /// Visual route for an item identifier with no stack context (e.g. the TNT block).
+    pub(crate) fn visual_for_identifier(&self, identifier: &str) -> ItemVisualRoute {
+        self.resolve_visual(identifier, 0)
+    }
+
     fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
         let Some(assets) = self.assets.as_ref() else {
             return ItemVisualRoute::Missing;
