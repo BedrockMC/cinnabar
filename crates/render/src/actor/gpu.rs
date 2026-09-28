@@ -27,7 +27,7 @@ impl ActorDrawFrame {
         self.frame_generation != 0
             && self.draw_generation != 0
             && !self.manifest.is_empty()
-            && self.manifest.len() <= super::MAX_RENDERED_PLAYERS
+            && self.manifest.len() <= super::MAX_ACTOR_RENDER_INSTANCES
             && self.manifest.iter().enumerate().all(|(index, entry)| {
                 entry.identity.is_exact()
                     && entry.completed_tick != 0
@@ -229,8 +229,8 @@ impl ActorDrawTracker {
         if draw.frame_generation == 0
             || draw.draw_generation == 0
             || draw.manifest.is_empty()
-            || draw.manifest.len() > super::MAX_RENDERED_PLAYERS
-            || spans.len() > super::MAX_RENDERED_PLAYERS
+            || draw.manifest.len() > super::MAX_ACTOR_RENDER_INSTANCES
+            || spans.len() > super::MAX_ACTOR_RENDER_INSTANCES
             || !valid_spans
             || next as usize != draw.manifest.len()
         {
@@ -296,6 +296,7 @@ mod tests {
                     source_tick: Some(5),
                     movement_revision: 4,
                     pose_generation: 6,
+                    layer: 0,
                 },
                 rig: EntityRigId(0),
                 completed_tick: 7,

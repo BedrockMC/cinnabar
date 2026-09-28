@@ -64,3 +64,22 @@ fn publish_rejects_an_empty_rig_and_clears_a_prior_frame() {
     assert!(!scene.publish(ActorRigRenderFrame::default(), skin(), light(), 1.2, 8));
     assert!(!scene.is_active());
 }
+
+#[test]
+fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() {
+    let atlas = |bytes: usize| HandItemAtlas {
+        width: 2,
+        height: 2,
+        layers: 2,
+        rgba8: Arc::from(vec![0u8; bytes]),
+    };
+    let mut scene = HandRigScene::default();
+    scene.set_item_atlas(Some(atlas(32)));
+    assert!(!scene.is_active());
+
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 7));
+    scene.set_item_atlas(Some(atlas(31)));
+    assert!(scene.frame.as_ref().unwrap().item_atlas.is_none());
+    scene.set_item_atlas(Some(atlas(32)));
+    assert!(scene.frame.as_ref().unwrap().item_atlas.is_some());
+}

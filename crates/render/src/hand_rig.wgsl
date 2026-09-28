@@ -1,7 +1,7 @@
 #import cinnabar::lighting::{lit_colour, light_brightness}
 
 // Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
-// (ActorGpuInstance as 18 words, ActorRigVertex as 11 words, bones as 3x vec4 rows) so the
+// (ActorGpuInstance as 20 words, ActorRigVertex as 11 words, bones as 3x vec4 rows) so the
 // same CPU buffers feed both paths; only the view is hand-local and the fragment is lit.
 
 struct HandView {
@@ -37,6 +37,8 @@ struct HandLight {
 @group(0) @binding(7) var skin_sampler: sampler;
 @group(0) @binding(8) var<uniform> material_class: vec4<u32>;
 @group(0) @binding(9) var<uniform> hand_light: HandLight;
+// Instances whose texture layer has its top bit set sample this equipment atlas page instead.
+@group(0) @binding(10) var item_atlas: texture_2d_array<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -74,7 +76,7 @@ fn hand_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 19u;
+    let instance_base = instance_index * 20u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
@@ -126,7 +128,10 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if (input.valid == 0u) {
         discard;
     }
-    let color = textureSample(skins, skin_sampler, select(input.back_uv, input.uv, front), i32(input.skin_layer));
+    let uv = select(input.back_uv, input.uv, front);
+    let skin_color = textureSample(skins, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
+    let item_color = textureSample(item_atlas, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
+    let color = select(skin_color, item_color, (input.skin_layer & 0x80000000u) != 0u);
     if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
         discard;
     }

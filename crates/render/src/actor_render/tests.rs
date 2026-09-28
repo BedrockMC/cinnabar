@@ -102,6 +102,7 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
             source_tick: None,
             movement_revision: 0,
             pose_generation: 1,
+            layer: 0,
         },
         rig: EntityRigId(0),
         completed_tick: 1,
@@ -268,6 +269,7 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
         std::mem::offset_of!(crate::actor::ActorRigVertex, bone_index),
         40
     );
+    assert!(ACTOR_SHADER_SOURCE.contains("instance_index * 20u"));
     assert!(ACTOR_SHADER_SOURCE.contains("(span.first_vertex + vertex_index) * 11u"));
     assert!(ACTOR_SHADER_SOURCE.contains("vertex_words[vertex_base + 10u]"));
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));

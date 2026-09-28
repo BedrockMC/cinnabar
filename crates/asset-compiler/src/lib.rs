@@ -45,7 +45,7 @@ pub use compiler::{
 };
 pub use entity::{
     CompileReferenceOutcome, EntityAssetCompilation, FallbackReason, RejectReason,
-    compile_entity_assets, compile_entity_assets_with_report,
+    compile_entity_assets, compile_entity_assets_with_report, compile_equipment_textures,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{

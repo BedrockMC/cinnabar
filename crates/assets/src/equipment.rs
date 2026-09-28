@@ -15,10 +15,12 @@ use crate::item::{ItemDisplayScalar, ItemDisplayTransform};
 use crate::{AssetError, EntityDependencyResolution};
 
 pub const EQUIPMENT_CARRIER_MAGIC: [u8; 8] = *b"MCBEEQP1";
-pub const EQUIPMENT_CARRIER_VERSION: u32 = 1;
+pub const EQUIPMENT_CARRIER_VERSION: u32 = 2;
 pub const MAX_EQUIPMENT_BINDINGS: usize = 1024;
 pub const MAX_EQUIPMENT_IDENTIFIER_BYTES: usize = 256;
-pub const MAX_EQUIPMENT_CARRIER_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_EQUIPMENT_TEXTURES: usize = 256;
+pub const MAX_EQUIPMENT_TEXTURE_SIDE: u16 = 256;
+pub const MAX_EQUIPMENT_CARRIER_BYTES: usize = 8 * 1024 * 1024;
 
 const HEADER_BYTES: usize = 20;
 const HASH_BYTES: usize = 32;
@@ -37,7 +39,40 @@ pub struct EquipmentBinding {
     pub first_person: EquipmentTransform,
     pub third_person: EquipmentTransform,
     pub dropped: EquipmentTransform,
+    /// Literal-only named poses of the attachable's own bones (elytra states); empty otherwise.
+    #[serde(default)]
+    pub poses: Box<[AttachablePose]>,
 }
+
+/// One literal animation of an attachable: per-bone offsets in pixels and degrees.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachablePose {
+    /// The attachable's local animation key (for example `default`, `sneaking`).
+    pub key: Box<str>,
+    pub bones: Box<[AttachablePoseBone]>,
+}
+
+/// A bone's literal channels; an absent channel keeps the rest value.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachablePoseBone {
+    pub bone: Box<str>,
+    pub translation: Option<[ItemDisplayScalar; 3]>,
+    pub rotation: Option<[ItemDisplayScalar; 3]>,
+    pub scale: Option<[ItemDisplayScalar; 3]>,
+}
+
+impl EquipmentBinding {
+    /// The literal pose stored under `key`.
+    #[must_use]
+    pub fn pose(&self, key: &str) -> Option<&AttachablePose> {
+        self.poses.iter().find(|pose| pose.key.as_ref() == key)
+    }
+}
+
+const MAX_POSES_PER_BINDING: usize = 16;
+const MAX_BONES_PER_POSE: usize = 32;
 
 /// Where the attachment renders, which selects the biped bone a later tranche binds.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -85,6 +120,15 @@ impl EquipmentTransform {
     }
 }
 
+/// One attachable texture's decoded RGBA8 pixels, keyed by its pack identifier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EquipmentTexture {
+    pub identifier: Box<str>,
+    pub width: u16,
+    pub height: u16,
+    pub rgba8: Arc<[u8]>,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct EquipmentCatalogPayload {
@@ -99,6 +143,7 @@ pub struct RuntimeEquipmentCatalog {
     source_manifest_sha256: [u8; 32],
     entity_blob_sha256: [u8; 32],
     bindings: Arc<[EquipmentBinding]>,
+    textures: Arc<[EquipmentTexture]>,
 }
 
 impl RuntimeEquipmentCatalog {
@@ -113,11 +158,12 @@ impl RuntimeEquipmentCatalog {
         }
         let payload_bytes = usize::try_from(u64::from_le_bytes(field::<8>(bytes, 12)?))
             .map_err(|_| invalid("equipment payload size exceeds platform"))?;
+        let hash_start = bytes.len() - HASH_BYTES;
         let payload_end = HEADER_BYTES
             .checked_add(payload_bytes)
-            .filter(|end| end.checked_add(HASH_BYTES) == Some(bytes.len()))
+            .filter(|end| *end <= hash_start)
             .ok_or_else(|| invalid("noncanonical equipment carrier layout"))?;
-        if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
+        if Sha256::digest(&bytes[..hash_start]).as_slice() != &bytes[hash_start..] {
             return Err(invalid("equipment carrier envelope hash mismatch"));
         }
         let payload: EquipmentCatalogPayload =
@@ -133,10 +179,12 @@ impl RuntimeEquipmentCatalog {
             &payload.entity_blob_sha256,
             &payload.bindings,
         )?;
+        let textures = decode_textures(&bytes[payload_end..hash_start])?;
         Ok(Self {
             source_manifest_sha256: payload.source_manifest_sha256,
             entity_blob_sha256: payload.entity_blob_sha256,
             bindings: Arc::from(payload.bindings),
+            textures: Arc::from(textures),
         })
     }
 
@@ -157,6 +205,20 @@ impl RuntimeEquipmentCatalog {
         &self.bindings
     }
 
+    /// Attachable textures sorted by identifier.
+    #[must_use]
+    pub fn textures(&self) -> &[EquipmentTexture] {
+        &self.textures
+    }
+
+    #[must_use]
+    pub fn texture(&self, identifier: &str) -> Option<&EquipmentTexture> {
+        self.textures
+            .binary_search_by(|texture| texture.identifier.as_ref().cmp(identifier))
+            .ok()
+            .map(|index| &self.textures[index])
+    }
+
     #[must_use]
     pub fn binding(&self, identifier: &str) -> Option<&EquipmentBinding> {
         self.bindings
@@ -171,7 +233,23 @@ pub fn encode_equipment_catalog(
     entity_blob_sha256: [u8; 32],
     bindings: &[EquipmentBinding],
 ) -> Result<Vec<u8>, AssetError> {
+    encode_equipment_catalog_with_textures(
+        source_manifest_sha256,
+        entity_blob_sha256,
+        bindings,
+        &[],
+    )
+}
+
+/// Encodes bindings plus a binary texture section (sorted, unique identifiers).
+pub fn encode_equipment_catalog_with_textures(
+    source_manifest_sha256: [u8; 32],
+    entity_blob_sha256: [u8; 32],
+    bindings: &[EquipmentBinding],
+    textures: &[EquipmentTexture],
+) -> Result<Vec<u8>, AssetError> {
     validate(&source_manifest_sha256, &entity_blob_sha256, bindings)?;
+    validate_textures(textures)?;
     let payload = EquipmentCatalogPayload {
         source_manifest_sha256,
         entity_blob_sha256,
@@ -184,6 +262,14 @@ pub fn encode_equipment_catalog(
     bytes.extend_from_slice(&EQUIPMENT_CARRIER_VERSION.to_le_bytes());
     bytes.extend_from_slice(&(payload_bytes.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&payload_bytes);
+    bytes.extend_from_slice(&(textures.len() as u32).to_le_bytes());
+    for texture in textures {
+        bytes.extend_from_slice(&(texture.identifier.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(texture.identifier.as_bytes());
+        bytes.extend_from_slice(&texture.width.to_le_bytes());
+        bytes.extend_from_slice(&texture.height.to_le_bytes());
+        bytes.extend_from_slice(&texture.rgba8);
+    }
     let hash = Sha256::digest(&bytes);
     bytes.extend_from_slice(&hash);
     if bytes.len() > MAX_EQUIPMENT_CARRIER_BYTES {
@@ -216,12 +302,104 @@ fn validate(
             || !transform_is_canonical(binding.first_person)
             || !transform_is_canonical(binding.third_person)
             || !transform_is_canonical(binding.dropped)
+            || !poses_are_valid(&binding.poses)
         {
             return Err(invalid("invalid or unordered equipment binding"));
         }
         previous = Some(&binding.identifier);
     }
     Ok(())
+}
+
+fn validate_textures(textures: &[EquipmentTexture]) -> Result<(), AssetError> {
+    if textures.len() > MAX_EQUIPMENT_TEXTURES {
+        return Err(invalid("equipment texture count exceeds bound"));
+    }
+    let mut previous: Option<&str> = None;
+    for texture in textures {
+        validate_identifier(&texture.identifier)?;
+        let side_ok = |side: u16| (1..=MAX_EQUIPMENT_TEXTURE_SIDE).contains(&side);
+        if previous.is_some_and(|previous| previous >= texture.identifier.as_ref())
+            || !side_ok(texture.width)
+            || !side_ok(texture.height)
+            || texture.rgba8.len() != usize::from(texture.width) * usize::from(texture.height) * 4
+        {
+            return Err(invalid("invalid or unordered equipment texture"));
+        }
+        previous = Some(&texture.identifier);
+    }
+    Ok(())
+}
+
+fn decode_textures(section: &[u8]) -> Result<Vec<EquipmentTexture>, AssetError> {
+    let mut cursor = section;
+    let count = u32::from_le_bytes(
+        take(&mut cursor, 4)?
+            .try_into()
+            .map_err(|_| invalid("invalid equipment texture count"))?,
+    ) as usize;
+    if count > MAX_EQUIPMENT_TEXTURES {
+        return Err(invalid("equipment texture count exceeds bound"));
+    }
+    let mut textures = Vec::with_capacity(count);
+    for _ in 0..count {
+        let name_len = usize::from(u16::from_le_bytes(
+            take(&mut cursor, 2)?
+                .try_into()
+                .map_err(|_| invalid("invalid equipment texture name length"))?,
+        ));
+        let identifier: Box<str> = std::str::from_utf8(take(&mut cursor, name_len)?)
+            .map_err(|_| invalid("equipment texture identifier is not UTF-8"))?
+            .into();
+        let width = u16::from_le_bytes(
+            take(&mut cursor, 2)?
+                .try_into()
+                .map_err(|_| invalid("invalid equipment texture width"))?,
+        );
+        let height = u16::from_le_bytes(
+            take(&mut cursor, 2)?
+                .try_into()
+                .map_err(|_| invalid("invalid equipment texture height"))?,
+        );
+        let length = usize::from(width) * usize::from(height) * 4;
+        textures.push(EquipmentTexture {
+            identifier,
+            width,
+            height,
+            rgba8: Arc::from(take(&mut cursor, length)?),
+        });
+    }
+    if !cursor.is_empty() {
+        return Err(invalid("trailing bytes after equipment texture section"));
+    }
+    validate_textures(&textures)?;
+    Ok(textures)
+}
+
+fn take<'a>(cursor: &mut &'a [u8], length: usize) -> Result<&'a [u8], AssetError> {
+    let head = cursor
+        .get(..length)
+        .ok_or_else(|| invalid("truncated equipment texture section"))?;
+    *cursor = &cursor[length..];
+    Ok(head)
+}
+
+fn poses_are_valid(poses: &[AttachablePose]) -> bool {
+    let canonical = |channel: &Option<[ItemDisplayScalar; 3]>| {
+        channel.is_none_or(|values| values.iter().all(|value| scalar_is_canonical(*value)))
+    };
+    poses.len() <= MAX_POSES_PER_BINDING
+        && poses.windows(2).all(|pair| pair[0].key < pair[1].key)
+        && poses.iter().all(|pose| {
+            validate_identifier(&pose.key).is_ok()
+                && pose.bones.len() <= MAX_BONES_PER_POSE
+                && pose.bones.iter().all(|bone| {
+                    validate_identifier(&bone.bone).is_ok()
+                        && canonical(&bone.translation)
+                        && canonical(&bone.rotation)
+                        && canonical(&bone.scale)
+                })
+        })
 }
 
 fn transform_is_canonical(transform: EquipmentTransform) -> bool {
@@ -299,6 +477,7 @@ mod tests {
                 first_person: EquipmentTransform::NeedsMeasurement,
                 third_person: EquipmentTransform::NeedsMeasurement,
                 dropped: EquipmentTransform::NeedsMeasurement,
+                poses: Box::new([]),
             },
             EquipmentBinding {
                 identifier: "minecraft:trident".into(),
@@ -320,6 +499,7 @@ mod tests {
                     transform: transform([1.5, -2.5, -10.5], [97.0, -1.5, -49.0]),
                 },
                 dropped: EquipmentTransform::NeedsMeasurement,
+                poses: Box::new([]),
             },
         ]
     }
@@ -340,6 +520,30 @@ mod tests {
     }
 
     #[test]
+    fn poses_round_trip_and_must_be_sorted_by_key() {
+        let scalar = |value: f32| ItemDisplayScalar::new(value).unwrap();
+        let pose = |key: &str| AttachablePose {
+            key: key.into(),
+            bones: Box::new([AttachablePoseBone {
+                bone: "left_wing".into(),
+                translation: Some([scalar(4.5), scalar(4.0), scalar(-2.0)]),
+                rotation: None,
+                scale: Some([scalar(1.0), scalar(1.0), scalar(2.0)]),
+            }]),
+        };
+        let mut bindings = sample();
+        bindings[0].poses = Box::new([pose("default"), pose("sneaking")]);
+        let bytes = encode_equipment_catalog([1; 32], [2; 32], &bindings).unwrap();
+        let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+        let helmet = catalog.binding("minecraft:diamond_helmet").unwrap();
+        assert_eq!(helmet.pose("sneaking").unwrap().bones.len(), 1);
+        assert!(helmet.pose("gliding").is_none());
+
+        bindings[0].poses = Box::new([pose("sneaking"), pose("default")]);
+        assert!(encode_equipment_catalog([1; 32], [2; 32], &bindings).is_err());
+    }
+
+    #[test]
     fn rejects_unordered_bindings_and_zero_provenance() {
         let mut reversed = sample();
         reversed.reverse();
@@ -355,7 +559,35 @@ mod tests {
         assert!(RuntimeEquipmentCatalog::decode(&bytes).is_err());
 
         let mut truncated = encode_equipment_catalog([1; 32], [2; 32], &sample()).unwrap();
-        truncated[8] = 0x02; // unsupported version
+        truncated[8] = 0x03; // unsupported version
         assert!(RuntimeEquipmentCatalog::decode(&truncated).is_err());
+    }
+
+    #[test]
+    fn textures_round_trip_sorted_and_reject_bad_pixel_length() {
+        let texture = |identifier: &str, width: u16, height: u16| EquipmentTexture {
+            identifier: identifier.into(),
+            width,
+            height,
+            rgba8: Arc::from(vec![7; usize::from(width) * usize::from(height) * 4]),
+        };
+        let textures = [texture("textures/a", 2, 1), texture("textures/b", 1, 2)];
+        let bytes =
+            encode_equipment_catalog_with_textures([1; 32], [2; 32], &sample(), &textures).unwrap();
+        let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+        assert_eq!(catalog.textures().len(), 2);
+        assert_eq!(catalog.texture("textures/b").unwrap().height, 2);
+        assert!(catalog.texture("textures/c").is_none());
+
+        let mut bad = texture("textures/a", 2, 1);
+        bad.rgba8 = Arc::from(vec![0; 3]);
+        assert!(
+            encode_equipment_catalog_with_textures([1; 32], [2; 32], &sample(), &[bad]).is_err()
+        );
+        let unordered = [texture("textures/b", 1, 1), texture("textures/a", 1, 1)];
+        assert!(
+            encode_equipment_catalog_with_textures([1; 32], [2; 32], &sample(), &unordered)
+                .is_err()
+        );
     }
 }
