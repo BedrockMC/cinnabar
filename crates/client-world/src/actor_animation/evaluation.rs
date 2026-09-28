@@ -50,6 +50,8 @@ pub(super) struct EngineSlots {
     pub(super) is_sneaking: Option<usize>,
     pub(super) is_blocking: Option<usize>,
     pub(super) damage_nearby_mobs: Option<usize>,
+    /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
+    pub(super) is_first_person: Option<usize>,
 }
 
 // Client-owned variables seeded on construction, observed in a client reconstruction and
@@ -111,6 +113,7 @@ impl VariableLayout {
                 is_sneaking: slot("variable.is_sneaking"),
                 is_blocking: slot("variable.is_blocking"),
                 damage_nearby_mobs: slot("variable.damage_nearby_mobs"),
+                is_first_person: slot("variable.is_first_person"),
             },
         }
     }
@@ -153,6 +156,23 @@ impl MolangVariables {
             Place::Variable(slot) => self.values.get_mut(slot),
             Place::Temporary(slot) => self.temps.get_mut(slot),
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn slots(count: usize) -> Self {
+        Self {
+            values: vec![None; count],
+            temps: Vec::new(),
+            random: 1,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn number_at(&self, slot: usize) -> Option<f32> {
+        self.values
+            .get(slot)
+            .and_then(|entry| entry.clone())
+            .map(|value| value.number())
     }
 
     /// Next value in `[0, 1]` from a per-actor xorshift stream.
