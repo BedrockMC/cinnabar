@@ -98,6 +98,7 @@ pub(crate) struct HudFrame {
     pub tab_list_open: bool,
     /// Hardcore heart sprites, present only when the optional extras carrier is loaded.
     pub hardcore_hearts: Option<super::hud_extras::HardcoreHearts>,
+    pub engine_containers: bool, // storage screens draw through JSON-UI instead
 }
 
 /// Per-frame layout geometry derived from the Java GUI-scale rule. All

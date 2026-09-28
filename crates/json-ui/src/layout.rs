@@ -7,14 +7,19 @@
 //! virtual coordinate space of `root_size`; the virtual-to-physical scale is applied
 //! downstream by the renderer and is deliberately not modelled here.
 //!
-//! `grid` and `scroll_view` are laid out as plain panels for now; their collection
-//! and viewport behaviour arrives with data-binding in a later tranche.
+//! Layers are relative: a control draws at its parent's layer plus its own. Each
+//! placed control carries a stable key (see [`crate::state`]) so the caller's
+//! hover/press/scroll state can drive the engine-owned widget behaviour in
+//! [`crate::widgets`]. `grid` lays out as a plain panel; its cells arrive
+//! pre-positioned from the binder.
 
 use serde_json::Value;
 
 use crate::expr::{self, AxisContext, Length, Resolved};
 use crate::sidecar::TextureMeta;
+use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
+use crate::widgets::{self, ScrollFrame};
 
 /// A virtual-pixel rectangle, top-left origin.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,6 +49,13 @@ impl Rect {
 /// caller without one can return zero, which lays a label out as an empty extent.
 pub trait TextMeasure {
     fn extent(&self, text: &str) -> [f64; 2];
+
+    /// The extent when wrapped at `max_width`; a measurer without wrapping keeps
+    /// the single-line extent.
+    fn wrapped(&self, text: &str, max_width: f64) -> [f64; 2] {
+        let _ = max_width;
+        self.extent(text)
+    }
 }
 
 /// Resolves a `texture` path to its sidecar metadata (base size, nine-slice). The
@@ -63,11 +75,16 @@ pub struct LayoutEnv<'a> {
 #[derive(Clone, Debug)]
 pub struct LaidOut<'a> {
     pub control: &'a ResolvedControl,
+    /// Stable address for [`ViewState`] lookups.
+    pub key: String,
     pub rect: Rect,
     pub clip: Rect,
+    /// Absolute draw layer (the parent's plus this control's own).
     pub layer: i32,
     pub alpha: f32,
     pub visible: bool,
+    /// Fraction clipped off a progress image by its widget (`clip_direction`).
+    pub clip_ratio: Option<f32>,
     pub children: Vec<LaidOut<'a>>,
 }
 
@@ -80,37 +97,149 @@ enum Axis {
 /// Lay `root` out inside a virtual screen of `root_size`, positioning it as the lone
 /// child of that screen.
 pub fn layout<'a>(root: &'a ResolvedControl, root_size: [f64; 2], env: &LayoutEnv) -> LaidOut<'a> {
-    INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
-    let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
-    let own = resolve_size(root, screen, intrinsic(root, env), env);
-    let rect = place_by_anchor(root, screen, own, env);
-    place_subtree(root, rect, screen, env)
+    layout_with(root, root_size, env, &ViewState::default()).0
 }
 
+/// [`layout`] driven by live interaction state, also reporting scroll extents.
+pub fn layout_with<'a>(
+    root: &'a ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+) -> (LaidOut<'a>, LayoutReport) {
+    INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
+    let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
+    let own = resolve_size(root, screen, intrinsic(root, env, None), env);
+    let rect = place_by_anchor(root, screen, own, env);
+    let mut ctx = PlaceCtx {
+        env,
+        state,
+        report: LayoutReport::default(),
+        scrolls: Vec::new(),
+        sliders: Vec::new(),
+    };
+    let key = child_key("", root);
+    let laid = place_subtree(root, key, rect, screen, 0, true, &mut ctx);
+    (laid, ctx.report)
+}
+
+struct PlaceCtx<'e, 'x> {
+    env: &'e LayoutEnv<'x>,
+    state: &'e ViewState,
+    report: LayoutReport,
+    scrolls: Vec<ScrollFrame>,
+    /// Enclosing sliders: their fraction plus progress child names.
+    sliders: Vec<(f64, [Option<String>; 3])>,
+}
+
+/// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
+fn child_key(parent: &str, control: &ResolvedControl) -> String {
+    let mut key = String::with_capacity(parent.len() + control.name.len() + 6);
+    key.push_str(parent);
+    key.push('/');
+    key.push_str(&control.name);
+    if let Some(index) = control
+        .properties
+        .get("collection_index")
+        .and_then(Value::as_u64)
+    {
+        key.push('[');
+        key.push_str(&index.to_string());
+        key.push(']');
+    }
+    key
+}
+
+#[allow(clippy::too_many_arguments)]
 fn place_subtree<'a>(
     control: &'a ResolvedControl,
+    key: String,
     rect: Rect,
     parent_clip: Rect,
-    env: &LayoutEnv,
+    parent_layer: i32,
+    shown: bool,
+    ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
     let child_clip = if clip_children(control) {
         parent_clip.intersect(rect)
     } else {
         parent_clip
     };
-    let children = layout_children(control, rect, env)
-        .into_iter()
-        .map(|(child, child_rect)| place_subtree(child, child_rect, child_clip, env))
-        .collect();
+    let absolute_layer = parent_layer.saturating_add(layer(control));
+    let scroll = ScrollFrame::open(control, &key, ctx.state);
+    let opened_scroll = scroll.is_some();
+    if let Some(frame) = scroll {
+        ctx.scrolls.push(frame);
+    }
+    let slider = widgets::slider_fraction(control).map(|f| (f, widgets::slider_names(control)));
+    let opened_slider = slider.is_some();
+    if let Some(entry) = slider {
+        ctx.sliders.push(entry);
+    }
+    let hidden = widgets::hidden_state_children(control, &key, ctx.state);
+    let mut children = Vec::with_capacity(control.children.len());
+    for (child, mut child_rect) in layout_children(control, rect, ctx.env) {
+        let mut child_shown = !hidden.iter().any(|name| *name == child.name);
+        if let Some(frame) = ctx.scrolls.last_mut() {
+            if frame.metrics.is_none() && child.name == frame.content {
+                child_rect = frame.place_content(rect, child_rect);
+            } else if child.name == frame.bar_box
+                && child.control_type.as_deref() == Some("scrollbar_box")
+            {
+                match frame.place_box(rect, child_rect) {
+                    Some(placed) => child_rect = placed,
+                    None => child_shown = false,
+                }
+            }
+        }
+        if opened_slider
+            && let Some((fraction, names)) = ctx.sliders.last()
+            && names[0].as_deref() == Some(child.name.as_str())
+        {
+            child_rect = widgets::slider_box_rect(rect, child_rect, *fraction);
+        }
+        let next_key = child_key(&key, child);
+        children.push(place_subtree(
+            child,
+            next_key,
+            child_rect,
+            child_clip,
+            absolute_layer,
+            child_shown,
+            ctx,
+        ));
+    }
+    if opened_slider {
+        ctx.sliders.pop();
+    }
+    if opened_scroll
+        && let Some(frame) = ctx.scrolls.pop()
+        && let Some(metrics) = frame.metrics
+    {
+        ctx.report.scrolls.insert(frame.key, metrics);
+    }
     LaidOut {
         control,
+        clip_ratio: progress_clip(control, &ctx.sliders),
+        key,
         rect,
         clip: parent_clip,
-        layer: layer(control),
+        layer: absolute_layer,
         alpha: alpha(control),
-        visible: visible(control),
+        visible: shown && visible(control),
         children,
     }
+}
+
+/// A bound `clip_ratio`, or a slider progress image revealing its fraction.
+fn progress_clip(control: &ResolvedControl, sliders: &[(f64, [Option<String>; 3])]) -> Option<f32> {
+    if let Some((fraction, names)) = sliders.last()
+        && (names[1].as_deref() == Some(control.name.as_str())
+            || names[2].as_deref() == Some(control.name.as_str()))
+    {
+        return Some((1.0 - fraction) as f32);
+    }
+    widgets::bound_number(control, "clip_ratio").map(|ratio| ratio.clamp(0.0, 1.0) as f32)
 }
 
 /// Resolve the rects of `parent`'s direct children within `parent_rect`.
@@ -120,6 +249,9 @@ fn layout_children<'a>(
     env: &LayoutEnv,
 ) -> Vec<(&'a ResolvedControl, Rect)> {
     let sibling_max = siblings_max(parent, env);
+    if let Some(columns) = grid_columns(parent) {
+        return grid_children(parent, parent_rect, columns, sibling_max, env);
+    }
     match stack_axis(parent) {
         Some(axis) => stack_children(parent, parent_rect, axis, sibling_max, env),
         None => parent
@@ -131,6 +263,63 @@ fn layout_children<'a>(
             })
             .collect(),
     }
+}
+
+/// A `grid`'s column count: `grid_dimensions` (`[columns, rows]`) when given,
+/// else `Some(None)` for a horizontally rescaling grid that fits its width.
+fn grid_columns(control: &ResolvedControl) -> Option<Option<usize>> {
+    if control.control_type.as_deref() != Some("grid") {
+        return None;
+    }
+    let fixed = control
+        .properties
+        .get("grid_dimensions")
+        .and_then(Value::as_array)
+        .and_then(|dims| dims.first()?.as_f64())
+        .filter(|columns| *columns >= 1.0)
+        .map(|columns| columns as usize);
+    Some(fixed)
+}
+
+fn fitted_columns(columns: Option<usize>, width: Option<f64>, pitch: f64, cells: usize) -> usize {
+    columns
+        .or_else(|| {
+            let width = width?;
+            (pitch > 0.0).then(|| (width / pitch).floor() as usize)
+        })
+        .unwrap_or(cells)
+        .max(1)
+}
+
+/// Grid cells fill row-major from the top-left, each at its own resolved size on
+/// a pitch of the largest cell.
+fn grid_children<'a>(
+    parent: &'a ResolvedControl,
+    parent_rect: Rect,
+    columns: Option<usize>,
+    sibling_max: [f64; 2],
+    env: &LayoutEnv,
+) -> Vec<(&'a ResolvedControl, Rect)> {
+    let sizes: Vec<[f64; 2]> = parent
+        .children
+        .iter()
+        .map(|child| resolve_size(child, parent_rect, sibling_max, env))
+        .collect();
+    let pitch = sizes.iter().fold([0.0f64, 0.0f64], |acc, size| {
+        [acc[0].max(size[0]), acc[1].max(size[1])]
+    });
+    let columns = fitted_columns(columns, Some(parent_rect.w), pitch[0], sizes.len());
+    parent
+        .children
+        .iter()
+        .zip(sizes)
+        .enumerate()
+        .map(|(index, (child, size))| {
+            let x = parent_rect.x + (index % columns) as f64 * pitch[0];
+            let y = parent_rect.y + (index / columns) as f64 * pitch[1];
+            (child, Rect::new(x, y, size[0], size[1]))
+        })
+        .collect()
 }
 
 fn stack_children<'a>(
@@ -151,9 +340,9 @@ fn stack_children<'a>(
     let mut fixed_total = 0.0;
     let mut fill_count = 0usize;
     for child in &parent.children {
-        let content = content_extent(child, env);
-        let child_max = children_max(child, env);
-        let nat = natural(child, env);
+        let content = content_extent(child, env, None);
+        let child_max = children_max(child, env, None);
+        let nat = natural(child, env, None);
         let cross_ctx = axis_context(
             parent_cross,
             None,
@@ -164,16 +353,25 @@ fn stack_children<'a>(
             cross,
         );
         let cross_size = pixels_or(length(child, cross).eval(&cross_ctx), parent_cross);
+        // A vertical stack knows each child's width before its height, so wrapped
+        // text and `%c` content measure at that width.
+        let known_width = (main == Axis::Y).then_some(cross_size);
         let main_ctx = axis_context(
             parent_main,
             Some((cross, cross_size)),
-            content,
-            child_max,
+            content_extent(child, env, known_width),
+            children_max(child, env, known_width),
             sibling_max,
-            nat,
+            natural(child, env, known_width),
             main,
         );
-        match length(child, main).eval(&main_ctx) {
+        // An invisible stack child collapses instead of holding its slot.
+        let resolved = if visible(child) {
+            length(child, main).eval(&main_ctx)
+        } else {
+            Resolved::Pixels(0.0)
+        };
+        match resolved {
             Resolved::Pixels(value) => {
                 fixed_total += value;
                 main_sizes.push(Some(value));
@@ -239,24 +437,23 @@ fn resolve_size(
     sibling_max: [f64; 2],
     env: &LayoutEnv,
 ) -> [f64; 2] {
-    let content = content_extent(control, env);
-    let child_max = children_max(control, env);
-    let nat = natural(control, env);
     let width_ctx = axis_context(
         parent_rect.w,
         None,
-        content,
-        child_max,
+        content_extent(control, env, None),
+        children_max(control, env, None),
         sibling_max,
-        nat,
+        natural(control, env, None),
         Axis::X,
     );
     let width = pixels_or(length(control, Axis::X).eval(&width_ctx), parent_rect.w);
+    let content = content_extent(control, env, Some(width));
+    let nat = natural(control, env, Some(width));
     let height_ctx = axis_context(
         parent_rect.h,
         Some((Axis::X, width)),
         content,
-        child_max,
+        children_max(control, env, Some(width)),
         sibling_max,
         nat,
         Axis::Y,
@@ -288,39 +485,55 @@ fn clamp_bounds(
 }
 
 std::thread_local! {
-    /// Per-`layout` memo of [`intrinsic`], keyed by control address. Intrinsic size
-    /// is a pure function of the subtree and `env`, but `content_extent`/`children_max`
-    /// each re-derive it, so without this the cost is exponential in tree depth. The
-    /// borrowed tree is stable for one `layout` call; `layout` clears the memo first.
-    static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<usize, [f64; 2]>> =
+    /// Per-`layout` memo of [`intrinsic`], keyed by control address and the known
+    /// parent width. Intrinsic size is a pure function of the subtree, `env`, and
+    /// that width, but `content_extent`/`children_max` each re-derive it, so without
+    /// this the cost is exponential in tree depth. The borrowed tree is stable for
+    /// one `layout` call; `layout` clears the memo first.
+    static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u64), [f64; 2]>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// Intrinsic (parent-independent) size, used when a parent aggregates this child for
-/// its own `%c`/`%cm`. Parent-relative units resolve to zero here by design.
-fn intrinsic(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
-    let key = control as *const ResolvedControl as usize;
+/// Intrinsic size used when a parent aggregates this child for its own `%c`/`%cm`.
+/// With `parent_width` known, percent widths resolve against it (so wrapped text
+/// measures correctly); unknown parent-relative units resolve to zero.
+fn intrinsic(control: &ResolvedControl, env: &LayoutEnv, parent_width: Option<f64>) -> [f64; 2] {
+    let key = (
+        control as *const ResolvedControl as usize,
+        parent_width.map_or(u64::MAX, f64::to_bits),
+    );
     if let Some(cached) = INTRINSIC_MEMO.with(|memo| memo.borrow().get(&key).copied()) {
         return cached;
     }
-    let value = intrinsic_uncached(control, env);
+    let value = intrinsic_uncached(control, env, parent_width);
     INTRINSIC_MEMO.with(|memo| memo.borrow_mut().insert(key, value));
     value
 }
 
-fn intrinsic_uncached(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
-    let content = content_extent(control, env);
-    let child_max = children_max(control, env);
-    let nat = natural(control, env);
-    let width_ctx = axis_context(0.0, None, content, child_max, [0.0; 2], nat, Axis::X);
-    let width = pixels_or(length(control, Axis::X).eval(&width_ctx), 0.0);
+fn intrinsic_uncached(
+    control: &ResolvedControl,
+    env: &LayoutEnv,
+    parent_width: Option<f64>,
+) -> [f64; 2] {
+    let parent = parent_width.unwrap_or(0.0);
+    let width_ctx = axis_context(
+        parent,
+        None,
+        content_extent(control, env, None),
+        children_max(control, env, None),
+        [0.0; 2],
+        natural(control, env, None),
+        Axis::X,
+    );
+    let width = pixels_or(length(control, Axis::X).eval(&width_ctx), parent);
+    let known = parent_width.map(|_| width);
     let height_ctx = axis_context(
         0.0,
         Some((Axis::X, width)),
-        content,
-        child_max,
+        content_extent(control, env, known),
+        children_max(control, env, known),
         [0.0; 2],
-        nat,
+        natural(control, env, known),
         Axis::Y,
     );
     let height = pixels_or(length(control, Axis::Y).eval(&height_ctx), 0.0);
@@ -329,15 +542,28 @@ fn intrinsic_uncached(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
 
 /// The extent of a control's children, the value `%c` reports. A stack sums along
 /// its main axis and takes the max across; other controls take the bounding max.
-fn content_extent(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
+/// `own_width` is this control's resolved width when already known.
+fn content_extent(control: &ResolvedControl, env: &LayoutEnv, own_width: Option<f64>) -> [f64; 2] {
     if control.children.is_empty() {
         return [0.0, 0.0];
     }
     let sizes: Vec<[f64; 2]> = control
         .children
         .iter()
-        .map(|child| intrinsic(child, env))
+        .filter(|child| visible(child))
+        .map(|child| intrinsic(child, env, own_width))
         .collect();
+    if let Some(columns) = grid_columns(control) {
+        let pitch = sizes.iter().fold([0.0f64, 0.0f64], |acc, size| {
+            [acc[0].max(size[0]), acc[1].max(size[1])]
+        });
+        let columns = fitted_columns(columns, own_width, pitch[0], sizes.len());
+        let rows = sizes.len().div_ceil(columns);
+        return [
+            pitch[0] * columns.min(sizes.len()) as f64,
+            pitch[1] * rows as f64,
+        ];
+    }
     match stack_axis(control) {
         Some(Axis::X) => [
             sizes.iter().map(|s| s[0]).sum(),
@@ -355,11 +581,12 @@ fn content_extent(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
 }
 
 /// Per-axis largest child, the value `%cm` reports.
-fn children_max(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
+fn children_max(control: &ResolvedControl, env: &LayoutEnv, own_width: Option<f64>) -> [f64; 2] {
     control
         .children
         .iter()
-        .map(|child| intrinsic(child, env))
+        .filter(|child| visible(child))
+        .map(|child| intrinsic(child, env, own_width))
         .fold([0.0, 0.0], |acc, size| {
             [acc[0].max(size[0]), acc[1].max(size[1])]
         })
@@ -367,17 +594,33 @@ fn children_max(control: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
 
 /// Per-axis largest of a parent's children, the value `%sm` reports to each sibling.
 fn siblings_max(parent: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
-    children_max(parent, env)
+    children_max(parent, env, None)
 }
 
-/// Natural content size: an image's texture `base_size`, a label's text extent.
-fn natural(control: &ResolvedControl, env: &LayoutEnv) -> Option<[f64; 2]> {
+/// Natural content size: an image's texture `base_size`, a label's text extent
+/// (wrapped at `width` when known), scaled by `font_scale_factor`.
+fn natural(control: &ResolvedControl, env: &LayoutEnv, width: Option<f64>) -> Option<[f64; 2]> {
     match control.control_type.as_deref() {
         Some("image") => texture_path(control)
             .and_then(|path| env.textures.texture(&path).map(|meta| meta.base_size)),
-        Some("label") => Some(env.text.extent(&label_text(control))),
+        Some("label") => {
+            let scale = font_scale(control);
+            let text = label_text(control);
+            let [w, h] = match width {
+                Some(width) if width > 0.0 => env.text.wrapped(&text, width / scale),
+                _ => env.text.extent(&text),
+            };
+            Some([w * scale, h * scale])
+        }
         _ => None,
     }
+}
+
+/// A label's `font_scale_factor` (1 when absent or non-positive).
+pub(crate) fn font_scale(control: &ResolvedControl) -> f64 {
+    widgets::bound_number(control, "font_scale_factor")
+        .filter(|scale| *scale > 0.0)
+        .unwrap_or(1.0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -505,10 +748,9 @@ fn stack_axis(control: &ResolvedControl) -> Option<Axis> {
 }
 
 fn clip_children(control: &ResolvedControl) -> bool {
-    matches!(
-        control.properties.get("clip_children"),
-        Some(Value::Bool(true))
-    )
+    ["clips_children", "clip_children"]
+        .iter()
+        .any(|key| matches!(control.properties.get(*key), Some(Value::Bool(true))))
 }
 
 fn layer(control: &ResolvedControl) -> i32 {

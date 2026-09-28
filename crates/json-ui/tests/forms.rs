@@ -6,9 +6,9 @@
 use std::path::PathBuf;
 
 use json_ui::{
-    ActionForm, ButtonImage, Catalog, Context, CustomElement, CustomForm, Draw, DrawNode,
-    FormButton, FormModel, LaidOut, LayoutEnv, ModalForm, ResolvedControl, TextMeasure,
-    TextureMeta, TextureSource, layout, render_form,
+    ActionElement, ActionForm, ButtonImage, Catalog, Context, CustomElement, CustomForm, Draw,
+    DrawNode, FormButton, FormModel, HitKind, LaidOut, LayoutEnv, ModalForm, ResolvedControl,
+    TextMeasure, TextureMeta, TextureSource, ViewState, layout, render_form, render_form_with,
 };
 
 struct ZeroText;
@@ -83,22 +83,19 @@ fn action_form_renders_a_button_per_entry_with_present_images_only() {
         eprintln!("skipping: vanilla ui assets not present");
         return;
     };
+    let button = |text: &str, image: Option<&str>| {
+        ActionElement::Button(FormButton {
+            text: text.into(),
+            image: image.map(|path| ButtonImage::Path(path.into())),
+        })
+    };
     let model = FormModel::Action(ActionForm {
         title: "Shop".into(),
         body: "Choose an item".into(),
-        buttons: vec![
-            FormButton {
-                text: "Apple".into(),
-                image: Some(ButtonImage::Path("textures/items/apple".into())),
-            },
-            FormButton {
-                text: "Sword".into(),
-                image: Some(ButtonImage::Path("textures/items/sword".into())),
-            },
-            FormButton {
-                text: "Plain".into(),
-                image: None,
-            },
+        elements: vec![
+            button("Apple", Some("textures/items/apple")),
+            button("Sword", Some("textures/items/sword")),
+            button("Plain", None),
         ],
     });
 
@@ -133,7 +130,7 @@ fn action_form_renders_a_button_per_entry_with_present_images_only() {
 }
 
 #[test]
-fn modal_form_renders_two_buttons_via_long_form() {
+fn modal_form_renders_through_the_two_button_popup() {
     let Some(catalog) = catalog() else {
         eprintln!("skipping: vanilla ui assets not present");
         return;
@@ -146,14 +143,104 @@ fn modal_form_renders_two_buttons_via_long_form() {
     });
 
     let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env())
-        .expect("modal renders via long_form");
-
-    let panel = find(&render.bound, "long_form_dynamic_buttons_panel").expect("buttons panel");
-    assert_eq!(panel.children.len(), 2, "button1 and button2");
+        .expect("modal renders via the popup");
 
     let drawn = texts(&render.nodes);
-    assert!(drawn.iter().any(|t| t == "Yes"));
-    assert!(drawn.iter().any(|t| t == "No"));
+    for text in ["Confirm", "Delete the world?", "Yes", "No"] {
+        assert!(drawn.iter().any(|t| t == text), "missing {text}");
+    }
+    // button1 routes to the left button, button2 to the right/cancel button.
+    let pressed: Vec<&str> = render
+        .hits
+        .iter()
+        .filter_map(|hit| hit.pressed.as_deref())
+        .collect();
+    assert!(pressed.contains(&"popup_dialog.left_button"));
+    assert!(pressed.contains(&"popup_dialog.rightcancel_button"));
+    assert_eq!(render.cancel_target.as_deref(), Some("popup_dialog.escape"));
+}
+
+#[test]
+fn action_form_buttons_report_their_collection_index() {
+    let Some(catalog) = catalog() else {
+        eprintln!("skipping: vanilla ui assets not present");
+        return;
+    };
+    let model = FormModel::Action(ActionForm {
+        title: "Menu".into(),
+        body: String::new(),
+        elements: vec![
+            ActionElement::Label("Intro".into()),
+            ActionElement::Button(FormButton {
+                text: "Go".into(),
+                image: None,
+            }),
+        ],
+    });
+    let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
+    let clicks: Vec<Option<usize>> = render
+        .hits
+        .iter()
+        .filter(|hit| hit.pressed.as_deref() == Some("button.form_button_click"))
+        .map(|hit| hit.collection_index)
+        .collect();
+    assert_eq!(
+        clicks,
+        [Some(1)],
+        "the button is the second collection entry"
+    );
+    assert!(
+        render
+            .hits
+            .iter()
+            .any(|hit| hit.pressed.as_deref() == Some("button.menu_exit")),
+        "the dialog close button exits"
+    );
+}
+
+#[test]
+fn hovering_a_button_swaps_its_state_child() {
+    let Some(catalog) = catalog() else {
+        eprintln!("skipping: vanilla ui assets not present");
+        return;
+    };
+    let model = FormModel::Action(ActionForm {
+        title: "Menu".into(),
+        body: String::new(),
+        elements: vec![ActionElement::Button(FormButton {
+            text: "Go".into(),
+            image: None,
+        })],
+    });
+    let idle = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
+    let button = idle
+        .hits
+        .iter()
+        .find(|hit| hit.pressed.as_deref() == Some("button.form_button_click"))
+        .expect("form button hit")
+        .clone();
+    let state = ViewState {
+        hovered: Some(button.key.clone()),
+        ..ViewState::default()
+    };
+    let hovered =
+        render_form_with(&model, &catalog, &Context::desktop(), ROOT, &env(), &state).unwrap();
+    let under = |render: &json_ui::FormRender| -> Vec<String> {
+        render
+            .nodes
+            .iter()
+            .filter(|node| node.key.starts_with(&button.key))
+            .filter_map(|node| match &node.draw {
+                Draw::Sprite { texture, .. } => Some(texture.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_ne!(
+        under(&idle),
+        under(&hovered),
+        "hover shows a different skin"
+    );
 }
 
 #[test]
@@ -170,20 +257,26 @@ fn custom_form_renders_elements_in_order_with_a_submit_button() {
             },
             CustomElement::Toggle {
                 text: "Sound".into(),
-                default: true,
+                on: true,
+                tooltip: String::new(),
             },
             CustomElement::Slider {
-                text: "Volume".into(),
-                value: 5.0,
+                text: "Volume: 5".into(),
+                fraction: 0.5,
+                tooltip: String::new(),
             },
             CustomElement::Dropdown {
                 text: "Mode".into(),
+                options: vec!["A".into(), "B".into()],
                 index: 0,
+                open: false,
+                tooltip: String::new(),
             },
             CustomElement::Input {
                 text: "Name".into(),
                 value: String::new(),
                 placeholder: "type".into(),
+                tooltip: String::new(),
             },
         ],
         submit_text: "Submit".into(),
@@ -248,16 +341,18 @@ fn scroll_content_height_grows_with_the_button_collection() {
         return;
     };
     let height = |count: usize| {
-        let buttons = (0..count)
-            .map(|i| FormButton {
-                text: format!("Button {i}"),
-                image: None,
+        let elements = (0..count)
+            .map(|i| {
+                ActionElement::Button(FormButton {
+                    text: format!("Button {i}"),
+                    image: None,
+                })
             })
             .collect();
         let model = FormModel::Action(ActionForm {
             title: "Menu".into(),
             body: String::new(),
-            buttons,
+            elements,
         });
         let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
         let laid = layout(&render.bound, ROOT, &env());
@@ -270,4 +365,79 @@ fn scroll_content_height_grows_with_the_button_collection() {
     // Each dynamic_button is 32 tall and the panel sizes to its `100%c` content.
     assert_eq!(height(1), 32.0);
     assert_eq!(height(3), 96.0);
+}
+
+#[test]
+fn long_forms_report_a_scrollable_viewport() {
+    let Some(catalog) = catalog() else {
+        eprintln!("skipping: vanilla ui assets not present");
+        return;
+    };
+    let elements = (0..20)
+        .map(|i| {
+            ActionElement::Button(FormButton {
+                text: format!("Button {i}"),
+                image: None,
+            })
+        })
+        .collect();
+    let model = FormModel::Action(ActionForm {
+        title: "Menu".into(),
+        body: String::new(),
+        elements,
+    });
+    let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
+    let scroll = render
+        .report
+        .scrolls
+        .values()
+        .next()
+        .expect("the long form scrolls");
+    assert!(scroll.content > scroll.viewport, "20 buttons overflow");
+    assert!(scroll.thumb.is_some(), "an overflowing view shows its box");
+    assert!(
+        render
+            .hits
+            .iter()
+            .any(|hit| hit.kind == HitKind::ScrollView),
+        "the scroll view takes wheel input"
+    );
+}
+
+#[test]
+fn custom_toggle_reports_its_name_and_index() {
+    let Some(catalog) = catalog() else {
+        eprintln!("skipping: vanilla ui assets not present");
+        return;
+    };
+    let model = FormModel::Custom(CustomForm {
+        title: "Options".into(),
+        elements: vec![
+            CustomElement::Label {
+                text: "Intro".into(),
+            },
+            CustomElement::Toggle {
+                text: "Sound".into(),
+                on: false,
+                tooltip: String::new(),
+            },
+        ],
+        submit_text: "Submit".into(),
+        submit_visible: true,
+    });
+    let render = render_form(&model, &catalog, &Context::desktop(), ROOT, &env()).unwrap();
+    let toggle = render
+        .hits
+        .iter()
+        .find(|hit| hit.kind == HitKind::Toggle)
+        .expect("toggle hit");
+    assert_eq!(toggle.control_name.as_deref(), Some("custom_toggle"));
+    assert_eq!(toggle.collection_index, Some(1));
+    assert_eq!(toggle.checked, Some(false));
+    assert!(
+        render
+            .hits
+            .iter()
+            .any(|hit| hit.pressed.as_deref() == Some("button.submit_custom_form"))
+    );
 }

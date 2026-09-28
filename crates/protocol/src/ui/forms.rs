@@ -2,13 +2,15 @@
 //!
 //! A server form arrives as one `ModalFormRequest` packet carrying a JSON
 //! document whose top-level `"type"` member selects the vanilla family
-//! (`"form"` is the fixture-pinned button menu; `"modal"` and `"custom_form"`
-//! are provisional spellings pending a version-matched reference).
-//! Text-only button menus have a bounded model. Valid image decorations are
-//! counted but never retained or loaded. Other families and controls remain
-//! explicitly unsupported; malformed JSON is a semantic skip.
+//! (`"form"` button menu, `"modal"` two-button dialog, `"custom_form"` input
+//! form). Each family has a bounded model; anything outside it stays explicitly
+//! unsupported, and malformed JSON is a semantic skip.
+
+mod custom;
 
 use std::sync::Arc;
+
+pub use custom::{CustomForm, CustomFormElement, FormNumber};
 
 use serde::{
     Deserialize, Deserializer,
@@ -46,6 +48,41 @@ pub enum FormButtonImage {
     Url(Arc<str>),
 }
 
+/// A menu whose `elements` mix buttons with labels, headers, and dividers. Only
+/// buttons answer; a button's response index counts buttons alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ElementMenuForm {
+    pub title: Arc<str>,
+    pub content: Arc<str>,
+    pub elements: Arc<[MenuElement]>,
+}
+
+impl ElementMenuForm {
+    pub fn button_count(&self) -> usize {
+        self.elements
+            .iter()
+            .filter(|element| matches!(element, MenuElement::Button { .. }))
+            .count()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuElement {
+    Button { text: Arc<str> },
+    Label(Arc<str>),
+    Header(Arc<str>),
+    Divider,
+}
+
+/// The `"modal"` family: `button1` answers `true`, `button2` answers `false`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModalDialogForm {
+    pub title: Arc<str>,
+    pub content: Arc<str>,
+    pub button1: Arc<str>,
+    pub button2: Arc<str>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedForm {
     Family,
@@ -56,6 +93,9 @@ pub enum UnsupportedForm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerFormModel {
     TextMenu(TextMenuForm),
+    ElementMenu(ElementMenuForm),
+    Modal(ModalDialogForm),
+    Custom(CustomForm),
     Unsupported(UnsupportedForm),
 }
 
@@ -97,7 +137,7 @@ pub(crate) fn normalize_form(packet: ModalFormRequestPacket) -> Result<UiEvent, 
     let mut header = FormHeader::default();
     scan_form_header(&json, &mut header)?;
     let kind = header.kind.unwrap_or(FormKind::Unknown);
-    let model = text_menu_model(&json, kind);
+    let model = form_model(&json, kind);
     Ok(UiEvent::Form(FormRequestEvent {
         form_id: packet.form_id,
         kind,
@@ -107,9 +147,9 @@ pub(crate) fn normalize_form(packet: ModalFormRequestPacket) -> Result<UiEvent, 
     }))
 }
 
-fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
+fn form_model(json: &str, kind: FormKind) -> ServerFormModel {
     let unsupported = ServerFormModel::Unsupported;
-    if kind != FormKind::Menu {
+    if kind == FormKind::Unknown {
         return unsupported(UnsupportedForm::Family);
     }
     // The raw document and nesting were bounded before this second parse;
@@ -120,9 +160,81 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
     let Some(object) = value.as_object() else {
         return unsupported(UnsupportedForm::Controls);
     };
-    if object.get("type").and_then(serde_json::Value::as_str) != Some("form") {
-        return unsupported(UnsupportedForm::Family);
+    let wire_type = object.get("type").and_then(serde_json::Value::as_str);
+    match (kind, wire_type) {
+        (FormKind::Menu, Some("form")) => text_menu_model(object),
+        (FormKind::Modal, Some("modal")) => modal_model(object),
+        (FormKind::Custom, Some("custom_form")) => custom::custom_model(object),
+        _ => unsupported(UnsupportedForm::Family),
     }
+}
+
+/// A member that must be a bounded string when present; absent reads as empty.
+/// `Err` carries the unsupported reason for a wrong type or an oversized value.
+fn optional_text<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<&'a str, UnsupportedForm> {
+    match object.get(key) {
+        None => Ok(""),
+        Some(value) => required_text_value(value),
+    }
+}
+
+fn required_text_value(value: &serde_json::Value) -> Result<&str, UnsupportedForm> {
+    let text = value.as_str().ok_or(UnsupportedForm::Controls)?;
+    if text.len() > MAX_UI_TEXT_BYTES {
+        return Err(UnsupportedForm::Limit);
+    }
+    Ok(text)
+}
+
+fn modal_model(object: &serde_json::Map<String, serde_json::Value>) -> ServerFormModel {
+    let field = |key: &str| match object.get(key) {
+        Some(value) => required_text_value(value),
+        None => Err(UnsupportedForm::Controls),
+    };
+    let parsed = (|| {
+        Ok::<_, UnsupportedForm>(ModalDialogForm {
+            title: Arc::from(optional_text(object, "title")?),
+            content: Arc::from(optional_text(object, "content")?),
+            button1: Arc::from(field("button1")?),
+            button2: Arc::from(field("button2")?),
+        })
+    })();
+    match parsed {
+        Ok(form) => ServerFormModel::Modal(form),
+        Err(reason) => ServerFormModel::Unsupported(reason),
+    }
+}
+
+/// A non-button `elements` entry: label/header need `text`, a divider may omit
+/// it, and `image` may only be null.
+fn menu_decoration(
+    element: &serde_json::Map<String, serde_json::Value>,
+    kind: &str,
+) -> Result<MenuElement, UnsupportedForm> {
+    if element
+        .keys()
+        .any(|key| key != "type" && key != "text" && key != "image")
+        || element.get("image").is_some_and(|image| !image.is_null())
+    {
+        return Err(UnsupportedForm::Controls);
+    }
+    let text = match element.get("text") {
+        Some(value) => required_text_value(value)?,
+        None if kind == "divider" => "",
+        None => return Err(UnsupportedForm::Controls),
+    };
+    Ok(match kind {
+        "label" => MenuElement::Label(Arc::from(text)),
+        "header" => MenuElement::Header(Arc::from(text)),
+        _ => MenuElement::Divider,
+    })
+}
+
+fn text_menu_model(object: &serde_json::Map<String, serde_json::Value>) -> ServerFormModel {
+    let unsupported = ServerFormModel::Unsupported;
     // A menu has one controls representation. Never combine arrays or drop
     // unsupported elements, since either would change response indexes.
     let (controls, element_controls) = match (object.get("buttons"), object.get("elements")) {
@@ -147,11 +259,24 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
     }
     let mut labels = Vec::with_capacity(buttons.len());
     let mut images = Vec::with_capacity(buttons.len());
+    let mut elements = Vec::new();
+    let mut decorated = false;
     let mut omitted_images = 0;
     for button in buttons {
         let Some(button) = button.as_object() else {
             return unsupported(UnsupportedForm::Controls);
         };
+        if element_controls
+            && let Some(kind @ ("label" | "header" | "divider")) =
+                button.get("type").and_then(serde_json::Value::as_str)
+        {
+            match menu_decoration(button, kind) {
+                Ok(element) => elements.push(element),
+                Err(reason) => return unsupported(reason),
+            }
+            decorated = true;
+            continue;
+        }
         if button
             .keys()
             .any(|key| key != "text" && key != "image" && (!element_controls || key != "type"))
@@ -193,8 +318,19 @@ fn text_menu_model(json: &str, kind: FormKind) -> ServerFormModel {
         if label.len() > MAX_UI_TEXT_BYTES {
             return unsupported(UnsupportedForm::Limit);
         }
-        labels.push(Arc::from(label));
+        let label: Arc<str> = Arc::from(label);
+        elements.push(MenuElement::Button {
+            text: Arc::clone(&label),
+        });
+        labels.push(label);
         images.push(image);
+    }
+    if decorated {
+        return ServerFormModel::ElementMenu(ElementMenuForm {
+            title: Arc::from(title),
+            content: Arc::from(content),
+            elements: elements.into(),
+        });
     }
     ServerFormModel::TextMenu(TextMenuForm {
         title: Arc::from(title),

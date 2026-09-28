@@ -539,6 +539,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     {
         ui_presentation.install_hud_extras(&extras, identity);
     }
+    // Optional: without the JSON-UI carrier, server forms keep the fallback dialog.
+    if let Some(ui_assets) =
+        crate::ui_runtime::json_ui_assets::load_optional_ui_assets(&loaded_assets.selected_path)
+        && let Err(reason) = ui_presentation.enable_json_ui(ui_assets)
+    {
+        eprintln!("JSON-UI engine disabled ({reason}); server forms use the fallback dialog");
+    }
     // Hybrid HUD: Bedrock has no static scoreboard background alpha (it is a runtime engine
     // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
     // server publishes a sidebar objective.
