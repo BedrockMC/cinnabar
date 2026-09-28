@@ -157,6 +157,9 @@ animated rig remotes use. All three below flow from that.
   custom entities apply in the neutral material profile only (no attachables, custom materials, or property defaults); vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; audio consumption of merged sounds remains unapplied (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
+- Terrain blocks (uncompiled): ice, slime, honey, tinted glass, powder snow, snow layers, named opaque cubes, amethyst
+  and standing coral-fan sprites, redstone bases now compile; lanterns, candles, end/lightning rods, cauldron, hopper,
+  anvils, pistons, scaffolding, dripleaf, campfire and slime/honey inner cubes still diagnostic pending measurement (HIGH).
 
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar centered, magnified, alpha-faded from SetTitle timings; placement constants need measurement (uncompiled).
