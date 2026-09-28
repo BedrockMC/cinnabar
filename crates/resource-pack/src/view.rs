@@ -1,8 +1,9 @@
 //! Precedence-ordered reads over an admitted stack.
 //!
-//! The first `ResourcePackStack` entry wins: base packs are appended last and
-//! layers apply bottom to top (PocketMine `resource_packs.yml`: "applied from
-//! the bottom to the top"). Verify against a live 26.30 two-pack capture.
+//! The last `ResourcePackStack` entry wins: the client builds its stack in list
+//! order (a pack's dependencies first) and resolves a resource from the highest
+//! index down. Behavior taken from the 26.30 Bedrock reconstruction; confirm
+//! with a live two-pack capture.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -32,6 +33,7 @@ impl LayeredPackView {
         self.stack
             .packs()
             .iter()
+            .rev()
             .find_map(|pack| pack.read_file(path).ok().flatten())
     }
 
@@ -42,6 +44,7 @@ impl LayeredPackView {
         self.stack
             .packs()
             .iter()
+            .rev()
             .find_map(|pack| pack.read_file_with_limit(path, limit).ok().flatten())
     }
 
@@ -55,7 +58,7 @@ impl LayeredPackView {
 
     /// Admitted packs, lowest precedence first.
     pub fn layers(&self) -> impl Iterator<Item = &ValidatedPack> {
-        self.stack.packs().iter().rev()
+        self.stack.packs().iter()
     }
 
     /// Lists the union of logical files under `prefix` in lexical order.

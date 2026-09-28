@@ -93,12 +93,11 @@ fn stack_bounds_drop_only_the_packs_beyond_them() {
     );
 }
 
-// The first stack entry wins an overlapping path; merges see it last.
+// The last stack entry wins an overlapping path; merges see it last.
 #[test]
-fn first_stack_entry_has_the_highest_precedence() {
+fn last_stack_entry_has_the_highest_precedence() {
     let (top, bottom) = (Uuid::from_u128(3), Uuid::from_u128(4));
     let stack = validate_handoff(handoff(vec![
-        archive(top, pack_zip(top, &[("texts/en_US.lang", b"k=top")])),
         archive(
             bottom,
             pack_zip(
@@ -106,6 +105,7 @@ fn first_stack_entry_has_the_highest_precedence() {
                 &[("texts/en_US.lang", b"k=bottom"), ("only.txt", b"x")],
             ),
         ),
+        archive(top, pack_zip(top, &[("texts/en_US.lang", b"k=top")])),
     ]));
     let view = LayeredPackView::new(stack);
     assert_eq!(

@@ -517,8 +517,8 @@ mod tests {
     #[test]
     fn language_files_merge_across_the_stack_by_precedence() {
         let handoff = protocol::ResourcePackHandoff::from_archives(vec![
-            lang_pack(1, b"shared=top\ntop.only=T"),
             lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
+            lang_pack(1, b"shared=top\ntop.only=T"),
         ]);
         let application = super::prepare_pack_application(
             handoff,

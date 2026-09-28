@@ -124,8 +124,8 @@ mod tests {
 
     fn view(top: &[(&str, &str)], bottom: &[(&str, &str)]) -> LayeredPackView {
         LayeredPackView::new(validate_handoff(ResourcePackHandoff::from_archives(vec![
-            pack(1, top),
             pack(2, bottom),
+            pack(1, top),
         ])))
     }
 
