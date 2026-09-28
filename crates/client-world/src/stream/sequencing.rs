@@ -581,6 +581,7 @@ impl WorldStream {
                 if motion.actor_runtime_id != self.local_player_runtime_id {
                     return;
                 }
+                self.actors.note_local_knockback(sequence, motion.motion);
                 self.push_committed_control(CommittedControlEvent::LocalActorMotion {
                     sequence,
                     event: motion,
@@ -663,7 +664,7 @@ impl WorldStream {
                 if local_hurt {
                     self.push_committed_control(CommittedControlEvent::LocalHurt {
                         sequence,
-                        direction: self.actors.hurt_direction(self.local_player_runtime_id),
+                        source_direction: self.actors.hurt_source_direction(sequence),
                     });
                 }
                 if player_list_changed {

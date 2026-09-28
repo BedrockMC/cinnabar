@@ -4,13 +4,33 @@ use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
 /// Ticks the hurt tint and hurt-driven animations stay active; needs independent measurement.
 pub const HURT_DURATION_TICKS: u8 = 10;
+/// Alpha of the red damage overlay while hurt or dying; needs independent measurement.
+pub const HURT_OVERLAY_ALPHA: f32 = 0.4;
 /// Ticks a dying actor takes to tip fully over; needs independent measurement.
 pub const DEATH_DURATION_TICKS: u8 = 20;
 
 /// Ticks a picked-up item takes to reach its collector; needs independent measurement.
 pub const PICKUP_DURATION_TICKS: u8 = 3;
 
+/// Sequences a knockback impulse stays attributable to a hurt event; needs measurement.
+const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
+
 const HURT_DIRECTION_METADATA_KEY: u32 = 12;
+
+/// Most undrained status notices retained; further ones are dropped.
+pub const MAX_STATUS_NOTICES: usize = 256;
+
+/// A decoded actor status event with the actor's pose at the time, for particle and sound consumers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorStatusNotice {
+    pub runtime_id: u64,
+    pub kind: ActorStatusKind,
+    pub data: i32,
+    /// Actor feet position.
+    pub position: [f32; 3],
+    /// Bounding-box height, when the actor streams one.
+    pub height: Option<f32>,
+}
 
 /// A dropped item flying to the actor that collected it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +50,8 @@ pub struct ActorStatus {
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
     pub death_time: u8,
     pub dead: bool,
+    /// `age_ticks` when the fuse metadata was last received.
+    pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
     pub pickup: Option<ActorPickup>,
@@ -109,6 +131,15 @@ impl ActorStore {
         let Some(actor) = self.actors.get_mut(&event.runtime_id) else {
             return ActorApplyResult::MissingActor;
         };
+        if self.status_notices.len() < MAX_STATUS_NOTICES {
+            self.status_notices.push(ActorStatusNotice {
+                runtime_id: event.runtime_id,
+                kind: event.kind,
+                data: event.data,
+                position: actor.position,
+                height: actor.bounding_box().map(|(min, max)| max[1] - min[1]),
+            });
+        }
         match event.kind {
             ActorStatusKind::Hurt => {
                 actor.status.hurt_time = HURT_DURATION_TICKS;
@@ -137,9 +168,24 @@ impl ActorStore {
         ActorApplyResult::Updated
     }
 
-    /// Hurt direction retained by the most recent Hurt event for `runtime_id`.
-    pub(crate) fn hurt_direction(&self, runtime_id: u64) -> Option<f32> {
-        self.actors.get(&runtime_id)?.status.hurt_direction
+    /// Drains the status events decoded since the last call, in arrival order.
+    pub(crate) fn take_status_notices(&mut self) -> Vec<ActorStatusNotice> {
+        std::mem::take(&mut self.status_notices)
+    }
+
+    /// Remembers the latest horizontal knockback impulse the local player received.
+    pub(crate) fn note_local_knockback(&mut self, sequence: u64, motion: [f32; 3]) {
+        if motion[0].hypot(motion[2]) > f32::EPSILON {
+            self.local_knockback = Some((sequence, [motion[0], motion[2]]));
+        }
+    }
+
+    /// Direction toward the damage source: opposite the recent knockback, if one is fresh.
+    pub(crate) fn hurt_source_direction(&self, sequence: u64) -> Option<[f32; 2]> {
+        let (noted, [x, z]) = self.local_knockback?;
+        let length = x.hypot(z);
+        (sequence.saturating_sub(noted) <= KNOCKBACK_FRESH_SEQUENCES && length > f32::EPSILON)
+            .then(|| [-x / length, -z / length])
     }
 }
 
@@ -230,6 +276,18 @@ mod tests {
         assert_eq!(
             status.pickup.map(|pickup| pickup.collector_runtime_id),
             Some(99)
+        );
+    }
+
+    #[test]
+    fn hurt_source_is_opposite_a_fresh_knockback() {
+        let mut store = ActorStore::new(1, 0);
+        assert_eq!(store.hurt_source_direction(1), None);
+        store.note_local_knockback(5, [2.0, 0.3, 0.0]);
+        assert_eq!(store.hurt_source_direction(6), Some([-1.0, 0.0]));
+        assert_eq!(
+            store.hurt_source_direction(5 + KNOCKBACK_FRESH_SEQUENCES + 1),
+            None
         );
     }
 

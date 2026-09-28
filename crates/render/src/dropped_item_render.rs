@@ -1,7 +1,8 @@
-//! Draws dropped-item sprite meshes in the opaque 3D phase with per-item lighting.
+//! Draws dropped-item and block models plus dynamic line geometry in the opaque 3D phase.
 use crate::dropped_item::{
-    DroppedItemScene, ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES,
-    MAX_ITEM_SPRITE_SIDE, MAX_ITEM_SPRITES, extruded_sprite_mesh,
+    DroppedItemModel, DroppedItemScene, ITEM_MESH_VERTEX_BYTES, ItemMeshVertex,
+    MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
+    cube_mesh, extruded_sprite_mesh,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -88,7 +89,7 @@ fn install(app: &mut App) {
         );
 }
 
-/// Per-copy vertex-rate data: three affine rows, then sprite layer and light levels.
+/// Per-copy vertex-rate data: three affine rows, then model index, light levels and overlay.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuItemInstance {
@@ -104,11 +105,15 @@ struct ItemGpu {
     environment: Buffer,
     instance_buffer: Buffer,
     mesh_buffer: Option<Buffer>,
-    /// Vertex range of each sprite's mesh; empty for rejected sprites.
+    dynamic_buffer: Buffer,
+    /// Vertex range of each model's mesh; empty for rejected models.
     ranges: Vec<Range<u32>>,
     _atlas: Option<Texture>,
     atlas_view: Option<TextureView>,
-    sprites_revision: u64,
+    models_revision: u64,
+    dynamic_count: u32,
+    /// Instance slot holding the identity transform used for dynamic geometry.
+    identity_instance: u32,
     /// This frame's `(vertex range, instance index)` draws.
     draws: Vec<(Range<u32>, u32)>,
     bind_group: Option<BindGroup>,
@@ -135,53 +140,107 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         }),
         instance_buffer: device.create_buffer(&BufferDescriptor {
             label: Some("bounded dropped item instances"),
-            size: (MAX_DROPPED_ITEM_INSTANCES * size_of::<GpuItemInstance>()) as u64,
+            size: ((MAX_DROPPED_ITEM_INSTANCES + 1) * size_of::<GpuItemInstance>()) as u64,
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
         mesh_buffer: None,
+        dynamic_buffer: device.create_buffer(&BufferDescriptor {
+            label: Some("bounded dropped item dynamic geometry"),
+            size: (MAX_DYNAMIC_ITEM_VERTICES * ITEM_MESH_VERTEX_BYTES) as u64,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
         ranges: Vec::new(),
         _atlas: None,
         atlas_view: None,
-        sprites_revision: u64::MAX,
+        models_revision: u64::MAX,
+        dynamic_count: 0,
+        identity_instance: 0,
         draws: Vec::new(),
         bind_group: None,
         view_buffer_id: None,
     });
 }
 
-fn rebuild_sprites(
+/// Appends one square-or-smaller RGBA tile as a new atlas layer and returns its index.
+fn push_layer(atlas: &mut Vec<u8>, width: usize, height: usize, rgba8: &[u8]) -> u32 {
+    let side = MAX_ITEM_SPRITE_SIDE as usize;
+    let layer_bytes = side * side * 4;
+    let layer = atlas.len() / layer_bytes;
+    atlas.resize(atlas.len() + layer_bytes, 0);
+    let row_bytes = width * 4;
+    for row in 0..height {
+        let target = layer * layer_bytes + row * side * 4;
+        atlas[target..target + row_bytes]
+            .copy_from_slice(&rgba8[row * row_bytes..(row + 1) * row_bytes]);
+    }
+    layer as u32
+}
+
+/// Builds the mesh vertices for one model, appending its tiles to `atlas`; `None` if rejected.
+fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<ItemMeshVertex>> {
+    let side = MAX_ITEM_SPRITE_SIDE;
+    let layers_used = atlas.len() / (side * side * 4) as usize;
+    match model {
+        DroppedItemModel::Sprite(sprite) => {
+            let (width, height) = (sprite.width as usize, sprite.height as usize);
+            if layers_used >= MAX_ITEM_LAYERS
+                || sprite.width > side
+                || sprite.height > side
+                || sprite.rgba8.len() != width * height * 4
+            {
+                return None;
+            }
+            let mesh = extruded_sprite_mesh(
+                sprite.width,
+                sprite.height,
+                &sprite.rgba8,
+                side,
+                layers_used as u32,
+            )?;
+            push_layer(atlas, width, height, &sprite.rgba8);
+            Some(mesh)
+        }
+        DroppedItemModel::Cube(cube) => {
+            let tile = cube.tile as usize;
+            if cube.tile == 0
+                || cube.tile > side
+                || layers_used + 6 > MAX_ITEM_LAYERS
+                || cube.faces.iter().any(|face| face.len() != tile * tile * 4)
+            {
+                return None;
+            }
+            let layers: [u32; 6] =
+                std::array::from_fn(|face| push_layer(atlas, tile, tile, &cube.faces[face]));
+            cube_mesh(layers, cube.tints, cube.tile, side)
+        }
+    }
+}
+
+fn rebuild_models(
     scene: &DroppedItemScene,
     device: &RenderDevice,
     queue: &RenderQueue,
     gpu: &mut ItemGpu,
 ) {
     let side = MAX_ITEM_SPRITE_SIDE as usize;
-    let layers = scene.sprites.len().clamp(1, MAX_ITEM_SPRITES);
-    let mut atlas = vec![0_u8; layers * side * side * 4];
+    let layer_bytes = side * side * 4;
+    // Layer 0 is opaque white for untextured geometry.
+    let mut atlas = vec![255_u8; layer_bytes];
     let mut vertices: Vec<ItemMeshVertex> = Vec::new();
-    let mut ranges = Vec::with_capacity(scene.sprites.len());
-    for (layer, sprite) in scene.sprites.iter().take(MAX_ITEM_SPRITES).enumerate() {
+    let mut ranges = Vec::with_capacity(scene.models.len());
+    for model in scene.models.iter() {
         let start = vertices.len() as u32;
-        if let Some(mesh) = extruded_sprite_mesh(
-            sprite.width,
-            sprite.height,
-            &sprite.rgba8,
-            MAX_ITEM_SPRITE_SIDE,
-        ) {
-            let row_bytes = sprite.width as usize * 4;
-            for row in 0..sprite.height as usize {
-                let source = &sprite.rgba8[row * row_bytes..(row + 1) * row_bytes];
-                let target = (layer * side + row) * side * 4;
-                atlas[target..target + row_bytes].copy_from_slice(source);
-            }
+        if let Some(mesh) = build_model(&mut atlas, model) {
             vertices.extend(mesh);
         }
         ranges.push(start..vertices.len() as u32);
     }
+    let layers = atlas.len() / layer_bytes;
     gpu.mesh_buffer = (!vertices.is_empty()).then(|| {
         device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("dropped item sprite meshes"),
+            label: Some("dropped item model meshes"),
             contents: bytemuck::cast_slice::<ItemMeshVertex, u8>(&vertices),
             usage: BufferUsages::VERTEX,
         })
@@ -190,7 +249,7 @@ fn rebuild_sprites(
     let texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {
-            label: Some("dropped item sprite layers"),
+            label: Some("dropped item texture layers"),
             size: Extent3d {
                 width: MAX_ITEM_SPRITE_SIDE,
                 height: MAX_ITEM_SPRITE_SIDE,
@@ -207,12 +266,12 @@ fn rebuild_sprites(
         &atlas,
     );
     gpu.atlas_view = Some(texture.create_view(&TextureViewDescriptor {
-        label: Some("dropped item sprite layer array"),
+        label: Some("dropped item texture layer array"),
         dimension: Some(TextureViewDimension::D2Array),
         ..default()
     }));
     gpu._atlas = Some(texture);
-    gpu.sprites_revision = scene.sprites_revision;
+    gpu.models_revision = scene.models_revision;
     gpu.bind_group = None;
 }
 
@@ -222,15 +281,15 @@ fn prepare_items(
     queue: Res<RenderQueue>,
     mut gpu: ResMut<ItemGpu>,
 ) {
-    if gpu.sprites_revision != scene.sprites_revision || gpu.atlas_view.is_none() {
-        rebuild_sprites(&scene, &device, &queue, &mut gpu);
+    if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() {
+        rebuild_models(&scene, &device, &queue, &mut gpu);
     }
-    let mut instances = Vec::with_capacity(scene.instances.len());
+    let mut instances = Vec::with_capacity(scene.instances.len() + 1);
     let mut draws = Vec::with_capacity(scene.instances.len());
     for instance in scene.instances.iter() {
         let Some(range) = gpu
             .ranges
-            .get(instance.sprite as usize)
+            .get(instance.model as usize)
             .filter(|range| !range.is_empty())
         else {
             continue;
@@ -238,14 +297,34 @@ fn prepare_items(
         draws.push((range.clone(), instances.len() as u32));
         instances.push(GpuItemInstance {
             rows: instance.world_from_item,
-            meta: [instance.sprite, instance.block_level, instance.sky_level, 0],
+            meta: [
+                instance.model,
+                instance.block_level,
+                instance.sky_level,
+                instance.overlay_rgba8,
+            ],
         });
     }
-    if !instances.is_empty() {
+    gpu.identity_instance = instances.len() as u32;
+    instances.push(GpuItemInstance {
+        rows: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+        meta: [0, 15, 15, 0],
+    });
+    queue.write_buffer(
+        &gpu.instance_buffer,
+        0,
+        bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
+    );
+    gpu.dynamic_count = scene.dynamic.len() as u32;
+    if !scene.dynamic.is_empty() {
         queue.write_buffer(
-            &gpu.instance_buffer,
+            &gpu.dynamic_buffer,
             0,
-            bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
+            bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
         );
     }
     gpu.draws = draws;
@@ -345,6 +424,16 @@ fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipeline
                             format: VertexFormat::Float32x3,
                             offset: 20,
                             shader_location: 2,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Uint32,
+                            offset: 32,
+                            shader_location: 7,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Unorm8x4,
+                            offset: 36,
+                            shader_location: 8,
                         },
                     ],
                 },
@@ -493,7 +582,9 @@ struct QueueItemParams<'w, 's> {
 }
 
 fn queue_items(mut params: QueueItemParams<'_, '_>, mut next_tick: Local<Tick>) {
-    if params.gpu.draws.is_empty() || params.gpu.bind_group.is_none() {
+    if (params.gpu.draws.is_empty() && params.gpu.dynamic_count == 0)
+        || params.gpu.bind_group.is_none()
+    {
         return;
     }
     let draw_function = params.draw_functions.read().id::<DrawItemCommands>();
@@ -549,15 +640,23 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let gpu = gpu.into_inner();
-        let (Some(bind_group), Some(mesh)) = (gpu.bind_group.as_ref(), gpu.mesh_buffer.as_ref())
-        else {
+        let Some(bind_group) = gpu.bind_group.as_ref() else {
             return RenderCommandResult::Success;
         };
         pass.set_bind_group(0, bind_group, &[view.offset]);
-        pass.set_vertex_buffer(0, mesh.slice(..));
         pass.set_vertex_buffer(1, gpu.instance_buffer.slice(..));
-        for (range, instance) in &gpu.draws {
-            pass.draw(range.clone(), *instance..*instance + 1);
+        if let Some(mesh) = gpu.mesh_buffer.as_ref() {
+            pass.set_vertex_buffer(0, mesh.slice(..));
+            for (range, instance) in &gpu.draws {
+                pass.draw(range.clone(), *instance..*instance + 1);
+            }
+        }
+        if gpu.dynamic_count != 0 {
+            pass.set_vertex_buffer(0, gpu.dynamic_buffer.slice(..));
+            pass.draw(
+                0..gpu.dynamic_count,
+                gpu.identity_instance..gpu.identity_instance + 1,
+            );
         }
         RenderCommandResult::Success
     }

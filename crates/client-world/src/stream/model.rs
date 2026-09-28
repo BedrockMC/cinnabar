@@ -365,10 +365,11 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorMotionEvent,
     },
-    /// The local player took damage; `direction` is the server-streamed hurt direction, if any.
+    /// The local player took damage; `source_direction` is the world-space horizontal `(x, z)`
+    /// vector toward the damage source when a recent knockback impulse implies one.
     LocalHurt {
         sequence: u64,
-        direction: Option<f32>,
+        source_direction: Option<[f32; 2]>,
     },
     /// The retained authoritative player list changed and Tab/rawtext identity
     /// consumers must refresh even when no ordinary UI packet committed.
