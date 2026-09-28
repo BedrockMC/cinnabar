@@ -32,7 +32,7 @@ pub(crate) use effects::{LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
-pub use locomotion::ModeIntent;
+pub use locomotion::{ModeIntent, RideKind};
 pub use outbox::MovementSendError;
 pub use outbox::OUTBOX_CAPACITY;
 #[cfg(test)]

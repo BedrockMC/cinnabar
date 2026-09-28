@@ -126,6 +126,7 @@ pub(crate) fn advance_local_physics(
             raw_move_vector: raw_movement,
             analogue_move_vector: analogue_movement,
             mode_intent: ModeIntent {
+                ride: facts.ride,
                 can_fly: facts.can_fly,
                 server_flying: facts.server_flying,
                 fly_toggle,

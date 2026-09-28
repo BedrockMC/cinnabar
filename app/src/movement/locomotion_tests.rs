@@ -11,7 +11,7 @@ use super::integration_tests::VersionedFloor;
 use super::settle_tests::settled_sample;
 use super::{
     HeldInput, LocalPhysicsController, ModeIntent, PhysicsMovementSample, PhysicsSampleContext,
-    input_flags,
+    RideKind, input_flags,
 };
 
 const TICK: Duration = Duration::from_millis(50);
@@ -194,4 +194,53 @@ fn a_ceiling_that_only_fits_a_sneak_forces_the_pose_and_persist_flag() {
     assert!(has(flags, PlayerInputFlags::PERSIST_SNEAK));
     assert!(has(flags, PlayerInputFlags::SNEAKING));
     assert_eq!(first.processed.mode, MovementMode::Walking);
+}
+
+fn riding_sample(kind: RideKind, move_vector: [f32; 2]) -> PhysicsMovementSample {
+    let mut sample = settled_sample(101, [0.0, 2.620_01, 0.0]);
+    sample.processed.mode = MovementMode::Riding;
+    sample.processed.ride = Some(kind);
+    sample.move_vector = move_vector;
+    sample
+}
+
+#[test]
+fn boat_paddles_follow_steering_and_other_rides_never_paddle() {
+    let paddles = |kind, vector| {
+        let flags = input_flags(&riding_sample(kind, vector), HeldInput::default());
+        (
+            has(flags, PlayerInputFlags::PADDLING_LEFT),
+            has(flags, PlayerInputFlags::PADDLING_RIGHT),
+        )
+    };
+    assert_eq!(paddles(RideKind::Boat, [0.0, 1.0]), (true, true));
+    assert_eq!(paddles(RideKind::Boat, [-1.0, 0.0]), (true, false));
+    assert_eq!(paddles(RideKind::Boat, [1.0, 0.0]), (false, true));
+    assert_eq!(paddles(RideKind::Boat, [0.0, 0.0]), (false, false));
+    assert_eq!(paddles(RideKind::Horse, [0.0, 1.0]), (false, false));
+}
+
+#[test]
+fn a_mounted_controller_streams_a_frozen_pose_with_steering_intact() {
+    let mut physics = settled_controller();
+    let rider = ModeIntent {
+        ride: Some(RideKind::Horse),
+        ..ModeIntent::default()
+    };
+    let before = physics.network_position().unwrap();
+    let sample = step(
+        &mut physics,
+        MovementInput {
+            forward: 1.0,
+            sprinting: true,
+            ..MovementInput::default()
+        },
+        rider,
+        &VersionedFloor(1),
+    );
+    assert_eq!(sample.processed.mode, MovementMode::Riding);
+    assert_eq!(sample.position, before);
+    assert_eq!(sample.movement, [0.0; 3]);
+    assert!(!sample.processed.sprinting);
+    assert_eq!(sample.move_vector[1], 1.0);
 }

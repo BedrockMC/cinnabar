@@ -9,10 +9,10 @@ use crate::{
 };
 
 use super::{
-    COLLISION_EPSILON, ControlledTickResult, INPUT_IMPULSE_MULTIPLIER, MovementInput, MovementMode,
-    NORMAL_GRAVITY, PlayerState, SimulationError, TickResult, apply_relative_movement,
-    collision::resolve_motion, controls, effects, environment::SampledEnvironment,
-    scaffolding::ScaffoldingView,
+    AxisCollisions, COLLISION_EPSILON, ControlledTickResult, INPUT_IMPULSE_MULTIPLIER,
+    MovementInput, MovementMode, NORMAL_GRAVITY, PlayerState, SimulationError, TickResult,
+    apply_relative_movement, collision::resolve_motion, controls, effects,
+    environment::SampledEnvironment, scaffolding::ScaffoldingView,
 };
 
 const DEFAULT_FLY_SPEED: f64 = 0.05;
@@ -50,6 +50,27 @@ pub(super) fn tick_mode(
     grounded_at_start: bool,
     world: &impl CollisionWorld,
 ) -> Result<ControlledTickResult, SimulationError> {
+    if input.mode == MovementMode::Riding {
+        next.velocity = Vec3::ZERO;
+        next.movement = Vec3::ZERO;
+        next.jump_delay = 0;
+        next.collisions = AxisCollisions::default();
+        let result = TickResult {
+            tick: next.tick,
+            position: next.position,
+            velocity: Vec3::ZERO,
+            movement: Vec3::ZERO,
+            collisions: AxisCollisions::default(),
+            on_ground: next.on_ground,
+            environment: sampled.movement,
+            world_identity: sampled.identity,
+        };
+        *state = next;
+        return Ok(ControlledTickResult {
+            tick_result: result,
+            controls,
+        });
+    }
     let mut controls = controls;
     let in_water = sampled.movement.in_water;
     match input.mode {

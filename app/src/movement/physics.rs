@@ -516,7 +516,9 @@ impl LocalPhysicsController {
             }
             if matches!(
                 input.mode,
-                sim::MovementMode::Crawling | sim::MovementMode::Gliding
+                sim::MovementMode::Crawling
+                    | sim::MovementMode::Gliding
+                    | sim::MovementMode::Riding
             ) {
                 input.sprinting = false;
             }
@@ -565,6 +567,7 @@ impl LocalPhysicsController {
                         input.sprinting,
                     );
                     processed.mode = input.mode;
+                    processed.ride = context.mode_intent.ride;
                     processed.forced_sneak = forced_sneak;
                     processed.direction_flags = Some(super::encoding::direction_flags([
                         -input.strafe as f32,

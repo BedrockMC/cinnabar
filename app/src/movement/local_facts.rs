@@ -12,6 +12,7 @@ const SOUL_SPEED_ENCHANTMENT_ID: i16 = 36;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct LocalMovementFacts {
+    pub ride: Option<super::RideKind>,
     pub can_fly: bool,
     pub server_flying: bool,
     pub fly_speed: Option<f64>,
@@ -44,7 +45,19 @@ pub(super) fn read(
             .and_then(|slots| protocol::item_enchantment_level(&slots.boots.extra_data, id))
             .unwrap_or(0)
     };
+    let ride = ui.gameplay_hud().mount_unique_id().map(|unique| {
+        stream
+            .actor_by_unique_id(unique)
+            .and_then(|actor| match &actor.kind {
+                protocol::ActorKind::Entity { identifier } => {
+                    Some(super::RideKind::from_identifier(identifier))
+                }
+                protocol::ActorKind::Player { .. } => None,
+            })
+            .unwrap_or(super::RideKind::Other)
+    });
     LocalMovementFacts {
+        ride,
         can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
         fly_speed: ui

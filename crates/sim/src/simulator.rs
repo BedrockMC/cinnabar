@@ -121,7 +121,10 @@ impl Simulator {
         let sampled = sample(world, next.position, next.velocity)?;
         if matches!(
             input.mode,
-            MovementMode::Swimming | MovementMode::Gliding | MovementMode::Flying
+            MovementMode::Swimming
+                | MovementMode::Gliding
+                | MovementMode::Flying
+                | MovementMode::Riding
         ) {
             return travel::tick_mode(
                 next,

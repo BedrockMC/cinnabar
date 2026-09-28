@@ -175,8 +175,11 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
   (double-tap window unmeasured); item-use sprint stop is not classified yet.
 - Ability flight, pose-swimming, elytra gliding and crawl/forced-sneak are provisional simulator
   modes (no oracle; coefficients need measurement); firework boost relies on server motion only.
-- Scaffolding is solid only from above and sneak descends (provisional rate); honey slide,
-  depth strider, soul speed and riding input remain open (HIGH/MED).
+- Scaffolding is solid only from above and sneak descends (provisional rate). Honey jump/slide,
+  soul speed and depth strider are simulated with provisional coefficients; sweet berry bush
+  slowdown, dolphin's grace and client-predicted vehicles are open.
+- Riding: player physics is suspended while mounted and boat paddle flags are sent; rider seat
+  following and horse-jump wire signalling are open (HIGH).
 - Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
   scroll-notch magnitude; UI key-repeat (MED/LOW).
 

@@ -165,6 +165,17 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
             _ => {}
         }
     }
+    if current == sim::MovementMode::Riding && sample.processed.ride == Some(super::RideKind::Boat)
+    {
+        // Provisional mapping: a paddle is held on its own side's strafe or on forward input.
+        let forward = sample.move_vector[1] > 0.0;
+        if forward || sample.move_vector[0] < 0.0 {
+            flags |= PlayerInputFlags::PADDLING_LEFT;
+        }
+        if forward || sample.move_vector[0] > 0.0 {
+            flags |= PlayerInputFlags::PADDLING_RIGHT;
+        }
+    }
     if current == Flying {
         if sample.jumping {
             flags |= PlayerInputFlags::ASCEND;
