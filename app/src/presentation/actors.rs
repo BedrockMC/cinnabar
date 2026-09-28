@@ -7,8 +7,11 @@ use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
     EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_rig_submission_is_visible,
-    default_actor_skin_rgba8, normalize_actor_skin,
+    default_actor_skin_rgba8, normalize_actor_skin, pack_overlay_rgba8,
 };
+
+/// Damage tint blended over a hurt or dying actor; alpha needs independent measurement.
+const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, 0.4];
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActorRigPresentation {
@@ -175,9 +178,17 @@ fn actor_rig_presentation_inner(
                 completed_tick: rig.completed_tick,
                 reset_generation: rig.reset_generation,
             },
-            world_from_actor: rig_world_from_actor(position, yaw, rig.scale),
+            world_from_actor: death_tilted(
+                rig_world_from_actor(position, yaw, rig.scale),
+                actor.status.death_progress(alpha),
+            ),
             texture_layer: u32::MAX,
             route,
+            overlay_rgba8: if actor.status.overlay_active() {
+                pack_overlay_rgba8(HURT_OVERLAY_RGBA)
+            } else {
+                0
+            },
         },
         skin_rgba8,
         artwork: None,
@@ -244,6 +255,7 @@ pub(crate) fn local_diagnostic_presentation(
             world_from_actor: rig_world_from_actor(position, yaw_degrees, 1.0),
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
+            overlay_rgba8: 0,
         },
         skin_rgba8: Some(default_actor_skin_rgba8()),
         artwork: None,
@@ -408,6 +420,21 @@ pub(crate) fn rig_world_from_actor(
     ]
 }
 
+/// Tips the rig sideways about its feet as death progresses; the ease-out curve needs measurement.
+fn death_tilted(mut rows: [[f32; 4]; 3], progress: Option<f32>) -> [[f32; 4]; 3] {
+    let Some(progress) = progress else {
+        return rows;
+    };
+    let angle = progress.clamp(0.0, 1.0).sqrt() * std::f32::consts::FRAC_PI_2;
+    let (sine, cosine) = angle.sin_cos();
+    for row in &mut rows {
+        let (x, y) = (row[0], row[1]);
+        row[0] = x * cosine + y * sine;
+        row[1] = -x * sine + y * cosine;
+    }
+    rows
+}
+
 fn interpolated_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<[f32; 3]> {
     let position = std::array::from_fn(|axis| {
         actor.previous_pose.position[axis]
@@ -465,4 +492,24 @@ fn player_route_and_skin(
         })
         .unwrap_or_else(default_actor_skin_rgba8);
     (route, Some(skin))
+}
+
+#[cfg(test)]
+mod death_tests {
+    use super::death_tilted;
+
+    const IDENTITY: [[f32; 4]; 3] = [
+        [1.0, 0.0, 0.0, 5.0],
+        [0.0, 1.0, 0.0, 6.0],
+        [0.0, 0.0, 1.0, 7.0],
+    ];
+
+    #[test]
+    fn alive_is_untouched_and_finished_death_lies_on_its_side() {
+        assert_eq!(death_tilted(IDENTITY, None), IDENTITY);
+        let lying = death_tilted(IDENTITY, Some(1.0));
+        // The local up axis now points along world +/-X while the feet pivot stays fixed.
+        assert!(lying[0][1].abs() > 0.999 && lying[1][1].abs() < 1e-6);
+        assert_eq!([lying[0][3], lying[1][3], lying[2][3]], [5.0, 6.0, 7.0]);
+    }
 }

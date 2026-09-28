@@ -81,6 +81,7 @@ pub(crate) fn apply_committed_control(
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
+        | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => return,
     };
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));

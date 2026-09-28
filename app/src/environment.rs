@@ -197,6 +197,7 @@ pub(crate) fn apply_environment_control(
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
+        | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => false,
     }
 }
