@@ -40,6 +40,11 @@ impl BlockCracks {
             .map_or_else(BlockCrackStatus::default, |snapshot| snapshot.status)
     }
 
+    /// The active cracks and the dimension they belong to; empty before the first projection.
+    pub(crate) fn snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
+        self.snapshot.as_ref()
+    }
+
     pub(crate) fn synchronize_dimension(&mut self, dimension: Option<i32>) {
         if self
             .snapshot

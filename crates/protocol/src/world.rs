@@ -45,13 +45,13 @@ pub use self::custom_blocks::{
 };
 pub use self::events::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent,
-    DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent, MovePlayerMode,
-    MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
-    SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id,
-    vanilla_dimension_range,
+    BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent,
+    DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
+    MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
+    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
+    air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 pub use self::requests::request_sub_chunk_column;
@@ -686,6 +686,16 @@ pub fn into_world_event(
                 nbt: packet.actor_data_tags.0.to_vec(),
             })
         }
+        McpePacketData::BlockEventPacket(packet) => WorldEvent::BlockEvent(BlockEventEvent {
+            dimension: current_dimension,
+            position: [
+                packet.block_position.x,
+                packet.block_position.y,
+                packet.block_position.z,
+            ],
+            event_type: packet.event_type,
+            event_value: packet.event_value,
+        }),
         McpePacketData::ChunkRadiusUpdatedPacket(packet) => {
             WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)
         }

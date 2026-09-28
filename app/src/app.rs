@@ -509,7 +509,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let named_audio = crate::named_audio::NamedAudio::new(pcm);
     let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
     let particle_assets = crate::particles::load_optional_carrier(&loaded_assets.selected_path);
+    let block_entity_scene =
+        crate::block_entities::load_block_entity_scene(&loaded_assets.selected_path);
     let font_runtime = loaded_assets.fonts.into_runtime();
+    let block_entity_font = Arc::clone(&font_runtime);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
@@ -748,6 +751,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             },
         ))
         .insert_resource(DiagnosticQuads::default())
+        .insert_resource(block_entity_scene)
         .insert_resource(PublicationController::new(
             PublicationServiceConfig::PHASE2_GATE,
         ))
@@ -780,11 +784,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::DroppedItemRenderPlugin,
         render::ScreenOverlayRenderPlugin,
         render::ParticleRenderPlugin,
+        render::BlockEntityRenderPlugin,
     ));
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render::ParticleSystem::from_assets(particle_assets));
     }
     crate::particles::configure_particles(&mut app);
+    crate::block_entities::configure(&mut app, block_entity_font);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);

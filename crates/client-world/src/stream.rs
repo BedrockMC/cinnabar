@@ -49,6 +49,7 @@ use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
 
 mod block_cracks;
 mod block_entities;
+mod block_events;
 mod cohort;
 mod connectivity;
 mod construction;
@@ -218,6 +219,7 @@ use model::{
 pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
+pub use block_events::{BlockEventCue, MAX_RETAINED_BLOCK_EVENTS};
 pub use model::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
     CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
@@ -229,6 +231,7 @@ pub use model::{
 pub struct WorldStream {
     store: ChunkStore,
     block_cracks: block_cracks::BlockCracks,
+    block_events: block_events::BlockEvents,
     block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,

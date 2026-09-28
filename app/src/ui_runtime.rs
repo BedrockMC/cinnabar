@@ -654,6 +654,10 @@ impl UiRuntime {
             .report_status(self.session_id, self.block_cracks_status());
     }
 
+    pub(crate) fn block_crack_snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
+        self.block_cracks.snapshot()
+    }
+
     pub(crate) fn block_cracks_status(&self) -> crate::block_cracks::BlockCrackStatus {
         self.block_cracks.status()
     }

@@ -153,11 +153,11 @@ pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_44::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
-    BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockVisuals,
-    CustomBlocks, CustomBox, CustomHashedState, CustomMaterialInstance, CustomPermutation,
-    CustomStateAxis, CustomStateValue, CustomTransformation, CustomVisualComponents,
-    DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID, LevelChunkEvent,
-    LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
+    BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, CustomBlock,
+    CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState, CustomMaterialInstance,
+    CustomPermutation, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID,
+    LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
     MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject,
     PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
     RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,

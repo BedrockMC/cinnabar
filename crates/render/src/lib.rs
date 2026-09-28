@@ -4,6 +4,7 @@ mod actor;
 mod actor_render;
 mod atmosphere;
 mod atmosphere_render;
+mod block_entity;
 mod celestial;
 mod chunk;
 mod cloud_config;
@@ -76,6 +77,16 @@ pub use atmosphere::{
     moon_phase_tile,
 };
 pub use atmosphere_render::AtmospherePlugin;
+pub use block_entity::{
+    AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BannerLayer, BannerModel, BannerMount, BeaconModel,
+    BedModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,
+    BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission, BlockEntityVertex,
+    ChestModel, ChestPair, ChestVariant, CopperAge, CrackInstance, Facing, MAX_BANNER_LAYERS,
+    MAX_BLOCK_ENTITY_VERTICES, SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind,
+    SkullModel, SkullMount, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef, banner_color, bed_color,
+    crack_texture_name, floor_yaw_degrees, lid_angle_radians, pattern_texture,
+    shulker_color_from_block_name,
+};
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,
     sun_direction, sunrise_band, underwater_fog_fraction,

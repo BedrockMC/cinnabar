@@ -849,6 +849,7 @@ fn decode_world_raw_with(
             | McpePacketName::UpdateBlockPacket
             | McpePacketName::UpdateSubChunkBlocksPacket
             | McpePacketName::BlockActorDataPacket
+            | McpePacketName::BlockEventPacket
             | McpePacketName::ChunkRadiusUpdatedPacket
             | McpePacketName::NetworkChunkPublisherUpdatePacket
             | McpePacketName::ChangeDimensionPacket
@@ -980,6 +981,8 @@ fn decode_empty_mob_equipment(
     ))
 }
 
+#[cfg(test)]
+mod block_event_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]
