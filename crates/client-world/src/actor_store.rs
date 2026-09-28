@@ -407,8 +407,8 @@ mod lifecycle;
 mod lightning;
 mod query;
 
-pub use entities::{BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation};
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
+pub use entities::{BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation};
 pub use hurt::{
     ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
