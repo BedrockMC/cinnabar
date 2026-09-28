@@ -33,11 +33,18 @@ Owner decision: a faithful 1:1 Bedrock JSON-UI interpreter drives forms, contain
 screens and menus from the vanilla `ui/*.json` + textures (read at runtime from
 `.local/`, never committed); the Java-styled gameplay HUD (`hud_screen` family) stays
 on the existing path, never routed through the engine. 8 tranches: **T1 parser+resolver
-— landed** (new `crates/json-ui`, fixture-tested). Next: T2 expr+layout+nine-slice emit,
-T3 bindings + ActionForm/ModalForm, T4 input+response, T5 CustomForm controls, T6 chest
-container, T7 remaining containers+menus, T8 server-pack overrides. Nine-slice emits as
-≤9 existing `Sprite` quads (no new render primitive). Risk needing native measurement:
-the physical→virtual UI scale factor.
+and T2 length-expr + two-pass layout + nine-slice emit — landed** (`crates/json-ui`,
+fixture- and golden-tested against real templates/sidecars; still no app wiring). Next:
+T3 bindings + ActionForm/ModalForm (and `grid`/`scroll_view`, laid out as plain panels
+for now), T4 input+response, T5 CustomForm controls, T6 chest container, T7 remaining
+containers+menus, T8 server-pack overrides. Nine-slice emits as ≤9 self-contained sprite
+quads carrying texture path + normalized UV (atlas binds later); no new render primitive.
+Layout is deterministic within the virtual root; needs native confirmation: the
+physical→virtual UI scale factor (parameterized, not guessed), and three inferred
+semantics — omitted `size` = 100% fill while the `default` keyword = natural content
+size (image base_size / label text extent); `anchor_to` = parent point and
+`anchor_from` = child point (symmetric vanilla dialogs can't distinguish); and no
+sub-pixel rounding in-engine (deferred to draw).
 
 ## Equipment / attachable rendering (Bedrock 3D target)
 Held/offhand items are decoded+stored but never drawn; remote armor is decoded then

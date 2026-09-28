@@ -1,18 +1,24 @@
-//! Clean-room parser and resolver for vanilla Bedrock JSON-UI definitions.
+//! Clean-room parser, resolver, and layout engine for vanilla Bedrock JSON-UI.
 //!
-//! This tranche reads the on-disk `ui/*.json` (tolerant JSON5), applies `@base`
+//! The pipeline reads the on-disk `ui/*.json` (tolerant JSON5), applies `@base`
 //! inheritance, substitutes `$var`/global references, evaluates `ignored` and
-//! `variables[]` conditionals for the given screen context, and records factory
-//! mappings. It emits a concrete, serializable control tree ([`ResolvedControl`])
-//! and renders nothing. Size, offset and `view` expressions are deliberately left
-//! symbolic for a later arithmetic/layout stage.
+//! `variables[]` conditionals, and records factory mappings into a concrete
+//! [`ResolvedControl`] tree. From there [`layout`] evaluates the size/offset
+//! expressions ([`expr`]) against a virtual root size and positions every control,
+//! and [`emit`] flattens the placed tree into layer-ordered draw commands,
+//! nine-slicing sprites from their texture sidecars ([`sidecar`]). Data bindings,
+//! collections, and input are later tranches.
 
 mod catalog;
+mod emit;
 mod env;
+mod expr;
 mod json5;
+mod layout;
 mod merge;
 mod predicate;
 mod resolve;
+mod sidecar;
 mod tree;
 
 use std::collections::BTreeMap;
@@ -20,8 +26,14 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 pub use catalog::{Catalog, LoadError, RawControl};
+pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};
 pub use env::Env;
+pub use expr::{
+    AxisContext, ExprError, Length, Resolved, Term, Unit, length_from_value, parse_length,
+};
+pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout};
 pub use resolve::Resolver;
+pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any
