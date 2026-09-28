@@ -11,12 +11,14 @@ use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, BlockEntityAtlas, EntityRigId,
     EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, extruded_sprite_vertices,
-    find_geometry_index, geometry_bone_names, item_mesh_rig_id, skull_geometry,
-    textured_cube_vertices,
+    find_geometry_index, geometry_bone_names, geometry_bone_pivots, item_mesh_rig_id,
+    skull_geometry, textured_cube_vertices,
 };
 
+mod pack;
 mod push;
 mod types;
+pub(crate) use pack::PackEquipment;
 pub(crate) use types::{
     ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, HeldKind, WornItem,
 };
@@ -85,6 +87,8 @@ pub(crate) struct EquipmentRuntime {
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
     item_use: Arc<BTreeMap<Box<str>, u32>>,
+    /// The session's server-pack attachables, consulted before `catalog`.
+    pack: Option<PackEquipment>,
 }
 
 impl EquipmentRuntime {
@@ -194,6 +198,7 @@ impl EquipmentRuntime {
             catalog,
             pending,
             skulls,
+            pack: None,
         };
         (runtime, artwork, geometries)
     }
@@ -359,12 +364,17 @@ impl EquipmentRuntime {
     }
 
     fn has_armor_binding(&self, identifier: &str) -> bool {
-        self.catalog
-            .as_ref()
-            .is_some_and(|catalog| catalog.binding(identifier).is_some())
+        self.binding_source(identifier).is_some()
     }
 
-    fn armor_geometry_for(&mut self, identifier: &str) -> Option<Arc<ArmorGeometry>> {
+    pub(super) fn armor_geometry_for(
+        &mut self,
+        identifier: &str,
+        from_pack: bool,
+    ) -> Option<Arc<ArmorGeometry>> {
+        if from_pack {
+            return self.pack_armor_geometry_for(identifier);
+        }
         if let Some(entry) = self.armor_geometry.get(identifier) {
             return entry.clone();
         }

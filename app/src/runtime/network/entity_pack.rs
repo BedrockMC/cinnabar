@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use assets::{ActorArtworkBinding, ActorTexture, RuntimeEntityAssets};
+use assets::{ActorArtworkBinding, ActorTexture, RuntimeEntityAssets, RuntimeEquipmentCatalog};
 use resource_pack::LayeredPackView;
 
 use super::resource_packs::{StackFingerprint, parse_pack_json, stack_fingerprint};
@@ -14,6 +14,8 @@ pub(crate) struct SessionEntityPack {
     pub(crate) assets: Arc<RuntimeEntityAssets>,
     pub(crate) textures: Arc<[ActorTexture]>,
     pub(crate) bindings: Arc<[ActorArtworkBinding]>,
+    /// The pack's attachable bindings and rasters for held and worn items.
+    pub(crate) equipment: Option<Arc<assets::RuntimeEquipmentCatalog>>,
 }
 
 const FAMILIES: [(&str, &[&str]); 6] = [
@@ -80,6 +82,21 @@ fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
             "server pack entities are incomplete"
         );
     }
+    let equipment = if compiled.equipment_bindings.is_empty() {
+        None
+    } else {
+        match RuntimeEquipmentCatalog::from_parts(
+            compiled.identity,
+            compiled.equipment_bindings,
+            compiled.equipment_textures,
+        ) {
+            Ok(catalog) => Some(Arc::new(catalog)),
+            Err(error) => {
+                bevy::log::warn!(%error, "server pack attachables were rejected");
+                None
+            }
+        }
+    };
     let assets = match RuntimeEntityAssets::from_compiled(compiled.entities) {
         Ok(assets) => Arc::new(assets),
         Err(error) => {
@@ -91,6 +108,7 @@ fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
         assets,
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
+        equipment,
     }))
 }
 
