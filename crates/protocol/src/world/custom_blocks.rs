@@ -22,7 +22,19 @@ pub struct CustomBlock {
     pub collides: bool,
     /// Explicit `minecraft:collision_box` shape; `None` means a full cube when `collides`.
     pub collision_box: Option<CustomBox>,
+    /// `minecraft:selection_box`: what the pick ray targets and the outline traces.
+    pub selection: CustomSelection,
     pub visual: Arc<CustomBlockVisuals>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum CustomSelection {
+    /// No component: the pick ray uses the collision shape.
+    #[default]
+    Default,
+    Box(CustomBox),
+    /// Component disabled: the block cannot be targeted.
+    Disabled,
 }
 
 /// An axis-aligned box in block units (`0..=1` on each axis).
@@ -230,6 +242,7 @@ impl CustomBlocks {
                     state_count: definition.state_count,
                     collides: definition.collides,
                     collision_box: definition.collision_box,
+                    selection: definition.selection,
                     visual: Arc::new(definition.visual),
                 }),
                 None => skipped += 1,
@@ -256,6 +269,7 @@ struct Definition {
     state_count: u32,
     collides: bool,
     collision_box: Option<CustomBox>,
+    selection: CustomSelection,
     visual: CustomBlockVisuals,
 }
 
@@ -314,6 +328,18 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
     let collision_box = components
         .and_then(|components| components.field("minecraft:collision_box"))
         .and_then(box_component);
+    let selection =
+        match components.and_then(|components| components.field("minecraft:selection_box")) {
+            Some(Nbt::Byte(0)) => CustomSelection::Disabled,
+            Some(compound @ Nbt::Compound(_)) => {
+                if matches!(compound.field("enabled"), Some(Nbt::Byte(0))) {
+                    CustomSelection::Disabled
+                } else {
+                    box_component(compound).map_or(CustomSelection::Default, CustomSelection::Box)
+                }
+            }
+            _ => CustomSelection::Default,
+        };
     let permutations = root
         .list("permutations")
         .iter()
@@ -332,6 +358,7 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
         state_count: u32::try_from(states).ok()?,
         collides,
         collision_box,
+        selection,
         visual: CustomBlockVisuals {
             base: visual_components(components),
             permutations,
@@ -499,8 +526,8 @@ fn enabled_flags(value: &Nbt) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CustomBlock, CustomBlockVisuals, CustomStateAxis, CustomStateValue, block_name_sort_key,
-        parse_definition,
+        CustomBlock, CustomBlockVisuals, CustomSelection, CustomStateAxis, CustomStateValue,
+        block_name_sort_key, parse_definition,
     };
 
     // Every state axis combination appears once with a distinct hash.
@@ -511,6 +538,7 @@ mod tests {
             state_count: 6,
             collides: true,
             collision_box: None,
+            selection: CustomSelection::Default,
             visual: std::sync::Arc::new(CustomBlockVisuals {
                 state_axes: Box::new([
                     CustomStateAxis {
@@ -658,6 +686,24 @@ mod tests {
         let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
         assert_eq!(slab.max, [1.0, 0.5, 1.0]);
         assert!(super::box_component(&boxed([0.0; 3], [0.0; 3])).is_none());
+    }
+
+    // A disabled selection box makes the block untargetable; a box overrides the default.
+    #[test]
+    fn selection_box_component_is_parsed() {
+        let selection = |body: Vec<u8>| {
+            let mut nbt = named(10, "");
+            nbt.extend(named(10, "components"));
+            nbt.extend(named(10, "minecraft:selection_box"));
+            nbt.extend(body);
+            nbt.extend([0, 0, 0]);
+            parse_definition(&nbt).expect("definition").selection
+        };
+        assert_eq!(
+            selection(named(1, "enabled").into_iter().chain([0]).collect()),
+            CustomSelection::Disabled
+        );
+        assert_eq!(selection(Vec::new()), CustomSelection::Default);
     }
 
     #[test]

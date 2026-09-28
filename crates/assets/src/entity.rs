@@ -372,9 +372,14 @@ impl RuntimeEntityAssets {
             item_visuals: payload.item_visuals,
             item_visual_aliases: payload.item_visual_aliases,
         };
+        Self::from_compiled(compiled)
+    }
+
+    /// Validates a compiled catalog and wraps it without a blob round trip.
+    pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
         validate_compiled(&compiled)?;
         Ok(Self {
-            source_manifest_sha256,
+            source_manifest_sha256: compiled.source_manifest_sha256,
             block_visual_count: compiled.block_visual_count,
             sources: Arc::from(compiled.sources),
             symbols: Arc::from(compiled.symbols),

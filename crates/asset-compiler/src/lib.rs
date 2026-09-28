@@ -43,8 +43,10 @@ pub use compiler::{
     inspect_animation_inventory,
 };
 pub use entity::{
-    CompileReferenceOutcome, EntityAssetCompilation, FallbackReason, RejectReason,
-    compile_entity_assets, compile_entity_assets_with_report, compile_equipment_textures,
+    CompileReferenceOutcome, EntityAssetCompilation, EntityPackCompilation, EntityPackSkips,
+    FallbackReason, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES, RejectReason,
+    compile_entity_assets, compile_entity_assets_with_report, compile_entity_pack,
+    compile_equipment_textures,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
