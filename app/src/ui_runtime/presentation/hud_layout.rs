@@ -22,6 +22,7 @@ use crate::ui_runtime::gameplay_hud::HudEffect;
 mod inventory;
 mod pinned;
 mod player;
+mod titles;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
 use pinned::{
@@ -241,6 +242,7 @@ impl<'a> HudLayout<'a> {
         }
         self.effects(runtime, now_tick)?;
         self.boss_bars(runtime)?;
+        self.titles(runtime, frame.now_millis)?;
         Ok(())
     }
 

@@ -153,3 +153,30 @@ fn scaled_stats_render_native_units_without_exposing_storage_scale() {
     assert_eq!(nodes[0].role, HudViewRole::Health);
     assert_eq!(nodes[0].text.as_ref(), "17.5/20");
 }
+
+#[test]
+fn title_alpha_ramps_in_holds_and_ramps_out() {
+    let mut hud = HudStore::default();
+    hud.set_durations(TitleDurations::from_wire(10, 20, 10).unwrap());
+    hud.set_title(Arc::from("t"), 1, 1_000);
+    let title = hud.title().unwrap();
+
+    assert_eq!(title.alpha_at(1_000), 0);
+    assert_eq!(title.alpha_at(1_250), 127);
+    assert_eq!(title.alpha_at(1_500), 255);
+    assert_eq!(title.alpha_at(2_500), 255);
+    assert_eq!(title.alpha_at(2_750), 127);
+    assert_eq!(title.alpha_at(3_000), 0);
+}
+
+#[test]
+fn zero_length_fades_are_fully_opaque_for_the_stay() {
+    let mut hud = HudStore::default();
+    hud.set_durations(TitleDurations::from_wire(0, 4, 0).unwrap());
+    hud.set_actionbar(Arc::from("a"), 1, 0);
+    let bar = hud.actionbar().unwrap();
+
+    assert_eq!(bar.alpha_at(0), 255);
+    assert_eq!(bar.alpha_at(199), 255);
+    assert_eq!(bar.alpha_at(200), 0);
+}
