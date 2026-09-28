@@ -117,6 +117,7 @@ pub fn layout_with<'a>(
         report: LayoutReport::default(),
         scrolls: Vec::new(),
         sliders: Vec::new(),
+        ancestors: Vec::new(),
     };
     let key = child_key("", root);
     let laid = place_subtree(root, key, rect, screen, 0, true, &mut ctx);
@@ -130,6 +131,8 @@ struct PlaceCtx<'e, 'x> {
     scrolls: Vec<ScrollFrame>,
     /// Enclosing sliders: their fraction plus progress child names.
     sliders: Vec<(f64, [Option<String>; 3])>,
+    /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
+    ancestors: Vec<(String, Rect, Rect)>,
 }
 
 /// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
@@ -177,9 +180,22 @@ fn place_subtree<'a>(
         ctx.sliders.push(entry);
     }
     let hidden = widgets::hidden_state_children(control, &key, ctx.state);
+    let dropdown = widgets::dropdown_area(control);
+    ctx.ancestors.push((control.name.clone(), rect, child_clip));
     let mut children = Vec::with_capacity(control.children.len());
     for (child, mut child_rect) in layout_children(control, rect, ctx.env) {
         let mut child_shown = !hidden.iter().any(|name| *name == child.name);
+        let mut clip_for_child = child_clip;
+        // A dropdown's content lays out inside its named area, not its parent.
+        if let Some((area, content)) = &dropdown
+            && *content == child.name
+            && let Some((_, area_rect, area_clip)) =
+                ctx.ancestors.iter().rev().find(|(name, _, _)| name == area)
+        {
+            let size = resolve_size(child, *area_rect, siblings_max(control, ctx.env), ctx.env);
+            child_rect = place_by_anchor(child, *area_rect, size, ctx.env);
+            clip_for_child = *area_clip;
+        }
         if let Some(frame) = ctx.scrolls.last_mut() {
             if frame.metrics.is_none() && child.name == frame.content {
                 child_rect = frame.place_content(rect, child_rect);
@@ -203,12 +219,13 @@ fn place_subtree<'a>(
             child,
             next_key,
             child_rect,
-            child_clip,
+            clip_for_child,
             absolute_layer,
             child_shown,
             ctx,
         ));
     }
+    ctx.ancestors.pop();
     if opened_slider {
         ctx.sliders.pop();
     }

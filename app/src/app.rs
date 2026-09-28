@@ -555,6 +555,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     {
         eprintln!("JSON-UI engine disabled ({reason}); server forms use the fallback dialog");
     }
+    ui_presentation.set_engine_containers(args.json_ui_containers);
     // Hybrid HUD: Bedrock has no static scoreboard background alpha (it is a runtime engine
     // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
     // server publishes a sidebar objective.

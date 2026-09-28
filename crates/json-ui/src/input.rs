@@ -188,7 +188,7 @@ fn pressed_target(control: &crate::tree::ResolvedControl) -> Option<String> {
         .map(|(_, to, _)| to.to_owned())
 }
 
-/// `(from, to, mapping_type)` for each well-formed, non-ignored mapping.
+/// `(from, to, mapping_type)` for each well-formed, unconditional mapping.
 fn mappings(
     control: &crate::tree::ResolvedControl,
 ) -> impl Iterator<Item = (Option<&str>, &str, &str)> {
@@ -206,7 +206,11 @@ fn mappings(
             }
             _ => false,
         };
-        if ignored {
+        // A deselect-only entry (an edit box or slider letting go) applies only
+        // while its control is selected, which is the caller's state, not ours.
+        let flag = |key: &str| item.get(key).and_then(Value::as_bool);
+        if ignored || (flag("handle_deselect") == Some(true) && flag("handle_select") != Some(true))
+        {
             return None;
         }
         let to = item.get("to_button_id")?.as_str()?;

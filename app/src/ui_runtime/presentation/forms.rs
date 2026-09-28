@@ -1,17 +1,19 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
+mod container_kinds;
 mod containers;
 mod engine;
 mod fallback;
 mod model;
 mod pages;
+mod server_pack;
 #[cfg(test)]
 mod tests;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
-pub(crate) use containers::{engine_cell_hit, engine_panel_contains};
+pub(crate) use containers::engine_panel_contains;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
@@ -28,8 +30,8 @@ pub(super) struct FormPresentation {
     frame: Option<EngineFrame>,
     /// The JSON-UI engine; carried across the per-frame reset.
     engine: Option<Box<engine::FormEngine>>,
-    /// The container screen the engine drew this build.
-    container: Option<EngineFrame>,
+    /// The container screen the engine drew this build, with its cell layout.
+    container: Option<(EngineFrame, containers::ScreenLayout)>,
 }
 
 impl UiPresentationRuntime {
@@ -53,20 +55,43 @@ impl UiPresentationRuntime {
         self.form_presentation.engine = Some(Box::new(engine::FormEngine::new(
             assets, catalog, first_page,
         )));
-        self.hud_frame.engine_containers = true;
         Ok(())
     }
 
-    /// Overlay a joined server's resource-pack `ui/*.json` files (pack-relative
-    /// paths); an empty set restores the vanilla catalog.
+    /// Overlay a joined server's resource pack (pack-relative paths): its
+    /// `ui/*.json` merge over the vanilla catalog and its `textures/**` images
+    /// shadow the carrier's. An empty set restores vanilla.
     #[cfg_attr(
         not(test),
         allow(dead_code, reason = "fed once server resource-pack application lands")
     )]
     pub(crate) fn set_server_ui_pack(&mut self, files: &[(String, Vec<u8>)]) {
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
-            engine.set_server_pack(files);
-        }
+        let Some(engine) = self.form_presentation.engine.as_mut() else {
+            return;
+        };
+        engine.set_server_pack(files);
+        let packed = server_pack::pack(files, engine.page_side());
+        let start = engine.server_page_start();
+        let old = engine.server_pages();
+        let dynamic_start = self.textures.dynamic_start();
+        let mut pages = self.textures.pages()[..start].to_vec();
+        let added = packed.pages.len();
+        pages.extend(packed.pages);
+        pages.extend_from_slice(&self.textures.pages()[start + old..]);
+        let Ok(textures) = render::UiRenderTextureArray::with_source_identity(
+            pages,
+            dynamic_start - old + added,
+            server_pack_identity(self.textures.static_identity(), files),
+        ) else {
+            engine.set_server_textures(Default::default(), old);
+            return;
+        };
+        engine.set_server_textures(packed.textures, added);
+        self.textures = Arc::new(textures);
+        // Dynamic pages moved; their references rebuild from the new start.
+        self.preview_dirty = true;
+        self.menu_artwork_dirty = true;
+        self.rebuild_dynamic_textures();
     }
 
     /// The engine frame for `identity`, when the engine drew that form.
@@ -144,7 +169,7 @@ impl UiPresentationRuntime {
         }
         self.append_engine_container(
             runtime,
-            previous_container.as_ref(),
+            previous_container.as_ref().map(|(frame, _)| frame),
             nodes,
             next,
             metrics,
@@ -189,4 +214,16 @@ impl UiPresentationRuntime {
         }
         self.append_fallback_form(runtime, nodes, next, metrics, width, height)
     }
+}
+
+fn server_pack_identity(base: [u8; 32], files: &[(String, Vec<u8>)]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"ui-server-pack-v1");
+    digest.update(base);
+    for (path, bytes) in files {
+        digest.update(path.as_bytes());
+        digest.update(Sha256::digest(bytes));
+    }
+    digest.finalize().into()
 }
