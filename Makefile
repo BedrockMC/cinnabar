@@ -311,3 +311,24 @@ client-x11:
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --assets "$(dir $(ASSET_BLOB))" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"
+
+# Release packaging (see packaging/README.md). Signing credentials come from the environment.
+PKG_VERSION ?= $(shell sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml | head -n 1)
+UPDATE_TRUSTED_KEYS ?=
+PKG_CORE_LDFLAGS = -s -w -X main.releaseVersion=$(PKG_VERSION) -X main.trustedUpdateKeys=$(UPDATE_TRUSTED_KEYS)
+.PHONY: package-binaries package-macos package-windows package-linux
+package-binaries:
+	$(CARGO) build --release --locked -p bedrock-client -p asset-compiler --bin bedrock-client --bin assetc
+	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
+
+package-macos: package-binaries
+	bash packaging/macos/build-app.sh
+	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar.app
+	bash packaging/macos/make-dmg.sh .local/dist/macos-release/Cinnabar.app .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
+	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
+
+package-windows: package-binaries
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build-installer.ps1
+
+package-linux: package-binaries
+	bash packaging/linux/build-appimage.sh
