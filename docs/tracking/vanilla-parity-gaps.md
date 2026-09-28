@@ -16,6 +16,10 @@ Known gap: a one-tick cosmetic body smear on same-dimension teleport/large snap
 (`teleported` is hardcoded false; physics exposes no snap signal yet). First-person
 hand (M2) not built (near-camera GPU pass).
 
+First-person hand (near-camera draw node) merged; provisional/native-tunable: the
+hand's daylight is pinned to 1.0 (won't darken at night), the camera offset/yaw and
+FOV need native tuning, and the held-item model isn't attached yet.
+
 Root cause: the local player is never spawned as an actor, so it never gets the
 animated rig remotes use. All three below flow from that.
 - Third-person body: static 6-bone diagnostic biped placed at camera yaw (no body/head
