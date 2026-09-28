@@ -720,6 +720,9 @@ impl WorldStream {
                     self.push_committed_ui(CommittedUiEvent::LocalArmor { sequence, event });
                 }
             }
+            WorldEvent::ActorPropertySync(event) => {
+                let _ = self.actors.apply_property_sync(&event);
+            }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);

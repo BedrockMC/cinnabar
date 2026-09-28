@@ -89,6 +89,7 @@ impl ActorStore {
             local_first_person: false,
             camera_rotation: [0.0; 2],
             seat_defaults: Default::default(),
+            property_registry: Default::default(),
             local_knockback: None,
             status_notices: Vec::new(),
         }
@@ -504,6 +505,7 @@ impl ActorStore {
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
             let camera_rotation = self.camera_rotation;
+            let property_registry = &self.property_registry;
             let local_first_person = self
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);
@@ -563,6 +565,7 @@ impl ActorStore {
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     camera_rotation,
                     armor: worn_armor(items.armor(actor.runtime_id)),
+                    properties: property_registry.for_kind(&actor.kind),
                 }
             });
             self.actions.advance_tick();
