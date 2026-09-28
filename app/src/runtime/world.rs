@@ -249,6 +249,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut audio: MessageWriter<SequencedAudioEvent>,
     mut server_camera: ResMut<ServerCameraInstructions>,
+    mut camera_hurt: Option<ResMut<crate::camera::CameraHurtState>>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -303,10 +304,16 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
-        if matches!(
-            control,
-            CommittedControlEvent::PlayerListChanged { .. } | CommittedControlEvent::LocalHurt { .. }
-        ) {
+        if let CommittedControlEvent::LocalHurt { direction, .. } = control {
+            if let Some(hurt) = camera_hurt.as_deref_mut() {
+                hurt.register(crate::camera::LocalHurtEvent {
+                    relative_degrees: direction,
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
+        if matches!(control, CommittedControlEvent::PlayerListChanged { .. }) {
             continue;
         }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
@@ -330,6 +337,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
             // prediction timeline; without it the client keeps its pre-hit
             // trajectory and fights corrections after every hit. It needs no
             // spatial reconciliation and does not reset interpolation frames.
+            if let Some(hurt) = camera_hurt.as_deref_mut() {
+                hurt.note_knockback(event.motion[0], event.motion[2]);
+            }
             if movement.physics_is_authorized() {
                 local_physics.queue_server_motion(event.motion, event.tick);
             }
