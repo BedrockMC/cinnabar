@@ -14,6 +14,7 @@ mod equipment;
 mod error;
 mod font;
 mod hud;
+mod hud_extras;
 mod icon;
 mod item;
 mod lang;
@@ -29,7 +30,6 @@ mod server_lang;
 mod texture;
 mod ui;
 mod weather_textures;
-mod hud_extras;
 
 pub use hud_extras::{
     HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
