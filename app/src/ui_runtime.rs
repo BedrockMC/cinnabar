@@ -10,6 +10,7 @@ pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
 mod inventory_ingress;
+pub(crate) mod json_ui_assets;
 pub mod inventory_ledger;
 pub mod inventory_router;
 pub(crate) mod item_facts;

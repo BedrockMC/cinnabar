@@ -516,6 +516,7 @@ dependencies = [
  "client-world",
  "crossbeam-channel",
  "image",
+ "json-ui",
  "meshing",
  "protocol",
  "rayon",

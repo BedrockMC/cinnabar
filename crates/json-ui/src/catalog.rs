@@ -87,7 +87,7 @@ pub(crate) fn split_key(key: &str) -> (String, Option<String>) {
 }
 
 /// The whole pack: variable globals plus every control keyed by namespace/name.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Catalog {
     globals: BTreeMap<String, Value>,
     defs: BTreeMap<String, BTreeMap<String, RawControl>>,
