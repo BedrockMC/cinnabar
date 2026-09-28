@@ -419,6 +419,21 @@ mod tests {
     }
 
     #[test]
+    fn icon_crack_events_split_item_id_and_aux() {
+        assert_eq!(
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 13, (300 << 16) | 2),
+            Some(LevelParticle::ItemIcon {
+                network_id: 300,
+                aux: 2
+            })
+        );
+        assert!(matches!(
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 14, 0),
+            Some(LevelParticle::FixedItemIcon { .. })
+        ));
+    }
+
+    #[test]
     fn crack_event_splits_runtime_id_and_face() {
         assert_eq!(
             classify_level_event(2014, (1 << 24) | 5),
