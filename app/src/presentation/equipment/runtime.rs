@@ -15,7 +15,7 @@ use render::{
 };
 
 use super::{
-    armor::{DEFAULT_LEATHER_RGB, bone_map, pack_tint, remap_pose},
+    armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{Placement, SpriteAtlas},
     display::{
         ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
@@ -48,6 +48,27 @@ pub(crate) struct ActorEquipmentInput {
 pub(crate) struct EquipmentPresentation {
     pub(crate) submission: ActorRigSubmission,
     pub(crate) location: ActorArtworkLocation,
+}
+
+/// Which first-person arms the player render controller shows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FirstPersonArms {
+    pub(crate) right: bool,
+    pub(crate) left: bool,
+}
+
+const FILLED_MAP: &str = "minecraft:filled_map";
+const SHIELD: &str = "minecraft:shield";
+
+impl FirstPersonArms {
+    /// The right arm shows for an empty hand or a map; the left for a map in either hand (a shield
+    /// in the off hand keeps it hidden). The use-item conditions await the item-use queries.
+    pub(crate) fn for_hands(main: Option<&str>, off: Option<&str>) -> Self {
+        Self {
+            right: main.is_none_or(|main| main == FILLED_MAP),
+            left: (main == Some(FILLED_MAP) && off != Some(SHIELD)) || off == Some(FILLED_MAP),
+        }
+    }
 }
 
 struct BodyBones {
@@ -190,6 +211,40 @@ impl EquipmentRuntime {
             }
         }
         layers
+    }
+
+    /// The body pose with every bone but the visible arms (and their sleeves) zero-scaled, as
+    /// vanilla's first-person part visibility hides them. `None` when no arm shows or the pose
+    /// does not match the body geometry.
+    pub(crate) fn mask_first_person(
+        &mut self,
+        body: &ActorRigSubmission,
+        arms: FirstPersonArms,
+    ) -> Option<ActorRigSubmission> {
+        if !(arms.right || arms.left) {
+            return None;
+        }
+        let (_, bones) = self.body_bones_for(body.input.rig)?;
+        let pose_len = bones.names.len();
+        if body.input.previous_bones.len() != pose_len || body.input.current_bones.len() != pose_len
+        {
+            return None;
+        }
+        let visible = |name: &str| {
+            let is = |wanted: &str| name.eq_ignore_ascii_case(wanted);
+            (arms.right && (is("rightArm") || is("rightSleeve")))
+                || (arms.left && (is("leftArm") || is("leftSleeve")))
+        };
+        let mask = |pose: &[RenderBoneTransform]| {
+            pose.iter()
+                .zip(&bones.names)
+                .map(|(bone, name)| if visible(name) { *bone } else { hidden_bone() })
+                .collect::<Vec<_>>()
+        };
+        let mut masked = body.clone();
+        masked.input.previous_bones = Arc::from(mask(&body.input.previous_bones));
+        masked.input.current_bones = Arc::from(mask(&body.input.current_bones));
+        Some(masked)
     }
 
     fn body_bones_for(&mut self, rig: EntityRigId) -> Option<(u32, Arc<BodyBones>)> {

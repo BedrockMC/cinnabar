@@ -9,4 +9,6 @@ mod runtime;
 mod tests;
 
 pub(crate) use input::{local_input, remote_input};
-pub(crate) use runtime::{ActorEquipmentInput, EquipmentPresentation, EquipmentRuntime, WornItem};
+pub(crate) use runtime::{
+    ActorEquipmentInput, EquipmentPresentation, EquipmentRuntime, FirstPersonArms, WornItem,
+};

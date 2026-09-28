@@ -11,7 +11,7 @@ use super::{
     armor::{bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{ATLAS_SIDE, SpriteAtlas},
     display::{ItemDisplay, attach_to_bone, held_sprite_display},
-    runtime::layer_presentation,
+    runtime::{FirstPersonArms, layer_presentation},
 };
 
 fn sprite(side: u16, fill: u8) -> IconSprite {
@@ -206,4 +206,32 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
     assert_eq!(submission.world_from_actor, body.world_from_actor);
     assert_eq!(submission.texture_layer, location.layer());
     assert_eq!(submission.tint, 0xff00_00ff);
+}
+
+#[test]
+fn first_person_arms_follow_the_render_controller_visibility() {
+    let arms = |main, off| FirstPersonArms::for_hands(main, off);
+    assert_eq!(
+        arms(None, None),
+        FirstPersonArms {
+            right: true,
+            left: false
+        }
+    );
+    assert_eq!(
+        arms(Some("minecraft:diamond_sword"), None),
+        FirstPersonArms {
+            right: false,
+            left: false
+        }
+    );
+    assert_eq!(
+        arms(Some("minecraft:filled_map"), None),
+        FirstPersonArms {
+            right: true,
+            left: true
+        }
+    );
+    assert!(!arms(Some("minecraft:filled_map"), Some("minecraft:shield")).left);
+    assert!(arms(None, Some("minecraft:filled_map")).left);
 }

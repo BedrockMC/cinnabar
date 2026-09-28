@@ -411,7 +411,7 @@ impl ActorRigFrameBuilder {
                 self.geometry_revision = self
                     .geometry_revision
                     .rotate_left(5)
-                    .wrapping_add(u64::from(id.0) << 24 | vertex_count)
+                    .wrapping_add((u64::from(id.0) << 24) | vertex_count)
                     .max(1);
                 Ok(())
             }

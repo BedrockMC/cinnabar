@@ -19,7 +19,7 @@ use crate::{
         local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
         update_actor_rig_scene,
     },
-    presentation::equipment::{EquipmentRuntime, local_input, remote_input},
+    presentation::equipment::{EquipmentRuntime, FirstPersonArms, local_input, remote_input},
     runtime::world::ClientWorld,
 };
 
@@ -192,11 +192,26 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 )
             })
             .unwrap_or((0, 0, 0, Vec::new(), None, 0));
-    // First person draws no near-camera rig: the earlier pass reused the full third-person body
-    // rig shoved toward the camera, which occludes the view with the head/torso instead of an
-    // arm. Vanilla first person draws an arm-only model; until that geometry exists the pass
-    // stays dark so the world is visible.
-    let hand_source: Option<ActorRigPresentation> = None;
+    // First person draws the player's own rig near the camera with every bone but the visible
+    // arms hidden; a held item hides the arm, so the CPU item viewmodel keeps that case.
+    let hand_source: Option<ActorRigPresentation> = if first_person {
+        canonical_local.clone().and_then(|presentation| {
+            let stream = client_world.stream.as_ref()?;
+            let equipment = equipment.as_deref_mut()?;
+            let input = local_input(stream, ui.as_deref(), local_runtime_id);
+            let arms = FirstPersonArms::for_hands(
+                input.main.as_ref().map(|item| item.identifier.as_ref()),
+                input.off.as_ref().map(|item| item.identifier.as_ref()),
+            );
+            let submission = equipment.mask_first_person(&presentation.submission, arms)?;
+            Some(ActorRigPresentation {
+                submission,
+                ..presentation
+            })
+        })
+    } else {
+        None
+    };
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
