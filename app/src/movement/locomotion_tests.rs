@@ -8,6 +8,7 @@ use sim::{
 };
 
 use super::integration_tests::VersionedFloor;
+use super::settle_tests::settled_sample;
 use super::{
     HeldInput, LocalPhysicsController, ModeIntent, PhysicsMovementSample, PhysicsSampleContext,
     input_flags,
@@ -15,13 +16,16 @@ use super::{
 
 const TICK: Duration = Duration::from_millis(50);
 
-/// Floor top at y=1 plus a ceiling leaving a 1.2-high gap: too low to stand or sneak, enough to crawl.
-struct LowGap;
+/// Floor top at y=1 plus a ceiling whose underside sits at the given height.
+struct LowCeiling(f64);
 
-impl CollisionWorld for LowGap {
+impl CollisionWorld for LowCeiling {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let mut base = VersionedFloor(1).collision_boxes(query)?;
-        let ceiling = Aabb::new(Vec3::new(-64.0, 2.2, -64.0), Vec3::new(64.0, 3.2, 64.0));
+        let ceiling = Aabb::new(
+            Vec3::new(-64.0, self.0, -64.0),
+            Vec3::new(64.0, self.0 + 1.0, 64.0),
+        );
         if ceiling.intersects(query) {
             base.value.push(ceiling);
         }
@@ -138,42 +142,56 @@ fn flight_without_permission_never_starts() {
 }
 
 #[test]
-fn a_gap_too_low_to_stand_in_crawls_and_signals_start_crawling_once() {
+fn crawl_edges_fire_once_on_entry_and_once_on_exit() {
+    let mut crawling = settled_sample(101, [0.0, 2.620_01, 0.0]);
+    crawling.processed.mode = MovementMode::Crawling;
+    let entry = input_flags(&crawling, HeldInput::default());
+    assert!(has(entry, PlayerInputFlags::START_CRAWLING));
+
+    let steady = input_flags(&crawling, HeldInput::from(&crawling));
+    assert!(!has(steady, PlayerInputFlags::START_CRAWLING));
+    assert!(!has(steady, PlayerInputFlags::STOP_CRAWLING));
+
+    let standing = settled_sample(102, [0.0, 2.620_01, 0.0]);
+    let exit = input_flags(&standing, HeldInput::from(&crawling));
+    assert!(has(exit, PlayerInputFlags::STOP_CRAWLING));
+}
+
+#[test]
+fn swim_and_glide_edges_pair_start_with_stop() {
+    for (mode, start, stop) in [
+        (
+            MovementMode::Swimming,
+            PlayerInputFlags::START_SWIMMING,
+            PlayerInputFlags::STOP_SWIMMING,
+        ),
+        (
+            MovementMode::Gliding,
+            PlayerInputFlags::START_GLIDING,
+            PlayerInputFlags::STOP_GLIDING,
+        ),
+    ] {
+        let mut active = settled_sample(101, [0.0, 2.620_01, 0.0]);
+        active.processed.mode = mode;
+        assert!(has(input_flags(&active, HeldInput::default()), start));
+        let idle = settled_sample(102, [0.0, 2.620_01, 0.0]);
+        assert!(has(input_flags(&idle, HeldInput::from(&active)), stop));
+    }
+}
+
+#[test]
+fn a_ceiling_that_only_fits_a_sneak_forces_the_pose_and_persist_flag() {
     let mut physics = settled_controller();
+    let world = LowCeiling(2.6);
     let first = step(
         &mut physics,
         MovementInput::default(),
         ModeIntent::default(),
-        &LowGap,
+        &world,
     );
-    assert_eq!(first.processed.mode, MovementMode::Crawling);
-    let first_flags = input_flags(&first, HeldInput::default());
-    assert!(has(first_flags, PlayerInputFlags::START_CRAWLING));
-
-    let second = step(
-        &mut physics,
-        MovementInput::default(),
-        ModeIntent::default(),
-        &LowGap,
-    );
-    assert_eq!(second.processed.mode, MovementMode::Crawling);
-    let second_flags = input_flags(&second, HeldInput::from(&first));
-    assert!(!has(second_flags, PlayerInputFlags::START_CRAWLING));
-    assert!(!has(second_flags, PlayerInputFlags::STOP_CRAWLING));
-}
-
-#[test]
-fn crawling_forces_sprint_off_so_no_sprint_flags_are_asserted() {
-    let mut physics = settled_controller();
-    let sample = step(
-        &mut physics,
-        MovementInput {
-            forward: 1.0,
-            sprinting: true,
-            ..MovementInput::default()
-        },
-        ModeIntent::default(),
-        &LowGap,
-    );
-    assert!(!sample.processed.sprinting);
+    assert!(first.processed.forced_sneak && first.sneaking);
+    let flags = input_flags(&first, HeldInput::default());
+    assert!(has(flags, PlayerInputFlags::PERSIST_SNEAK));
+    assert!(has(flags, PlayerInputFlags::SNEAKING));
+    assert_eq!(first.processed.mode, MovementMode::Walking);
 }
