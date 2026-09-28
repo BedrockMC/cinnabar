@@ -498,6 +498,7 @@ impl ActorStore {
                 actor.set_current_pose(next);
                 actor.status.tick();
             }
+            self.seat_riders();
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
@@ -549,6 +550,7 @@ impl ActorStore {
                     has_player_rider,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     camera_rotation,
+                    armor: worn_armor(items.armor(actor.runtime_id)),
                 }
             });
             self.actions.advance_tick();
@@ -837,4 +839,25 @@ impl ActorStore {
 
 fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Worn stacks in helmet, chestplate, leggings, boots, body order.
+fn worn_armor(
+    snapshot: Option<&crate::item::ActorArmorSnapshot>,
+) -> [Option<crate::actor_animation::WornArmor>; 5] {
+    let piece = |piece: &crate::item::ActorArmorPiece| {
+        Some(crate::actor_animation::WornArmor {
+            item: piece.item.identifier.clone()?,
+            dye_rgb: piece.dye_rgb,
+        })
+    };
+    snapshot.map_or_else(Default::default, |armor| {
+        [
+            piece(&armor.helmet),
+            piece(&armor.chestplate),
+            piece(&armor.leggings),
+            piece(&armor.boots),
+            piece(&armor.body),
+        ]
+    })
 }

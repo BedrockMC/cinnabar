@@ -15,7 +15,19 @@ pub(crate) struct ActorTickContext {
     pub(crate) is_local_first_person: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
     pub(crate) camera_rotation: [f32; 2],
+    /// Worn stacks in helmet, chestplate, leggings, boots, body order.
+    pub(crate) armor: [Option<WornArmor>; 5],
 }
+
+/// One worn armor stack as the armor queries read it.
+#[derive(Clone, Debug)]
+pub(crate) struct WornArmor {
+    pub(crate) item: Arc<str>,
+    pub(crate) dye_rgb: Option<u32>,
+}
+
+// Fraction of full swim posture gained or lost per tick; needs independent measurement.
+const SWIM_AMOUNT_STEP: f32 = 0.2;
 
 // Babies' legs cycle faster by this factor; needs independent measurement.
 const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
@@ -61,6 +73,15 @@ pub(super) fn advance_motion(
     } else {
         0
     };
+    let swim_target = if query::actor_flag(actor, query::FLAG_SWIMMING) {
+        1.0
+    } else {
+        0.0
+    };
+    let swim_amount = state.history.back().map_or(swim_target, |input| {
+        let previous = input.swim_amount;
+        previous + (swim_target - previous).clamp(-SWIM_AMOUNT_STEP, SWIM_AMOUNT_STEP)
+    });
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
     }
@@ -77,6 +98,7 @@ pub(super) fn advance_motion(
         move_speed: motion.speed.min(1.0) * baby_scale,
         walk_distance: motion.walk_distance(),
         item_use_ticks,
+        swim_amount,
     };
     state.history.push_back(input);
 }
@@ -234,6 +256,10 @@ pub(super) fn apply_engine_variables(
         engine.damage_nearby_mobs,
         flag(query::FLAG_DAMAGE_NEARBY_MOBS),
     );
+    variables.set(engine.swim_amount, input.swim_amount);
+    variables.set(engine.left_arm_swim_amount, input.swim_amount);
+    variables.set(engine.right_arm_swim_amount, input.swim_amount);
+    variables.set(engine.has_target, truth(query::has_target(actor)));
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
     variables.set(engine.player_x_rotation, input.pitch);
     // View bobbing is on by default; the first-person walk/breathing bob weigh against this.
