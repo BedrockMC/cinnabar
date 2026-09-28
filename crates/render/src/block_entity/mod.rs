@@ -7,6 +7,7 @@
 mod atlas;
 mod banner;
 mod beam;
+mod bed;
 mod bell;
 mod book;
 mod chest;
@@ -24,6 +25,7 @@ pub use banner::{
     BannerLayer, BannerModel, BannerMount, MAX_BANNER_LAYERS, banner_color, pattern_texture,
 };
 pub use beam::BeaconModel;
+pub use bed::{BedModel, bed_color};
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use crack::crack_texture_name;
 pub use gpu::BlockEntityRenderPlugin;
