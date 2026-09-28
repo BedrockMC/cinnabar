@@ -67,8 +67,14 @@ mod tests {
             let record = record(&format!("minecraft:{name}"), BlockFlags::empty());
             assert!(is_translucent_cube(&record), "{name}");
         }
-        assert!(!is_translucent_cube(&record("minecraft:glass", BlockFlags::empty())));
-        assert!(!is_translucent_cube(&record("minecraft:ice", BlockFlags::AIR)));
+        assert!(!is_translucent_cube(&record(
+            "minecraft:glass",
+            BlockFlags::empty()
+        )));
+        assert!(!is_translucent_cube(&record(
+            "minecraft:ice",
+            BlockFlags::AIR
+        )));
     }
 
     #[test]
