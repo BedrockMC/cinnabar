@@ -57,8 +57,8 @@ fn spawn_spawn_packet(
         let Some(actor) = stream.actor_by_unique_id(unique_id) else {
             return;
         };
-        for axis in 0..3 {
-            position[axis] += actor.position[axis];
+        for (component, base) in position.iter_mut().zip(actor.position) {
+            *component += base;
         }
     }
     let variables = event
