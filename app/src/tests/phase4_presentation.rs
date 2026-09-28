@@ -79,6 +79,7 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
         attributes: Default::default(),
         int_properties: Default::default(),
         float_properties: Default::default(),
+        status: Default::default(),
     }
 }
 

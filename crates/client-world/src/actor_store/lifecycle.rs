@@ -356,12 +356,15 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
-                if actor.apply_attributes(&update.attributes) {
+                let rejected = actor.apply_attributes(&update.attributes);
+                actor.sync_status_from_health();
+                if rejected {
                     ActorApplyResult::CapacityRejected
                 } else {
                     ActorApplyResult::Updated
                 }
             }
+            ActorEvent::Status(status) => self.apply_status(status),
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
                 for entry in update.entries.iter() {
@@ -478,6 +481,7 @@ impl ActorStore {
                 actor.interpolation_ticks_remaining =
                     actor.interpolation_ticks_remaining.saturating_sub(1);
                 actor.set_current_pose(next);
+                actor.status.tick();
             }
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);

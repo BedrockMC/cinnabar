@@ -86,6 +86,7 @@ pub struct ActorSnapshot {
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<u32, i32>,
     pub float_properties: HashMap<u32, f32>,
+    pub status: ActorStatus,
 }
 
 impl ActorSnapshot {
@@ -119,6 +120,7 @@ impl ActorSnapshot {
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
+            status: ActorStatus::default(),
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -166,6 +168,7 @@ impl ActorSnapshot {
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
+            status: ActorStatus::default(),
         }
     }
 
@@ -387,8 +390,11 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
 }
 
+mod hurt;
 mod lifecycle;
 mod query;
+
+pub use hurt::{ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS};
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
@@ -404,7 +410,7 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
         ActorEvent::Attributes(event) => Some(event.dimension),
-        ActorEvent::PlayerList(_) => None,
+        ActorEvent::PlayerList(_) | ActorEvent::Status(_) => None,
     }
 }
 
