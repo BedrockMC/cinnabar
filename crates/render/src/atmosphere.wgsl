@@ -16,6 +16,7 @@ struct AtmosphereUniform {
 @group(0) @binding(2) var sun_texture: texture_2d<f32>;
 @group(0) @binding(3) var moon_phases_texture: texture_2d<f32>;
 @group(0) @binding(4) var atmosphere_sampler: sampler;
+@group(0) @binding(5) var end_sky_texture: texture_2d<f32>;
 
 // Half-extents of the flat sun and moon quads as a tangent at unit distance; both need
 // native measurement.
@@ -26,6 +27,8 @@ const STAR_DENSITY: f32 = 0.06;
 const STAR_HALF_ANGLE: f32 = 0.0016;
 const STAR_HALF_ANGLE_JITTER: f32 = 0.0012;
 const TAU: f32 = 6.283185307;
+// Vanilla dims the End sky texture to roughly this fraction of its stored brightness.
+const END_SKY_BRIGHTNESS: f32 = 0.157;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -151,6 +154,25 @@ fn star_field(ray: vec3<f32>, pixel_angle: f32) -> f32 {
     return 1.0 - smoothstep(radius * 0.5, radius, offset);
 }
 
+// End sky: the texture tiled once on each face of a cube around the viewer.
+fn end_sky(ray: vec3<f32>) -> vec3<f32> {
+    let magnitude = abs(ray);
+    var plane: vec2<f32>;
+    var major: f32;
+    if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z) {
+        plane = ray.yz;
+        major = magnitude.x;
+    } else if (magnitude.y >= magnitude.z) {
+        plane = ray.xz;
+        major = magnitude.y;
+    } else {
+        plane = ray.xy;
+        major = magnitude.z;
+    }
+    let uv = plane / major * 0.5 + vec2(0.5);
+    return textureSampleLevel(end_sky_texture, atmosphere_sampler, uv, 0.0).rgb * END_SKY_BRIGHTNESS;
+}
+
 // Sunrise/sunset glow hugging the horizon on the side the sun crosses.
 fn sunrise_glow(ray: vec3<f32>) -> f32 {
     let alpha = atmosphere.sunrise_band.a;
@@ -177,7 +199,7 @@ fn atmosphere_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4(atmosphere.sky_horizon_thunder.rgb, 1.0);
     }
     if (kind == 2u) {
-        return vec4(atmosphere.sky_zenith_rain.rgb, 1.0);
+        return vec4(atmosphere.sky_zenith_rain.rgb + end_sky(ray), 1.0);
     }
     let horizon_to_zenith = smoothstep(-0.08, 0.72, ray.y);
     var colour = mix(

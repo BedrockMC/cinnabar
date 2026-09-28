@@ -12,7 +12,7 @@ struct AtmosphereUniform {
 }
 
 // clock: animation seconds, sheet opacity, wind xz per block of fall.
-// extent: blocks the sheet rises above the camera.
+// extent: blocks the sheet rises above the camera, then 1 when the vanilla sheet is bound.
 struct WeatherParams {
     clock: vec4<f32>,
     extent: vec4<f32>,
@@ -29,6 +29,8 @@ struct Column {
 @group(0) @binding(1) var<uniform> atmosphere: AtmosphereUniform;
 @group(0) @binding(2) var<storage, read> columns: array<Column>;
 @group(0) @binding(3) var<uniform> weather: WeatherParams;
+@group(0) @binding(4) var sheet_texture: texture_2d<f32>;
+@group(0) @binding(5) var sheet_sampler: sampler;
 
 // Provisional look: streak and flake sizes and fall speeds need native measurement.
 const RAIN_COLOUR: vec3<f32> = vec3(0.62, 0.72, 0.95);
@@ -38,6 +40,11 @@ const RAIN_STREAK_PERIOD: f32 = 2.2;
 const SNOW_FALL_BLOCKS_PER_SECOND: f32 = 3.0;
 const SNOW_FLAKES_PER_BLOCK: f32 = 4.0;
 const SNOW_FLAKE_PERIOD: f32 = 1.2;
+// The streak band of the vanilla 32x32 sheet in v, and how many blocks one band period spans;
+// the rows outside the band hold other sprites and need native layout confirmation.
+const SHEET_BAND_V: vec2<f32> = vec2(0.125, 0.625);
+const SHEET_BAND_BLOCKS: f32 = 2.0;
+const SHEET_STREAKS_PER_BLOCK: f32 = 1.0;
 const NIGHT_PRECIPITATION_LIGHT: f32 = 0.3;
 
 struct VertexOutput {
@@ -98,6 +105,16 @@ fn rain_coverage(pattern: vec2<f32>, seed: vec2<f32>, time: f32) -> f32 {
     return across * dash;
 }
 
+// Rain streaks scrolled from the vanilla sheet band; a column-specific offset breaks up tiling.
+fn sheet_rain_coverage(pattern: vec2<f32>, seed: vec2<f32>, time: f32) -> f32 {
+    let along = fract((pattern.y + time * RAIN_FALL_BLOCKS_PER_SECOND) / SHEET_BAND_BLOCKS + seed.y);
+    let uv = vec2(
+        fract(pattern.x * SHEET_STREAKS_PER_BLOCK + seed.x),
+        mix(SHEET_BAND_V.x, SHEET_BAND_V.y, along),
+    );
+    return textureSampleLevel(sheet_texture, sheet_sampler, uv, 0.0).a;
+}
+
 fn snow_coverage(pattern: vec2<f32>, seed: vec2<f32>, time: f32) -> f32 {
     let sway = sin(time * 1.3 + seed.x * 6.28318) * 0.15;
     let scaled = vec2(
@@ -120,6 +137,9 @@ fn weather_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let column_alpha = f32((in.flags >> 8u) & 255u) / 255.0;
     let time = weather.clock.x;
     var coverage = rain_coverage(in.pattern, in.seed, time);
+    if (weather.extent.y > 0.5) {
+        coverage = sheet_rain_coverage(in.pattern, in.seed, time);
+    }
     var colour = RAIN_COLOUR;
     if (snow) {
         coverage = snow_coverage(in.pattern, in.seed, time) * 0.9;

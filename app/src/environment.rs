@@ -10,7 +10,10 @@ mod profile_lookup;
 mod weather;
 pub(crate) use atmosphere::update_atmosphere_frame;
 use numeric::finite_nonnegative;
-pub(crate) use weather::{LightningFlashState, WeatherDisplay, update_precipitation_scene};
+pub(crate) use weather::{
+    LightningFlashState, WeatherDisplay, load_optional_weather_textures, update_lightning,
+    update_precipitation_scene,
+};
 
 #[derive(Resource, Default)]
 pub(crate) struct CameraMediumState(pub(crate) CameraMedium);

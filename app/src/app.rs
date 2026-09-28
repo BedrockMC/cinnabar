@@ -42,7 +42,7 @@ use crate::{
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
-        update_atmosphere_frame, update_precipitation_scene,
+        update_atmosphere_frame, update_lightning, update_precipitation_scene,
     },
     install_layout::InstallLayout,
     local_player::{
@@ -307,6 +307,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 update_camera_medium,
                 update_atmosphere_frame,
                 update_precipitation_scene,
+                update_lightning,
                 refresh_cave_visibility,
                 update_visibility_diagnostics.after(ChunkRenderApplySet),
                 emit_world_ready,
@@ -521,6 +522,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
+    let weather_textures =
+        environment::load_optional_weather_textures(&loaded_assets.selected_path);
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets(&entity_runtime)
@@ -719,6 +722,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(actor_render_scene)
         .insert_resource(hand_rig_builder)
         .insert_resource(AtmosphereFrame::default())
+        .insert_resource(weather_textures)
         .insert_resource(AtmosphereTextureAssets::new(
             atmosphere_runtime,
             atmosphere_identity,

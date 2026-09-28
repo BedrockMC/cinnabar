@@ -157,6 +157,10 @@ impl WorldStream {
     pub fn dropped_items(&self, partial_tick: f32) -> Vec<crate::DroppedItemView> {
         self.actors.dropped_items(partial_tick)
     }
+    /// Live lightning-bolt actors, for the bolt renderer and sky flash.
+    pub fn lightning_bolts(&self) -> Vec<crate::LightningBoltView> {
+        self.actors.lightning_bolts()
+    }
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }

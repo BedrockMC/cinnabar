@@ -36,7 +36,8 @@ use bevy::{
 
 use crate::{
     AtmosphereFrame, AtmosphereTextureAssets, PrecipitationScene, RainSplashQueue,
-    cloud_render::install_cloud_render, weather_render::install_weather_render,
+    WeatherTextureAssets, cloud_render::install_cloud_render,
+    lightning_render::install_lightning_render, weather_render::install_weather_render,
 };
 
 const ATMOSPHERE_SHADER_HANDLE: Handle<Shader> =
@@ -64,7 +65,10 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<AtmosphereFrame>();
     app.init_resource::<AtmosphereTextureAssets>();
     app.init_resource::<PrecipitationScene>();
+    app.init_resource::<WeatherTextureAssets>();
     app.init_resource::<RainSplashQueue>();
+    app.init_resource::<crate::PrecipitationMix>();
+    app.init_resource::<crate::LightningScene>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -79,6 +83,8 @@ pub(crate) fn install_atmosphere(app: &mut App) {
         ExtractResourcePlugin::<AtmosphereFrame>::default(),
         ExtractResourcePlugin::<AtmosphereTextureAssets>::default(),
         ExtractResourcePlugin::<PrecipitationScene>::default(),
+        ExtractResourcePlugin::<WeatherTextureAssets>::default(),
+        ExtractResourcePlugin::<crate::LightningScene>::default(),
     ));
     load_internal_asset!(
         app,
@@ -88,6 +94,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     );
     install_cloud_render(app);
     install_weather_render(app);
+    install_lightning_render(app);
 
     app.sub_app_mut(RenderApp)
         .insert_resource(AtmosphereRenderInstalled)
@@ -118,8 +125,9 @@ pub(crate) struct AtmosphereGpu {
 
 struct PreparedAtmosphereAssets {
     identity: [u8; 32],
-    _textures: [Texture; 2],
-    views: [TextureView; 2],
+    end_sky_identity: Option<[u8; 32]>,
+    _textures: [Texture; 3],
+    views: [TextureView; 3],
     sampler: Sampler,
 }
 
@@ -151,6 +159,7 @@ fn prepare_atmosphere_uniform(
 
 fn prepare_atmosphere_textures(
     requested: Res<AtmosphereTextureAssets>,
+    weather_textures: Option<Res<WeatherTextureAssets>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<AtmosphereGpu>,
@@ -161,11 +170,15 @@ fn prepare_atmosphere_textures(
         gpu.bound_asset_identity = None;
         return;
     };
-    if gpu
-        .prepared
-        .as_ref()
-        .is_some_and(|prepared| prepared.identity == requested.identity())
-    {
+    let end_sky = weather_textures.as_deref().and_then(|assets| {
+        assets
+            .textures()
+            .map(|textures| (assets.identity(), textures))
+    });
+    let end_sky_identity = end_sky.map(|(identity, _)| identity);
+    if gpu.prepared.as_ref().is_some_and(|prepared| {
+        prepared.identity == requested.identity() && prepared.end_sky_identity == end_sky_identity
+    }) {
         return;
     }
 
@@ -183,6 +196,24 @@ fn prepare_atmosphere_textures(
         moon_phases,
         "pinned vanilla moon phases",
     );
+    let (end_sky_texture, end_sky_view) = match end_sky {
+        Some((_, textures)) => upload_rgba(
+            &render_device,
+            &render_queue,
+            textures.end_sky.width,
+            textures.end_sky.height,
+            &textures.end_sky.rgba8,
+            "vanilla End sky",
+        ),
+        None => upload_rgba(
+            &render_device,
+            &render_queue,
+            1,
+            1,
+            &[0, 0, 0, 255],
+            "absent End sky fallback",
+        ),
+    };
     let sampler = render_device.create_sampler(&SamplerDescriptor {
         label: Some("pinned vanilla atmosphere repeat sampler"),
         address_mode_u: AddressMode::Repeat,
@@ -195,8 +226,9 @@ fn prepare_atmosphere_textures(
     });
     gpu.prepared = Some(PreparedAtmosphereAssets {
         identity: requested.identity(),
-        _textures: [sun_texture, moon_texture],
-        views: [sun_view, moon_view],
+        end_sky_identity,
+        _textures: [sun_texture, moon_texture, end_sky_texture],
+        views: [sun_view, moon_view, end_sky_view],
         sampler,
     });
     gpu.bind_group = None;
@@ -214,13 +246,31 @@ fn upload_atmosphere_texture(
     texture: &AtmosphereTexture,
     label: &'static str,
 ) -> (Texture, TextureView) {
+    upload_rgba(
+        render_device,
+        render_queue,
+        texture.width,
+        texture.height,
+        &texture.rgba8,
+        label,
+    )
+}
+
+pub(crate) fn upload_rgba(
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+    width: u32,
+    height: u32,
+    rgba8: &[u8],
+    label: &'static str,
+) -> (Texture, TextureView) {
     let gpu_texture = render_device.create_texture_with_data(
         render_queue,
         &TextureDescriptor {
             label: Some(label),
             size: Extent3d {
-                width: texture.width,
-                height: texture.height,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -231,7 +281,7 @@ fn upload_atmosphere_texture(
             view_formats: &[],
         },
         TextureDataOrder::LayerMajor,
-        &texture.rgba8,
+        rgba8,
     );
     let view = gpu_texture.create_view(&TextureViewDescriptor {
         label: Some(label),
@@ -298,6 +348,16 @@ impl FromWorld for AtmospherePipeline {
                     binding: 4,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
             ],
@@ -417,6 +477,10 @@ fn prepare_atmosphere_bind_group(
             BindGroupEntry {
                 binding: 4,
                 resource: BindingResource::Sampler(&prepared.sampler),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::TextureView(&prepared.views[2]),
             },
         ],
     ));

@@ -19,6 +19,55 @@ pub struct BoltSegment {
     pub half_width: f32,
 }
 
+/// Most bolts drawn at once.
+pub const MAX_LIGHTNING_BOLTS: usize = 4;
+/// Upper bound on GPU ribbon records: a core and a halo per segment.
+pub const MAX_BOLT_RECORDS: usize =
+    MAX_LIGHTNING_BOLTS * (TRUNK_SEGMENTS + MAX_BRANCHES * BRANCH_SEGMENTS) * 2;
+
+const HALO_WIDTH_SCALE: f32 = 3.0;
+const HALO_INTENSITY_SCALE: f32 = 0.25;
+
+/// One camera-facing ribbon as the GPU reads it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BoltRecord {
+    pub start: [f32; 3],
+    pub half_width: f32,
+    pub end: [f32; 3],
+    pub intensity: f32,
+}
+
+/// Bolt ribbons for the render world; rebuilt every frame.
+#[derive(
+    bevy::prelude::Resource,
+    bevy::render::extract_resource::ExtractResource,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+)]
+pub struct LightningScene {
+    pub records: Vec<BoltRecord>,
+}
+
+/// Appends a bright core and a wide faint halo ribbon for each segment.
+pub fn push_bolt_records(segments: &[BoltSegment], intensity: f32, out: &mut Vec<BoltRecord>) {
+    for segment in segments {
+        for (width, scale) in [(1.0, 1.0), (HALO_WIDTH_SCALE, HALO_INTENSITY_SCALE)] {
+            if out.len() >= MAX_BOLT_RECORDS {
+                return;
+            }
+            out.push(BoltRecord {
+                start: segment.start,
+                half_width: segment.half_width * width,
+                end: segment.end,
+                intensity: intensity * scale,
+            });
+        }
+    }
+}
+
 /// Flash brightness in `0..=1` at `age_seconds` after the strike; zero once it has faded.
 #[must_use]
 pub fn lightning_flash_level(age_seconds: f32) -> f32 {
@@ -109,6 +158,19 @@ mod tests {
         assert_eq!(lightning_flash_level(LIGHTNING_FLASH_SECONDS), 0.0);
         assert_eq!(lightning_flash_level(-1.0), 0.0);
         assert_eq!(lightning_flash_level(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn records_pair_a_core_with_a_wider_dimmer_halo_and_stay_bounded() {
+        let segments = lightning_bolt_segments(1, [0.0; 3]);
+        let mut out = Vec::new();
+        push_bolt_records(&segments, 1.0, &mut out);
+        assert_eq!(out.len(), segments.len() * 2);
+        assert!(out[1].half_width > out[0].half_width && out[1].intensity < out[0].intensity);
+        for seed in 0..(MAX_LIGHTNING_BOLTS as u64 + 4) {
+            push_bolt_records(&lightning_bolt_segments(seed, [0.0; 3]), 1.0, &mut out);
+        }
+        assert!(out.len() <= MAX_BOLT_RECORDS);
     }
 
     #[test]

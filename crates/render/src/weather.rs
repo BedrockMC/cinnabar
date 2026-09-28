@@ -132,6 +132,33 @@ pub trait ColumnSampler {
     fn sample(&mut self, x: i32, z: i32) -> Option<ColumnSample>;
 }
 
+/// Decoded weather sheet and End sky, when the optional carrier is present.
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct WeatherTextureAssets {
+    textures: Option<std::sync::Arc<assets::WeatherTextures>>,
+    identity: [u8; 32],
+}
+
+impl WeatherTextureAssets {
+    #[must_use]
+    pub fn new(textures: std::sync::Arc<assets::WeatherTextures>, identity: [u8; 32]) -> Self {
+        Self {
+            textures: Some(textures),
+            identity,
+        }
+    }
+
+    #[must_use]
+    pub fn textures(&self) -> Option<&std::sync::Arc<assets::WeatherTextures>> {
+        self.textures.as_ref()
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> [u8; 32] {
+        self.identity
+    }
+}
+
 /// Precipitation state consumed by the render world.
 #[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq)]
 pub struct PrecipitationScene {
@@ -174,6 +201,47 @@ pub fn build_precipitation_columns(
             let alpha = (1.0 - distance / radius) * 0.5 + 0.5;
             out.push(PrecipitationColumn::new(x, z, bottom, kind, alpha));
         }
+    }
+}
+
+/// Biome sample lattice around the player: 3x3x3 offsets in blocks. The native spacing is
+/// unmeasured.
+pub const PRECIPITATION_SAMPLE_OFFSETS: [[i32; 3]; 27] = {
+    let mut offsets = [[0; 3]; 27];
+    let mut index = 0;
+    while index < 27 {
+        offsets[index] = [
+            (index as i32 % 3 - 1) * 8,
+            (index as i32 / 3 % 3 - 1) * 4,
+            (index as i32 / 9 - 1) * 8,
+        ];
+        index += 1;
+    }
+    offsets
+};
+
+/// Share of the surrounding biomes that rain and snow, each in `0..=1`.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct PrecipitationMix {
+    pub rain: f32,
+    pub snow: f32,
+}
+
+/// Averages the lattice samples (`temperature, downfall, y`; unloaded ones are `None`) into a mix.
+#[must_use]
+pub fn average_precipitation(samples: &[Option<(f32, f32, i32)>]) -> PrecipitationMix {
+    let (mut rain, mut snow) = (0.0, 0.0);
+    for (temperature, downfall, y) in samples.iter().flatten() {
+        match classify_precipitation(*temperature, *downfall, *y) {
+            Precipitation::Rain => rain += 1.0,
+            Precipitation::Snow => snow += 1.0,
+            Precipitation::None => {}
+        }
+    }
+    let total = PRECIPITATION_SAMPLE_OFFSETS.len() as f32;
+    PrecipitationMix {
+        rain: rain / total,
+        snow: snow / total,
     }
 }
 
@@ -290,6 +358,28 @@ mod tests {
         assert_eq!(centre.alpha(), 1.0);
         assert!(edge.alpha() < centre.alpha());
         assert!(out.iter().all(|c| c.bottom_y == 64.0 && !c.is_snow()));
+    }
+
+    #[test]
+    fn lattice_is_centred_and_mix_averages_over_all_samples() {
+        assert!(PRECIPITATION_SAMPLE_OFFSETS.contains(&[0, 0, 0]));
+        assert_eq!(PRECIPITATION_SAMPLE_OFFSETS.len(), 27);
+        let mut samples = vec![Some((0.8, 0.4, 64)); 27];
+        assert_eq!(
+            average_precipitation(&samples),
+            PrecipitationMix {
+                rain: 1.0,
+                snow: 0.0
+            }
+        );
+        for sample in samples.iter_mut().take(9) {
+            *sample = Some((0.0, 0.5, 64));
+        }
+        for sample in samples.iter_mut().skip(9).take(9) {
+            *sample = None;
+        }
+        let mix = average_precipitation(&samples);
+        assert!((mix.rain - 9.0 / 27.0).abs() < 1.0e-6 && (mix.snow - 9.0 / 27.0).abs() < 1.0e-6);
     }
 
     #[test]
