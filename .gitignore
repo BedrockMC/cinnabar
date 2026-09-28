@@ -10,3 +10,6 @@
 
 # Go build artifacts; the architecture check forbids committed binaries.
 *.exe
+
+# Per-worktree Cargo target dirs (never commit build artifacts)
+target-*/
