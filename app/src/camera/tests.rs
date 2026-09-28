@@ -19,7 +19,10 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
 };
 use semantic_input::{Action, PerspectiveMode};
-use sim::{Aabb, CollisionQuery, CollisionWorld, Vec3 as SimVec3, WorldQueryError};
+use sim::{
+    Aabb, CollisionQuery, CollisionWorld, LenientCollisionBoxes, LenientSkipCounts,
+    Vec3 as SimVec3, WorldQueryError,
+};
 use ui::UserSettings;
 use world::ChunkKey;
 
@@ -35,6 +38,25 @@ impl CollisionWorld for CameraCollisionFixture {
             return Err(WorldQueryError::UnloadedChunk(ChunkKey::new(0, 0, 0)));
         }
         Ok(CollisionQuery::synthetic(self.boxes.clone()))
+    }
+}
+
+/// Feeds the camera a pre-resolved lenient result, standing in for the palette
+/// adapter's per-cell skipping so a boom test can mix a real wall with skips.
+struct LenientCameraFixture {
+    result: LenientCollisionBoxes,
+}
+
+impl CollisionWorld for LenientCameraFixture {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(self.result.value.clone()))
+    }
+
+    fn collision_boxes_camera_lenient(
+        &self,
+        _query: Aabb,
+    ) -> Result<LenientCollisionBoxes, WorldQueryError> {
+        Ok(self.result.clone())
     }
 }
 
@@ -153,7 +175,10 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
 }
 
 #[test]
-fn third_person_boom_falls_back_to_the_subject_when_collision_space_is_unloaded() {
+fn third_person_boom_retains_its_reach_when_the_boom_region_is_unloaded() {
+    // The old contract collapsed the boom onto the subject on any query error;
+    // that glued the camera to the model near chunk edges. An unloaded region
+    // must now be skipped, leaving the full preset boom rather than collapsing.
     let subject = Vec3::new(0.0, 2.0, 0.0);
     let world = CameraCollisionFixture {
         unavailable: true,
@@ -167,7 +192,64 @@ fn third_person_boom_falls_back_to_the_subject_when_collision_space_is_unloaded(
         &world,
     );
 
-    assert_eq!(pose.translation, subject);
+    assert!(
+        (pose.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs() <= 1.0e-5,
+        "unloaded boom region must not collapse the camera onto the subject",
+    );
+}
+
+#[test]
+fn third_person_boom_stops_at_a_real_wall_beside_a_skipped_cell() {
+    // A boom region holding both an unknown/unloaded cell and a registered wall
+    // must stop at the wall, never at 0 (collapse) and never at the full reach.
+    let subject = Vec3::new(0.0, 2.0, 0.0);
+    let world = LenientCameraFixture {
+        result: LenientCollisionBoxes {
+            value: vec![Aabb::new(
+                SimVec3::new(-1.0, 1.0, 2.0),
+                SimVec3::new(1.0, 3.0, 3.0),
+            )],
+            skipped: LenientSkipCounts {
+                unknown_runtime_id: 3,
+                unloaded_chunk: 2,
+            },
+        },
+    };
+
+    let pose = camera::collision_safe_perspective_pose(
+        subject,
+        Quat::IDENTITY,
+        PerspectiveMode::ThirdPersonBack,
+        &world,
+    );
+
+    assert!(pose.translation.abs_diff_eq(
+        Vec3::new(
+            0.0,
+            2.0,
+            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+        ),
+        1.0e-5,
+    ));
+}
+
+#[test]
+fn third_person_boom_keeps_full_reach_over_a_clear_loaded_region() {
+    let subject = Vec3::new(0.0, 2.0, 0.0);
+    let world = LenientCameraFixture {
+        result: LenientCollisionBoxes::default(),
+    };
+
+    let pose = camera::collision_safe_perspective_pose(
+        subject,
+        Quat::IDENTITY,
+        PerspectiveMode::ThirdPersonBack,
+        &world,
+    );
+
+    assert!(
+        (pose.translation.distance(subject) - camera::THIRD_PERSON_RADIUS_BLOCKS).abs() <= 1.0e-5
+    );
 }
 
 #[test]
