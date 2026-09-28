@@ -582,6 +582,16 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                 let handoff = session.take_resource_pack_handoff();
                 let (custom_blocks, packs) =
                     super::resource_packs::prepare_session_packs(handoff, &game_data);
+                let packs_applied = matches!(
+                    &packs.admission,
+                    resource_pack::PackAdmission::Validated(stack) if !stack.packs().is_empty()
+                );
+                if packs_applied {
+                    let socket_dir = config.socket_dir.clone();
+                    tokio::spawn(async move {
+                        protocol::report_pack_application(&socket_dir, true).await;
+                    });
+                }
                 let bootstrap = WorldBootstrap::from_game_data(&game_data);
                 let server_authoritative_block_breaking =
                     protocol::server_authoritative_block_breaking(&game_data);
@@ -636,6 +646,9 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     network_readiness_ingress,
                 )
                 .await;
+                if packs_applied {
+                    protocol::report_pack_application(&config.socket_dir, false).await;
+                }
             });
         })?;
     Ok(NetworkHandle {

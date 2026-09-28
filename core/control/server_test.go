@@ -352,3 +352,27 @@ func assertRPCError(t *testing.T, payload []byte, code int) {
 		t.Fatalf("RPC error = %s, want %d", payload, code)
 	}
 }
+
+func TestPackApplicationMethodFlipsStatusAndValidatesParams(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore()
+	handed := snapshot(5, proxy.ResourcePackOfferOptional)
+	handed.DownstreamOutcome = proxy.ResourcePackDownstreamHandedOffOptional
+	store.Observe(handed)
+	server, err := Start(dir, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+
+	assertRPCError(t, exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":1,"method":"pack_application.v1"}`)), -32602)
+	assertRPCError(t, exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":1,"method":"pack_application.v1","params":{"attempt_id":5,"applied":true,"x":1}}`)), -32602)
+	applied := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":2,"method":"pack_application.v1","params":{"attempt_id":5,"applied":true}}`))
+	if !strings.Contains(string(applied), `"application":"applied"`) {
+		t.Fatalf("applied response = %s", applied)
+	}
+	reverted := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":3,"method":"pack_application.v1","params":{"attempt_id":5,"applied":false}}`))
+	if !strings.Contains(string(reverted), `"application":"unavailable"`) {
+		t.Fatalf("reverted response = %s", reverted)
+	}
+}
