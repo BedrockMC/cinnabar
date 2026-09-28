@@ -1,4 +1,4 @@
-use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind};
+use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
@@ -7,7 +7,18 @@ pub const HURT_DURATION_TICKS: u8 = 10;
 /// Ticks a dying actor takes to tip fully over; needs independent measurement.
 pub const DEATH_DURATION_TICKS: u8 = 20;
 
+/// Ticks a picked-up item takes to reach its collector; needs independent measurement.
+pub const PICKUP_DURATION_TICKS: u8 = 3;
+
 const HURT_DIRECTION_METADATA_KEY: u32 = 12;
+
+/// A dropped item flying to the actor that collected it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorPickup {
+    pub collector_runtime_id: u64,
+    /// Ticks elapsed, saturating at [`PICKUP_DURATION_TICKS`].
+    pub ticks: u8,
+}
 
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -19,6 +30,9 @@ pub struct ActorStatus {
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
     pub death_time: u8,
     pub dead: bool,
+    /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
+    pub age_ticks: u32,
+    pub pickup: Option<ActorPickup>,
 }
 
 impl ActorStatus {
@@ -39,6 +53,10 @@ impl ActorStatus {
     }
 
     pub(super) fn tick(&mut self) {
+        self.age_ticks = self.age_ticks.saturating_add(1);
+        if let Some(pickup) = &mut self.pickup {
+            pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
+        }
         self.hurt_time = self.hurt_time.saturating_sub(1);
         if self.dead && self.death_time < DEATH_DURATION_TICKS {
             self.death_time += 1;
@@ -51,7 +69,10 @@ impl ActorStatus {
     }
 
     fn revive(&mut self) {
-        *self = Self::default();
+        self.hurt_time = 0;
+        self.hurt_direction = None;
+        self.death_time = 0;
+        self.dead = false;
     }
 }
 
@@ -102,6 +123,17 @@ impl ActorStore {
             // Particle-only kinds have no retained actor state.
             _ => {}
         }
+        ActorApplyResult::Updated
+    }
+
+    pub(super) fn apply_take_item(&mut self, event: ActorTakeItemEvent) -> ActorApplyResult {
+        let Some(item) = self.actors.get_mut(&event.item_runtime_id) else {
+            return ActorApplyResult::MissingActor;
+        };
+        item.status.pickup.get_or_insert(ActorPickup {
+            collector_runtime_id: event.collector_runtime_id,
+            ticks: 0,
+        });
         ActorApplyResult::Updated
     }
 
@@ -181,6 +213,21 @@ mod tests {
     }
 
     #[test]
+    fn take_item_starts_pickup_and_saturates() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn());
+        let take = protocol::ActorEvent::TakeItem(ActorTakeItemEvent {
+            item_runtime_id: 7,
+            collector_runtime_id: 99,
+        });
+        assert_eq!(store.apply(1, 2, take), ActorApplyResult::Updated);
+        store.advance_interpolation_ticks(u32::from(PICKUP_DURATION_TICKS) + 4);
+        let status = store.get(7).unwrap().status;
+        assert_eq!(status.pickup.map(|pickup| pickup.ticks), Some(PICKUP_DURATION_TICKS));
+        assert_eq!(status.pickup.map(|pickup| pickup.collector_runtime_id), Some(99));
+    }
+
+    #[test]
     fn death_event_for_unknown_actor_is_missing() {
         let mut store = ActorStore::new(1, 0);
         assert_eq!(
@@ -194,7 +241,7 @@ mod tests {
         let mut status = ActorStatus::default();
         status.die();
         status.revive();
-        assert_eq!(status, ActorStatus::default());
         assert_eq!(status.death_progress(0.0), None);
+        assert!(!status.overlay_active());
     }
 }
