@@ -3,7 +3,7 @@ use super::{evaluation::MolangValue, *};
 // Actor flag bits and metadata keys follow gophertunnel v1.61.0
 // `minecraft/protocol/entity_metadata.go` (`EntityDataFlag*` and `EntityDataKey*`, iota from
 // zero); flag bits from 64 live in the overflow flag word.
-const FLAG_QUERIES: [(&str, u32); 56] = [
+const FLAG_QUERIES: [(&str, u32); 57] = [
     ("blocking", FLAG_BLOCKING),
     ("can_damage_nearby_mobs", FLAG_DAMAGE_NEARBY_MOBS),
     ("facing_target_to_range_attack", 88),
@@ -28,6 +28,8 @@ const FLAG_QUERIES: [(&str, u32); 56] = [
     ("is_emerging", 104),
     ("is_emoting", 92),
     ("is_gliding", FLAG_GLIDING),
+    // Reads the eating flag; needs independent measurement against grazing animals.
+    ("is_grazing", 63),
     ("is_in_ui", 90),
     ("is_interested", 26),
     ("is_invisible", 5),
@@ -55,13 +57,14 @@ const FLAG_QUERIES: [(&str, u32); 56] = [
     ("is_stunned", 83),
     ("is_swimming", 57),
     ("is_tamed", 28),
-    ("is_using_item", 4),
+    ("is_using_item", FLAG_USING_ITEM),
     ("show_bottom", 38),
     ("timer_flag_1", 115),
     ("timer_flag_2", 116),
     ("timer_flag_3", 117),
 ];
 pub(super) const FLAG_SNEAKING: u32 = 1;
+pub(super) const FLAG_USING_ITEM: u32 = 4;
 pub(super) const FLAG_BABY: u32 = 11;
 pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
@@ -84,13 +87,34 @@ const FLOAT_QUERIES: [(&str, u32, f32); 3] = [
     ("lie_amount", 93, 0.0),
 ];
 const KEY_NAME: u32 = 4;
+const KEY_TARGET: u32 = 6;
+const KEY_SWELL: u32 = 19;
+const FLAG_STANDING: u32 = 39;
+const FLAG_SWIMMING: u32 = 57;
+
+// Fuse ticks a swell is normalised by; needs independent measurement.
+const SWELL_FULL_TICKS: f32 = 28.0;
+
+// Actors that swim in place, so airborne means in water; without a fluid sample this stands in
+// for the fish-on-land flop.
+const AQUATIC: [&str; 10] = [
+    "cod",
+    "salmon",
+    "pufferfish",
+    "tropicalfish",
+    "squid",
+    "glow_squid",
+    "guardian",
+    "elder_guardian",
+    "dolphin",
+    "axolotl",
+];
 
 // First-person and use-item queries the pack reads but the client has no timing, equipment, or
 // game-mode source for yet. Each returns its vanilla idle value so the pre-animation formulas
 // (item_use_normalized, helmet_layer_visible) and the use/crossbow animations stay neutral.
 // Wiring the real sources later replaces the entry, not the query name.
-const IDLE_QUERIES: [(&str, f32); 5] = [
-    ("main_hand_item_use_duration", 0.0),
+const IDLE_QUERIES: [(&str, f32); 4] = [
     ("main_hand_item_max_duration", 0.0),
     ("item_remaining_use_duration", 0.0),
     ("has_head_gear", 0.0),
@@ -191,6 +215,24 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "hurt_time" => f32::from(actor.status.hurt_time),
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
+        "main_hand_item_use_duration" => input.item_use_ticks as f32 * 0.05,
+        "death_ticks" => f32::from(actor.status.death_time),
+        // Ticks stand in for the world clock; only the phase between actors differs.
+        "time_stamp" => evaluator.life_tick as f32,
+        "has_target" => truth(has_target(actor)),
+        "swell_amount" => metadata_number(actor, KEY_SWELL)
+            .map_or(0.0, |swell| (swell / SWELL_FULL_TICKS).max(0.0)),
+        // Wither armor shows below half health.
+        "is_shield_powered" => truth(
+            actor
+                .attributes
+                .get("minecraft:health")
+                .is_some_and(|health| health.max > 0.0 && health.current <= health.max * 0.5),
+        ),
+        // Unsmoothed 0/1 stand-ins for the pose blend amounts.
+        "swim_amount" => truth(actor_flag(actor, FLAG_SWIMMING)),
+        "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),
+        "is_in_water" => truth(in_water(actor, input)),
         "is_on_ground" => truth(input.on_ground),
         "is_riding" => truth(input.is_riding),
         "is_moving" => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
@@ -277,6 +319,21 @@ fn texture_frame_index(actor: &ActorSnapshot) -> f32 {
         .iter()
         .position(|bound| value <= *bound)
         .unwrap_or(UPPER_BOUNDS.len()) as f32
+}
+
+fn has_target(actor: &ActorSnapshot) -> bool {
+    matches!(actor.metadata.get(&KEY_TARGET), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
+}
+
+fn in_water(actor: &ActorSnapshot, input: &ActorTickInput) -> bool {
+    let aquatic = match &actor.kind {
+        ActorKind::Entity { identifier } => {
+            let name = identifier.as_ref();
+            AQUATIC.contains(&name.strip_prefix("minecraft:").unwrap_or(name))
+        }
+        ActorKind::Player { .. } => false,
+    };
+    actor_flag(actor, FLAG_SWIMMING) || (aquatic && !input.on_ground)
 }
 
 fn health(actor: &ActorSnapshot) -> Option<f32> {

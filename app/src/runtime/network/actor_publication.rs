@@ -370,6 +370,7 @@ fn build_local_player_feed(
     {
         return None;
     }
+    let (sneaking, sprinting) = physics.latest_sneak_sprint().unwrap_or_default();
     Some(LocalPlayerFeed {
         // A real player-list echo overrides this; without one, the stream backs the local body
         // with the client's own uploaded skin under this stable local uuid.
@@ -384,5 +385,7 @@ fn build_local_player_feed(
         pitch: pitch_degrees,
         teleported: false,
         first_person,
+        sneaking,
+        sprinting,
     })
 }

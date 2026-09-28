@@ -138,6 +138,8 @@ struct ActorTickInput {
     distance_moved: f32,
     move_speed: f32,
     walk_distance: f32,
+    /// Consecutive ticks the using-item flag has been set.
+    item_use_ticks: u32,
 }
 
 struct EvaluatedState {
