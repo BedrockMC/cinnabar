@@ -34,7 +34,10 @@ use bevy::{
     },
 };
 
-use crate::{AtmosphereFrame, AtmosphereTextureAssets, cloud_render::install_cloud_render};
+use crate::{
+    AtmosphereFrame, AtmosphereTextureAssets, PrecipitationScene, RainSplashQueue,
+    cloud_render::install_cloud_render, weather_render::install_weather_render,
+};
 
 const ATMOSPHERE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("7612c9f4-c152-4f57-95d4-a22d85018c3d");
@@ -60,6 +63,8 @@ struct AtmosphereRenderInstalled;
 pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<AtmosphereFrame>();
     app.init_resource::<AtmosphereTextureAssets>();
+    app.init_resource::<PrecipitationScene>();
+    app.init_resource::<RainSplashQueue>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -73,6 +78,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.add_plugins((
         ExtractResourcePlugin::<AtmosphereFrame>::default(),
         ExtractResourcePlugin::<AtmosphereTextureAssets>::default(),
+        ExtractResourcePlugin::<PrecipitationScene>::default(),
     ));
     load_internal_asset!(
         app,
@@ -81,6 +87,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
         Shader::from_wgsl
     );
     install_cloud_render(app);
+    install_weather_render(app);
 
     app.sub_app_mut(RenderApp)
         .insert_resource(AtmosphereRenderInstalled)

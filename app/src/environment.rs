@@ -7,8 +7,10 @@ use client_world::CommittedControlEvent;
 mod atmosphere;
 mod numeric;
 mod profile_lookup;
+mod weather;
 pub(crate) use atmosphere::update_atmosphere_frame;
 use numeric::finite_nonnegative;
+pub(crate) use weather::{LightningFlashState, WeatherDisplay, update_precipitation_scene};
 
 #[derive(Resource, Default)]
 pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
@@ -17,6 +19,7 @@ pub(crate) struct CameraMediumState(pub(crate) CameraMedium);
 pub(crate) struct EnvironmentContext {
     pub(crate) dimension: i32,
     pub(crate) camera_biome_identifier: Option<Box<str>>,
+    pub(crate) camera_biome_temperature: Option<f32>,
     pub(crate) render_distance_blocks: Option<f32>,
 }
 
@@ -597,12 +600,7 @@ mod tests {
             100.0,
         );
 
-        for (time, expected) in [
-            (0, [1.0, 0.0, 0.0]),
-            (6_000, [0.0, 1.0, 0.0]),
-            (12_000, [-1.0, 0.0, 0.0]),
-            (18_000, [0.0, -1.0, 0.0]),
-        ] {
+        for (time, expected) in [(6_000, [0.0, 1.0, 0.0]), (18_000, [0.0, -1.0, 0.0])] {
             assert!(apply_environment_control(
                 CommittedControlEvent::SetTime {
                     sequence: time as u64 + 1,
@@ -616,6 +614,22 @@ mod tests {
             for axis in 0..3 {
                 assert!((actual[axis] - expected[axis]).abs() < 1.0e-6);
             }
+        }
+
+        // The eased angle keeps the sun a little above the horizon at both day boundaries.
+        for (time, east) in [(0, true), (12_000, false)] {
+            assert!(apply_environment_control(
+                CommittedControlEvent::SetTime {
+                    sequence: time as u64 + 100,
+                    update: SetTimeEvent { time },
+                },
+                &mut clock,
+                &mut weather,
+                100.0,
+            ));
+            let sun = derive_atmosphere_frame(clock, weather, 100.0).sun_direction();
+            assert!(sun[1] > 0.1 && sun[1] < 0.3, "{sun:?}");
+            assert_eq!(sun[0] > 0.0, east, "{sun:?}");
         }
 
         for day in 0..8 {
@@ -706,6 +720,7 @@ mod tests {
         let context = EnvironmentContext {
             dimension: 2,
             camera_biome_identifier: None,
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let biomes = profiles();
@@ -722,7 +737,8 @@ mod tests {
         );
 
         assert_eq!(frame.sky_zenith(), [0.0; 3]);
-        assert_eq!(frame.sky_horizon(), [0.0; 3]);
+        assert_eq!(frame.sky_horizon(), frame.fog_color());
+        assert_eq!(frame.sky_kind(), render::SkyKind::End);
         assert_eq!(frame.fog_end(), 256.0);
         assert_eq!(frame.rain_level(), 0.0);
         assert_eq!(frame.thunder_level(), 0.0);
@@ -742,6 +758,7 @@ mod tests {
         let context = EnvironmentContext {
             dimension: 1,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let (frame, route) = derive_profiled_atmosphere_frame(
@@ -761,6 +778,7 @@ mod tests {
         let context = EnvironmentContext {
             dimension: 0,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let (frame, _) = derive_profiled_atmosphere_frame(
@@ -780,6 +798,7 @@ mod tests {
         let context = EnvironmentContext {
             dimension: 0,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let mut fogs = fog_profiles();
@@ -817,6 +836,7 @@ mod tests {
         let context = EnvironmentContext {
             dimension: 0,
             camera_biome_identifier: Some("minecraft:plains".into()),
+            camera_biome_temperature: None,
             render_distance_blocks: Some(256.0),
         };
         let (frame, _) = derive_profiled_atmosphere_frame(
