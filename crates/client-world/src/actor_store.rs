@@ -392,6 +392,8 @@ pub(crate) struct ActorStore {
     camera_rotation: [f32; 2],
     /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
     local_knockback: Option<(u64, [f32; 2])>,
+    /// Status events awaiting a particle or sound consumer.
+    status_notices: Vec<ActorStatusNotice>,
 }
 
 mod dropped;
@@ -401,7 +403,8 @@ mod query;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
 pub use hurt::{
-    ActorPickup, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS, PICKUP_DURATION_TICKS,
+    ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
+    MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {

@@ -133,6 +133,10 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }
+    /// Drains decoded actor status events (hurt, death, taming, totem, ...) for particle and sound consumers.
+    pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
+        self.actors.take_status_notices()
+    }
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);
