@@ -3195,6 +3195,8 @@ LevelDB world persistence via dragonfly; pause/resume semantics on window focus;
 path as online (core points the game socket at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
+Status: provisional implementation landed (see `docs/local-worlds.md`); uncompiled and unmeasured, so no acceptance gate is closed.
+
 ## Phase 8 — Audio, polish, packaging
 
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
