@@ -2,9 +2,19 @@ use protocol::ActorMetadataValue;
 
 use super::ActorStore;
 
-/// Seat offset, mount-local, streamed on the rider (protocol `EntityDataKeySeatOffset`).
+/// Seat metadata streamed on the rider (protocol `EntityDataKeySeat*`).
 const KEY_SEAT_OFFSET: u32 = 56;
+const KEY_SEAT_LOCK_DEGREES: u32 = 58;
+const KEY_SEAT_ROTATION_DEGREES: u32 = 60;
 const KEY_BED_POSITION: u32 = 28;
+
+const FLAG_SADDLED: u32 = 8;
+const FLAG_BABY: u32 = 11;
+const FLAG_TAMED: u32 = 28;
+const FLAG_SHEARED: u32 = 31;
+
+/// Head turn, in degrees either side of the body, at or beyond which a seat does not limit it.
+const UNLOCKED_HEAD_DEGREES: f32 = 180.0;
 
 /// World offset of a mount-local seat `[right, up, forward]` for a mount facing `yaw_degrees`.
 pub(super) fn seat_world_offset(local: [f32; 3], yaw_degrees: f32) -> [f32; 3] {
@@ -16,6 +26,10 @@ pub(super) fn seat_world_offset(local: [f32; 3], yaw_degrees: f32) -> [f32; 3] {
     ]
 }
 
+fn wrap_degrees(degrees: f32) -> f32 {
+    (degrees + 180.0).rem_euclid(360.0) - 180.0
+}
+
 /// One rider position of a mount type, usable while its rider count is in `min..=max`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RideSeat {
@@ -23,34 +37,120 @@ pub struct RideSeat {
     pub position: [f32; 3],
     pub min_riders: u32,
     pub max_riders: u32,
+    /// Degrees added to the mount's yaw for the rider's body; `None` when the pack gives an
+    /// expression instead of a number.
+    pub rotate_by: Option<f32>,
+    /// Degrees the rider's head may turn either side of its body; `None` leaves it free.
+    pub lock_degrees: Option<f32>,
+}
+
+/// Mount state a seat layout applies to, read from the mount's flags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeatRequirement {
+    Saddled(bool),
+    Baby(bool),
+    Tamed(bool),
+    Sheared(bool),
+}
+
+impl SeatRequirement {
+    fn holds(self, mount: &super::ActorSnapshot) -> bool {
+        let (bit, wanted) = match self {
+            Self::Saddled(wanted) => (FLAG_SADDLED, wanted),
+            Self::Baby(wanted) => (FLAG_BABY, wanted),
+            Self::Tamed(wanted) => (FLAG_TAMED, wanted),
+            Self::Sheared(wanted) => (FLAG_SHEARED, wanted),
+        };
+        mount.flag(bit) == wanted
+    }
+
+    /// Requirements a component group's name spells out (`pig_unsaddled`, `cow_baby`, ...).
+    pub fn from_group_name(name: &str) -> Vec<Self> {
+        let mut found = Vec::new();
+        for token in name.split(|ch: char| !ch.is_ascii_alphanumeric()) {
+            found.extend(match token {
+                "saddled" => Some(Self::Saddled(true)),
+                "unsaddled" => Some(Self::Saddled(false)),
+                "baby" => Some(Self::Baby(true)),
+                "adult" => Some(Self::Baby(false)),
+                "sheared" => Some(Self::Sheared(true)),
+                "unsheared" => Some(Self::Sheared(false)),
+                "tamed" | "tame" => Some(Self::Tamed(true)),
+                "wild" => Some(Self::Tamed(false)),
+                _ => None,
+            });
+        }
+        found
+    }
+}
+
+#[derive(Clone, Debug)]
+struct SeatLayout {
+    requirements: Vec<SeatRequirement>,
+    seats: Vec<RideSeat>,
 }
 
 /// Seat layouts by mount identifier, used when the server streams no seat offset.
 #[derive(Clone, Debug, Default)]
 pub struct SeatDefaults {
-    seats: std::collections::HashMap<std::sync::Arc<str>, Vec<RideSeat>>,
+    layouts: std::collections::HashMap<std::sync::Arc<str>, Vec<SeatLayout>>,
 }
 
 impl SeatDefaults {
-    pub fn insert(&mut self, identifier: impl Into<std::sync::Arc<str>>, seats: Vec<RideSeat>) {
+    /// Adds a layout that applies while every requirement holds; none applies always.
+    pub fn insert(
+        &mut self,
+        identifier: impl Into<std::sync::Arc<str>>,
+        requirements: Vec<SeatRequirement>,
+        seats: Vec<RideSeat>,
+    ) {
         if !seats.is_empty() {
-            self.seats.insert(identifier.into(), seats);
+            self.layouts
+                .entry(identifier.into())
+                .or_default()
+                .push(SeatLayout {
+                    requirements,
+                    seats,
+                });
         }
     }
 
-    /// Seat for the `index`th of `riders` riders; an index past the seats takes the last one.
-    fn seat(&self, mount: &str, riders: u32, index: usize) -> Option<[f32; 3]> {
-        let usable: Vec<_> = self
+    /// Seat for the `index`th of `riders` riders of `mount`, from its most specific matching
+    /// layout; an index past the seats takes the last one.
+    fn seat(
+        &self,
+        mount: &super::ActorSnapshot,
+        name: &str,
+        riders: u32,
+        index: usize,
+    ) -> Option<RideSeat> {
+        let layout = self
+            .layouts
+            .get(name)?
+            .iter()
+            .filter(|layout| layout.requirements.iter().all(|need| need.holds(mount)))
+            .reduce(|best, layout| {
+                if layout.requirements.len() > best.requirements.len() {
+                    layout
+                } else {
+                    best
+                }
+            })?;
+        let usable: Vec<_> = layout
             .seats
-            .get(mount)?
             .iter()
             .filter(|seat| (seat.min_riders..=seat.max_riders).contains(&riders))
             .collect();
-        usable
-            .get(index)
-            .or(usable.last())
-            .map(|seat| seat.position)
+        usable.get(index).or(usable.last()).map(|seat| **seat)
     }
+}
+
+/// Where a rider sits and how its body and head are held.
+struct Placement {
+    runtime_id: u64,
+    position: [f32; 3],
+    body_yaw: f32,
+    lock_degrees: Option<f32>,
 }
 
 impl ActorStore {
@@ -58,18 +158,26 @@ impl ActorStore {
         self.seat_defaults = defaults;
     }
 
-    /// Streamed seat offset of a rider, else the mount type's default for its rider index
-    /// (riders of one mount are ordered by unique id).
-    fn seat_offset(
+    /// Streamed seat of a rider, else the mount type's default for its rider index (riders of
+    /// one mount are ordered by unique id).
+    fn seat_for(
         &self,
         rider_unique_id: i64,
-        rider_id: u64,
+        rider: &super::ActorSnapshot,
         mount: &super::ActorSnapshot,
-    ) -> Option<[f32; 3]> {
-        if let Some(ActorMetadataValue::Vector(seat)) =
-            self.actors.get(&rider_id)?.metadata.get(&KEY_SEAT_OFFSET)
-        {
-            return seat.iter().all(|axis| axis.is_finite()).then_some(*seat);
+    ) -> Option<RideSeat> {
+        let degrees = |key| match rider.metadata.get(&key) {
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
+            _ => None,
+        };
+        if let Some(ActorMetadataValue::Vector(seat)) = rider.metadata.get(&KEY_SEAT_OFFSET) {
+            return seat.iter().all(|axis| axis.is_finite()).then(|| RideSeat {
+                position: *seat,
+                min_riders: 0,
+                max_riders: u32::MAX,
+                rotate_by: degrees(KEY_SEAT_ROTATION_DEGREES),
+                lock_degrees: degrees(KEY_SEAT_LOCK_DEGREES),
+            });
         }
         let protocol::ActorKind::Entity { identifier } = &mount.kind else {
             return None;
@@ -82,36 +190,50 @@ impl ActorStore {
             .collect();
         riders.sort_unstable();
         let index = riders.iter().position(|rider| *rider == rider_unique_id)?;
-        let name = identifier.as_ref();
-        self.seat_defaults.seat(name, riders.len() as u32, index)
+        self.seat_defaults
+            .seat(mount, identifier.as_ref(), riders.len() as u32, index)
     }
 
-    /// Places each linked rider at its seat; riders with no known seat keep their streamed pose.
-    /// The local rig is client-fed and skipped.
+    /// Places each linked rider at its seat and turns its body with the mount; riders with no
+    /// known seat keep their streamed pose. The local rig is client-fed and skipped.
     pub(super) fn seat_riders(&mut self) {
-        let placements: Vec<(u64, [f32; 3])> = self
+        let placements: Vec<Placement> = self
             .rider_to_ridden
             .iter()
-            .filter_map(|(rider, ridden)| {
-                let rider_id = *self.unique_to_runtime.get(rider)?;
+            .filter_map(|(rider_unique_id, ridden)| {
+                let rider_id = *self.unique_to_runtime.get(rider_unique_id)?;
                 if self.remote_state_excluded_runtime_id == Some(rider_id) {
                     return None;
                 }
                 let mount = self.actors.get(self.unique_to_runtime.get(ridden)?)?;
-                let seat = self.seat_offset(*rider, rider_id, mount)?;
-                let offset = seat_world_offset(seat, mount.yaw);
-                Some((
-                    rider_id,
-                    std::array::from_fn(|axis| mount.position[axis] + offset[axis]),
-                ))
+                let rider = self.actors.get(&rider_id)?;
+                let seat = self.seat_for(*rider_unique_id, rider, mount)?;
+                let offset = seat_world_offset(seat.position, mount.yaw);
+                Some(Placement {
+                    runtime_id: rider_id,
+                    position: std::array::from_fn(|axis| mount.position[axis] + offset[axis]),
+                    body_yaw: wrap_degrees(mount.yaw + seat.rotate_by.unwrap_or(0.0)),
+                    lock_degrees: seat
+                        .lock_degrees
+                        .filter(|degrees| *degrees < UNLOCKED_HEAD_DEGREES),
+                })
             })
             .collect();
-        for (runtime_id, position) in placements {
-            if let Some(rider) = self.actors.get_mut(&runtime_id) {
-                rider.received_pose.position = position;
-                rider.position = position;
-                rider.interpolation_ticks_remaining = 0;
+        for placement in placements {
+            let Some(rider) = self.actors.get_mut(&placement.runtime_id) else {
+                continue;
+            };
+            rider.received_pose.position = placement.position;
+            rider.position = placement.position;
+            rider.yaw = placement.body_yaw;
+            rider.received_pose.yaw = placement.body_yaw;
+            if let Some(limit) = placement.lock_degrees {
+                let head = placement.body_yaw
+                    + wrap_degrees(rider.head_yaw - placement.body_yaw).clamp(-limit, limit);
+                rider.head_yaw = head;
+                rider.received_pose.head_yaw = head;
             }
+            rider.interpolation_ticks_remaining = 0;
         }
     }
 
@@ -162,7 +284,7 @@ impl ActorStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{RideSeat, SeatDefaults, seat_world_offset};
+    use super::{RideSeat, SeatDefaults, SeatRequirement, seat_world_offset};
 
     #[test]
     fn default_seats_follow_rider_count_and_index() {
