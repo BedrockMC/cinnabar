@@ -10,6 +10,7 @@ mod entity;
 mod fadpcm;
 mod font;
 mod hud;
+mod hud_extras;
 mod icon;
 mod image;
 mod lang;
@@ -17,7 +18,6 @@ mod pack;
 mod particle;
 mod ui;
 mod weather_textures;
-mod hud_extras;
 
 pub use actor::{
     ActorCompileReport, ActorFallback, ActorTextureEvidence, CompiledActorCarrier,
