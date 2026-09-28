@@ -607,14 +607,17 @@ fn property_query_resolves_names_against_synced_definitions() {
             PropertyDefinition {
                 name: "minecraft:angry".into(),
                 kind: PropertyKind::Number,
+                default: 0.0,
             },
             PropertyDefinition {
                 name: "minecraft:variant".into(),
                 kind: PropertyKind::Enum(Arc::from([Arc::from("pale"), Arc::from("ashen")])),
+                default: 0.0,
             },
             PropertyDefinition {
                 name: "minecraft:amount".into(),
                 kind: PropertyKind::Number,
+                default: 0.0,
             },
         ])),
         ..ActorTickContext::default()

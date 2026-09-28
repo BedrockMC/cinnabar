@@ -238,6 +238,15 @@ impl WorldStream {
         self.actors.set_pack_entities(assets);
     }
 
+    /// Seeds `query.property` definitions from pack behavior defaults for entity types the
+    /// server has not synced.
+    pub fn seed_property_defaults(
+        &mut self,
+        types: &[(std::sync::Arc<str>, Vec<crate::PropertyDefault>)],
+    ) {
+        self.actors.seed_property_defaults(types);
+    }
+
     pub fn set_item_use_durations(
         &mut self,
         durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
