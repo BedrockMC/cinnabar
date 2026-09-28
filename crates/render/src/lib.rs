@@ -40,7 +40,7 @@ pub use actor::{
     ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
     ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects,
-    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, pack_overlay_rgba8,
     ActorRuntimeWitness, ActorSkinPixels, ActorTexturePage, ActorVertex, DEFAULT_SKIN_PROVENANCE,
     EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,

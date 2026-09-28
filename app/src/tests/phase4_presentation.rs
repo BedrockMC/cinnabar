@@ -150,6 +150,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
             ],
             texture_layer: u32::MAX,
             route: ActorRigRoute::Compiled,
+            overlay_rgba8: 0,
         },
         skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
         artwork: None,
