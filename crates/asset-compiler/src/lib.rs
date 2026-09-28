@@ -2,6 +2,7 @@ mod actor;
 mod animation;
 mod atmosphere;
 mod audio;
+mod audio_bank;
 mod audio_pcm;
 mod biome;
 mod block_entity;
@@ -31,6 +32,9 @@ pub use atmosphere::{
 pub use audio::{
     AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, AudioCompileError, AudioCompileReport,
     CompiledAudioCarrier, PINNED_SOUND_DEFINITIONS_SHA256, compile_audio_assets,
+};
+pub use audio_bank::{
+    AudioBankCompileError, AudioBankCompileReport, CompiledAudioBank, compile_audio_bank,
 };
 pub use audio_pcm::{
     AudioPcmCompileError, AudioPcmCompileReport, CompiledAudioPcmCarrier, compile_audio_pcm_assets,
