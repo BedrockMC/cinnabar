@@ -136,6 +136,66 @@ fn unknown_runtime_ids_fail_closed_instead_of_becoming_full_cubes_or_air() {
 }
 
 #[test]
+fn camera_lenient_query_keeps_real_walls_while_skipping_unknown_cells() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    let mut store = loaded_uniform_store(chunk, 0);
+    let sub = SubChunkKey::from_chunk(chunk, 0);
+    store
+        .update_block(sub, BlockUpdate::new(2, 0, 3, 0, 1), 0)
+        .unwrap();
+    store
+        .update_block(sub, BlockUpdate::new(5, 0, 3, 0, 77), 0)
+        .unwrap();
+    let mut registry = CollisionRegistry::new();
+    registry.register(0, []).unwrap();
+    registry
+        .register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0);
+    let query = Aabb::new(Vec3::new(2.0, 0.0, 3.0), Vec3::new(6.0, 1.0, 4.0));
+
+    let lenient = world.collision_boxes_camera_lenient(query).unwrap();
+    assert!(
+        lenient.value.contains(&Aabb::new(
+            Vec3::new(2.0, 0.0, 3.0),
+            Vec3::new(3.0, 1.0, 4.0)
+        )),
+        "the registered wall beside an unknown cell must still emit its box",
+    );
+    assert!(lenient.skipped.unknown_runtime_id >= 1);
+    assert_eq!(lenient.skipped.unloaded_chunk, 0);
+
+    // The strict authority surface is untouched: it still fails closed.
+    assert_eq!(
+        world.collision_boxes(query),
+        Err(WorldQueryError::UnknownRuntimeId {
+            runtime_id: 77,
+            block: [5, 0, 3],
+        })
+    );
+}
+
+#[test]
+fn camera_lenient_query_skips_unloaded_cells_but_keeps_framing_errors_fatal() {
+    let store = ChunkStore::new();
+    let registry = CollisionRegistry::new();
+    let world = PaletteWorld::new(&store, &registry, 2);
+
+    let lenient = world
+        .collision_boxes_camera_lenient(Aabb::new(Vec3::ZERO, Vec3::ONE))
+        .unwrap();
+    assert!(lenient.value.is_empty());
+    assert!(lenient.skipped.unloaded_chunk >= 1);
+    assert_eq!(lenient.skipped.unknown_runtime_id, 0);
+
+    let oversized = sim::MAX_COLLISION_QUERY_EXTENT + 1.0;
+    assert_eq!(
+        world.collision_boxes_camera_lenient(Aabb::new(Vec3::ZERO, Vec3::new(oversized, 1.0, 1.0))),
+        Err(WorldQueryError::QueryExtentExceeded)
+    );
+}
+
+#[test]
 fn absent_column_fails_closed_even_though_sparse_lookup_looks_like_air() {
     let store = ChunkStore::new();
     let registry = CollisionRegistry::new();
