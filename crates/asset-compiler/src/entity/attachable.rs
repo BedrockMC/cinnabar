@@ -8,16 +8,20 @@
 //! keyframes in the exact `wield_first_person`/`wield_third_person` base clips;
 //! anything Molang/query-derived is left `NeedsMeasurement`.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, io::Cursor, path::Path, sync::Arc};
 
 use assets::{
-    ArmorSlot, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, EntityDependencyResolution,
-    EquipmentBinding, EquipmentCategory, EquipmentReference, EquipmentTransform, ItemDisplayScalar,
-    ItemDisplayTransform, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_IDENTIFIER_BYTES,
+    ArmorSlot, AssetError, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
+    EntityDependencyResolution, EquipmentBinding, EquipmentCategory, EquipmentReference,
+    EquipmentTexture, EquipmentTransform, ItemDisplayScalar, ItemDisplayTransform,
+    MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_IDENTIFIER_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE,
+    MAX_EQUIPMENT_TEXTURES,
 };
+use image::{ImageFormat, ImageReader, Limits};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
-use super::{SourcePayloads, invalid, json::parse_unique_json};
+use super::{SourcePayloads, invalid, json::parse_unique_json, read_bounded_source};
 
 /// Literal transforms an item's attachable exposed, keyed by item identifier.
 pub(super) struct ItemTransforms {
@@ -94,6 +98,69 @@ pub(super) fn transform_lookup(
             )
         })
         .collect()
+}
+
+/// Decodes every binding's default texture found among the collected sources, sorted by
+/// identifier. Bindings whose raster is not collected are skipped, never fatal.
+pub fn compile_textures(
+    root: &Path,
+    sources: &[EntityAssetSource],
+    bindings: &[EquipmentBinding],
+) -> Result<Vec<EquipmentTexture>, AssetError> {
+    let mut identifiers = bindings
+        .iter()
+        .map(|binding| binding.texture.identifier.as_ref())
+        .collect::<Vec<_>>();
+    identifiers.sort_unstable();
+    identifiers.dedup();
+    let mut textures = Vec::new();
+    for identifier in identifiers {
+        let Some(source) = ["png", "tga"].into_iter().find_map(|extension| {
+            let path = format!("{identifier}.{extension}");
+            sources
+                .iter()
+                .find(|source| source.path.as_ref() == path)
+                .map(|source| (source, extension))
+        }) else {
+            continue;
+        };
+        let (source, extension) = source;
+        let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
+        if bytes.len() != source.source_bytes as usize
+            || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
+        {
+            return Err(invalid("equipment raster changed after entity compilation"));
+        }
+        let format = if extension == "png" {
+            ImageFormat::Png
+        } else {
+            ImageFormat::Tga
+        };
+        let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
+        let mut limits = Limits::default();
+        limits.max_image_width = Some(MAX_EQUIPMENT_TEXTURE_SIDE.into());
+        limits.max_image_height = Some(MAX_EQUIPMENT_TEXTURE_SIDE.into());
+        limits.max_alloc = Some(2 * 1024 * 1024);
+        reader.limits(limits);
+        // An oversized or undecodable raster leaves that attachable untextured.
+        let Ok(image) = reader.decode() else {
+            continue;
+        };
+        let (Ok(width), Ok(height)) = (u16::try_from(image.width()), u16::try_from(image.height()))
+        else {
+            continue;
+        };
+        if textures.len() == MAX_EQUIPMENT_TEXTURES {
+            break;
+        }
+        textures.push(EquipmentTexture {
+            identifier: identifier.into(),
+            width,
+            height,
+            rgba8: Arc::from(image.into_rgba8().into_raw()),
+        });
+    }
+    Ok(textures)
 }
 
 fn binding(
