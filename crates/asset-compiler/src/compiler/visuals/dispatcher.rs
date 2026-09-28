@@ -149,6 +149,15 @@ impl VisualCompiler {
             return Ok(CompileRuleResult::Compiled(visual));
         }
 
+        ordered_rule!(super::entity_drawn::compile_rule(
+            record,
+            inputs,
+            &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::fallback::compile_rule(
             record,
             inputs,
