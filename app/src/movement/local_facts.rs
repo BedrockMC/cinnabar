@@ -10,6 +10,7 @@ const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct LocalMovementFacts {
     pub can_fly: bool,
+    pub server_flying: bool,
     pub fly_speed: Option<f64>,
     pub elytra_ready: bool,
     pub sprint_blocked: bool,
@@ -29,10 +30,10 @@ pub(super) fn read(
                 .and_then(|stack| stack.identifier)
                 .is_some_and(|identifier| &*identifier == ELYTRA_IDENTIFIER)
     });
+    let capabilities = ui.game_mode_capabilities();
     LocalMovementFacts {
-        can_fly: ui
-            .game_mode_capabilities()
-            .is_some_and(|capabilities| capabilities.can_fly),
+        can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
+        server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
         fly_speed: ui.local_abilities().and_then(flight_speed),
         elytra_ready,
         sprint_blocked: ui.survival_stats_visible()
