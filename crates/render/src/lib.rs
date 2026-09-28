@@ -82,13 +82,15 @@ pub use atmosphere::{
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{
     AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BannerLayer, BannerModel, BannerMount, BeaconModel,
-    BedModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,
-    BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission, BlockEntityVertex,
-    ChestModel, ChestPair, ChestVariant, CopperAge, CrackInstance, CrackQuad, CrackShape, Facing,
-    MAX_BANNER_LAYERS, MAX_BLOCK_ENTITY_VERTICES, SceneClock, ShulkerModel, SignFace, SignModel,
-    SignMount, SkullKind, SkullModel, SkullMount, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
-    banner_color, bed_color, crack_shape_from_template, crack_texture_name, floor_yaw_degrees,
-    lid_angle_radians, pattern_texture, shulker_color_from_block_name,
+    BedModel, BellAttachment, BellModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame,
+    BlockEntityKind, BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission,
+    BlockEntityVertex, ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance,
+    CrackQuad, CrackShape, DecoratedPotModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
+    MAX_BLOCK_ENTITY_VERTICES, SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind,
+    SkullModel, SkullMount, StaticItemPlacement, StaticItemPlacements, TEXT_CELL, TEXT_SLOT_COUNT,
+    TextureRef, banner_color, bed_color, block_matrix, crack_shape_from_template,
+    crack_texture_name, floor_yaw_degrees, item_frame_item_transform, lid_angle_radians,
+    matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,
