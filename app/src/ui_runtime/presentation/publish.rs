@@ -34,10 +34,11 @@ pub(crate) fn publish_ui_runtime(
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig): (
+    (frame_poll, menu_runtime, hand_rig, collisions): (
         Res<WorldStreamFramePoll>,
         Res<crate::menu::MenuRuntime>,
         Res<render::HandRigScene>,
+        Option<Res<crate::movement::PhysicsCollisionRegistries>>,
     ),
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
@@ -194,6 +195,7 @@ pub(crate) fn publish_ui_runtime(
                 transform,
                 [logical_width, logical_height],
                 presentation.safe_area,
+                collisions.as_deref(),
             )
         })
         .unwrap_or_default();
@@ -496,7 +498,8 @@ fn project_below_name_anchors(
         .collect()
 }
 
-/// Nametags for every other player; those with a below-name score get the combined plate instead.
+/// Nametags for other players and flagged mobs; players with a below-name score get the combined
+/// plate instead. Wall occlusion uses the collision store, failing open when it is unavailable.
 fn project_nametags(
     scoreboards: &ui::ScoreboardStore,
     stream: &client_world::WorldStream,
@@ -504,15 +507,41 @@ fn project_nametags(
     camera_transform: &GlobalTransform,
     logical_size: [f32; 2],
     safe_area: SafeArea,
+    collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
 ) -> Vec<nametags::NametagAnchor> {
     let content_size = [
         (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0),
         (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0),
     ];
+    let world = collisions.map(|collisions| {
+        sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+        )
+    });
+    let eye = camera_transform.translation();
+    let is_occluded = |target: Vec3| {
+        let Some(world) = world.as_ref() else {
+            return false;
+        };
+        let offset = target - eye;
+        let distance = f64::from(offset.length());
+        if !distance.is_finite() || distance <= 0.0 {
+            return false;
+        }
+        let direction = offset.normalize();
+        let vector = |value: Vec3| {
+            sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
+        };
+        matches!(
+            world.block_interaction_ray_current(vector(eye), vector(direction), distance),
+            Ok(Some(_))
+        )
+    };
     stream
-        .render_players()
-        .into_iter()
-        .filter_map(|(actor, _profile)| {
+        .remote_actors()
+        .filter_map(|actor| {
             let scored = scoreboards
                 .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
                 .or_else(|| {
@@ -529,6 +558,7 @@ fn project_nametags(
                 camera_transform,
                 content_size,
                 safe_area,
+                &is_occluded,
             )
         })
         .take(nametags::MAX_PRESENTED_NAMETAGS)
