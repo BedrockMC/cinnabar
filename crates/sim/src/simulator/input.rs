@@ -36,6 +36,12 @@ pub struct MovementInput {
     /// Look pitch, degrees positive downward. Read only by swimming and gliding.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub pitch_degrees: f64,
+    /// Depth Strider level on the boots; scales water travel toward ground travel.
+    #[serde(default, skip_serializing_if = "is_zero_level")]
+    pub depth_strider: u8,
+    /// Soul Speed level on the boots; replaces the soul sand slowdown.
+    #[serde(default, skip_serializing_if = "is_zero_level")]
+    pub soul_speed: u8,
     /// Ability flight speed; `None` selects the vanilla default. Read only when flying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fly_speed: Option<f64>,
@@ -43,6 +49,10 @@ pub struct MovementInput {
 
 fn is_walking(mode: &MovementMode) -> bool {
     mode.is_walking()
+}
+
+fn is_zero_level(value: &u8) -> bool {
+    *value == 0
 }
 
 fn is_zero(value: &f64) -> bool {

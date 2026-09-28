@@ -47,6 +47,16 @@ pub const JUMP_DELAY_TICKS: u8 = 10;
 const COLLISION_EPSILON: f64 = 1.0e-5;
 /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 const CLIMB_SPEED: f64 = 0.2;
+// Provisional block-modifier and enchantment coefficients with no bedsim oracle;
+// each needs independent measurement.
+const HONEY_JUMP_FACTOR: f64 = 0.5;
+const HONEY_SLIDE_TRIGGER: f64 = -0.13;
+const HONEY_SLIDE_SPEED: f64 = -0.05;
+const SOUL_SPEED_PER_LEVEL: f64 = 0.105;
+const DEPTH_STRIDER_MAX_LEVEL: u8 = 3;
+const WATER_DRAG: f64 = 0.8;
+/// Ground drag depth strider blends water drag toward (default ground friction times air friction).
+const DEPTH_STRIDER_TARGET_DRAG: f64 = 0.546;
 /// Provisional scaffolding sneak-descent speed; needs independent measurement.
 const SCAFFOLDING_SNEAK_DESCENT: f64 = 0.15;
 /// `bedsim v0.1.3` `walkOnBlock` damps slime by `0.4 + |yMov| * 0.2`. It only
@@ -128,6 +138,17 @@ impl Simulator {
         } else {
             DEFAULT_AIR_FRICTION
         };
+        let ground_factor = if input.soul_speed > 0
+            && sampled.movement.surface_response == crate::SurfaceResponse::SoulSand
+        {
+            sampled
+                .movement
+                .horizontal_speed_factor
+                .max(1.0 + SOUL_SPEED_PER_LEVEL * f64::from(input.soul_speed))
+        } else {
+            sampled.movement.horizontal_speed_factor
+        };
+        let depth_strider = depth_strider_blend(input.depth_strider, grounded_at_start);
         let relative_speed = if grounded_at_start {
             let speed = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED)
                 * if input.sprinting {
@@ -135,11 +156,15 @@ impl Simulator {
                 } else {
                     1.0
                 };
-            speed
-                * sampled.movement.horizontal_speed_factor
-                * (0.162_771_36 / (friction * friction * friction))
+            speed * ground_factor * (0.162_771_36 / (friction * friction * friction))
         } else if sampled.movement.in_water || sampled.movement.in_lava {
-            DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor
+            let base = DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor;
+            if sampled.movement.in_water && depth_strider > 0.0 {
+                let ground = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED);
+                base + (ground - base) * depth_strider
+            } else {
+                base
+            }
         } else if input.sprinting {
             SPRINT_AIR_SPEED
         } else {
@@ -155,12 +180,18 @@ impl Simulator {
         );
 
         if input.jump_pressed && next.on_ground && next.jump_delay == 0 {
+            let honey = if sampled.movement.surface_response == crate::SurfaceResponse::Honey {
+                HONEY_JUMP_FACTOR
+            } else {
+                1.0
+            };
             next.velocity.y = next.velocity.y.max(
-                DEFAULT_JUMP_HEIGHT
+                (DEFAULT_JUMP_HEIGHT
                     + input
                         .effects
                         .jump_boost
-                        .map_or(0.0, |amplifier| 0.1 * (f64::from(amplifier) + 1.0)),
+                        .map_or(0.0, |amplifier| 0.1 * (f64::from(amplifier) + 1.0)))
+                    * honey,
             );
             next.jump_delay = JUMP_DELAY_TICKS;
             if input.sprinting {
@@ -203,6 +234,13 @@ impl Simulator {
             next.velocity.x *= sampled.movement.horizontal_speed_factor;
             next.velocity.y *= sampled.movement.vertical_speed_factor;
             next.velocity.z *= sampled.movement.horizontal_speed_factor;
+        }
+        if sampled.movement.surface_response == crate::SurfaceResponse::Honey
+            && !grounded_at_start
+            && (retained_collisions.x || retained_collisions.z)
+            && next.velocity.y < HONEY_SLIDE_TRIGGER
+        {
+            next.velocity.y = HONEY_SLIDE_SPEED;
         }
         let mut identity = sampled.identity;
         if input.sneaking
@@ -288,7 +326,11 @@ impl Simulator {
         } else if sampled.movement.in_water || sampled.movement.in_lava {
             // When both liquid facts overlap, the pinned v0.1.5 slice follows
             // water travel rather than composing water gravity with lava drag.
-            let drag = if sampled.movement.in_water { 0.8 } else { 0.5 };
+            let drag = if sampled.movement.in_water {
+                WATER_DRAG + (DEPTH_STRIDER_TARGET_DRAG - WATER_DRAG) * depth_strider
+            } else {
+                0.5
+            };
             next.velocity.x *= drag;
             next.velocity.y *= drag;
             next.velocity.z *= drag;
@@ -362,6 +404,12 @@ impl Simulator {
             controls,
         })
     }
+}
+
+/// Depth strider's pull of water travel toward ground travel, `0..=1`; halved airborne.
+fn depth_strider_blend(level: u8, grounded: bool) -> f64 {
+    let blend = f64::from(level.min(DEPTH_STRIDER_MAX_LEVEL)) / f64::from(DEPTH_STRIDER_MAX_LEVEL);
+    if grounded { blend } else { blend * 0.5 }
 }
 
 fn apply_relative_movement(

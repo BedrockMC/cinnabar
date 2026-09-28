@@ -18,6 +18,9 @@ pub struct ModeIntent {
     pub fly_speed: Option<f64>,
     /// An elytra is equipped in the chest slot.
     pub elytra_ready: bool,
+    /// Boot enchantment levels the simulator reads.
+    pub depth_strider: u8,
+    pub soul_speed: u8,
 }
 
 /// Per-tick simulation facts read before the tick runs.

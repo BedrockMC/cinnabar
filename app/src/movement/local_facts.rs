@@ -6,6 +6,9 @@ use super::control_modes::SPRINT_HUNGER_FLOOR;
 use crate::ui_runtime::UiRuntime;
 
 const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
+/// Bedrock enchantment ids; provisional until checked against a native item.
+const DEPTH_STRIDER_ENCHANTMENT_ID: i16 = 7;
+const SOUL_SPEED_ENCHANTMENT_ID: i16 = 36;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct LocalMovementFacts {
@@ -13,6 +16,8 @@ pub(super) struct LocalMovementFacts {
     pub server_flying: bool,
     pub fly_speed: Option<f64>,
     pub elytra_ready: bool,
+    pub depth_strider: u8,
+    pub soul_speed: u8,
     pub sprint_blocked: bool,
 }
 
@@ -31,11 +36,19 @@ pub(super) fn read(
                 .is_some_and(|identifier| &*identifier == ELYTRA_IDENTIFIER)
     });
     let capabilities = ui.game_mode_capabilities();
+    let boots_level = |id| {
+        ui.gameplay_hud()
+            .armor()
+            .and_then(|slots| protocol::item_enchantment_level(&slots.boots.extra_data, id))
+            .unwrap_or(0)
+    };
     LocalMovementFacts {
         can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
         fly_speed: ui.local_abilities().and_then(flight_speed),
         elytra_ready,
+        depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
+        soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
         sprint_blocked: ui.survival_stats_visible()
             && ui
                 .hud()
