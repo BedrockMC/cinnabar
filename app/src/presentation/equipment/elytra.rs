@@ -25,7 +25,7 @@ pub(super) fn stance_pose<'a>(
 
 /// Zyx composition of authored degrees in the X-mirrored rig frame (X and Y turn against the
 /// right-hand rule), matching the actor pose evaluator.
-fn rotation(degrees: [f32; 3]) -> Quat {
+pub(super) fn rotation(degrees: [f32; 3]) -> Quat {
     let [x, y, z] = [-degrees[0], -degrees[1], degrees[2]].map(|angle| angle.to_radians() * 0.5);
     let (sx, cx) = x.sin_cos();
     let (sy, cy) = y.sin_cos();

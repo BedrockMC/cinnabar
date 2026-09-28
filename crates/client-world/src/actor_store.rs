@@ -406,6 +406,9 @@ pub struct LocalPlayerFeed {
     pub yaw: f32,
     pub head_yaw: f32,
     pub pitch: f32,
+    /// Identifiers of the client-owned main-hand and off-hand items.
+    pub main_hand: Option<std::sync::Arc<str>>,
+    pub off_hand: Option<std::sync::Arc<str>>,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
@@ -441,6 +444,8 @@ pub(crate) struct ActorStore {
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
+    /// Held items of the client-fed local player, which the item store never tracks.
+    local_hands: [Option<std::sync::Arc<str>>; 2],
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
     /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.

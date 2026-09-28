@@ -2,6 +2,7 @@
 
 mod armor;
 mod atlas;
+mod attachable;
 mod blocks;
 mod display;
 mod elytra;
