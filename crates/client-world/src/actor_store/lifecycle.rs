@@ -87,6 +87,7 @@ impl ActorStore {
             synthetic_local_uuid: None,
             synthetic_local_revision: 0,
             local_first_person: false,
+            local_hands: [None, None],
             camera_rotation: [0.0; 2],
             local_knockback: None,
             status_notices: Vec::new(),
@@ -122,6 +123,7 @@ impl ActorStore {
             return;
         }
         self.local_first_person = feed.first_person;
+        self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
         let pose = ActorPose {
             position: feed.position,
             pitch: feed.pitch,
@@ -505,6 +507,8 @@ impl ActorStore {
             let local_first_person = self
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);
+            let local_runtime = self.remote_state_excluded_runtime_id;
+            let local_hands = self.local_hands.clone();
             self.animation.advance_tick(actors, |actor| {
                 let lifetime = ActorLifetimeId {
                     session_id,
@@ -512,12 +516,22 @@ impl ActorStore {
                     runtime_id: actor.runtime_id,
                     spawn_revision: actor.spawn_revision,
                 };
+                let is_local = local_runtime == Some(actor.runtime_id);
                 let held = |hand| {
+                    if is_local {
+                        return local_hands[usize::from(hand != protocol::ActorHandedness::Right)]
+                            .clone();
+                    }
                     items
                         .get_in_hand(lifetime, hand)
                         .filter(|equipment| equipment.item.identity.network_id != 0)
                         .and_then(|equipment| equipment.item.identifier.clone())
                 };
+                let main_hand = held(protocol::ActorHandedness::Right);
+                let main_hand_max_use_ticks = main_hand
+                    .as_deref()
+                    .and_then(|identifier| items.max_use_ticks(identifier))
+                    .unwrap_or(0);
                 let kind_of = |unique_id: &i64| {
                     unique_to_runtime
                         .get(unique_id)
@@ -536,7 +550,8 @@ impl ActorStore {
                 }
                 crate::actor_animation::ActorTickContext {
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
-                    main_hand: held(protocol::ActorHandedness::Right),
+                    main_hand,
+                    main_hand_max_use_ticks,
                     off_hand: held(protocol::ActorHandedness::Left),
                     ridden: rider_to_ridden
                         .get(&actor.unique_id)
@@ -724,6 +739,13 @@ impl ActorStore {
 
     /// Applies worn armor to a live remote actor, or to the client-owned local runtime even
     /// before its synthetic actor exists.
+    pub(crate) fn set_item_use_durations(
+        &mut self,
+        durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
+    ) {
+        self.items.set_use_durations(durations);
+    }
+
     pub(crate) fn apply_armor(
         &mut self,
         session_id: u64,

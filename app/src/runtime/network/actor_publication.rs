@@ -112,9 +112,18 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     }
     let step = actor_clock.advance(time.delta());
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let local_feed =
+    let mut local_feed =
         build_local_player_feed(&local_physics, view.rotation(), first_person, &local_skin);
+    if let (Some(feed), Some(stream)) = (local_feed.as_mut(), client_world.stream.as_ref()) {
+        // The local player's held items are client-owned; the rig's item queries read them here.
+        let input = local_input(stream, ui.as_deref(), stream.local_player_runtime_id());
+        feed.main_hand = input.main.map(|item| item.identifier);
+        feed.off_hand = input.off.map(|item| item.identifier);
+    }
     if let Some(stream) = client_world.stream.as_mut() {
+        if let Some(equipment) = equipment.as_deref() {
+            stream.set_item_use_durations(equipment.item_use_durations());
+        }
         // Feed the client-authored local pose before the tick advance and rig read so the
         // local body/hand are driven by the shared rig, not the static fallback.
         if let Some(feed) = &local_feed {
@@ -471,6 +480,8 @@ fn build_local_player_feed(
         yaw: yaw_degrees,
         head_yaw: yaw_degrees,
         pitch: pitch_degrees,
+        main_hand: None,
+        off_hand: None,
         teleported: false,
         first_person,
         sneaking,

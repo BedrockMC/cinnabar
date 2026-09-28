@@ -158,6 +158,7 @@ pub(crate) struct EquipmentRuntime {
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
+    item_use: Arc<BTreeMap<Box<str>, u32>>,
 }
 
 impl EquipmentRuntime {
@@ -245,7 +246,6 @@ impl EquipmentRuntime {
         geometries.dedup();
         let runtime = Self {
             assets,
-            catalog,
             icons,
             placements: atlas.placements,
             block_sheets: by_visual
@@ -258,10 +258,23 @@ impl EquipmentRuntime {
             armor_geometry: BTreeMap::new(),
             armor_maps: BTreeMap::new(),
             meshes: BTreeMap::new(),
+            item_use: Arc::new(
+                catalog
+                    .iter()
+                    .flat_map(|catalog| catalog.item_use())
+                    .map(|entry| (entry.identifier.clone(), entry.ticks))
+                    .collect(),
+            ),
+            catalog,
             pending,
             skulls,
         };
         (runtime, artwork, geometries)
+    }
+
+    /// Item use durations for the animation runtime's max-duration query.
+    pub(crate) fn item_use_durations(&self) -> Arc<BTreeMap<Box<str>, u32>> {
+        Arc::clone(&self.item_use)
     }
 
     /// Geometries generated since the last call; the actor scene must register them before the
