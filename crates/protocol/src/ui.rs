@@ -16,10 +16,11 @@ mod text;
 
 pub(crate) use forms::normalize_form;
 pub use forms::{
-    CustomFormValue, FormButtonImage, FormKind, FormRequestEvent, MAX_FORM_BUTTONS,
-    MAX_FORM_JSON_DEPTH, ModalFormResponseSelection, ServerFormModel, TextMenuForm,
-    UnsupportedForm, custom_form_submit_response, modal_form_busy_response,
-    modal_form_cancel_response, modal_form_submit_response,
+    CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage, FormKind,
+    FormNumber, FormRequestEvent, MAX_FORM_BUTTONS, MAX_FORM_JSON_DEPTH, MenuElement,
+    ModalDialogForm, ModalFormResponseSelection, ServerFormModel, TextMenuForm, UnsupportedForm,
+    custom_form_submit_response, modal_form_busy_response, modal_form_cancel_response,
+    modal_form_submit_response,
 };
 pub use text::{RawTextEvent, TextCategory, TextEvent, TextKind, TitleAction, TitleEvent};
 pub(crate) use text::{normalize_text, normalize_title};
