@@ -30,6 +30,8 @@ mod moves_tests;
 mod overlay;
 #[cfg(test)]
 mod overlay_tests;
+#[cfg(test)]
+mod screens_tests;
 mod personal;
 mod queue;
 mod quick_move;
