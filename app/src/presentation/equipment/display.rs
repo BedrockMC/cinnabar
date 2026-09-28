@@ -73,3 +73,12 @@ pub(super) fn held_block_display() -> ItemDisplay {
         scale: 0.4,
     }
 }
+
+/// A block worn on the head: a cube just larger than the head, centred on it. Provisional.
+pub(super) fn head_block_display() -> ItemDisplay {
+    ItemDisplay {
+        rotation: Quat::IDENTITY,
+        translation: Vec3::new(0.0, 0.25, 0.0),
+        scale: 0.5625,
+    }
+}
