@@ -24,3 +24,17 @@ func attributeRelayError(err error, fromUpstream bool) error {
 	}
 	return err
 }
+
+type packetDisconnecter interface {
+	DisconnectPacket(packet.Disconnect) error
+}
+
+// relayPreLoginDisconnect forwards a server's disconnect packet, found anywhere in err,
+// to a downstream that has not spawned yet so the player sees the real reason.
+func relayPreLoginDisconnect(downstream packetDisconnecter, err error) {
+	var disconnect *minecraft.DisconnectPacketError
+	if !errors.As(err, &disconnect) || disconnect == nil {
+		return
+	}
+	_ = callWithoutPanic(func() error { return downstream.DisconnectPacket(*disconnect.Packet()) })
+}

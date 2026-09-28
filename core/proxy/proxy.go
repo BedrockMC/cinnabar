@@ -341,6 +341,15 @@ func connectUpstream(
 	return result, nil
 }
 
+// networkForAddress keeps the resolved transport for the target itself; a server transfer
+// names a plain host:port, which is always RakNet.
+func networkForAddress(target *resolvedUpstreamTarget, address string) minecraft.Network {
+	if strings.EqualFold(address, target.address) {
+		return target.network
+	}
+	return minecraft.RakNet{}
+}
+
 func dialFollowingTransfers(
 	ctx context.Context,
 	initialAddress string,
