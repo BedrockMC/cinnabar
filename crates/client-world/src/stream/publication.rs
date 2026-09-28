@@ -91,6 +91,9 @@ impl WorldStream {
     pub fn take_committed_audio(&mut self) -> Vec<CommittedAudioEvent> {
         self.committed_audio.drain(..).collect()
     }
+    pub fn take_committed_particles(&mut self) -> Vec<CommittedParticleEvent> {
+        self.committed_particles.drain(..).collect()
+    }
     pub fn take_committed_camera(&mut self) -> Vec<CommittedCameraEvent> {
         self.committed_camera.drain(..).collect()
     }

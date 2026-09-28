@@ -104,6 +104,7 @@ pub const COMMITTED_CONTROL_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_CAMERA_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
+pub const COMMITTED_PARTICLE_CAPACITY: usize = 512;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
@@ -218,10 +219,10 @@ pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
 pub use model::{
-    CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedUiEvent,
-    ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest, PublisherViewGeometry,
-    ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError, WorldStreamFatalError,
-    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+    CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
+    CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
+    PublisherViewGeometry, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError,
+    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
@@ -310,6 +311,7 @@ pub struct WorldStream {
     local_movement_speed: Option<f64>,
     committed_audio: VecDeque<CommittedAudioEvent>,
     committed_camera: VecDeque<CommittedCameraEvent>,
+    committed_particles: VecDeque<CommittedParticleEvent>,
     publisher_center: Option<[i32; 3]>,
     publisher_radius_blocks: Option<u32>,
     publisher_radius_chunks: Option<i32>,
