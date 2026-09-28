@@ -60,6 +60,7 @@ use crate::{
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
+        send_movement_prediction_sync,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
     runtime::{
@@ -187,6 +188,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             advance_local_physics
                 .in_set(LocalPlayerFrameSet::Physics)
                 .in_set(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            send_movement_prediction_sync
+                .after(advance_local_physics)
+                .in_set(ClientFrameSet::NetworkSend),
         )
         .add_systems(
             Update,

@@ -15,6 +15,7 @@ impl LocalPhysicsController {
         if !network_position.into_iter().all(f32::is_finite) {
             return Err(PhysicsCorrectionError::InvalidAnchor);
         }
+        self.corrections_applied = self.corrections_applied.saturating_add(1);
         if matches!(mode, PhysicsCorrectionMode::Snap) {
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             return Ok(PhysicsCorrectionPlan {
