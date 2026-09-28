@@ -4,7 +4,7 @@
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
 //! (needs native measurement against Bedrock's own scale-index rule).
 
-use std::{borrow::Cow, cell::RefCell, sync::Arc};
+use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
@@ -17,6 +17,7 @@ use ui::{
 };
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
+use super::server_pack::ServerTexture;
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
@@ -36,6 +37,10 @@ pub(crate) struct FormEngine {
     /// Texture page of carrier atlas page 0.
     first_page: u16,
     context: Context,
+    /// Server-pack textures shadowing the carrier's, and how many pages follow
+    /// the carrier pages for them.
+    server: BTreeMap<String, ServerTexture>,
+    server_pages: usize,
 }
 
 /// Everything a render borrows from the presentation runtime for one frame.
@@ -58,7 +63,34 @@ impl FormEngine {
             base,
             first_page,
             context: Context::desktop(),
+            server: BTreeMap::new(),
+            server_pages: 0,
         }
+    }
+
+    /// Texture page of the first server-pack page (right after the carrier's).
+    pub(super) fn server_page_start(&self) -> usize {
+        usize::from(self.first_page) + self.assets.atlas_pages().len()
+    }
+
+    pub(super) fn server_pages(&self) -> usize {
+        self.server_pages
+    }
+
+    /// The carrier page size server textures pack into.
+    pub(super) fn page_side(&self) -> [u32; 2] {
+        self.assets.atlas_pages().iter().fold([1, 1], |acc, page| {
+            [acc[0].max(page.width), acc[1].max(page.height)]
+        })
+    }
+
+    pub(super) fn set_server_textures(
+        &mut self,
+        textures: BTreeMap<String, ServerTexture>,
+        pages: usize,
+    ) {
+        self.server = textures;
+        self.server_pages = pages;
     }
 
     /// Re-apply a server resource pack's ui files over the vanilla catalog;
@@ -136,7 +168,10 @@ impl FormEngine {
                 px,
                 translate: inputs.translate,
             };
-            let textures = Sidecars(&self.assets);
+            let textures = Sidecars {
+                assets: &self.assets,
+                server: &self.server,
+            };
             let env = LayoutEnv {
                 text: &measure,
                 textures: &textures,
@@ -149,6 +184,8 @@ impl FormEngine {
         let layouts = cache.into_inner();
         let mut painter = Painter {
             assets: &self.assets,
+            server: &self.server,
+            server_page: self.server_page_start() as u16,
             first_page: self.first_page,
             solid_page: inputs.solid_page,
             art,
@@ -262,12 +299,21 @@ impl TextMeasure for Measure<'_, '_> {
 
 /// Sidecar metadata keyed like the ui json references it; a sidecar-less texture
 /// reports its packed pixel size with no nine-slice.
-struct Sidecars<'a>(&'a RuntimeUiAssets);
+struct Sidecars<'a> {
+    assets: &'a RuntimeUiAssets,
+    server: &'a BTreeMap<String, ServerTexture>,
+}
 
 impl TextureSource for Sidecars<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
         let key = texture_key(path);
-        if let Some(sidecar) = self.0.sidecar(key) {
+        if let Some(texture) = self.server.get(key) {
+            return Some(texture.meta.unwrap_or(TextureMeta {
+                base_size: [f64::from(texture.rect[2]), f64::from(texture.rect[3])],
+                nineslice: None,
+            }));
+        }
+        if let Some(sidecar) = self.assets.sidecar(key) {
             return Some(TextureMeta {
                 base_size: sidecar.base_size.map(f64::from),
                 nineslice: sidecar.nineslice.map(|inset| NineSlice {
@@ -278,7 +324,7 @@ impl TextureSource for Sidecars<'_> {
                 }),
             });
         }
-        let placement = self.0.texture(key)?;
+        let placement = self.assets.texture(key)?;
         Some(TextureMeta {
             base_size: [f64::from(placement.width), f64::from(placement.height)],
             nineslice: None,
@@ -301,6 +347,9 @@ fn texture_key(path: &str) -> &str {
 /// the clip rect changes so draw order is preserved.
 struct Painter<'a> {
     assets: &'a RuntimeUiAssets,
+    server: &'a BTreeMap<String, ServerTexture>,
+    /// Texture page of server page 0.
+    server_page: u16,
     first_page: u16,
     solid_page: u16,
     art: ScreenArt<'a>,
@@ -519,15 +568,27 @@ impl Painter<'_> {
                 dest,
             ),
             Draw::Sprite { texture, uv, color } => {
-                let Some(placement) = self.assets.texture(texture_key(texture)) else {
-                    return Ok(());
+                let key = texture_key(texture);
+                let (page, [x, y, w, h]) = match self.server.get(key) {
+                    Some(server) => (
+                        self.server_page.saturating_add(server.page),
+                        server.rect.map(f32::from),
+                    ),
+                    None => {
+                        let Some(placement) = self.assets.texture(key) else {
+                            return Ok(());
+                        };
+                        (
+                            self.first_page.saturating_add(placement.page),
+                            [placement.x, placement.y, placement.width, placement.height]
+                                .map(f32::from),
+                        )
+                    }
                 };
-                let (x, y) = (f32::from(placement.x), f32::from(placement.y));
-                let (w, h) = (f32::from(placement.width), f32::from(placement.height));
                 let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
                 (
                     UiVisual::Sprite {
-                        texture_page: self.first_page.saturating_add(placement.page),
+                        texture_page: page,
                         uv: [
                             pixel(x, w, uv.u0),
                             pixel(y, h, uv.v0),
