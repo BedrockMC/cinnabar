@@ -18,13 +18,33 @@ use ui::UserSettings;
 use crate::app::ClientFrameSet;
 use crate::local_player::{
     CameraPose, InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
-    LocalPlayerFrameCarrier, LocalViewPose,
+    LocalPlayerFrameCarrier, LocalViewPose, resolve_camera_pose,
 };
 use crate::semantic_controls::{
     PendingDeviceFrame, SemanticInputRuntime, SemanticInputSnapshot, SemanticRouteState,
     SemanticTouchTargets,
 };
 use crate::settings_runtime::RuntimeSettings;
+
+mod bob;
+mod easing;
+mod fov;
+mod hurt;
+mod look;
+mod overlay;
+mod presentation;
+mod server_view;
+mod shake;
+
+pub use bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect};
+pub use fov::{CameraFovInputs, CameraFovState, SPYGLASS_FOV_MODIFIER};
+pub use hurt::{CameraHurtState, LocalHurtEvent};
+pub use overlay::{
+    HeadMedium, OverlayKind, OverlayLayer, PortalProgress, ScreenEffectInputs, ScreenOverlays,
+    VisionEffects, compute_overlays,
+};
+pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};
+pub use server_view::{ServerCameraSkips, ServerCameraView};
 
 pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
 pub const DEFAULT_HORIZONTAL_FOV_RADIANS: f32 = 90.0_f32.to_radians();
@@ -46,7 +66,6 @@ const AUTO_FLY_VERTICAL_BLOCKS: f32 = 8.0;
 #[derive(Component, Debug, Clone, Copy)]
 pub struct FlyCamera {
     pub speed: f32,
-    pub look_sensitivity: Vec2,
 }
 
 /// Completes cursor, look, and movement updates before systems sample the
@@ -56,10 +75,7 @@ pub struct FlyCameraUpdateSet;
 
 impl Default for FlyCamera {
     fn default() -> Self {
-        Self {
-            speed: 24.0,
-            look_sensitivity: Vec2::splat(0.002),
-        }
+        Self { speed: 24.0 }
     }
 }
 
@@ -79,6 +95,50 @@ pub struct CameraSettingsAuthority {
     generation: u64,
     horizontal_fov_degrees: f32,
     perspective: PerspectiveMode,
+    feel: CameraFeelSettings,
+}
+
+/// Camera feel toggles and scales mirrored from retained settings, already sanitized.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraFeelSettings {
+    pub fov_effects_scale: f32,
+    pub distortion_scale: f32,
+    pub view_bobbing: bool,
+    pub cinematic_camera: bool,
+    pub mouse_sensitivity: f32,
+    pub gamepad_look_sensitivity: f32,
+    pub touch_look_sensitivity: f32,
+}
+
+impl CameraFeelSettings {
+    fn from_settings(settings: &UserSettings) -> Self {
+        let unit = |value: f32| {
+            if value.is_finite() {
+                value.clamp(0.0, 1.0)
+            } else {
+                1.0
+            }
+        };
+        Self {
+            fov_effects_scale: unit(settings.video.fov_effects_scale),
+            distortion_scale: unit(settings.video.distortion_scale),
+            view_bobbing: settings.video.view_bobbing,
+            cinematic_camera: settings.video.cinematic_camera,
+            mouse_sensitivity: settings.controls.mouse_sensitivity,
+            gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
+            touch_look_sensitivity: settings.controls.touch_look_sensitivity,
+        }
+    }
+
+    /// The router's linear look multiplier for the controlling device.
+    #[must_use]
+    pub fn look_multiplier(&self, mode: semantic_input::InputMode) -> f32 {
+        match mode {
+            semantic_input::InputMode::KeyboardMouse => self.mouse_sensitivity,
+            semantic_input::InputMode::GamePad => self.gamepad_look_sensitivity,
+            semantic_input::InputMode::Touch => self.touch_look_sensitivity,
+        }
+    }
 }
 
 impl Default for CameraSettingsAuthority {
@@ -88,6 +148,7 @@ impl Default for CameraSettingsAuthority {
             generation: 0,
             horizontal_fov_degrees: settings.video.horizontal_fov_degrees,
             perspective: settings.gameplay.default_perspective,
+            feel: CameraFeelSettings::from_settings(&settings),
         }
     }
 }
@@ -114,6 +175,7 @@ impl CameraSettingsAuthority {
         self.generation = generation;
         self.horizontal_fov_degrees = fov;
         self.perspective = settings.gameplay.default_perspective;
+        self.feel = CameraFeelSettings::from_settings(settings);
         Ok(())
     }
 
@@ -130,6 +192,11 @@ impl CameraSettingsAuthority {
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
         self.perspective
+    }
+
+    #[must_use]
+    pub const fn feel(&self) -> &CameraFeelSettings {
+        &self.feel
     }
 
     fn cycle_perspective(&mut self) {
@@ -430,6 +497,19 @@ impl Plugin for FlyCameraPlugin {
                 self.capture_on_start,
             ))
             .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<CameraFovInputs>()
+            .init_resource::<CameraFovState>()
+            .init_resource::<look::LookSmoother>()
+            .init_resource::<WalkBobState>()
+            .init_resource::<HandSwayState>()
+            .init_resource::<CameraHurtState>()
+            .init_resource::<ServerCameraView>()
+            .init_resource::<PortalProgress>()
+            .init_resource::<HeadMedium>()
+            .init_resource::<VisionEffects>()
+            .init_resource::<ScreenOverlays>()
+            .init_resource::<ScreenEffectFacts>()
+            .init_resource::<FirstPersonHandMotion>()
             .init_resource::<LocalViewPose>()
             .init_resource::<CameraPose>()
             .init_resource::<InteractionOriginSnapshot>()
@@ -452,8 +532,13 @@ impl Plugin for FlyCameraPlugin {
             .add_systems(
                 Update,
                 (
-                    (apply_runtime_camera_settings, update_camera_fov)
+                    (
+                        apply_runtime_camera_settings,
+                        presentation::collect_fov_inputs,
+                        update_camera_fov,
+                    )
                         .chain()
+                        .after(ClientFrameSet::SemanticFinalize)
                         .before(FlyCameraUpdateSet),
                     (
                         update_cursor_capture,
@@ -463,6 +548,14 @@ impl Plugin for FlyCameraPlugin {
                     )
                         .chain()
                         .in_set(FlyCameraUpdateSet),
+                    (
+                        presentation::advance_presentation_state,
+                        presentation::update_screen_overlays,
+                        presentation::apply_camera_presentation,
+                    )
+                        .chain()
+                        .after(resolve_camera_pose)
+                        .in_set(ClientFrameSet::Camera),
                 ),
             );
     }
@@ -534,12 +627,17 @@ fn spawn_fly_camera(
 fn update_camera_fov(
     window: Single<&Window, With<PrimaryWindow>>,
     settings: Res<CameraSettingsAuthority>,
+    time: Res<Time>,
+    inputs: Res<CameraFovInputs>,
+    mut fov_state: ResMut<CameraFovState>,
+    server: Res<ServerCameraView>,
     mut cameras: Query<&mut Projection, With<FlyCamera>>,
 ) {
-    let vertical = horizontal_fov_to_vertical(
-        settings.horizontal_fov_degrees().to_radians(),
-        window_aspect(&window),
-    );
+    let modifier = fov_state.advance(inputs.target_modifier(), time.delta_secs());
+    let base = settings.horizontal_fov_degrees();
+    let horizontal_degrees = server.fov_override_degrees(base).unwrap_or(base * modifier);
+    let vertical =
+        horizontal_fov_to_vertical(horizontal_degrees.to_radians(), window_aspect(&window));
     for mut projection in &mut cameras {
         if let Projection::Perspective(perspective) = projection.as_mut() {
             perspective.fov = vertical;
@@ -665,20 +763,34 @@ fn update_look(
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
     settings: Res<CameraSettingsAuthority>,
-    camera: Single<&FlyCamera>,
+    time: Res<Time>,
+    mut smoother: ResMut<look::LookSmoother>,
     mut view: ResMut<LocalViewPose>,
 ) {
     if auto_fly.presentation_paused() {
         return;
     }
-    let look_delta = Vec2::from_array(input.look_delta());
+    let mode = input
+        .snapshot()
+        .map_or(semantic_input::InputMode::KeyboardMouse, |snapshot| {
+            snapshot.input_mode
+        });
+    let dt = time.delta_secs();
+    let raw = Vec2::from_array(input.look_delta()) * look::analog_frame_scale(mode, dt);
+    let look_delta = if settings.feel().cinematic_camera {
+        smoother.filter(raw, dt)
+    } else {
+        smoother.reset();
+        raw
+    };
     if look_delta == Vec2::ZERO {
         return;
     }
 
     let (yaw, pitch, roll) = view.rotation().to_euler(EulerRot::YXZ);
     let delta = perspective_look_delta(look_delta, settings.perspective());
-    let (yaw, pitch) = look_angles(yaw, pitch, delta, camera.look_sensitivity);
+    let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
+    let (yaw, pitch) = look_angles(yaw, pitch, delta, Vec2::splat(scale));
     view.set_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
 }
 
