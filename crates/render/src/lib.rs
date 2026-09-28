@@ -58,8 +58,9 @@ pub use actor::{
 };
 pub use actor_render::ActorRenderPlugin;
 pub use dropped_item::{
-    DroppedItemInstance, DroppedItemScene, DroppedItemSprite, MAX_DROPPED_ITEM_INSTANCES,
-    MAX_ITEM_SPRITE_SIDE, MAX_ITEM_SPRITES, dropped_item_transform,
+    DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemSprite,
+    ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS,
+    MAX_ITEM_SPRITE_SIDE, OPAQUE_WHITE, WHITE_LAYER, dropped_item_transform,
 };
 pub use dropped_item_render::DroppedItemRenderPlugin;
 pub use atmosphere::{
