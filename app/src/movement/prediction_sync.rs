@@ -20,7 +20,7 @@ const SCALE_KEY: u32 = 38;
 const WIDTH_KEY: u32 = 53;
 const HEIGHT_KEY: u32 = 54;
 
-/// Attribute names in wire order of the sync's attribute block; unset attributes read 0.
+/// Attribute names in wire order of the sync's attribute block; all must be set to send.
 const ATTRIBUTE_NAMES: [&str; 6] = [
     "minecraft:movement",
     "minecraft:underwater_movement",
@@ -41,6 +41,9 @@ pub(crate) struct PredictionSyncState {
     seen_corrections: u64,
     pending: bool,
     last_sent: Option<Duration>,
+    /// Syncs withheld because a required attribute was unset.
+    skipped: u64,
+    skip_logged: bool,
 }
 
 pub(crate) fn send_movement_prediction_sync(
@@ -69,15 +72,28 @@ pub(crate) fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
+    let Some(attributes) = attributes(|name| {
+        actor
+            .attributes
+            .get(name)
+            .map(|attribute| attribute.current)
+    }) else {
+        // An unset attribute would read as zero, which a server may treat as a cheat; retry later.
+        if !state.skip_logged {
+            state.skipped = state.skipped.saturating_add(1);
+            state.skip_logged = true;
+            bevy::log::debug!(
+                skipped = state.skipped,
+                "prediction sync withheld: attribute unset"
+            );
+        }
+        return;
+    };
+    state.skip_logged = false;
     let sync = MovementPredictionSync {
         actor_flags: flag_words(&actor.metadata),
         bounding_box: bounding_box(&actor.metadata),
-        attributes: attributes(|name| {
-            actor
-                .attributes
-                .get(name)
-                .map(|attribute| attribute.current)
-        }),
+        attributes,
         unique_id: stream.local_player_unique_id(),
         flying: physics.mode() == sim::MovementMode::Flying,
     };
@@ -110,19 +126,19 @@ fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
     ]
 }
 
-fn attributes(current: impl Fn(&str) -> Option<f32>) -> [f32; 9] {
-    let value = |index: usize| current(ATTRIBUTE_NAMES[index]).unwrap_or(0.0);
-    [
-        value(0),
-        value(1),
-        value(2),
-        value(3),
-        value(4),
-        value(5),
+fn attributes(current: impl Fn(&str) -> Option<f32>) -> Option<[f32; 9]> {
+    let value = |index: usize| current(ATTRIBUTE_NAMES[index]);
+    Some([
+        value(0)?,
+        value(1)?,
+        value(2)?,
+        value(3)?,
+        value(4)?,
+        value(5)?,
         DEFAULT_FRICTION_MODIFIER,
         DEFAULT_BOUNCINESS,
         DEFAULT_AIR_DRAG_MODIFIER,
-    ]
+    ])
 }
 
 #[cfg(test)]
@@ -148,10 +164,14 @@ mod tests {
     }
 
     #[test]
-    fn unset_attributes_read_zero_and_modifiers_use_their_defaults() {
-        let block = attributes(|name| (name == "minecraft:movement").then_some(0.1));
-        assert_eq!(block[0], 0.1);
-        assert_eq!(&block[1..6], &[0.0; 5]);
+    fn any_unset_attribute_withholds_the_sync_and_modifiers_use_their_defaults() {
+        assert_eq!(attributes(|_| None), None);
+        assert_eq!(
+            attributes(|name| (name != "minecraft:player.hunger").then_some(0.1)),
+            None
+        );
+        let block = attributes(|_| Some(0.1)).unwrap();
+        assert_eq!(&block[..6], &[0.1; 6]);
         assert_eq!(&block[6..], &[1.0, 0.0, 1.0]);
     }
 }
