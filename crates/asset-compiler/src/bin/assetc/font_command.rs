@@ -45,7 +45,8 @@ pub(super) fn compile(
     let secondary = if let Some(path) = fallback {
         if source.get("fallback_ranges")
             != Some(&serde_json::json!([
-                [10003, 10003],
+                [8592, 9215],
+                [9312, 10175],
                 [12288, 12543],
                 [13312, 19903],
                 [19968, 40959]

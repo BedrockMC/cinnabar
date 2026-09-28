@@ -60,6 +60,7 @@ ACTOR_ASSET_REPORT ?= .local/assets/compiled/actor-assets.json
 EQUIPMENT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeeqp
 EQUIPMENT_ASSET_REPORT ?= .local/assets/compiled/equipment-assets.json
 WEATHER_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbewth
+HUD_EXTRAS_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehxt
 UI_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeui
 UI_ASSET_REPORT ?= .local/assets/compiled/ui-assets.json
 PARTICLE_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbept
@@ -149,12 +150,17 @@ assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 assets: $(EQUIPMENT_ASSET_BLOB) $(EQUIPMENT_ASSET_REPORT)
 assets: $(UI_ASSET_BLOB) $(UI_ASSET_REPORT)
 assets: $(WEATHER_ASSET_BLOB)
+assets: $(HUD_EXTRAS_ASSET_BLOB)
 assets: $(PARTICLE_ASSET_BLOB) $(PARTICLE_ASSET_REPORT)
 assets: $(BLOCK_ENTITY_ASSET_BLOB) $(BLOCK_ENTITY_ASSET_REPORT)
 .PHONY: weather-assets
 weather-assets: $(WEATHER_ASSET_BLOB)
 $(WEATHER_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)
 	$(CARGO) run --locked -p asset-compiler --bin assetc -- weather-assets --pack "$(PACK_DIR)" --out "$(WEATHER_ASSET_BLOB)"
+.PHONY: hud-extras-assets
+hud-extras-assets: $(HUD_EXTRAS_ASSET_BLOB)
+$(HUD_EXTRAS_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)
+	$(CARGO) run --locked -p asset-compiler --bin assetc -- hud-extras-assets --pack "$(PACK_DIR)" --out "$(HUD_EXTRAS_ASSET_BLOB)"
 .PHONY: actor-assets
 actor-assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 $(ACTOR_ASSET_BLOB): $(ENTITY_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) crates/assets/data/neutral-actor-materials-v1.json

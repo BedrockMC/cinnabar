@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use ui::{
     DpiScale, HudViewRole, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache,
-    TextLayoutRequest, TextShadow, TextStyle, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree,
+    TextShadow, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree,
     UiVisual,
 };
 
@@ -35,6 +35,7 @@ use crate::{
 mod chat;
 mod dynamic_textures;
 mod forms;
+mod hud_extras;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod item_sprite;
@@ -47,8 +48,10 @@ mod primitives;
 mod publish;
 mod retained_hud;
 mod session_icons;
+pub(crate) use hud_extras::load_optional as load_optional_hud_extras;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
+mod text_metrics;
 mod texture_atlas;
 #[cfg_attr(
     not(test),
@@ -73,6 +76,7 @@ use retained_hud::{
 };
 use startup::{StartupPresentationState, StartupReadinessInput};
 pub(crate) use texture_atlas::IconRef;
+use text_metrics::{TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextMetrics};
 use texture_atlas::{
     HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
@@ -98,73 +102,6 @@ const CHAT_PANEL_PAD: f32 = 4.0;
 // (10 s + 1 s), pinned here in milliseconds.
 const CHAT_VISIBLE_MILLIS: u64 = 10_000;
 const CHAT_FADE_MILLIS: u64 = 1_000;
-// The compiled Monocraft atlas is rasterized at 18 px/em (see
-// `assets/ui-font-source.json`). Monocraft draws on a 60-font-unit grid against
-// a 1080-unit em, so one design pixel is two texels: ASCII ink is 16 texels
-// tall, 14 of them above the baseline, and the widest advance is 12. That makes
-// `UiScale` 1 already equal to Mojang's GUI scale 2, and only whole numbers of
-// physical pixels per texel keep every design pixel on a pixel boundary.
-const FONT_DESIGN_PIXEL_TEXELS: u32 = 2;
-const FONT_ASCENT_TEXELS: u32 = 14;
-const FONT_INK_TEXELS: u32 = 16;
-/// Mojang pitches chat one design pixel below the font's ink height -- 9 px for
-/// an 8 px font. The same ratio against Monocraft's 16 texels gives 18.
-const TEXT_LINE_HEIGHT_64: u32 = (FONT_INK_TEXELS + FONT_DESIGN_PIXEL_TEXELS) * 64;
-/// Distance from the top of a line box down to the baseline, so glyphs sit
-/// inside the box instead of hanging above its origin.
-const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
-/// Mojang offsets the shadow by exactly one design pixel on both axes.
-const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
-/// Per-frame text metrics shared by every HUD, chat, and scoreboard run so a
-/// single frame cannot mix scales or line pitches. Font atlas texels are two
-/// texels per Java GUI design pixel, while sprite geometry uses one GUI pixel.
-#[derive(Clone, Copy)]
-pub(super) struct TextMetrics {
-    scale: UiScale,
-    line_height_64: u32,
-    baseline_64: u32,
-    shadow: TextShadow,
-}
-
-impl TextMetrics {
-    /// Uses the same Java GUI-scale choice as sprite geometry. The font atlas
-    /// is authored at two texels per GUI design pixel, so its logical scale is
-    /// half the sprite scale before the platform DPI is removed.
-    fn for_viewport(physical_size: [u32; 2], dpi_scale: DpiScale, preference: Option<u8>) -> Self {
-        let dpi = dpi_scale.get();
-        let gui_scale = java_gui_scale(physical_size, preference) as f32;
-        let scale =
-            (gui_scale / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi)).clamp(UiScale::MIN, UiScale::MAX);
-        Self {
-            scale: UiScale::new(scale).expect("the clamped scale is inside the UiScale range"),
-            line_height_64: TEXT_LINE_HEIGHT_64,
-            baseline_64: TEXT_BASELINE_64,
-            shadow: TextShadow::Offset64(TEXT_SHADOW_OFFSET_64),
-        }
-    }
-
-    fn request<'a>(
-        &self,
-        text: &'a str,
-        width_64: u32,
-        font: &'a RuntimeFontCatalog,
-    ) -> TextLayoutRequest<'a> {
-        TextLayoutRequest {
-            text,
-            style: TextStyle::default(),
-            width_64,
-            line_height_64: self.line_height_64,
-            baseline_64: self.baseline_64,
-            scale: self.scale,
-            font,
-        }
-    }
-
-    pub(super) const fn shadow(&self) -> TextShadow {
-        self.shadow
-    }
-}
-
 #[derive(Debug)]
 pub enum UiPresentationError {
     InvalidFontTexture,
@@ -215,6 +152,8 @@ pub struct UiPresentationRuntime {
     below_name_anchors: Vec<BelowNameAnchor>,
     /// World-projected nametags for players without a below-name score.
     nametag_anchors: Vec<nametags::NametagAnchor>,
+    /// Hardcore heart sprites when the optional extras carrier is installed.
+    hardcore_hearts: Option<hud_extras::HardcoreHearts>,
     /// Stable reserved logical page for the optional preview raster.
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
@@ -302,6 +241,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
+            hardcore_hearts: None,
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
@@ -490,6 +430,7 @@ impl UiPresentationRuntime {
         {
             let mut frame = self.hud_frame.clone();
             frame.now_millis = now_millis;
+            frame.hardcore_hearts = self.hardcore_hearts;
             let mut layout = HudLayout::new(
                 &mut nodes,
                 &mut next_id,

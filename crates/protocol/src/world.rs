@@ -123,6 +123,12 @@ pub fn server_authoritative_block_breaking(game_data: &GameData) -> bool {
         .server_authoritative_block_breaking
 }
 
+/// Whether StartGame declares a hardcore world.
+#[must_use]
+pub fn is_hardcore(game_data: &GameData) -> bool {
+    game_data.start_game.settings.is_hardcore
+}
+
 impl WorldBootstrap {
     #[must_use]
     pub fn from_game_data(game_data: &GameData) -> Self {

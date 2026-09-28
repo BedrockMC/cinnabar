@@ -17,6 +17,7 @@ mod pack;
 mod particle;
 mod ui;
 mod weather_textures;
+mod hud_extras;
 
 pub use actor::{
     ActorCompileReport, ActorFallback, ActorTextureEvidence, CompiledActorCarrier,
@@ -54,6 +55,7 @@ pub use font::{
     compile_fonts, compile_outline_font, compile_outline_font_with_fallback,
 };
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
+pub use hud_extras::compile_hud_extras_to_file;
 pub use icon::{
     CompiledIconCarrier, IconCompileReport, compile_icon_assets, compile_icon_assets_with_blocks,
 };
