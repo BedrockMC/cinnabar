@@ -244,6 +244,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         );
         local
     });
+    let camera_position = cull_view
+        .as_ref()
+        .map(|view| view.camera_position.to_array());
     let batch = select_actor_presentations_for_view(
         local_runtime_id,
         local_visible,
@@ -291,7 +294,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             }
         },
     );
-    dropped_items.publish(client_world.stream.as_ref(), step.partial_tick);
+    dropped_items.publish(
+        client_world.stream.as_ref(),
+        camera_position,
+        step.partial_tick,
+    );
     publish_hand_rig(
         &mut hand_builder.0,
         &mut hand_scene,
