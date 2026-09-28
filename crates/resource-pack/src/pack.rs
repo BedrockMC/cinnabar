@@ -77,6 +77,12 @@ impl ValidatedPack {
         self.skipped_entries
     }
 
+    /// The admitted archive bytes, still compressed and (if applicable) encrypted.
+    #[must_use]
+    pub fn archive_bytes(&self) -> Arc<[u8]> {
+        self.zip.clone().into_inner().into_inner()
+    }
+
     /// Whether `path` exists, matching case-insensitively when no exact match exists.
     #[must_use]
     pub fn contains(&self, path: &str) -> bool {
