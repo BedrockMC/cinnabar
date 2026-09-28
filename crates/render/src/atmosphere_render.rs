@@ -67,6 +67,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     app.init_resource::<PrecipitationScene>();
     app.init_resource::<WeatherTextureAssets>();
     app.init_resource::<RainSplashQueue>();
+    app.init_resource::<crate::PrecipitationMix>();
     app.init_resource::<crate::LightningScene>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
