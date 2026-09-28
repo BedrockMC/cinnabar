@@ -9,9 +9,22 @@ Values only resolvable from decompiled source are marked *(measure)*.
 ## Fixed
 - Block breaking / interaction: `verified_selection` refused an `Unknown` selected
   slot, blocking all mining before inventory arrived. Now treats it as an empty hand.
+- Inventory container routing: re-derived from the vanilla InventoryContent/InventorySlot
+  handlers — the dynamic container id keys only generic storage, so a present zero routes
+  like absent for every fixed surface (player inv/armor/offhand/cursor). Was dropping the
+  player inventory on window 0 / id 29 / dyn Some(0).
+- Player skin: loads `.local/assets/skin/player.png` (fallback to generated default),
+  uploads it in ClientData instead of the white placeholder, and renders on the local
+  body + HUD paperdoll via a synthetic local profile. Minor follow-ups: per-tick skin
+  compare could `Arc::ptr_eq` short-circuit; `session.rs` at the 1000-line limit;
+  square-only skins; arm_size hardcoded "wide" (slim uploads wide).
+- First person: stopped drawing the whole third-person body rig at the camera (it
+  occluded the view). Draws no near-camera rig until an arm-only model exists.
 
 ## In progress (branches)
-- `task/local-player-render` — local third-person body + first-person hand+item, remove non-vanilla corner overlay.
+- `task/movement-authinput-parity` — anti-cheat "movement cheats" fix: drop the
+  PlayerAuthInput suppression band-aid (send every tick), fix inputless depenetration
+  drift, fix pos_delta to be the actual displacement. Needs native A/B on an AC server.
 - `task/resource-packs` — server pack download/decrypt/apply (review fixes).
 - `task/enhanced-shaders` — opt-in Enhanced render mode (non-parity, off by default).
 
@@ -55,6 +68,8 @@ animated rig remotes use. All three below flow from that.
 - Stars at night — absent (MED-HIGH).
 - Leaves: leaf↔leaf faces culled (Fast look) → hollow/speckled; want Fancy (MED-HIGH).
 - Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
+- Server resource packs not applied to rendering: core downloads/admits them but
+  `application=unavailable`, so custom blocks/textures render as magenta missing-texture (HIGH, confirmed live).
 - Sky gradient hand-tuned vs biome-temperature-derived; clouds uncalibrated *(measure)*;
   fog uses smoothstep vs linear; AO darkening step, sun/moon size, water surface alpha *(measure)*.
 
@@ -62,9 +77,14 @@ animated rig remotes use. All three below flow from that.
 - Title/subtitle/action bar: left-anchored, unscaled, no fade — should be centered, scaled, alpha-faded (HIGH).
 - Screen overlays absent: vignette, portal, underwater, fire, powder-snow, spyglass scope (MED). No red damage flash is correct.
 - Boss-bar colors/notches approximate; toasts unboxed; no heart jitter/regen bob; no food shake; effect-blink approximate; offhand handedness; hardcore hearts (LOW).
+- Chat/killfeed: unicode and format-code glyphs not rendering (open font / text renderer
+  coverage) — garbled server killfeed text (MED, confirmed live).
 - Faithful already: hotbar, hearts/armor/absorption, hunger, air, XP, crosshair.
 
 ## Camera / view (Bedrock target)
+- Third-person boom collapses onto the player (camera reads as "too close"): the collision
+  avoidance fails closed to radius 0 when the sweep errors or hits geometry; boom radius 4.0
+  is itself vanilla-correct. Model height is correct — this is distance only (MED, confirmed live).
 - Dynamic FOV modifiers (sprint/speed/slowness/fly/bow; spyglass 0.1) — absent (HIGH).
 - Walk view-bob — absent (HIGH). First-person hand bob evaluator exists but is dead code.
 - Mouse sensitivity mapping placeholder `0.002` *(measure)* (HIGH).
