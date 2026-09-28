@@ -24,6 +24,7 @@ mod registry;
 mod runtime;
 mod server_lang;
 mod texture;
+mod ui;
 
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
@@ -153,4 +154,10 @@ pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
     downsample_linear_premultiplied,
+};
+pub use ui::{
+    MAX_UI_ATLAS_PAGES, MAX_UI_ATLAS_SIDE, MAX_UI_CARRIER_BYTES, MAX_UI_FILE_BYTES, MAX_UI_FILES,
+    MAX_UI_KEY_BYTES, MAX_UI_SIDECARS, MAX_UI_TEXTURES, RuntimeUiAssets, UI_CARRIER_MAGIC,
+    UI_CARRIER_VERSION, UiAtlasPage, UiFile, UiNineSlice, UiSidecar, UiSidecarEntry,
+    UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };

@@ -59,6 +59,8 @@ ACTOR_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeact
 ACTOR_ASSET_REPORT ?= .local/assets/compiled/actor-assets.json
 EQUIPMENT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeeqp
 EQUIPMENT_ASSET_REPORT ?= .local/assets/compiled/equipment-assets.json
+UI_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeui
+UI_ASSET_REPORT ?= .local/assets/compiled/ui-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
 ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs)
@@ -77,6 +79,7 @@ AUDIO_PCM_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audi
 ICON_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- icon-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ICON_ASSET_BLOB)" --report "$(ICON_ASSET_REPORT)" --block-assets "$(ASSET_BLOB)"
 ACTOR_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- actor-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(ACTOR_ASSET_BLOB)" --report "$(ACTOR_ASSET_REPORT)"
 EQUIPMENT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- equipment-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(EQUIPMENT_ASSET_BLOB)" --report "$(EQUIPMENT_ASSET_REPORT)"
+UI_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ui-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(UI_ASSET_BLOB)" --report "$(UI_ASSET_REPORT)"
 CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 ifeq ($(OS),Windows_NT)
@@ -96,7 +99,7 @@ else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
 
-.PHONY: help vanilla-assets assets atmosphere-assets entity-assets equipment-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets atmosphere-assets entity-assets equipment-assets ui-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets icon-assets physics-assets core client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
@@ -108,6 +111,7 @@ help:
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
 	@echo make entity-assets   - Compile pinned entity catalog and geometry payloads
 	@echo make equipment-assets - Compile pinned attachable equipment bindings carrier
+	@echo make ui-assets        - Pack pinned JSON-UI textures, sidecars, and raw ui json carrier
 	@echo make font-assets     - Fetch and compile the pinned open-licensed Monocraft UI font
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make hud-assets      - Compile pinned HUD sprites from the official Mojang sample pack
@@ -134,6 +138,7 @@ vanilla-assets: $(PACK_SENTINEL)
 assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLOB) $(ENTITY_ASSET_REPORT) $(FONT_ASSET_BLOB) $(FONT_ASSET_REPORT) $(FONT_ASSET_NOTICES) $(HUD_ASSET_BLOB) $(HUD_ASSET_REPORT) $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT) $(ICON_ASSET_BLOB) $(ICON_ASSET_REPORT) $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT)
 assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 assets: $(EQUIPMENT_ASSET_BLOB) $(EQUIPMENT_ASSET_REPORT)
+assets: $(UI_ASSET_BLOB) $(UI_ASSET_REPORT)
 .PHONY: actor-assets
 actor-assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 $(ACTOR_ASSET_BLOB): $(ENTITY_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) crates/assets/data/neutral-actor-materials-v1.json
@@ -147,6 +152,13 @@ $(EQUIPMENT_ASSET_BLOB): $(ENTITY_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA
 	$(EQUIPMENT_ASSET_COMPILE)
 $(EQUIPMENT_ASSET_REPORT): $(EQUIPMENT_ASSET_BLOB)
 	$(RUN_IF_ASSET_REPORT_STALE) || $(EQUIPMENT_ASSET_COMPILE)
+
+.PHONY: ui-assets
+ui-assets: $(UI_ASSET_BLOB) $(UI_ASSET_REPORT)
+$(UI_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
+	$(UI_ASSET_COMPILE)
+$(UI_ASSET_REPORT): $(UI_ASSET_BLOB)
+	$(RUN_IF_ASSET_REPORT_STALE) || $(UI_ASSET_COMPILE)
 
 atmosphere-assets: $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT)
 
