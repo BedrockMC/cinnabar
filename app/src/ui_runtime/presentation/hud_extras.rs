@@ -89,7 +89,12 @@ fn build(
         }
         let left = u16::try_from(cell_left + GUTTER).ok()?;
         let top = u16::try_from(GUTTER).ok()?;
-        uv[index as usize] = [left, top, left + HUD_EXTRA_SIDE as u16, top + HUD_EXTRA_SIDE as u16];
+        uv[index as usize] = [
+            left,
+            top,
+            left + HUD_EXTRA_SIDE as u16,
+            top + HUD_EXTRA_SIDE as u16,
+        ];
     }
     let start = old.dynamic_start();
     let mut pages = old.pages().to_vec();
@@ -118,7 +123,10 @@ mod tests {
             page: 3,
             uv: [[1, 1, 10, 10]; HudExtraRole::ALL.len()],
         };
-        assert_eq!(hearts.sprite(HudTextureRole::HeartFull), Some((3, [1, 1, 10, 10])));
+        assert_eq!(
+            hearts.sprite(HudTextureRole::HeartFull),
+            Some((3, [1, 1, 10, 10]))
+        );
         assert_eq!(hearts.sprite(HudTextureRole::HungerFull), None);
     }
 }

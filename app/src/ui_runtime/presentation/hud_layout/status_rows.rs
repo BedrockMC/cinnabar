@@ -5,8 +5,9 @@ use assets::HudTextureRole;
 use ui::{UiNode, UiNodeId, UiVisual};
 
 use super::{
-    HudFrame, HudLayout, UiPresentationError, UiRuntime, rect,
+    HudFrame, HudLayout, UiPresentationError, UiRuntime,
     pinned::{HOTBAR_WIDTH, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, damage_flash_phase, heart_role},
+    rect,
     status_motion::{heart_lift, hunger_shake_offset, hunger_shakes},
 };
 

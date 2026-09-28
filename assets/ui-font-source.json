@@ -37,7 +37,7 @@
   "fallback_license_url": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/LICENSE",
   "fallback_license_size_bytes": 4301,
   "fallback_license_sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
-  "fallback_ranges": [[10003, 10003], [12288, 12543], [13312, 19903], [19968, 40959]],
+  "fallback_ranges": [[8592, 9215], [9312, 10175], [12288, 12543], [13312, 19903], [19968, 40959]],
   "fallback_pixel_height": 18,
   "fallback_atlas_side": 2048,
   "fallback_max_pages": 3
