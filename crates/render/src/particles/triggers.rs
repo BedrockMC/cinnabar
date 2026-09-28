@@ -313,8 +313,8 @@ pub fn block_crack_request(
         _ => [1.0, 0.0, 0.0],
     };
     let mut request = block_break_request(effect, block, tile, tint);
-    for axis in 0..3 {
-        request.position[axis] += normal[axis] * 0.55;
+    for (component, direction) in request.position.iter_mut().zip(normal) {
+        *component += direction * 0.55;
     }
     for (name, value) in &mut request.variables {
         match name.as_str() {

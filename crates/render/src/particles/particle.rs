@@ -268,8 +268,8 @@ impl Emitter {
                 } => {
                     let acc = eval3(acceleration, &mut p.vars, rng, &queries);
                     let drag = drag.eval(&mut p.vars, rng, &queries);
-                    for axis in 0..3 {
-                        let (velocity, shift) = integrate(p.vel[axis], acc[axis], drag, dt);
+                    for (axis, acceleration) in acc.into_iter().enumerate() {
+                        let (velocity, shift) = integrate(p.vel[axis], acceleration, drag, dt);
                         p.vel[axis] = velocity;
                         p.pos[axis] += shift;
                     }

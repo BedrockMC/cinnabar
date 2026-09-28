@@ -436,12 +436,14 @@ fn parse_shape(components: &serde_json::Map<String, Value>, it: &mut Interner) -
     }
     if let Some(c) = components.get("minecraft:emitter_shape_disc") {
         let normal = match c.get("plane_normal") {
-            Some(Value::String(axis)) => match axis.as_str() {
-                "x" => [1.0, 0.0, 0.0],
-                "z" => [0.0, 0.0, 1.0],
-                _ => [0.0, 1.0, 0.0],
+            Some(Value::String(axis)) => {
+                let axes: [f32; 3] = match axis.as_str() {
+                    "x" => [1.0, 0.0, 0.0],
+                    "z" => [0.0, 0.0, 1.0],
+                    _ => [0.0, 1.0, 0.0],
+                };
+                axes.map(Program::constant)
             }
-            .map(Program::constant),
             other => vector(other, [0.0, 1.0, 0.0], it),
         };
         return EmitterShape {

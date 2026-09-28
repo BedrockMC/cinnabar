@@ -267,8 +267,8 @@ impl Emitter {
             };
             direction.map(|c| c * speed)
         };
-        for axis in 0..3 {
-            velocity[axis] += self.inherit_velocity[axis];
+        for (component, extra) in velocity.iter_mut().zip(self.inherit_velocity) {
+            *component += extra;
         }
         let (rotation, rotation_rate) = match &def.particle.spin {
             Some(spin) => (
