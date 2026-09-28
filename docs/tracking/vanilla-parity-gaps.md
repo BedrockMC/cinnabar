@@ -200,7 +200,7 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
   slowdown, dolphin's grace and client-predicted vehicles are open.
 - Riding: player physics is suspended while mounted, the rider follows its mount seat, and boat
   paddle flags are sent; client-predicted vehicles (no vehicle simulator) and
-  `ClientMovementPredictionSync` (never sent) are open (HIGH). Sweet berry bush needs the
+  the vehicle predicate/coefficients (see plan.md) are open (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
   registry regeneration described in plan.md.
 - Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
   scroll-notch magnitude; UI key-repeat (MED/LOW).

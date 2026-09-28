@@ -402,6 +402,11 @@ impl NetworkHandle {
         self.send_packet_with_confirmation(packet, None, None, None, None, None)
     }
 
+    /// Queues an unguarded movement-side packet such as a prediction sync.
+    pub(crate) fn send_movement_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
+        self.send_packet_with_confirmation(packet, None, None, None, None, None)
+    }
+
     /// Queues an inventory, swing or interaction packet ahead of this frame's movement.
     pub(crate) fn send_inventory_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(packet, None, None, None, None, None)
