@@ -116,7 +116,18 @@ impl ActorStore {
         };
         self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
         let revision = self.synthetic_local_revision.max(1);
+        let (uuid, username) = self.local_identity(unique_id, feed);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            // Adopt the player-list identity once it arrives so the skin resolves by uuid.
+            if let ActorKind::Player {
+                uuid: current_uuid,
+                username: current_username,
+            } = &mut actor.kind
+                && *current_uuid != uuid
+            {
+                *current_uuid = uuid;
+                *current_username = username;
+            }
             actor.received_pose = pose;
             actor.velocity = feed.velocity;
             actor.on_ground = Some(feed.on_ground);
@@ -132,7 +143,8 @@ impl ActorStore {
             }
             return;
         }
-        let actor = ActorSnapshot::local_player(unique_id, runtime_id, revision, feed);
+        let actor =
+            ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.actors.insert(runtime_id, actor);
         if let Some(actor) = self.actors.get(&runtime_id) {
@@ -140,6 +152,22 @@ impl ActorStore {
                 .insert(self.session_id, self.dimension, actor);
         }
     }
+    /// The local player's authoritative `(uuid, username)` from the retained player list, keyed
+    /// by unique id so the skin resolves; falls back to the client-fed identity until it arrives.
+    fn local_identity(
+        &self,
+        unique_id: i64,
+        feed: &LocalPlayerFeed,
+    ) -> ([u8; 16], std::sync::Arc<str>) {
+        self.players
+            .iter()
+            .find(|(_, profile)| profile.unique_id == unique_id)
+            .map_or_else(
+                || (feed.uuid, std::sync::Arc::clone(&feed.username)),
+                |(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)),
+            )
+    }
+
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
