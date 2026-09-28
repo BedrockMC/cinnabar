@@ -260,9 +260,7 @@ fn deferred_backing_matches(id: &str, backing: BackingBlockIdentity) -> bool {
         "Beacon" => &[VisualKind::Cube],
         "Sign" => &[VisualKind::Model],
         "Banner" | "Bed" | "Chest" | "DecoratedPot" | "EnderChest" | "GlowItemFrame"
-        | "ItemFrame" | "Lectern" | "Skull" => {
-            &[VisualKind::Diagnostic, VisualKind::Invisible]
-        }
+        | "ItemFrame" | "Lectern" | "Skull" => &[VisualKind::Diagnostic, VisualKind::Invisible],
         "EnchantTable" => &[VisualKind::Diagnostic, VisualKind::Model],
         _ => &[VisualKind::Diagnostic],
     };
