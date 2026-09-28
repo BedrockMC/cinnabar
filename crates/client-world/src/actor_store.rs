@@ -352,6 +352,8 @@ pub struct LocalPlayerFeed {
     pub pitch: f32,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
+    /// The camera renders from the player's eyes; selects the first-person render controller.
+    pub first_person: bool,
 }
 
 /// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.
@@ -375,6 +377,8 @@ pub(crate) struct ActorStore {
     remote_state_excluded_runtime_id: Option<u64>,
     /// Monotonic spawn/movement revision for the client-fed local player actor.
     synthetic_local_revision: u64,
+    /// Whether the local player's own rig should render first-person; set by each pose feed.
+    local_first_person: bool,
 }
 
 mod lifecycle;

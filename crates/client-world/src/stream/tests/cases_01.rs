@@ -541,6 +541,32 @@ fn camera_medium_samples_exposed_and_waterlogged_liquid_layers_without_flattenin
 }
 
 #[test]
+fn light_level_at_reads_resident_block_and_sky_and_falls_dark_off_boundary() {
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        [0.0, 4.5, 0.0],
+        None,
+    );
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream
+        .light_store
+        .insert_resident(key, SubChunkLight::uniform(7, 3, 1).unwrap());
+    assert_eq!(stream.light_level_at([4.5, 4.5, 4.5]), (7, 3));
+    // A sub-chunk whose light is not resident, and a non-finite sample, both read dark.
+    assert_eq!(stream.light_level_at([4.5, 40.0, 4.5]), (0, 0));
+    assert_eq!(stream.light_level_at([f32::NAN, 4.5, 4.5]), (0, 0));
+}
+
+#[test]
 fn camera_environment_context_exposes_palette_biome_and_effective_block_radius() {
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {

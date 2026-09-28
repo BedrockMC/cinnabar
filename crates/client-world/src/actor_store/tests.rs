@@ -1063,6 +1063,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         head_yaw: yaw,
         pitch: 0.0,
         teleported: false,
+        first_person: false,
     }
 }
 
