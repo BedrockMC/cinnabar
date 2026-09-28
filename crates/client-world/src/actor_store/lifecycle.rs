@@ -84,6 +84,7 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            synthetic_local_revision: 0,
         }
     }
 
@@ -92,6 +93,51 @@ impl ActorStore {
         if let Some(lifetime) = self.lifetime(runtime_id) {
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
+        }
+    }
+
+    /// Feeds the client-authored local-player pose into the shared actor rig, spawning the
+    /// synthetic actor on the first call so `actor_rigs()` drives its third-person body.
+    /// Items and actions stay client-owned via `exclude_remote_state_for`.
+    pub(crate) fn sync_local_player(
+        &mut self,
+        runtime_id: u64,
+        unique_id: i64,
+        feed: &LocalPlayerFeed,
+    ) {
+        if runtime_id == 0 {
+            return;
+        }
+        let pose = ActorPose {
+            position: feed.position,
+            pitch: feed.pitch,
+            yaw: feed.yaw,
+            head_yaw: feed.head_yaw,
+        };
+        self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
+        let revision = self.synthetic_local_revision.max(1);
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.received_pose = pose;
+            actor.velocity = feed.velocity;
+            actor.on_ground = Some(feed.on_ground);
+            actor.movement_revision = revision;
+            actor.teleported = feed.teleported;
+            // A zero remaining count lands each tick exactly on the fed pose (no server-style
+            // easing), so the body tracks local physics without lag.
+            actor.interpolation_ticks_remaining = 0;
+            if feed.teleported {
+                actor.previous_pose = pose;
+                actor.set_current_pose(pose);
+                self.animation.mark_reset(runtime_id);
+            }
+            return;
+        }
+        let actor = ActorSnapshot::local_player(unique_id, runtime_id, revision, feed);
+        self.unique_to_runtime.insert(unique_id, runtime_id);
+        self.actors.insert(runtime_id, actor);
+        if let Some(actor) = self.actors.get(&runtime_id) {
+            self.animation
+                .insert(self.session_id, self.dimension, actor);
         }
     }
     #[cfg(test)]
@@ -144,6 +190,11 @@ impl ActorStore {
             ActorEvent::Spawn(spawn) => self.apply_spawn(sequence, spawn),
             ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
             ActorEvent::Move(movement) => {
+                // The local player's pose is client-fed each tick; server movement
+                // (authoritative reconciliation) must not fight that feed.
+                if self.remote_state_excluded_runtime_id == Some(movement.runtime_id) {
+                    return ActorApplyResult::MissingActor;
+                }
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };

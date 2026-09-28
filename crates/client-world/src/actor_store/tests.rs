@@ -7,7 +7,7 @@ use protocol::{
     PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 
-use super::{ActorApplyResult, ActorStore};
+use super::{ActorApplyResult, ActorStore, LocalPlayerFeed};
 
 fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
     ActorEvent::Spawn(ActorSpawnEvent {
@@ -1050,4 +1050,111 @@ fn remote_rotation_steps_the_short_way_across_the_wrap() {
     assert!((yaw - (170.0 + 20.0 / 3.0)).abs() < 1.0e-4, "{yaw}");
     store.advance_interpolation_ticks(2);
     assert_eq!(store.get(42).unwrap().head_yaw, -170.0);
+}
+
+fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
+    LocalPlayerFeed {
+        uuid: [5; 16],
+        username: "local".into(),
+        position: [x, 64.0, 0.0],
+        velocity: [0.0; 3],
+        on_ground: true,
+        yaw,
+        head_yaw: yaw,
+        pitch: 0.0,
+        teleported: false,
+    }
+}
+
+#[test]
+fn local_player_sync_spawns_a_client_owned_player_actor_then_updates_it() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.sync_local_player(1, -100, &local_feed(2.0, 30.0));
+    let actor = store.get(1).expect("local actor spawned");
+    assert!(matches!(actor.kind, ActorKind::Player { .. }));
+    assert_eq!(actor.unique_id, -100);
+    assert_eq!(actor.received_pose.position, [2.0, 64.0, 0.0]);
+    assert!(actor.spawn_revision != 0 && actor.movement_revision != 0);
+    // Items stay client-owned: no equipment slot is created for the excluded runtime id.
+    assert!(store.equipment(1).is_none());
+    let first_revision = actor.movement_revision;
+
+    let mut feed = local_feed(9.0, 30.0);
+    feed.velocity = [1.5, 0.0, 0.0];
+    feed.on_ground = false;
+    store.sync_local_player(1, -100, &feed);
+    let actor = store.get(1).expect("local actor retained");
+    assert_eq!(actor.received_pose.position, [9.0, 64.0, 0.0]);
+    assert_eq!(actor.velocity, [1.5, 0.0, 0.0]);
+    assert_eq!(actor.on_ground, Some(false));
+    assert!(actor.movement_revision > first_revision);
+}
+
+#[test]
+fn server_move_never_overrides_the_client_fed_local_pose() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.sync_local_player(1, -100, &local_feed(5.0, 0.0));
+    assert_eq!(
+        store.apply(1, 1, player_move(1, 999.0, false)),
+        ActorApplyResult::MissingActor
+    );
+    assert_eq!(store.get(1).unwrap().received_pose.position[0], 5.0);
+}
+
+#[test]
+fn local_player_pose_snaps_to_the_fed_position_each_tick_without_easing() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.sync_local_player(1, -100, &local_feed(5.0, 0.0));
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.get(1).unwrap().position, [5.0, 64.0, 0.0]);
+    store.sync_local_player(1, -100, &local_feed(6.0, 0.0));
+    store.advance_interpolation_ticks(1);
+    let actor = store.get(1).unwrap();
+    assert_eq!(actor.position, [6.0, 64.0, 0.0]);
+    assert_eq!(actor.previous_pose.position, [5.0, 64.0, 0.0]);
+}
+
+#[test]
+fn local_player_profile_resolves_its_skin_from_the_player_list() {
+    let skin = PlayerSkin::Standard(StandardSkin {
+        width: 64,
+        height: 64,
+        rgba8: vec![7; 64 * 64 * 4].into(),
+    });
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.apply(
+        1,
+        1,
+        ActorEvent::PlayerList(PlayerListUpdateEvent {
+            entries: Arc::from([PlayerListEntry::Add {
+                uuid: [5; 16],
+                unique_id: -100,
+                username: "local".into(),
+                verified: true,
+                skin: skin.clone(),
+            }]),
+        }),
+    );
+    store.sync_local_player(1, -100, &local_feed(0.0, 0.0));
+    let profile = store
+        .player_profile(1)
+        .expect("local profile resolves by uuid");
+    assert_eq!(profile.unique_id, -100);
+    assert_eq!(profile.skin, skin);
+}
+
+#[test]
+fn dimension_reset_respawns_the_local_player_on_the_next_sync() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    store.sync_local_player(1, -100, &local_feed(0.0, 0.0));
+    assert!(store.get(1).is_some());
+    assert_eq!(store.reset_dimension(1, 1, 2), ActorApplyResult::Reset);
+    assert!(store.get(1).is_none());
+    store.sync_local_player(1, -100, &local_feed(0.0, 0.0));
+    assert!(store.get(1).is_some());
 }
