@@ -1,6 +1,7 @@
 pub mod args;
 pub mod asset_startup;
 mod block_cracks;
+mod block_entities;
 mod block_use;
 pub mod camera;
 mod environment;

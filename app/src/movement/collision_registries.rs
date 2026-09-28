@@ -41,6 +41,8 @@ pub struct PhysicsCollisionRegistries {
     breg_sha256: [u8; 32],
     interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
     hashed_interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
+    canonical_states: BTreeMap<u32, Arc<str>>,
+    hashed_canonical_states: BTreeMap<u32, Arc<str>>,
     max_vanilla_sort_key: u64,
     custom_block_physics: Option<CustomBlockPhysics>,
 }
@@ -142,6 +144,8 @@ impl PhysicsCollisionRegistries {
         let mut hashed = CollisionRegistry::with_identity(hashed_identity);
         let mut interaction_blocks = BTreeMap::new();
         let mut hashed_interaction_blocks = BTreeMap::new();
+        let mut canonical_states = BTreeMap::new();
+        let mut hashed_canonical_states = BTreeMap::new();
         let mut max_vanilla_sort_key = 0;
         let mut custom_block_physics = None;
         for record in records {
@@ -160,6 +164,9 @@ impl PhysicsCollisionRegistries {
             let binding = (Arc::from(record.name.as_ref()), full_cube);
             interaction_blocks.insert(record.sequential_id, binding.clone());
             hashed_interaction_blocks.insert(record.network_hash, binding);
+            let state: Arc<str> = Arc::from(record.canonical_state.as_ref());
+            canonical_states.insert(record.sequential_id, Arc::clone(&state));
+            hashed_canonical_states.insert(record.network_hash, state);
             let register = |registry: &mut CollisionRegistry, runtime_id, boxes: Vec<Aabb>| {
                 registry.register_primitives(
                     runtime_id,
@@ -207,6 +214,8 @@ impl PhysicsCollisionRegistries {
             breg_sha256,
             interaction_blocks,
             hashed_interaction_blocks,
+            canonical_states,
+            hashed_canonical_states,
             max_vanilla_sort_key,
             custom_block_physics,
         })
@@ -264,6 +273,19 @@ impl PhysicsCollisionRegistries {
         };
         map.get(&runtime_id)
             .map(|(identifier, _)| identifier.as_ref())
+    }
+
+    /// The registry's canonical state JSON for `runtime_id`, when it is a registered state.
+    pub(crate) fn block_canonical_state(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<&str> {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.canonical_states,
+            assets::NetworkIdMode::Hashed => &self.hashed_canonical_states,
+        };
+        map.get(&runtime_id).map(AsRef::as_ref)
     }
 
     #[must_use]
