@@ -244,3 +244,28 @@ fn a_mounted_controller_streams_a_frozen_pose_with_steering_intact() {
     assert!(!sample.processed.sprinting);
     assert_eq!(sample.move_vector[1], 1.0);
 }
+
+#[test]
+fn a_rider_follows_the_mount_seat_and_reports_the_seat_delta() {
+    let mut physics = settled_controller();
+    let before = physics.network_position().unwrap();
+    let rider = ModeIntent {
+        ride: Some(RideKind::Boat),
+        ride_seat: Some([5.0, 3.0, 5.0]),
+        ..ModeIntent::default()
+    };
+    let sample = step(
+        &mut physics,
+        MovementInput::default(),
+        rider,
+        &VersionedFloor(1),
+    );
+    assert_eq!(sample.position[0], 5.0);
+    assert_eq!(sample.position[2], 5.0);
+    assert!((sample.position[1] - (3.0 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-4);
+    assert!((sample.movement[0] - (5.0 - before[0])).abs() < 1.0e-5);
+    assert!(!has(
+        input_flags(&sample, HeldInput::default()),
+        PlayerInputFlags::JUMPING
+    ));
+}

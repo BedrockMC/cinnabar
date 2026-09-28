@@ -38,6 +38,8 @@ impl RideKind {
 pub struct ModeIntent {
     /// The mount the player currently rides, if any.
     pub ride: Option<RideKind>,
+    /// Feet position of the rider's seat on that mount, when the mount's placement is known.
+    pub ride_seat: Option<[f32; 3]>,
     /// Abilities permit flight.
     pub can_fly: bool,
     /// The server's ability layers currently say the player is flying.
