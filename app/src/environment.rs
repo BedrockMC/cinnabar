@@ -11,7 +11,8 @@ mod weather;
 pub(crate) use atmosphere::update_atmosphere_frame;
 use numeric::finite_nonnegative;
 pub(crate) use weather::{
-    LightningFlashState, WeatherDisplay, update_lightning, update_precipitation_scene,
+    LightningFlashState, WeatherDisplay, load_optional_weather_textures, update_lightning,
+    update_precipitation_scene,
 };
 
 #[derive(Resource, Default)]

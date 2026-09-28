@@ -8,10 +8,10 @@ use bevy::{
 use client_world::WorldStream;
 use meshing::CameraMedium;
 use render::{
-    AtmosphereFrame, ColumnSample, ColumnSampler, PRECIPITATION_LEVEL_PER_SECOND,
+    AtmosphereFrame, ColumnSample, ColumnSampler, LightningScene, PRECIPITATION_LEVEL_PER_SECOND,
     PrecipitationScene, RainSplashQueue, SkyKind, approach_level, build_precipitation_columns,
-    LightningScene, lightning_bolt_segments, lightning_flash_level,
-    pick_rain_splashes, precipitation_clock, push_bolt_records,
+    lightning_bolt_segments, lightning_flash_level, pick_rain_splashes, precipitation_clock,
+    push_bolt_records,
 };
 
 use super::WeatherState;
@@ -22,6 +22,36 @@ const REBUILD_INTERVAL_SECONDS: f64 = 0.1;
 const MAX_QUEUED_SPLASHES: usize = 256;
 /// Ticks a bolt stays drawn after it spawns; needs native measurement.
 const BOLT_VISIBLE_TICKS: u32 = 8;
+
+const WEATHER_TEXTURES_FILENAME: &str = "vanilla-v1.mcbewth";
+const WEATHER_TEXTURES_COMPILE_COMMAND: &str = "make weather-assets";
+
+/// Loads the optional precipitation and End sky carrier next to the world carrier; an absent or
+/// invalid carrier logs a notice and leaves the procedural fallbacks in place.
+#[must_use]
+pub(crate) fn load_optional_weather_textures(
+    world_asset_path: &std::path::Path,
+) -> render::WeatherTextureAssets {
+    let path = world_asset_path.with_file_name(WEATHER_TEXTURES_FILENAME);
+    let decoded = std::fs::read(&path)
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| {
+            assets::decode_weather_textures(&bytes).map_err(|error| error.to_string())
+        });
+    match decoded {
+        Ok((textures, identity)) => {
+            eprintln!("loaded weather textures from {}", path.display());
+            render::WeatherTextureAssets::new(std::sync::Arc::new(textures), identity)
+        }
+        Err(error) => {
+            eprintln!(
+                "weather textures unavailable at {} ({error}); using procedural precipitation and End sky; build with {WEATHER_TEXTURES_COMPILE_COMMAND}",
+                path.display()
+            );
+            render::WeatherTextureAssets::default()
+        }
+    }
+}
 
 /// Time of the latest lightning strike; the sky and lightmap flash for a moment after it.
 #[derive(Resource, Debug, Default)]
