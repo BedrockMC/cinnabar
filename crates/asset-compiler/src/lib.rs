@@ -35,7 +35,7 @@ pub use biome::compile_biome_assets;
 pub use compiler::{compile_pack, compile_pack_with_biomes, inspect_animation_inventory};
 pub use entity::{
     CompileReferenceOutcome, EntityAssetCompilation, FallbackReason, RejectReason,
-    compile_entity_assets, compile_entity_assets_with_report,
+    compile_entity_assets, compile_entity_assets_with_report, compile_equipment_textures,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
