@@ -253,6 +253,12 @@ impl WorldStream {
     pub const fn network_id_mode(&self) -> assets::NetworkIdMode {
         self.network_id_mode
     }
+
+    /// The block assets this stream meshes with, including any session overlay.
+    #[must_use]
+    pub fn runtime_assets(&self) -> &std::sync::Arc<assets::RuntimeAssets> {
+        &self.runtime_assets
+    }
 }
 
 impl WorldStream {

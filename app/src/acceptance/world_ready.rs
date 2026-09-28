@@ -402,7 +402,7 @@ pub(crate) fn emit_world_ready(
     mut metrics: ResMut<AppMetrics>,
     mut cameras: Query<&mut Transform, With<camera::FlyCamera>>,
 ) {
-    let missing_mapping_count = client_world.runtime_assets.missing_count();
+    let missing_mapping_count = client_world.missing_asset_count();
     let Some(stream) = client_world.stream.as_mut() else {
         return;
     };

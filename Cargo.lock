@@ -532,6 +532,7 @@ dependencies = [
  "ui",
  "url",
  "world",
+ "zip",
 ]
 
 [[package]]
@@ -4610,11 +4611,13 @@ dependencies = [
 name = "resource-pack"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "protocol",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "uuid",
+ "zeroize",
  "zip",
 ]
 

@@ -397,6 +397,7 @@ mod tests {
             name: name.into(),
             state_count,
             collides: true,
+            visual: Default::default(),
         }
     }
 

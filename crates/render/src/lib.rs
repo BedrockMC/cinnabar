@@ -13,8 +13,8 @@ mod ui;
 mod ui_textures;
 
 pub use ui_textures::{
-    MAX_UI_TEXTURE_BUCKETS, UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage,
-    UiTexturePlan,
+    MAX_UI_DYNAMIC_PAGES, MAX_UI_TEXTURE_BUCKETS, UiTextureBucket, UiTextureCatalog,
+    UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 mod ui_render;
 mod viewmodel;
