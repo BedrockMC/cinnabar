@@ -7,11 +7,12 @@ use bevy::{
         mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
         touch::Touches,
     },
+    log::debug,
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
 use semantic_input::{Action, PerspectiveMode};
-use sim::{Aabb, CollisionWorld, Vec3 as SimVec3};
+use sim::{Aabb, CollisionWorld, LenientCollisionBoxes, LenientSkipCounts, Vec3 as SimVec3};
 use ui::UserSettings;
 
 use crate::app::ClientFrameSet;
@@ -200,11 +201,13 @@ pub fn perspective_pose(
     }
 }
 
-/// Resolves the third-person camera boom against authoritative collision data.
+/// Resolves the third-person camera boom against collision data.
 ///
-/// The camera is represented by a radius-0.2 axis-aligned point sweep. Missing
-/// collision data fails closed at the subject instead of allowing the camera
-/// to pass through an unloaded column.
+/// The camera is a radius-0.2 axis-aligned point sweep. The query is
+/// camera-lenient: unknown runtime ids and unloaded cells are skipped, so the
+/// boom stops at known solid geometry rather than collapsing onto the subject
+/// near custom blocks or chunk edges. A genuinely malformed query leaves the
+/// full preset boom rather than gluing the camera to the model.
 #[must_use]
 pub fn collision_safe_perspective_pose(
     subject_translation: Vec3,
@@ -229,12 +232,10 @@ pub fn collision_safe_perspective_pose(
         origin - SimVec3::new(radius, radius, radius),
         origin + SimVec3::new(radius, radius, radius),
     );
-    let Ok(collisions) = world.collision_boxes(camera.swept(sweep)) else {
-        pose.translation = subject_translation;
-        return pose;
-    };
-    let fraction = collisions
-        .value
+    let LenientCollisionBoxes { value, skipped } = world
+        .collision_boxes_camera_lenient(camera.swept(sweep))
+        .unwrap_or_default();
+    let fraction = value
         .into_iter()
         .filter_map(|collision| segment_entry_fraction(origin, sweep, collision.grown(radius)))
         .fold(1.0_f64, f64::min);
@@ -244,7 +245,29 @@ pub fn collision_safe_perspective_pose(
             (hit_distance - f64::from(THIRD_PERSON_COLLISION_EPSILON_BLOCKS)).max(0.0);
         pose.translation = subject_translation + delta.normalize_or_zero() * safe_distance as f32;
     }
+    record_boom_telemetry(pose.translation.distance(subject_translation), skipped);
     pose
+}
+
+/// Bounded boom telemetry: logs only when the resolved radius bucket or skip
+/// tally changes, so a steady third-person view logs once, not every frame.
+fn record_boom_telemetry(radius: f32, skipped: LenientSkipCounts) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static LAST_STATE: AtomicU32 = AtomicU32::new(u32::MAX);
+
+    let bucket = (radius.clamp(0.0, THIRD_PERSON_RADIUS_BLOCKS) * 4.0).round() as u32;
+    let unknown = skipped.unknown_runtime_id.min(0xFF);
+    let unloaded = skipped.unloaded_chunk.min(0xFF);
+    let state = bucket | (unknown << 16) | (unloaded << 24);
+    if LAST_STATE.swap(state, Ordering::Relaxed) == state {
+        return;
+    }
+    debug!(
+        boom_radius = radius,
+        skipped_unknown_runtime_id = skipped.unknown_runtime_id,
+        skipped_unloaded_chunk = skipped.unloaded_chunk,
+        "third-person camera boom resolved"
+    );
 }
 
 /// Fails closed when no collision world is available. A third-person boom is

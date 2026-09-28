@@ -580,8 +580,58 @@ pub enum WorldQueryError {
     RayInspectionLimitExceeded,
 }
 
+/// Cells a lenient camera query skipped rather than faulting the whole query.
+/// Counts are per scanned cell/layer and saturate; identity-free by design.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LenientSkipCounts {
+    pub unknown_runtime_id: u32,
+    pub unloaded_chunk: u32,
+}
+
+/// Collision boxes from the camera-lenient query plus the cells it skipped.
+/// Carries no world identity: the camera never gates authority on it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LenientCollisionBoxes {
+    pub value: Vec<Aabb>,
+    pub skipped: LenientSkipCounts,
+}
+
 pub trait CollisionWorld {
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError>;
+
+    /// Camera-only lenient companion to [`Self::collision_boxes`]: a cell with an
+    /// unregistered runtime id or an unloaded chunk is skipped and tallied, not
+    /// fatal, so a third-person boom still stops at known solids instead of
+    /// collapsing near unknown blocks or chunk edges. Framing/bounds errors stay
+    /// fatal; the strict authority contract of [`Self::collision_boxes`] is
+    /// untouched. The default gives whole-region leniency for bare-AABB worlds;
+    /// the palette adapter overrides it to skip per cell.
+    fn collision_boxes_camera_lenient(
+        &self,
+        query: Aabb,
+    ) -> Result<LenientCollisionBoxes, WorldQueryError> {
+        match self.collision_boxes(query) {
+            Ok(boxes) => Ok(LenientCollisionBoxes {
+                value: boxes.value,
+                skipped: LenientSkipCounts::default(),
+            }),
+            Err(WorldQueryError::UnknownRuntimeId { .. }) => Ok(LenientCollisionBoxes {
+                skipped: LenientSkipCounts {
+                    unknown_runtime_id: 1,
+                    unloaded_chunk: 0,
+                },
+                ..Default::default()
+            }),
+            Err(WorldQueryError::UnloadedChunk(_)) => Ok(LenientCollisionBoxes {
+                skipped: LenientSkipCounts {
+                    unknown_runtime_id: 0,
+                    unloaded_chunk: 1,
+                },
+                ..Default::default()
+            }),
+            Err(other) => Err(other),
+        }
+    }
 
     /// Per-collider provenance companion to [`Self::collision_boxes`].
     ///
@@ -800,6 +850,55 @@ impl CollisionWorld for PaletteWorld<'_> {
                 .collect(),
             identity: instances.identity,
         })
+    }
+
+    /// Per-cell leniency: mirrors [`Self::collision_instances`]'s scan but skips
+    /// and tallies unloaded sub-chunks and unregistered runtime ids instead of
+    /// faulting, and computes no identity. A registered solid beside a skipped
+    /// cell still emits its box, so a real wall shortens the boom.
+    fn collision_boxes_camera_lenient(
+        &self,
+        query: Aabb,
+    ) -> Result<LenientCollisionBoxes, WorldQueryError> {
+        validate_collision_query(query)?;
+        if query.min == query.max {
+            return Ok(LenientCollisionBoxes::default());
+        }
+        let grown = query.grown(1.0);
+        let min = block_floor(grown.min)?;
+        let max = block_ceil(grown.max)?;
+        let mut value = Vec::new();
+        let mut skipped = LenientSkipCounts::default();
+        for x in min[0]..=max[0] {
+            for z in min[2]..=max[2] {
+                for y in min[1]..=max[1] {
+                    let block = [x, y, z];
+                    let block_offset = Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+                    let runtime_ids = match self.runtime_ids_at(block) {
+                        Ok(ids) => ids,
+                        Err(WorldQueryError::UnloadedChunk(_)) => {
+                            skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
+                            continue;
+                        }
+                        Err(other) => return Err(other),
+                    };
+                    for runtime_id in runtime_ids {
+                        let Some(physics) = self.registry.physics(runtime_id) else {
+                            skipped.unknown_runtime_id =
+                                skipped.unknown_runtime_id.saturating_add(1);
+                            continue;
+                        };
+                        for shape in physics.shapes.iter().copied() {
+                            let shape = shape.translated(block_offset);
+                            if shape.intersects(query) {
+                                value.push(shape);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(LenientCollisionBoxes { value, skipped })
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
