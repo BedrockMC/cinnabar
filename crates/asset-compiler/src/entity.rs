@@ -8,7 +8,7 @@ use std::{
 use assets::{
     AssetError, CompiledEntityAssets, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
     EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
-    EntityGeometryBone, EntityGeometryInheritance, MAX_ENTITY_ASSET_SOURCES,
+    EntityGeometryBone, EntityGeometryInheritance, EquipmentBinding, MAX_ENTITY_ASSET_SOURCES,
     MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRIES,
     MAX_ENTITY_TOTAL_SOURCE_BYTES, validate_entity_geometry_inheritance,
 };
@@ -16,6 +16,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 mod animation;
+mod attachable;
 mod geometry;
 mod item;
 mod item_bindings;
@@ -33,10 +34,14 @@ pub(crate) use source::{open_source_handle, read_bounded_source};
 pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};
 
 /// Deterministic carrier plus the attributed resolution decision for every rig.
+///
+/// `equipment_bindings` is compiled from `attachables/` for the separate
+/// equipment carrier; it is not part of the entity carrier byte format.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EntityAssetCompilation {
     pub assets: CompiledEntityAssets,
     pub reference_outcomes: Box<[CompileReferenceOutcome<u32>]>,
+    pub equipment_bindings: Box<[EquipmentBinding]>,
 }
 
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -95,6 +100,13 @@ pub fn compile_entity_assets_with_report(
     collect_optional_family(
         root,
         "textures/items",
+        &["json", "png", "tga"],
+        &mut selected,
+    )?;
+    collect_optional_family(root, "attachables", &["json"], &mut selected)?;
+    collect_optional_family(
+        root,
+        "textures/models/armor",
         &["json", "png", "tga"],
         &mut selected,
     )?;
@@ -271,7 +283,9 @@ pub fn compile_entity_assets_with_report(
     )?;
     validate_reference_coverage(&symbols, &animation)?;
     let molang = molang_compiler.finish()?;
-    let items = item::compile(root, &source_payloads, &sources)?;
+    let equipment_bindings = attachable::compile_bindings(&source_payloads, &symbols, &sources)?;
+    let item_transforms = attachable::transform_lookup(&equipment_bindings);
+    let items = item::compile(root, &source_payloads, &sources, &item_transforms)?;
     let reference_outcomes = animation.outcomes;
     let assets = CompiledEntityAssets {
         source_manifest_sha256,
@@ -302,6 +316,7 @@ pub fn compile_entity_assets_with_report(
     Ok(EntityAssetCompilation {
         assets,
         reference_outcomes,
+        equipment_bindings,
     })
 }
 
@@ -531,7 +546,14 @@ fn parse_source(
         )?;
         return Ok(());
     }
-    if relative_path.starts_with("textures/entity/") {
+    if relative_path.starts_with("attachables/") {
+        let value = parse_unique_json(absolute_path, bytes)?;
+        attachable::validate_source(&value)?;
+        return Ok(());
+    }
+    if relative_path.starts_with("textures/entity/")
+        || relative_path.starts_with("textures/models/armor/")
+    {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
             let identifier = relative_path
                 .strip_suffix(".png")

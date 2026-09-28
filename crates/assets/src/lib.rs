@@ -9,6 +9,7 @@ mod blob;
 mod compiled;
 mod entity;
 mod environment_settings;
+mod equipment;
 mod error;
 mod font;
 mod hud;
@@ -93,6 +94,12 @@ pub use entity::{
     encode_entity_blob, molang_call, molang_program_stack, validate_entity_geometry_inheritance,
 };
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
+pub use equipment::{
+    ArmorSlot, EQUIPMENT_CARRIER_MAGIC, EQUIPMENT_CARRIER_VERSION, EquipmentBinding,
+    EquipmentCategory, EquipmentReference, EquipmentTransform, MAX_EQUIPMENT_BINDINGS,
+    MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES, RuntimeEquipmentCatalog,
+    encode_equipment_catalog,
+};
 pub use error::AssetError;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FontCatalogError,
