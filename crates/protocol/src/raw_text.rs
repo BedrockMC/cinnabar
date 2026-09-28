@@ -194,8 +194,9 @@ fn resolve_component(
 /// fixed-precision `%.Nf` form — the argument families the pinned Bedrock
 /// language files use (`en_US.lang` carries five `%.2f` templates). `%%`
 /// escapes one percent sign; an out-of-range reference keeps its literal
-/// form, and a non-numeric argument for `%.Nf` presents verbatim.
-fn format_translation(template: &str, arguments: &[String]) -> String {
+/// form, and a non-numeric argument for `%.Nf` presents verbatim. Output is
+/// bounded by [`MAX_RAW_TEXT_OUTPUT_BYTES`].
+pub fn format_translation(template: &str, arguments: &[String]) -> String {
     let mut output = TranslationPrefix::new(template.len());
     let mut sequential = 0usize;
     let mut chars = template.char_indices().peekable();

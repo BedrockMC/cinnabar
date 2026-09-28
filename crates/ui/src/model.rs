@@ -241,6 +241,14 @@ pub struct UiDrawList {
     pub batches: Vec<UiDrawBatch>,
 }
 
+/// Per-frame text-draw inputs the content-hashed layout cache cannot hold: the
+/// same-width obfuscation pools and the frame seed that animates `§k` runs.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextEffects<'a> {
+    pub obfuscation_seed: u64,
+    pub obfuscation: Option<&'a crate::ObfuscationGlyphs>,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum UiError {
     NodeLimitExceeded { actual: usize, limit: usize },
@@ -495,6 +503,13 @@ impl UiTree {
     }
 
     pub fn build_draw_list(&self) -> Result<UiDrawList, UiError> {
+        self.build_draw_list_with(TextEffects::default())
+    }
+
+    /// As [`Self::build_draw_list`], but applies `§k`/`§l`/`§o` style effects:
+    /// obfuscation swaps each frame from `effects`, bold and italic from the
+    /// glyphs' own style.
+    pub fn build_draw_list_with(&self, effects: TextEffects<'_>) -> Result<UiDrawList, UiError> {
         let synthetic;
         let frame = if let Some(frame) = &self.frame {
             frame
@@ -552,6 +567,7 @@ impl UiTree {
                     &node.visual,
                     bounds,
                     clip,
+                    effects,
                     &mut vertices,
                     &mut indices,
                     &mut batches,
@@ -643,10 +659,17 @@ impl UiTree {
                         TextShadow::None => 1,
                         TextShadow::Offset64(_) => 2,
                     };
+                    // A bold glyph emits a second, offset copy per pass.
+                    let bold = layout
+                        .glyphs()
+                        .iter()
+                        .filter(|glyph| glyph.style.bold)
+                        .count();
                     layout
                         .glyphs()
                         .len()
-                        .checked_mul(passes)
+                        .checked_add(bold)
+                        .and_then(|per_pass| per_pass.checked_mul(passes))
                         .ok_or(UiError::DrawIndexOverflow)?
                 }
             };

@@ -25,8 +25,8 @@ pub use hud::{
     TitleDurations, Toast,
 };
 pub use model::{
-    FocusState, FocusTransition, TextShadow, UiBlendMode, UiDrawBatch, UiDrawList, UiError,
-    UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
+    FocusState, FocusTransition, TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiDrawList,
+    UiError, UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
@@ -38,7 +38,7 @@ pub use scoreboard::{
 };
 pub use settings::{CURRENT_SETTINGS_SCHEMA, GameplaySettings, UserSettings, VideoSettings};
 pub use text::{
-    BedrockColor, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES, TextError,
-    TextLayout, TextLayoutCache, TextLayoutKey, TextLayoutRequest, TextSpan, TextSpans, TextStyle,
-    parse_bedrock_text,
+    BedrockColor, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_TEXT_SPANS, MAX_WRAP_LINES,
+    ObfuscationGlyphs, TextError, TextLayout, TextLayoutCache, TextLayoutKey, TextLayoutRequest,
+    TextSpan, TextSpans, TextStyle, parse_bedrock_text,
 };
