@@ -207,8 +207,9 @@ Queries referenced by the vanilla pack's entity, controller, animation and rende
 | Block sample | is_in_water, is_in_lava (block at the actor's feet, app-fed each frame; is_in_water falls back to the swimming flag or airborne fish before the first sample) |
 | Smoothed | swim_amount (ramps toward the swimming flag; step unmeasured) |
 | Heuristic | is_grazing (eating flag, unmeasured), standing_scale (unsmoothed 0/1) |
+| World / item state | sleep_rotation (bed `direction` state under the sleeper, quarter turns; origin unmeasured), item_is_charged (crossbow `chargedItem` NBT kept on the canonical stack), has_cape (skin carries a valid cape image), property (SyncActorProperty names resolved per entity type; enums read as their value name) |
 | Armor | armor_texture_slot, armor_color_slot (equipment store; chainmail, turtle, elytra indices unmeasured) |
-| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (evaluated at tick boundaries by design), item_is_charged (25), has_cape, sleep_rotation, property (21), armor_material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
+| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (evaluated at tick boundaries by design), armor_material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
 
 Engine-fed variables: attack_time, gliding_speed_value, is_holding_right/left, is_sneaking,
 is_blocking, damage_nearby_mobs, is_first_person, player_x_rotation, bob_animation, swim_amount,
@@ -219,12 +220,12 @@ Local player: sneak and sprint come from the latest predicted tick and swim is s
 water; glide, crawl, sleep and item-use flags arrive from server metadata, with no client-predicted
 source (the movement simulator models none of them).
 
-Riders with a streamed seat offset (metadata key 56) are placed at mount position plus the offset
-rotated by the mount's yaw each tick; the offset frame and vertical origin need native
+Riders are placed at mount position plus a seat offset rotated by the mount's yaw each tick: the
+streamed offset (metadata key 56) when present, else the mount type's `minecraft:rideable` seat
+from the local behavior pack (chosen by rider count and unique-id order; absent pack means no
+defaults). The offset frame, vertical origin, seat ordering and rotation locks need native
 verification. Invisible bodies draw as NoDraw after equipment layers are built, so armor and held
 items stay.
 
-Open, each blocked on data no lane carries yet: `property` needs SyncActorProperty decoding;
-`has_cape` needs cape pixels in the protocol skin; `item_is_charged` needs held-item NBT
-retention; `sleep_rotation` needs the bed block's facing; `armor_material_slot` semantics are
-unmeasured.
+Open: cape pixels are retained on the decoded skin but no render path draws them yet;
+`armor_material_slot` semantics are unmeasured.

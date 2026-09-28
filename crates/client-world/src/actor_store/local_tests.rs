@@ -8,6 +8,7 @@ use super::{ActorApplyResult, ActorStore, LocalPlayerFeed, tests::player_move};
 
 fn standard_skin(byte: u8) -> PlayerSkin {
     PlayerSkin::Standard(StandardSkin {
+        cape: None,
         width: 64,
         height: 64,
         rgba8: vec![byte; 64 * 64 * 4].into(),

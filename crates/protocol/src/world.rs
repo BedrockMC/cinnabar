@@ -44,14 +44,14 @@ pub use self::custom_blocks::{
     CustomTransformation, CustomVisualComponents, block_name_sort_key,
 };
 pub use self::events::{
-    ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
-    BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent,
-    DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
-    MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
-    air_network_id, vanilla_dimension_range,
+    ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
+    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode,
+    MAX_ACTOR_PROPERTY_SYNC_BYTES, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject,
+    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
+    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
+    WeatherUpdateEvent, WorldEvent, air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 pub use self::requests::request_sub_chunk_column;
@@ -437,6 +437,15 @@ pub fn into_world_event(
         }
         McpePacketData::MobEffectPacket(packet) => {
             WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?)
+        }
+        McpePacketData::SyncActorPropertyPacket(packet) => {
+            let data = &packet.property_data.0;
+            if data.len() > MAX_ACTOR_PROPERTY_SYNC_BYTES {
+                return Ok(None);
+            }
+            WorldEvent::ActorPropertySync(ActorPropertySyncEvent {
+                data: Arc::from(&data[..]),
+            })
         }
         McpePacketData::SetActorLinkPacket(packet) => {
             WorldEvent::ActorLink(normalize_set_entity_link(*packet, current_dimension))

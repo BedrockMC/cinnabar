@@ -149,7 +149,40 @@ pub(super) fn query(
             _ => None,
         }),
         "owner_identifier" => text(None),
+        "property" => property(evaluator, arguments.first()),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
+    }
+}
+
+/// The actor's synced property by name: enums read as their value name, everything else as its
+/// stored number; an unsynced or unknown property reads 0.
+fn property(evaluator: &QueryInputs<'_>, name: Option<&MolangValue>) -> MolangValue {
+    use crate::actor_store::properties::PropertyKind;
+    let (actor, context) = (evaluator.actor, evaluator.context);
+    let Some(MolangValue::String(name)) = name else {
+        return MolangValue::Number(0.0);
+    };
+    let found = context.properties.as_deref().and_then(|definitions| {
+        definitions
+            .iter()
+            .position(|definition| definition.name == *name)
+            .map(|index| (index as u32, &definitions[index].kind))
+    });
+    let Some((index, kind)) = found else {
+        return MolangValue::Number(0.0);
+    };
+    if let Some(value) = actor.float_properties.get(&index) {
+        return MolangValue::Number(*value);
+    }
+    let value = actor.int_properties.get(&index).copied().unwrap_or(0);
+    match kind {
+        PropertyKind::Enum(values) => usize::try_from(value)
+            .ok()
+            .and_then(|index| values.get(index))
+            .map_or(MolangValue::Number(0.0), |name| {
+                MolangValue::String(Arc::clone(name))
+            }),
+        PropertyKind::Number => MolangValue::Number(value as f32),
     }
 }
 
@@ -235,6 +268,8 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Unsmoothed 0/1 stand-in for the pose blend.
         "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),
         "is_in_water" => truth(in_water(actor, input)),
+        "sleep_rotation" => actor.status.sleep_rotation.unwrap_or(0.0),
+        "has_cape" => truth(context.has_cape),
         "item_is_charged" => truth(context.hand_charged),
         "is_in_lava" => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
         "armor_texture_slot" => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
