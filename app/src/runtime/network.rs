@@ -431,6 +431,7 @@ pub(crate) fn receive_network_events(
                 stream.set_pack_entities(
                     packs.entities.as_ref().map(|pack| Arc::clone(&pack.assets)),
                 );
+                stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)

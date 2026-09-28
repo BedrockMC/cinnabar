@@ -174,7 +174,16 @@ fn property(evaluator: &QueryInputs<'_>, name: Option<&MolangValue>) -> MolangVa
     if let Some(value) = actor.float_properties.get(&index) {
         return MolangValue::Number(*value);
     }
-    let value = actor.int_properties.get(&index).copied().unwrap_or(0);
+    // Before the server sets it, an actor reads the pack-declared default (0 without one).
+    let default = context
+        .properties
+        .as_deref()
+        .map_or(0.0, |definitions| definitions[index as usize].default);
+    let value = actor
+        .int_properties
+        .get(&index)
+        .copied()
+        .unwrap_or(default as i32);
     match kind {
         PropertyKind::Enum(values) => usize::try_from(value)
             .ok()
@@ -182,6 +191,9 @@ fn property(evaluator: &QueryInputs<'_>, name: Option<&MolangValue>) -> MolangVa
             .map_or(MolangValue::Number(0.0), |name| {
                 MolangValue::String(Arc::clone(name))
             }),
+        PropertyKind::Number if !actor.int_properties.contains_key(&index) => {
+            MolangValue::Number(default)
+        }
         PropertyKind::Number => MolangValue::Number(value as f32),
     }
 }
