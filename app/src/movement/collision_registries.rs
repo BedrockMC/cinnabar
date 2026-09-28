@@ -41,6 +41,10 @@ pub struct PhysicsCollisionRegistries {
     breg_sha256: [u8; 32],
     interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
     hashed_interaction_blocks: BTreeMap<u32, (Arc<str>, bool)>,
+    /// Named vanilla blocks as `(sort key, name, first sequential id)`, in id order.
+    vanilla_runs: Vec<(u64, Arc<str>, u32)>,
+    /// False when the carrier's ids are not in vanilla sort order, so customs cannot interleave.
+    interleave_supported: bool,
     max_vanilla_sort_key: u64,
     custom_block_physics: Option<CustomBlockPhysics>,
     /// Hashes this session added to `hashed`, dropped when the next session begins.
@@ -145,6 +149,7 @@ impl PhysicsCollisionRegistries {
         let mut interaction_blocks = BTreeMap::new();
         let mut hashed_interaction_blocks = BTreeMap::new();
         let mut max_vanilla_sort_key = 0;
+        let mut vanilla_runs: Vec<(u64, Arc<str>, u32)> = Vec::new();
         let mut custom_block_physics = None;
         for record in records {
             let fact = physics
@@ -192,8 +197,14 @@ impl PhysicsCollisionRegistries {
                 });
             }
             if record.name.as_ref() != RESERVED_RECORD_NAME {
-                max_vanilla_sort_key =
-                    max_vanilla_sort_key.max(protocol::block_name_sort_key(&record.name));
+                let key = protocol::block_name_sort_key(&record.name);
+                max_vanilla_sort_key = max_vanilla_sort_key.max(key);
+                if vanilla_runs
+                    .last()
+                    .is_none_or(|run| run.1.as_ref() != record.name.as_ref())
+                {
+                    vanilla_runs.push((key, Arc::from(record.name.as_ref()), record.sequential_id));
+                }
             }
         }
         let available_record_count = physics.len();
@@ -209,6 +220,10 @@ impl PhysicsCollisionRegistries {
             breg_sha256,
             interaction_blocks,
             hashed_interaction_blocks,
+            interleave_supported: vanilla_runs
+                .windows(2)
+                .all(|pair| (pair[0].0, &pair[0].1) < (pair[1].0, &pair[1].1)),
+            vanilla_runs,
             max_vanilla_sort_key,
             custom_block_physics,
             session_hashes: Vec::new(),
@@ -216,26 +231,36 @@ impl PhysicsCollisionRegistries {
     }
 
     /// Registers this session's StartGame custom blocks at the sequential ids
-    /// after the vanilla palette and returns that id range. Returns `None` when
-    /// a custom name sorts among vanilla blocks, which shifts vanilla ids and is
-    /// not supported yet.
+    /// after the vanilla palette and returns that id range plus the wire remap
+    /// for customs whose names sort among vanilla. Returns `None` when a custom
+    /// name equals a vanilla name or the carrier order cannot be interleaved.
     pub fn begin_session_custom_blocks(
         &mut self,
         custom: &protocol::CustomBlocks,
-    ) -> Option<Range<u32>> {
+    ) -> Option<(Range<u32>, assets::SequentialIdRemap)> {
         let first = u32::try_from(self.sequential_count).ok()?;
         self.sequential.remove_runtime_ids_from(first);
-        if custom
-            .blocks
-            .iter()
-            .any(|block| block.sort_key() <= self.max_vanilla_sort_key)
-        {
-            return None;
+        if custom.blocks.is_empty() {
+            return Some((first..first, assets::SequentialIdRemap::default()));
         }
         let physics = self.custom_block_physics?;
         let full_cube = collision_box_to_aabb(FULL_CUBE);
         let mut next = first;
+        let mut runs = Vec::new();
         for block in custom.blocks.iter() {
+            let key = (block.sort_key(), block.name.as_ref());
+            let after = self
+                .vanilla_runs
+                .partition_point(|run| (run.0, run.1.as_ref()) <= key);
+            let same_name = after
+                .checked_sub(1)
+                .is_some_and(|index| self.vanilla_runs[index].1.as_ref() == key.1);
+            if same_name || (!self.interleave_supported && key.0 <= self.max_vanilla_sort_key) {
+                return None;
+            }
+            let vanilla_before = self.vanilla_runs.get(after).map_or(first, |run| run.2);
+            let earlier_customs = next - first;
+            runs.push((vanilla_before + earlier_customs, block.state_count, next));
             for _ in 0..block.state_count {
                 let boxes = block.collides.then_some(full_cube);
                 self.sequential
@@ -253,7 +278,16 @@ impl PhysicsCollisionRegistries {
                 next = next.checked_add(1)?;
             }
         }
-        Some(first..next)
+        // Customs sorting after every vanilla name need no remap.
+        let identity = runs
+            .iter()
+            .all(|&(wire_start, _, internal_start)| wire_start == internal_start);
+        let remap = if identity {
+            assets::SequentialIdRemap::default()
+        } else {
+            assets::SequentialIdRemap::new(runs)
+        };
+        Some((first..next, remap))
     }
 
     /// Registers this session's custom block states under their network hashes
@@ -463,12 +497,13 @@ mod tests {
             .into(),
             skipped: 0,
         };
+        let (range, remap) = registries.begin_session_custom_blocks(&appended).unwrap();
+        assert_eq!(range, first..first + 5);
+        assert!(remap.is_identity(), "customs after vanilla keep wire ids");
         assert_eq!(
-            registries.begin_session_custom_blocks(&appended),
-            Some(first..first + 5)
-        );
-        assert_eq!(
-            registries.begin_session_custom_blocks(&protocol::CustomBlocks::default()),
+            registries
+                .begin_session_custom_blocks(&protocol::CustomBlocks::default())
+                .map(|(range, _)| range),
             Some(first..first)
         );
         let interleaved = protocol::CustomBlocks {
@@ -476,6 +511,17 @@ mod tests {
             skipped: 0,
         };
         assert_eq!(registries.begin_session_custom_blocks(&interleaved), None);
+        // A name sorting among vanilla shifts later vanilla wire ids down onto the carrier's.
+        let among = protocol::CustomBlocks {
+            blocks: vec![custom_block("test:among_vanilla", 2)].into(),
+            skipped: 0,
+        };
+        let (range, remap) = registries.begin_session_custom_blocks(&among).unwrap();
+        assert_eq!(range, first..first + 2);
+        if !remap.is_identity() {
+            // The last wire ids are vanilla ones displaced past the custom run.
+            assert_eq!(remap.to_internal(first + 1), first - 1);
+        }
     }
 
     /// Hashed custom states register under their hashes and are dropped by the next session.

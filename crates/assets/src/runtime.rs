@@ -1,6 +1,8 @@
 mod decode;
+mod id_remap;
 mod overlay;
 
+pub use id_remap::SequentialIdRemap;
 pub use overlay::BlockOverlay;
 
 use std::sync::atomic::{AtomicU64, Ordering};
