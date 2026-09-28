@@ -121,3 +121,17 @@ pub(super) fn evaluate_render(
     }
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::pattern_matches;
+
+    #[test]
+    fn star_matches_everything_and_a_trailing_star_matches_a_prefix() {
+        assert!(pattern_matches("*", "head"));
+        assert!(pattern_matches("leg*", "legfront"));
+        assert!(pattern_matches("head", "head"));
+        assert!(!pattern_matches("head", "headwear"));
+        assert!(!pattern_matches("leg*", "arm"));
+    }
+}
