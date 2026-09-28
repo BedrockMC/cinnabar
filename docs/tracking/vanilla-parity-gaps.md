@@ -107,7 +107,14 @@ animated rig remotes use. All three below flow from that.
 
 ## World rendering / atmosphere (Bedrock target)
 - Weather precipitation (rain/snow) — absent (HIGH).
-- Particles — no system at all; block-break etc. absent (HIGH).
+- Particles — data-driven engine landed (`crates/render/src/particles`, `make particle-assets`),
+  **incomplete, uncompiled and unverified**: block break/crack, LevelEvent and
+  SpawnParticleEffect triggers, critical hits. Provisional *(measure)*: break/crack piece
+  counts and radii, particle size as half-extent, `particles_alpha` treated as blended
+  with a low alpha cutoff, collision-drag model, light mapping, spawn/draw distance caps,
+  Molang variable wire layout. Missing: biome tint on break pieces, item-icon particles,
+  local mining crack trigger, entity/animation-driven emitters (spawn API exists),
+  particle sound routing, `emitter_bound`/travel-distance events (HIGH until measured).
 - Daylight/lightmap curve wrong: `sin·0.8+0.2` vs vanilla `ramp(cos(easedCelestialAngle))`;
   night too bright (0.2/0.04 floors), no day plateau (HIGH).
 - Stars at night — absent (MED-HIGH).
