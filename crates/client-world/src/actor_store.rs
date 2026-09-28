@@ -25,6 +25,7 @@ const NAMETAG_METADATA_KEY: u32 = 4;
 const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
+pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 /// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
 /// 64 live in the overflow flag word.
@@ -278,6 +279,9 @@ impl ActorSnapshot {
                 rejected = true;
                 continue;
             }
+            if metadata.key == FUSE_TIME_METADATA_KEY {
+                self.status.fuse_age_ticks = self.status.age_ticks;
+            }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
         rejected
@@ -390,17 +394,24 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
+    /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
+    local_knockback: Option<(u64, [f32; 2])>,
+    /// Status events awaiting a particle or sound consumer.
+    status_notices: Vec<ActorStatusNotice>,
 }
 
 mod dropped;
+mod entities;
 mod hurt;
 mod lifecycle;
 mod lightning;
 mod query;
 
+pub use entities::{BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation};
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
 pub use hurt::{
-    ActorPickup, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS, PICKUP_DURATION_TICKS,
+    ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
+    HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
 

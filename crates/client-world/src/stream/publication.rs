@@ -133,6 +133,10 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
     }
+    /// Drains decoded actor status events (hurt, death, taming, totem, ...) for particle and sound consumers.
+    pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
+        self.actors.take_status_notices()
+    }
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);
@@ -160,6 +164,14 @@ impl WorldStream {
     /// Live lightning-bolt actors, for the bolt renderer and sky flash.
     pub fn lightning_bolts(&self) -> Vec<crate::LightningBoltView> {
         self.actors.lightning_bolts()
+    }
+    /// Falling blocks and primed TNT with interpolated centres, swell and flash.
+    pub fn block_entities(&self, partial_tick: f32) -> Vec<crate::BlockEntityView> {
+        self.actors.block_entities(partial_tick)
+    }
+    /// Fishing lines and leads with interpolated endpoints.
+    pub fn ropes(&self, partial_tick: f32) -> Vec<crate::RopeView> {
+        self.actors.ropes(partial_tick)
     }
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)

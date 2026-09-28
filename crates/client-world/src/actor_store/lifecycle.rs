@@ -88,6 +88,8 @@ impl ActorStore {
             synthetic_local_revision: 0,
             local_first_person: false,
             camera_rotation: [0.0; 2],
+            local_knockback: None,
+            status_notices: Vec::new(),
         }
     }
 
@@ -218,6 +220,7 @@ impl ActorStore {
         self.animation.clear();
         self.items.clear();
         self.actions.clear();
+        self.status_notices.clear();
     }
     pub(crate) fn reset_dimension(
         &mut self,
@@ -241,6 +244,7 @@ impl ActorStore {
         self.animation.clear();
         self.items.clear_actor_state();
         self.actions.clear();
+        self.status_notices.clear();
         ActorApplyResult::Reset
     }
     pub(crate) fn apply(

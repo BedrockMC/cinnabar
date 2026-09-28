@@ -14,8 +14,10 @@ struct VertexInput {
     @location(3) row_0: vec4<f32>,
     @location(4) row_1: vec4<f32>,
     @location(5) row_2: vec4<f32>,
-    // x = sprite layer, y = block light level, z = sky light level.
+    // x = model index, y = block light level, z = sky light level, w = packed RGBA8 overlay.
     @location(6) meta: vec4<u32>,
+    @location(7) layer: u32,
+    @location(8) color: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -24,6 +26,8 @@ struct VertexOutput {
     @location(1) @interpolate(flat) layer: u32,
     @location(2) shade: f32,
     @location(3) @interpolate(flat) levels: vec2<u32>,
+    @location(4) color: vec4<f32>,
+    @location(5) @interpolate(flat) overlay: vec4<f32>,
 }
 
 // Provisional directional shade: full on top faces, half on bottom faces.
@@ -47,7 +51,9 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.position = view.clip_from_world * world;
     out.uv = input.uv;
-    out.layer = input.meta.x;
+    out.layer = input.layer;
+    out.color = input.color;
+    out.overlay = unpack4x8unorm(input.meta.w);
     out.shade = SHADE_BASE + SHADE_SLOPE * world_normal.y;
     out.levels = vec2(input.meta.y, input.meta.z);
     return out;
@@ -55,7 +61,7 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(sprites, sprite_sampler, input.uv, i32(input.layer));
+    let color = textureSample(sprites, sprite_sampler, input.uv, i32(input.layer)) * input.color;
     if (color.a < 0.1) {
         discard;
     }
@@ -66,5 +72,5 @@ fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
         1.0,
         environment.x,
     );
-    return vec4(lit, color.a);
+    return vec4(mix(lit, input.overlay.rgb, input.overlay.a), color.a);
 }
