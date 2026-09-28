@@ -977,6 +977,8 @@ fn decode_empty_mob_equipment(
 }
 
 #[cfg(test)]
+mod block_event_tests;
+#[cfg(test)]
 mod motion_tests;
 #[cfg(test)]
 mod raw_inventory_provenance_tests;
