@@ -499,7 +499,8 @@ fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbe
         r#"{"type":"form","elements":[{"type":"button","text":7,"image":null}]}"#,
         r#"{"type":"form","elements":[{"type":"button","text":"A","image":{"type":"path","data":"ignored"}}]}"#,
         r#"{"type":"form","elements":[{"type":"button","text":"A","image":null,"unknown":true}]}"#,
-        r#"{"type":"form","elements":[{"type":"button","text":"A","image":null},{"type":"label","text":"B","image":null},{"type":"button","text":"C","image":null}]}"#,
+        r#"{"type":"form","elements":[{"type":"label","image":null}]}"#,
+        r#"{"type":"form","elements":[{"type":"header","text":"H","image":{"type":"path","data":"x"}}]}"#,
     ] {
         assert_eq!(
             form_event(json).unwrap().model,
@@ -874,4 +875,105 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
             form_cancel_reason: None,
         }) if response == "2"
     ));
+}
+
+#[test]
+fn element_menus_keep_decorations_and_count_only_buttons() {
+    let event = form_event(r#"{"type":"form","title":"T","content":"C","elements":[{"type":"button","text":"A","image":null},{"type":"label","text":"B","image":null},{"type":"divider"},{"type":"header","text":"H"},{"type":"button","text":"C","image":null}]}"#).unwrap();
+    let protocol::ServerFormModel::ElementMenu(menu) = event.model else {
+        panic!("decorated element menu")
+    };
+    assert_eq!(menu.button_count(), 2);
+    assert_eq!(
+        menu.elements.as_ref(),
+        [
+            protocol::MenuElement::Button {
+                text: Arc::from("A")
+            },
+            protocol::MenuElement::Label(Arc::from("B")),
+            protocol::MenuElement::Divider,
+            protocol::MenuElement::Header(Arc::from("H")),
+            protocol::MenuElement::Button {
+                text: Arc::from("C")
+            },
+        ]
+    );
+}
+
+#[test]
+fn modal_forms_model_both_buttons_or_stay_unsupported() {
+    let event = form_event(
+        r#"{"type":"modal","title":"Sure?","content":"Body","button1":"Yes","button2":"No"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        event.model,
+        protocol::ServerFormModel::Modal(protocol::ModalDialogForm {
+            title: Arc::from("Sure?"),
+            content: Arc::from("Body"),
+            button1: Arc::from("Yes"),
+            button2: Arc::from("No"),
+        })
+    );
+    for json in [
+        r#"{"type":"modal","button1":"Yes"}"#,
+        r#"{"type":"modal","button1":"Yes","button2":5}"#,
+    ] {
+        assert_eq!(
+            form_event(json).unwrap().model,
+            protocol::ServerFormModel::Unsupported(protocol::UnsupportedForm::Controls)
+        );
+    }
+}
+
+#[test]
+fn custom_form_elements_start_from_vanilla_defaults() {
+    use protocol::{CustomFormElement, FormNumber};
+    let event = form_event(
+        r#"{"type":"custom_form","title":"S","submit":"Go","content":[
+        {"type":"label","text":"L"},
+        {"type":"toggle","text":"T","default":true},
+        {"type":"slider","text":"V","min":2,"max":1},
+        {"type":"step_slider","text":"P","steps":["a","b"],"default":1},
+        {"type":"dropdown","text":"D","options":["x","y"],"default":9},
+        {"type":"input","text":"N","placeholder":"name"},
+        {"type":"divider"}
+    ]}"#,
+    )
+    .unwrap();
+    let protocol::ServerFormModel::Custom(form) = event.model else {
+        panic!("custom form")
+    };
+    assert_eq!(form.submit.as_deref(), Some("Go"));
+    assert_eq!(form.elements.len(), 7);
+    let CustomFormElement::Slider {
+        min,
+        max,
+        step,
+        default,
+        ..
+    } = &form.elements[2]
+    else {
+        panic!("slider")
+    };
+    // max below min is raised to min; step defaults to 1; the start is min.
+    assert_eq!(
+        (min.get(), max.get(), step.get(), default.get()),
+        (2.0, 2.0, 1.0, 2.0)
+    );
+    assert!(matches!(
+        form.elements[3],
+        CustomFormElement::StepSlider { default: 1, .. }
+    ));
+    // An out-of-range dropdown default falls back to the first option.
+    assert!(matches!(
+        form.elements[4],
+        CustomFormElement::Dropdown { default: 0, .. }
+    ));
+    assert!(matches!(
+        &form.elements[5],
+        CustomFormElement::Input { placeholder, default, .. }
+            if placeholder.as_ref() == "name" && default.is_empty()
+    ));
+    assert_eq!(FormNumber::new(f64::NAN), None);
 }

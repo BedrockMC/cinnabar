@@ -7,9 +7,11 @@
 //! expressions ([`expr`]) against a virtual root size and positions every control,
 //! and [`emit`] flattens the placed tree into layer-ordered draw commands,
 //! nine-slicing sprites from their texture sidecars ([`sidecar`]). [`bind`] resolves
-//! `#bindings` against a screen data source and expands factory collections, and
-//! [`form`] renders a decoded server form through its vanilla template. Input is a
-//! later tranche.
+//! `#bindings` against a screen data source and expands factory collections and
+//! grids, [`widgets`] drives the engine-owned control states from a caller-held
+//! [`ViewState`], [`input`] reports interactive regions and mappings, [`pack`]
+//! overlays server resource-pack ui over the vanilla catalog, and [`form`]
+//! renders a decoded server form through its vanilla template.
 
 mod bind;
 mod catalog;
@@ -17,13 +19,18 @@ mod emit;
 mod env;
 mod expr;
 mod form;
+mod input;
 mod json5;
 mod layout;
 mod merge;
+mod pack;
 mod predicate;
 mod resolve;
+mod screens;
 mod sidecar;
+mod state;
 mod tree;
+mod widgets;
 
 use std::collections::BTreeMap;
 
@@ -37,13 +44,20 @@ pub use expr::{
     AxisContext, ExprError, Length, Resolved, Term, Unit, length_from_value, parse_length,
 };
 pub use form::{
-    ActionForm, ButtonImage, CatalogLibrary, CustomElement, CustomForm, FormButton, FormModel,
-    FormRender, ModalForm, bind_form, form_data_source, form_template, render_form,
+    ActionElement, ActionForm, ButtonImage, CatalogLibrary, CustomElement, CustomForm, FormButton,
+    FormModel, FormRender, ModalForm, bind_form, form_context, form_data_source, form_template,
+    render_form, render_form_with,
 };
-pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout};
+pub use input::{
+    HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
+    scroll_target,
+};
+pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_with};
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
+pub use screens::{ENGINE_SCREENS, ScreenRender, is_engine_screen, render_screen};
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
+pub use state::{LayoutReport, ScrollMetrics, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any

@@ -45,7 +45,7 @@ pub fn apply_declarations(env: &mut Env, props: &Map<String, Value>) {
         };
         if is_default {
             if !env.contains(&name) {
-                let resolved = substitute(value, env, &mut sink);
+                let resolved = fold_expression(value, substitute(value, env, &mut sink), env);
                 env.set(name, resolved);
             }
         } else {
@@ -53,8 +53,33 @@ pub fn apply_declarations(env: &mut Env, props: &Map<String, Value>) {
         }
     }
     for (name, value) in concretes {
-        let resolved = substitute(value, env, &mut sink);
+        let resolved = fold_expression(value, substitute(value, env, &mut sink), env);
         env.set(name, resolved);
+    }
+}
+
+/// Evaluate a parenthesised string expression built from `$vars` (e.g.
+/// `('#' + $dropdown_name)`) once its variables are substituted. Only raw values
+/// that start with `(` and reference a `$var` qualify, so literal text in
+/// parentheses survives; an expression that still needs runtime `#bindings` is
+/// left for the binder.
+pub fn fold_expression(raw: &Value, substituted: Value, env: &Env) -> Value {
+    let Value::String(raw) = raw else {
+        return substituted;
+    };
+    if !raw.trim_start().starts_with('(') || !raw.contains('$') {
+        return substituted;
+    }
+    let Value::String(expression) = &substituted else {
+        return substituted;
+    };
+    match crate::predicate::eval_scalar(expression, env, &crate::predicate::NoBindings) {
+        Some(crate::predicate::Scalar::Bool(flag)) => Value::Bool(flag),
+        Some(crate::predicate::Scalar::Text(text)) => Value::String(text),
+        Some(crate::predicate::Scalar::Num(number)) => serde_json::Number::from_f64(number)
+            .map(Value::Number)
+            .unwrap_or(substituted),
+        None => substituted,
     }
 }
 
@@ -164,7 +189,7 @@ fn is_ident_byte(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Env, apply_declarations, parse_var_key, substitute};
+    use super::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
     use serde_json::{Map, json};
 
     fn props(value: serde_json::Value) -> Map<String, serde_json::Value> {
@@ -230,6 +255,22 @@ mod tests {
         let out = substitute(&json!("$nope"), &env(), &mut missing);
         assert_eq!(out, json!("$nope"));
         assert_eq!(missing, vec!["nope".to_owned()]);
+    }
+
+    #[test]
+    fn parenthesised_var_expressions_fold_but_literals_survive() {
+        let mut env = Env::new();
+        env.set("dropdown_name", json!("custom_dropdown"));
+        let raw = json!("('#' + $dropdown_name)");
+        let folded = fold_expression(&raw, substitute(&raw, &env, &mut Vec::new()), &env);
+        assert_eq!(folded, json!("#custom_dropdown"));
+        let literal = json!("(Beta)");
+        assert_eq!(
+            fold_expression(&literal, literal.clone(), &env),
+            json!("(Beta)")
+        );
+        let runtime = json!("(not #enabled)");
+        assert_eq!(fold_expression(&runtime, runtime.clone(), &env), runtime);
     }
 
     #[test]
