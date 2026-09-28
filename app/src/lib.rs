@@ -4,6 +4,7 @@ mod block_cracks;
 mod block_use;
 pub mod camera;
 mod environment;
+mod game_mode_capabilities;
 mod hotbar;
 mod install_layout;
 mod interaction_authority;
