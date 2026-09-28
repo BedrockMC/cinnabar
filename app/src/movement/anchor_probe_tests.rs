@@ -906,11 +906,11 @@ fn evidence_instrumentation_never_changes_probe_decisions() {
         let mut state = AnchorProbeState::new();
         state.testing_set_evidence_enabled(evidence_enabled);
         state.note_hard_anchor();
-        let mut decisions = Vec::new();
-        decisions.push(state.before_tick(world, SHAFT_FEET)); // failed probe: proceeds
-        decisions.push(state.before_tick(world, SHAFT_FEET)); // already resolved: proceeds
-        decisions.push(state.before_tick(world, SHAFT_FEET));
-        decisions
+        vec![
+            state.before_tick(world, SHAFT_FEET), // failed probe: proceeds
+            state.before_tick(world, SHAFT_FEET), // already resolved: proceeds
+            state.before_tick(world, SHAFT_FEET),
+        ]
     }
 
     // A failed probe proceeds regardless of instrumentation; the marker path is

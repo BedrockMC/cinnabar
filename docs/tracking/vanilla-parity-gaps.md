@@ -21,15 +21,22 @@ Values only resolvable from decompiled source are marked *(measure)*.
 - First person: stopped drawing the whole third-person body rig at the camera (it
   occluded the view). Draws no near-camera rig until an arm-only model exists.
 
+## Landed, pending native confirmation
+- Movement / anti-cheat "movement cheats": deleted the PlayerAuthInput suppression
+  subsystem (send every tick); depenetration resolves per-axis with horizontal clamped
+  to intended velocity so an embedded start injects no inputless drift; `pos_delta` is
+  the per-tick displacement. Independently reviewed (APPROVE, FIX1 proven red→green).
+  Provisional pending native measurement: the retained **vertical** MTV push-out is the
+  sole recovery envelope, plus the anchor-probe budgets, the 32-tick history window, and
+  the 16-block teleport-snap bound. Owner gate: AC server stops kicking + normal server
+  feels unchanged.
+- Camera third-person boom: lenient camera collision query skips unknown/unloaded cells
+  instead of collapsing to radius 0. Owner: confirm ~4-block boom on servers with custom
+  blocks while real walls still shorten it.
+- Chat `§k/§l/§o` render (CPU draw-list, not shader — atlas page is per-batch) + translation
+  killfeeds resolve. Owner: confirm bold weight / italic shear / obfuscation cadence.
+
 ## In progress (branches)
-- `task/movement-authinput-parity` — anti-cheat "movement cheats" fix: drop the
-  PlayerAuthInput suppression band-aid (send every tick), fix inputless depenetration
-  drift, fix pos_delta to be the actual displacement. Needs native A/B on an AC server.
-- `task/camera` — third-person boom collapses onto the player because the collision
-  sweep fails closed to radius 0 on any unknown/unloaded block; make the camera query
-  lenient (skip unknown/unloaded cells). Needs native check.
-- `task/textstyle` — render `§k/§l/§o` (parsed but the shader ignored `style_flags`,
-  the killfeed garble) + resolve translation-key killfeeds. Needs native check.
 - `task/resource-packs` — server pack download/decrypt/apply (review fixes).
 - `task/enhanced-shaders` — opt-in Enhanced render mode (non-parity, off by default).
 
