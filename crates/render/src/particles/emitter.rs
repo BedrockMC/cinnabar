@@ -34,8 +34,6 @@ pub struct SpawnRequest {
     pub inherit_velocity: Option<[f32; 3]>,
     /// Emit exactly this many particles from a manual-rate emitter.
     pub manual_count: Option<u32>,
-    /// Attach to a host entity; the host moves the emitter via its transform setter.
-    pub entity: Option<i64>,
     pub depth: u8,
     pub seed: u64,
 }
@@ -62,7 +60,6 @@ pub struct Emitter {
     pub texture: Placement,
     pub pos: [f32; 3],
     pub basis: [[f32; 3]; 3],
-    pub entity: Option<i64>,
     pub age: f32,
     pub vars: Vec<f32>,
     pub rng: Rng,
@@ -138,7 +135,6 @@ impl Emitter {
             basis: request
                 .basis
                 .unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
-            entity: request.entity,
             age: 0.0,
             vars,
             rng,
@@ -163,11 +159,6 @@ impl Emitter {
             && self.cycle != u64::MAX
             && matches!(self.def.emitter.lifetime, Lifetime::Once { .. });
         self.particles.is_empty() && (self.done || burst_spent)
-    }
-
-    /// Queues manual-rate emissions for the next update.
-    pub fn request_manual(&mut self, count: u32) {
-        self.manual_pending = self.manual_pending.saturating_add(count);
     }
 
     fn eval(&mut self, program: &Program) -> f32 {

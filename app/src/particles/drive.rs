@@ -18,30 +18,9 @@ pub(crate) struct ParticleInbox {
     events: Vec<CommittedParticleEvent>,
 }
 
-/// A spawn requested by other client systems (mining, entities, animations).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum LocalParticle {
-    Named {
-        effect: &'static str,
-        position: [f32; 3],
-    },
-    /// Crack pieces on `face` of the block currently at `block`.
-    BlockCrack { block: [i32; 3], face: u8 },
-}
-
-/// Spawn API for local systems; drained each frame by the particle drive.
-#[derive(Resource, Debug, Default)]
-pub(crate) struct ParticleRequests {
-    pending: Vec<LocalParticle>,
-}
-
-impl ParticleRequests {
-    pub(crate) fn push(&mut self, request: LocalParticle) {
-        if self.pending.len() < 256 {
-            self.pending.push(request);
-        }
-    }
-}
+/// Seconds between hit-particle bursts on a block being mined; needs independent measurement.
+const CRACK_INTERVAL_SECONDS: f32 = 0.2;
+const MAX_CRACKING_BLOCKS: usize = 8;
 
 const WHITE: [f32; 4] = [1.0; 4];
 const BLOCK_BREAK_EFFECT: &str = "minecraft:block_destruct";
@@ -57,12 +36,10 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
 }
 
 pub(crate) fn configure_particles(app: &mut App) {
-    app.init_resource::<ParticleInbox>()
-        .init_resource::<ParticleRequests>()
-        .add_systems(
-            Update,
-            drive_particles.after(crate::camera::FlyCameraUpdateSet),
-        );
+    app.init_resource::<ParticleInbox>().add_systems(
+        Update,
+        drive_particles.after(crate::camera::FlyCameraUpdateSet),
+    );
 }
 
 fn floor_cell(position: [f32; 3]) -> [i32; 3] {
@@ -76,7 +53,7 @@ fn spawn_spawn_packet(
 ) {
     let mut position = event.position;
     if let Some(unique_id) = event.actor_unique_id {
-        // The position is relative to the attached actor; entity lookup is by runtime id only.
+        // The position is relative to the attached actor.
         let Some(actor) = stream.actor_by_unique_id(unique_id) else {
             return;
         };
@@ -154,6 +131,54 @@ fn spawn_crack(
     }
 }
 
+/// Face index (0 down, 1 up, 2 north, 3 south, 4 west, 5 east) of `block` nearest the camera.
+fn face_toward(block: [i32; 3], camera: [f32; 3]) -> u8 {
+    let delta: [f32; 3] = std::array::from_fn(|i| camera[i] - (block[i] as f32 + 0.5));
+    let axis = (0..3)
+        .max_by(|&a, &b| delta[a].abs().total_cmp(&delta[b].abs()))
+        .unwrap_or(1);
+    match (axis, delta[axis] >= 0.0) {
+        (0, true) => 5,
+        (0, false) => 4,
+        (1, true) => 1,
+        (1, false) => 0,
+        (_, true) => 3,
+        (_, false) => 2,
+    }
+}
+
+/// Hit pieces on the nearest blocks the server reports as being cracked.
+fn spawn_mining_cracks(
+    system: &mut ParticleSystem,
+    world: &StreamParticleWorld<'_>,
+    stream: &WorldStream,
+    mode: NetworkIdMode,
+    camera: [f32; 3],
+) {
+    let snapshot = stream.block_crack_snapshot();
+    let mut blocks: Vec<[i32; 3]> = snapshot
+        .entries
+        .iter()
+        .map(|crack| crack.position)
+        .collect();
+    let distance = |block: &[i32; 3]| -> f32 {
+        (0..3)
+            .map(|i| (block[i] as f32 + 0.5 - camera[i]).powi(2))
+            .sum()
+    };
+    blocks.sort_by(|a, b| distance(a).total_cmp(&distance(b)));
+    for block in blocks.into_iter().take(MAX_CRACKING_BLOCKS) {
+        spawn_crack(
+            system,
+            world,
+            stream.runtime_assets(),
+            mode,
+            block,
+            face_toward(block, camera),
+        );
+    }
+}
+
 fn route_critical(system: &mut ParticleSystem, stream: &WorldStream, runtime_id: u64, magic: bool) {
     let Some(actor) = stream.actor(runtime_id) else {
         return;
@@ -175,7 +200,6 @@ fn route_critical(system: &mut ParticleSystem, stream: &WorldStream, runtime_id:
 fn drive_particles(
     time: Res<Time>,
     mut inbox: ResMut<ParticleInbox>,
-    mut requests: ResMut<ParticleRequests>,
     mut system: ResMut<ParticleSystem>,
     mut frame: ResMut<ParticleGpuFrame>,
     client_world: Res<ClientWorld>,
@@ -183,13 +207,13 @@ fn drive_particles(
     atmosphere: Res<AtmosphereFrame>,
     cameras: Query<(&Transform, &Projection), With<FlyCamera>>,
     mut session: Local<(u64, i32)>,
+    mut crack_timer: Local<f32>,
 ) {
     let Some(stream) = client_world.stream.as_ref() else {
         if system.emitter_count() > 0 {
             system.clear();
         }
         inbox.events.clear();
-        requests.pending.clear();
         return;
     };
     let Ok((transform, projection)) = cameras.single() else {
@@ -225,22 +249,10 @@ fn drive_particles(
             } => route_critical(&mut system, stream, *actor_runtime_id, *magic),
         }
     }
-    for request in requests.pending.drain(..) {
-        match request {
-            LocalParticle::Named { effect, position } => {
-                system.spawn(&named_request(effect, position, None));
-            }
-            LocalParticle::BlockCrack { block, face } => {
-                spawn_crack(
-                    &mut system,
-                    &world,
-                    stream.runtime_assets(),
-                    mode,
-                    block,
-                    face,
-                );
-            }
-        }
+    *crack_timer += time.delta_secs();
+    if *crack_timer >= CRACK_INTERVAL_SECONDS {
+        *crack_timer = 0.0;
+        spawn_mining_cracks(&mut system, &world, stream, mode, view.position);
     }
     update_particle_frame(&mut system, &mut frame, time.delta_secs(), &view, &world);
 }

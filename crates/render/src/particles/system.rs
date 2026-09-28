@@ -98,10 +98,6 @@ impl ParticleSystem {
         &mut self.emitters
     }
 
-    pub(super) fn atlas_mut(&mut self) -> &mut ParticleAtlas {
-        &mut self.atlas
-    }
-
     fn resolve(&self, name: &str) -> Option<&Arc<super::def::EffectDef>> {
         self.library.get(name).or_else(|| {
             if name.contains(':') {

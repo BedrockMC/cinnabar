@@ -7,6 +7,4 @@ mod tiles;
 mod world_adapter;
 
 pub(crate) use carrier::load_optional_carrier;
-pub(crate) use drive::{
-    ParticleInbox, ParticleRequests, configure_particles, drain_committed_particles,
-};
+pub(crate) use drive::{ParticleInbox, configure_particles, drain_committed_particles};
