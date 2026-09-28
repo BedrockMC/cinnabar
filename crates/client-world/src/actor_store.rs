@@ -448,6 +448,9 @@ pub(crate) struct ActorStore {
     local_hands: [Option<std::sync::Arc<str>>; 2],
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
+    /// Seat layouts for mounts whose riders stream no seat offset.
+    seat_defaults: std::sync::Arc<SeatDefaults>,
+    property_registry: properties::PropertyRegistry,
     /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
     local_knockback: Option<(u64, [f32; 2])>,
     /// Status events awaiting a particle or sound consumer.
@@ -460,6 +463,7 @@ mod hurt;
 mod lifecycle;
 mod lightning;
 mod placement;
+pub(crate) mod properties;
 mod query;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
@@ -469,10 +473,13 @@ pub use hurt::{
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
+pub use placement::{RideSeat, SeatDefaults};
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
-        PlayerSkin::Standard(skin) => skin.rgba8.len(),
+        PlayerSkin::Standard(skin) => {
+            skin.rgba8.len() + skin.cape.as_ref().map_or(0, |cape| cape.rgba8.len())
+        }
         PlayerSkin::Unavailable(_) => 0,
     }
 }
