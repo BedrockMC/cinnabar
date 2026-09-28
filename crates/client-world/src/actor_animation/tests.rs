@@ -46,6 +46,7 @@ fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnaps
         attributes: HashMap::new(),
         int_properties: HashMap::new(),
         float_properties: HashMap::new(),
+        status: Default::default(),
     }
 }
 

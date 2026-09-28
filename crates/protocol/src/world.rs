@@ -407,6 +407,12 @@ pub fn into_world_event(
         McpePacketData::PlayerListPacket(packet) => {
             WorldEvent::Actor(normalize_player_list(packet)?)
         }
+        McpePacketData::ActorEventPacket(packet) => {
+            let Some(event) = crate::actor::normalize_actor_event(*packet) else {
+                return Ok(None);
+            };
+            WorldEvent::Actor(event)
+        }
         McpePacketData::ItemRegistryPacket(packet) => {
             WorldEvent::ItemActor(normalize_item_registry(packet)?)
         }

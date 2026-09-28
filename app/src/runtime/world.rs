@@ -308,7 +308,10 @@ pub(crate) fn reconcile_world_stream_before_physics(
     }
 
     for control in controls {
-        if matches!(control, CommittedControlEvent::PlayerListChanged { .. }) {
+        if matches!(
+            control,
+            CommittedControlEvent::PlayerListChanged { .. } | CommittedControlEvent::LocalHurt { .. }
+        ) {
             continue;
         }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
@@ -538,6 +541,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
+            | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
                 unreachable!(
                     "environment-only and impulse controls return before spatial reconciliation"

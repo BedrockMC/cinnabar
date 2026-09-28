@@ -67,10 +67,8 @@ pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
 
-const INTEGER_QUERIES: [(&str, u32); 10] = [
+const INTEGER_QUERIES: [(&str, u32); 8] = [
     ("fuse_time", 55),
-    ("hurt_direction", 12),
-    ("hurt_time", 11),
     ("invulnerable_ticks", 48),
     ("mark_variant", 43),
     ("skin_id", 104),
@@ -175,6 +173,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                     input.position_delta[axis as usize] / length.sqrt()
                 })
         }
+        // Client-derived from the Hurt event; streamed metadata is not authoritative.
+        "hurt_time" => f32::from(actor.status.hurt_time),
+        "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
         "is_on_ground" => truth(input.on_ground),
         "is_riding" => truth(input.is_riding),

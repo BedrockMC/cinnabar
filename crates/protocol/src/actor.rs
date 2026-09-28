@@ -17,6 +17,10 @@ use valentine::{
 
 use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
+mod status;
+pub(crate) use status::normalize_actor_event;
+pub use status::{ActorStatusEvent, ActorStatusKind};
+
 pub const MAX_ACTOR_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_ACTOR_NAME_BYTES: usize = 256;
 pub const MAX_ACTOR_METADATA_ENTRIES: usize = 256;
@@ -265,6 +269,7 @@ pub enum ActorEvent {
     Metadata(ActorMetadataUpdateEvent),
     Attributes(ActorAttributesUpdateEvent),
     PlayerList(PlayerListUpdateEvent),
+    Status(ActorStatusEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

@@ -653,7 +653,19 @@ impl WorldStream {
                         metadata: Arc::clone(&update.metadata),
                     });
                 }
+                let local_hurt = matches!(
+                    &event,
+                    ActorEvent::Status(status)
+                        if status.kind == protocol::ActorStatusKind::Hurt
+                            && status.runtime_id == self.local_player_runtime_id
+                );
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
+                if local_hurt {
+                    self.push_committed_control(CommittedControlEvent::LocalHurt {
+                        sequence,
+                        direction: self.actors.hurt_direction(self.local_player_runtime_id),
+                    });
+                }
                 if player_list_changed {
                     self.push_committed_control(CommittedControlEvent::PlayerListChanged {
                         sequence,
