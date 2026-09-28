@@ -140,6 +140,8 @@ struct ActorTickInput {
     walk_distance: f32,
     /// Consecutive ticks the using-item flag has been set.
     item_use_ticks: u32,
+    /// Smoothed 0..1 swimming-posture blend.
+    swim_amount: f32,
 }
 
 struct EvaluatedState {
@@ -727,7 +729,7 @@ mod tick;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use motion::{MotionInput, MotionState};
 use pose::{compose_pose, sample_clips};
-pub(crate) use tick::ActorTickContext;
+pub(crate) use tick::{ActorTickContext, WornArmor};
 use tick::{advance_motion, evaluate_state};
 
 #[cfg(test)]

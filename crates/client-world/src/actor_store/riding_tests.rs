@@ -232,3 +232,26 @@ fn embedded_link_with_a_stale_dimension_rejects_the_composite_spawn() {
     assert!(store.is_empty());
     assert_eq!(store.ridden_unique_id(10), None);
 }
+
+#[test]
+fn rider_with_a_streamed_seat_offset_follows_its_mount() {
+    let mut store = ActorStore::new(1, 0);
+    let mut mount = spawn(20, 20);
+    let ActorEvent::Spawn(spawned) = &mut mount else {
+        unreachable!();
+    };
+    spawned.position = [10.0, 5.0, 10.0];
+    let mut rider = spawn(10, 10);
+    let ActorEvent::Spawn(spawned) = &mut rider else {
+        unreachable!();
+    };
+    spawned.metadata = Arc::from([protocol::ActorMetadata {
+        key: 56,
+        value: protocol::ActorMetadataValue::Vector([0.0, 1.0, 0.5]),
+    }]);
+    store.apply(1, 1, mount);
+    store.apply(1, 2, rider);
+    store.apply_link(1, 3, link(10, 20, ActorLinkType::Rider));
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.get(10).unwrap().position, [10.0, 6.0, 10.5]);
+}

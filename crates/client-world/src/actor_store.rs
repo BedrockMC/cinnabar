@@ -31,6 +31,8 @@ const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 /// 64 live in the overflow flag word.
 pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
 const ACTOR_FLAG_SNEAKING: u32 = 1;
+const ACTOR_FLAG_INVISIBLE: u32 = 5;
+const ACTOR_FLAG_SWIMMING: u32 = 57;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
@@ -177,10 +179,13 @@ impl ActorSnapshot {
         snapshot
     }
 
-    /// Overwrites the primary-word flags the client predicts itself.
+    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint and swim.
     fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
         self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
         self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
+        // Sprinting in water is swimming; the water sample lags one frame.
+        let in_water = self.status.fluid.is_some_and(|(water, _)| water);
+        self.set_flag(ACTOR_FLAG_SWIMMING, feed.sprinting && in_water);
     }
 
     /// Sets one primary-word flag bit, creating the flag word when absent.
@@ -260,6 +265,11 @@ impl ActorSnapshot {
                 }
             }
         }
+    }
+
+    #[must_use]
+    pub fn is_invisible(&self) -> bool {
+        self.flag(ACTOR_FLAG_INVISIBLE)
     }
 
     #[must_use]
@@ -444,6 +454,7 @@ mod entities;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod placement;
 mod query;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
@@ -472,6 +483,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
     }
 }
 
+#[cfg(test)]
+mod local_tests;
 #[cfg(test)]
 mod riding_tests;
 #[cfg(test)]
