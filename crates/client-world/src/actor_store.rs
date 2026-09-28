@@ -473,6 +473,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
 }
 
 #[cfg(test)]
+mod local_tests;
+#[cfg(test)]
 mod riding_tests;
 #[cfg(test)]
 mod tests;
