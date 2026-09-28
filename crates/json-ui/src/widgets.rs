@@ -164,6 +164,19 @@ pub(crate) fn slider_names(control: &ResolvedControl) -> [Option<String>; 3] {
     ]
 }
 
+/// A panel holding a `dropdown` toggle: the toggle's `dropdown_area` (the
+/// ancestor its content lays out in) and the content child's name.
+pub(crate) fn dropdown_area(control: &ResolvedControl) -> Option<(String, String)> {
+    control.children.iter().find_map(|child| {
+        if child.control_type.as_deref() != Some("dropdown") {
+            return None;
+        }
+        let area = prop_str(child, "dropdown_area")?;
+        let content = prop_str(child, "dropdown_content_control").unwrap_or("dropdown_content");
+        Some((area.to_owned(), content.to_owned()))
+    })
+}
+
 /// The live scroll view being laid out: which descendants are its content and box.
 pub(crate) struct ScrollFrame {
     pub key: String,
@@ -201,6 +214,7 @@ impl ScrollFrame {
             offset,
             content: content.h,
             viewport: viewport.h,
+            viewport_top: viewport.y,
             track: None,
             thumb: None,
             speed: self.speed,

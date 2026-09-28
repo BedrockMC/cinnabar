@@ -40,20 +40,22 @@ Owner decision: a faithful 1:1 Bedrock JSON-UI interpreter drives forms, contain
 screens and menus from the vanilla `ui/*.json` + textures; the Java-styled gameplay HUD
 (`hud_screen` family) stays on the existing path and is absent from the engine's screen
 allow-list (`json_ui::ENGINE_SCREENS`). Landed (uncompiled in-lane, pending reconcile):
-T1-T3 plus engine-owned widget state (button/toggle/edit-box/slider state children,
-scroll views and scrollbar box, slider box travel and progress clipping), relative layers,
-width-aware wrapped labels, grids, hit regions/modal blocking/global mappings, server-pack
-ui overlays with `modifications`; app wiring loads the optional `.mcbeui` carrier (absent:
-fallback dialog), draws action/element/modal/custom forms with vanilla input, and draws
-storage windows (27/54) through the chest screens. Open: personal inventory, workbench and
-the other container screens (their screen globals, recipe book, creative tabs and the
-paper-doll renderer are unbound, and the ledger does not open them), item tooltips,
-dropdown `dropdown_area` re-parenting, server-pack textures, keyboard focus auto-scroll.
-Needs native measurement: the virtual UI scale (engine pixel = the HUD's GUI pixel, not
-Bedrock's own scale-index rule), slider box travel and `clip_direction` semantics, the
-slider `label: value` text, durability bar colour/size, layer relativity, and the three
-T2 inferences (omitted `size` = 100%, `anchor_to` = parent point, no in-engine rounding).
-Container routing through the engine awaits owner confirmation.
+T1-T3; engine-owned widget state (button/toggle/edit-box/slider state children, scroll
+views and scrollbar box, slider travel and progress clipping), relative layers, wrapped
+labels, grids, hit regions/modal blocking/global mappings, `dropdown_area` re-parenting,
+focus auto-scroll, server-pack ui json (with `modifications`) and textures. The optional
+`.mcbeui` carrier loads at startup (absent: fallback dialog); action/element/modal/custom
+forms always draw through the engine with vanilla input. Container screens route through
+the engine only with `--json-ui-containers` (default: the Java-styled screens, pending the
+owner's choice): personal inventory and workbench (survival layout, preview raster for
+the live player renderer), storage windows by container type, item tooltips. Open: the
+ledger admits only generic storage and workbench windows, so furnace/anvil/enchanting/
+brewing/grindstone/loom/smithing/cartography/stonecutter/beacon/hopper/dispenser/dropper/
+horse screens are mapped but dormant; creative tabs need a creative catalog; per-stack
+custom names and lore in tooltips. Needs native measurement: the virtual UI scale (engine
+pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label: value`
+text, tooltip and durability placement/colours, the preview's size in its box, layer
+relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point).
 
 ## Equipment / attachable rendering (Bedrock 3D target)
 T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane work now adds
