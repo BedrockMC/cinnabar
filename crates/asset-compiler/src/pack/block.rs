@@ -285,6 +285,7 @@ pub fn resolve_texture_key(
 fn legacy_resource_pack_block_alias(block_name: &str) -> Option<&'static str> {
     match block_name {
         "grass_block" => Some("grass"),
+        "iron_chain" => Some("chain"),
         "sea_lantern" => Some("seaLantern"),
         "dandelion" => Some("yellow_flower"),
         "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip" | "orange_tulip"

@@ -310,6 +310,15 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::chains::compile_rule(
+            record,
+            inputs,
+            &mut self.thin_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::rails::compile_rule(
             record,
             inputs,
