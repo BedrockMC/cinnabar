@@ -22,6 +22,8 @@ use sha2::{Digest, Sha256};
 mod actor_command;
 #[path = "assetc/audio_command.rs"]
 mod audio_command;
+#[path = "assetc/audio_bank_command.rs"]
+mod audio_bank_command;
 #[path = "assetc/audio_pcm_command.rs"]
 mod audio_pcm_command;
 #[path = "assetc/block_entity_command.rs"]
@@ -45,6 +47,7 @@ mod registry_version;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
 
+use audio_bank_command::compile_audio_bank_command;
 use audio_command::compile_audio_assets_command;
 use audio_pcm_command::compile_audio_pcm_command;
 use equipment_command::compile_equipment_assets_command;
@@ -243,6 +246,18 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Pack sound-event routing JSON and every FSB sound file into a streaming bank.
+    AudioBank {
+        /// Root of the vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Ignored/local MCBESND1 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON report path.
         #[arg(long)]
         report: PathBuf,
     },
@@ -542,6 +557,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_audio_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::AudioBank { pack, out, report } => {
+            compile_audio_bank_command(&pack, &out, &report)?;
         }
         Command::AudioPcmAssets {
             pack,

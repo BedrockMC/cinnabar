@@ -13,6 +13,7 @@ mod environment_settings;
 mod equipment;
 mod error;
 mod font;
+mod fsb;
 mod hud;
 mod icon;
 mod item;
@@ -26,6 +27,8 @@ mod provenance;
 mod registry;
 mod runtime;
 mod server_lang;
+mod sound_bank;
+mod sound_events;
 mod texture;
 mod ui;
 mod weather_textures;
@@ -56,6 +59,13 @@ pub use audio::{
     MAX_AUDIO_CATEGORY_BYTES, MAX_AUDIO_DEFINITIONS, MAX_AUDIO_IDENTIFIER_BYTES,
     MAX_AUDIO_PATH_BYTES, MAX_AUDIO_SUBTITLE_BYTES, RuntimeAudioCatalog, encode_audio_catalog,
 };
+pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
+pub use sound_bank::{
+    MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES,
+    SOUND_BANK_MAGIC, SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank,
+    sound_bank_prefix_len,
+};
+pub use sound_events::{FloatRange, SoundEventTables, SoundRoute};
 pub use audio_pcm::{
     AudioPcmError, AudioPcmExpectedIdentity, AudioPcmMode, MAX_AUDIO_PCM_BYTES,
     MAX_AUDIO_PCM_CARRIER_BYTES, MAX_AUDIO_PCM_SOURCE_BYTES, RuntimeAudioPcm, encode_audio_pcm,
