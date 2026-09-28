@@ -11,6 +11,7 @@ fn form(form_id: u32) -> WorldEvent {
             title: Arc::from("Choose"),
             content: Arc::from("One"),
             buttons: vec![Arc::from("First")].into(),
+            button_images: [].into(),
             omitted_images: 0,
         }),
     }))

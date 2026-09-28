@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use bytes::{BufMut, BytesMut};
 use protocol::{
-    BedrockSession, BossAction, BossColor, ChatAutocompleteAction, FormKind, MAX_CHAT_AUTOCOMPLETE,
-    MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
-    ModalFormResponseSelection, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
+    BedrockSession, BossAction, BossColor, ChatAutocompleteAction, CustomFormValue,
+    FormButtonImage, FormKind, MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH,
+    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, ModalFormResponseSelection, UiEvent,
+    UiPacketError, WorldEvent, custom_form_submit_response, decode_batch, into_world_event,
     modal_form_cancel_response, modal_form_submit_response,
 };
 use valentine::bedrock::codec::BedrockCodec;
@@ -597,20 +600,19 @@ fn unsupported_form_controls_are_nonfatal_and_never_fake_text_buttons() {
 }
 
 #[test]
-fn valid_button_images_are_omitted_without_retaining_uri_or_changing_indexes() {
+fn valid_button_images_are_retained_by_kind_without_changing_indexes() {
     let json = serde_json::json!({
         "type": "form", "content": "x".repeat(MAX_UI_TEXT_BYTES),
         "buttons": [
-            {"text": "First", "image": {"type": "url", "data": "https://example.invalid/private-decoration"}},
-            {"text": "第二", "image": {"type": "path", "data": "textures/private-decoration"}},
+            {"text": "First", "image": {"type": "url", "data": "https://example.invalid/icon.png"}},
+            {"text": "第二", "image": {"type": "path", "data": "textures/items/apple"}},
         ],
-    }).to_string();
+    })
+    .to_string();
     let event = form_event(&json).unwrap();
-    assert!(!format!("{:?}", event.model).contains("private-decoration"));
     let protocol::ServerFormModel::TextMenu(menu) = event.model else {
         panic!("valid text buttons must remain playable")
     };
-    assert_eq!(menu.omitted_images, 2);
     assert_eq!(menu.content.len(), MAX_UI_TEXT_BYTES);
     assert_eq!(
         menu.buttons
@@ -619,12 +621,78 @@ fn valid_button_images_are_omitted_without_retaining_uri_or_changing_indexes() {
             .collect::<Vec<_>>(),
         ["First", "第二"]
     );
+    // The images are retained (no longer discarded), routed by wire kind, aligned by
+    // button index.
+    assert_eq!(
+        menu.button_images.as_ref(),
+        [
+            Some(FormButtonImage::Url(Arc::from(
+                "https://example.invalid/icon.png"
+            ))),
+            Some(FormButtonImage::Path(Arc::from("textures/items/apple"))),
+        ]
+    );
+    assert_eq!(menu.omitted_images, 2);
     let response =
         modal_form_submit_response(event.form_id, ModalFormResponseSelection::ButtonIndex(1));
     let McpePacketData::ModalFormResponsePacket(response) = response.data else {
         panic!("response packet")
     };
     assert_eq!(response.json_response.as_deref(), Some("1"));
+}
+
+#[test]
+fn imageless_buttons_retain_a_none_slot_per_index() {
+    let event =
+        form_event(r#"{"type":"form","buttons":[{"text":"A"},{"text":"B","image":{"type":"path","data":"textures/x"}}]}"#)
+            .unwrap();
+    let protocol::ServerFormModel::TextMenu(menu) = event.model else {
+        panic!("text menu")
+    };
+    assert_eq!(
+        menu.button_images.as_ref(),
+        [None, Some(FormButtonImage::Path(Arc::from("textures/x")))]
+    );
+    assert_eq!(menu.omitted_images, 1);
+}
+
+#[test]
+fn modal_and_custom_form_responses_round_trip() {
+    let session = BedrockSession { shield_item_id: 0 };
+    fn json_of(packet: &protocol::Packet) -> Option<&str> {
+        match &packet.data {
+            McpePacketData::ModalFormResponsePacket(response) => response.json_response.as_deref(),
+            _ => panic!("response packet"),
+        }
+    }
+
+    // Modal button1/button2 answer with true/false, not an index.
+    let yes = modal_form_submit_response(5, ModalFormResponseSelection::ModalButton(true));
+    let no = modal_form_submit_response(5, ModalFormResponseSelection::ModalButton(false));
+    assert_eq!(json_of(&yes), Some("true"));
+    assert_eq!(json_of(&no), Some("false"));
+
+    // A custom form answers with an ordered JSON array of typed values; a null holds
+    // a non-input element's slot.
+    let mut submit = custom_form_submit_response(
+        9,
+        &[
+            CustomFormValue::Null,
+            CustomFormValue::Toggle(true),
+            CustomFormValue::Slider(3.5),
+            CustomFormValue::Step(2),
+            CustomFormValue::Dropdown(1),
+            CustomFormValue::Input("Steve".into()),
+        ],
+    );
+    assert_eq!(json_of(&submit), Some(r#"[null,true,3.5,2,1,"Steve"]"#));
+
+    // The custom answer survives an encode/decode wire round trip.
+    submit.header.from_subclient = 1;
+    submit.header.to_subclient = 2;
+    let bytes = protocol::encode(&submit, &session).unwrap();
+    let decoded = decode_batch(bytes.as_ref().to_vec().into(), &session).unwrap();
+    assert_eq!(decoded, vec![submit]);
 }
 
 #[test]
