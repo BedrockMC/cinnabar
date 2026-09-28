@@ -390,10 +390,12 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
 }
 
+mod dropped;
 mod hurt;
 mod lifecycle;
 mod query;
 
+pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
 pub use hurt::{
     ActorPickup, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS, PICKUP_DURATION_TICKS,
 };

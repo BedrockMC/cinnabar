@@ -149,6 +149,10 @@ impl WorldStream {
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)
     }
+    /// Dropped-item stacks with interpolated pose, spin, and pickup flight at `partial_tick`.
+    pub fn dropped_items(&self, partial_tick: f32) -> Vec<crate::DroppedItemView> {
+        self.actors.dropped_items(partial_tick)
+    }
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         self.actors.actor_rig(runtime_id)
     }
