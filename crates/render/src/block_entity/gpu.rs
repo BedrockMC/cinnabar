@@ -18,21 +18,21 @@ use bevy::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::ExtractResourcePlugin,
         render_phase::{
-            AddRenderCommand, BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem,
-            PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline,
-            TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
+            AddRenderCommand, BinnedRenderPhaseType, DrawFunctionId, DrawFunctions,
+            InputUniformIndex, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases, ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
-            BufferBindingType, BufferDescriptor, BufferId, BufferSize, BufferUsages, Canonical,
-            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
-            FilterMode, FragmentState, Origin3d, PipelineCache, RenderPipeline,
-            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            ShaderType, Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo,
-            Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType,
-            TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension, Variants,
-            VertexState,
+            BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendFactor,
+            BlendOperation, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferId,
+            BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, Extent3d, FilterMode, FragmentState, Origin3d, PipelineCache,
+            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
+            TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+            TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -84,13 +84,14 @@ fn install(app: &mut App) {
         .init_resource::<BlockEntityPipeline>()
         .add_render_command::<Opaque3d, DrawSolidCommands>()
         .add_render_command::<Transparent3d, DrawOverlayCommands>()
+        .add_render_command::<Transparent3d, DrawCrackCommands>()
         .add_systems(RenderStartup, init_gpu)
         .add_systems(
             Render,
             (
                 prepare_resources.in_set(RenderSystems::PrepareResources),
                 prepare_bind_groups.in_set(RenderSystems::PrepareBindGroups),
-                (queue_solid, queue_overlay).in_set(RenderSystems::Queue),
+                (queue_solid, queue_overlay, queue_crack).in_set(RenderSystems::Queue),
             ),
         );
 }
@@ -146,6 +147,7 @@ impl VertexList {
 struct BlockEntityGpu {
     solid: VertexList,
     overlay: VertexList,
+    crack: VertexList,
     texture: Option<Texture>,
     view: Option<TextureView>,
     atlas_identity: [u8; 32],
@@ -160,6 +162,7 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
     commands.insert_resource(BlockEntityGpu {
         solid: VertexList::new(),
         overlay: VertexList::new(),
+        crack: VertexList::new(),
         texture: None,
         view: None,
         atlas_identity: [0; 32],
@@ -189,6 +192,7 @@ fn prepare_resources(
     let Some(atlas) = frame.atlas.as_ref() else {
         gpu.solid.count = 0;
         gpu.overlay.count = 0;
+        gpu.crack.count = 0;
         return;
     };
     if gpu.atlas_identity != atlas.identity || gpu.texture.is_none() {
@@ -221,6 +225,7 @@ fn prepare_resources(
         gpu.dynamic_revision = u64::MAX;
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
+        gpu.crack.bind_group = None;
     }
     let dynamic_rows = atlas.size[1].saturating_sub(atlas.static_height);
     if gpu.dynamic_revision != frame.dynamic_revision
@@ -250,6 +255,12 @@ fn prepare_resources(
             &render_device,
             &render_queue,
             "block-entity overlay vertices",
+        );
+        gpu.crack.upload(
+            &frame.crack,
+            &render_device,
+            &render_queue,
+            "block-entity crack vertices",
         );
         gpu.frame_revision = frame.revision;
     }
@@ -299,9 +310,16 @@ struct BlockEntityPipeline {
     bind_group_layout: BindGroupLayoutDescriptor,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum PipelineMode {
+    Solid,
+    Overlay,
+    Crack,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
 struct BlockEntityPipelineKey {
-    overlay: bool,
+    mode: PipelineMode,
     msaa: Msaa,
     hdr: bool,
 }
@@ -395,10 +413,10 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         descriptor.multisample.count = key.msaa.samples();
         let fragment = descriptor.fragment.as_mut().unwrap();
         fragment.entry_point = Some(
-            if key.overlay {
-                "block_entity_overlay"
-            } else {
-                "block_entity_solid"
+            match key.mode {
+                PipelineMode::Solid => "block_entity_solid",
+                PipelineMode::Overlay => "block_entity_overlay",
+                PipelineMode::Crack => "block_entity_crack",
             }
             .into(),
         );
@@ -408,12 +426,28 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         } else {
             TextureFormat::bevy_default()
         };
-        target.blend = key.overlay.then_some(BlendState::ALPHA_BLENDING);
+        target.blend = match key.mode {
+            PipelineMode::Solid => None,
+            PipelineMode::Overlay => Some(BlendState::ALPHA_BLENDING),
+            // Twice source times destination, like the classic destroy overlay.
+            PipelineMode::Crack => Some(BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::Dst,
+                    dst_factor: BlendFactor::Src,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+            }),
+        };
         descriptor
             .depth_stencil
             .as_mut()
             .unwrap()
-            .depth_write_enabled = !key.overlay;
+            .depth_write_enabled = key.mode == PipelineMode::Solid;
         Ok(key)
     }
 }
@@ -428,6 +462,7 @@ fn prepare_bind_groups(
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
+        gpu.crack.bind_group = None;
         return;
     };
     let view_buffer = view_uniforms
@@ -437,11 +472,13 @@ fn prepare_bind_groups(
     if gpu.view_buffer_id != Some(view_buffer.id()) {
         gpu.solid.bind_group = None;
         gpu.overlay.bind_group = None;
+        gpu.crack.bind_group = None;
         gpu.view_buffer_id = Some(view_buffer.id());
     }
     let BlockEntityGpu {
         solid,
         overlay,
+        crack,
         view,
         sampler,
         ..
@@ -449,12 +486,14 @@ fn prepare_bind_groups(
     let Some(view) = view.as_ref() else {
         solid.bind_group = None;
         overlay.bind_group = None;
+        crack.bind_group = None;
         return;
     };
     let layout = pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout);
     for (list, label) in [
         (solid, "block-entity solid bind group"),
         (overlay, "block-entity overlay bind group"),
+        (crack, "block-entity crack bind group"),
     ] {
         let (Some(buffer), None) = (list.buffer.as_ref(), list.bind_group.as_ref()) else {
             continue;
@@ -504,7 +543,7 @@ fn queue_solid(
         let Ok(pipeline_id) = pipeline.variants.specialize(
             &pipeline_cache,
             BlockEntityPipelineKey {
-                overlay: false,
+                mode: PipelineMode::Solid,
                 msaa: *msaa,
                 hdr: view.hdr,
             },
@@ -535,24 +574,64 @@ fn queue_solid(
 
 fn queue_overlay(
     pipeline_cache: Res<PipelineCache>,
-    mut pipeline: ResMut<BlockEntityPipeline>,
+    pipeline: ResMut<BlockEntityPipeline>,
     gpu: Res<BlockEntityGpu>,
-    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if gpu.overlay.count == 0 || gpu.overlay.bind_group.is_none() {
+    let draw_function = draw_functions.read().id::<DrawOverlayCommands>();
+    queue_blended(
+        &gpu.overlay,
+        PipelineMode::Overlay,
+        draw_function,
+        &pipeline_cache,
+        pipeline,
+        phases,
+        &views,
+    );
+}
+
+fn queue_crack(
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: ResMut<BlockEntityPipeline>,
+    gpu: Res<BlockEntityGpu>,
+    phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    draw_functions: Res<DrawFunctions<Transparent3d>>,
+    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+) {
+    let draw_function = draw_functions.read().id::<DrawCrackCommands>();
+    queue_blended(
+        &gpu.crack,
+        PipelineMode::Crack,
+        draw_function,
+        &pipeline_cache,
+        pipeline,
+        phases,
+        &views,
+    );
+}
+
+fn queue_blended(
+    list: &VertexList,
+    mode: PipelineMode,
+    draw_function: DrawFunctionId,
+    pipeline_cache: &PipelineCache,
+    mut pipeline: ResMut<BlockEntityPipeline>,
+    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    views: &Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+) {
+    if list.count == 0 || list.bind_group.is_none() {
         return;
     }
-    let draw_function = draw_functions.read().id::<DrawOverlayCommands>();
-    for (view_entity, main_entity, view, msaa) in &views {
+    for (view_entity, main_entity, view, msaa) in views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
         let Ok(pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
+            pipeline_cache,
             BlockEntityPipelineKey {
-                overlay: true,
+                mode,
                 msaa: *msaa,
                 hdr: view.hdr,
             },
@@ -563,7 +642,7 @@ fn queue_overlay(
             entity: (view_entity, *main_entity),
             pipeline: pipeline_id,
             draw_function,
-            // Overlays hug opaque geometry; drawing them last among blended items is enough.
+            // Blended layers hug opaque geometry; drawing them last is enough.
             distance: 0.0,
             batch_range: 0..1,
             extra_index: PhaseItemExtraIndex::None,
@@ -572,12 +651,17 @@ fn queue_overlay(
     }
 }
 
-type DrawSolidCommands = (SetItemPipeline, DrawList<false>);
-type DrawOverlayCommands = (SetItemPipeline, DrawList<true>);
+type DrawSolidCommands = (SetItemPipeline, DrawList<SOLID>);
+type DrawOverlayCommands = (SetItemPipeline, DrawList<OVERLAY>);
+type DrawCrackCommands = (SetItemPipeline, DrawList<CRACK>);
 
-struct DrawList<const OVERLAY: bool>;
+const SOLID: u8 = 0;
+const OVERLAY: u8 = 1;
+const CRACK: u8 = 2;
 
-impl<P: PhaseItem, const OVERLAY: bool> RenderCommand<P> for DrawList<OVERLAY> {
+struct DrawList<const LIST: u8>;
+
+impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
     type Param = SRes<BlockEntityGpu>;
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
@@ -590,7 +674,11 @@ impl<P: PhaseItem, const OVERLAY: bool> RenderCommand<P> for DrawList<OVERLAY> {
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let gpu = gpu.into_inner();
-        let list = if OVERLAY { &gpu.overlay } else { &gpu.solid };
+        let list = match LIST {
+            OVERLAY => &gpu.overlay,
+            CRACK => &gpu.crack,
+            _ => &gpu.solid,
+        };
         let Some(bind_group) = &list.bind_group else {
             return RenderCommandResult::Skip;
         };

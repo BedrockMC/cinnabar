@@ -5,8 +5,8 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::*;
 use render::{
-    AtlasRect, BlockEntityFrame, BlockEntityKind, BlockEntityScene, BlockEntitySubmission,
-    SceneClock, SignFace, SignModel,
+    AtlasRect, AtmosphereFrame, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
+    BlockEntitySubmission, CrackShape, SceneClock, SignFace, SignModel, crack_shape_from_template,
 };
 use ui::TextLayoutCache;
 use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
@@ -86,6 +86,7 @@ pub(crate) struct BlockEntityRuntime {
     described: HashMap<BlockEntityKey, Described>,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
+    shapes: HashMap<u32, CrackShape>,
 }
 
 impl BlockEntityRuntime {
@@ -96,6 +97,7 @@ impl BlockEntityRuntime {
             described: HashMap::new(),
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
+            shapes: HashMap::new(),
         }
     }
 }
@@ -106,10 +108,55 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
         .add_systems(Update, update_block_entity_scene);
 }
 
-/// Light multiplier for retained block/sky light levels; needs native measurement.
-fn light_factor(block: u8, sky: u8) -> f32 {
-    let level = f32::from(block.max(sky).min(15)) / 15.0;
-    level.powf(1.6).max(0.04)
+/// Brightness per light level, matching the terrain lighting curve.
+const LIGHT_CURVE: [f32; 16] = [
+    0.0,
+    0.017_543_86,
+    0.037_037_037,
+    0.058_823_53,
+    0.083_333_336,
+    0.111_111_11,
+    0.142_857_15,
+    0.179_487_18,
+    0.222_222_22,
+    0.272_727_28,
+    0.333_333_34,
+    0.407_407_4,
+    0.5,
+    0.619_047_64,
+    0.777_777_8,
+    1.0,
+];
+/// Lowest sky-light transfer at night, as in terrain lighting.
+const NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.083_333_336;
+
+/// Light multiplier from retained block/sky levels and the current daylight transfer.
+fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
+    let curve = |level: u8| LIGHT_CURVE[usize::from(level.min(15))];
+    let transfer = daylight.clamp(0.0, 1.0).max(NIGHT_SKY_TRANSFER_FLOOR);
+    curve(block).max(curve(sky) * transfer)
+}
+
+/// The surface a crack over `layers` should cover: the block model's faces, else a cube.
+fn crack_shape(
+    shapes: &mut HashMap<u32, CrackShape>,
+    assets: &assets::RuntimeAssets,
+    mode: assets::NetworkIdMode,
+    runtime_id: Option<u32>,
+) -> CrackShape {
+    let Some(runtime_id) = runtime_id else {
+        return CrackShape::Cube;
+    };
+    shapes
+        .entry(runtime_id)
+        .or_insert_with(|| {
+            assets
+                .resolve(mode, runtime_id)
+                .model_template()
+                .and_then(|template| crack_shape_from_template(assets, template))
+                .unwrap_or_default()
+        })
+        .clone()
 }
 
 fn block_info(
@@ -141,6 +188,7 @@ pub(crate) fn update_block_entity_scene(
     collisions: Res<PhysicsCollisionRegistries>,
     view: Res<LocalViewPose>,
     ui: Res<UiRuntime>,
+    atmosphere: Res<AtmosphereFrame>,
     time: Res<Time<Real>>,
     font: Res<BlockEntityFont>,
     mut runtime: ResMut<BlockEntityRuntime>,
@@ -165,12 +213,24 @@ pub(crate) fn update_block_entity_scene(
     let mode = stream.network_id_mode();
     let eye = view.eye_translation();
     let delta = time.delta_secs();
+    let daylight = atmosphere.daylight();
 
     let cracks = ui
         .block_crack_snapshot()
         .filter(|snapshot| snapshot.dimension == dimension)
         .map_or_else(Vec::new, |snapshot| {
-            runtime.cracks.instances(&snapshot.entries, now_seconds)
+            let assets = stream.runtime_assets();
+            let shapes = &mut runtime.shapes;
+            runtime
+                .cracks
+                .instances(&snapshot.entries, now_seconds, |entry| {
+                    crack_shape(
+                        shapes,
+                        assets,
+                        mode,
+                        entry.layers.iter().flatten().next().copied(),
+                    )
+                })
         });
 
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
@@ -248,7 +308,7 @@ pub(crate) fn update_block_entity_scene(
                 if let Some(kind) = kind {
                     submissions.push(BlockEntitySubmission {
                         block: [x, y, z],
-                        light: light_factor(block_light, sky_light),
+                        light: light_factor(block_light, sky_light, daylight),
                         kind,
                     });
                 }
@@ -335,10 +395,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn light_maps_darkness_to_a_floor_and_full_light_to_one() {
-        assert!((light_factor(15, 0) - 1.0).abs() < 1.0e-6);
-        assert!((light_factor(0, 15) - 1.0).abs() < 1.0e-6);
-        assert!((light_factor(0, 0) - 0.04).abs() < 1.0e-6);
-        assert!(light_factor(8, 0) > light_factor(4, 0));
+    fn light_follows_the_terrain_curve_and_night_transfer_floor() {
+        assert!((light_factor(15, 0, 0.0) - 1.0).abs() < 1.0e-6);
+        assert!((light_factor(0, 15, 1.0) - 1.0).abs() < 1.0e-6);
+        // Full sky light at night is throttled to the transfer floor.
+        assert!((light_factor(0, 15, 0.0) - NIGHT_SKY_TRANSFER_FLOOR).abs() < 1.0e-6);
+        assert_eq!(light_factor(0, 0, 1.0), 0.0);
+        assert!(light_factor(8, 0, 1.0) > light_factor(4, 0, 1.0));
     }
 }

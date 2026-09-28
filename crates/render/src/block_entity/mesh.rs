@@ -28,6 +28,8 @@ pub enum Layer {
     Solid,
     /// Blended over the scene without writing depth.
     Overlay,
+    /// Multiplies the scene (twice source times destination) without writing depth.
+    Crack,
 }
 
 /// A box in entity-geometry authoring space: pixels, front toward -Z, +Y up.
@@ -72,6 +74,7 @@ pub struct MeshBuilder {
     atlas_size: [f32; 2],
     pub solid: Vec<BlockEntityVertex>,
     pub overlay: Vec<BlockEntityVertex>,
+    pub crack: Vec<BlockEntityVertex>,
     /// Multiplier applied to every emitted color; carries per-instance light.
     pub light: f32,
     pub rejected_quads: u64,
@@ -84,6 +87,7 @@ impl MeshBuilder {
             atlas_size: [atlas_size[0] as f32, atlas_size[1] as f32],
             solid: Vec::new(),
             overlay: Vec::new(),
+            crack: Vec::new(),
             light: 1.0,
             rejected_quads: 0,
         }
@@ -153,16 +157,32 @@ impl MeshBuilder {
     /// Emits one quad from corners `[top-left, top-right, bottom-right, bottom-left]`
     /// and atlas-pixel UVs `[u0, v0, u1, v1]`.
     pub fn quad(&mut self, layer: Layer, corners: [[f32; 3]; 4], uv: [f32; 4], color: [f32; 4]) {
+        let [u0, v0, u1, v1] = uv;
+        self.quad_uv(
+            layer,
+            corners,
+            [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
+            color,
+        );
+    }
+
+    /// Emits one quad with an atlas-pixel UV per corner, in corner order.
+    pub fn quad_uv(
+        &mut self,
+        layer: Layer,
+        corners: [[f32; 3]; 4],
+        uvs: [[f32; 2]; 4],
+        color: [f32; 4],
+    ) {
         let target = match layer {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
+            Layer::Crack => &mut self.crack,
         };
         if target.len() + 6 > MAX_BLOCK_ENTITY_VERTICES {
             self.rejected_quads = self.rejected_quads.saturating_add(1);
             return;
         }
-        let [u0, v0, u1, v1] = uv;
-        let normalize = |u: f32, v: f32| [u / self.atlas_size[0], v / self.atlas_size[1]];
         let light = self.light;
         let color = [
             color[0] * light,
@@ -170,23 +190,17 @@ impl MeshBuilder {
             color[2] * light,
             color[3],
         ];
-        let vertex = |corner: usize, u: f32, v: f32| BlockEntityVertex {
+        let atlas_size = self.atlas_size;
+        let vertex = |corner: usize| BlockEntityVertex {
             position: corners[corner],
-            uv: normalize(u, v),
+            uv: [
+                uvs[corner][0] / atlas_size[0],
+                uvs[corner][1] / atlas_size[1],
+            ],
             color,
         };
-        let top_left = vertex(0, u0, v0);
-        let top_right = vertex(1, u1, v0);
-        let bottom_right = vertex(2, u1, v1);
-        let bottom_left = vertex(3, u0, v1);
-        target.extend_from_slice(&[
-            top_left,
-            bottom_left,
-            bottom_right,
-            top_left,
-            bottom_right,
-            top_right,
-        ]);
+        let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
+        target.extend_from_slice(&[second, third, first, first, third, fourth]);
     }
 
     /// A quad covering `rect` (atlas pixels) with the given world corners.

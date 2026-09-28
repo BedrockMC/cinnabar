@@ -10,7 +10,7 @@ use super::{
     beam::BeaconModel,
     bed::BedModel,
     chest::ChestModel,
-    crack::emit_crack,
+    crack::{CrackShape, emit_crack},
     mesh::{BlockEntityVertex, MeshBuilder},
     shulker::ShulkerModel,
     sign::SignModel,
@@ -43,10 +43,11 @@ pub struct BlockEntitySubmission {
 }
 
 /// A block with a break-crack overlay at destroy stage `stage` (`0..=9`).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CrackInstance {
     pub block: [i32; 3],
     pub stage: u8,
+    pub shape: CrackShape,
 }
 
 /// Animation time and the position texture scrolls are measured against.
@@ -65,6 +66,7 @@ pub struct BlockEntityFrame {
     pub dynamic_rgba8: Arc<[u8]>,
     pub solid: Arc<[BlockEntityVertex]>,
     pub overlay: Arc<[BlockEntityVertex]>,
+    pub crack: Arc<[BlockEntityVertex]>,
 }
 
 /// Static atlas pixels plus dimensions for GPU upload.
@@ -136,7 +138,7 @@ impl BlockEntityScene {
         }
         builder.light = 1.0;
         for crack in cracks {
-            emit_crack(&mut builder, atlas, *crack);
+            emit_crack(&mut builder, atlas, crack);
         }
         self.rejected_quads = builder.rejected_quads;
         let dynamic_changed = self.frame.dynamic_revision != text.revision();
@@ -151,6 +153,7 @@ impl BlockEntityScene {
             },
             solid: builder.solid.into(),
             overlay: builder.overlay.into(),
+            crack: builder.crack.into(),
         };
         &self.frame
     }
@@ -222,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn chest_and_crack_fill_the_solid_and_overlay_lists() {
+    fn chest_and_crack_fill_the_solid_and_crack_lists() {
         let mut scene = scene_with_chest_and_crack_textures();
         let chest = BlockEntitySubmission {
             block: [1, 2, 3],
@@ -237,11 +240,13 @@ mod tests {
         let crack = CrackInstance {
             block: [1, 2, 3],
             stage: 0,
+            shape: CrackShape::Cube,
         };
         let frame = scene.update(SceneClock::default(), &[crack], &[chest]);
         // Body, lid and latch boxes: three boxes of six two-triangle faces.
         assert_eq!(frame.solid.len(), 3 * 6 * 6);
-        assert_eq!(frame.overlay.len(), 6 * 6);
+        assert_eq!(frame.crack.len(), 6 * 6);
+        assert!(frame.overlay.is_empty());
         assert_eq!(frame.revision, 1);
         assert!(frame.atlas.is_some());
     }
@@ -254,10 +259,11 @@ mod tests {
             &[CrackInstance {
                 block: [0; 3],
                 stage: 7,
+                shape: CrackShape::Cube,
             }],
             &[],
         );
-        assert!(frame.overlay.is_empty());
+        assert!(frame.crack.is_empty());
     }
 
     #[test]
@@ -268,11 +274,12 @@ mod tests {
             &[CrackInstance {
                 block: [0; 3],
                 stage: 0,
+                shape: CrackShape::Cube,
             }],
             &[],
         );
         assert_eq!(frame.revision, 0);
-        assert!(frame.solid.is_empty() && frame.overlay.is_empty());
+        assert!(frame.solid.is_empty() && frame.overlay.is_empty() && frame.crack.is_empty());
         assert!(!scene.has_assets());
     }
 }
