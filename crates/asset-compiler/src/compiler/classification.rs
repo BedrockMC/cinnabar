@@ -32,6 +32,14 @@ pub(in crate::compiler) const fn is_torch(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
+pub(in crate::compiler) fn is_chain(record: &RegistryRecord) -> bool {
+    matches!(record.contributor_role, ContributorRole::Primary)
+        && record
+            .name
+            .strip_prefix("minecraft:")
+            .is_some_and(|name| name.ends_with("chain") && !name.contains("command"))
+}
+
 pub(in crate::compiler) fn is_ladder(record: &RegistryRecord) -> bool {
     record.name.as_ref() == "minecraft:ladder"
         && matches!(record.contributor_role, ContributorRole::Primary)
@@ -261,6 +269,7 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
         || is_torch(record)
         || is_ladder(record)
         || is_rail(record)
+        || is_chain(record)
 }
 
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {

@@ -34,7 +34,7 @@ mod visuals;
 
 use classification::{
     aquatic_cross_faces, canonical_state_str, canonical_state_u32, cross_texture_face,
-    cutout_model_tint_flags, is_aquatic_cross, is_button, is_carpet, is_copper_grate,
+    cutout_model_tint_flags, is_aquatic_cross, is_button, is_carpet, is_chain, is_copper_grate,
     is_copper_grate_name, is_cross_visual, is_cutout_model_visual, is_door, is_fence, is_flowerbed,
     is_gate, is_kelp, is_ladder, is_liquid, is_model_visual, is_multiface,
     is_ordinary_stained_glass_name, is_pale_moss_carpet, is_pane, is_pressure_plate, is_rail,

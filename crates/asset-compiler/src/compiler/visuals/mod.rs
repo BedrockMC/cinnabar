@@ -4,6 +4,7 @@ pub(in crate::compiler) mod button;
 pub(in crate::compiler) mod cactus;
 pub(in crate::compiler) mod cake;
 pub(in crate::compiler) mod carpets;
+pub(in crate::compiler) mod chains;
 pub(in crate::compiler) mod context;
 pub(in crate::compiler) mod cross;
 pub(in crate::compiler) mod cube;
