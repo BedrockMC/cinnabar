@@ -6,17 +6,18 @@
 
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Query, Res, ResMut, Resource, Window, With},
+    prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
 use protocol::{
     BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, BlockUseRequest,
-    PlayerAuthInputInteractions, PlayerGameMode,
+    PlayerAuthInputInteractions,
 };
 use semantic_input::Action;
 use sim::{BlockDestroyInfo, DestroyConditions, HeldTool, PaletteWorld};
 
 use crate::{
+    game_mode_capabilities::GameModeCapabilities,
     interaction_authority::{observe_block, within_pick_range},
     local_player::InteractionOriginSnapshot,
     melee::{MeleeRuntime, SwingTracker, swing_duration},
@@ -348,6 +349,9 @@ impl DestroyMachine {
     }
 }
 
+/// Wall-clock spacing between block-diagnostic lines while an attack is held.
+const BLOCKED_MINING_LOG_THROTTLE_MILLIS: u64 = 2000;
+
 /// Survival destroy sequencing bound to the current position authority.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SurvivalMiningRuntime {
@@ -355,6 +359,7 @@ pub(crate) struct SurvivalMiningRuntime {
     last_stepped_tick: Option<u64>,
     latched_press: bool,
     position_authority: Option<(u64, u64)>,
+    last_blocked_log_millis: Option<u64>,
 }
 
 impl SurvivalMiningRuntime {
@@ -425,6 +430,32 @@ impl SurvivalMiningRuntime {
         }
         unsent
     }
+
+    /// Emits one throttled line naming the gate that blocked a held-attack break.
+    fn log_blocked_mining(
+        &mut self,
+        now_millis: u64,
+        reason: &'static str,
+        caps: Option<GameModeCapabilities>,
+        authority: Option<BlockBreakingAuthority>,
+    ) {
+        let due = self.last_blocked_log_millis.is_none_or(|last| {
+            now_millis.saturating_sub(last) >= BLOCKED_MINING_LOG_THROTTLE_MILLIS
+        });
+        if !due {
+            return;
+        }
+        self.last_blocked_log_millis = Some(now_millis);
+        bevy::log::debug!(
+            target: "bedrock_client::survival_mining",
+            reason,
+            game_mode_known = caps.is_some(),
+            can_edit = caps.is_some_and(|caps| caps.can_edit),
+            instant_break = caps.is_some_and(|caps| caps.instant_break),
+            authority = ?authority,
+            "held attack produced no block break",
+        );
+    }
 }
 
 #[derive(SystemParam)]
@@ -439,6 +470,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     effects: Res<'w, LocalMovementEffectTimeline>,
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
+    time: Res<'w, Time<Real>>,
 }
 
 /// Runs after committed world publication and before the movement flush.
@@ -448,19 +480,27 @@ pub(crate) fn produce_survival_mining(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
 ) {
+    // Wire sequencing only, defaulted to server-authoritative when the server
+    // never negotiated it. This decides HOW a break travels, never WHETHER one
+    // may happen; the capability gate below owns that.
     let authority = context
         .ui
         .server_authoritative_block_breaking()
         .map(BlockBreakingAuthority::from_negotiation);
+    let caps = context.ui.game_mode_capabilities();
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     let attack = context.input.phase(Action::Attack);
-    let target = match (authority, context.input.snapshot(), focused) {
-        (Some(_), Some(input), true) => {
+    let snapshot = context.input.snapshot();
+    let snapshot_present = snapshot.is_some();
+    let actor_in_front = context.melee.actor_in_front();
+    let active = survival_mining_active(caps, focused, snapshot_present);
+    let target = match snapshot.filter(|_| active) {
+        Some(input) => {
             runtime.latched_press |= attack.pressed;
             (attack.held || runtime.latched_press).then(|| {
                 // An actor in front owns the press; the block behind it is not a target.
-                (!context.melee.actor_in_front())
+                (!actor_in_front)
                     .then(|| {
                         observe_destroy_target(
                             &context,
@@ -472,11 +512,23 @@ pub(crate) fn produce_survival_mining(
                     .flatten()
             })
         }
-        _ => {
+        None => {
             runtime.latched_press = false;
             None
         }
     };
+    if (attack.pressed || attack.held)
+        && let Some(reason) = blocked_mining_reason(
+            caps,
+            focused,
+            snapshot_present,
+            actor_in_front,
+            matches!(target, Some(Some(_))),
+        )
+    {
+        let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
+        runtime.log_blocked_mining(now, reason, caps, authority);
+    }
     let input = target.as_ref().map_or(DestroyInput::Released, |target| {
         DestroyInput::Held(target.as_ref())
     });
@@ -509,6 +561,37 @@ pub(crate) fn produce_survival_mining(
     }
 }
 
+/// Whether held-mining should look for a destroy target this frame. The
+/// block-breaking wire mode is deliberately not an input here: it sequences a
+/// break, it never decides whether one may happen.
+fn survival_mining_active(
+    caps: Option<GameModeCapabilities>,
+    focused: bool,
+    snapshot_present: bool,
+) -> bool {
+    focused && snapshot_present && caps.is_some_and(|caps| caps.uses_survival_mining())
+}
+
+/// Why a held attack yielded no destroy target, for the throttled diagnostic.
+fn blocked_mining_reason(
+    caps: Option<GameModeCapabilities>,
+    focused: bool,
+    snapshot_present: bool,
+    actor_in_front: bool,
+    target_found: bool,
+) -> Option<&'static str> {
+    match caps {
+        None => Some("game mode unknown"),
+        Some(caps) if !caps.can_edit => Some("can_edit=false for this game mode"),
+        Some(caps) if caps.instant_break => Some("instant-break mode uses the creative path"),
+        _ if !focused => Some("window or menu not focused"),
+        _ if !snapshot_present => Some("no input snapshot yet"),
+        _ if actor_in_front => Some("an actor in front owns the press"),
+        _ if !target_found => Some("no breakable block in reach"),
+        _ => None,
+    }
+}
+
 fn observe_destroy_target(
     context: &SurvivalMiningContext,
     input_mode: semantic_input::InputMode,
@@ -516,7 +599,9 @@ fn observe_destroy_target(
     position_authority_generation: u64,
 ) -> Option<DestroyTarget> {
     let ui = &context.ui;
-    if ui.ui_focused() || ui.player_game_mode()? != PlayerGameMode::Survival {
+    // The capability gate in the producer already confirmed this mode edits and
+    // is not the instant-break path; here only an open UI blocks the pick.
+    if ui.ui_focused() {
         return None;
     }
     let selection = hand_interaction_selection(ui)?;

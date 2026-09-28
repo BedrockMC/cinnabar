@@ -513,3 +513,100 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
     assert_eq!(requests, [false, false, true]);
     assert_eq!(ids.next(), Some(-9), "only the completion allocates an id");
 }
+
+mod gate {
+    use super::super::{blocked_mining_reason, survival_mining_active};
+    use crate::game_mode_capabilities::GameModeCapabilities;
+    use protocol::PlayerGameMode::{Adventure, Creative, Spectator, Survival};
+
+    /// The regression: with no negotiated wire mode the gate must still mine.
+    /// Authority is not even an input to the gate.
+    #[test]
+    fn survival_mining_runs_regardless_of_wire_authority() {
+        let survival = Some(GameModeCapabilities::for_mode(Survival));
+        assert!(
+            survival_mining_active(survival, true, true),
+            "survival with a focused window and an input snapshot must mine"
+        );
+    }
+
+    #[test]
+    fn gate_requires_edit_focus_and_a_snapshot() {
+        let survival = Some(GameModeCapabilities::for_mode(Survival));
+        assert!(!survival_mining_active(survival, false, true), "unfocused");
+        assert!(
+            !survival_mining_active(survival, true, false),
+            "no snapshot"
+        );
+        assert!(!survival_mining_active(None, true, true), "no game mode");
+        assert!(
+            !survival_mining_active(Some(GameModeCapabilities::for_mode(Creative)), true, true),
+            "creative uses the instant-break path, not this machine"
+        );
+        assert!(
+            !survival_mining_active(Some(GameModeCapabilities::for_mode(Adventure)), true, true),
+            "adventure cannot edit without a server grant"
+        );
+        assert!(!survival_mining_active(
+            Some(GameModeCapabilities::for_mode(Spectator)),
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn adventure_with_build_grant_mines() {
+        let mut caps = GameModeCapabilities::for_mode(Adventure);
+        caps.can_edit = true;
+        assert!(survival_mining_active(Some(caps), true, true));
+    }
+
+    #[test]
+    fn blocked_reason_names_the_first_failing_gate() {
+        let survival = Some(GameModeCapabilities::for_mode(Survival));
+        assert_eq!(
+            blocked_mining_reason(None, true, true, false, false),
+            Some("game mode unknown")
+        );
+        assert_eq!(
+            blocked_mining_reason(
+                Some(GameModeCapabilities::for_mode(Spectator)),
+                true,
+                true,
+                false,
+                false
+            ),
+            Some("can_edit=false for this game mode")
+        );
+        assert_eq!(
+            blocked_mining_reason(
+                Some(GameModeCapabilities::for_mode(Creative)),
+                true,
+                true,
+                false,
+                false
+            ),
+            Some("instant-break mode uses the creative path")
+        );
+        assert_eq!(
+            blocked_mining_reason(survival, false, true, false, false),
+            Some("window or menu not focused")
+        );
+        assert_eq!(
+            blocked_mining_reason(survival, true, false, false, false),
+            Some("no input snapshot yet")
+        );
+        assert_eq!(
+            blocked_mining_reason(survival, true, true, true, false),
+            Some("an actor in front owns the press")
+        );
+        assert_eq!(
+            blocked_mining_reason(survival, true, true, false, false),
+            Some("no breakable block in reach")
+        );
+        assert_eq!(
+            blocked_mining_reason(survival, true, true, false, true),
+            None
+        );
+    }
+}
