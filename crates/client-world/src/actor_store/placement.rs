@@ -4,6 +4,7 @@ use super::ActorStore;
 
 /// Seat offset, mount-local, streamed on the rider (protocol `EntityDataKeySeatOffset`).
 const KEY_SEAT_OFFSET: u32 = 56;
+const KEY_BED_POSITION: u32 = 28;
 
 /// World offset of a mount-local seat `[right, up, forward]` for a mount facing `yaw_degrees`.
 pub(super) fn seat_world_offset(local: [f32; 3], yaw_degrees: f32) -> [f32; 3] {
@@ -58,6 +59,33 @@ impl ActorStore {
             .values()
             .map(|actor| (actor.runtime_id, actor.position))
             .collect()
+    }
+
+    /// Bed block under every sleeping actor: the streamed bed position, else the block it lies in.
+    pub(crate) fn bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
+        self.actors
+            .values()
+            .filter(|actor| actor.is_sleeping())
+            .map(|actor| {
+                let block = match actor.metadata.get(&KEY_BED_POSITION) {
+                    Some(ActorMetadataValue::BlockPosition(block)) => *block,
+                    _ => actor.position.map(|axis| axis.floor() as i32),
+                };
+                (actor.runtime_id, block)
+            })
+            .collect()
+    }
+
+    /// Replaces every actor's sampled bed rotation with `(runtime_id, degrees)` samples.
+    pub(crate) fn set_bed_rotations(&mut self, samples: &[(u64, f32)]) {
+        for actor in self.actors.values_mut() {
+            actor.status.sleep_rotation = None;
+        }
+        for &(runtime_id, degrees) in samples {
+            if let Some(actor) = self.actors.get_mut(&runtime_id) {
+                actor.status.sleep_rotation = Some(degrees);
+            }
+        }
     }
 
     /// Stores `(runtime_id, in_water, in_lava)` samples on their actors.

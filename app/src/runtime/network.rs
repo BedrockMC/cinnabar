@@ -937,6 +937,7 @@ pub(crate) fn update_actor_render_scene<'a>(
 }
 
 mod actor_publication;
+mod actor_sampling;
 mod block_overlay;
 mod drain;
 mod dropped_items;

@@ -519,13 +519,16 @@ impl ActorStore {
                         .filter(|equipment| equipment.item.identity.network_id != 0)
                         .and_then(|equipment| equipment.item.identifier.clone())
                 };
-                let hand_charged = [protocol::ActorHandedness::Right, protocol::ActorHandedness::Left]
-                    .into_iter()
-                    .any(|hand| {
-                        items
-                            .get_in_hand(lifetime, hand)
-                            .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
-                    });
+                let hand_charged = [
+                    protocol::ActorHandedness::Right,
+                    protocol::ActorHandedness::Left,
+                ]
+                .into_iter()
+                .any(|hand| {
+                    items
+                        .get_in_hand(lifetime, hand)
+                        .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
+                });
                 let kind_of = |unique_id: &i64| {
                     unique_to_runtime
                         .get(unique_id)

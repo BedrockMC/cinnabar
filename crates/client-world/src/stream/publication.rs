@@ -149,6 +149,15 @@ impl WorldStream {
     pub fn actor_fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {
         self.actors.fluid_sample_points()
     }
+    /// Bed block under every sleeping actor, for [`Self::set_actor_bed_rotations`] sampling.
+    #[must_use]
+    pub fn actor_bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
+        self.actors.bed_sample_points()
+    }
+    /// Records the `(runtime_id, degrees)` bed orientation that backs `query.sleep_rotation`.
+    pub fn set_actor_bed_rotations(&mut self, samples: &[(u64, f32)]) {
+        self.actors.set_bed_rotations(samples);
+    }
     /// Records `(runtime_id, in_water, in_lava)` samples that back the fluid animation queries.
     pub fn set_actor_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         self.actors.set_fluids(samples);
