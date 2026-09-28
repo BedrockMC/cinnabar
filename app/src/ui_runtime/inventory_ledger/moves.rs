@@ -1,20 +1,16 @@
-//! Cursor-free moves: number-key hotbar swaps, drops and quick moves.
+//! Cursor-free moves: number-key hotbar swaps and drops.
 //!
 //! Hotbar swaps follow the owner's vanilla-mirroring rule (Swap between two
-//! occupied cells, otherwise one Place) and drops use one Drop action. A quick
-//! move sends the single Place its capture shows; which destination it picks
-//! is provisional pending vanilla evidence.
+//! occupied cells, otherwise one Place) and drops use one Drop action.
 
 use protocol::StackRequestAction;
 
 use super::cells::{Cell, Held};
 use super::gesture::{
-    Built, InventoryTarget, StackRequestActionKind, Submission, counted_merge, counted_transfer,
-    has_meaningful_overlay, swap,
+    Built, InventoryTarget, StackRequestActionKind, Submission, counted_transfer, swap,
 };
 use super::helpers::{WindowAddress, request_slot};
 use super::overlay::DeltaGroup;
-use super::registry::OccupiedStackRelation;
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
 /// What a drop takes from.
@@ -90,92 +86,14 @@ impl PlayerInventoryLedger {
         self.submit_built(built, personal_generation)
     }
 
-    /// Moves a hovered stack into the first cell of the opposite range that
-    /// can take it: a compatible partial stack first, else an empty cell.
-    pub fn begin_quick_move(
-        &mut self,
-        target: InventoryTarget,
-    ) -> Result<i32, InventoryGestureError> {
-        let source = target.cell();
-        let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
-        self.check_surfaces([source])?;
-        let from = self
-            .movable(source)?
-            .ok_or(InventoryGestureError::EmptyGesture)?;
-        let identity = self.window_address();
-        let range = self.quick_move_range(source);
-        let merge = range.iter().find_map(|cell| {
-            let into = self.view().get(*cell)?;
-            if self.awaiting_identity(into)
-                || has_meaningful_overlay(from.overlay.as_ref())
-                || has_meaningful_overlay(into.overlay.as_ref())
-            {
-                return None;
-            }
-            match self.occupied_stack_relation(&from.stack, &into.stack) {
-                OccupiedStackRelation::Compatible { capacity } if into.stack.count < capacity => {
-                    Some((*cell, into.stack.clone(), capacity))
-                }
-                _ => None,
-            }
-        });
-        let built = if let Some((cell, into, capacity)) = merge {
-            let amount = from.stack.count.min(capacity - into.count);
-            counted_merge(
-                StackRequestActionKind::Place,
-                source,
-                cell,
-                &from.stack,
-                &into,
-                identity,
-                amount,
-                capacity,
-            )?
-        } else {
-            let empty = range
-                .into_iter()
-                .find(|cell| self.view().get(*cell).is_none())
-                .ok_or(InventoryGestureError::InvalidRequest)?;
-            place(source, empty, &from, identity)?
-        };
-        self.submit_built(built, personal_generation)
-    }
-
-    /// Candidate destinations, in order, for a quick move out of `source`.
-    fn quick_move_range(&self, source: Cell) -> Vec<Cell> {
-        let player = |range: std::ops::Range<u8>| {
-            range
-                .filter(|slot| self.known[usize::from(*slot)])
-                .map(Cell::Inventory)
-                .collect::<Vec<_>>()
-        };
-        let storage_open = self
-            .storage
-            .as_ref()
-            .is_some_and(|storage| storage.identity.is_some());
-        match source {
-            Cell::Inventory(_) if storage_open => (0..u8::MAX)
-                .map(Cell::Storage)
-                .take_while(|cell| self.confirmed.contains(*cell))
-                .collect(),
-            Cell::Inventory(slot) if slot < 9 => player(9..36),
-            Cell::Inventory(_) => player(0..9),
-            _ => {
-                let mut cells = player(9..36);
-                cells.extend(player(0..9));
-                cells
-            }
-        }
-    }
-
     /// The current stack in a validated gesture cell, refusing one that
     /// cannot be named in a request yet.
-    fn movable(&self, cell: Cell) -> Result<Option<Held>, InventoryGestureError> {
+    pub(super) fn movable(&self, cell: Cell) -> Result<Option<Held>, InventoryGestureError> {
         self.check_target(cell)?;
         self.named(self.view().get(cell).cloned())
     }
 
-    fn named(&self, held: Option<Held>) -> Result<Option<Held>, InventoryGestureError> {
+    pub(super) fn named(&self, held: Option<Held>) -> Result<Option<Held>, InventoryGestureError> {
         match held {
             Some(held) if self.awaiting_identity(&held) => {
                 Err(InventoryGestureError::AwaitingIdentity)
@@ -184,7 +102,7 @@ impl PlayerInventoryLedger {
         }
     }
 
-    fn submit_built(
+    pub(super) fn submit_built(
         &mut self,
         built: Built,
         personal_generation: Option<u64>,
@@ -200,7 +118,7 @@ impl PlayerInventoryLedger {
 }
 
 /// One Place of a whole stack into an empty cell.
-fn place(
+pub(super) fn place(
     source: Cell,
     destination: Cell,
     held: &Held,

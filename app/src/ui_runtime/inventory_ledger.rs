@@ -14,10 +14,12 @@ mod crafting;
 mod crafting_tests;
 #[cfg(test)]
 mod fixed_window_tests;
+mod distribute;
 mod gesture;
 #[cfg(test)]
 mod gesture_tests;
 mod helpers;
+mod item_roles;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
@@ -30,24 +32,28 @@ mod overlay;
 mod overlay_tests;
 mod personal;
 mod queue;
+mod quick_move;
 mod registry;
 mod response;
+mod screen_actions;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
-pub use crafting::{CraftGridCell, CraftingGrid, CreativeDestination};
+pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination};
+pub use distribute::DistributeMode;
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;
 use personal::PersonalWindow;
 pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
 pub use response::StackResponseOverlay;
+pub use screen_actions::ScreenCraft;
 
 use helpers::valid_raw_window_id;
 
 use protocol::{
     ContainerIdentity, InventoryAuthority, ItemRegistryEntry, NetworkItemStack, Packet,
-    container_close_packet, item_stack_request_packet, open_inventory_packet,
+    container_close_packet, item_stack_request_packet_filtered, open_inventory_packet,
 };
 use thiserror::Error;
 
@@ -442,8 +448,12 @@ impl PlayerInventoryLedger {
         }
         self.first_unsent()
             .map(|pending| {
-                item_stack_request_packet(pending.request_id, &pending.actions)
-                    .map_err(|_| InventoryGestureError::InvalidRequest)
+                item_stack_request_packet_filtered(
+                    pending.request_id,
+                    &pending.actions,
+                    &pending.filter_strings,
+                )
+                .map_err(|_| InventoryGestureError::InvalidRequest)
             })
             .transpose()
     }
