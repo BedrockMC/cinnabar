@@ -266,7 +266,7 @@ fn seat_rotation_turns_the_rider_body_and_clamps_its_head() {
     let ActorEvent::Spawn(mut rider) = spawn(10, 10) else {
         unreachable!();
     };
-    rider.head_yaw = 0.0;
+    rider.head_yaw = -100.0;
     rider.metadata = Arc::from([
         protocol::ActorMetadata {
             key: 56,
