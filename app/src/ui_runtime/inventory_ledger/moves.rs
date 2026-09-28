@@ -12,7 +12,7 @@ use super::gesture::{
     Built, InventoryTarget, StackRequestActionKind, Submission, counted_merge, counted_transfer,
     has_meaningful_overlay, swap,
 };
-use super::helpers::request_slot;
+use super::helpers::{WindowAddress, request_slot};
 use super::overlay::DeltaGroup;
 use super::registry::OccupiedStackRelation;
 use super::{InventoryGestureError, PlayerInventoryLedger};
@@ -40,7 +40,7 @@ impl PlayerInventoryLedger {
         self.check_surfaces([source, destination])?;
         let from = self.movable(source)?;
         let to = self.movable(destination)?;
-        let identity = self.storage_identity();
+        let identity = self.window_address();
         let built = match (from, to) {
             (Some(from), Some(to)) => swap(source, destination, &from.stack, &to.stack, identity)?,
             (Some(from), None) => place(source, destination, &from, identity)?,
@@ -76,7 +76,7 @@ impl PlayerInventoryLedger {
         let built = Built {
             action: StackRequestAction::Drop {
                 amount: wire,
-                source: request_slot(cell, id, self.storage_identity())?,
+                source: request_slot(cell, id, self.window_address())?,
                 randomly: false,
             },
             group: DeltaGroup::Shrink {
@@ -102,7 +102,7 @@ impl PlayerInventoryLedger {
         let from = self
             .movable(source)?
             .ok_or(InventoryGestureError::EmptyGesture)?;
-        let identity = self.storage_identity();
+        let identity = self.window_address();
         let range = self.quick_move_range(source);
         let merge = range.iter().find_map(|cell| {
             let into = self.view().get(*cell)?;
@@ -204,7 +204,7 @@ fn place(
     source: Cell,
     destination: Cell,
     held: &Held,
-    identity: Option<protocol::ContainerIdentity>,
+    identity: Option<WindowAddress>,
 ) -> Result<Built, InventoryGestureError> {
     counted_transfer(
         StackRequestActionKind::Place,

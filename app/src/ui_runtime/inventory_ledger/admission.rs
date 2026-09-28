@@ -18,9 +18,8 @@ use protocol::{
 use super::cells::{ARMOR_CELLS, CellSurface, FIRST_CRAFT_SLOT, Held};
 use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
-    Cell, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT, NO_CONTAINER_WINDOW_TYPE,
-    PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner, PlayerInventoryLedger,
-    SMALL_STORAGE_SLOT_COUNT, StorageWindow,
+    Cell, LARGE_STORAGE_SLOT_COUNT, NO_CONTAINER_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
+    PendingCloseOwner, PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
 };
 
 impl PlayerInventoryLedger {
@@ -94,6 +93,12 @@ impl PlayerInventoryLedger {
                 self.apply_slot_update(update.identity, &update.stack);
             }
             InventoryEvent::Response(event) => self.apply_response(event),
+            InventoryEvent::Data(data) => self.apply_window_data(data),
+            InventoryEvent::EnchantOptions(options) => {
+                if self.storage.is_some() {
+                    self.enchant_options = Some(std::sync::Arc::clone(&options.options));
+                }
+            }
             InventoryEvent::Creative(content) => self.creative = Some(content.clone()),
             _ => {}
         }
@@ -155,15 +160,29 @@ impl PlayerInventoryLedger {
                     self.note_unrouted_container();
                 }
             }
+            Some(CanonicalCell::WindowSlot { name, .. }) => {
+                self.apply_window_content(content.container, name, &content.slots);
+            }
+            Some(CanonicalCell::UiSlot(slot)) => match content.slots.as_ref() {
+                [stack] => {
+                    self.confirmed.set(Cell::Craft(slot), Held::new(stack));
+                }
+                _ => self.note_unrouted_container(),
+            },
             None if protocol::is_personal_ui_inventory(&content.container)
                 && content.slots.len() == UI_INVENTORY_SLOT_COUNT =>
             {
-                for slot in protocol::CRAFTING_INPUT_SLOTS {
-                    let stack = &content.slots[usize::from(slot)];
-                    self.confirmed.set(Cell::Craft(slot), Held::new(stack));
+                for slot in 0..protocol::UI_SLOT_COUNT as u8 {
+                    if let Some(cell) = ui_cell(slot) {
+                        let stack = &content.slots[usize::from(slot)];
+                        self.confirmed.set(cell, Held::new(stack));
+                    }
                 }
                 self.crafting_resync_required = false;
                 self.surface_refreshed(CellSurface::Crafting);
+            }
+            None if self.bare_named_window_matches(&content.container) => {
+                self.apply_window_content(content.container, 0, &content.slots);
             }
             Some(
                 CanonicalCell::CraftInput(_)
@@ -197,6 +216,8 @@ impl PlayerInventoryLedger {
             Some(CanonicalCell::Cursor) => "cursor",
             Some(CanonicalCell::Armor(_)) => "armor",
             Some(CanonicalCell::Offhand) => "offhand",
+            Some(CanonicalCell::UiSlot(_)) => "ui_slot",
+            Some(CanonicalCell::WindowSlot { .. }) => "window_slot",
             Some(
                 CanonicalCell::CraftInput(_)
                 | CanonicalCell::TableCraftInput(_)
@@ -239,6 +260,21 @@ impl PlayerInventoryLedger {
                 self.offhand_resync_required = false;
                 self.surface_refreshed(CellSurface::Offhand);
             }
+            Some(CanonicalCell::GenericStorage { slot, .. })
+                if self.storage.as_ref().is_some_and(|storage| {
+                    matches!(
+                        storage.kind.open_cells(),
+                        Some(protocol::OpenCells::Named { .. })
+                    )
+                }) =>
+            {
+                self.apply_window_slot(
+                    identity.container,
+                    protocol::CONTAINER_NAME_LEVEL_ENTITY,
+                    slot,
+                    stack,
+                );
+            }
             Some(CanonicalCell::GenericStorage { slot, .. }) => {
                 self.apply_storage_slot(identity.container, slot, stack);
             }
@@ -251,11 +287,16 @@ impl PlayerInventoryLedger {
                 self.apply_storage_slot(identity.container, identity.slot, stack);
             }
             None if protocol::is_personal_ui_inventory(&identity.container)
-                && u8::try_from(identity.slot)
-                    .is_ok_and(|slot| protocol::CRAFTING_INPUT_SLOTS.contains(&slot)) =>
+                && u8::try_from(identity.slot).ok().and_then(ui_cell).is_some() =>
             {
-                self.confirmed
-                    .set(Cell::Craft(identity.slot as u8), Held::new(stack));
+                let cell = ui_cell(identity.slot as u8).expect("checked by the guard");
+                self.confirmed.set(cell, Held::new(stack));
+            }
+            Some(CanonicalCell::UiSlot(slot)) => {
+                self.confirmed.set(Cell::Craft(slot), Held::new(stack));
+            }
+            Some(CanonicalCell::WindowSlot { name, slot }) => {
+                self.apply_window_slot(identity.container, name, slot, stack);
             }
             Some(canonical) => match fixed_cell(canonical) {
                 Some(cell) => {
@@ -281,6 +322,12 @@ impl PlayerInventoryLedger {
             CanonicalCell::GenericStorage { slot, .. } => {
                 self.storage.as_ref()?;
                 let cell = Cell::Storage(u8::try_from(slot).ok()?);
+                self.confirmed.contains(cell).then_some(cell)
+            }
+            CanonicalCell::WindowSlot { name, slot } => {
+                let storage = self.storage.as_ref()?;
+                let first = protocol::open_name_first_cell(storage.kind, name)?;
+                let cell = Cell::Storage(first.checked_add(u8::try_from(slot).ok()?)?);
                 self.confirmed.contains(cell).then_some(cell)
             }
             canonical => fixed_cell(canonical),
@@ -310,28 +357,34 @@ impl PlayerInventoryLedger {
         let Some(window_id) = open.container.window_id else {
             return;
         };
-        if !matches!(
-            open.window_type,
-            GENERIC_STORAGE_WINDOW_TYPE | super::WORKBENCH_WINDOW_TYPE
-        ) || !valid_storage_window_id(window_id)
-        {
+        let Some(kind) = protocol::WindowKind::from_window_type(open.window_type)
+            .filter(|_| valid_storage_window_id(window_id))
+        else {
             self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             self.storage = None;
             self.confirmed.clear_storage();
             return;
-        }
+        };
+        self.enchant_options = None;
         self.remove_pending_close(window_id, open.window_type);
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
         self.storage = Some(StorageWindow {
             window_id,
             window_type: open.window_type,
+            kind,
+            data: std::collections::BTreeMap::new(),
             generation,
             identity: None,
             resync_required: false,
             closing: false,
         });
         self.confirmed.clear_storage();
+        // A named window shows its fixed cells before any content arrives.
+        if let Some(protocol::OpenCells::Named { lengths, .. }) = kind.open_cells() {
+            self.confirmed
+                .ensure_storage(lengths.iter().copied().min().unwrap_or(0));
+        }
     }
 
     fn apply_personal_open(&mut self, open: protocol::ContainerOpenEvent) {
@@ -381,29 +434,30 @@ impl PlayerInventoryLedger {
     }
 
     fn apply_storage_content(&mut self, identity: ContainerIdentity, slots: &[NetworkItemStack]) {
-        let valid_len = matches!(
-            slots.len(),
-            SMALL_STORAGE_SLOT_COUNT | LARGE_STORAGE_SLOT_COUNT
-        );
         let Some(storage) = self.storage.as_ref() else {
             return;
         };
         let window_id = storage.window_id;
-        // A workbench keeps its grid in the UI inventory, never here.
-        if identity.window_id != Some(window_id)
-            || storage.window_type != GENERIC_STORAGE_WINDOW_TYPE
-        {
+        let window_type = storage.window_type;
+        // Screens that keep their cells in the UI inventory never land here.
+        let lengths = match storage.kind.open_cells() {
+            Some(protocol::OpenCells::Generic(lengths)) => lengths,
+            // A horse's chest rides the level-entity name after its equipment.
+            Some(protocol::OpenCells::Named { .. }) => {
+                self.apply_window_content(identity, protocol::CONTAINER_NAME_LEVEL_ENTITY, slots);
+                return;
+            }
+            None => return,
+        };
+        if identity.window_id != Some(window_id) {
             return;
         }
+        let valid_len = lengths.contains(&slots.len());
         if storage.identity.is_some_and(|current| current != identity) {
             return;
         }
         if !valid_len {
-            self.queue_close(
-                window_id,
-                GENERIC_STORAGE_WINDOW_TYPE,
-                PendingCloseOwner::Storage,
-            );
+            self.queue_close(window_id, window_type, PendingCloseOwner::Storage);
             self.close_storage();
             return;
         }
@@ -446,8 +500,20 @@ fn fixed_cell(canonical: CanonicalCell) -> Option<Cell> {
         CanonicalCell::CraftInput(index) => Cell::Craft(FIRST_CRAFT_SLOT + index),
         CanonicalCell::TableCraftInput(index) => Cell::Craft(FIRST_CRAFT_SLOT + 4 + index),
         CanonicalCell::CreatedOutput => Cell::CreatedOutput,
+        CanonicalCell::UiSlot(slot) => Cell::Craft(slot),
         CanonicalCell::PlayerInventory(_)
         | CanonicalCell::Cursor
-        | CanonicalCell::GenericStorage { .. } => return None,
+        | CanonicalCell::GenericStorage { .. }
+        | CanonicalCell::WindowSlot { .. } => return None,
+    })
+}
+
+/// The ledger cell for one UI inventory slot a screen uses.
+pub(super) fn ui_cell(slot: u8) -> Option<Cell> {
+    protocol::ui_slot_container_name(slot)?;
+    Some(if slot == protocol::CREATED_OUTPUT_SLOT {
+        Cell::CreatedOutput
+    } else {
+        Cell::Craft(slot)
     })
 }

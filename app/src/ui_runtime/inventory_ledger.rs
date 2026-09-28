@@ -32,6 +32,7 @@ mod personal;
 mod queue;
 mod registry;
 mod response;
+mod windows;
 
 use cells::{Cell, CellSurface, Cells};
 pub use crafting::{CraftGridCell, CraftingGrid, CreativeDestination};
@@ -92,8 +93,10 @@ pub enum PlayerInventorySlot<'a> {
 #[derive(Debug, Clone)]
 struct StorageWindow {
     window_id: i32,
-    /// Generic storage or workbench.
     window_type: i8,
+    kind: protocol::WindowKind,
+    /// Server-pushed window properties (furnace progress, brew time, ...).
+    data: BTreeMap<i32, i32>,
     generation: u64,
     identity: Option<ContainerIdentity>,
     resync_required: bool,
@@ -167,6 +170,8 @@ pub struct PlayerInventoryLedger {
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
     item_registry: Option<BTreeMap<i32, ItemRegistryEntry>>,
     creative: Option<protocol::CreativeContentEvent>,
+    /// Enchanting-table options for the current input item.
+    enchant_options: Option<std::sync::Arc<[protocol::EnchantOption]>>,
     queue: VecDeque<PendingRequest>,
     next_request_id: i32,
     session_generation: u64,
@@ -196,6 +201,7 @@ impl Default for PlayerInventoryLedger {
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
             item_registry: None,
             creative: None,
+            enchant_options: None,
             queue: VecDeque::new(),
             next_request_id: -3,
             session_generation: 0,
@@ -270,6 +276,33 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn storage_identity(&self) -> Option<ContainerIdentity> {
         self.storage.as_ref()?.identity
+    }
+
+    /// The screen kind of the open container window, if one is open.
+    #[must_use]
+    pub fn window_kind(&self) -> Option<protocol::WindowKind> {
+        Some(self.storage.as_ref()?.kind)
+    }
+
+    /// A server-pushed property of the open window (`ContainerSetData`), if sent.
+    #[must_use]
+    pub fn window_data(&self, property: i32) -> Option<i32> {
+        self.storage.as_ref()?.data.get(&property).copied()
+    }
+
+    /// The enchanting options the server last offered, if any.
+    #[must_use]
+    pub fn enchant_options(&self) -> Option<&[protocol::EnchantOption]> {
+        self.enchant_options.as_deref()
+    }
+
+    /// How requests name the open window's own cells; needs the window's content.
+    pub(super) fn window_address(&self) -> Option<helpers::WindowAddress> {
+        let storage = self.storage.as_ref()?;
+        Some(helpers::WindowAddress {
+            identity: storage.identity?,
+            kind: storage.kind,
+        })
     }
 
     #[must_use]
@@ -594,6 +627,7 @@ impl PlayerInventoryLedger {
 
     fn discard_storage(&mut self) {
         self.storage = None;
+        self.enchant_options = None;
         self.confirmed.clear_storage();
         self.clear_crafting();
         if self.confirmed.get(Cell::Cursor).is_some() {
@@ -624,13 +658,10 @@ impl PlayerInventoryLedger {
         self.refold();
     }
 
-    /// Closing a crafting screen returns its grid server-side; the cells are
-    /// known empty until the server restates them.
+    /// Closing a screen returns its inputs server-side; the cells are known
+    /// empty until the server restates them.
     fn clear_crafting(&mut self) {
-        for slot in protocol::CRAFTING_INPUT_SLOTS {
-            self.confirmed.set(Cell::Craft(slot), None);
-        }
-        self.confirmed.set(Cell::CreatedOutput, None);
+        self.confirmed.clear_ui();
         self.crafting_resync_required = false;
         self.surface_refreshed(CellSurface::Crafting);
     }
