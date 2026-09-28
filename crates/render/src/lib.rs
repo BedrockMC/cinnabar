@@ -60,7 +60,8 @@ pub use actor_render::ActorRenderPlugin;
 pub use dropped_item::{
     DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemSprite,
     ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS,
-    MAX_ITEM_SPRITE_SIDE, OPAQUE_WHITE, WHITE_LAYER, dropped_item_transform,
+    MAX_ITEM_SPRITE_SIDE, OPAQUE_WHITE, WHITE_LAYER, dropped_item_transform, rope_color,
+    rope_point, rope_ribbon,
 };
 pub use dropped_item_render::DroppedItemRenderPlugin;
 pub use atmosphere::{
