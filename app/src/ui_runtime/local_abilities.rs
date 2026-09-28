@@ -80,7 +80,6 @@ impl UiRuntime {
     }
 
     /// None means unknown. Received-empty and unavailable remain distinct evidence.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn local_abilities(&self) -> Option<&AbilitiesUpdate> {
         self.local_abilities.update.as_ref()
     }

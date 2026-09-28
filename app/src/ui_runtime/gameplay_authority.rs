@@ -164,6 +164,19 @@ impl UiRuntime {
         self.player_game_mode
     }
 
+    /// Interaction capabilities for the current mode, refined by any server
+    /// ability evidence. `None` until a game mode is known.
+    pub(crate) fn game_mode_capabilities(
+        &self,
+    ) -> Option<crate::game_mode_capabilities::GameModeCapabilities> {
+        self.player_game_mode.map(|mode| {
+            crate::game_mode_capabilities::GameModeCapabilities::resolve(
+                mode,
+                self.local_abilities(),
+            )
+        })
+    }
+
     pub(crate) const fn survival_stats_visible(&self) -> bool {
         match self.player_game_mode {
             Some(game_mode) => game_mode.shows_survival_stats(),
