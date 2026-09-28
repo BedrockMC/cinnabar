@@ -364,6 +364,12 @@ mod tests {
         let location = pages.route(crate::actor::pack_rig_id(5)).unwrap();
         assert!(pages.valid(crate::actor::pack_rig_id(5), location));
         assert_eq!(pages.route(crate::actor::pack_rig_id(6)), None);
+        assert!(!crate::actor::rig::is_equipment_rig_id(
+            crate::actor::pack_rig_id(5)
+        ));
+        assert!(crate::actor::rig::is_pack_rig_id(
+            crate::actor::pack_rig_id(5)
+        ));
         assert_eq!(pages.rejected_bindings(), 1);
         assert_ne!(pages.identity(), [0; 32]);
     }
