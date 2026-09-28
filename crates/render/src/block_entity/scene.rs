@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 use super::{
-    atlas::{AtlasRect, BlockEntityAtlas, DynamicText},
+    atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
     banner::BannerModel,
     beam::BeaconModel,
     bed::BedModel,
@@ -16,10 +16,13 @@ use super::{
     frame::ItemFrameModel,
     heads::HeadModels,
     mesh::{BlockEntityVertex, MeshBuilder},
+    mob::MobModels,
     pot::DecoratedPotModel,
     shulker::ShulkerModel,
     sign::SignModel,
     skull::SkullModel,
+    spawner::SpawnerModel,
+    statue::StatueModel,
 };
 
 /// What one block entity draws.
@@ -43,6 +46,8 @@ pub enum BlockEntityKind {
     Conduit(ConduitModel),
     DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
+    Statue(StatueModel),
+    Spawner(SpawnerModel),
     EndPortal,
     EndGateway,
 }
@@ -96,9 +101,10 @@ pub struct BlockEntityAtlasImage {
 pub struct BlockEntityScene {
     atlas: Option<Arc<BlockEntityAtlas>>,
     image: Option<Arc<BlockEntityAtlasImage>>,
-    text: Option<DynamicText>,
+    text: Option<DynamicCells>,
     frame: BlockEntityFrame,
     heads: HeadModels,
+    mobs: MobModels,
     rejected_quads: u64,
 }
 
@@ -111,7 +117,7 @@ impl BlockEntityScene {
             static_height: atlas.static_height(),
             static_rgba8: Arc::clone(atlas.static_rgba8()),
         }));
-        self.text = Some(DynamicText::new(atlas.size()[0]));
+        self.text = Some(DynamicCells::new(atlas.size()[0]));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
     }
@@ -138,8 +144,35 @@ impl BlockEntityScene {
 
     /// The atlas rect of the text canvas for `key`, rasterizing `make` on a miss.
     pub fn text_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let slot = self.text.as_mut()?.slot(key, make)?;
+        let slot = self.text.as_mut()?.text_slot(key, make)?;
         self.atlas.as_ref()?.text_cell(slot)
+    }
+
+    /// The atlas rect of the 128x128 map canvas for `key`, rasterizing `make` on a miss.
+    pub fn map_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
+        let slot = self.text.as_mut()?.map_slot(key, make)?;
+        self.atlas.as_ref()?.map_cell(slot)
+    }
+
+    /// Builds spawner mob models from the entity and actor catalogs (read only) and appends their
+    /// textures to the atlas; call after [`Self::install_assets`].
+    pub fn install_mob_assets(
+        &mut self,
+        entities: &assets::RuntimeEntityAssets,
+        catalog: &assets::RuntimeActorCatalog,
+    ) {
+        let mobs = MobModels::from_assets(entities, catalog);
+        let Some(atlas) = self.atlas.as_mut().and_then(Arc::get_mut) else {
+            return;
+        };
+        atlas.append_textures(mobs.textures());
+        self.image = Some(Arc::new(BlockEntityAtlasImage {
+            identity: atlas.identity(),
+            size: atlas.size(),
+            static_height: atlas.static_height(),
+            static_rgba8: Arc::clone(atlas.static_rgba8()),
+        }));
+        self.mobs = mobs;
     }
 
     pub fn update(
@@ -154,7 +187,13 @@ impl BlockEntityScene {
         let mut builder = MeshBuilder::new(atlas.size());
         for submission in submissions {
             builder.light = submission.light.clamp(0.0, 1.0);
-            emit_submission(&mut builder, atlas, &self.heads, submission, clock);
+            emit_submission(
+                &mut builder,
+                atlas,
+                (&self.heads, &self.mobs),
+                submission,
+                clock,
+            );
         }
         builder.light = 1.0;
         for crack in cracks {
@@ -188,7 +227,7 @@ impl BlockEntityScene {
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
-    heads: &HeadModels,
+    (heads, mobs): (&HeadModels, &MobModels),
     submission: &BlockEntitySubmission,
     clock: SceneClock,
 ) {
@@ -214,6 +253,10 @@ fn emit_submission(
         }
         BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
+        BlockEntityKind::Statue(model) => super::statue::emit(builder, atlas, heads, block, model),
+        BlockEntityKind::Spawner(model) => {
+            super::spawner::emit(builder, atlas, mobs, block, model, clock);
+        }
         BlockEntityKind::EndPortal => super::portal::emit(builder, atlas, block, false, clock),
         BlockEntityKind::EndGateway => super::portal::emit(builder, atlas, block, true, clock),
     }

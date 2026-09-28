@@ -146,6 +146,21 @@ pub struct BlockEntityUpdateEvent {
     pub nbt: Vec<u8>,
 }
 
+/// Side of a map image in pixels.
+pub const MAP_IMAGE_SIDE: u32 = 128;
+
+/// A pixel rectangle of a map image from `ClientboundMapItemData`; pixels are packed RGBA with
+/// red in the low byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapDataEvent {
+    pub map_id: i64,
+    pub start_x: u32,
+    pub start_y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Arc<[u32]>,
+}
+
 /// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockEventEvent {
@@ -384,6 +399,7 @@ pub enum WorldEvent {
     BlockUpdates(Vec<BlockUpdateEvent>),
     BlockEntityUpdate(BlockEntityUpdateEvent),
     BlockEvent(BlockEventEvent),
+    MapData(MapDataEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
