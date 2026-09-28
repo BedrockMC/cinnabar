@@ -45,7 +45,9 @@ use super::block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
 use super::server_position::{ResolvedServerPosition, resolve_server_position};
-use super::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
+use super::{
+    ActorArmorSnapshot, ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats,
+};
 
 mod block_cracks;
 mod block_entities;

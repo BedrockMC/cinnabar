@@ -166,6 +166,15 @@ pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<
     None
 }
 
+/// Reads the root `customColor` int (dyed leather RGB) from a stack's extra data, masked to 24 bits.
+#[must_use]
+pub fn item_custom_color(extra_data: &[u8]) -> Option<u32> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut payload = root_tag(&mut cursor, 3, b"customColor")?;
+    Some(read_i32_le(&mut payload)? as u32 & 0x00ff_ffff)
+}
+
 /// Positions `cursor` at the payload of the named root tag of type `tag`.
 fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8]> {
     if read_u8(cursor)? != 10 {

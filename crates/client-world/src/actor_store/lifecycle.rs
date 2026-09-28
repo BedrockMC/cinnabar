@@ -92,6 +92,7 @@ impl ActorStore {
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
         self.remote_state_excluded_runtime_id = Some(runtime_id);
+        self.items.set_persistent_armor_runtime(runtime_id);
         if let Some(lifetime) = self.lifetime(runtime_id) {
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
@@ -695,6 +696,38 @@ impl ActorStore {
             return ActorApplyResult::MissingActor;
         };
         if self.items.apply_equipment(lifetime, sequence, event) {
+            ActorApplyResult::Updated
+        } else {
+            ActorApplyResult::CapacityRejected
+        }
+    }
+
+    /// Applies worn armor to a live remote actor, or to the client-owned local runtime even
+    /// before its synthetic actor exists.
+    pub(crate) fn apply_armor(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: &protocol::ArmorEquipmentEvent,
+    ) -> ActorApplyResult {
+        let guard = self.guard(session_id, sequence);
+        if guard != ActorApplyResult::Updated {
+            return guard;
+        }
+        let lifetime = self.lifetime(event.actor_runtime_id).or_else(|| {
+            (self.remote_state_excluded_runtime_id == Some(event.actor_runtime_id)).then_some(
+                ActorLifetimeId {
+                    session_id: self.session_id,
+                    dimension: self.dimension,
+                    runtime_id: event.actor_runtime_id,
+                    spawn_revision: 0,
+                },
+            )
+        });
+        let Some(lifetime) = lifetime else {
+            return ActorApplyResult::MissingActor;
+        };
+        if self.items.apply_armor(lifetime, sequence, event) {
             ActorApplyResult::Updated
         } else {
             ActorApplyResult::CapacityRejected

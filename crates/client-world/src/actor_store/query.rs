@@ -1,6 +1,8 @@
 use super::*;
 use crate::actor_animation::{ActorAnimationStats, ActorRigSnapshot};
-use crate::{ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
+use crate::{
+    ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats, item::ActorArmorSnapshot,
+};
 
 impl ActorStore {
     pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
@@ -130,6 +132,9 @@ impl ActorStore {
         hand: protocol::ActorHandedness,
     ) -> Option<&ActorEquipmentSnapshot> {
         self.items.get_in_hand(self.lifetime(runtime_id)?, hand)
+    }
+    pub(crate) fn armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
+        self.items.armor(runtime_id)
     }
     pub(crate) fn action(&self, runtime_id: u64) -> Option<&RemoteActionSnapshot> {
         self.actions.get(self.lifetime(runtime_id)?)
