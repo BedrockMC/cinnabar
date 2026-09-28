@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -58,6 +59,41 @@ func (s *TransferState) Pending() (address string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.next, s.next != ""
+}
+
+// Clear drops any recorded transfer.
+func (s *TransferState) Clear() {
+	s.mu.Lock()
+	s.next = ""
+	s.mu.Unlock()
+}
+
+// clearIf drops the recorded transfer only when it is still address, so a newer
+// transfer recorded mid-dial survives.
+func (s *TransferState) clearIf(address string) {
+	s.mu.Lock()
+	if strings.EqualFold(s.next, address) {
+		s.next = ""
+	}
+	s.mu.Unlock()
+}
+
+// consumeTransferOnDial clears the pending transfer once a dial to it succeeds.
+func consumeTransferOnDial(
+	inner func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error),
+	transfers *TransferState,
+) func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error) {
+	return func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		pending, hadPending := transfers.Pending()
+		upstream, err := inner(ctx, target, dialer)
+		if err != nil || upstream == nil {
+			return upstream, err
+		}
+		if hadPending && strings.EqualFold(target.address, pending) {
+			transfers.clearIf(pending)
+		}
+		return upstream, nil
+	}
 }
 
 // withPendingTransfer dials a recorded server transfer ahead of next, since a Transfer

@@ -213,7 +213,12 @@ func runWithResourcePackCacheFactory(
 	if opts.controlStatus {
 		statusStore = control.NewStore()
 		if localWorlds != nil {
-			controlServer, err = control.StartWithWorlds(opts.socketDir, statusStore, localWorlds)
+			// Opening a local world supersedes any pending server transfer.
+			worlds := control.WithOpenHook(localWorlds, func() {
+				transfers.Clear()
+				statusStore.ClearTransfer()
+			})
+			controlServer, err = control.StartWithWorlds(opts.socketDir, statusStore, worlds)
 		} else {
 			controlServer, err = control.Start(opts.socketDir, statusStore)
 		}
