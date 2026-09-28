@@ -23,6 +23,7 @@ const REVIEWED_RANGES: &[(u32, u32)] = &[
     (0x20a0, 0x214f),
     (0x2190, 0x21ff),
     (0x2500, 0x25ff),
+    (0x2600, 0x27bf),
 ];
 
 /// How a packed glyph's pen advance is derived.
