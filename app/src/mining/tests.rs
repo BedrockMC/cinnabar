@@ -983,3 +983,14 @@ fn creative_revocation_keeps_queued_and_admitted_survival_ticks() {
     .unwrap();
     assert_eq!(carried, [true]);
 }
+
+#[test]
+fn unknown_selected_slot_mines_as_a_bare_hand() {
+    // Before the inventory arrives the slot is Unknown; mining must still work
+    // by hand rather than refusing (the "can't break blocks" regression).
+    let mut ui = UiRuntime::new(7);
+    ui.set_local_selected_slot(0);
+    let selection =
+        super::verified_selection(&ui).expect("unknown selection resolves to an empty hand");
+    assert_eq!(selection.item.network_id(), 0);
+}

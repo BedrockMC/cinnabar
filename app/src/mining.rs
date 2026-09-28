@@ -363,8 +363,11 @@ pub(crate) fn creative_observation(
 pub(crate) fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
     let selected = ui.selected_stack_snapshot()?;
     let stack = match selected.state {
-        PlayerInventorySlot::Unknown => return None,
-        PlayerInventorySlot::Empty => protocol::NetworkItemStack::empty(),
+        // Before the inventory arrives the slot is unknown; vanilla assumes an
+        // empty hand until restated, so mining works by hand from the first tick.
+        PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => {
+            protocol::NetworkItemStack::empty()
+        }
         PlayerInventorySlot::Present(stack) => stack.clone(),
     };
     let item = VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).ok()?;
