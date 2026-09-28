@@ -425,6 +425,36 @@ fn truncated_camera_shake_wire_stays_fatal() {
     ));
 }
 
+#[test]
+fn preset_registry_normalizes_with_indices_and_drops_non_finite_fields() {
+    use valentine::bedrock::version::v1_26_44::{
+        CameraPresets, CameraPresetsPacket, SharedTypesv12190CameraPreset,
+    };
+    let preset = |name: &str, radius: f32| SharedTypesv12190CameraPreset {
+        name: name.to_owned(),
+        inherit_from: "minecraft:free".to_owned(),
+        radius: Some(radius),
+        pos_x: Some(1.0),
+        rot_y: Some(f32::NAN),
+        ..Default::default()
+    };
+    let event = normalized(CameraPresetsPacket {
+        camera_presets: CameraPresets {
+            presets: vec![preset("a", 4.0), preset("b", f32::INFINITY)],
+        },
+    })
+    .expect("presets produce an event");
+    let WorldEvent::Camera(CameraEvent::Presets(presets)) = event else {
+        panic!("expected a preset registry")
+    };
+    assert_eq!(presets.len(), 2);
+    assert_eq!(&*presets[0].name, "a");
+    assert_eq!(presets[0].radius, Some(4.0));
+    assert_eq!(presets[0].position, [Some(1.0), None, None]);
+    assert_eq!(presets[0].rotation_degrees[1], None);
+    assert_eq!(presets[1].radius, None);
+}
+
 fn is_fatal_wire(error: &WorldPacketError) -> bool {
     matches!(error, WorldPacketError::Wire(_))
 }

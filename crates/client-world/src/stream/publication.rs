@@ -113,6 +113,10 @@ impl WorldStream {
     pub fn actor_health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {
         self.actors.health_by_unique(unique_id)
     }
+    /// Position and view angles `(position, yaw, pitch)` of the actor with this unique id.
+    pub fn actor_pose_by_unique(&self, unique_id: i64) -> Option<([f32; 3], f32, f32)> {
+        self.actors.pose_by_unique(unique_id)
+    }
     /// Whether this actor carries a named attribute (capability gate).
     pub fn actor_has_attribute_by_unique(&self, unique_id: i64, name: &str) -> bool {
         self.actors.actor_has_attribute_by_unique(unique_id, name)
