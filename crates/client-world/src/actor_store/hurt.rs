@@ -10,6 +10,9 @@ pub const DEATH_DURATION_TICKS: u8 = 20;
 /// Ticks a picked-up item takes to reach its collector; needs independent measurement.
 pub const PICKUP_DURATION_TICKS: u8 = 3;
 
+/// Sequences a knockback impulse stays attributable to a hurt event; needs measurement.
+const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
+
 const HURT_DIRECTION_METADATA_KEY: u32 = 12;
 
 /// A dropped item flying to the actor that collected it.
@@ -137,9 +140,19 @@ impl ActorStore {
         ActorApplyResult::Updated
     }
 
-    /// Hurt direction retained by the most recent Hurt event for `runtime_id`.
-    pub(crate) fn hurt_direction(&self, runtime_id: u64) -> Option<f32> {
-        self.actors.get(&runtime_id)?.status.hurt_direction
+    /// Remembers the latest horizontal knockback impulse the local player received.
+    pub(crate) fn note_local_knockback(&mut self, sequence: u64, motion: [f32; 3]) {
+        if motion[0].hypot(motion[2]) > f32::EPSILON {
+            self.local_knockback = Some((sequence, [motion[0], motion[2]]));
+        }
+    }
+
+    /// Direction toward the damage source: opposite the recent knockback, if one is fresh.
+    pub(crate) fn hurt_source_direction(&self, sequence: u64) -> Option<[f32; 2]> {
+        let (noted, [x, z]) = self.local_knockback?;
+        let length = x.hypot(z);
+        (sequence.saturating_sub(noted) <= KNOCKBACK_FRESH_SEQUENCES && length > f32::EPSILON)
+            .then(|| [-x / length, -z / length])
     }
 }
 
@@ -231,6 +244,15 @@ mod tests {
             status.pickup.map(|pickup| pickup.collector_runtime_id),
             Some(99)
         );
+    }
+
+    #[test]
+    fn hurt_source_is_opposite_a_fresh_knockback() {
+        let mut store = ActorStore::new(1, 0);
+        assert_eq!(store.hurt_source_direction(1), None);
+        store.note_local_knockback(5, [2.0, 0.3, 0.0]);
+        assert_eq!(store.hurt_source_direction(6), Some([-1.0, 0.0]));
+        assert_eq!(store.hurt_source_direction(5 + KNOCKBACK_FRESH_SEQUENCES + 1), None);
     }
 
     #[test]

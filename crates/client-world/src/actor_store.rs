@@ -390,6 +390,8 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
+    /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
+    local_knockback: Option<(u64, [f32; 2])>,
 }
 
 mod dropped;
