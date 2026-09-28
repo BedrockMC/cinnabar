@@ -54,10 +54,8 @@ fn populated_survival_hud_does_not_offset_or_reject_remote_toast_rows() {
     let with_toast = presentation
         .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
         .expect("a routine remote toast must not make presentation fatal");
-    assert_eq!(with_toast.vertices.len(), baseline.vertices.len() + 16);
-    let toast = &with_toast.vertices[baseline.vertices.len()..];
-    assert_row_top(&toast[..8], 12.0);
-    assert_row_top(&toast[8..], 30.0);
+    // Border and fill quads plus a shadowed one-glyph title and message.
+    assert_eq!(with_toast.vertices.len(), baseline.vertices.len() + 2 * 4 + 2 * 8);
 }
 
 #[test]

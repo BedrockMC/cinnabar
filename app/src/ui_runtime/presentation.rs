@@ -473,8 +473,8 @@ impl UiPresentationRuntime {
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
         let menu_visible = self.menu_view.is_some();
-        // Titles and the action bar lay out in the Java-parity HUD when it renders.
-        let hud_lays_out_titles = hud_geometry.is_some() && self.hud_textures.is_some();
+        // Titles, the action bar and toasts lay out in the Java-parity HUD when it renders.
+        let hud_lays_out_overlays = hud_geometry.is_some() && self.hud_textures.is_some();
 
         if !menu_visible
             && let Some(hud_textures) = self.hud_textures.as_ref()
@@ -507,10 +507,14 @@ impl UiPresentationRuntime {
             ) {
                 continue;
             }
-            if hud_lays_out_titles
+            if hud_lays_out_overlays
                 && matches!(
                     node.role,
-                    HudViewRole::Title | HudViewRole::Subtitle | HudViewRole::ActionBar
+                    HudViewRole::Title
+                        | HudViewRole::Subtitle
+                        | HudViewRole::ActionBar
+                        | HudViewRole::ToastTitle
+                        | HudViewRole::ToastMessage
                 )
             {
                 continue;
