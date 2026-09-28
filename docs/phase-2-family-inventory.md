@@ -401,3 +401,45 @@ conduits, bells and item frames compile to `VisualKind::Invisible`/`Exact` in
 a 12/16-tall terrain base. The `visual-coverage-v1001.json` diagnostic baseline must be
 regenerated to drop these states; campfire, hopper, brewing stand and copper-golem statues
 remain diagnostic.
+
+## Translucent cubes, named cubes, and texture-derived shapes (world-render round 3)
+
+Root cause of the translucent-cube diagnostics: ice, frosted ice, slime, honey, and tinted glass
+ship uniformly translucent art with no blend flag, so the atlas builder dropped the alpha texture
+and every face resolved to the diagnostic material. `translucent_cubes.rs` compiles them as unit
+cubes on the stained-glass transparent-cube template (blend, same-state face culling, no
+neighbour occlusion). Powder snow is opaque art on the same template without blend. Frosted ice
+picks its crack texture from `age`. Slime and honey draw only the outer cube: the pack art is
+one uniform alpha, so an inner cube's extent needs native measurement.
+
+`named_blocks.rs` (opaque cubes the registry tags Unknown, which the generic cube rule skips):
+redstone lamps, moss and pale moss, sculk, sculk catalyst, lodestone, target, nether reactor,
+glowing obsidian, nylium, dirt with roots, cartography table, sulfur and cinnabar bricks and
+polished/chiseled variants. Box heights come from the opaque rows of the side art (independent
+texture measurement): dirt path 15/16, end portal frame 13/16 (eyeless states only). Snow layer
+height is two pixels per layer (public block documentation). Provisional (`VanillaFallback`):
+copper bulbs (lit and powered art is state-keyed, not selectable through the block map) and
+repeaters and comparators (two-pixel base only; facing rotation of the top and the torches are
+not modelled). The enchanting table's side art gets its cut-out flag here.
+
+`crystals.rs`: amethyst cluster and buds plus standing coral fans as crossed two-sided sprite
+planes (the art is a front-view sprite). Buds turn about the block centre to point along
+`minecraft:block_face`. Wall coral fans stay diagnostic (tilt needs measurement).
+
+Water and lava: the liquid mesher already carries level heights, falling state, flow-direction
+tops, biome water tint, and depth-writing lava; no change this round.
+
+Still diagnostic, needs native measurement (art is a UV layout, not a front view, or shape
+constants are absent from the pack): lanterns, end rods, lightning rods, candles, cauldron,
+hopper, brewing stand, anvils (top footprint is 10 wide by texture), grindstone, scaffolding,
+dripleaf, pistons (front art needs a `piston_top_normal`/`piston_top_sticky` route), campfire,
+sea pickle, turtle egg, glazed terracotta rotation, lily pad tint, soul sand and mud height.
+
+States changing from diagnostic to compiled (regenerate `visual-coverage-v1001.json` and the
+ratchet counts): `ice`, `frosted_ice` (4), `slime`, `honey_block`, `tinted_glass`, `powder_snow`,
+`snow_layer` (16), `redstone_lamp`, `lit_redstone_lamp`, `moss_block`, `pale_moss_block`, `sculk`,
+`sculk_catalyst` (2), `lodestone`, `target`, `netherreactor`, `glowingobsidian`,
+`dirt_with_roots`, `crimson_nylium`, `warped_nylium`, `cartography_table`, `grass_path`,
+`end_portal_frame` (4 eyeless), sulfur/cinnabar cubes (6), copper bulbs (4 names x 2 waxed, 4 states
+each, provisional), repeaters and comparators (64, provisional), amethyst cluster and buds (24),
+standing coral fans (20).
