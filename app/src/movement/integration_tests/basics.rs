@@ -92,7 +92,6 @@ fn completed_physics_ticks_are_the_only_outbound_enqueue_path() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     for tick in 1_001..=1_020 {
         ticker
             .enqueue_completed_physics(completed_sample(tick, [1.0, 64.0, 2.0]))
@@ -221,7 +220,6 @@ fn free_camera_authority_rejects_retry_enqueue() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(1_001, [2.0, 64.0, 3.0]))
         .unwrap();
@@ -606,7 +604,7 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
     assert_eq!(frame.samples[1].tick, 42);
     assert_eq!(frame.samples[0].input_mode, PlayerInputMode::GamePad);
     assert_eq!(frame.samples[0].position[1], 2.620_01);
-    let expected_velocities = [frame.samples[0].velocity, frame.samples[1].velocity];
+    let expected_deltas = [frame.samples[0].movement, frame.samples[1].movement];
 
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 40, [0.0, 2.620_01, 0.0]);
@@ -618,6 +616,6 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
     let second = ticker.pop_pending().unwrap().snapshot;
     assert_eq!((first.tick, second.tick), (41, 42));
     assert_eq!(first.input_mode, PlayerInputMode::GamePad);
-    assert_eq!(first.delta, expected_velocities[0]);
-    assert_eq!(second.delta, expected_velocities[1]);
+    assert_eq!(first.delta, expected_deltas[0]);
+    assert_eq!(second.delta, expected_deltas[1]);
 }

@@ -39,6 +39,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position,
+        movement: [0.125, -0.078_4, -0.25],
         velocity: [0.125, -0.078_4, -0.25],
         move_vector: [0.0, 1.0],
         raw_move_vector: [0.0, 1.0],
@@ -61,16 +62,6 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     }
 }
 
-/// A grounded, collision-free completed tick: settles the provisional spawn
-/// window when admitted repeatedly.
-fn settled_completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
-    PhysicsMovementSample {
-        grounded_before_tick: true,
-        grounded_after_tick: true,
-        ..completed_sample(tick, position)
-    }
-}
-
 fn physics_ticker(teleport_ack: bool) -> MovementTicker {
     let mut ticker = MovementTicker::default();
     ticker.testing_set_teleport_ack(teleport_ack);
@@ -84,7 +75,6 @@ fn armed_session_ticker(teleport_ack: bool) -> MovementTicker {
     let mut ticker = physics_ticker(teleport_ack);
     ticker.reset(7, 100, [0.0, 70.0, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
     ticker
 }
 
@@ -342,34 +332,28 @@ fn transport_failure_restores_and_resends_the_flagged_sample() {
 
 #[test]
 fn the_provisional_budget_expires_on_admission_forty_one_not_forty() {
-    // Production reaches expiry through a suppression episode: withheld
-    // flushes drain queued samples without transmission while admissions
-    // keep flowing, so the armed assertion can outlive its whole budget
-    // without ever finding a packet to ride.
+    // The armed assertion charges one admitted tick at a time and expires on
+    // the admission after its budget is spent. Transmission is now
+    // unconditional (every tick), so the first transmitted packet normally
+    // rides the assertion long before expiry; the budget guards the case where
+    // transmission is deferred (transport backpressure) and no packet ever
+    // rides. Exercise the exact boundary through the admission observer, which
+    // production calls on every admitted tick.
     let mut ticker = physics_ticker(true);
     ticker.reset(7, 10, [0.0, 70.0, 0.0]);
     ticker.set_source(MovementSource::Physics);
     ticker.note_server_teleport(ServerTeleportKind::MovePlayer);
 
-    for offset in 0..40 {
-        ticker
-            .enqueue_completed_physics(completed_sample(11 + offset, [1.0, 70.0, 0.0]))
-            .unwrap();
-        // Withholding flushes discard queued work without transmitting, so
-        // the bounded outbox never overflows across a long episode.
-        let withheld = flush_capturing(&mut ticker, None);
-        assert!(withheld.is_empty());
+    for spent in 1..=TELEPORT_ACK_ADMITTED_TICK_BUDGET {
+        ticker.observe_admitted_tick_for_teleport_ack();
         assert_eq!(
             ticker.pending_teleport_ack_admitted_ticks(),
-            Some(TELEPORT_ACK_ADMITTED_TICK_BUDGET - (offset + 1)),
-            "admission {} must charge the budget without expiring",
-            offset + 1,
+            Some(TELEPORT_ACK_ADMITTED_TICK_BUDGET - spent),
+            "admission {spent} must charge the budget without expiring",
         );
     }
 
-    ticker
-        .enqueue_completed_physics(completed_sample(51, [1.0, 70.0, 0.0]))
-        .unwrap();
+    ticker.observe_admitted_tick_for_teleport_ack();
     assert_eq!(
         ticker.pending_teleport_ack_admitted_ticks(),
         None,
@@ -463,52 +447,23 @@ fn replay_rewrite_preserves_the_flag_bit_on_a_flagged_pending_sample() {
 }
 
 #[test]
-fn the_assertion_survives_settle_suppression_and_rides_the_first_resumed_packet() {
+fn the_assertion_rides_the_first_transmitted_packet() {
     let mut ticker = physics_ticker(true);
     ticker.reset(7, 10, [0.0, 70.0, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    // The spawn-settle window engaged at reset and stays engaged here.
 
     ticker.note_server_teleport(ServerTeleportKind::Respawn);
 
-    // Suppressed admissions continue (simulation/admission unchanged) while
-    // the gate withholds transmission; the assertion must survive them.
-    for tick in 11..30 {
-        ticker
-            .enqueue_completed_physics(completed_sample(tick, [1.0, 70.0, 0.0]))
-            .unwrap();
-    }
-    let withheld = flush_capturing(&mut ticker, None);
-    assert!(
-        withheld.is_empty(),
-        "suppressed episodes must never encode or stage packets"
-    );
-    assert_eq!(
-        ticker.pending_teleport_ack_admitted_ticks(),
-        Some(TELEPORT_ACK_ADMITTED_TICK_BUDGET - 19)
-    );
-
-    // The settled run completes on its twentieth stable admission, lifting
-    // the window and discarding every suppressed sample. The lifting
-    // admission itself is post-lift and remains queued for transmission.
-    for offset in 0..20 {
-        ticker
-            .enqueue_completed_physics(settled_completed_sample(30 + offset, [1.0, 70.0, 0.0]))
-            .unwrap();
-    }
-    assert_eq!(
-        ticker.pending_count(),
-        1,
-        "the lift discards suppressed samples and keeps only its own lifting admission"
-    );
-
-    // First resumed transmission carries the flag despite the entire
-    // intermediate discard; later samples stay unflagged.
+    // Transmission is unconditional, so the assertion rides the very first
+    // transmitted packet after arming; subsequent packets stay unflagged.
     ticker
-        .enqueue_completed_physics(settled_completed_sample(50, [1.0, 70.0, 0.0]))
+        .enqueue_completed_physics(completed_sample(11, [1.0, 70.0, 0.0]))
+        .unwrap();
+    ticker
+        .enqueue_completed_physics(completed_sample(12, [1.0, 70.0, 0.0]))
         .unwrap();
     let packets = flush_capturing(&mut ticker, None);
-    assert_eq!(packets.len(), 2, "only post-lift samples transmit");
+    assert_eq!(packets.len(), 2, "every admitted tick transmits");
     assert!(carries_handled_teleport(&packets[0]));
     assert!(!carries_handled_teleport(&packets[1]));
     assert_eq!(ticker.pending_teleport_ack_admitted_ticks(), None);

@@ -16,7 +16,6 @@ mod evidence;
 mod outbox;
 mod physics;
 mod runtime_system;
-mod settle;
 mod speed_authority;
 mod state;
 mod teleport_ack;
@@ -123,7 +122,6 @@ pub struct MovementTicker {
     next_admission_id: u64,
     reanchor_epoch: u64,
     terminal_drain: bool,
-    tx_gate: settle::SpawnSettleGate,
     teleport_ack_enabled: bool,
     pending_teleport_ack: Option<teleport_ack::TeleportAckPending>,
     teleport_acks_expired: u64,
@@ -166,7 +164,6 @@ impl MovementTicker {
             next_admission_id: 0,
             reanchor_epoch: 0,
             terminal_drain: false,
-            tx_gate: settle::SpawnSettleGate::default(),
             teleport_ack_enabled: teleport_ack::enabled_from_env(),
             pending_teleport_ack: None,
             teleport_acks_expired: 0,
@@ -204,10 +201,6 @@ impl MovementTicker {
         self.next_admission_id = 0;
         self.terminal_drain = false;
         self.pending_teleport_ack = None;
-        // A StartGame bootstrap anchors a fresh provisional spawn-settle
-        // episode (see `settle`): transmission waits for the bounded stable
-        // window or its fail-open cap.
-        self.tx_gate.engage();
     }
 
     pub fn deactivate(&mut self) {
@@ -220,7 +213,6 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.terminal_drain = false;
         self.pending_teleport_ack = None;
-        self.tx_gate.disengage();
     }
 
     /// Latches a remote-initiated close of an active, authorized physics
@@ -298,6 +290,7 @@ impl MovementTicker {
             return Err(fault);
         }
         if !completed.position.into_iter().all(f32::is_finite)
+            || !completed.movement.into_iter().all(f32::is_finite)
             || !completed.velocity.into_iter().all(f32::is_finite)
             || !completed.move_vector.into_iter().all(f32::is_finite)
             || !completed.raw_move_vector.into_iter().all(f32::is_finite)
@@ -313,12 +306,6 @@ impl MovementTicker {
             let fault = PhysicsAuthorityFault::InvalidCompletedSample;
             self.fail_physics_authority(&fault);
             return Err(fault);
-        }
-        if self.tx_gate.observe_admitted_sample(&completed) {
-            // This admission closed the settle window. Discard every sample
-            // withheld during the episode so resumed transmission starts here
-            // without replaying suppressed ticks.
-            self.outbox.clear();
         }
         self.observe_admitted_tick_for_teleport_ack();
         let snapshot = self.snapshot(&completed);
@@ -370,7 +357,6 @@ impl MovementTicker {
         self.outbox_reconciliation = MovementOutboxReconciliation::NotAuthoritative;
         self.previous_input = HeldInput::default();
         self.pending_teleport_ack = None;
-        self.tx_gate.disengage();
     }
 
     fn snapshot(&mut self, sample: &PhysicsMovementSample) -> PlayerAuthInputSnapshot {
@@ -379,7 +365,10 @@ impl MovementTicker {
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
-            delta: sample.velocity,
+            // gophertunnel PlayerAuthInput.Delta is "the delta between the old
+            // and the new position", i.e. this tick's resolved displacement —
+            // not the post-tick velocity.
+            delta: sample.movement,
             move_vector,
             analogue_move_vector: sample.analogue_move_vector,
             raw_move_vector: sample.raw_move_vector,
@@ -412,13 +401,6 @@ impl MovementTicker {
     #[must_use]
     fn pop_pending(&mut self) -> Option<QueuedPhysicsSample> {
         self.outbox.pop_front()
-    }
-
-    /// Discards up to `budget` queued completed samples while the provisional
-    /// spawn-settle window withholds the transport hand-off.
-    fn withhold_settled_outbox(&mut self, budget: usize) {
-        let remaining = budget.min(self.outbox.len());
-        self.outbox.drain(..remaining);
     }
 
     fn sent_confirmation(&self, tick: u64) -> Option<PhysicsCorrectionConfirmation> {
@@ -581,34 +563,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.sent_history.clear();
-        // A resolved surface spawn anchors a fresh provisional settle window.
-        self.tx_gate.engage();
         self.refresh_outbox_reconciliation();
-    }
-
-    /// Freezes outbound movement after an unresolvable embedded spawn anchor.
-    ///
-    /// The physics controller stops simulating (so no samples exist to admit)
-    /// and this gate holds transmission until a server correction, MovePlayer,
-    /// respawn, or StartGame snap re-anchors and re-probes, or the unchanged
-    /// provisional cap fails the hold open. Provisional recovery policy; see
-    /// the `anchor_probe` module.
-    pub(crate) fn note_embedded_anchor(&mut self) {
-        self.tx_gate.enter_embedded_hold();
-    }
-
-    /// Reports fixed ticks consumed inside the frozen embedded-anchor hold.
-    ///
-    /// Returns whether the unchanged provisional cap failed the hold open;
-    /// the caller must then release the controller to retry its bounded
-    /// probe budget or degrade for the rest of this re-anchor epoch.
-    pub(crate) fn observe_embedded_anchor_hold(&mut self, held_ticks: u64) -> bool {
-        self.tx_gate.observe_embedded_hold(held_ticks)
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn holding_embedded_anchor(&self) -> bool {
-        self.tx_gate.holding_embedded()
     }
 
     pub(crate) fn begin_terminal_drain(&mut self) {
@@ -688,14 +643,6 @@ impl MovementTicker {
     #[cfg(test)]
     fn pending_samples(&self) -> Vec<QueuedPhysicsSample> {
         self.outbox.iter().cloned().collect()
-    }
-
-    /// Lifts the provisional spawn-settle window for transport-focused test
-    /// fixtures whose byte-level send assertions are orthogonal to settling;
-    /// dedicated gate coverage lives in `settle_tests`.
-    #[cfg(test)]
-    pub(crate) fn testing_lift_spawn_settle_gate(&mut self) {
-        self.tx_gate.disengage();
     }
 
     #[must_use]
@@ -790,9 +737,6 @@ impl MovementTicker {
                 self.previous_input = HeldInput::default();
                 self.outbox.clear();
                 self.sent_history.clear();
-                // A teleport-style snap anchors a fresh provisional settle
-                // window; a correction replay deliberately does not.
-                self.tx_gate.engage();
                 Ok(())
             }
             PhysicsCorrectionOutcome::Replayed { .. } => {
@@ -841,7 +785,7 @@ impl MovementTicker {
                         return Err(PhysicsAuthorityFault::PendingWorldIdentityMismatch { tick });
                     }
                     pending.snapshot.position = replayed.position;
-                    pending.snapshot.delta = replayed.velocity;
+                    pending.snapshot.delta = replayed.movement;
                     pending.snapshot.flags = pending
                         .snapshot
                         .flags

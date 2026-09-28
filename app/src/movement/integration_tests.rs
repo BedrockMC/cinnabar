@@ -61,6 +61,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position,
+        movement: [0.125, -0.0784, -0.25],
         velocity: [0.125, -0.0784, -0.25],
         move_vector: [0.0, 1.0],
         raw_move_vector: [0.0, 1.0],
@@ -102,7 +103,6 @@ fn replay_with_admitted_future_ticks(
     ticker.set_source(MovementSource::Physics);
     // Retry/cancellation suites assert byte-level transport behavior that is
     // orthogonal to the provisional spawn-settle window.
-    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }

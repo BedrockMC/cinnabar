@@ -343,6 +343,7 @@ pub(crate) fn completed(tick: u64) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
         position: [0.5, 2.620_01, 0.5],
+        movement: [0.0; 3],
         velocity: [0.0; 3],
         move_vector: [0.0; 2],
         raw_move_vector: [0.0; 2],
@@ -387,7 +388,6 @@ pub(crate) fn ticker_with_ticks(ticks: u64) -> MovementTicker {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
     for tick in 101..101 + ticks {
         ticker.enqueue_completed_physics(completed(tick)).unwrap();
     }
@@ -399,7 +399,6 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
     for tick in 101..=102 {
         ticker.enqueue_completed_physics(completed(tick)).unwrap();
     }
@@ -460,7 +459,6 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
     let stack = NetworkItemStack {
         network_id: 5,
         stack_network_id: 41,

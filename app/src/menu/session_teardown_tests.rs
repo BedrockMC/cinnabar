@@ -95,6 +95,7 @@ fn pending_sample(world_identity: WorldCollisionIdentity) -> PhysicsMovementSamp
     PhysicsMovementSample {
         tick: 11,
         position: [1.0, 64.0, 2.0],
+        movement: [0.0; 3],
         velocity: [0.0; 3],
         move_vector: [0.0; 2],
         raw_move_vector: [0.0; 2],
@@ -127,7 +128,6 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     let mut movement = MovementTicker::default();
     movement.reset(1, 10, [0.0; 3]);
     movement.set_source(MovementSource::Physics);
-    movement.testing_lift_spawn_settle_gate();
     let world_identity = fixture_world_identity();
     movement
         .enqueue_completed_physics(pending_sample(world_identity.clone()))
@@ -234,7 +234,6 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     let mut movement = MovementTicker::default();
     movement.reset(1, 10, [0.0; 3]);
     movement.set_source(MovementSource::Physics);
-    movement.testing_lift_spawn_settle_gate();
     let world_identity = fixture_world_identity();
     movement
         .enqueue_completed_physics(pending_sample(world_identity.clone()))
