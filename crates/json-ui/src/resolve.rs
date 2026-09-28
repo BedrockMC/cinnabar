@@ -92,7 +92,7 @@ impl<'a> Resolver<'a> {
         }
         let children = self.resolve_children(control, env, depth);
         ResolvedControl {
-            name: control.name.clone(),
+            name: instance_name(&control.name, env),
             control_type,
             base: provenance,
             unresolved_base,
@@ -329,5 +329,17 @@ fn value_string(value: Value) -> Option<String> {
     match value {
         Value::String(text) => Some(text),
         _ => None,
+    }
+}
+
+/// An instance name written as a `$var` (`"$tab_view_binding_name@common.toggle"`)
+/// takes the variable's string value; view bindings find the control by it.
+fn instance_name(name: &str, env: &Env) -> String {
+    match name
+        .strip_prefix('$')
+        .and_then(|variable| env.get(variable))
+    {
+        Some(Value::String(value)) => value.clone(),
+        _ => name.to_owned(),
     }
 }
