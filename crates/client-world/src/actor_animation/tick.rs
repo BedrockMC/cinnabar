@@ -52,6 +52,15 @@ pub(super) fn advance_motion(
     } else {
         1.0
     };
+    let item_use_ticks = if query::actor_flag(actor, query::FLAG_USING_ITEM) {
+        state
+            .history
+            .back()
+            .map_or(0, |input| input.item_use_ticks)
+            .saturating_add(1)
+    } else {
+        0
+    };
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
     }
@@ -67,6 +76,7 @@ pub(super) fn advance_motion(
         distance_moved: motion.distance,
         move_speed: motion.speed.min(1.0) * baby_scale,
         walk_distance: motion.walk_distance(),
+        item_use_ticks,
     };
     state.history.push_back(input);
 }
