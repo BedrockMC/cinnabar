@@ -19,6 +19,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) camera_rotation: [f32; 2],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
     pub(crate) armor: [Option<WornArmor>; 5],
+    /// The player's skin carries a cape image.
+    pub(crate) has_cape: bool,
     /// The actor type's synced property definitions, in wire index order.
     pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
 }
