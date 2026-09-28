@@ -1,9 +1,10 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
 use render::{
-    BannerLayer, BannerModel, BannerMount, BeaconModel, BlockEntityKind, ChestModel, ChestPair,
-    ChestVariant, CopperAge, Facing, MAX_BANNER_LAYERS, ShulkerModel, SignMount, SkullKind,
-    SkullModel, SkullMount, banner_color, pattern_texture, shulker_color_from_block_name,
+    BannerLayer, BannerModel, BannerMount, BeaconModel, BedModel, BlockEntityKind, ChestModel,
+    ChestPair, ChestVariant, CopperAge, Facing, MAX_BANNER_LAYERS, ShulkerModel, SignMount,
+    SkullKind, SkullModel, SkullMount, banner_color, bed_color, pattern_texture,
+    shulker_color_from_block_name,
 };
 use world::NbtCompound;
 
@@ -204,6 +205,11 @@ pub(super) fn describe(
                 mount,
             })))
         }
+        "Bed" => Some(Template::Static(BlockEntityKind::Bed(BedModel {
+            color: bed_color(nbt.integer("color")?)?,
+            head: state.int("head_piece_bit") == Some(1),
+            direction: u8::try_from(state.int("direction")?.rem_euclid(4)).ok()?,
+        }))),
         "Banner" => banner(block_name, state, nbt),
         "Sign" | "HangingSign" => sign(block_name, state, nbt),
         "EnchantTable" => Some(Template::EnchantTable),
@@ -322,6 +328,32 @@ mod tests {
         );
         assert_eq!(front.unwrap().text, "hi");
         assert!(back.is_none());
+    }
+
+    #[test]
+    fn beds_read_color_from_nbt_and_half_and_direction_from_state() {
+        // color byte 14 is red.
+        let nbt = nbt(|out| {
+            out.push(1);
+            out.push(5);
+            out.extend_from_slice(b"color");
+            out.push(14);
+        });
+        let template = describe(
+            "Bed",
+            "minecraft:bed",
+            &state(r#"{"direction":{"type":"int","value":3},"head_piece_bit":true}"#),
+            &nbt,
+            [0; 3],
+        );
+        assert_eq!(
+            template,
+            Some(Template::Static(BlockEntityKind::Bed(BedModel {
+                color: "red",
+                head: true,
+                direction: 3,
+            })))
+        );
     }
 
     #[test]

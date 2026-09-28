@@ -8,6 +8,7 @@ use super::{
     atlas::{AtlasRect, BlockEntityAtlas, DynamicText},
     banner::BannerModel,
     beam::BeaconModel,
+    bed::BedModel,
     chest::ChestModel,
     crack::emit_crack,
     mesh::{BlockEntityVertex, MeshBuilder},
@@ -23,6 +24,7 @@ pub enum BlockEntityKind {
     Shulker(ShulkerModel),
     Skull(SkullModel),
     Banner(BannerModel),
+    Bed(BedModel),
     Sign(SignModel),
     EnchantTable { facing_yaw_degrees: f32 },
     Lectern { facing_yaw_degrees: f32 },
@@ -171,6 +173,7 @@ fn emit_submission(
         BlockEntityKind::Shulker(model) => super::shulker::emit(builder, atlas, block, model),
         BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
+        BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model),
         BlockEntityKind::Sign(model) => super::sign::emit(builder, block, model),
         BlockEntityKind::EnchantTable { facing_yaw_degrees } => {
             super::book::emit_enchant_table(builder, atlas, block, *facing_yaw_degrees, clock);

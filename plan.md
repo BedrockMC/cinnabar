@@ -2041,9 +2041,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         - [ ] Provisional, uncompiled and unmeasured (never closes a gate): the
           `.mcbeben` carrier (`make block-entity-assets`) and a dedicated
           block-entity pass draw chests (single/double, lid cue), ender and copper
-          chests, shulker boxes, skulls, banners, bell, enchant/lectern book,
-          beacon beam, end portal, sign text and the break-crack overlay. Beds,
-          conduit, decorated pots, campfire, item frames, spawner, dragon/piglin
+          chests, beds, shulker boxes, skulls, banners, bell, enchant/lectern book,
+          beacon beam, end portal, sign text and the break-crack overlay.
+          Conduit, decorated pots, campfire, item frames, spawner, dragon/piglin
           heads, hanging-sign extents, banner/beam scroll and native lighting
           remain open; every hand-authored dimension is marked for measurement.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
