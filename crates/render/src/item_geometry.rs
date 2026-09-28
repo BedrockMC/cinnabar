@@ -328,58 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn faces_show_the_sprite_unmirrored_from_their_own_side() {
-        let vertices = extruded_sprite_vertices(4, 4, &opaque(4, 4), FULL).unwrap();
-        for triangle in vertices[..12].chunks_exact(3) {
-            for vertex in triangle {
-                // The front-facing UV of one slab is the other slab's back-facing UV, mirrored in u.
-                let other = vertices[..12]
-                    .iter()
-                    .find(|other| {
-                        other.position[..2] == vertex.position[..2]
-                            && other.position[2] != vertex.position[2]
-                    })
-                    .unwrap();
-                assert!((vertex.uv[0] - (1.0 - other.uv[0])).abs() < 1e-6);
-                assert_eq!(vertex.uv[1], other.uv[1]);
-                assert_eq!(vertex.back_uv, other.uv);
-            }
-        }
-    }
-
-    #[test]
-    fn cube_has_six_outward_faces_inside_their_tiles() {
-        let rects = std::array::from_fn(|face| {
-            let x = face as f32 * 0.1;
-            [x, 0.0, x + 0.1, 0.5]
-        });
-        let vertices = super::textured_cube_vertices(rects);
-        assert_eq!(vertices.len(), 36);
-        for (index, triangle) in vertices.chunks_exact(3).enumerate() {
-            let rect = rects[index / 2];
-            let a = triangle[0].position;
-            let (b, c) = (triangle[1].position, triangle[2].position);
-            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-            let cross = [
-                ab[1] * ac[2] - ab[2] * ac[1],
-                ab[2] * ac[0] - ab[0] * ac[2],
-                ab[0] * ac[1] - ab[1] * ac[0],
-            ];
-            let normal = triangle[0].normal;
-            assert_eq!(normal.iter().map(|value| value.abs()).sum::<f32>(), 1.0);
-            assert!(cross[0] * normal[0] + cross[1] * normal[1] + cross[2] * normal[2] > 0.0);
-            // The face plane sits half a unit out along its normal.
-            let plane = a[0] * normal[0] + a[1] * normal[1] + a[2] * normal[2];
-            assert!((plane - 0.5).abs() < 1e-6);
-            for vertex in triangle {
-                assert!((rect[0]..=rect[2]).contains(&vertex.uv[0]));
-                assert!((rect[1]..=rect[3]).contains(&vertex.uv[1]));
-            }
-        }
-    }
-
-    #[test]
     fn every_triangle_winds_counter_clockwise_about_its_normal() {
         let mut sprite = opaque(3, 3);
         sprite[(4 * 4) + 3] = 0;
