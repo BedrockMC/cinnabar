@@ -9,6 +9,7 @@ fn flush_refuses_a_stale_queue_without_physics_authority() {
         .enqueue_completed_physics(PhysicsMovementSample {
             tick: 11,
             position: [1.0, 2.0, 3.0],
+            movement: [0.1, 0.2, 0.3],
             velocity: [0.1, 0.2, 0.3],
             move_vector: [0.0; 2],
             raw_move_vector: [0.0; 2],

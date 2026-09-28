@@ -99,7 +99,11 @@ pub struct PhysicsSampleContext {
 pub struct PhysicsMovementSample {
     pub tick: u64,
     pub position: [f32; 3],
-    /// Predicted end-of-tick velocity carried by PlayerAuthInput.PosDelta.
+    /// This tick's resolved displacement (new position minus old), carried
+    /// verbatim as PlayerAuthInput.PosDelta.
+    pub movement: [f32; 3],
+    /// Predicted end-of-tick velocity retained for prediction and correction
+    /// replay. It is post-gravity/friction state, not the reported PosDelta.
     pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
     /// Pre-normalization device sample carried to PlayerAuthInput raw input.
@@ -178,13 +182,6 @@ pub struct LocalPhysicsFrame {
     pub blocked_tick_index: Option<usize>,
     pub blocked: Option<SimulationError>,
     pub samples: Vec<PhysicsMovementSample>,
-    /// The bounded spawn-anchor probe found unresolvable embedment and froze
-    /// simulation advancement this frame (provisional recovery policy; see
-    /// `anchor_probe`).
-    pub embedded_anchor_hold_engaged: bool,
-    /// Fixed ticks consumed while frozen inside an embedded-anchor hold,
-    /// reported toward the settle gate's unchanged fail-open cap.
-    pub embedded_hold_ticks: u64,
 }
 
 /// Bounded number of retained server motion overlays.
@@ -422,13 +419,6 @@ impl LocalPhysicsController {
             return LocalPhysicsFrame::default();
         }
 
-        if self.anchor_state.holding() {
-            // Frozen embedded-anchor hold: no simulated tick, no sample, and
-            // elapsed time is consumed at fixed-tick granularity so the
-            // settle gate's unchanged fail-open cap stays authoritative.
-            return self.advance_frozen_hold_frame(elapsed);
-        }
-
         self.accumulated_seconds += elapsed.as_secs_f64();
         let due = ((self.accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
             .floor()
@@ -449,18 +439,6 @@ impl LocalPhysicsController {
             if tick_index == 0 {
                 match self.anchor_state.before_tick(world, state.position) {
                     BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
-                    BeforeTick::Hold => {
-                        // Unresolvable embedment: freeze instead of letting
-                        // depenetration MTVs become transmitted motion.
-                        // Retained elapsed is discarded exactly like the
-                        // transient-blocked path so the hold never creates a
-                        // catch-up debt.
-                        self.previous_position = state.position;
-                        self.accumulated_seconds = 0.0;
-                        frame.dropped_ticks = 0;
-                        frame.embedded_anchor_hold_engaged = true;
-                        break;
-                    }
                     BeforeTick::Proceed => {}
                 }
             }
@@ -533,6 +511,11 @@ impl LocalPhysicsController {
                             state.position.x as f32,
                             state.position.y as f32 + PLAYER_NETWORK_OFFSET,
                             state.position.z as f32,
+                        ],
+                        movement: [
+                            result.movement.x as f32,
+                            result.movement.y as f32,
+                            result.movement.z as f32,
                         ],
                         velocity: [
                             result.velocity.x as f32,
@@ -615,30 +598,6 @@ impl LocalPhysicsController {
         }
         self.dropped_tick_count = self.dropped_tick_count.saturating_add(frame.dropped_ticks);
         frame
-    }
-
-    /// One render frame of frozen embedded-anchor hold: elapsed time is
-    /// consumed at fixed-tick granularity exactly like the transient-blocked
-    /// discard path, reported for the gate's fail-open cap, and no tick runs.
-    fn advance_frozen_hold_frame(&mut self, elapsed: Duration) -> LocalPhysicsFrame {
-        self.accumulated_seconds += elapsed.as_secs_f64();
-        let held_ticks = ((self.accumulated_seconds + f64::EPSILON) / LOCAL_PHYSICS_TICK_SECONDS)
-            .floor()
-            .clamp(0.0, u64::MAX as f64) as u64;
-        self.accumulated_seconds -= held_ticks as f64 * LOCAL_PHYSICS_TICK_SECONDS;
-        LocalPhysicsFrame {
-            due_ticks: held_ticks,
-            embedded_hold_ticks: held_ticks,
-            ..LocalPhysicsFrame::default()
-        }
-    }
-
-    /// Releases a frozen embedded-anchor hold after the settle gate's cap
-    /// failed it open: one more probe attempt is armed while this re-anchor
-    /// epoch still has failure budget; otherwise probing stops for the epoch
-    /// and today's fail-open streaming behavior resumes unchanged.
-    pub(super) fn release_embedded_anchor_hold(&mut self) {
-        self.anchor_state.release_after_cap();
     }
 
     pub(super) fn apply_correction(
@@ -794,6 +753,11 @@ impl LocalPhysicsController {
                 result.position.y as f32 + PLAYER_NETWORK_OFFSET,
                 result.position.z as f32,
             ];
+            retained.movement = [
+                result.movement.x as f32,
+                result.movement.y as f32,
+                result.movement.z as f32,
+            ];
             retained.velocity = [
                 result.velocity.x as f32,
                 result.velocity.y as f32,
@@ -853,6 +817,11 @@ impl LocalPhysicsController {
             .last()
             .map(|sample| sample.world_identity.clone())
             .or(Some(corrected_world_identity));
+        // A replay re-anchors the corrected tick and rebuilds later ticks from
+        // it; that landing can sit inside solids just like a hard anchor. Re-arm
+        // the depenetration probe so the next tick pushes the anchor out
+        // positionally instead of streaming an embedded pose indefinitely.
+        self.anchor_state.rearm();
 
         Ok(PhysicsCorrectionPlan {
             outcome: PhysicsCorrectionOutcome::Replayed {

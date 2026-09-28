@@ -20,7 +20,6 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -92,7 +91,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     assert_eq!(after.len(), before.len());
     for ((live, replayed), retained) in before.into_iter().zip(after).zip(plan.replayed_samples) {
         assert_eq!(replayed.snapshot.position, retained.position);
-        assert_eq!(replayed.snapshot.delta, retained.velocity);
+        assert_eq!(replayed.snapshot.delta, retained.movement);
         assert_ne!(replayed.snapshot.position, [99.0; 3]);
         assert_ne!(replayed.snapshot.delta, [99.0; 3]);
         assert_ne!(replayed.snapshot.position, live.snapshot.position);

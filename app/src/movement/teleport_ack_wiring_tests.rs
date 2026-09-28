@@ -61,6 +61,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> super::PhysicsMovementSamp
     super::PhysicsMovementSample {
         tick,
         position,
+        movement: [0.125, -0.078_4, -0.25],
         velocity: [0.125, -0.078_4, -0.25],
         move_vector: [0.0, 1.0],
         raw_move_vector: [0.0, 1.0],
@@ -83,16 +84,6 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> super::PhysicsMovementSamp
     }
 }
 
-/// A grounded, collision-free completed tick: lifts the provisional spawn
-/// settle window after twenty stable admissions.
-fn settled_completed_sample(tick: u64, position: [f32; 3]) -> super::PhysicsMovementSample {
-    super::PhysicsMovementSample {
-        grounded_before_tick: true,
-        grounded_after_tick: true,
-        ..completed_sample(tick, position)
-    }
-}
-
 /// An authorized session fixture with the settle window lifted before the
 /// reconciliation under test re-engages it through its snap anchor.
 fn authorized_ticker(enabled: bool) -> MovementTicker {
@@ -100,7 +91,6 @@ fn authorized_ticker(enabled: bool) -> MovementTicker {
     ticker.testing_set_teleport_ack(enabled);
     ticker.reset(7, 100, [0.0, 70.0, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
     ticker
 }
 
@@ -188,26 +178,17 @@ fn carries_handled_teleport(packet: &Packet) -> bool {
         .contains(&"HandledTeleport")
 }
 
-/// Mirrors the proven suppression sequence: the snap re-engaged the
-/// provisional settle window during reconciliation, nineteen withheld
-/// admissions never encode, the twentieth stable grounded admission lifts the
-/// window discarding suppressed work, and post-lift samples transmit.
-fn lift_settle_window_and_flush(ticker: &mut MovementTicker) -> Vec<Packet> {
-    for tick in 101..120 {
-        ticker
-            .enqueue_completed_physics(completed_sample(tick, [1.0, 70.0, 0.0]))
-            .unwrap();
-    }
-    let withheld = flush_capturing(ticker);
-    assert!(withheld.is_empty(), "suppressed admissions never encode");
-    for offset in 0..20 {
-        ticker
-            .enqueue_completed_physics(settled_completed_sample(120 + offset, [1.0, 70.0, 0.0]))
-            .unwrap();
-    }
-    assert_eq!(ticker.pending_count(), 1);
+/// Transmission is unconditional, so the armed assertion rides the first
+/// transmitted packet after reconciliation and later packets stay unflagged.
+/// Enqueues two contiguous admissions from the post-reconciliation tick and
+/// returns both transmitted packets.
+fn transmit_two_after_reconciliation(ticker: &mut MovementTicker) -> Vec<Packet> {
+    let tick = ticker.next_tick();
     ticker
-        .enqueue_completed_physics(settled_completed_sample(140, [1.0, 70.0, 0.0]))
+        .enqueue_completed_physics(completed_sample(tick, [1.0, 70.0, 0.0]))
+        .unwrap();
+    ticker
+        .enqueue_completed_physics(completed_sample(tick + 1, [1.0, 70.0, 0.0]))
         .unwrap();
     flush_capturing(ticker)
 }
@@ -238,7 +219,7 @@ fn committed_respawn_through_production_reconciliation_projects_the_opt_in_flag(
         .world_mut()
         .remove_resource::<MovementTicker>()
         .expect("ticker resource");
-    let packets = lift_settle_window_and_flush(&mut ticker);
+    let packets = transmit_two_after_reconciliation(&mut ticker);
     assert_eq!(packets.len(), 2);
     assert!(
         carries_handled_teleport(&packets[0]),
@@ -271,7 +252,7 @@ fn default_off_respawn_reconciliation_stays_inert_and_unflagged() {
         None,
         "default-off must never arm through the production respawn path"
     );
-    let packets = lift_settle_window_and_flush(&mut ticker);
+    let packets = transmit_two_after_reconciliation(&mut ticker);
     assert_eq!(packets.len(), 2);
     assert!(
         !packets.iter().any(carries_handled_teleport),

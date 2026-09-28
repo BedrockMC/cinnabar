@@ -80,7 +80,6 @@ fn flag_harness() -> Harness {
     ticker.set_source(MovementSource::Physics);
     // Flag-sequence assertions are orthogonal to the provisional spawn-settle
     // window; dedicated gate coverage lives in `settle_tests`.
-    ticker.testing_lift_spawn_settle_gate();
     Harness { physics, ticker }
 }
 
@@ -551,7 +550,6 @@ fn a_fresh_edge_inside_the_post_jump_cooldown_initiates_nothing() {
     ticker.set_source(MovementSource::Physics);
     // Flag-sequence assertions are orthogonal to the provisional spawn-settle
     // window; dedicated gate coverage lives in `settle_tests`.
-    ticker.testing_lift_spawn_settle_gate();
 
     // Take off under the low ceiling and hold the button through the bonk
     // until the controller reports ground contact again while the simulator's
@@ -704,7 +702,6 @@ fn plain_falls_never_assert_any_jump_family() {
     let mut ticker = MovementTicker::default();
     ticker.reset(1, 100, [0.0, 12.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
-    ticker.testing_lift_spawn_settle_gate();
 
     let mut landed_ticks = 0;
     for _ in 0..90 {
@@ -854,7 +851,6 @@ fn early_grounded_correction_replays_a_recorded_mid_air_tap() {
         ticker.set_source(MovementSource::Physics);
         // Correction witnesses reconcile retained ranges directly; dedicated
         // gate coverage lives in `settle_tests`.
-        ticker.testing_lift_spawn_settle_gate();
         Harness { physics, ticker }
     };
     let _ = step_retained(&mut harness, MovementInput::default());

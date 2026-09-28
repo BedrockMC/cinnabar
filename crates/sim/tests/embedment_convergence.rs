@@ -78,13 +78,14 @@ fn single_block_embedment_exits_in_one_tick() {
 }
 
 #[test]
-fn embedment_wall_pocket_cycles_without_input() {
+fn embedment_wall_pocket_reports_no_horizontal_drift() {
     // Floor plus two opposed walls whose gap is narrower than the standing
-    // player: every horizontal escape direction collides, so the greedy
-    // per-axis resolution can only cycle between minimal translations under
-    // zero input. The bounded probe contract is that after 64 ticks the
-    // state has EITHER exited overlap-free OR stayed inside the same
-    // displacement budget the probe would have enforced before transmitting.
+    // player: every horizontal escape direction collides. Per-axis resolution
+    // reduces intended motion toward zero on each axis and never turns a
+    // depenetration minimal-translation into reported horizontal motion, so a
+    // zero-input pocket start transmits no horizontal displacement (the
+    // "movement cheats" signature a positional push-out must not produce). The
+    // bounded positional push-out is the app-side probe's job, not the tick's.
     let world = BoxWorld::new(vec![
         Aabb::new(Vec3::new(-64.0, -2.0, -64.0), Vec3::new(64.0, 0.0, 64.0)),
         Aabb::new(Vec3::new(-64.0, 0.0, -64.0), Vec3::new(0.30, 3.0, 64.0)),
@@ -96,22 +97,64 @@ fn embedment_wall_pocket_cycles_without_input() {
         "the pocket fixture must start embedded"
     );
     let mut state = PlayerState::new(start);
+    state.on_ground = true;
     let simulator = Simulator::default();
 
     for _ in 0..64 {
-        simulator
+        let result = simulator
             .tick(&mut state, MovementInput::default(), &world)
             .expect("pocket ticks complete against loaded collision data");
+        assert_eq!(
+            (result.movement.x, result.movement.z),
+            (0.0, 0.0),
+            "zero-input embedment must report no horizontal movement",
+        );
+        assert_eq!(
+            (result.velocity.x, result.velocity.z),
+            (0.0, 0.0),
+            "zero-input embedment must report no horizontal velocity",
+        );
     }
 
-    let displaced_squared = (state.position - start).length_squared();
-    assert!(
-        overlap_free(&world, state.position)
-            || displaced_squared <= PROBE_MAX_DISPLACEMENT_BLOCKS * PROBE_MAX_DISPLACEMENT_BLOCKS,
-        "zero-input pocket cycles must exit cleanly or stay bounded: feet at {:?}, \
-         displaced {displaced_squared:?} (squared)",
+    assert_eq!(
+        (state.position.x, state.position.z),
+        (start.x, start.z),
+        "a zero-input pocket must not drift horizontally, feet at {:?}",
         state.position,
     );
+}
+
+#[test]
+fn embedded_horizontal_start_reports_zero_horizontal_motion() {
+    // A grounded player whose box overlaps a wall on its smallest-penetration
+    // (horizontal) axis. Before the per-axis fix, motion resolution ejected the
+    // embedded box along that axis and wrote the ejection into both the reported
+    // movement (PosDelta) and velocity, fabricating inputless horizontal motion.
+    // Vanilla per-axis resolution only shortens intended motion, so a zero-input
+    // embedded tick must report exactly zero horizontal movement and velocity.
+    let world = BoxWorld::new(vec![
+        Aabb::new(Vec3::new(-8.0, -1.0, -8.0), Vec3::new(8.0, 0.0, 8.0)),
+        Aabb::new(Vec3::new(0.5, 0.0, -1.0), Vec3::new(1.5, 3.0, 1.0)),
+    ]);
+    let start = Vec3::new(0.4, 0.0, 0.0);
+    assert!(
+        !overlap_free(&world, start),
+        "the fixture must start embedded in the wall"
+    );
+    let mut state = PlayerState::new(start);
+    state.on_ground = true;
+    let simulator = Simulator::default();
+
+    let result = simulator
+        .tick(&mut state, MovementInput::default(), &world)
+        .expect("embedded horizontal tick completes");
+
+    assert_eq!(result.movement.x, 0.0, "no fabricated horizontal PosDelta");
+    assert_eq!(result.movement.z, 0.0, "no fabricated horizontal PosDelta");
+    assert_eq!(result.velocity.x, 0.0, "no fabricated horizontal velocity");
+    assert_eq!(result.velocity.z, 0.0, "no fabricated horizontal velocity");
+    assert_eq!(state.position.x, start.x, "no horizontal drift");
+    assert_eq!(state.position.z, start.z, "no horizontal drift");
 }
 
 #[test]

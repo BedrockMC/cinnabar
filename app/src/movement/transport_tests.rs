@@ -7,7 +7,6 @@ fn bounded_flush_restores_the_exact_front_snapshot_when_transport_is_full() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(11, [1.0, 2.0, 3.0]))
         .unwrap();
@@ -78,7 +77,6 @@ fn terminal_drain_stops_admissions_then_reconciles_a_healthy_final_write() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
         .unwrap();
@@ -134,7 +132,6 @@ fn surface_reanchor_keeps_an_already_admitted_send_nonterminal_until_transport_r
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
         .unwrap();
@@ -178,7 +175,6 @@ fn indeterminate_reanchor_cancellation_fails_physics_authority_closed() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
         .unwrap();
@@ -219,7 +215,6 @@ fn socket_ack_publishes_the_immutable_admission_evidence_context() {
     ordering_probe.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ordering_probe.testing_lift_spawn_settle_gate();
     ordering_probe
         .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
         .unwrap();
@@ -247,7 +242,6 @@ fn socket_ack_publishes_the_immutable_admission_evidence_context() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
         .unwrap();
@@ -335,7 +329,6 @@ fn multi_tick_catch_up_exposes_only_successfully_sent_ticks_to_evidence() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     for sample in frame.samples {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
@@ -384,7 +377,6 @@ fn catch_up_evidence_cursor_does_not_repeat_restored_full_retry_ticks() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
 
     let catch_up = physics.advance_with_context(
         Duration::from_millis(150),
@@ -545,7 +537,6 @@ fn local_stop_with_undrained_authoritative_state_still_violates() {
     ticker.set_source(MovementSource::Physics);
     // Transport-focused fixture: the provisional spawn-settle window is
     // orthogonal to what this test asserts.
-    ticker.testing_lift_spawn_settle_gate();
     ticker
         .enqueue_completed_physics(completed_sample(41, [0.0, 64.0, 0.25]))
         .unwrap();
