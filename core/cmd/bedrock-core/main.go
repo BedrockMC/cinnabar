@@ -182,6 +182,7 @@ func runWithResourcePackCacheFactory(
 	var statusStore *control.Store
 	var controlServer *control.Server
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
+	transfers := new(proxy.TransferState)
 	if opts.controlStatus {
 		statusStore = control.NewStore()
 		controlServer, err = control.Start(opts.socketDir, statusStore)
@@ -193,6 +194,7 @@ func runWithResourcePackCacheFactory(
 		}
 		statusStore.SetLifecycle(control.LifecycleRunning)
 		resourcePackAdmissionUpdate = statusStore.Observe
+		transfers.OnTransfer = statusStore.ObserveTransfer
 	}
 	serveErr := serve(ctx, proxy.Config{
 		SocketDir:           opts.socketDir,
@@ -200,6 +202,7 @@ func runWithResourcePackCacheFactory(
 		TokenSource:         tokenSource,
 		Logger:              logger,
 		UpstreamClientCache: opts.upstreamClientCache,
+		Transfers:           transfers,
 		ResourcePackCache:   resourcePackCache,
 		ResourcePackAdmission: func(snapshot proxy.ResourcePackAdmissionSnapshot) {
 			logger.Info("RESOURCE_PACK_ADMISSION",

@@ -81,12 +81,25 @@ pub struct PackAdmission {
 }
 
 /// Complete Status v1 result returned by the local core.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StatusV1 {
     pub schema_version: u32,
     pub lifecycle: Lifecycle,
     pub pack_admission: PackAdmission,
+    /// Present while the server's transfer awaits the client's reconnect.
+    #[serde(default)]
+    pub transfer: Option<TransferPending>,
+}
+
+/// Server-directed transfer target; reconnecting to the same core dials it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TransferPending {
+    pub host: String,
+    pub port: u16,
+    /// Increases with every transfer the core records.
+    pub sequence: u64,
 }
 
 #[derive(Serialize)]
@@ -223,6 +236,25 @@ mod tests {
             }
         }
     }"#;
+
+    #[test]
+    fn parses_pending_transfer_and_defaults_to_none() {
+        let plain = parse_status_response(VALID_RESULT.as_bytes()).expect("valid response");
+        assert_eq!(plain.transfer, None);
+        let with_transfer = VALID_RESULT.replace(
+            r#""lifecycle":"running","#,
+            r#""lifecycle":"running","transfer":{"host":"next.example","port":19133,"sequence":2},"#,
+        );
+        let status = parse_status_response(with_transfer.as_bytes()).expect("transfer response");
+        assert_eq!(
+            status.transfer,
+            Some(TransferPending {
+                host: "next.example".to_owned(),
+                port: 19133,
+                sequence: 2
+            })
+        );
+    }
 
     #[test]
     fn request_is_the_exact_parameterless_status_v1_call() {
