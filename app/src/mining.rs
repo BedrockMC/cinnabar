@@ -15,6 +15,7 @@ use semantic_input::{Action, InputMode};
 use sim::WorldCollisionIdentity;
 
 use crate::{
+    game_mode_capabilities::GameModeCapabilities,
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
     movement::{MovementTicker, PhysicsCollisionRegistries},
@@ -334,7 +335,7 @@ pub(crate) fn creative_observation(
     input_authority: (NonZeroU64, u64),
     position_authority_generation: u64,
 ) -> Option<FrozenCreativeMining> {
-    let ability = creative_mining_ui_ability(ui.ui_focused(), ui.player_game_mode()?)?;
+    let ability = creative_mining_ui_ability(ui.ui_focused(), ui.game_mode_capabilities()?)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = crate::interaction_authority::observe_block(
         origin,
@@ -393,26 +394,19 @@ pub(crate) fn hand_interaction_selection(ui: &UiRuntime) -> Option<FrozenMiningS
     })
 }
 
-const fn creative_mining_ability(
-    game_mode: protocol::PlayerGameMode,
-) -> Option<CreativeMiningAbility> {
-    match game_mode {
-        protocol::PlayerGameMode::Creative => Some(CreativeMiningAbility::InstantBreak),
-        protocol::PlayerGameMode::Survival
-        | protocol::PlayerGameMode::Adventure
-        | protocol::PlayerGameMode::Spectator
-        | protocol::PlayerGameMode::Unknown => None,
-    }
+fn creative_mining_ability(caps: GameModeCapabilities) -> Option<CreativeMiningAbility> {
+    caps.instant_break
+        .then_some(CreativeMiningAbility::InstantBreak)
 }
 
-const fn creative_mining_ui_ability(
+fn creative_mining_ui_ability(
     ui_focused: bool,
-    game_mode: protocol::PlayerGameMode,
+    caps: GameModeCapabilities,
 ) -> Option<CreativeMiningAbility> {
     if ui_focused {
         None
     } else {
-        creative_mining_ability(game_mode)
+        creative_mining_ability(caps)
     }
 }
 
