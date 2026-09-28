@@ -115,7 +115,7 @@ fn generator() -> CustomBlock {
             base: CustomVisualComponents {
                 geometry: Some("geometry.gen".into()),
                 materials: materials("gen"),
-                transformation: None,
+                ..CustomVisualComponents::default()
             },
             permutations: Box::new([direction("west", 1), direction("north", 0)]),
             state_axes: Box::new([CustomStateAxis {
@@ -136,7 +136,7 @@ fn compiled() -> super::CompiledBlockOverlay {
             base: CustomVisualComponents {
                 geometry: Some("minecraft:geometry.full_block".into()),
                 materials: materials("lucky"),
-                transformation: None,
+                ..CustomVisualComponents::default()
             },
             ..CustomBlockVisuals::default()
         },
@@ -290,4 +290,93 @@ fn permutation_conditions_evaluate_only_supported_terms() {
     assert_eq!(evaluate("q.block_state('test:missing') == 1"), None);
     assert_eq!(evaluate("q.block_state('test:open') || true"), None);
     assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+}
+
+// Flipbook framing is bounded before copies are cut and each frame is shrunk.
+#[test]
+fn flipbook_frames_are_capped_and_shrunk() {
+    use super::textures::{DecodedTexture, Flipbook, flipbook_frames, shrink_to_max};
+    let strip = DecodedTexture {
+        width: 64,
+        height: 64 * 8,
+        rgba8: vec![7; (64 * 64 * 8 * 4) as usize].into_boxed_slice(),
+    };
+    let flipbook = Flipbook {
+        frames: None,
+        ticks_per_frame: 1,
+        blend: true,
+    };
+    let frames = flipbook_frames(&strip, &flipbook, 3, 32);
+    assert_eq!(frames.len(), 3, "frame count capped to the budget");
+    assert!(
+        frames.iter().all(|f| f.width == 32 && f.height == 32),
+        "frames shrunk to max side"
+    );
+    assert!(flipbook_frames(&strip, &flipbook, 0, 32).is_empty());
+
+    let big = DecodedTexture {
+        width: 256,
+        height: 128,
+        rgba8: vec![9; 256 * 128 * 4].into_boxed_slice(),
+    };
+    let shrunk = shrink_to_max(&big, 64);
+    assert_eq!(
+        (shrunk.width, shrunk.height),
+        (64, 32),
+        "aspect preserved under the cap"
+    );
+    let small = DecodedTexture {
+        width: 16,
+        height: 16,
+        rgba8: vec![1; 16 * 16 * 4].into_boxed_slice(),
+    };
+    assert_eq!(
+        shrink_to_max(&small, 64).width,
+        16,
+        "small textures are untouched"
+    );
+}
+
+// Explicit light components override the full-dampening, no-emission default.
+#[test]
+fn light_components_drive_state_light() {
+    use protocol::{CustomBlockVisuals, CustomVisualComponents};
+    let lit = block(
+        "test:lamp",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("minecraft:geometry.full_block".into()),
+                materials: materials("lucky"),
+                light_emission: Some(13),
+                light_dampening: Some(2),
+                ..CustomVisualComponents::default()
+            },
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let plain = block(
+        "test:plain",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("minecraft:geometry.full_block".into()),
+                materials: materials("lucky"),
+                ..CustomVisualComponents::default()
+            },
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let blocks = CustomBlocks {
+        blocks: vec![lit, plain].into(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks).expect("overlay");
+    let light = &compiled.overlay.light_properties;
+    assert_eq!((light[0].emission(), light[0].filter()), (13, 2));
+    assert_eq!(
+        (light[1].emission(), light[1].filter()),
+        (0, 15),
+        "vanilla default"
+    );
 }

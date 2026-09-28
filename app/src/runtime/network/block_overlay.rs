@@ -19,7 +19,7 @@ use resource_pack::LayeredPackView;
 
 use self::{
     geometry::{FACE_NAMES, FaceQuad, Geometry, geometry_catalog},
-    textures::{DecodedTexture, TextureCatalog, flipbook_frames, resample_square},
+    textures::{DecodedTexture, TextureCatalog, flipbook_frames, resample_square, shrink_to_max},
 };
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
@@ -27,6 +27,8 @@ const MIN_TILE: u32 = 16;
 const MAX_TILE: u32 = 128;
 const MAX_OVERLAY_LAYERS: usize = 2048;
 const MAX_OVERLAY_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
+// Held decoded sources are already shrunk to MAX_TILE; bound their total too.
+const MAX_OVERLAY_SOURCE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_QUADS_PER_TEMPLATE: usize = 32;
 const DIAGNOSTIC_MATERIAL: u32 = 0;
 
@@ -76,6 +78,7 @@ pub(super) fn compile_block_overlay(
         geometries: geometry_catalog(view, &wanted),
         overlay: BlockOverlay::default(),
         sources: Vec::new(),
+        source_bytes: 0,
         textures: HashMap::new(),
         materials: HashMap::new(),
         visuals: HashMap::new(),
@@ -90,12 +93,10 @@ pub(super) fn compile_block_overlay(
     for block in blocks.blocks.iter() {
         for state in 0..block.state_count {
             let components = condition::state_components(block, state, &mut builder.gaps);
+            let light = state_light(&components);
             let visual = builder.visual(&components);
             builder.overlay.visuals.push(visual);
-            builder
-                .overlay
-                .light_properties
-                .push(LightProperties::OPAQUE_DARK);
+            builder.overlay.light_properties.push(light);
         }
     }
     builder.finish()
@@ -117,6 +118,7 @@ struct Builder<'a> {
     geometries: HashMap<String, Geometry>,
     overlay: BlockOverlay,
     sources: Vec<Source>,
+    source_bytes: usize,
     textures: HashMap<String, Option<TextureSlot>>,
     materials: HashMap<(String, u32), u32>,
     visuals: HashMap<String, BlockVisual>,
@@ -294,14 +296,22 @@ impl Builder<'_> {
     }
 
     fn load_texture(&mut self, key: &str) -> Option<TextureSlot> {
-        let texture = self.catalog.decode(key)?;
-        let frames = match self.catalog.flipbook(key) {
-            Some(flipbook) => flipbook_frames(&texture, flipbook),
-            None => vec![texture],
-        };
-        if self.sources.len() + frames.len() > MAX_OVERLAY_LAYERS {
+        let available = MAX_OVERLAY_LAYERS.saturating_sub(self.sources.len());
+        if available == 0 {
             return None;
         }
+        let texture = self.catalog.decode(key)?;
+        // Bound frame count before cutting copies, and shrink each to MAX_TILE.
+        let frames = match self.catalog.flipbook(key) {
+            Some(flipbook) => flipbook_frames(&texture, flipbook, available.min(256), MAX_TILE),
+            None => vec![shrink_to_max(&texture, MAX_TILE)],
+        };
+        drop(texture);
+        let added_bytes: usize = frames.iter().map(|frame| frame.rgba8.len()).sum();
+        if frames.is_empty() || self.source_bytes + added_bytes > MAX_OVERLAY_SOURCE_BYTES {
+            return None;
+        }
+        self.source_bytes += added_bytes;
         let first = self.sources.len() as u32;
         let frame_count = frames.len() as u32;
         self.sources.extend(frames.into_iter().map(Source::Image));
@@ -381,6 +391,14 @@ impl Builder<'_> {
             gaps: self.gaps,
         })
     }
+}
+
+/// Custom blocks default to full dampening and no emission, matching vanilla and
+/// the public block-component defaults; explicit components override either.
+fn state_light(components: &CustomVisualComponents) -> LightProperties {
+    let emission = components.light_emission.unwrap_or(0).min(15);
+    let dampening = components.light_dampening.unwrap_or(15).min(15);
+    LightProperties::new(emission, dampening).unwrap_or(LightProperties::OPAQUE_DARK)
 }
 
 fn diagnostic_visual() -> BlockVisual {

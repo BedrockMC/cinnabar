@@ -75,15 +75,21 @@ impl<'a> TextureCatalog<'a> {
     }
 }
 
-/// Splits a vertical strip into square frames when it is one; otherwise the
-/// whole image is the single frame.
+/// Splits a vertical strip into up to `max_frames` square frames, each shrunk to
+/// `max_side`; a non-strip image is its single shrunk frame. Frames are shrunk
+/// as they are cut so the caller never holds full-size copies.
 pub(super) fn flipbook_frames(
     texture: &DecodedTexture,
     flipbook: &Flipbook,
+    max_frames: usize,
+    max_side: u32,
 ) -> Vec<DecodedTexture> {
     let side = texture.width;
+    if max_frames == 0 {
+        return Vec::new();
+    }
     if texture.height <= side || !texture.height.is_multiple_of(side) {
-        return vec![texture.clone()];
+        return vec![shrink_to_max(texture, max_side)];
     }
     let count = texture.height / side;
     let order = flipbook
@@ -94,16 +100,42 @@ pub(super) fn flipbook_frames(
     let frame_bytes = (side * side * 4) as usize;
     order
         .into_iter()
-        .take(256)
+        .take(max_frames)
         .map(|frame| {
             let start = (frame.min(count - 1) as usize) * frame_bytes;
-            DecodedTexture {
+            let frame = DecodedTexture {
                 width: side,
                 height: side,
                 rgba8: texture.rgba8[start..start + frame_bytes].into(),
-            }
+            };
+            shrink_to_max(&frame, max_side)
         })
         .collect()
+}
+
+/// Downscales aspect-preserving so the longest side is at most `max_side`;
+/// smaller images are returned unchanged. Nearest-neighbour keeps pixel art crisp.
+pub(super) fn shrink_to_max(texture: &DecodedTexture, max_side: u32) -> DecodedTexture {
+    let longest = texture.width.max(texture.height);
+    if longest <= max_side {
+        return texture.clone();
+    }
+    let scale = |side: u32| (side * max_side / longest).max(1);
+    let (width, height) = (scale(texture.width), scale(texture.height));
+    let mut rgba8 = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        let source_y = (u64::from(y) * u64::from(texture.height) / u64::from(height)) as usize;
+        for x in 0..width {
+            let source_x = (u64::from(x) * u64::from(texture.width) / u64::from(width)) as usize;
+            let offset = (source_y * texture.width as usize + source_x) * 4;
+            rgba8.extend_from_slice(&texture.rgba8[offset..offset + 4]);
+        }
+    }
+    DecodedTexture {
+        width,
+        height,
+        rgba8: rgba8.into_boxed_slice(),
+    }
 }
 
 /// Resamples to a square power-of-two tile: exact halvings in linear light when
