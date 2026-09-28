@@ -5,10 +5,7 @@ mod overlay;
 pub use id_remap::SequentialIdRemap;
 pub use overlay::{BlockOverlay, MaterialOverride};
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::{
     Animation, BlockFace, BlockFlags, BlockVisual, CompiledBiomeAssets, ContributorRole,
@@ -132,7 +129,6 @@ pub struct RuntimeAssets {
     texture_pages: Box<[TexturePage]>,
     biomes: CompiledBiomeAssets,
     provenance: BlobProvenance,
-    material_keys: Option<Arc<crate::MaterialKeys>>,
     missing: AtomicU64,
 }
 
@@ -177,7 +173,6 @@ impl RuntimeAssets {
                 .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
-            material_keys: None,
             missing: AtomicU64::new(0),
         }
     }
@@ -201,18 +196,6 @@ impl RuntimeAssets {
             },
             |(visual, light)| ResolvedBlock::known(visual, light),
         )
-    }
-
-    /// Attaches the texture key index built beside this carrier.
-    #[must_use]
-    pub fn with_material_keys(mut self, keys: crate::MaterialKeys) -> Self {
-        self.material_keys = Some(Arc::new(keys));
-        self
-    }
-
-    #[must_use]
-    pub fn material_keys(&self) -> Option<&crate::MaterialKeys> {
-        self.material_keys.as_deref()
     }
 
     /// Number of materials in the carrier's table.

@@ -237,7 +237,6 @@ impl RuntimeAssets {
             texture_pages: texture_pages.into_boxed_slice(),
             biomes: self.biomes.clone(),
             provenance: self.provenance,
-            material_keys: self.material_keys.clone(),
             missing: AtomicU64::new(0),
         })
     }

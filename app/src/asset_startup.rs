@@ -686,16 +686,17 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     }
 
     let blob_sha256 = format!("{:x}", Sha256::digest(&bytes));
-    let mut decoded =
-        RuntimeAssets::decode(&bytes).map_err(|source| AssetStartupError::Decode {
-            path: selection.path.clone(),
-            source: Box::new(source),
-            rebuild_command: COMPILE_COMMAND,
-        })?;
-    if let Some(keys) = load_material_keys(&selection.path, decoded.material_count()) {
-        decoded = decoded.with_material_keys(keys);
+    let runtime =
+        Arc::new(
+            RuntimeAssets::decode(&bytes).map_err(|source| AssetStartupError::Decode {
+                path: selection.path.clone(),
+                source: Box::new(source),
+                rebuild_command: COMPILE_COMMAND,
+            })?,
+        );
+    if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
+        crate::runtime::network::set_base_material_keys(keys);
     }
-    let runtime = Arc::new(decoded);
     world_provenance::verify_world_carrier(&selection.path, &runtime)?;
     let metrics = runtime_metrics(&runtime, source, blob_sha256);
     let atmosphere = load_atmosphere_assets(&selection.path)?;
@@ -730,7 +731,7 @@ fn load_material_keys(
     }
     let keys = assets::MaterialKeys::from_json(&bytes, material_count);
     if keys.is_none() {
-        tracing::warn!(
+        bevy::log::warn!(
             "material key sidecar does not match the world carrier; rebuild with make assets"
         );
     }
