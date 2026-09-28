@@ -197,6 +197,8 @@ fn scroll_view_offsets_content_and_sizes_its_box() {
     );
     assert_eq!(thumb[1], 37.5, "fully scrolled puts the box at the bottom");
     assert_eq!(metrics.offset_for_thumb(0.0), 0.0);
+    // A control above the viewport scrolls back up to it.
+    assert_eq!(metrics.offset_revealing(-40.0, -20.0), 110.0);
 
     let fits = screen(vec![scroll_view(20.0)]);
     let (laid, report) = layout_with(&fits, [200.0, 100.0], &env(), &ViewState::default());

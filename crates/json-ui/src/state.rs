@@ -41,6 +41,8 @@ pub struct ScrollMetrics {
     pub offset: f64,
     pub content: f64,
     pub viewport: f64,
+    /// The viewport's top edge (virtual px), for scrolling a control into view.
+    pub viewport_top: f64,
     /// The scrollbar track rect `[x, y, w, h]`, when the template has one.
     pub track: Option<[f64; 4]>,
     /// The drawn scrollbar box rect `[x, y, w, h]`, when it is shown.
@@ -52,6 +54,20 @@ pub struct ScrollMetrics {
 impl ScrollMetrics {
     pub fn max_offset(&self) -> f64 {
         (self.content - self.viewport).max(0.0)
+    }
+
+    /// The offset that brings the span `[top, bottom)` (current coordinates)
+    /// fully into the viewport, moving as little as possible.
+    pub fn offset_revealing(&self, top: f64, bottom: f64) -> f64 {
+        let view_bottom = self.viewport_top + self.viewport;
+        let shift = if top < self.viewport_top {
+            top - self.viewport_top
+        } else if bottom > view_bottom {
+            (bottom - view_bottom).min(top - self.viewport_top)
+        } else {
+            0.0
+        };
+        (self.offset + shift).clamp(0.0, self.max_offset())
     }
 
     /// The offset that puts the thumb's top at `track_y` (a drag position).
