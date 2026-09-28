@@ -11,6 +11,10 @@ use zip::{CompressionMethod, ZipArchive};
 
 use crate::{AdmissionError, MAX_FILE_BYTES, crypto::ContentKey, normalize_jsonc};
 
+/// A parsed archive handle. Cloning shares the central directory (`Arc`) and
+/// only copies the cursor, so a per-read clone avoids re-parsing.
+pub(crate) type PackZip = ZipArchive<Cursor<Arc<[u8]>>>;
+
 #[derive(Clone, Debug)]
 pub(crate) struct EntryIndex {
     pub(crate) archive_index: usize,
@@ -24,7 +28,8 @@ pub struct ValidatedPack {
     pub(crate) pack_id: Uuid,
     pub(crate) version: Box<str>,
     pub(crate) sub_pack_name: Box<str>,
-    pub(crate) archive: Arc<[u8]>,
+    pub(crate) archive_bytes: usize,
+    pub(crate) zip: PackZip,
     pub(crate) files: HashMap<Box<str>, EntryIndex>,
     pub(crate) folded: HashMap<Box<str>, Box<str>>,
     pub(crate) file_order: Box<[Box<str>]>,
@@ -37,7 +42,7 @@ impl std::fmt::Debug for ValidatedPack {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ValidatedPack")
-            .field("archive_bytes", &self.archive.len())
+            .field("archive_bytes", &self.archive_bytes)
             .field("entry_count", &self.physical_entry_count)
             .field("encrypted", &!self.keys.is_empty())
             .finish_non_exhaustive()
@@ -98,7 +103,7 @@ impl ValidatedPack {
         let Some(entry) = self.entry(path) else {
             return Ok(None);
         };
-        let raw = read_entry(&self.archive, entry, limit)?;
+        let raw = read_entry(&self.zip, entry, limit)?;
         let Some(key) = entry.key.map(|index| &self.keys[index]) else {
             return Ok(Some(raw));
         };
@@ -127,15 +132,15 @@ impl ValidatedPack {
 }
 
 pub(crate) fn read_entry(
-    archive: &Arc<[u8]>,
+    zip: &PackZip,
     entry: &EntryIndex,
     limit: u64,
 ) -> Result<Box<[u8]>, AdmissionError> {
     if entry.uncompressed_size > limit {
         return Err(AdmissionError::FileTooLarge);
     }
-    let mut zip = ZipArchive::new(Cursor::new(Arc::clone(archive)))
-        .map_err(|_| AdmissionError::MalformedZip)?;
+    // Clone shares the parsed directory; only the cursor is copied.
+    let mut zip = zip.clone();
     let raw = zip
         .by_index_raw(entry.archive_index)
         .map_err(|_| AdmissionError::InvalidFileData)?;
