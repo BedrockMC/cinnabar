@@ -101,17 +101,17 @@ animated rig remotes use. All three below flow from that.
 - Panel palette/slot geometry already correct.
 
 ## World rendering / atmosphere (Bedrock target)
-- Weather precipitation (rain/snow) — absent (HIGH).
+- Weather precipitation: procedural rain/snow sheets, biome/height classification and per-column surface limits landed uncompiled; `weather.png` not yet carried, splash particles and bolt renderer unwired *(measure)*.
 - Particles — no system at all; block-break etc. absent (HIGH).
-- Daylight/lightmap curve wrong: `sin·0.8+0.2` vs vanilla `ramp(cos(easedCelestialAngle))`;
-  night too bright (0.2/0.04 floors), no day plateau (HIGH).
-- Stars at night — absent (MED-HIGH).
+- Daylight: eased celestial angle, day plateau and night transfer landed uncompiled; the shader night floors
+  (`lighting.wgsl`, `chunk/gpu/upload/lighting.rs`, cloud) still clamp at 0.2/0.04 and must drop to `NIGHT_SKY_TRANSFER` (HIGH).
+- Stars: procedural star field landed uncompiled; twinkle unverified *(measure)*.
 - Leaves: leaf↔leaf faces culled (Fast look) → hollow/speckled; want Fancy (MED-HIGH).
 - Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
 - Server resource packs not applied to rendering: core downloads/admits them but
   `application=unavailable`, so custom blocks/textures render as magenta missing-texture (HIGH, confirmed live).
-- Sky gradient hand-tuned vs biome-temperature-derived; clouds uncalibrated *(measure)*;
-  fog uses smoothstep vs linear; AO darkening step, sun/moon size, water surface alpha *(measure)*.
+- Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky texture uncarried,
+  sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar: left-anchored, unscaled, no fade — should be centered, scaled, alpha-faded (HIGH).
