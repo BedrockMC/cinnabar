@@ -362,6 +362,15 @@ pub struct BiomeDefinitionsEvent {
     pub definitions: Arc<[BiomeDefinitionEvent]>,
 }
 
+/// Largest property-definition NBT retained; a larger payload is dropped, not fatal.
+pub const MAX_ACTOR_PROPERTY_SYNC_BYTES: usize = 1 << 20;
+
+/// One entity type's property definitions as the raw network NBT the server sent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorPropertySyncEvent {
+    pub data: Arc<[u8]>,
+}
+
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
@@ -390,6 +399,7 @@ pub enum WorldEvent {
     Actor(ActorEvent),
     ActorEffect(ActorEffectEvent),
     ActorLink(ActorLinkEvent),
+    ActorPropertySync(ActorPropertySyncEvent),
     Ui(UiEvent),
     BlockCrack(BlockCrackEvent),
     Equipment(EquipmentEvent),

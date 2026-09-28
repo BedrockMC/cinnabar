@@ -445,6 +445,7 @@ pub(crate) struct ActorStore {
     camera_rotation: [f32; 2],
     /// Seat layouts for mounts whose riders stream no seat offset.
     seat_defaults: std::sync::Arc<SeatDefaults>,
+    property_registry: properties::PropertyRegistry,
     /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
     local_knockback: Option<(u64, [f32; 2])>,
     /// Status events awaiting a particle or sound consumer.
@@ -457,6 +458,7 @@ mod hurt;
 mod lifecycle;
 mod lightning;
 mod placement;
+pub(crate) mod properties;
 mod query;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};

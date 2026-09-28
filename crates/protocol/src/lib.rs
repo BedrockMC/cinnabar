@@ -103,8 +103,9 @@ pub use item::{
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, item_charged_projectile, item_custom_color, item_enchantment_level, item_extra_damage, item_icon_keys,
-    item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
+    NetworkItemStack, item_charged_projectile, item_custom_color, item_enchantment_level,
+    item_extra_damage, item_icon_keys, item_stack_damage, select_hotbar_slot_packet,
+    vanilla_item_registry,
 };
 pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;
@@ -152,18 +153,18 @@ pub use ui::{
 pub use valentine::bedrock::context::BedrockSession;
 pub use valentine::bedrock::version::v1_26_44::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
-    ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
-    BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, CustomBlock,
-    CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomStateAxis, CustomStateValue, CustomTransformation,
-    CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID,
-    LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject,
-    PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
-    RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
-    SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
-    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, WorldWireError, air_network_id,
-    block_name_sort_key, into_world_event, request_sub_chunk_column,
-    server_authoritative_block_breaking, vanilla_dimension_range,
+    ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
+    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    ChunkResyncEvent, CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
+    CustomMaterialInstance, CustomPermutation, CustomStateAxis, CustomStateValue,
+    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange,
+    HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS,
+    MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
+    MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerGameMode,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID,
+    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
+    WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
+    WorldWireError, air_network_id, block_name_sort_key, into_world_event,
+    request_sub_chunk_column, server_authoritative_block_breaking, vanilla_dimension_range,
 };

@@ -832,6 +832,7 @@ fn decode_world_raw_with(
             | McpePacketName::MobArmorEquipmentPacket
             | McpePacketName::MobEffectPacket
             | McpePacketName::SetActorLinkPacket
+            | McpePacketName::SyncActorPropertyPacket
             | McpePacketName::SetPlayerGameTypePacket
             | McpePacketName::SetDefaultGameTypePacket
             | McpePacketName::InventoryContentPacket

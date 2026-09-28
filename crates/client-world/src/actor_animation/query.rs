@@ -154,7 +154,40 @@ pub(super) fn query(
             _ => None,
         }),
         "owner_identifier" => text(None),
+        "property" => property(evaluator, arguments.first()),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
+    }
+}
+
+/// The actor's synced property by name: enums read as their value name, everything else as its
+/// stored number; an unsynced or unknown property reads 0.
+fn property(evaluator: &QueryInputs<'_>, name: Option<&MolangValue>) -> MolangValue {
+    use crate::actor_store::properties::PropertyKind;
+    let (actor, context) = (evaluator.actor, evaluator.context);
+    let Some(MolangValue::String(name)) = name else {
+        return MolangValue::Number(0.0);
+    };
+    let found = context.properties.as_deref().and_then(|definitions| {
+        definitions
+            .iter()
+            .position(|definition| definition.name == *name)
+            .map(|index| (index as u32, &definitions[index].kind))
+    });
+    let Some((index, kind)) = found else {
+        return MolangValue::Number(0.0);
+    };
+    if let Some(value) = actor.float_properties.get(&index) {
+        return MolangValue::Number(*value);
+    }
+    let value = actor.int_properties.get(&index).copied().unwrap_or(0);
+    match kind {
+        PropertyKind::Enum(values) => usize::try_from(value)
+            .ok()
+            .and_then(|index| values.get(index))
+            .map_or(MolangValue::Number(0.0), |name| {
+                MolangValue::String(Arc::clone(name))
+            }),
+        PropertyKind::Number => MolangValue::Number(value as f32),
     }
 }
 
