@@ -75,6 +75,7 @@ fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
             oversized = skipped.oversized,
             unparsable = skipped.unparsable,
             over_budget = skipped.over_budget,
+            isolated = skipped.isolated,
             rigs_without_artwork = compiled.fallbacks.len(),
             "server pack entities are incomplete"
         );
