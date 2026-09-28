@@ -60,6 +60,8 @@ pub struct ActorRigSnapshot<'a> {
     /// Body yaw in degrees at the previous and current completed tick.
     pub previous_body_yaw: f32,
     pub body_yaw: f32,
+    /// Texture layers the rig's render controllers select this tick, in draw order.
+    pub render: &'a [RenderTextureLayer],
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -101,6 +103,10 @@ struct ActorRigState {
     rig_binding: usize,
     geometry_binding: usize,
     bones: Vec<RuntimeBone>,
+    /// Lowercase bone names in `bones` order, for part visibility.
+    bone_names: Vec<Box<str>>,
+    /// This tick's render-controller result.
+    render: Vec<RenderTextureLayer>,
     controllers: Vec<ControllerState>,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
@@ -156,6 +162,8 @@ struct ActorTickInput {
 
 struct EvaluatedState {
     pose: Vec<BoneTransform>,
+    /// `None` when the render controllers ran out of budget, keeping the last choice.
+    render: Option<Vec<RenderTextureLayer>>,
     controllers: Vec<ControllerState>,
     variables: MolangVariables,
 }
@@ -412,6 +420,9 @@ impl ActorAnimationStore {
                 Ok(evaluated) => {
                     state.controllers = evaluated.controllers;
                     state.variables = evaluated.variables;
+                    if let Some(render) = evaluated.render {
+                        state.render = render;
+                    }
                     state.initialized = true;
                     if state.reset_pending {
                         state.previous.clone_from(&evaluated.pose);
@@ -495,6 +506,7 @@ impl ActorAnimationStore {
             .map_or(1.0, |rig| rig.scale.get()),
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
+            render: &state.render,
         })
     }
 
@@ -586,7 +598,7 @@ fn resolve_rig(
     {
         return None;
     }
-    let bones = resolve_bones(assets, candidate.geometry as usize)?;
+    let (bones, bone_names) = resolve_bones(assets, candidate.geometry as usize)?;
     let current = compose_pose(&bones, &[])?;
     let controller_first = candidate.first_controller as usize;
     let controller_end = controller_first.checked_add(candidate.controller_count as usize)?;
@@ -605,6 +617,8 @@ fn resolve_rig(
         rig_binding,
         geometry_binding,
         bones,
+        bone_names,
+        render: Vec::new(),
         controllers,
         previous: current.clone(),
         rest: current.clone(),
@@ -665,7 +679,10 @@ fn collect_controllers(
     Some(())
 }
 
-fn resolve_bones(assets: &RuntimeEntityAssets, geometry_index: usize) -> Option<Vec<RuntimeBone>> {
+fn resolve_bones(
+    assets: &RuntimeEntityAssets,
+    geometry_index: usize,
+) -> Option<(Vec<RuntimeBone>, Vec<Box<str>>)> {
     let parents = validate_entity_geometry_inheritance(assets.geometries()).ok()?;
     let mut chain = Vec::new();
     let mut current = geometry_index;
@@ -702,7 +719,11 @@ fn resolve_bones(assets: &RuntimeEntityAssets, geometry_index: usize) -> Option<
     if merged.len() > MAX_RUNTIME_BONES_PER_RIG {
         return None;
     }
-    merged
+    let names = merged
+        .iter()
+        .map(|bone| bone.name.to_ascii_lowercase().into_boxed_str())
+        .collect();
+    let bones = merged
         .iter()
         .map(|bone| {
             let parent = bone.parent.as_ref().map(|name| {
@@ -720,7 +741,8 @@ fn resolve_bones(assets: &RuntimeEntityAssets, geometry_index: usize) -> Option<
                 rotation: scalars(bone.rotation.as_ref()),
             })
         })
-        .collect()
+        .collect::<Option<Vec<_>>>()?;
+    Some((bones, names))
 }
 
 fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
@@ -763,10 +785,12 @@ mod evaluation;
 mod motion;
 mod pose;
 mod query;
+mod render;
 mod tick;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use motion::{MotionInput, MotionState};
 use pose::{compose_pose, sample_clips};
+pub use render::RenderTextureLayer;
 pub(crate) use tick::{ActorTickContext, WornArmor};
 use tick::{advance_motion, evaluate_state};
 

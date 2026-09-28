@@ -222,13 +222,22 @@ pub(super) fn evaluate_state(
         &weighted_clips,
         budget,
     )?;
-    compose_pose(&state.bones, &local)
-        .map(|pose| EvaluatedState {
-            pose,
-            controllers,
-            variables,
-        })
-        .ok_or(EvalError::Invalid)
+    let pose = compose_pose(&state.bones, &local).ok_or(EvalError::Invalid)?;
+    // Render selection must not freeze the pose when it alone exceeds the budget.
+    let render = super::render::evaluate_render(
+        &evaluator,
+        &mut variables,
+        state.rig_binding,
+        &state.bone_names,
+        budget,
+    )
+    .ok();
+    Ok(EvaluatedState {
+        pose,
+        render,
+        controllers,
+        variables,
+    })
 }
 
 /// Refreshes the variables the client assigns every tick before `pre_animation`.

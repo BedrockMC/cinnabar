@@ -121,6 +121,7 @@ fn rig<'a>(
         scale: 1.0,
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
+        render: &[],
     }
 }
 
