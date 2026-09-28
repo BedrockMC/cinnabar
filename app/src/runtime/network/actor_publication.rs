@@ -6,7 +6,8 @@ use bevy::{
 use client_world::{LocalPlayerFeed, WorldStream};
 use render::{
     ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRigFrameBuilder,
-    HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorRigSubmission, HandItemAtlas, HandRigLight, HandRigScene,
+    MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
 
 use super::{
@@ -18,6 +19,9 @@ use crate::{
         ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
         local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
         update_actor_rig_scene,
+    },
+    presentation::equipment::{
+        EquipmentPresentation, EquipmentRuntime, FirstPersonArms, local_input, remote_input,
     },
     runtime::world::ClientWorld,
 };
@@ -65,6 +69,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
     local_skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
+    equipment: Option<ResMut<'w, EquipmentRuntime>>,
+    ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
 }
 
@@ -82,6 +88,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut hand_scene,
         mut hand_revision,
         local_skin,
+        mut equipment,
+        ui,
         mut dropped_items,
     } = params;
     let ActorPresentationState {
@@ -194,11 +202,41 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 )
             })
             .unwrap_or((0, 0, 0, Vec::new(), None, 0));
-    // First person draws no near-camera rig: the earlier pass reused the full third-person body
-    // rig shoved toward the camera, which occludes the view with the head/torso instead of an
-    // arm. Vanilla first person draws an arm-only model; until that geometry exists the pass
-    // stays dark so the world is visible.
-    let hand_source: Option<ActorRigPresentation> = None;
+    // First person draws the player's own rig near the camera: the visible arms with every other
+    // bone hidden, and a drawable held item on the posed `rightItem` bone. Anything not covered
+    // (an undrawable item) leaves the CPU viewmodel in charge.
+    let hand_source: Option<HandSource> = if first_person {
+        canonical_local.clone().and_then(|presentation| {
+            let stream = client_world.stream.as_ref()?;
+            let equipment = equipment.as_deref_mut()?;
+            let input = local_input(stream, ui.as_deref(), local_runtime_id);
+            let arms = FirstPersonArms::for_hands(
+                input.main.as_ref().map(|item| item.identifier.as_ref()),
+                input.off.as_ref().map(|item| item.identifier.as_ref()),
+            );
+            let body = equipment.mask_first_person(&presentation.submission, arms);
+            let item = input.main.as_ref().and_then(|item| {
+                let layer = equipment.first_person_item(&presentation.submission, item)?;
+                let page = usize::from(layer.location.page()).checked_sub(1)?;
+                let page = artwork.pages().get(page)?;
+                let (width, height) = page.dimensions();
+                let atlas = HandItemAtlas {
+                    width,
+                    height,
+                    layers: page.layers(),
+                    rgba8: page.shared_pixels(),
+                };
+                Some((layer, atlas))
+            });
+            (body.is_some() || item.is_some()).then_some(HandSource {
+                presentation,
+                body,
+                item,
+            })
+        })
+    } else {
+        None
+    };
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -247,7 +285,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     let camera_position = cull_view
         .as_ref()
         .map(|view| view.camera_position.to_array());
-    let batch = select_actor_presentations_for_view(
+    let mut batch = select_actor_presentations_for_view(
         local_runtime_id,
         local_visible,
         local,
@@ -255,6 +293,33 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         cull_view,
     );
     let selected_count = batch.submissions.len();
+    if let (Some(equipment), Some(stream)) =
+        (equipment.as_deref_mut(), client_world.stream.as_ref())
+    {
+        // Equipment rides each selected body's pose, so culled bodies never build layers.
+        let bodies = batch.submissions.clone();
+        for body in &bodies {
+            let runtime_id = body.input.identity.runtime_id;
+            let input = if runtime_id == local_runtime_id {
+                local_input(stream, ui.as_deref(), runtime_id)
+            } else {
+                remote_input(stream, runtime_id)
+            };
+            for layer in equipment.layers_for(body, &input) {
+                batch
+                    .artwork
+                    .insert(layer.submission.input.identity, layer.location);
+                batch.submissions.push(layer.submission);
+            }
+        }
+    }
+    if let Some(equipment) = equipment.as_deref_mut() {
+        for geometry in equipment.take_pending_geometries() {
+            // A rejected mesh only leaves that item undrawn.
+            let _ = hand_builder.0.insert_geometry(geometry.clone());
+            let _ = scene.insert_geometry(geometry);
+        }
+    }
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
@@ -316,7 +381,7 @@ fn publish_hand_rig(
     builder: &mut ActorRigFrameBuilder,
     scene: &mut HandRigScene,
     revision: &mut u64,
-    source: Option<ActorRigPresentation>,
+    source: Option<HandSource>,
     fov_radians: Option<f32>,
     light: HandRigLight,
     partial_tick: f32,
@@ -325,19 +390,42 @@ fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let Some(skin) = source.skin_rgba8 else {
+    let Some(skin) = source.presentation.skin_rgba8.clone() else {
         scene.clear();
         return;
     };
-    let scale = source.model_scale;
-    let mut submission = source.submission;
-    submission.world_from_actor = hand_camera_from_rig(scale);
-    // The hand skin is a single-layer array; the third-person layer index does not apply.
-    submission.texture_layer = 0;
-    let frame = builder.build(partial_tick, None, [submission]);
+    let placement = hand_camera_from_rig(source.presentation.model_scale);
+    let mut submissions = Vec::new();
+    if let Some(mut body) = source.body {
+        body.world_from_actor = placement;
+        // The hand skin is a single-layer array; the third-person layer index does not apply.
+        body.texture_layer = 0;
+        submissions.push(body);
+    }
+    let mut atlas = None;
+    if let Some((layer, item_atlas)) = source.item {
+        let mut item = layer.submission;
+        item.world_from_actor = placement;
+        item.texture_layer = layer.location.layer() | HAND_ITEM_LAYER_FLAG;
+        submissions.push(item);
+        atlas = Some(item_atlas);
+    }
+    let frame = builder.build(partial_tick, None, submissions);
     *revision = revision.wrapping_add(1).max(1);
-    scene.publish(frame, skin, light, fov, *revision);
+    if scene.publish(frame, skin, light, fov, *revision) {
+        scene.set_item_atlas(atlas);
+    }
 }
+
+/// What the first-person pass draws: arm-masked body pose and/or a held item with its atlas page.
+struct HandSource {
+    presentation: ActorRigPresentation,
+    body: Option<ActorRigSubmission>,
+    item: Option<(EquipmentPresentation, HandItemAtlas)>,
+}
+
+/// Marks an instance's texture layer as an item-atlas layer for the first-person shader.
+const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 
 /// Builds this frame's client-authored local-player feed from the predicted physics state and
 /// the look pose. The yaw/pitch come from the look input (`LocalViewPose`), never the boomed

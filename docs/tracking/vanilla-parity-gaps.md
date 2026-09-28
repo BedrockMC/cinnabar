@@ -54,19 +54,32 @@ size (image base_size / label text extent); `anchor_to` = parent point and
 sub-pixel rounding in-engine (deferred to draw).
 
 ## Equipment / attachable rendering (Bedrock 3D target)
-Held/offhand items are decoded+stored but never drawn; remote armor is decoded then
-dropped (`sequencing.rs:688`); the first-person near-camera rig pass exists but is fed
-`None`. Vanilla binds item/armor geometry to the biped bones (`rightItem`/`leftItem`
-exist; non-arm bones zero-scaled for first person) via attachables. 6 tranches: **T0 asset
-ingestion — landed** (entity compiler now collects `attachables/` + `textures/models/armor/`;
-per-item `EquipmentBinding` table — geometry/texture/material/render-controller, armor `.player`
-variant preferred so its geometry resolves in-catalog — emitted to a new hash-pinned `.mcbeeqp`
-carrier; only the trident's `wield_first_person`/`wield_third_person` are literal and populate
-`ItemVisualDefinition`, everything Molang/query-derived is flagged `NeedsMeasurement`; no
-fail-closed startup bail until a consumer lands). Next: T1 third-person held item, T2 worn armor
-(both layers, tiers, dye), T3 first-person arm + held item (populate the disabled pass — replaces
-the removed stopgap), T4 offhand + shield/elytra/pumpkin-head/bow-frames, T5 polish (glint,
-trims, PBR).
+T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane work now adds
+(all **incomplete**; no vanilla acceptance gate closes on it):
+- **Carrier v2** carries decoded attachable textures (armor tiers, elytra, ...) beside bindings.
+- **Layers:** extra actor rig instances keyed `(session, dim, runtime, layer)` ride the body's pose
+  and transform; per-instance dye tint word; instance arena 512 (bodies still 128).
+- **Held item (third person, both hands):** flat sprite items only, extruded one texel deep and
+  packed into shared atlas pages, on `rightItem`/`leftItem`. The display placement is a
+  *provisional* placement, not the retail transform (needs native measurement). Block items,
+  bow/crossbow/trident geometry, spyglass/horn poses: not drawn.
+- **Worn armor:** four slots from `MobArmorEquipment` (remote and local), player-variant
+  geometry bound to body bones by name, tier textures, leather dye from `customColor` (default
+  leather colour and colour-space multiply need measurement). No enchant glint/trim/elytra/
+  shield/pumpkin head.
+- **First person:** near-camera rig pass fed with arm-only masking per the pack's first-person
+  part visibility (arm shows for empty hand/map only) plus a drawable held sprite or block cube
+  on the posed `rightItem` bone (item atlas bound to the pass); camera-to-rig offset and item
+  placement are provisional. Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
+  poses are neutral: `query.main_hand_item_use_duration` now counts using-item flag ticks, but
+  `max_duration` has no source (no item-use state; only food durations exist in pack data).
+- **Block items:** plain opaque cubes in hand (third and first person) and on the head
+  (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
+- **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
+  gliding and swimming are Molang-driven and fall back to `default`.
+- **Not done:** bow/crossbow pull frames, trident geometry, shield re-parent/blocking pose,
+  spyglass/goat-horn poses (attachable-to-hand-bone origin semantics and use state need native
+  measurement), enchant glint and armor trims.
 
 ## Local player rendering
 Third-person body (S1) merged: local player routed through the shared animated rig.

@@ -162,6 +162,7 @@ fn actor_rig_presentation_inner(
         source_tick: actor.source_tick,
         movement_revision: actor.movement_revision,
         pose_generation: rig.completed_tick,
+        layer: render::ACTOR_LAYER_BODY,
     };
     if !identity.is_exact() {
         return None;
@@ -184,6 +185,7 @@ fn actor_rig_presentation_inner(
             ),
             texture_layer: u32::MAX,
             route,
+            tint: 0,
             overlay_rgba8: if actor.status.overlay_active() {
                 pack_overlay_rgba8(HURT_OVERLAY_RGBA)
             } else {
@@ -244,6 +246,7 @@ pub(crate) fn local_diagnostic_presentation(
                     source_tick: None,
                     movement_revision: pose_generation,
                     pose_generation,
+                    layer: render::ACTOR_LAYER_BODY,
                 },
                 rig: EntityRigId(u32::MAX),
                 previous_bones: Arc::from(bones),
@@ -255,6 +258,7 @@ pub(crate) fn local_diagnostic_presentation(
             world_from_actor: rig_world_from_actor(position, yaw_degrees, 1.0),
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
+            tint: 0,
             overlay_rgba8: 0,
         },
         skin_rgba8: Some(default_actor_skin_rgba8()),

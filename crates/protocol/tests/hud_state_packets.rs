@@ -376,3 +376,18 @@ fn item_stack_enchantment_level_reads_the_root_ench_list() {
         None
     );
 }
+
+#[test]
+fn item_custom_color_reads_the_root_dye_int_masked_to_rgb() {
+    let mut encoded = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x03];
+    encoded.extend_from_slice(&11u16.to_le_bytes());
+    encoded.extend_from_slice(b"customColor");
+    encoded.extend_from_slice(&(0xff11_2233u32 as i32).to_le_bytes());
+    encoded.push(0x00);
+    assert_eq!(protocol::item_custom_color(&encoded), Some(0x0011_2233));
+    assert_eq!(protocol::item_custom_color(&[]), None);
+    assert_eq!(
+        protocol::item_custom_color(&[0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x00]),
+        None
+    );
+}

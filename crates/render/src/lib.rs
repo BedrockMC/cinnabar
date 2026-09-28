@@ -30,7 +30,7 @@ mod ui_render;
 mod viewmodel;
 mod viewmodel_render;
 
-pub use hand_rig_render::{HandRigLight, HandRigRenderPlugin, HandRigScene};
+pub use hand_rig_render::{HandItemAtlas, HandRigLight, HandRigRenderPlugin, HandRigScene};
 pub use particles::{
     ATLAS_SIDE as PARTICLE_ATLAS_SIDE, DrawLists as ParticleDrawLists,
     EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, LevelParticle, MAX_LIVE_PARTICLES,
@@ -54,19 +54,22 @@ use meshing::{
 };
 
 pub use actor::{
-    ACTOR_BONE_MATRIX_BYTES, ActorArtworkLocation, ActorArtworkPages, ActorCullView,
-    ActorDrawFrame, ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness,
-    ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
-    ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects,
-    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex,
-    ActorRuntimeWitness, ActorSkinPixels, ActorTexturePage, ActorVertex, DEFAULT_SKIN_PROVENANCE,
-    EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
-    MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RIG_VERTICES,
+    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorArtworkLocation,
+    ActorArtworkPages, ActorCullView, ActorDrawFrame, ActorDrawManifestEntry, ActorGpuInstance,
+    ActorMainWitness, ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame,
+    ActorRenderIdentity, ActorRenderInstance, ActorRenderScene, ActorRenderSource,
+    ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
+    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels, ActorTexturePage, ActorVertex,
+    DEFAULT_SKIN_PROVENANCE, EntityRigId, EquipmentRaster, MAX_ACTOR_BONE_ARENA_BYTES,
+    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
+    MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
     MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible, default_actor_skin_rgba8, normalize_actor_skin,
-    pack_overlay_rgba8, standard_biped_overlay_vertices, standard_biped_vertices,
+    actor_rig_submission_is_visible, default_actor_skin_rgba8, equipment_rig_id,
+    extruded_sprite_vertices, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
+    item_mesh_rig_id, normalize_actor_skin, pack_overlay_rgba8, standard_biped_overlay_vertices,
+    standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

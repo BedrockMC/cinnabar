@@ -27,11 +27,11 @@ const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
-const FLAG_SNEAKING: u32 = 1;
-const FLAG_SPRINTING: u32 = 3;
 /// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
 /// 64 live in the overflow flag word.
 pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
+const ACTOR_FLAG_SNEAKING: u32 = 1;
+const ACTOR_FLAG_SPRINTING: u32 = 3;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -179,8 +179,8 @@ impl ActorSnapshot {
 
     /// Overwrites the primary-word flags the client predicts itself.
     fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
-        self.set_flag(FLAG_SNEAKING, feed.sneaking);
-        self.set_flag(FLAG_SPRINTING, feed.sprinting);
+        self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
+        self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
     }
 
     /// Sets one primary-word flag bit, creating the flag word when absent.
@@ -260,6 +260,16 @@ impl ActorSnapshot {
                 }
             }
         }
+    }
+
+    #[must_use]
+    pub fn is_sneaking(&self) -> bool {
+        self.flag(ACTOR_FLAG_SNEAKING)
+    }
+
+    #[must_use]
+    pub fn is_sleeping(&self) -> bool {
+        self.player_is_sleeping()
     }
 
     pub(crate) fn player_is_sleeping(&self) -> bool {

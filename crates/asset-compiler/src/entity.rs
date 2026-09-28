@@ -32,6 +32,7 @@ pub(crate) use source::{open_source_handle, read_bounded_source};
 
 #[allow(unused_imports)] // Integration publishes this private leaf after review.
 pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};
+pub use attachable::compile_textures as compile_equipment_textures;
 
 /// Deterministic carrier plus the attributed resolution decision for every rig.
 ///

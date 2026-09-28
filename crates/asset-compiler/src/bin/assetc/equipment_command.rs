@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use asset_compiler::compile_entity_assets_with_report;
+use asset_compiler::{compile_entity_assets_with_report, compile_equipment_textures};
 use assets::{
     AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
-    encode_entity_blob, encode_equipment_catalog,
+    encode_entity_blob, encode_equipment_catalog_with_textures,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -26,6 +26,7 @@ struct EquipmentAssetsReport {
 #[derive(Serialize)]
 struct EquipmentCounts {
     bindings: usize,
+    textures: usize,
     held: usize,
     armor: usize,
     shield: usize,
@@ -58,13 +59,16 @@ pub(super) fn compile_equipment_assets_command(
     let entity_blob = encode_entity_blob(&compilation.assets)?;
     let entity_blob_sha256: [u8; 32] = Sha256::digest(&entity_blob).into();
     let bindings = &compilation.equipment_bindings;
-    let carrier = encode_equipment_catalog(
+    let textures = compile_equipment_textures(pack, &compilation.assets.sources, bindings)?;
+    let carrier = encode_equipment_catalog_with_textures(
         compilation.assets.source_manifest_sha256,
         entity_blob_sha256,
         bindings,
+        &textures,
     )?;
     let counts = EquipmentCounts {
         bindings: bindings.len(),
+        textures: textures.len(),
         held: bindings
             .iter()
             .filter(|binding| binding.category == EquipmentCategory::Held)
