@@ -70,11 +70,6 @@ impl Interner {
     pub fn len(&self) -> usize {
         self.names.len()
     }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
-    }
 }
 
 /// Strips `variable.`/`v.` and lowercases; `None` when `name` is not a variable reference.
@@ -256,11 +251,6 @@ impl Program {
             _ => None,
         };
         Some(Self { stmts, constant })
-    }
-
-    #[must_use]
-    pub fn as_constant(&self) -> Option<f32> {
-        self.constant
     }
 
     /// Runs the program; the result is the `return` value or the last statement's value.

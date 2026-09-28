@@ -9,8 +9,6 @@ use super::def::{EffectDef, parse_effect};
 #[derive(Default)]
 pub struct EffectLibrary {
     effects: HashMap<Box<str>, Arc<EffectDef>>,
-    /// Effects present in the source that failed to parse.
-    pub rejected: usize,
 }
 
 impl EffectLibrary {
@@ -31,10 +29,7 @@ impl EffectLibrary {
                     .insert(effect.identifier.clone(), Arc::new(effect));
                 true
             }
-            None => {
-                self.rejected += 1;
-                false
-            }
+            None => false,
         }
     }
 
@@ -46,10 +41,5 @@ impl EffectLibrary {
     #[must_use]
     pub fn len(&self) -> usize {
         self.effects.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.effects.is_empty()
     }
 }

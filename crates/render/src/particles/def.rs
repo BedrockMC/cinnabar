@@ -218,8 +218,6 @@ pub struct EmitterDef {
     pub creation: Option<Program>,
     pub per_update: Option<Program>,
     pub local_position: bool,
-    pub local_rotation: bool,
-    pub local_velocity: bool,
     pub rate: Rate,
     pub lifetime: Lifetime,
     pub shape: EmitterShape,
@@ -300,8 +298,6 @@ pub fn parse_effect(bytes: &[u8]) -> Option<EffectDef> {
             .and_then(|c| c.get("per_update_expression"))
             .and_then(|v| program(v, it)),
         local_position: local_flag(component("minecraft:emitter_local_space"), "position"),
-        local_rotation: local_flag(component("minecraft:emitter_local_space"), "rotation"),
-        local_velocity: local_flag(component("minecraft:emitter_local_space"), "velocity"),
         rate: parse_rate(components, it),
         lifetime: parse_lifetime(components, it),
         shape: parse_shape(components, it),

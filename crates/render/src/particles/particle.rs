@@ -22,7 +22,6 @@ pub struct Particle {
     pub vars: Vec<f32>,
     pub plane_side: f32,
     pub timeline_next: usize,
-    pub in_contact: bool,
 }
 
 impl Particle {
@@ -39,7 +38,6 @@ impl Particle {
             vars,
             plane_side: 0.0,
             timeline_next: 0,
-            in_contact: false,
         }
     }
 }
@@ -307,7 +305,6 @@ impl Emitter {
                     let drag = collision.drag.eval(&mut p.vars, rng, &queries).max(0.0);
                     let damp = (1.0 - drag * dt).max(0.0);
                     p.vel = p.vel.map(|c| c * damp);
-                    p.in_contact = true;
                     for event in &collision.events {
                         if speed >= event.min_speed {
                             pending.push((event.event.clone(), p.pos, p.vel));
@@ -316,8 +313,6 @@ impl Emitter {
                     if collision.expire_on_contact {
                         alive = false;
                     }
-                } else {
-                    p.in_contact = false;
                 }
             }
             let world_pos: [f32; 3] = if local {
