@@ -22,6 +22,8 @@ pub enum MovementMode {
     Gliding,
     /// Ability flight: no gravity, vertical motion from jump and sneak.
     Flying,
+    /// Mounted: the vehicle owns motion, so no player physics runs.
+    Riding,
 }
 
 impl MovementMode {
@@ -30,7 +32,7 @@ impl MovementMode {
         match self {
             Self::Swimming | Self::Crawling | Self::Gliding => LOW_POSE_HEIGHT,
             Self::Walking if sneaking => SNEAK_HEIGHT,
-            Self::Walking | Self::Flying => PLAYER_HEIGHT,
+            Self::Walking | Self::Flying | Self::Riding => PLAYER_HEIGHT,
         }
     }
 
