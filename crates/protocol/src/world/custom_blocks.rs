@@ -39,6 +39,10 @@ pub struct CustomVisualComponents {
     pub geometry: Option<Arc<str>>,
     pub materials: Option<Box<[CustomMaterialInstance]>>,
     pub transformation: Option<CustomTransformation>,
+    /// `minecraft:light_dampening`, the sky/block light a full block filters (0..=15).
+    pub light_dampening: Option<u8>,
+    /// `minecraft:light_emission` (0..=15).
+    pub light_emission: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,10 +301,18 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                 .chain(&transform.translation)
                 .all(|value| value.is_finite())
         });
+    let nibble = |key: &str| {
+        components
+            .field(key)
+            .and_then(Nbt::number)
+            .map(|value| value.clamp(0.0, 15.0) as u8)
+    };
     CustomVisualComponents {
         geometry,
         materials,
         transformation,
+        light_dampening: nibble("minecraft:light_dampening"),
+        light_emission: nibble("minecraft:light_emission"),
     }
 }
 

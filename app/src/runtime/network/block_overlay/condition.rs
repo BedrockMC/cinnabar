@@ -1,9 +1,7 @@
 //! Per-state component resolution from permutation conditions.
 //!
-//! Only conjunctions of `query.block_state('name') ==/!= literal` are
-//! evaluated, and only when one state axis varies, since the order in which
-//! several custom axes enumerate states is not established. Anything else is
-//! counted and leaves the base components.
+//! Only `q.block_state('name') ==/!= literal` conjunctions are evaluated, and
+//! only when one state axis varies; anything else is counted and left at base.
 
 use protocol::{CustomBlock, CustomStateValue, CustomVisualComponents};
 
@@ -55,6 +53,12 @@ pub(super) fn state_components(
                 }
                 if components.transformation.is_some() {
                     resolved.transformation = components.transformation;
+                }
+                if components.light_dampening.is_some() {
+                    resolved.light_dampening = components.light_dampening;
+                }
+                if components.light_emission.is_some() {
+                    resolved.light_emission = components.light_emission;
                 }
             }
             Some(false) => {}
