@@ -28,6 +28,7 @@ use crate::settings_runtime::RuntimeSettings;
 
 mod bob;
 mod easing;
+mod facts;
 mod fov;
 mod hurt;
 mod look;
@@ -500,6 +501,7 @@ impl Plugin for FlyCameraPlugin {
             .init_resource::<CameraFovInputs>()
             .init_resource::<CameraFovState>()
             .init_resource::<look::LookSmoother>()
+            .init_resource::<facts::ItemUseClock>()
             .init_resource::<WalkBobState>()
             .init_resource::<HandSwayState>()
             .init_resource::<CameraHurtState>()
@@ -535,6 +537,7 @@ impl Plugin for FlyCameraPlugin {
                     (
                         apply_runtime_camera_settings,
                         presentation::collect_fov_inputs,
+                        facts::collect_screen_effect_facts,
                         update_camera_fov,
                     )
                         .chain()
