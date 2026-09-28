@@ -193,17 +193,27 @@ Queries referenced by the vanilla pack's entity, controller, animation and rende
 | Links and equipment | is_riding, has_rider, has_player_rider, is_riding_any_entity_of_type, get_equipped_item_name, is_item_equipped, is_item_name_any, is_sleeping |
 | Status / attributes | health, is_alive, hurt_time, hurt_direction, death_ticks, is_shield_powered |
 | Item use | main_hand_item_use_duration (ticks the use flag has been set, in seconds) |
-| Heuristic | is_in_water (swimming flag, or airborne for fish and squid; no fluid sample), is_grazing (eating flag, unmeasured), swim_amount and standing_scale (unsmoothed 0/1) |
-| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (53), is_in_lava, item_is_charged (25), has_cape, sleep_rotation, property (21), armor_color/texture/material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
+| Block sample | is_in_water, is_in_lava (block at the actor's feet, app-fed each frame; is_in_water falls back to the swimming flag or airborne fish before the first sample) |
+| Smoothed | swim_amount (ramps toward the swimming flag; step unmeasured) |
+| Heuristic | is_grazing (eating flag, unmeasured), standing_scale (unsmoothed 0/1) |
+| Armor | armor_texture_slot, armor_color_slot (equipment store; chainmail, turtle, elytra indices unmeasured) |
+| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (evaluated at tick boundaries by design), item_is_charged (25), has_cape, sleep_rotation, property (21), armor_material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
 
 Engine-fed variables: attack_time, gliding_speed_value, is_holding_right/left, is_sneaking,
-is_blocking, damage_nearby_mobs, is_first_person, player_x_rotation, bob_animation (per tick);
-the seeded set in `evaluation.rs` (charge_amount, has_target, swim amounts, arm offsets) stays at
-its seed.
+is_blocking, damage_nearby_mobs, is_first_person, player_x_rotation, bob_animation, swim_amount,
+left/right_arm_swim_amount, has_target (per tick); the rest of the seeded set in `evaluation.rs`
+(charge_amount, arm offsets) stays at its seed.
 
-Local player: sneak and sprint come from the latest predicted tick; swim, glide, crawl, sleep and
-item-use flags arrive from server metadata, with no client-predicted source.
+Local player: sneak and sprint come from the latest predicted tick and swim is sprint while in
+water; glide, crawl, sleep and item-use flags arrive from server metadata, with no client-predicted
+source (the movement simulator models none of them).
 
-Open: fluid sampling for is_in_water/is_in_lava, item_is_charged and max use duration need item
-state, sleep_rotation needs the bed orientation, property needs a name-to-index map, frame_alpha
-needs a partial-tick feed, has_cape needs the skin cape.
+Riders with a streamed seat offset (metadata key 56) are placed at mount position plus the offset
+rotated by the mount's yaw each tick; the offset frame and vertical origin need native
+verification. Invisible bodies draw as NoDraw after equipment layers are built, so armor and held
+items stay.
+
+Open, each blocked on data no lane carries yet: `property` needs SyncActorProperty decoding;
+`has_cape` needs cape pixels in the protocol skin; `item_is_charged` needs held-item NBT
+retention; `sleep_rotation` needs the bed block's facing; `armor_material_slot` semantics are
+unmeasured.

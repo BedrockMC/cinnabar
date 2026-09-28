@@ -519,3 +519,32 @@ fn item_use_duration_counts_seconds_and_water_follows_swimming_or_aquatic_airbor
     };
     assert_eq!(read(&fish, &grounded, 0, "query.is_in_water"), 0.0);
 }
+
+#[test]
+fn sampled_fluid_overrides_the_heuristic_and_armor_queries_read_worn_stacks() {
+    let mut actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    actor.status.fluid = Some((false, true));
+    assert_eq!(read(&actor, &input, 0, "query.is_in_water"), 0.0);
+    assert_eq!(read(&actor, &input, 0, "query.is_in_lava"), 1.0);
+    let mut context = ActorTickContext::default();
+    context.armor[4] = Some(WornArmor {
+        item: "minecraft:golden_horse_armor".into(),
+        dye_rgb: None,
+    });
+    context.armor[0] = Some(WornArmor {
+        item: "minecraft:leather_helmet".into(),
+        dye_rgb: Some(0x00FF_0000),
+    });
+    let number = |name: &str, arguments: &[f32]| {
+        let arguments: Vec<_> = arguments
+            .iter()
+            .map(|value| MolangValue::Number(*value))
+            .collect();
+        read_with(&actor, &input, &context, 0, name, &arguments).number()
+    };
+    assert_eq!(number("query.armor_texture_slot", &[4.0]), 3.0);
+    assert_eq!(number("query.armor_texture_slot", &[1.0]), 0.0);
+    assert_eq!(number("query.armor_color_slot", &[0.0, 0.0]), 1.0);
+    assert_eq!(number("query.armor_color_slot", &[0.0, 1.0]), 0.0);
+}
