@@ -129,6 +129,8 @@ pub(crate) struct AudioEngine {
     rng: u64,
     pub(crate) stats: EngineStats,
     server_seen: u64,
+    clock: f64,
+    recent: Vec<(Box<str>, [f32; 3], f64)>,
 }
 
 impl Default for AudioEngine {
@@ -150,7 +152,35 @@ impl AudioEngine {
             rng: seed | 1,
             stats: EngineStats::default(),
             server_seen: 0,
+            clock: 0.0,
+            recent: Vec::new(),
         }
+    }
+
+    /// Records that a sound of class `key` was heard at `position`, for duplicate suppression.
+    pub(crate) fn note_recent(&mut self, key: &str, position: [f32; 3]) {
+        if self.recent.len() >= 64 {
+            self.recent.remove(0);
+        }
+        self.recent.push((key.into(), position, self.clock));
+    }
+
+    /// Whether class `key` was noted within `seconds` and `radius` blocks of `position`.
+    pub(crate) fn was_recent(
+        &self,
+        key: &str,
+        position: [f32; 3],
+        seconds: f64,
+        radius: f32,
+    ) -> bool {
+        self.recent.iter().any(|(name, at, time)| {
+            &**name == key
+                && self.clock - time <= seconds
+                && (0..3)
+                    .map(|axis| (at[axis] - position[axis]).powi(2))
+                    .sum::<f32>()
+                    <= radius * radius
+        })
     }
 
     pub(crate) fn has_bank(&self) -> bool {
@@ -221,6 +251,13 @@ impl AudioEngine {
         }
     }
 
+    /// Drops the server pack on disconnect unless a newer session already published its own.
+    pub(crate) fn clear_server_if_current(&mut self) {
+        if super::server::current_generation() == self.server_seen {
+            self.install_server(None);
+        }
+    }
+
     pub(crate) fn poll_server(&mut self) {
         if let Some(update) = super::server::poll_server_sounds(&mut self.server_seen) {
             self.install_server(update);
@@ -235,6 +272,9 @@ impl AudioEngine {
         settings: &AudioSettings,
     ) -> Vec<VoiceSource> {
         self.voices.retain(|voice| !voice.shared.finished());
+        self.clock += f64::from(dt.max(0.0));
+        let clock = self.clock;
+        self.recent.retain(|(_, _, time)| clock - time < 5.0);
         let mut started = Vec::new();
         self.reconcile_loops(&mut started, listener, settings);
         for request in std::mem::take(&mut self.queue) {
@@ -590,6 +630,17 @@ mod tests {
         engine.set_loop("underwater", None);
         engine.pump(None, 5.0, &settings);
         assert!(held[0].next().is_none());
+    }
+
+    #[test]
+    fn recent_sounds_expire_and_respect_radius() {
+        let mut engine = engine(&[("dig.stone", "block")]);
+        engine.note_recent("break", [0.0; 3]);
+        assert!(engine.was_recent("break", [1.0, 0.0, 0.0], 1.0, 2.0));
+        assert!(!engine.was_recent("break", [9.0, 0.0, 0.0], 1.0, 2.0));
+        assert!(!engine.was_recent("hurt", [0.0; 3], 1.0, 2.0));
+        engine.pump(None, 2.0, &AudioSettings::default());
+        assert!(!engine.was_recent("break", [0.0; 3], 1.0, 2.0));
     }
 
     #[test]

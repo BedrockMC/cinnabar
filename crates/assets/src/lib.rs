@@ -22,6 +22,7 @@ mod lang;
 mod light_registry;
 mod material_keys;
 mod model;
+mod ogg;
 mod particle;
 mod physics_registry;
 mod provenance;
@@ -163,6 +164,7 @@ pub use model::{
     MODEL_TEMPLATE_FLAG_WALL, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
     TexturePage, TextureRef, VisualKind, VisualSupport,
 };
+pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
     MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES, MAX_PARTICLE_EFFECTS,
     MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,

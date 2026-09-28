@@ -1,6 +1,12 @@
 //! Frame systems feeding the audio engine: packets, local motion, ambience, weather and output.
 
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+};
 
 use bevy::prelude::{
     App, Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Update, Vec3,
@@ -15,6 +21,7 @@ use super::{
     },
     engine::{AudioEngine, Listener, LoopSpec, SoundRequest},
     local::{LocalCue, LocalMotion, MotionSample},
+    predicted::{LocalBlockCue, drive_actor_audio, drive_block_cues, drive_consume_audio},
     route,
     settings::{AudioCategory, AudioSettings},
 };
@@ -30,9 +37,20 @@ use crate::{
 const PLAYER: &str = "minecraft:player";
 const FEET_PROBE_BELOW: f64 = 0.2;
 const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
+const THUNDER_GRACE_SECONDS: f32 = 0.3;
 const UI_CLICK: &str = "random.click";
 
-/// A local interface sound request (button press, inventory click) by sound definition name.
+static PENDING_UI_CLICKS: AtomicU32 = AtomicU32::new(0);
+
+/// Requests the interface click sound from any code path (no ECS access needed); coalesced per frame.
+pub(crate) fn ui_click() {
+    let _ = PENDING_UI_CLICKS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+        Some(count.saturating_add(1))
+    });
+}
+
+/// A local interface sound request by sound definition name; ECS callers may send this instead of
+/// calling [`ui_click`].
 #[derive(Debug, Clone, PartialEq, Message)]
 pub(crate) struct UiSoundCue(pub &'static str);
 
@@ -43,6 +61,7 @@ impl UiSoundCue {
 pub(crate) fn configure(app: &mut App) {
     app.init_resource::<AudioSettings>()
         .add_message::<UiSoundCue>()
+        .add_message::<LocalBlockCue>()
         .add_systems(
             Update,
             (
@@ -50,6 +69,9 @@ pub(crate) fn configure(app: &mut App) {
                 drive_local_motion,
                 drive_ambience,
                 drive_weather_and_particles,
+                drive_block_cues,
+                drive_consume_audio,
+                drive_actor_audio,
                 pump_audio,
             )
                 .chain()
@@ -57,7 +79,7 @@ pub(crate) fn configure(app: &mut App) {
         );
 }
 
-fn block_lookup<'a>(
+pub(super) fn block_lookup<'a>(
     collisions: Option<&'a PhysicsCollisionRegistries>,
     mode: assets::NetworkIdMode,
 ) -> impl Fn(u32) -> Option<String> + 'a {
@@ -68,7 +90,7 @@ fn block_lookup<'a>(
     }
 }
 
-fn identifier_at(
+pub(super) fn identifier_at(
     world: &PaletteWorld<'_>,
     collisions: &PhysicsCollisionRegistries,
     mode: assets::NetworkIdMode,
@@ -80,7 +102,7 @@ fn identifier_at(
         .map(str::to_owned)
 }
 
-fn is_water(identifier: Option<&str>) -> bool {
+pub(super) fn is_water(identifier: Option<&str>) -> bool {
     identifier.is_some_and(|name| WATER_IDENTIFIERS.contains(&name))
 }
 
@@ -88,7 +110,13 @@ fn is_water(identifier: Option<&str>) -> bool {
 pub(super) struct IngestState {
     stream: u64,
     last_sequence: u64,
+    /// Record voices by jukebox cell, so a stop event can silence the right one.
+    records: HashMap<[i32; 3], Arc<str>>,
 }
+
+/// Level sound events also produced by local prediction; the second copy within the window is dropped.
+const DEDUPED_EVENTS: [&str; 4] = ["place", "break", "hurt", "death"];
+const RECORD_EVENT: i32 = 1006;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn ingest_audio_events(
@@ -102,11 +130,16 @@ pub(super) fn ingest_audio_events(
     for cue in cues.read() {
         engine.enqueue(SoundRequest::new(cue.0));
     }
+    if PENDING_UI_CLICKS.swap(0, Ordering::Relaxed) > 0 {
+        engine.enqueue(SoundRequest::new(UI_CLICK));
+    }
     let Some(stream) = world.stream.as_ref() else {
         messages.clear();
         if state.stream != 0 {
             state.stream = 0;
+            state.records.clear();
             engine.stop_all();
+            engine.clear_server_if_current();
         }
         return;
     };
@@ -114,6 +147,7 @@ pub(super) fn ingest_audio_events(
     if state.stream != session {
         state.stream = session;
         state.last_sequence = 0;
+        state.records.clear();
         engine.stop_all();
     }
     let dimension = stream.current_dimension();
@@ -137,9 +171,41 @@ pub(super) fn ingest_audio_events(
                 }
                 continue;
             }
-            protocol::AudioEvent::Level(level) => engine
-                .bank()
-                .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup)),
+            protocol::AudioEvent::Level(level) => {
+                let name = level.sound_event.as_ref();
+                if DEDUPED_EVENTS.contains(&name) {
+                    if engine.was_recent(name, level.position, 0.6, 3.0) {
+                        continue;
+                    }
+                    engine.note_recent(name, level.position);
+                } else if name == "thunder" {
+                    engine.note_recent(name, level.position);
+                }
+                engine
+                    .bank()
+                    .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup))
+            }
+            protocol::AudioEvent::LevelEvent(level) if level.event_id == RECORD_EVENT => {
+                let cell = level.position.map(|axis| axis.floor() as i32);
+                if let Some(previous) = state.records.remove(&cell) {
+                    engine.stop_named(&previous);
+                }
+                let name = (level.data != 0)
+                    .then(|| stream.item_identifier(level.data))
+                    .flatten()
+                    .and_then(|identifier| route::record_sound_name(&identifier))
+                    .filter(|name| {
+                        engine
+                            .bank()
+                            .is_some_and(|bank| bank.definition(name).is_some())
+                    });
+                if let Some(name) = name {
+                    let name: Arc<str> = name.into();
+                    state.records.insert(cell, Arc::clone(&name));
+                    engine.enqueue(SoundRequest::new(name).at(level.position));
+                }
+                continue;
+            }
             protocol::AudioEvent::LevelEvent(level) => engine
                 .bank()
                 .and_then(|bank| route::level_event_request(bank.tables(), level)),
@@ -250,6 +316,31 @@ impl Default for AmbientState {
     }
 }
 
+/// Ambience definition prefix for the eye position: the biome's own set when the pack defines it.
+fn ambience_prefix(
+    stream: &client_world::WorldStream,
+    dimension: i32,
+    eye: [f32; 3],
+    engine: &AudioEngine,
+) -> Option<String> {
+    let fallback = dimension_ambience(dimension)?;
+    let biome = stream.camera_biome_id(eye).and_then(|id| {
+        stream
+            .biome_definitions_snapshot()
+            .iter()
+            .find(|definition| u32::from(definition.biome_id.unwrap_or(u16::MAX)) == id)
+            .map(|definition| definition.name.to_string())
+    });
+    let own = biome
+        .map(|name| format!("ambient.{name}"))
+        .filter(|prefix| {
+            engine
+                .bank()
+                .is_some_and(|bank| bank.definition(&format!("{prefix}.loop")).is_some())
+        });
+    Some(own.unwrap_or_else(|| fallback.to_owned()))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drive_ambience(
     time: Res<Time>,
@@ -310,23 +401,30 @@ pub(super) fn drive_ambience(
             .then(|| loop_spec("ambient.underwater.loop"))
             .flatten(),
     );
-    let prefix = stream.and(dimension_ambience(dimension));
+    let prefix: Option<String> = stream
+        .and_then(|stream| ambience_prefix(stream, dimension, [eye.x, eye.y, eye.z], &engine));
     engine.set_loop(
         "dimension",
-        prefix.and_then(|prefix| loop_spec(&format!("{prefix}.loop"))),
+        prefix
+            .as_deref()
+            .and_then(|prefix| loop_spec(&format!("{prefix}.loop"))),
     );
 
+    // Unloaded chunks read as unlit, so mood waits for the eye's chunk to be present.
     let dark = stream.is_some_and(|stream| {
-        let (block, sky) = stream.light_level_at([eye.x, eye.y, eye.z]);
-        block == 0 && sky == 0
+        let at = [eye.x, eye.y, eye.z];
+        let (block, sky) = stream.light_level_at(at);
+        stream.camera_biome_id(at).is_some() && block == 0 && sky == 0
     });
     let unit = engine.unit();
     if state.mood.tick(dark && !underwater, dt, unit) {
-        let name = prefix.map_or_else(|| "ambient.cave".to_owned(), |p| format!("{p}.mood"));
+        let name = prefix
+            .as_deref()
+            .map_or_else(|| "ambient.cave".to_owned(), |p| format!("{p}.mood"));
         engine.enqueue(SoundRequest::new(name));
     }
     let unit = engine.unit();
-    if let Some(prefix) = prefix
+    if let Some(prefix) = prefix.as_deref()
         && state.additions.tick(true, dt, unit)
     {
         engine.enqueue(SoundRequest::new(format!("{prefix}.additions")));
@@ -351,6 +449,7 @@ pub(super) fn drive_ambience(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drive_weather_and_particles(
+    time: Res<Time>,
     world: Res<ClientWorld>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     mix: Option<Res<PrecipitationMix>>,
@@ -358,12 +457,14 @@ pub(super) fn drive_weather_and_particles(
     inbox: Option<ResMut<ParticleInbox>>,
     mut engine: ResMut<AudioEngine>,
     mut seen_bolts: Local<HashSet<i64>>,
+    mut pending_bolts: Local<Vec<(f32, [f32; 3])>>,
 ) {
     let mut particles = particles;
     let mut inbox = inbox;
     let Some(stream) = world.stream.as_ref() else {
         engine.set_loop("rain", None);
         seen_bolts.clear();
+        pending_bolts.clear();
         return;
     };
     if !engine.has_bank() {
@@ -382,7 +483,22 @@ pub(super) fn drive_weather_and_particles(
     seen_bolts.retain(|id| bolts.iter().any(|bolt| bolt.unique_id == *id));
     for bolt in &bolts {
         if seen_bolts.insert(bolt.unique_id) {
-            engine.enqueue(SoundRequest::new("ambient.weather.lightning.impact").at(bolt.position));
+            pending_bolts.push((THUNDER_GRACE_SECONDS, bolt.position));
+        }
+    }
+    // The server usually voices bolts itself; only unvoiced ones get the local fallback.
+    let dt = time.delta_secs();
+    let mut due = Vec::new();
+    pending_bolts.retain_mut(|(remaining, position)| {
+        *remaining -= dt;
+        if *remaining <= 0.0 {
+            due.push(*position);
+        }
+        *remaining > 0.0
+    });
+    for position in due {
+        if !engine.was_recent("thunder", position, 2.0, f32::MAX.sqrt()) {
+            engine.enqueue(SoundRequest::new("ambient.weather.lightning.impact").at(position));
             engine.enqueue(SoundRequest::new("ambient.weather.thunder"));
         }
     }
@@ -396,7 +512,7 @@ pub(super) fn drive_weather_and_particles(
         .map(|inbox| inbox.take_level_audio())
         .unwrap_or_default();
     let lookup = block_lookup(collisions.as_deref(), stream.network_id_mode());
-    let mut requests = Vec::new();
+    let mut requests: Vec<(Option<[f32; 3]>, SoundRequest)> = Vec::new();
     if let Some(bank) = engine.bank() {
         let tables = bank.tables();
         for sound in &sounds {
@@ -406,7 +522,7 @@ pub(super) fn drive_weather_and_particles(
                 }
                 None => SoundRequest::new(&*sound.name),
             };
-            requests.push(request.at(sound.position));
+            requests.push((None, request.at(sound.position)));
         }
         for (id, position, data) in destroyed {
             requests.extend(route::destroy_block_request(
