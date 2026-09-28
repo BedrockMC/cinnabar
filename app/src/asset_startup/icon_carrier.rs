@@ -42,6 +42,15 @@ pub fn icon_assets_rebuild_command(path: &Path) -> String {
     )
 }
 
+fn world_icon_rebuild_command(world: &Path, icon: &Path) -> String {
+    let command = icon_assets_rebuild_command(icon);
+    if world == Path::new(DEFAULT_ASSET_PATH) {
+        command
+    } else {
+        format!("{command} ASSET_BLOB={}", super::shell_quote_path(world))
+    }
+}
+
 #[derive(Debug)]
 pub struct LoadedIconAssets {
     runtime: Arc<RuntimeIconCatalog>,
@@ -61,7 +70,7 @@ impl LoadedIconAssets {
     #[must_use]
     pub fn startup_summary(&self) -> String {
         format!(
-            "loaded pinned official Mojang sample item icons from {} ({} sprites, {} entries, source_manifest_sha256={})",
+            "loaded pinned item icons (original sprites and optional provisional cube thumbnails) from {} ({} sprites, {} entries, source_manifest_sha256={})",
             self.selected_path.display(),
             self.runtime.sprites().len(),
             self.runtime.entries().len(),
@@ -86,10 +95,10 @@ pub fn require_icon_assets(
     let file = match File::open(&path) {
         Ok(file) => file,
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            let rebuild_command = icon_assets_rebuild_command(&path);
+            let rebuild_command = world_icon_rebuild_command(world_asset_path, &path);
             return Err(AssetStartupError::IconAssetsMissing {
                 notice: format!(
-                    "required pinned official Mojang sample item-icon carrier was not found at {}; hotbar and offhand icons cannot present, so the client will not start. Build it with `{rebuild_command}`, or refresh every required carrier with `make assets`.",
+                    "required pinned item-icon carrier was not found at {}; hotbar and offhand icons cannot present, so the client will not start. Build it with `{rebuild_command}`, or refresh every required carrier with `make assets`.",
                     path.display()
                 ),
                 rebuild_command,
@@ -98,7 +107,7 @@ pub fn require_icon_assets(
         }
         Err(source) => {
             return Err(AssetStartupError::IconAssetsRead {
-                rebuild_command: icon_assets_rebuild_command(&path),
+                rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
                 path,
                 source,
             });
@@ -109,12 +118,12 @@ pub fn require_icon_assets(
         .map_err(|source| AssetStartupError::IconAssetsRead {
             path: path.clone(),
             source,
-            rebuild_command: icon_assets_rebuild_command(&path),
+            rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
         })?
         .len();
     if length > MAX_ICON_ASSET_BLOB_BYTES {
         return Err(AssetStartupError::IconAssetsTooLarge {
-            rebuild_command: icon_assets_rebuild_command(&path),
+            rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
             path,
             max_bytes: MAX_ICON_ASSET_BLOB_BYTES,
         });
@@ -125,11 +134,11 @@ pub fn require_icon_assets(
         .map_err(|source| AssetStartupError::IconAssetsRead {
             path: path.clone(),
             source,
-            rebuild_command: icon_assets_rebuild_command(&path),
+            rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
         })?;
     if bytes.len() as u64 > MAX_ICON_ASSET_BLOB_BYTES {
         return Err(AssetStartupError::IconAssetsTooLarge {
-            rebuild_command: icon_assets_rebuild_command(&path),
+            rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
             path,
             max_bytes: MAX_ICON_ASSET_BLOB_BYTES,
         });
@@ -138,13 +147,13 @@ pub fn require_icon_assets(
         AssetStartupError::IconAssetsDecode {
             path: path.clone(),
             source: Box::new(source),
-            rebuild_command: icon_assets_rebuild_command(&path),
+            rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
         }
     })?;
     let expected = canonical_source_manifest_sha256(vanilla_source_json);
     if runtime.source_manifest_sha256() != expected {
         return Err(AssetStartupError::IconAssetsProvenance {
-            rebuild_command: icon_assets_rebuild_command(&path),
+            rebuild_command: world_icon_rebuild_command(world_asset_path, &path),
             carrier: format_sha256(runtime.source_manifest_sha256()),
             manifest: format_sha256(expected),
             path,

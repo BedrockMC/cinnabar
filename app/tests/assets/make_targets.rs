@@ -57,6 +57,26 @@ fn make_client_passes_no_vsync_only_when_requested() {
 }
 
 #[test]
+fn make_icon_producer_consumes_the_exact_selected_world_carrier() {
+    let makefile = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("Makefile"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
+    let producer = makefile
+        .lines()
+        .find(|line| line.starts_with("ICON_ASSET_COMPILE = "))
+        .unwrap();
+    assert!(producer.contains("--block-assets \"$(ASSET_BLOB)\""));
+    assert!(producer.contains("--source-manifest \"$(VANILLA_SOURCE_MANIFEST)\""));
+    assert!(producer.contains("--out \"$(ICON_ASSET_BLOB)\""));
+    assert!(makefile.contains("$(ICON_ASSET_BLOB): $(ASSET_BLOB)"));
+}
+
+#[test]
 fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
     let makefile = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -121,13 +141,16 @@ fn make_assets_and_client_refresh_the_atmosphere_blob_and_report() {
 
     for (report, carrier, compiler) in [
         ("ATMOSPHERE_REPORT", "ATMOSPHERE_BLOB", "ATMOSPHERE_COMPILE"),
-        ("ENTITY_ASSET_REPORT", "ENTITY_ASSET_BLOB", "ENTITY_ASSET_COMPILE"),
+        (
+            "ENTITY_ASSET_REPORT",
+            "ENTITY_ASSET_BLOB",
+            "ENTITY_ASSET_COMPILE",
+        ),
         ("FONT_ASSET_REPORT", "FONT_ASSET_BLOB", "FONT_ASSET_COMPILE"),
         ("HUD_ASSET_REPORT", "HUD_ASSET_BLOB", "HUD_ASSET_COMPILE"),
     ] {
-        let contract = format!(
-            "$({report}): $({carrier})\n\t$(RUN_IF_ASSET_REPORT_STALE) || $({compiler})"
-        );
+        let contract =
+            format!("$({report}): $({carrier})\n\t$(RUN_IF_ASSET_REPORT_STALE) || $({compiler})");
         assert!(
             makefile.contains(&contract),
             "missing cross-platform report recovery contract: {contract}"
@@ -239,7 +262,10 @@ fn make_builds_the_pinned_open_font_for_default_launch() {
             .split_whitespace()
             .any(|word| word == "font-assets-local")
     );
-    let assets = makefile.lines().find(|line| line.starts_with("assets:")).unwrap();
+    let assets = makefile
+        .lines()
+        .find(|line| line.starts_with("assets:"))
+        .unwrap();
     assert!(assets.contains("FONT_ASSET"));
 }
 
@@ -274,7 +300,10 @@ fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
             "missing HUD Makefile contract: {contract}"
         );
     }
-    let assets = makefile.lines().find(|line| line.starts_with("assets:")).unwrap();
+    let assets = makefile
+        .lines()
+        .find(|line| line.starts_with("assets:"))
+        .unwrap();
     assert!(assets.contains("$(HUD_ASSET_BLOB)"));
     assert!(assets.contains("$(HUD_ASSET_REPORT)"));
 }
@@ -694,8 +723,14 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
         format!("ATMOSPHERE_BLOB={}", make_path(&atmosphere)),
         format!("ATMOSPHERE_REPORT={}", make_path(&report)),
         format!("ATMOSPHERE_COMPILE={producer}"),
-        format!("VANILLA_ASSET_FETCH=echo fetch >> \"{}\"", make_path(&upstream)),
-        format!("WORLD_ASSET_COMPILE=echo world >> \"{}\"", make_path(&upstream)),
+        format!(
+            "VANILLA_ASSET_FETCH=echo fetch >> \"{}\"",
+            make_path(&upstream)
+        ),
+        format!(
+            "WORLD_ASSET_COMPILE=echo world >> \"{}\"",
+            make_path(&upstream)
+        ),
     ];
 
     run_make_atmosphere(root, &assignments);
