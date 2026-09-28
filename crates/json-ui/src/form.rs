@@ -12,7 +12,7 @@
 
 use crate::bind::{CollectionItem, ControlLibrary, DataSource, bind};
 use crate::catalog::Catalog;
-use crate::emit::{DrawNode, emit};
+use crate::emit::{DrawNode, RectOut, emit};
 use crate::input::{HitRegion, global_mapping, hit_regions};
 use crate::layout::{LayoutEnv, layout_with};
 use crate::predicate::Scalar;
@@ -132,6 +132,9 @@ pub struct FormRender {
     pub report: LayoutReport,
     /// Where `button.menu_cancel` (Escape/back) routes on this screen.
     pub cancel_target: Option<String>,
+    /// The container screens' `root_panel` rect, the panel a click outside of
+    /// drops the held stack from.
+    pub root_panel: Option<RectOut>,
 }
 
 const LONG_FORM: &str = "server_form.long_form";
@@ -393,20 +396,41 @@ pub fn render_form_with(
     state: &ViewState,
 ) -> Option<FormRender> {
     let bound = bind_form(model, catalog, context)?;
-    let (nodes, hits, report, cancel_target) = {
+    Some(finish(bound, root_size, env, state))
+}
+
+/// Lay out, emit, and collect input for a bound tree.
+pub(crate) fn finish(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+) -> FormRender {
+    let (nodes, hits, report, cancel_target, root_panel) = {
         let (laid, report) = layout_with(&bound, root_size, env, state);
         (
             emit(&laid, env),
             hit_regions(&laid),
             report,
             global_mapping(&laid, "button.menu_cancel"),
+            find_rect(&laid, "root_panel"),
         )
     };
-    Some(FormRender {
+    FormRender {
         bound,
         nodes,
         hits,
         report,
         cancel_target,
-    })
+        root_panel,
+    }
+}
+
+fn find_rect(node: &crate::layout::LaidOut, name: &str) -> Option<RectOut> {
+    if node.control.name == name && node.visible {
+        return Some(node.rect.into());
+    }
+    node.children
+        .iter()
+        .find_map(|child| find_rect(child, name))
 }

@@ -57,6 +57,8 @@ pub struct HitRegion {
     pub control_name: Option<String>,
     /// The nearest enclosing factory/grid instance index.
     pub collection_index: Option<usize>,
+    /// The collection of the nearest enclosing grid cell (e.g. `container_items`).
+    pub collection: Option<String>,
     pub enabled: bool,
     pub checked: Option<bool>,
     pub max_length: Option<usize>,
@@ -88,12 +90,18 @@ impl HitRegion {
 pub fn hit_regions(root: &LaidOut) -> Vec<HitRegion> {
     let mut out = Vec::new();
     let mut order = 0usize;
-    collect(root, None, &mut out, &mut order);
+    collect(root, None, None, &mut out, &mut order);
     out.sort_by_key(|region| (region.layer, region.order));
     out
 }
 
-fn collect(node: &LaidOut, index: Option<usize>, out: &mut Vec<HitRegion>, order: &mut usize) {
+fn collect(
+    node: &LaidOut,
+    index: Option<usize>,
+    collection: Option<&str>,
+    out: &mut Vec<HitRegion>,
+    order: &mut usize,
+) {
     if !node.visible {
         return;
     }
@@ -104,6 +112,11 @@ fn collect(node: &LaidOut, index: Option<usize>, out: &mut Vec<HitRegion>, order
         .and_then(Value::as_u64)
         .map(|index| index as usize)
         .or(index);
+    let collection = control
+        .properties
+        .get("collection_scope")
+        .and_then(Value::as_str)
+        .or(collection);
     if let Some(kind) = kind_of(node) {
         let text = |key: &str| {
             control
@@ -131,6 +144,7 @@ fn collect(node: &LaidOut, index: Option<usize>, out: &mut Vec<HitRegion>, order
             pressed: pressed_target(control),
             control_name,
             collection_index: index,
+            collection: collection.map(str::to_owned),
             enabled: widgets::enabled(control),
             checked: matches!(kind, HitKind::Toggle | HitKind::Dropdown)
                 .then(|| widgets::toggle_checked(control)),
@@ -146,7 +160,7 @@ fn collect(node: &LaidOut, index: Option<usize>, out: &mut Vec<HitRegion>, order
         *order += 1;
     }
     for child in &node.children {
-        collect(child, index, out, order);
+        collect(child, index, collection, out, order);
     }
 }
 

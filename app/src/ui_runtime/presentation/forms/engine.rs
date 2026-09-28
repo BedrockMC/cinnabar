@@ -8,14 +8,15 @@ use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
-    Catalog, Context, Draw, DrawNode, FormModel, LayoutEnv, NineSlice, RectOut, TextAlign,
-    TextMeasure, TextureMeta, TextureSource, ViewState, render_form_with,
+    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, NineSlice,
+    RectOut, TextAlign, TextMeasure, TextureMeta, TextureSource, ViewState, render_form_with,
+    render_screen,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
 };
 
-use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, rect};
+use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
@@ -71,15 +72,44 @@ impl FormEngine {
 
     /// Render `model` into `nodes`; `Ok(None)` when its template is missing, so the
     /// caller can fall back to the programmatic dialog.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn render(
         &self,
         model: &FormModel,
         view: &ViewState,
         identity: ServerFormIdentity,
         inputs: EngineInputs<'_>,
-        nodes: &mut Vec<UiNode>,
-        next: &mut u32,
+        out: EngineOutput<'_>,
+    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        self.render_with(inputs, out, &[], Some(identity), |env, root| {
+            render_form_with(model, &self.catalog, &self.context, root, env, view)
+        })
+    }
+
+    /// Render an allow-listed screen against `data`. `icons` backs the
+    /// `inventory_item_renderer` cells, whose data names an index into it.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_screen(
+        &self,
+        reference: &str,
+        data: &DataSource,
+        context: &Context,
+        view: &ViewState,
+        icons: &[IconRef],
+        inputs: EngineInputs<'_>,
+        out: EngineOutput<'_>,
+    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        self.render_with(inputs, out, icons, None, |env, root| {
+            render_screen(reference, &self.catalog, context, data, root, env, view)
+        })
+    }
+
+    fn render_with(
+        &self,
+        inputs: EngineInputs<'_>,
+        out: EngineOutput<'_>,
+        icons: &[IconRef],
+        identity: Option<ServerFormIdentity>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<FormRender>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let root = [
@@ -100,7 +130,7 @@ impl FormEngine {
                 text: &measure,
                 textures: &textures,
             };
-            render_form_with(model, &self.catalog, &self.context, root, &env, view)
+            draw(&env, root)
         };
         let Some(render) = render else {
             return Ok(None);
@@ -110,16 +140,17 @@ impl FormEngine {
             assets: &self.assets,
             first_page: self.first_page,
             solid_page: inputs.solid_page,
+            icons,
             layouts,
             font: inputs.font,
             metrics: inputs.metrics,
             px,
             translate: inputs.translate,
-            nodes,
-            next,
+            nodes: out.nodes,
+            next: out.next,
             clip: None,
         };
-        for node in &render.nodes {
+        for node in render.nodes.iter().chain(out.overlay) {
             painter.paint(node)?;
         }
         Ok(Some(EngineFrame {
@@ -129,8 +160,19 @@ impl FormEngine {
             cancel_target: render.cancel_target,
             origin: [inputs.safe_area.left(), inputs.safe_area.top()],
             scale: px,
+            panel: render
+                .root_panel
+                .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
         }))
     }
+}
+
+/// Where a render writes its retained nodes, plus caller draw nodes painted on
+/// top (e.g. the held stack under the pointer).
+pub(super) struct EngineOutput<'a> {
+    pub(super) nodes: &'a mut Vec<UiNode>,
+    pub(super) next: &'a mut u32,
+    pub(super) overlay: &'a [DrawNode],
 }
 
 /// A label's text after localization: an exact language key resolves, anything
@@ -240,6 +282,7 @@ struct Painter<'a> {
     assets: &'a RuntimeUiAssets,
     first_page: u16,
     solid_page: u16,
+    icons: &'a [IconRef],
     layouts: &'a mut TextLayoutCache,
     font: &'a RuntimeFontCatalog,
     metrics: TextMetrics,
@@ -283,6 +326,76 @@ impl Painter<'_> {
         Ok(id)
     }
 
+    /// Bridge the custom renderers container screens use: item icons from the
+    /// icon atlas and the durability bar. Others draw nothing yet.
+    fn custom(
+        &mut self,
+        renderer: &str,
+        data: &std::collections::BTreeMap<String, serde_json::Value>,
+        dest: [f32; 4],
+        alpha: impl Fn([u8; 4]) -> [u8; 4],
+    ) -> Option<(UiVisual, [f32; 4])> {
+        let number = |key: &str| data.get(key).and_then(serde_json::Value::as_f64);
+        match renderer {
+            "inventory_item_renderer" => {
+                let icon = self.icons.get(number("#item_renderer_data")? as usize)?;
+                Some((
+                    UiVisual::Sprite {
+                        texture_page: icon.page,
+                        uv: icon.uv,
+                        color: alpha([255; 4]),
+                    },
+                    dest,
+                ))
+            }
+            "progress_bar_renderer" => {
+                if data.get("#touch_progress_bar_visible") != Some(&serde_json::Value::Bool(true)) {
+                    return None;
+                }
+                let total = number("#progress_bar_total_amount").filter(|total| *total > 0.0)?;
+                let fraction = (number("#progress_bar_current_amount")? / total).clamp(0.0, 1.0);
+                // Track then fill; the fill hue sweeps green to red with wear.
+                let track = [dest[0], dest[1], dest[2], dest[3] + (dest[3] - dest[1])];
+                self.solid(track, alpha([0, 0, 0, 255])).ok()?;
+                let width = (dest[2] - dest[0]) * fraction as f32;
+                let fill = [dest[0], dest[1], dest[0] + width, dest[3]];
+                Some((
+                    UiVisual::Solid {
+                        texture_page: self.solid_page,
+                        color: alpha(durability_color(fraction)),
+                    },
+                    fill,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// A solid rect in the current clip group.
+    fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]) -> Result<(), UiPresentationError> {
+        let Some((clip, parent)) = self.clip else {
+            return Ok(());
+        };
+        let id = self.id();
+        self.nodes.push(
+            UiNode::new(
+                id,
+                Some(parent),
+                rect(
+                    bounds[0] - clip[0],
+                    bounds[1] - clip[1],
+                    bounds[2] - clip[0],
+                    bounds[3] - clip[1],
+                )?,
+            )
+            .with_visual(UiVisual::Solid {
+                texture_page: self.solid_page,
+                color,
+            }),
+        );
+        Ok(())
+    }
+
     fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
         let clip = self.logical(&node.clip);
         let dest = self.logical(&node.dest);
@@ -298,6 +411,7 @@ impl Painter<'_> {
             let a = (f32::from(color[3]) * node.alpha.clamp(0.0, 1.0)).round() as u8;
             [color[0], color[1], color[2], a]
         };
+        let parent = self.group(clip)?;
         let (visual, bounds) = match &node.draw {
             Draw::Solid { color } => (
                 UiVisual::Solid {
@@ -368,11 +482,11 @@ impl Painter<'_> {
                     [dest[0] + shift, dest[1], dest[2] + shift, dest[3]],
                 )
             }
-            // Custom renderers (item icons, paper doll) are bridged by the screens
-            // that use them; a form has none.
-            Draw::Custom { .. } => return Ok(()),
+            Draw::Custom { renderer, data } => match self.custom(renderer, data, dest, alpha) {
+                Some(visual) => visual,
+                None => return Ok(()),
+            },
         };
-        let parent = self.group(clip)?;
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -389,4 +503,12 @@ impl Painter<'_> {
         );
         Ok(())
     }
+}
+
+/// Durability colour: hue from green (full) to red (worn); needs native measurement.
+fn durability_color(fraction: f64) -> [u8; 4] {
+    let hue = (fraction / 3.0) * 6.0;
+    let x = (1.0 - (hue % 2.0 - 1.0).abs()) as f32;
+    let (r, g) = if hue < 1.0 { (1.0, x) } else { (x, 1.0) };
+    [(r * 255.0) as u8, (g * 255.0) as u8, 0, 255]
 }

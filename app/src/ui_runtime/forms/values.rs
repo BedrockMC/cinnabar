@@ -14,7 +14,8 @@ use super::ServerFormIdentity;
 /// in virtual pixels, plus the virtual → window-logical mapping.
 #[derive(Clone, Debug)]
 pub(crate) struct EngineFrame {
-    pub(crate) identity: ServerFormIdentity,
+    /// The form drawn, or `None` for a container screen.
+    pub(crate) identity: Option<ServerFormIdentity>,
     pub(crate) hits: Vec<HitRegion>,
     pub(crate) report: LayoutReport,
     /// Where `button.menu_cancel` (Escape) routes on this screen.
@@ -23,6 +24,8 @@ pub(crate) struct EngineFrame {
     pub(crate) origin: [f32; 2],
     /// Window-logical pixels per virtual pixel.
     pub(crate) scale: f32,
+    /// A container screen's `root_panel` rect `[x, y, w, h]` in virtual pixels.
+    pub(crate) panel: Option<[f64; 4]>,
 }
 
 impl EngineFrame {

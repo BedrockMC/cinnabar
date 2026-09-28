@@ -1,5 +1,6 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
+mod containers;
 mod engine;
 mod fallback;
 mod model;
@@ -8,6 +9,7 @@ mod pages;
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
+pub(crate) use containers::{engine_cell_hit, engine_panel_contains};
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
@@ -24,6 +26,8 @@ pub(super) struct FormPresentation {
     frame: Option<EngineFrame>,
     /// The JSON-UI engine; carried across the per-frame reset.
     engine: Option<Box<engine::FormEngine>>,
+    /// The container screen the engine drew this build.
+    container: Option<EngineFrame>,
 }
 
 impl UiPresentationRuntime {
@@ -47,6 +51,7 @@ impl UiPresentationRuntime {
         self.form_presentation.engine = Some(Box::new(engine::FormEngine::new(
             assets, catalog, first_page,
         )));
+        self.hud_frame.engine_containers = true;
         Ok(())
     }
 
@@ -63,7 +68,7 @@ impl UiPresentationRuntime {
         self.form_presentation
             .frame
             .as_ref()
-            .filter(|frame| frame.identity == identity)
+            .filter(|frame| frame.identity == Some(identity))
     }
 
     pub(crate) fn form_button_count(&self, identity: ServerFormIdentity) -> Option<usize> {
@@ -123,6 +128,7 @@ impl UiPresentationRuntime {
         height: f32,
     ) -> Result<(), UiPresentationError> {
         let engine = self.form_presentation.engine.take();
+        let previous_container = self.form_presentation.container.take();
         self.form_presentation = FormPresentation {
             engine,
             ..FormPresentation::default()
@@ -130,6 +136,15 @@ impl UiPresentationRuntime {
         if self.menu_view.is_some() {
             return Ok(());
         }
+        self.append_engine_container(
+            runtime,
+            previous_container.as_ref(),
+            nodes,
+            next,
+            metrics,
+            width,
+            height,
+        )?;
         let Some(entry) = runtime.server_forms().active() else {
             return Ok(());
         };
@@ -147,7 +162,12 @@ impl UiPresentationRuntime {
                     content: [width, height],
                     translate: &translate,
                 };
-                match renderer.render(&form, &state.view, entry.identity, inputs, nodes, next) {
+                let out = engine::EngineOutput {
+                    nodes: &mut *nodes,
+                    next: &mut *next,
+                    overlay: &[],
+                };
+                match renderer.render(&form, &state.view, entry.identity, inputs, out) {
                     Ok(Some(frame)) => {
                         self.form_presentation.frame = Some(frame);
                         return Ok(());

@@ -39,6 +39,9 @@ impl HudLayout<'_> {
             InventoryScreen, WORKBENCH_GRID, WORKBENCH_OUTPUT,
         };
         let screen = InventoryScreen::of(runtime.inventory_ledger());
+        if frame.engine_containers && matches!(screen, InventoryScreen::Storage(_)) {
+            return Ok(());
+        }
         if let InventoryScreen::Storage(slot_count) = screen {
             return self.storage_screen(runtime, frame, slot_count);
         }
