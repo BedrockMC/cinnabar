@@ -37,6 +37,10 @@ const (
 	// value and must be replaced once an authoritative Bedrock reference for
 	// honey movement is identified. Tracked in docs/tracking/phase3-movement.md.
 	unprovenHoneySpeedQ1E8 = 40_000_000
+	// Provisional inside-block slowdown for sweet berry bushes; no Bedrock reference exists
+	// yet and the public notes mark the model unresolved.
+	provisionalInsideSlowdownHorizontalQ1E8 = 80_000_000
+	provisionalInsideSlowdownVerticalQ1E8   = 75_000_000
 )
 
 const (
@@ -108,6 +112,7 @@ const (
 	behaviorScaffolding
 	behaviorSlime
 	behaviorSoulSand
+	behaviorInsideSlowdown
 	behaviorWater
 )
 
@@ -134,6 +139,9 @@ var reviewedPhysicsOverrides = []reviewedPhysicsOverride{
 	{Name: "minecraft:scaffolding", Behavior: behaviorScaffolding, StateCount: 16, BoundingBox: "block", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:slime", Behavior: behaviorSlime, StateCount: 1, BoundingBox: "block", DragonflyTypes: "block.Slime"},
 	{Name: "minecraft:soul_sand", Behavior: behaviorSoulSand, StateCount: 1, BoundingBox: "block", DragonflyTypes: "block.SoulSand"},
+	// UNVERIFIED against the pinned sources: state count (growth 0-7), bounding box and the
+	// Dragonfly type list are best-known values; the first regeneration confirms or rejects them.
+	{Name: "minecraft:sweet_berry_bush", Behavior: behaviorInsideSlowdown, StateCount: 8, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:twisting_vines", Behavior: behaviorClimbable, StateCount: 26, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:vine", Behavior: behaviorClimbable, StateCount: 16, BoundingBox: "empty", DragonflyTypes: "block.Vines"},
 	{Name: "minecraft:water", Behavior: behaviorWater, StateCount: 16, BoundingBox: "empty", DragonflyTypes: "block.Water"},
@@ -399,6 +407,10 @@ func applyPhysicsOverride(record Record, override reviewedPhysicsOverride, entry
 	case behaviorHoney:
 		entry.HorizontalSpeedQ1E8 = unprovenHoneySpeedQ1E8
 		entry.SurfaceResponse = SurfaceHoney
+	case behaviorInsideSlowdown:
+		entry.Flags |= physicsFlagPassable
+		entry.HorizontalSpeedQ1E8 = provisionalInsideSlowdownHorizontalQ1E8
+		entry.VerticalSpeedQ1E8 = provisionalInsideSlowdownVerticalQ1E8
 	case behaviorSoulSand:
 		entry.HorizontalSpeedQ1E8 = soulSandSpeedQ1E8
 		entry.SurfaceResponse = SurfaceSoulSand

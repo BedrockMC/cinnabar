@@ -75,7 +75,8 @@ pub(super) fn sample(
             // boxes. Swept/support samples alone do not establish body contact.
             movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB)
                 && fluid_intersects(player, block, 1.0);
-            movement.in_powder_snow |= facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW);
+            movement.in_powder_snow |= facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW)
+                || is_inside_slowdown(facts, player, block);
             movement.in_scaffolding |= facts.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
         }
     }
@@ -128,6 +129,19 @@ pub(super) fn contains_liquid(
         contains,
         identity.expect("a finite non-empty probe samples at least one block"),
     ))
+}
+
+/// A collision-free block with reduced speed factors slows a body that overlaps it (berry bush class).
+fn is_inside_slowdown(facts: &crate::BlockPhysicsFacts, player: Aabb, block: [i32; 3]) -> bool {
+    let special = BlockPhysicsFlags::WATER.bits()
+        | BlockPhysicsFlags::LAVA.bits()
+        | BlockPhysicsFlags::COBWEB.bits()
+        | BlockPhysicsFlags::POWDER_SNOW.bits()
+        | BlockPhysicsFlags::SCAFFOLDING.bits();
+    facts.flags.contains(BlockPhysicsFlags::PASSABLE)
+        && facts.flags.bits() & special == 0
+        && (facts.horizontal_speed_factor < 1.0 || facts.vertical_speed_factor < 1.0)
+        && fluid_intersects(player, block, 1.0)
 }
 
 fn active_surface_response(
