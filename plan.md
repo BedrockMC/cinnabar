@@ -2890,6 +2890,14 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   Capture bounded native visual and packet/pose evidence.
 
 - [ ] **4.5 Held items, actions, dropped items, and viewmodel.** `P4.5-ITEM-ACTIONS`
+  - [x] Render supported ordinary opaque full-cube held blocks using the current
+    selected stack, world materials, and session-bound local presentation authority.
+    A live controlled check covered Stone, distinct crafting-table faces, empty-slot
+    and unsupported-item fallback, resize, and reconnect. Current GPU completion
+    suppresses only the matching CPU fallback; rejected or stale submissions retain it.
+    This is a static geometry slice, not complete item, pose, animation, lighting,
+    or matched retail visual parity. Tinted, animated, partial, and unsupported
+    items remain on the existing fallback path.
 
 ## Phase 5 — Interaction, inventory, UI
 
