@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use assets::{AudioAlternative, AudioDefinition, SoundEventTables, decode_fsb5};
+use assets::{AudioAlternative, AudioDefinition, SoundEventTables, decode_sound};
 use resource_pack::LayeredPackView;
 use serde_json::{Map, Value};
 
@@ -112,13 +112,15 @@ pub(super) fn decode_wav(bytes: &[u8]) -> Option<Pcm> {
 }
 
 fn load_file(view: &LayeredPackView, path: &str) -> Option<Pcm> {
-    if let Some(bytes) = view.read_capped(&format!("{path}.fsb"), MAX_FILE_BYTES) {
-        let sound = decode_fsb5(&bytes).ok()?;
-        return Some(Pcm {
-            channels: sound.channels,
-            rate: sound.sample_rate,
-            samples: sound.samples.into(),
-        });
+    for extension in ["fsb", "ogg"] {
+        if let Some(bytes) = view.read_capped(&format!("{path}.{extension}"), MAX_FILE_BYTES) {
+            let sound = decode_sound(&bytes).ok()?;
+            return Some(Pcm {
+                channels: sound.channels,
+                rate: sound.sample_rate,
+                samples: sound.samples.into(),
+            });
+        }
     }
     decode_wav(&view.read_capped(&format!("{path}.wav"), MAX_FILE_BYTES)?)
 }
@@ -171,6 +173,14 @@ pub(crate) fn publish_server_sounds(view: Option<&LayeredPackView>) {
     let mut mailbox = MAILBOX.lock().unwrap_or_else(|poison| poison.into_inner());
     mailbox.0 += 1;
     mailbox.1 = pack;
+}
+
+/// Generation of the latest publication.
+pub(crate) fn current_generation() -> u64 {
+    MAILBOX
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .0
 }
 
 /// The newly published server sounds since `seen`, if any; `Some(None)` means cleared.

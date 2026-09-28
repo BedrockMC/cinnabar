@@ -344,17 +344,24 @@ impl SoundEventTables {
         }
     }
 
-    /// Footstep/fall/jump/land route of an actor moving over a block sound material.
+    /// Footstep/fall/jump/land route of an actor moving over a block sound material. Block routes are
+    /// scaled by the actor's interactive volume/pitch (the shared default when it has none).
     pub fn interactive(&self, entity: &str, event: &str, material: &str) -> Option<SoundRoute> {
-        if let Some(set) = self.interactive_entities.get(bare(entity)) {
-            if set.events.contains_key(event) {
-                return resolve(set, event, Some(material));
-            }
+        let explicit = self.interactive_entities.get(bare(entity));
+        if let Some(set) = explicit.filter(|set| set.events.contains_key(event)) {
+            return resolve(set, event, Some(material));
         }
-        if let Some(set) = self.interactive_blocks.get(material) {
-            if set.events.contains_key(event) {
-                return resolve(set, event, Some(material));
-            }
+        let scale = explicit.unwrap_or(&self.interactive_defaults);
+        if let Some(set) = self
+            .interactive_blocks
+            .get(material)
+            .filter(|set| set.events.contains_key(event))
+        {
+            return resolve(set, event, Some(material)).map(|route| SoundRoute {
+                volume: route.volume.scaled(scale.volume),
+                pitch: route.pitch.scaled(scale.pitch),
+                ..route
+            });
         }
         resolve(&self.interactive_defaults, event, Some(material))
     }
@@ -420,6 +427,10 @@ mod tests {
         let step = tables.interactive("player", "step", "stone").unwrap();
         assert_eq!(&*step.sound, "step.stone");
         assert!(tables.individual("random.click").is_some());
+        let mut scaled = tables.clone();
+        scaled.interactive_defaults.volume = FloatRange { min: 0.5, max: 0.5 };
+        let quiet = scaled.interactive("player", "step", "stone").unwrap();
+        assert!((quiet.volume.min - 0.15).abs() < 1e-6);
     }
 
     #[test]

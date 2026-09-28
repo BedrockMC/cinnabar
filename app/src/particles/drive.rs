@@ -27,9 +27,15 @@ pub(crate) struct ParticleInbox {
     notices: Vec<ActorStatusNotice>,
     /// Level events `(id, position, data)` the audio runtime drains; separate so particles can consume theirs.
     level_audio: Vec<(i32, [f32; 3], i32)>,
+    /// Actor status notices copied for the audio runtime.
+    status_audio: Vec<ActorStatusNotice>,
 }
 
 impl ParticleInbox {
+    pub(crate) fn take_status_audio(&mut self) -> Vec<ActorStatusNotice> {
+        std::mem::take(&mut self.status_audio)
+    }
+
     pub(crate) fn take_level_audio(&mut self) -> Vec<(i32, [f32; 3], i32)> {
         std::mem::take(&mut self.level_audio)
     }
@@ -65,7 +71,12 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
         }
     }
     inbox.events.extend(committed);
-    inbox.notices.extend(stream.take_actor_status_notices());
+    let notices = stream.take_actor_status_notices();
+    let room = MAX_QUEUED_INBOX.saturating_sub(inbox.status_audio.len());
+    inbox
+        .status_audio
+        .extend(notices.iter().take(room).copied());
+    inbox.notices.extend(notices);
     let events_excess = inbox.events.len().saturating_sub(MAX_QUEUED_INBOX);
     inbox.events.drain(..events_excess);
     let notices_excess = inbox.notices.len().saturating_sub(MAX_QUEUED_INBOX);
