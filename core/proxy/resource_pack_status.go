@@ -42,7 +42,11 @@ const (
 	ResourcePackDownstreamStrippedIgnored   ResourcePackDownstreamOutcome = "stripped_ignored"
 )
 
-const ResourcePackApplicationUnavailable = "unavailable"
+const (
+	ResourcePackApplicationUnavailable = "unavailable"
+	// ResourcePackApplicationApplied is reported once the client confirms it applied the handed-off packs.
+	ResourcePackApplicationApplied = "applied"
+)
 
 // ResourcePackAdmissionSnapshot deliberately contains no pack identity,
 // version, source, content key, digest, or filesystem location.

@@ -27,6 +27,7 @@ type Store struct {
 	mu        sync.RWMutex
 	lifecycle Lifecycle
 	latest    proxy.ResourcePackAdmissionSnapshot
+	applied   uint64 // attempt whose packs the client confirmed applying
 }
 
 func NewStore() *Store {
@@ -58,9 +59,26 @@ func (store *Store) Observe(snapshot proxy.ResourcePackAdmissionSnapshot) {
 	store.mu.Unlock()
 }
 
+// SetApplied records the client's confirmation that it applied (or reverted)
+// the packs handed off for attempt id; it only counts for the newest attempt.
+func (store *Store) SetApplied(attemptID uint64, applied bool) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	switch {
+	case applied && attemptID != 0 && attemptID == store.latest.AttemptID &&
+		store.latest.DownstreamOutcome == proxy.ResourcePackDownstreamHandedOffOptional:
+		store.applied = attemptID
+	case !applied && store.applied == attemptID:
+		store.applied = 0
+	}
+}
+
 func (store *Store) Status() StatusV1 {
 	store.mu.RLock()
 	status := StatusV1{SchemaVersion: 1, Lifecycle: store.lifecycle, PackAdmission: store.latest}
+	if store.applied != 0 && store.applied == store.latest.AttemptID {
+		status.PackAdmission.Application = proxy.ResourcePackApplicationApplied
+	}
 	store.mu.RUnlock()
 	return status
 }

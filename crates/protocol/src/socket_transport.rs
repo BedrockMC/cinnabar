@@ -15,6 +15,17 @@ pub fn bridge_endpoint_path(socket_dir: &Path) -> std::path::PathBuf {
     bridge::endpoint_path(socket_dir)
 }
 
+/// Best-effort: tells the core whether this client applied (or reverted) the
+/// newest attempt's handed-off packs; returns whether the core recorded it.
+pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
+    let Ok(status) = bridge::read_status(socket_dir).await else {
+        return false;
+    };
+    bridge::report_pack_application(socket_dir, status.pack_admission.attempt_id, applied)
+        .await
+        .is_ok()
+}
+
 /// Jolyne transport over the local length-framed bridge.
 pub struct SocketTransport {
     stream: FramedStream,
