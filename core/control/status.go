@@ -81,6 +81,13 @@ func (store *Store) ObserveTransfer(target proxy.TransferTarget) {
 	store.mu.Unlock()
 }
 
+// ClearTransfer withdraws a pending transfer the client no longer needs to follow.
+func (store *Store) ClearTransfer() {
+	store.mu.Lock()
+	store.transfer = nil
+	store.mu.Unlock()
+}
+
 // SetApplied records the client's confirmation that it applied (or reverted)
 // the packs handed off for attempt id; it only counts for the newest attempt.
 func (store *Store) SetApplied(attemptID uint64, applied bool) {

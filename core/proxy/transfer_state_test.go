@@ -1,11 +1,13 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"io"
 	"slices"
 	"testing"
 
+	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -68,5 +70,51 @@ func TestObserveTransfersWithoutStateIsPassThrough(t *testing.T) {
 	up := newFakeUpstream(nil)
 	if observeTransfers(up, nil, nil) != upstreamSession(up) {
 		t.Fatal("nil state must not wrap the session")
+	}
+}
+
+func TestConsumeTransferOnDialClearsOnlyAfterSuccessfulDial(t *testing.T) {
+	var state TransferState
+	if err := state.Record(TransferTarget{Host: "next.example", Port: 19133}); err != nil {
+		t.Fatal(err)
+	}
+	up := newFakeUpstream(nil)
+	var dialErr error
+	dial := consumeTransferOnDial(func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error) {
+		if dialErr != nil {
+			return nil, dialErr
+		}
+		return up, nil
+	}, &state)
+	target := &resolvedUpstreamTarget{address: "next.example:19133"}
+
+	dialErr = errors.New("unreachable")
+	if _, err := dial(context.Background(), target, minecraft.Dialer{}); err == nil {
+		t.Fatal("dial error was swallowed")
+	}
+	if _, ok := state.Pending(); !ok {
+		t.Fatal("failed dial consumed the transfer")
+	}
+	dialErr = nil
+	if _, err := dial(context.Background(), &resolvedUpstreamTarget{address: "other:1"}, minecraft.Dialer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Pending(); !ok {
+		t.Fatal("dial to an unrelated target consumed the transfer")
+	}
+	if _, err := dial(context.Background(), target, minecraft.Dialer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Pending(); ok {
+		t.Fatal("successful dial left the transfer pending")
+	}
+}
+
+func TestTransferStateClearDropsPending(t *testing.T) {
+	var state TransferState
+	_ = state.Record(TransferTarget{Host: "h", Port: 1})
+	state.Clear()
+	if got := state.Upstream("first:1"); got != "first:1" {
+		t.Fatalf("Upstream() = %q after Clear", got)
 	}
 }
