@@ -55,6 +55,27 @@ fn hand_camera_from_rig(scale: f32) -> [[f32; 4]; 3] {
     rig_world_from_actor(HAND_RIG_CAMERA_OFFSET, HAND_RIG_CAMERA_YAW_DEGREES, scale)
 }
 
+/// Rebuilds the scene's pack geometry and artwork for a new session, or restores the
+/// startup artwork when a pack session ends.
+fn apply_session_pack(
+    scene: &mut ActorRenderScene,
+    base: &render::ActorArtworkPages,
+    pack: Option<&super::entity_pack::SessionEntityPack>,
+    effective: &mut Option<render::ActorArtworkPages>,
+) {
+    if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
+        bevy::log::warn!(?error, "server pack entity geometry was not applied");
+    }
+    let pages = match pack {
+        Some(pack) => base
+            .clone()
+            .with_pack_artwork(&pack.textures, &pack.bindings),
+        None => base.clone(),
+    };
+    scene.configure_artwork(pages.clone());
+    *effective = pack.map(|_| pages);
+}
+
 #[derive(SystemParam)]
 pub(crate) struct ActorFramePublication<'w, 's> {
     client_world: ResMut<'w, ClientWorld>,
@@ -65,6 +86,8 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     actor_clock: Local<'s, ActorFrameClock>,
     presentation: ActorPresentationState<'w, 's>,
     artwork: Res<'w, render::ActorArtworkPages>,
+    /// The startup artwork plus the session's server-pack pages; `None` in a vanilla session.
+    session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -86,6 +109,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut actor_clock,
         presentation,
         artwork,
+        mut session_artwork,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -116,7 +140,12 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         if let Some(stream) = client_world.stream.as_mut() {
             stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
         }
+        let pack = session_id.and_then(|_| client_world.pack_entities.clone());
+        if pack.is_some() || session_artwork.is_some() {
+            apply_session_pack(&mut scene, &artwork, pack.as_deref(), &mut session_artwork);
+        }
     }
+    let artwork = session_artwork.as_ref().unwrap_or(&artwork);
     let step = actor_clock.advance(time.delta());
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let item_use = client_world

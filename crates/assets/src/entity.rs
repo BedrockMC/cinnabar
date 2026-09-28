@@ -32,6 +32,8 @@ pub use v4::{
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
 pub const ENTITY_BLOB_VERSION: u32 = 5;
+/// Rig ids at or above this (below the equipment range) belong to a session's pack catalog.
+pub const PACK_RIG_ID_BASE: u32 = 0x4000_0000;
 pub const MAX_ENTITY_ASSET_SOURCES: usize = 8_192;
 pub const MAX_ENTITY_ASSET_SYMBOLS: usize = 16_384;
 pub const MAX_ENTITY_DEPENDENCIES: usize = 512;

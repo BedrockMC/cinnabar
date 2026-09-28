@@ -20,8 +20,8 @@ mod ui;
 mod weather_textures;
 
 pub use actor::{
-    ActorCompileReport, ActorFallback, ActorTextureEvidence, CompiledActorCarrier,
-    compile_actor_assets,
+    ActorCompileReport, ActorFallback, ActorPackCompilation, ActorTextureEvidence,
+    CompiledActorCarrier, compile_actor_assets, compile_actor_pack,
 };
 pub use animation::AnimationInventory;
 pub use assets::BlockFace;
