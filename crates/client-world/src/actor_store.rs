@@ -33,6 +33,8 @@ pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
 const ACTOR_FLAG_SNEAKING: u32 = 1;
 const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SWIMMING: u32 = 57;
+const ACTOR_FLAG_USING_ITEM: u32 = 4;
+const ACTOR_FLAG_BLOCKING: u32 = 72;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
@@ -179,23 +181,40 @@ impl ActorSnapshot {
         snapshot
     }
 
-    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint and swim.
+    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim and
+    /// predicted item use.
     fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
         self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
         self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
         // Sprinting in water is swimming; the water sample lags one frame.
         let in_water = self.status.fluid.is_some_and(|(water, _)| water);
         self.set_flag(ACTOR_FLAG_SWIMMING, feed.sprinting && in_water);
+        match feed.item_use {
+            LocalItemUse::Unpredicted => {}
+            LocalItemUse::Idle => {
+                self.set_flag(ACTOR_FLAG_USING_ITEM, false);
+                self.set_flag(ACTOR_FLAG_BLOCKING, false);
+            }
+            LocalItemUse::Using { shield } => {
+                self.set_flag(ACTOR_FLAG_USING_ITEM, true);
+                self.set_flag(ACTOR_FLAG_BLOCKING, shield);
+            }
+        }
     }
 
-    /// Sets one primary-word flag bit, creating the flag word when absent.
+    /// Sets one actor flag bit in the primary or overflow word, creating the word when absent.
     fn set_flag(&mut self, bit: u32, on: bool) {
-        debug_assert!(bit < 64);
-        let entry = self
-            .metadata
-            .entry(0)
-            .or_insert(ActorMetadataValue::Flags(0));
-        if let ActorMetadataValue::Flags(flags) = entry {
+        let (key, bit, empty) = if bit < 64 {
+            (0, bit, ActorMetadataValue::Flags(0))
+        } else {
+            (
+                EXTENDED_FLAGS_METADATA_KEY,
+                bit - 64,
+                ActorMetadataValue::FlagsExtended(0),
+            )
+        };
+        let entry = self.metadata.entry(key).or_insert(empty);
+        if let ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags) = entry {
             if on {
                 *flags |= 1_u64 << bit;
             } else {
@@ -416,6 +435,19 @@ pub struct LocalPlayerFeed {
     /// Predicted movement state; overrides the streamed sneak and sprint flags on the local rig.
     pub sneaking: bool,
     pub sprinting: bool,
+    pub item_use: LocalItemUse,
+}
+
+/// Predicted use of the held item; only items the client can animate without the server.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LocalItemUse {
+    /// The held item is not predicted; the streamed flags stand.
+    #[default]
+    Unpredicted,
+    /// A predicted item is held but not in use.
+    Idle,
+    /// A predicted item is in use; `shield` also raises the block.
+    Using { shield: bool },
 }
 
 /// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.
@@ -473,7 +505,7 @@ pub use hurt::{
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
-pub use placement::{RideSeat, SeatDefaults};
+pub use placement::{RideSeat, SeatDefaults, SeatRequirement};
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {

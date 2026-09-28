@@ -215,14 +215,18 @@ is_blocking, damage_nearby_mobs, is_first_person, player_x_rotation, bob_animati
 left/right_arm_swim_amount, has_target (per tick); the rest of the seeded set in `evaluation.rs`
 (charge_amount, arm offsets) stays at its seed.
 
-Local player: sneak and sprint come from the latest predicted tick and swim is sprint while in
-water; glide, crawl, sleep and item-use flags arrive from server metadata, with no client-predicted
-source (the movement simulator models none of them).
+Local player: sneak and sprint come from the latest predicted tick, swim is sprint while in
+water, and using and blocking are predicted for bow, trident, spears, spyglass, shield and an
+uncharged crossbow while Use is held (food and drink wait for the server flag, since the client
+cannot tell whether eating is allowed). Glide, crawl and sleep arrive from server metadata; the
+movement simulator models none of them, and sleep_rotation samples the bed under the local rig.
 
 Riders are placed at mount position plus a seat offset rotated by the mount's yaw each tick: the
 streamed offset (metadata key 56) when present, else the mount type's `minecraft:rideable` seat
 from the local behavior pack (chosen by rider count and unique-id order; absent pack means no
-defaults). The offset frame, vertical origin, seat ordering and rotation locks need native
+defaults); layouts are picked by the mount's saddled, baby, tamed and sheared flags, and the
+seat's `rotate_rider_by` (numeric only) and `lock_rider_rotation` turn the rider's body with the
+mount and clamp its head. The offset frame, vertical origin, seat ordering and rotation locks need native
 verification. Invisible bodies draw as NoDraw after equipment layers are built, so armor and held
 items stay.
 

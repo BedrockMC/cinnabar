@@ -19,7 +19,7 @@ pub use actor_animation::{
 pub use actor_store::{
     ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityKind,
     BlockEntityView, DEATH_DURATION_TICKS, DroppedItemView, HURT_DURATION_TICKS,
-    HURT_OVERLAY_ALPHA, LightningBoltView, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
+    HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
     MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS, PlayerProfile, RideSeat, RopeKind, RopeView,
     SeatDefaults, dropped_item_copy_count, tnt_presentation,
 };
