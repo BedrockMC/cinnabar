@@ -22,6 +22,8 @@ const (
 	requestIOTimeout = 2 * time.Second
 )
 
+const methodPackApplication = "pack_application.v1"
+
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      *uint64         `json:"id"`
@@ -130,12 +132,32 @@ func (server *Server) serveOne(conn net.Conn) error {
 		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: call.ID, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
 	}
 	id := *call.ID
+	if call.Method == methodPackApplication {
+		return server.servePackApplication(conn, id, call.Params)
+	}
 	if len(call.Params) != 0 {
 		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
 	}
 	if call.Method != "status.v1" {
 		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32601, Message: "Method not found"}})
 	}
+	status := server.store.Status()
+	return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: &status})
+}
+
+// servePackApplication records whether the client applied an attempt's packs
+// and answers with the resulting status.
+func (server *Server) servePackApplication(conn net.Conn, id uint64, raw json.RawMessage) error {
+	var params struct {
+		AttemptID *uint64 `json:"attempt_id"`
+		Applied   *bool   `json:"applied"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&params); err != nil || decoder.Decode(new(any)) != io.EOF || params.AttemptID == nil || params.Applied == nil {
+		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
+	}
+	server.store.SetApplied(*params.AttemptID, *params.Applied)
 	status := server.store.Status()
 	return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: &status})
 }

@@ -38,7 +38,8 @@ pub(super) fn prepare_session_packs(
 ) -> (protocol::CustomBlocks, PackApplication) {
     let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
     let icon_keys = protocol::item_icon_keys(game_data);
-    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys);
+    let hashed = game_data.start_game.block_network_ids_are_hashes;
+    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
     (custom_blocks, packs)
 }
 
@@ -46,6 +47,7 @@ pub(super) fn prepare_pack_application(
     handoff: protocol::ResourcePackHandoff,
     custom_blocks: &protocol::CustomBlocks,
     icon_keys: &[(Arc<str>, Arc<str>)],
+    hashed_block_ids: bool,
 ) -> PackApplication {
     if handoff.is_empty() {
         return PackApplication::default();
@@ -59,7 +61,7 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
-    let block_overlay = compile_block_overlay(&view, custom_blocks).map(Arc::new);
+    let block_overlay = compile_block_overlay(&view, custom_blocks, hashed_block_ids).map(Arc::new);
     if let Some(compiled) = &block_overlay
         && compiled.gaps != Default::default()
     {
@@ -144,9 +146,22 @@ pub(super) fn texture_key_paths(view: &LayeredPackView, catalog: &str) -> HashMa
     paths
 }
 
-/// Decodes the winning image at `path`, trying `.png` then `.tga` as vanilla does.
+const IMAGE_EXTENSIONS: [(&str, ImageFormat); 4] = [
+    ("png", ImageFormat::Png),
+    ("tga", ImageFormat::Tga),
+    ("jpg", ImageFormat::Jpeg),
+    ("jpeg", ImageFormat::Jpeg),
+];
+const MAX_TEXTURE_SET_BYTES: u64 = 64 * 1024;
+
+/// Decodes the winning image at `path`, trying `.png`, `.tga`, and `.jpg` as
+/// vanilla does, then the color layer of a `.texture_set.json`.
 pub(super) fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
-    [("png", ImageFormat::Png), ("tga", ImageFormat::Tga)]
+    decode_image_file(view, path).or_else(|| decode_texture_set(view, path))
+}
+
+fn decode_image_file(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
+    IMAGE_EXTENSIONS
         .into_iter()
         .find_map(|(extension, format)| {
             let bytes = view.read_capped(
@@ -155,6 +170,36 @@ pub(super) fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<
             )?;
             decode_image(&bytes, format)
         })
+}
+
+/// A texture set's `color` is a sibling image name or a solid `[r, g, b(, a)]`.
+fn decode_texture_set(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
+    let bytes = view.read_capped(&format!("{path}.texture_set.json"), MAX_TEXTURE_SET_BYTES)?;
+    let root = parse_pack_json(&bytes)?;
+    match root.get("minecraft:texture_set")?.get("color")? {
+        Value::String(name) => {
+            let name = name.trim().trim_start_matches("./");
+            let sibling = path
+                .rsplit_once('/')
+                .map_or_else(|| name.to_owned(), |(dir, _)| format!("{dir}/{name}"));
+            [sibling, name.to_owned()]
+                .into_iter()
+                .filter(|target| target != path)
+                .find_map(|target| decode_image_file(view, &target))
+        }
+        Value::Array(channels) if matches!(channels.len(), 3 | 4) => {
+            let mut pixel = [0, 0, 0, 255];
+            for (slot, channel) in pixel.iter_mut().zip(channels) {
+                *slot = channel.as_f64()?.round().clamp(0.0, 255.0) as u8;
+            }
+            Some(DecodedTexture {
+                width: 1,
+                height: 1,
+                rgba8: pixel.into(),
+            })
+        }
+        _ => None,
+    }
 }
 
 pub(super) fn parse_pack_json(bytes: &[u8]) -> Option<Value> {
@@ -361,6 +406,7 @@ mod tests {
             protocol::ResourcePackHandoff::default(),
             &protocol::CustomBlocks::default(),
             &[],
+            false,
         );
         assert!(matches!(application.admission, PackAdmission::None));
         assert!(application.server_lang.is_none());
@@ -374,6 +420,7 @@ mod tests {
             protocol::ResourcePackHandoff::from_archives(vec![pack]),
             &protocol::CustomBlocks::default(),
             &[],
+            false,
         );
         let overlay = application.server_lang;
         let PackAdmission::Validated(stack) = application.admission else {
@@ -412,6 +459,60 @@ mod tests {
         )
     }
 
+    fn files_pack(files: &[(&str, &[u8])]) -> resource_pack::LayeredPackView {
+        use std::io::Write;
+        let id = "00000000-0000-0000-0000-00000000000a";
+        let manifest = format!(
+            r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+        );
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (path, bytes) in
+            std::iter::once(("manifest.json", manifest.as_bytes())).chain(files.iter().copied())
+        {
+            writer
+                .start_file(path, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        let archive = protocol::ResourcePackArchive::unencrypted(
+            id.parse().unwrap(),
+            "1.0.0".into(),
+            String::new(),
+            writer.finish().unwrap().into_inner(),
+        );
+        resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        ))
+    }
+
+    // A texture set resolves to its sibling color image or a solid color.
+    #[test]
+    fn texture_sets_supply_color_layers() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        let view = files_pack(&[
+            (
+                "textures/blocks/a.texture_set.json",
+                br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"a_color"}}"#,
+            ),
+            ("textures/blocks/a_color.png", &png),
+            (
+                "textures/blocks/b.texture_set.json",
+                br#"{"minecraft:texture_set":{"color":[10,20,30]}}"#,
+            ),
+        ]);
+        let image = super::decode_pack_texture(&view, "textures/blocks/a").expect("sibling");
+        assert_eq!(
+            (image.width, image.height, image.rgba8[..4].to_vec()),
+            (2, 2, vec![1, 2, 3, 255])
+        );
+        let solid = super::decode_pack_texture(&view, "textures/blocks/b").expect("solid");
+        assert_eq!(solid.rgba8.to_vec(), vec![10, 20, 30, 255]);
+    }
+
     // Higher packs override shared keys; keys only a lower pack defines survive.
     #[test]
     fn language_files_merge_across_the_stack_by_precedence() {
@@ -419,8 +520,12 @@ mod tests {
             lang_pack(1, b"shared=top\ntop.only=T"),
             lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
         ]);
-        let application =
-            super::prepare_pack_application(handoff, &protocol::CustomBlocks::default(), &[]);
+        let application = super::prepare_pack_application(
+            handoff,
+            &protocol::CustomBlocks::default(),
+            &[],
+            false,
+        );
         let overlay = application.server_lang.expect("merged overlay");
         assert_eq!(overlay.lookup("shared"), Some("top"));
         assert_eq!(overlay.lookup("top.only"), Some("T"));
