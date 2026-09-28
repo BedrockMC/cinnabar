@@ -5,8 +5,10 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::*;
 use render::{
-    AtlasRect, AtmosphereFrame, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
-    BlockEntitySubmission, CrackShape, SceneClock, SignFace, SignModel, crack_shape_from_template,
+    AtlasRect, AtmosphereFrame, BeaconModel, BellModel, BlockEntityFrame, BlockEntityKind,
+    BlockEntityScene, BlockEntitySubmission, ConduitModel, CrackShape, SceneClock, SignFace,
+    SignModel, StaticItemPlacement, StaticItemPlacements, crack_shape_from_template,
+    item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
 use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
@@ -14,7 +16,7 @@ use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
     cracks::CrackClock,
-    describe::{Template, describe},
+    describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
 };
@@ -87,6 +89,7 @@ pub(crate) struct BlockEntityRuntime {
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
     shapes: HashMap<u32, CrackShape>,
+    bell_rings: HashMap<[i32; 3], (u64, f64)>,
 }
 
 impl BlockEntityRuntime {
@@ -98,6 +101,7 @@ impl BlockEntityRuntime {
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: HashMap::new(),
+            bell_rings: HashMap::new(),
         }
     }
 }
@@ -194,6 +198,7 @@ pub(crate) fn update_block_entity_scene(
     mut runtime: ResMut<BlockEntityRuntime>,
     mut scene: ResMut<BlockEntityScene>,
     mut frame: ResMut<BlockEntityFrame>,
+    mut placements: ResMut<StaticItemPlacements>,
 ) {
     if !scene.has_assets() {
         return;
@@ -204,6 +209,7 @@ pub(crate) fn update_block_entity_scene(
     };
     let Some(stream) = client_world.stream.as_ref() else {
         runtime.described.clear();
+        placements.0.clear();
         *frame = scene.update(clock, &[], &[]).clone();
         return;
     };
@@ -235,6 +241,7 @@ pub(crate) fn update_block_entity_scene(
 
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
     let mut seen: Vec<BlockEntityKey> = Vec::new();
+    let mut held: Vec<StaticItemPlacement> = Vec::new();
     runtime.lids.begin();
     let chunk_range = |center: f32| {
         ((center - SCAN_RADIUS_BLOCKS) / 16.0).floor() as i32
@@ -295,16 +302,32 @@ pub(crate) fn update_block_entity_scene(
                     continue;
                 };
                 let (block_light, sky_light) = stream.light_level_at(center.to_array());
-                let kind = resolve(
-                    template,
-                    [x, y, z],
-                    eye,
-                    delta,
+                let context = FrameContext {
                     stream,
-                    runtime,
-                    &mut scene,
-                    &font.0,
-                );
+                    eye,
+                    delta_seconds: delta,
+                    now_seconds,
+                    font: &font.0,
+                };
+                let kind = if matches!(template, Template::Beacon) {
+                    beacon_kind(
+                        &mut *runtime,
+                        &collisions,
+                        store,
+                        dimension,
+                        mode,
+                        [x, y, z],
+                    )
+                } else {
+                    resolve(
+                        template,
+                        [x, y, z],
+                        &context,
+                        runtime,
+                        &mut scene,
+                        &mut held,
+                    )
+                };
                 if let Some(kind) = kind {
                     submissions.push(BlockEntitySubmission {
                         block: [x, y, z],
@@ -317,21 +340,55 @@ pub(crate) fn update_block_entity_scene(
     }
     runtime.lids.finish();
     runtime.described.retain(|key, _| seen.contains(key));
+    placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
 }
 
+struct FrameContext<'a> {
+    stream: &'a client_world::WorldStream,
+    eye: Vec3,
+    delta_seconds: f32,
+    now_seconds: f64,
+    font: &'a RuntimeFontCatalog,
+}
+
+/// Yaw that turns a front-toward--Z model to face `eye` from `position`.
+fn yaw_toward(eye: Vec3, position: [i32; 3]) -> f32 {
+    let (dx, dz) = (
+        eye.x - (position[0] as f32 + 0.5),
+        eye.z - (position[2] as f32 + 0.5),
+    );
+    (-dx).atan2(-dz).to_degrees()
+}
+
+fn held_placement(
+    item: &HeldItem,
+    world_from_item: [[f32; 4]; 3],
+    light: Option<(u8, u8)>,
+) -> StaticItemPlacement {
+    StaticItemPlacement {
+        identifier: Arc::clone(&item.identifier),
+        metadata: item.metadata,
+        world_from_item,
+        light,
+    }
+}
+
+/// Item offsets over the grill, in block-center pixels; provisional.
+const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-4.0, 4.0]];
+const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
+const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
+
 /// Applies per-frame state (lid openness, sign canvases, viewer yaw) to a template.
-#[allow(clippy::too_many_arguments)]
 fn resolve(
     template: Template,
     position: [i32; 3],
-    eye: Vec3,
-    delta_seconds: f32,
-    stream: &client_world::WorldStream,
+    context: &FrameContext<'_>,
     runtime: &mut BlockEntityRuntime,
     scene: &mut BlockEntityScene,
-    font: &RuntimeFontCatalog,
+    held: &mut Vec<StaticItemPlacement>,
 ) -> Option<BlockEntityKind> {
+    let stream = context.stream;
     let open_at = |at: [i32; 3]| {
         stream
             .block_event_cue(at)
@@ -339,14 +396,17 @@ fn resolve(
     };
     match template {
         Template::Static(kind) => Some(kind),
+        Template::Beacon => None,
         Template::Chest(mut model) => {
             let open = open_at(position)
                 || matches!(model.pair, render::ChestPair::Lead { partner } if open_at(partner));
             if !matches!(model.pair, render::ChestPair::Follower) {
-                model.lid =
-                    runtime
-                        .lids
-                        .advance(position, ContainerKind::Chest, open, delta_seconds);
+                model.lid = runtime.lids.advance(
+                    position,
+                    ContainerKind::Chest,
+                    open,
+                    context.delta_seconds,
+                );
             }
             Some(BlockEntityKind::Chest(model))
         }
@@ -355,24 +415,78 @@ fn resolve(
                 position,
                 ContainerKind::Shulker,
                 open_at(position),
-                delta_seconds,
+                context.delta_seconds,
             );
             Some(BlockEntityKind::Shulker(model))
         }
-        Template::EnchantTable => {
-            let (dx, dz) = (
-                eye.x - (position[0] as f32 + 0.5),
-                eye.z - (position[2] as f32 + 0.5),
-            );
-            Some(BlockEntityKind::EnchantTable {
-                facing_yaw_degrees: (-dx).atan2(-dz).to_degrees(),
-            })
+        Template::EnchantTable => Some(BlockEntityKind::EnchantTable {
+            facing_yaw_degrees: yaw_toward(context.eye, position),
+        }),
+        Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
+            active,
+            hunting,
+            viewer_yaw_degrees: yaw_toward(context.eye, position),
+        })),
+        Template::Bell {
+            attachment,
+            direction,
+        } => {
+            if let Some(cue) = stream
+                .block_event_cue(position)
+                .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
+            {
+                let entry = runtime
+                    .bell_rings
+                    .entry(position)
+                    .or_insert((cue.sequence, f64::NEG_INFINITY));
+                if entry.0 != cue.sequence {
+                    *entry = (cue.sequence, context.now_seconds);
+                }
+            }
+            let seconds_since_ring = runtime
+                .bell_rings
+                .get(&position)
+                .map_or(f32::INFINITY, |(_, start)| {
+                    (context.now_seconds - start) as f32
+                });
+            Some(BlockEntityKind::Bell(BellModel {
+                attachment,
+                direction,
+                seconds_since_ring,
+            }))
+        }
+        Template::ItemFrame {
+            model,
+            item,
+            rotation_steps,
+        } => {
+            if let Some(item) = item {
+                held.push(held_placement(
+                    &item,
+                    item_frame_item_transform(position, model.outward, rotation_steps),
+                    model.glow.then_some((15, 15)),
+                ));
+            }
+            Some(BlockEntityKind::ItemFrame(model))
+        }
+        Template::Campfire { yaw_degrees, items } => {
+            let base = render::block_matrix(position, [0.5, 0.0, 0.5], yaw_degrees);
+            for (item, [x, z]) in items.iter().zip(CAMPFIRE_SLOTS) {
+                // Lie flat on the grill, sprite facing up.
+                let pose = base
+                    * Mat4::from_translation(Vec3::new(x, CAMPFIRE_ITEM_HEIGHT, z))
+                    * Mat4::from_scale(Vec3::splat(CAMPFIRE_ITEM_SCALE * 16.0))
+                    * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+                held.push(held_placement(item, matrix_rows(pose), None));
+            }
+            None
         }
         Template::Sign { mount, front, back } => {
             let mut face = |spec: Option<sign_text::SignTextSpec>| -> Option<SignFace> {
                 let spec = spec?;
                 let rect: AtlasRect = scene.text_rect(spec.cache_key(), || {
-                    sign_text::rasterize(&spec, font, &mut runtime.layouts).unwrap_or_default()
+                    sign_text::rasterize(&spec, context.font, &mut runtime.layouts)
+                        .unwrap_or_default()
                 })?;
                 Some(SignFace {
                     rect,
@@ -390,6 +504,94 @@ fn resolve(
     }
 }
 
+/// The `BlockEventPacket` type a bell ring arrives as.
+const BELL_RING_EVENT_TYPE: i32 = 1;
+/// Highest world Y a beacon beam is drawn to; the beam stops at the build limit.
+const BEAM_TOP: i32 = 320;
+
+/// The dye color of a stained-glass block name, as linear RGB.
+fn glass_tint(name: &str) -> Option<[f32; 3]> {
+    let color = name
+        .strip_prefix("minecraft:")?
+        .strip_suffix("_stained_glass_pane")
+        .or_else(|| {
+            name.strip_prefix("minecraft:")?
+                .strip_suffix("_stained_glass")
+        })?;
+    let java_id = match color {
+        "white" => 0,
+        "orange" => 1,
+        "magenta" => 2,
+        "light_blue" => 3,
+        "yellow" => 4,
+        "lime" => 5,
+        "pink" => 6,
+        "gray" => 7,
+        "light_gray" | "silver" => 8,
+        "cyan" => 9,
+        "purple" => 10,
+        "blue" => 11,
+        "brown" => 12,
+        "green" => 13,
+        "red" => 14,
+        "black" => 15,
+        _ => return None,
+    };
+    Some(render::banner_color(15 - java_id))
+}
+
+/// Blends the tint of each stained-glass block above the beacon, each new pane averaging
+/// with the color so far.
+fn beam_tint(glass: impl IntoIterator<Item = [f32; 3]>) -> [f32; 3] {
+    glass.into_iter().fold([1.0; 3], |tint, color| {
+        if tint == [1.0; 3] {
+            color
+        } else {
+            std::array::from_fn(|axis| (tint[axis] + color[axis]) * 0.5)
+        }
+    })
+}
+
+fn beacon_kind(
+    runtime: &mut BlockEntityRuntime,
+    collisions: &PhysicsCollisionRegistries,
+    store: &world::ChunkStore,
+    dimension: i32,
+    mode: assets::NetworkIdMode,
+    position: [i32; 3],
+) -> Option<BlockEntityKind> {
+    let height = u32::try_from(BEAM_TOP - position[1] - 1)
+        .ok()
+        .filter(|height| *height > 0)?;
+    let mut glass = Vec::new();
+    for y in position[1] + 1..BEAM_TOP {
+        let runtime_id = store
+            .sub_chunk(world::SubChunkKey::new(
+                dimension,
+                position[0].div_euclid(16),
+                y.div_euclid(16),
+                position[2].div_euclid(16),
+            ))
+            .and_then(|sub_chunk| {
+                sub_chunk.runtime_id(
+                    0,
+                    position[0].rem_euclid(16) as u8,
+                    y.rem_euclid(16) as u8,
+                    position[2].rem_euclid(16) as u8,
+                )
+            });
+        if let Some(info) = runtime_id.and_then(|id| block_info(runtime, collisions, mode, id))
+            && let Some(color) = glass_tint(&info.name)
+        {
+            glass.push(color);
+        }
+    }
+    Some(BlockEntityKind::Beacon(BeaconModel {
+        height,
+        tint: beam_tint(glass),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,5 +604,26 @@ mod tests {
         assert!((light_factor(0, 15, 0.0) - NIGHT_SKY_TRANSFER_FLOOR).abs() < 1.0e-6);
         assert_eq!(light_factor(0, 0, 1.0), 0.0);
         assert!(light_factor(8, 0, 1.0) > light_factor(4, 0, 1.0));
+    }
+
+    #[test]
+    fn beam_tint_averages_each_new_pane_with_the_color_so_far() {
+        assert_eq!(beam_tint([]), [1.0; 3]);
+        let red = [1.0, 0.0, 0.0];
+        let blue = [0.0, 0.0, 1.0];
+        assert_eq!(beam_tint([red]), red);
+        assert_eq!(beam_tint([red, blue]), [0.5, 0.0, 0.5]);
+        assert!(glass_tint("minecraft:red_stained_glass").is_some());
+        assert!(glass_tint("minecraft:silver_stained_glass_pane").is_some());
+        assert!(glass_tint("minecraft:glass").is_none());
+    }
+
+    #[test]
+    fn the_viewer_yaw_turns_the_model_front_toward_the_eye() {
+        // An eye due north of the block needs no turn; due east needs a quarter turn.
+        assert!(yaw_toward(Vec3::new(0.5, 0.0, -5.0), [0, 0, 0]).abs() < 1.0e-3);
+        let east = yaw_toward(Vec3::new(5.5, 0.0, 0.5), [0, 0, 0]);
+        let front = Mat4::from_rotation_y(east.to_radians()).transform_vector3(Vec3::NEG_Z);
+        assert!(front.abs_diff_eq(Vec3::X, 1.0e-4));
     }
 }

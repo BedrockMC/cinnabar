@@ -37,7 +37,10 @@ pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_
 pub use frame::{ItemFrameModel, item_frame_item_transform};
 pub use gpu::BlockEntityRenderPlugin;
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
-pub use mesh::{BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES};
+pub use mesh::{
+    BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,
+    model_matrix as block_matrix,
+};
 pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
     BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
