@@ -13,6 +13,7 @@ const SOUL_SPEED_ENCHANTMENT_ID: i16 = 36;
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct LocalMovementFacts {
     pub ride: Option<super::RideKind>,
+    pub ride_seat: Option<[f32; 3]>,
     pub can_fly: bool,
     pub server_flying: bool,
     pub fly_speed: Option<f64>,
@@ -27,6 +28,7 @@ pub(super) struct LocalMovementFacts {
 pub(super) fn read(
     ui: Option<&UiRuntime>,
     stream: &client_world::WorldStream,
+    use_held: bool,
 ) -> LocalMovementFacts {
     let Some(ui) = ui else {
         return LocalMovementFacts::default();
@@ -58,6 +60,9 @@ pub(super) fn read(
     });
     LocalMovementFacts {
         ride,
+        ride_seat: ride
+            .and(stream.local_rider_seat_pose())
+            .map(|(position, _)| position),
         can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
         fly_speed: ui
@@ -70,11 +75,15 @@ pub(super) fn read(
         elytra_ready,
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
         soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
-        sprint_blocked: ui.survival_stats_visible()
+        sprint_blocked: (ui.survival_stats_visible()
             && ui
                 .hud()
                 .hunger()
-                .is_some_and(|hunger| hunger.current() <= SPRINT_HUNGER_FLOOR),
+                .is_some_and(|hunger| hunger.current() <= SPRINT_HUNGER_FLOOR))
+            || matches!(
+                crate::runtime::network::local_item_use(stream, ui, use_held),
+                client_world::LocalItemUse::Using { .. }
+            ),
     }
 }
 
