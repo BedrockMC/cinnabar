@@ -254,6 +254,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut audio: MessageWriter<SequencedAudioEvent>,
     mut server_camera: ResMut<ServerCameraInstructions>,
+    mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
 ) {
     let AppWorldState {
         mut client_world,
@@ -292,6 +293,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
     drain_committed_audio(stream, |event| {
         audio.write(event);
     });
+    if let Some(inbox) = particle_inbox.as_mut() {
+        crate::particles::drain_committed_particles(stream, inbox);
+    }
     drain_committed_camera(
         stream,
         clock.session_generation(),
