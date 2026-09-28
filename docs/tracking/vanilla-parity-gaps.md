@@ -20,8 +20,34 @@
 - `task/movement-authinput-parity` — anti-cheat "movement cheats" fix: drop the
   PlayerAuthInput suppression band-aid (send every tick), fix inputless depenetration
   drift, fix pos_delta to be the actual displacement. Needs native A/B on an AC server.
+- `task/camera` — third-person boom collapses onto the player because the collision
+  sweep fails closed to radius 0 on any unknown/unloaded block; make the camera query
+  lenient (skip unknown/unloaded cells). Needs native check.
+- `task/textstyle` — render `§k/§l/§o` (parsed but the shader ignored `style_flags`,
+  the killfeed garble) + resolve translation-key killfeeds. Needs native check.
 - `task/resource-packs` — server pack download/decrypt/apply (review fixes).
 - `task/enhanced-shaders` — opt-in Enhanced render mode (non-parity, off by default).
+
+## JSON-UI engine (clean-room, Bedrock target; Java HUD stays an override)
+Owner decision: a faithful 1:1 Bedrock JSON-UI interpreter drives forms, container
+screens and menus from the vanilla `ui/*.json` + textures (read at runtime from
+`.local/`, never committed); the Java-styled gameplay HUD (`hud_screen` family) stays
+on the existing path, never routed through the engine. 8 tranches: **T1 parser+resolver
+— landed** (new `crates/json-ui`, fixture-tested). Next: T2 expr+layout+nine-slice emit,
+T3 bindings + ActionForm/ModalForm, T4 input+response, T5 CustomForm controls, T6 chest
+container, T7 remaining containers+menus, T8 server-pack overrides. Nine-slice emits as
+≤9 existing `Sprite` quads (no new render primitive). Risk needing native measurement:
+the physical→virtual UI scale factor.
+
+## Equipment / attachable rendering (Bedrock 3D target)
+Held/offhand items are decoded+stored but never drawn; remote armor is decoded then
+dropped (`sequencing.rs:688`); the first-person near-camera rig pass exists but is fed
+`None`. Vanilla binds item/armor geometry to the biped bones (`rightItem`/`leftItem`
+exist; non-arm bones zero-scaled for first person) via attachables. 6 tranches: T0 asset
+ingestion (attachables/, armor textures — compiler doesn't collect these yet), T1
+third-person held item, T2 worn armor (both layers, tiers, dye), T3 first-person arm +
+held item (populate the disabled pass — replaces the removed stopgap), T4 offhand +
+shield/elytra/pumpkin-head/bow-frames, T5 polish (glint, trims, PBR).
 
 ## Local player rendering
 Third-person body (S1) merged: local player routed through the shared animated rig.
