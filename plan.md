@@ -55,8 +55,9 @@ short-name key (provisional). Custom-block selection boxes drive the pick ray. S
 index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
 entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
 labeled incomplete: neutral material profile only (custom materials and conditional/multi-texture
-render controllers fall back), pack attachables/held items and pack entity property defaults
-are not applied, rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
+render controllers fall back), pack attachables (held/worn on player bodies) layer over the equipment runtime per session
+(pack bindings win by item identifier; pack property defaults seed only from `entities/` in
+resource packs), rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.

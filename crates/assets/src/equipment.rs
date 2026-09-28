@@ -202,6 +202,29 @@ impl RuntimeEquipmentCatalog {
         })
     }
 
+    /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
+    /// nonzero digest of the pack sources). Bindings and textures are sorted by identifier
+    /// and the first of a repeated identifier is kept; nothing is carried for item use.
+    pub fn from_parts(
+        identity: [u8; 32],
+        mut bindings: Vec<EquipmentBinding>,
+        mut textures: Vec<EquipmentTexture>,
+    ) -> Result<Self, AssetError> {
+        bindings.sort_by(|left, right| left.identifier.cmp(&right.identifier));
+        bindings.dedup_by(|later, earlier| later.identifier == earlier.identifier);
+        textures.sort_by(|left, right| left.identifier.cmp(&right.identifier));
+        textures.dedup_by(|later, earlier| later.identifier == earlier.identifier);
+        validate(&identity, &identity, &bindings)?;
+        validate_textures(&textures)?;
+        Ok(Self {
+            source_manifest_sha256: identity,
+            entity_blob_sha256: identity,
+            bindings: Arc::from(bindings),
+            textures: Arc::from(textures),
+            item_use: Arc::from(Vec::new()),
+        })
+    }
+
     #[must_use]
     pub const fn source_manifest_sha256(&self) -> [u8; 32] {
         self.source_manifest_sha256
@@ -683,6 +706,52 @@ mod tests {
         let unordered = [texture("textures/b", 1, 1), texture("textures/a", 1, 1)];
         assert!(
             encode_equipment_catalog_with_textures([1; 32], [2; 32], &sample(), &unordered)
+                .is_err()
+        );
+    }
+}
+
+#[cfg(test)]
+mod from_parts_tests {
+    use super::*;
+
+    fn binding(identifier: &str) -> EquipmentBinding {
+        let reference = |identifier: &str| EquipmentReference {
+            identifier: identifier.into(),
+            resolution: EntityDependencyResolution::Catalog,
+        };
+        EquipmentBinding {
+            identifier: identifier.into(),
+            category: EquipmentCategory::Held,
+            geometry: reference("geometry.a"),
+            texture: reference("textures/entity/a"),
+            material: "entity".into(),
+            render_controller: "controller.render.a".into(),
+            first_person: EquipmentTransform::NeedsMeasurement,
+            third_person: EquipmentTransform::NeedsMeasurement,
+            dropped: EquipmentTransform::NeedsMeasurement,
+            poses: Box::new([]),
+        }
+    }
+
+    // Bindings sort and dedupe by identifier; a zero identity is refused.
+    #[test]
+    fn from_parts_sorts_dedupes_and_requires_an_identity() {
+        let catalog = RuntimeEquipmentCatalog::from_parts(
+            [1; 32],
+            vec![binding("b:item"), binding("a:item"), binding("b:item")],
+            Vec::new(),
+        )
+        .unwrap();
+        let identifiers = catalog
+            .bindings()
+            .iter()
+            .map(|binding| binding.identifier.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!(identifiers, ["a:item", "b:item"]);
+        assert!(catalog.binding("b:item").is_some());
+        assert!(
+            RuntimeEquipmentCatalog::from_parts([0; 32], vec![binding("a:item")], Vec::new())
                 .is_err()
         );
     }
