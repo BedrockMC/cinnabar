@@ -239,3 +239,23 @@ fn creative_hover_damps_harder_and_vertical_speed_scales_ascent() {
     };
     assert!(ascend(Some(2.0)) > ascend(None));
 }
+
+#[test]
+fn riding_freezes_player_motion_but_still_reports_a_tick() {
+    let world = empty(BlockPhysicsFlags::default());
+    let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+    state.velocity = Vec3::new(0.3, -0.5, 0.3);
+    let result = tick(
+        &mut state,
+        MovementInput {
+            mode: MovementMode::Riding,
+            forward: 1.0,
+            ..MovementInput::default()
+        },
+        &world,
+    );
+    assert_eq!(state.position, Vec3::new(0.5, 10.0, 0.5));
+    assert_eq!(result.movement, Vec3::ZERO);
+    assert_eq!(result.velocity, Vec3::ZERO);
+    assert_eq!(state.tick, 1);
+}
