@@ -144,6 +144,18 @@ impl ColumnSampler for StreamColumns<'_> {
 pub(crate) struct PrecipitationCadence {
     last_rebuild: Option<f64>,
     last_tick: u64,
+    eased_share: f32,
+}
+
+/// Biome (temperature, downfall) at a block position, when its chunk and biome are known.
+fn biome_climate(
+    stream: &WorldStream,
+    rules: &[BiomeRule],
+    position: [f32; 3],
+) -> Option<(f32, f32)> {
+    let id = stream.camera_biome_id(position)?;
+    let rule = &rules[rules.binary_search_by_key(&id, |rule| rule.id).ok()?];
+    Some((rule.temperature(), rule.downfall()))
 }
 
 /// Rebuilds the precipitation scene around the camera and queues rain splashes for the particle system.
@@ -154,6 +166,7 @@ pub(crate) fn update_precipitation_scene(
     time: Res<Time<Real>>,
     mut scene: ResMut<PrecipitationScene>,
     mut splashes: ResMut<RainSplashQueue>,
+    mut mix: ResMut<PrecipitationMix>,
     mut cadence: Local<PrecipitationCadence>,
 ) {
     let level = frame.rain_level();
@@ -166,27 +179,46 @@ pub(crate) fn update_precipitation_scene(
     ) else {
         scene.columns.clear();
         scene.level = 0.0;
+        *mix = PrecipitationMix::default();
+        cadence.eased_share = 0.0;
         cadence.last_rebuild = None;
         return;
     };
     let elapsed = time.elapsed_secs_f64();
-    scene.level = level;
     scene.clock = precipitation_clock(elapsed);
     if cadence
         .last_rebuild
         .is_none_or(|last| elapsed - last >= REBUILD_INTERVAL_SECONDS)
     {
         cadence.last_rebuild = Some(elapsed);
-        let mut columns = StreamColumns {
-            stream,
-            rules: &client_world.runtime_assets.biome_assets().rules,
+        let rules = &client_world.runtime_assets.biome_assets().rules;
+        let origin = camera.translation.to_array();
+        let samples = PRECIPITATION_SAMPLE_OFFSETS.map(|offset| {
+            let position = [
+                origin[0] + offset[0] as f32,
+                origin[1] + offset[1] as f32,
+                origin[2] + offset[2] as f32,
+            ];
+            biome_climate(stream, rules, position)
+                .map(|(temperature, downfall)| (temperature, downfall, position[1] as i32))
+        });
+        let averaged = average_precipitation(&samples);
+        *mix = PrecipitationMix {
+            rain: averaged.rain * level,
+            snow: averaged.snow * level,
         };
+        let mut columns = StreamColumns { stream, rules };
         build_precipitation_columns(
             &mut columns,
             camera.translation.to_array(),
             &mut scene.columns,
         );
     }
+    // Ease the sheet opacity so crossing a biome edge fades rather than pops.
+    let share = (mix.rain + mix.snow).min(level);
+    let blend = 1.0 - (-time.delta_secs() * 2.0).exp();
+    cadence.eased_share += (share - cadence.eased_share) * blend;
+    scene.level = cadence.eased_share;
     let tick = (elapsed * 20.0) as u64;
     if tick != cadence.last_tick {
         cadence.last_tick = tick;

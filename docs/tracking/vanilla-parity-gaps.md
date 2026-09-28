@@ -101,7 +101,7 @@ animated rig remotes use. All three below flow from that.
 - Panel palette/slot geometry already correct.
 
 ## World rendering / atmosphere (Bedrock target)
-- Weather precipitation: procedural rain/snow sheets, biome/height classification and per-column surface limits landed uncompiled; `weather.png` not yet carried, splash particles and bolt renderer unwired *(measure)*.
+- Weather precipitation: procedural rain/snow sheets, biome/height classification and per-column surface limits landed uncompiled; optional `make weather-assets` carrier supplies the vanilla rain band and End sky (procedural when absent); biome samples are averaged on a provisional 27-point lattice; additive bolt renderer and flash trigger from `lightning_bolt` actors landed; splash and rain-sound consumers (`RainSplashQueue`, `PrecipitationMix`) are unwired *(measure)*.
 - Particles — no system at all; block-break etc. absent (HIGH).
 - Daylight: eased celestial angle, day plateau and night transfer landed uncompiled; the shader night floors
   (`lighting.wgsl`, `chunk/gpu/upload/lighting.rs`, cloud) still clamp at 0.2/0.04 and must drop to `NIGHT_SKY_TRANSFER` (HIGH).
@@ -110,7 +110,7 @@ animated rig remotes use. All three below flow from that.
 - Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
   vanilla block/entity retexturing, custom entities, and merged sounds/ui consumption remain unapplied (HIGH).
-- Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky texture uncarried,
+- Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
