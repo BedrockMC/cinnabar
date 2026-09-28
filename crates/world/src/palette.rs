@@ -148,6 +148,74 @@ impl PalettedStorage {
         Self::new(0, Vec::new(), vec![runtime_id])
     }
 
+    /// Single-mutation form of [`Self::apply_runtime_updates`] with identical
+    /// canonical output, counting palette use instead of hashing every block.
+    pub(crate) fn apply_runtime_update(&mut self, linear: usize, runtime_id: u32) -> bool {
+        const MAX_COUNTED_PALETTE: usize = 256;
+        let old = &self.palette.values;
+        let Some(updated_index) = self
+            .palette_index(linear)
+            .filter(|&index| index < old.len())
+        else {
+            return self.apply_runtime_updates(&[(linear, runtime_id)]);
+        };
+        if old[updated_index] == runtime_id {
+            return false;
+        }
+        if old.len() > MAX_COUNTED_PALETTE {
+            return self.apply_runtime_updates(&[(linear, runtime_id)]);
+        }
+        let mut counts = [0_u16; MAX_COUNTED_PALETTE];
+        for position in 0..BLOCKS_PER_SUB_CHUNK {
+            match self.palette_index(position) {
+                Some(index) if index < old.len() => counts[index] += 1,
+                _ => return self.apply_runtime_updates(&[(linear, runtime_id)]),
+            }
+        }
+        counts[updated_index] -= 1;
+        let used = |value: u32| {
+            value == runtime_id
+                || old
+                    .iter()
+                    .zip(&counts)
+                    .any(|(&candidate, &count)| candidate == value && count != 0)
+        };
+        let mut values = Vec::with_capacity(old.len() + 1);
+        for &value in old.iter() {
+            if used(value) && !values.contains(&value) {
+                values.push(value);
+            }
+        }
+        if !values.contains(&runtime_id) {
+            values.push(runtime_id);
+        }
+        let position_of = |value: u32| {
+            values
+                .iter()
+                .position(|&candidate| candidate == value)
+                .unwrap_or(0)
+        };
+        let mut remap = [0_usize; MAX_COUNTED_PALETTE];
+        for (index, &value) in old.iter().enumerate() {
+            remap[index] = position_of(value);
+        }
+        let updated = position_of(runtime_id);
+        let bits_per_index = bits_for_palette_len(values.len());
+        let mut words = vec![0; word_count(bits_per_index)];
+        for position in 0..BLOCKS_PER_SUB_CHUNK {
+            let index = if position == linear {
+                updated
+            } else {
+                remap[self.palette_index(position).unwrap_or(0)]
+            };
+            write_palette_index(&mut words, bits_per_index, position, index);
+        }
+        self.bits_per_index = bits_per_index;
+        self.words = words.into_boxed_slice();
+        self.palette.values = values.into_boxed_slice();
+        true
+    }
+
     /// Applies a whole layer's final mutations with one palette-map build and
     /// one packed-word allocation, regardless of duplicate coordinates.
     pub(crate) fn apply_runtime_updates(&mut self, updates: &[(usize, u32)]) -> bool {
@@ -241,4 +309,53 @@ fn write_palette_index(words: &mut [u32], bits_per_index: u8, linear: usize, ind
     let shift = (linear % values_per_word) * bits;
     let mask = ((1_u32 << bits_per_index) - 1) << shift;
     *word = (*word & !mask) | (((index as u32) << shift) & mask);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The counted single-update path must reproduce the batch path's canonical storage.
+    #[test]
+    fn single_update_matches_batch_canonicalization() {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut cases = vec![PalettedStorage::uniform(7), PalettedStorage::uniform(0)];
+        for bits in PACKED_BITS {
+            for palette_len in [1_usize, 2, 3, 9, 40, 300] {
+                let palette_len = palette_len.min(1 << bits);
+                // Duplicates, unused entries and garbage padding stay non-canonical.
+                let palette = (0..palette_len).map(|_| (next() % 12) as u32).collect();
+                let words = (0..word_count(bits)).map(|_| next() as u32).collect();
+                let mut storage = PalettedStorage::new(bits, words, palette);
+                storage.zero_indices_at_or_above(palette_len);
+                cases.push(storage.clone());
+                let mut single_owner = storage.clone();
+                single_owner.apply_runtime_updates(&[(17, 99)]);
+                cases.push(single_owner);
+            }
+        }
+        for storage in cases {
+            for _ in 0..24 {
+                let linear = (next() % BLOCKS_PER_SUB_CHUNK as u64) as usize;
+                let runtime_id = match next() % 4 {
+                    0 => 99,
+                    _ => (next() % 14) as u32,
+                };
+                let mut batch = storage.clone();
+                let mut single = storage.clone();
+                let batch_changed = batch.apply_runtime_updates(&[(linear, runtime_id)]);
+                assert_eq!(
+                    single.apply_runtime_update(linear, runtime_id),
+                    batch_changed
+                );
+                assert_eq!(single, batch, "linear={linear} runtime_id={runtime_id}");
+            }
+        }
+    }
 }

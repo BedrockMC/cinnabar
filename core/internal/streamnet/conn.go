@@ -85,6 +85,21 @@ func (c *FramedConn) Write(b []byte) (int, error) {
 
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(b)))
+	if vectoredConn(c.Conn) {
+		buffers := net.Buffers{header[:], b}
+		written, err := buffers.WriteTo(c.Conn)
+		if err == nil && written < int64(len(header)+len(b)) {
+			// Windows sends net.Buffers with one WSASend that may complete short.
+			written, err = finishFrame(c.Conn, header[:], b, written)
+		}
+		if err == nil {
+			return len(b), nil
+		}
+		if written < int64(len(header)) {
+			return 0, fmt.Errorf("streamnet: write frame header: %w", classifyTerminalError(err))
+		}
+		return int(written) - len(header), fmt.Errorf("streamnet: write frame payload: %w", classifyTerminalError(err))
+	}
 	if _, err := writeFull(c.Conn, header[:]); err != nil {
 		return 0, fmt.Errorf("streamnet: write frame header: %w", classifyTerminalError(err))
 	}
@@ -165,6 +180,31 @@ func validateFrameLength64(length uint64) error {
 		return fmt.Errorf("%w: got %d bytes, maximum is %d", ErrFrameTooLarge, length, MaxFrameLen)
 	}
 	return nil
+}
+
+// vectoredConn reports conns whose net.Buffers path writes the frame in one
+// vectored call; a short completion is finished by the caller.
+func vectoredConn(conn net.Conn) bool {
+	switch conn.(type) {
+	case *net.UnixConn, *net.TCPConn:
+		return true
+	default:
+		return false
+	}
+}
+
+// finishFrame writes whatever part of header+payload a vectored write left and
+// returns the total bytes written.
+func finishFrame(w io.Writer, header, payload []byte, written int64) (int64, error) {
+	if written < int64(len(header)) {
+		n, err := writeFull(w, header[written:])
+		written += int64(n)
+		if err != nil {
+			return written, err
+		}
+	}
+	n, err := writeFull(w, payload[written-int64(len(header)):])
+	return written + int64(n), err
 }
 
 func writeFull(w io.Writer, p []byte) (int, error) {

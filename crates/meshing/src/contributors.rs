@@ -272,8 +272,42 @@ impl<'a> PaletteFacts<'a> {
         }
     }
 
+    /// Equals `contributors_at(..).geometry_entry()` without carrying the liquid entry.
     pub(crate) fn at(&self, x: usize, y: usize, z: usize) -> ResolvedPaletteEntry {
-        self.contributors_at(x, y, z).geometry_entry()
+        let PaletteSource::Mixed(storages) = &self.source else {
+            return self.contributors_at(x, y, z).geometry_entry();
+        };
+        let mut primary = None;
+        let mut liquid = None;
+        let mut diagnostic = None;
+        for storage in storages {
+            let Some(&entry) = packed_palette_index(storage.storage, x, y, z)
+                .and_then(|index| storage.entries.get(index))
+            else {
+                return ResolvedPaletteEntry::diagnostic(0, None);
+            };
+            if diagnostic.is_some() || entry.flags.contains(BlockFlags::AIR) {
+                continue;
+            }
+            match entry.contributor_role {
+                ContributorRole::Primary if primary.is_none() => primary = Some(entry),
+                ContributorRole::LiquidAdditional if matches!(entry.kind, VisualKind::Liquid) => {
+                    match liquid {
+                        None => liquid = Some(entry.network_value),
+                        Some(value) if value != entry.network_value => diagnostic = Some(entry),
+                        Some(_) => {}
+                    }
+                }
+                _ => diagnostic = Some(entry),
+            }
+        }
+        match (diagnostic, primary) {
+            (Some(entry), _) => {
+                ResolvedPaletteEntry::diagnostic(entry.network_value, entry.sequential_id)
+            }
+            (None, Some(entry)) => entry,
+            (None, None) => ResolvedPaletteEntry::AIR,
+        }
     }
 }
 
