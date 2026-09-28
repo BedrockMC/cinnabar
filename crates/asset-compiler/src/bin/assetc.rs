@@ -24,6 +24,8 @@ mod actor_command;
 mod audio_command;
 #[path = "assetc/audio_pcm_command.rs"]
 mod audio_pcm_command;
+#[path = "assetc/block_entity_command.rs"]
+mod block_entity_command;
 #[path = "assetc/equipment_command.rs"]
 mod equipment_command;
 #[path = "assetc/font_command.rs"]
@@ -40,8 +42,6 @@ mod output_validation;
 mod particle_command;
 #[path = "assetc/registry_version.rs"]
 mod registry_version;
-#[path = "assetc/block_entity_command.rs"]
-mod block_entity_command;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
 

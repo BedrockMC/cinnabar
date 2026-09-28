@@ -12,6 +12,7 @@ mod cloud_render;
 mod dropped_item;
 mod dropped_item_render;
 mod hand_rig_render;
+mod item_geometry;
 mod lightning;
 mod lightning_render;
 mod particles;
