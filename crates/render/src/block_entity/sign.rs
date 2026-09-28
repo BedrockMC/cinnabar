@@ -1,16 +1,16 @@
 //! Sign text: rasterized canvases mapped onto the board faces. The board and post are
 //! drawn by the block state.
 //!
-//! Face planes derive from the sign block's 2/3-scaled classic model; hanging-sign
-//! plane extents are provisional and need native measurement.
+//! Face planes follow the sign board boxes the terrain compiler emits (16x8 standing and wall
+//! boards, 14-wide hanging boards, one pixel thick); those extents need native measurement.
 
 use super::{
     atlas::AtlasRect,
     mesh::{Facing, Layer, MeshBuilder, WHITE, model_matrix},
 };
 
-/// Standing/wall board half-thickness after the 2/3 model scale, in pixels.
-const BOARD_HALF_DEPTH: f32 = 2.0 / 3.0;
+/// Board half-thickness in pixels.
+const BOARD_HALF_DEPTH: f32 = 0.5;
 /// Gap that keeps text in front of the board face.
 const TEXT_LIFT: f32 = 0.02;
 
@@ -56,7 +56,7 @@ pub(super) fn emit(builder: &mut MeshBuilder, block: [i32; 3], model: &SignModel
         SignMount::Standing { rotation_degrees } => (
             model_matrix(block, [0.5, 0.0, 0.5], 180.0 - rotation_degrees),
             Plane {
-                center_y: 13.333,
+                center_y: 11.0,
                 width: 16.0,
                 height: 8.0,
                 front_z: -BOARD_HALF_DEPTH,
@@ -66,31 +66,31 @@ pub(super) fn emit(builder: &mut MeshBuilder, block: [i32; 3], model: &SignModel
         SignMount::Wall(facing) => (
             model_matrix(block, [0.5, 0.0, 0.5], facing.yaw_degrees()),
             Plane {
-                center_y: 8.333,
+                center_y: 8.5,
                 width: 16.0,
                 height: 8.0,
-                front_z: 7.0 - BOARD_HALF_DEPTH,
+                front_z: 7.0,
                 back_z: None,
             },
         ),
         SignMount::Hanging { rotation_degrees } => (
             model_matrix(block, [0.5, 0.0, 0.5], 180.0 - rotation_degrees),
             Plane {
-                center_y: 5.5,
+                center_y: 7.0,
                 width: 14.0,
                 height: 7.0,
-                front_z: -1.0,
-                back_z: Some(1.0),
+                front_z: -BOARD_HALF_DEPTH,
+                back_z: Some(BOARD_HALF_DEPTH),
             },
         ),
         SignMount::HangingWall(facing) => (
             model_matrix(block, [0.5, 0.0, 0.5], facing.yaw_degrees()),
             Plane {
-                center_y: 5.5,
+                center_y: 7.0,
                 width: 14.0,
                 height: 7.0,
-                front_z: -1.0,
-                back_z: Some(1.0),
+                front_z: -BOARD_HALF_DEPTH,
+                back_z: Some(BOARD_HALF_DEPTH),
             },
         ),
     };
