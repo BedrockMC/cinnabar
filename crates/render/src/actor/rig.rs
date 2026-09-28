@@ -46,20 +46,36 @@ pub struct EntityRigId(pub u32);
 pub struct RenderBoneTransform {
     pub rotation: [f32; 4],
     pub translation_scale: [f32; 4],
+    /// Per-axis scale in the bone's own frame, applied with the uniform scale; `w` is unused.
+    pub axis_scale: [f32; 4],
 }
 
+/// Per-axis scale of a bone that scales only uniformly.
+pub const UNIT_AXIS_SCALE: [f32; 4] = [1.0; 4];
+
 impl RenderBoneTransform {
+    /// Whether every component is finite. A zero scale is valid: vanilla hides bones with it.
     #[must_use]
     pub fn is_finite(self) -> bool {
         self.rotation
             .iter()
             .chain(self.translation_scale.iter())
+            .chain(self.axis_scale.iter())
             .all(|value| value.is_finite())
-            && self.translation_scale[3] != 0.0
     }
 
     #[must_use]
     pub fn from_model_space(rotation: [f32; 4], translation_scale: [f32; 4]) -> Option<Self> {
+        Self::from_model_space_scaled(rotation, translation_scale, [1.0; 3])
+    }
+
+    /// Converts a pixel-space pose that also scales per axis in the bone's frame.
+    #[must_use]
+    pub fn from_model_space_scaled(
+        rotation: [f32; 4],
+        translation_scale: [f32; 4],
+        axis_scale: [f32; 3],
+    ) -> Option<Self> {
         let converted = Self {
             rotation,
             translation_scale: [
@@ -68,6 +84,7 @@ impl RenderBoneTransform {
                 translation_scale[2] / 16.0,
                 translation_scale[3],
             ],
+            axis_scale: [axis_scale[0], axis_scale[1], axis_scale[2], 1.0],
         };
         converted.is_finite().then_some(converted)
     }
@@ -585,11 +602,17 @@ fn geometry_from_runtime_assets(
             }
         }
     }
+    // Pivots share the vertices' rig frame, where authored X is mirrored.
     let bone_pivots = bones
         .iter()
         .map(|bone| {
-            bone.pivot
-                .map_or([0.0; 3], |pivot| pivot.map(|value| value.get() / 16.0))
+            bone.pivot.map_or([0.0; 3], |pivot| {
+                [
+                    -pivot[0].get() / 16.0,
+                    pivot[1].get() / 16.0,
+                    pivot[2].get() / 16.0,
+                ]
+            })
         })
         .collect::<Vec<_>>();
     ActorRigGeometry::new(
@@ -752,22 +775,24 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
         z * inverse_norm,
         w * inverse_norm,
     );
-    let scale = transform.translation_scale[3];
+    // Column c of the linear part carries the bone-frame scale on axis c.
+    let [sx, sy, sz] =
+        std::array::from_fn(|axis| transform.axis_scale[axis] * transform.translation_scale[3]);
     let rows = [
         [
-            (1.0 - 2.0 * (y * y + z * z)) * scale,
-            2.0 * (x * y - z * w) * scale,
-            2.0 * (x * z + y * w) * scale,
+            (1.0 - 2.0 * (y * y + z * z)) * sx,
+            2.0 * (x * y - z * w) * sy,
+            2.0 * (x * z + y * w) * sz,
         ],
         [
-            2.0 * (x * y + z * w) * scale,
-            (1.0 - 2.0 * (x * x + z * z)) * scale,
-            2.0 * (y * z - x * w) * scale,
+            2.0 * (x * y + z * w) * sx,
+            (1.0 - 2.0 * (x * x + z * z)) * sy,
+            2.0 * (y * z - x * w) * sz,
         ],
         [
-            2.0 * (x * z - y * w) * scale,
-            2.0 * (y * z + x * w) * scale,
-            (1.0 - 2.0 * (x * x + y * y)) * scale,
+            2.0 * (x * z - y * w) * sx,
+            2.0 * (y * z + x * w) * sy,
+            (1.0 - 2.0 * (x * x + y * y)) * sz,
         ],
     ];
     let rotated_pivot =

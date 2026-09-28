@@ -25,7 +25,24 @@ fn carrier_v4_rejects_every_extended_cross_index_relationship() {
     assert_mutation_rejected(|c| c.controller_states[0].first_transition = u32::MAX);
     assert_mutation_rejected(|c| c.controller_states[0].on_entry = Some(u32::MAX));
     assert_mutation_rejected(|c| c.controller_states[0].on_exit = Some(u32::MAX));
-    assert_mutation_rejected(|c| c.controller_animations[0].clip = u32::MAX);
+    assert_mutation_rejected(|c| {
+        c.controller_animations[0].target = entity::EntityControllerAnimationTarget::Clip(u32::MAX);
+    });
+    assert_mutation_rejected(|c| {
+        c.controller_animations[0].target =
+            entity::EntityControllerAnimationTarget::Controller(u32::MAX);
+    });
+    assert_mutation_rejected(|c| {
+        c.controller_animations[0].target = entity::EntityControllerAnimationTarget::Controller(0);
+    });
+    assert_mutation_rejected(|c| c.animation_keyframes[0].expressions[1] = Some(u32::MAX));
+    assert_mutation_rejected(|c| c.rig_bindings[0].initialize = Some(u32::MAX));
+    assert_mutation_rejected(|c| c.rig_bindings[0].pre_animation = Some(u32::MAX));
+    assert_mutation_rejected(|c| {
+        c.rig_bindings[0].scale = entity::EntityGeometryScalar::new(0.0).unwrap();
+    });
+    assert_mutation_rejected(|c| c.rig_animations[0].weight = Some(u32::MAX));
+    assert_mutation_rejected(|c| c.rig_controllers[0].weight = Some(u32::MAX));
     assert_mutation_rejected(|c| c.controller_animations[0].weight = Some(u32::MAX));
     assert_mutation_rejected(|c| c.controller_transitions[0].target_state = u16::MAX);
     assert_mutation_rejected(|c| c.controller_transitions[0].condition = u32::MAX);
@@ -191,7 +208,7 @@ fn carrier_v4_types_query_variable_and_temporary_symbol_references() {
 }
 
 #[test]
-fn carrier_v4_rejects_unlisted_queries_and_assignment_opcodes() {
+fn carrier_rejects_unlisted_queries_and_accepts_script_opcodes() {
     for query in [
         "query.anim_time",
         "query.life_time",
@@ -219,7 +236,10 @@ fn carrier_v4_rejects_unlisted_queries_and_assignment_opcodes() {
     assert!(compiled.validate().is_err());
 
     let encoded = r#"{"op":"store_variable","operand":2}"#;
-    assert!(serde_json::from_str::<MolangOp>(encoded).is_err());
+    assert_eq!(
+        serde_json::from_str::<MolangOp>(encoded).unwrap(),
+        MolangOp::StoreVariable(2)
+    );
 }
 
 #[test]
@@ -375,4 +395,75 @@ fn carrier_v4_preflights_nested_dependency_arrays_before_typed_allocation() {
 
     let error = RuntimeEntityAssets::decode(&excessive).unwrap_err();
     assert!(error.to_string().contains("count preflight"));
+}
+
+#[test]
+fn programs_validate_operand_kinds_branch_depths_and_loop_frames() {
+    use entity::{MolangBranch, MolangCall};
+    let one = entity::EntityGeometryScalar::new(1.0).unwrap();
+    let program = |ops: Vec<MolangOp>, max_stack: u8| {
+        move |c: &mut entity::CompiledEntityAssets| {
+            c.molang_expressions[0].op_count = ops.len() as u16;
+            c.molang_expressions[0].max_stack = max_stack;
+            c.molang_ops = ops.into_boxed_slice();
+        }
+    };
+    let accepted = |ops: Vec<MolangOp>, max_stack| {
+        let mut compiled = carrier_v4_fixture();
+        program(ops, max_stack)(&mut compiled);
+        compiled.validate().unwrap();
+    };
+    accepted(
+        vec![
+            MolangOp::Push(one),
+            MolangOp::StoreVariable(2),
+            MolangOp::Coalesce(MolangBranch {
+                symbol: 3,
+                target: 4,
+            }),
+            MolangOp::LoadThis,
+            MolangOp::Negate,
+        ],
+        1,
+    );
+    accepted(
+        vec![
+            MolangOp::Push(one),
+            MolangOp::LoopStart(3),
+            MolangOp::LoopNext(2),
+            MolangOp::Push(one),
+        ],
+        1,
+    );
+    accepted(
+        vec![MolangOp::Push(one), MolangOp::Return, MolangOp::Pop],
+        1,
+    );
+    assert_mutation_rejected(program(
+        vec![
+            MolangOp::Push(one),
+            MolangOp::StoreVariable(1),
+            MolangOp::Push(one),
+        ],
+        1,
+    ));
+    assert_mutation_rejected(program(
+        vec![MolangOp::CallQuery(MolangCall {
+            symbol: 2,
+            arguments: 0,
+        })],
+        1,
+    ));
+    assert_mutation_rejected(program(vec![MolangOp::Pop], 0));
+    assert_mutation_rejected(program(vec![MolangOp::Jump(9)], 0));
+    assert_mutation_rejected(program(vec![MolangOp::LoopNext(0), MolangOp::Push(one)], 1));
+    assert_mutation_rejected(program(
+        vec![
+            MolangOp::Push(one),
+            MolangOp::JumpIfFalse(4),
+            MolangOp::Push(one),
+            MolangOp::Push(one),
+        ],
+        2,
+    ));
 }

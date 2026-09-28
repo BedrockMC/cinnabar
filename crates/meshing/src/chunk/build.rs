@@ -112,6 +112,13 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             connectivity,
         };
     }
+    let lighting = crate::lighting::MeshLightingCache::new(
+        classifier,
+        visuals,
+        network_id_mode,
+        neighbourhood,
+        light_sampler,
+    );
     let neighbour_facts: [OnceCell<PaletteFacts<'_>>; Face::ALL.len()] =
         std::array::from_fn(|_| OnceCell::new());
     let palette_context = PaletteResolutionContext {
@@ -136,17 +143,12 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     *row |= visible << u;
                     if visible != 0 {
                         let coordinate = block_coordinate(face, slice, u, v);
-                        lighting_scratch[v * SIDE + u] =
-                            crate::lighting::bake_quad_lighting_with_sampler(
-                                classifier,
-                                visuals,
-                                network_id_mode,
-                                neighbourhood,
-                                light_sampler,
-                                coordinate.map(|value| value as i32),
-                                face,
-                                crate::lighting::cube_face_positions(face),
-                            );
+                        lighting_scratch[v * SIDE + u] = crate::lighting::bake_quad(
+                            &lighting,
+                            coordinate.map(|value| value as i32),
+                            face,
+                            crate::lighting::cube_face_positions(face),
+                        );
                     }
                 }
             }
@@ -288,12 +290,9 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                         let Ok(lighting_base_index) = u32::try_from(model_lighting.len()) else {
                             continue;
                         };
-                        let Some(lighting) = crate::lighting::bake_template_lighting_with_sampler(
-                            classifier,
+                        let Some(template_lighting) = crate::lighting::bake_template(
+                            &lighting,
                             visuals,
-                            network_id_mode,
-                            neighbourhood,
-                            light_sampler,
                             [x as i32, y as i32, z as i32],
                             part_template,
                             entry.variant & 3,
@@ -316,7 +315,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                             lighting_base_index,
                             visible_quad_mask,
                         ));
-                        model_lighting.extend(lighting);
+                        model_lighting.extend(template_lighting);
                         let mut remaining = visible_quad_mask;
                         while remaining != 0 {
                             let quad_index = remaining.trailing_zeros();
@@ -346,7 +345,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             visuals,
             network_id_mode,
             neighbourhood,
-            light_sampler,
+            &lighting,
         )
     } else {
         (Vec::new(), Vec::new())

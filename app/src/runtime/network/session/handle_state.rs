@@ -31,3 +31,26 @@ impl NetworkHandle {
         )
     }
 }
+
+/// Every packet a stub handle queued, in send order.
+#[cfg(test)]
+pub(crate) struct CapturedPackets(mpsc::Receiver<NetworkCommand>);
+
+#[cfg(test)]
+impl CapturedPackets {
+    pub(crate) fn drain(&mut self) -> Vec<Packet> {
+        std::iter::from_fn(|| self.0.try_recv().ok())
+            .map(|NetworkCommand::Send { packet, .. }| packet)
+            .collect()
+    }
+}
+
+#[cfg(test)]
+impl NetworkHandle {
+    pub(crate) fn stub_capturing_packets() -> (Self, CapturedPackets) {
+        let (mut handle, _) = NetworkHandle::stub();
+        let (commands, command_rx) = mpsc::channel(64);
+        handle.commands = commands;
+        (handle, CapturedPackets(command_rx))
+    }
+}

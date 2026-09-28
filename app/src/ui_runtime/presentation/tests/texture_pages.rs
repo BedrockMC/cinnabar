@@ -86,6 +86,28 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
 }
 
 #[test]
+fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
+    // A 1024-route ceiling is six 256px pages at the retained 18px pitch.
+    // This exercises the actual merged font/HUD/icon allocator, not a
+    // separately budgeted icon cache or a truncated prefix.
+    let font = independent_font(&[1024, 2048, 2048, 2048]);
+    let presentation = UiPresentationRuntime::with_hud_and_icons(
+        Arc::clone(&font),
+        fixture_hud(),
+        independent_icons(1024, 16),
+    )
+    .unwrap();
+    assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 1024);
+    assert!(presentation.textures.dynamic_start() < presentation.textures.pages().len());
+    assert!(presentation.textures.plan().bytes() <= 64 * 1024 * 1024);
+    assert!(
+        UiPresentationRuntime::with_hud_and_icons(font, fixture_hud(), independent_icons(900, 64))
+            .is_err(),
+        "an oversized merged catalog must refuse as a whole"
+    );
+}
+
+#[test]
 fn mixed_font_shadow_and_fill_keep_logical_page_order() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let mut runtime = UiRuntime::new(1);
@@ -163,13 +185,15 @@ fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity
     let stats = UiRenderStats::default();
     let mut scene = UiRenderScene::default();
     let mut previous_revision = 0;
-    for _ in 0..100 {
+    for frame in 0..100_u32 {
+        // Alternate sizes so every frame carries a changed payload.
+        let size = [800 + frame % 2, 600];
         let input = presentation
-            .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .build(&runtime, 0, size, DpiScale::new(1.0).unwrap())
             .unwrap();
         assert!(
             input.revision > previous_revision,
-            "actual producer assigns a new revision to each built frame"
+            "actual producer assigns a new revision to each changed frame"
         );
         previous_revision = input.revision;
         scene.publish(input.clone(), &stats).unwrap();
@@ -182,6 +206,35 @@ fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity
         let extracted = UiRenderScene::extract_resource(&scene);
         assert!(Arc::ptr_eq(extracted.input.as_ref().unwrap(), &publication));
     }
+}
+
+/// An unchanged frame must keep its revision and publication so the GPU upload fast path fires.
+#[test]
+fn unchanged_frames_keep_revision_and_accepted_publication() {
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let runtime = UiRuntime::new(1);
+    let stats = UiRenderStats::default();
+    let mut scene = UiRenderScene::default();
+    let build = |presentation: &mut UiPresentationRuntime, size| {
+        presentation
+            .build(&runtime, 0, size, DpiScale::new(1.0).unwrap())
+            .unwrap()
+    };
+    let first = build(&mut presentation, [800, 600]);
+    scene.publish(first.clone(), &stats).unwrap();
+    let publication = Arc::clone(scene.input.as_ref().unwrap());
+    for _ in 0..10 {
+        let again = build(&mut presentation, [800, 600]);
+        assert_eq!(again, first);
+        assert!(Arc::ptr_eq(&again.vertices, &first.vertices));
+        scene.publish(again, &stats).unwrap();
+        assert!(Arc::ptr_eq(scene.input.as_ref().unwrap(), &publication));
+    }
+    let resized = build(&mut presentation, [801, 600]);
+    assert_eq!(resized.revision, first.revision + 1);
+    let back = build(&mut presentation, [800, 600]);
+    assert_eq!(back.revision, resized.revision + 1);
+    assert_eq!(back.vertices, first.vertices);
 }
 
 #[test]

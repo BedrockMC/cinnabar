@@ -9,6 +9,7 @@ mod install_layout;
 mod interaction_authority;
 pub mod local_player;
 mod local_player_camera_receipt;
+mod melee;
 mod menu;
 pub mod metrics;
 mod mining;
@@ -20,6 +21,7 @@ pub mod server_camera;
 pub mod session_audio;
 mod session_cleanup;
 pub mod settings_runtime;
+mod survival_mining;
 pub mod ui_runtime;
 
 mod acceptance;

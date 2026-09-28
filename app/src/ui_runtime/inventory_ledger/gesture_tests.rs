@@ -136,12 +136,12 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
     let original = stack(44, 12);
     let original_overlay = overlay("split");
     let mut take = player_ledger(Some(original.clone()), None);
-    take.slot_overlays[0] = Some(original_overlay.clone());
+    take.set_confirmed_overlay(Cell::Inventory(0), original_overlay.clone());
 
     assert_eq!(take.begin_take_count(0, 5).unwrap(), -3);
-    let pending = take.pending.as_ref().unwrap();
+    let pending = take.newest_request().unwrap();
     assert!(matches!(
-        pending.action,
+        pending.actions[0],
         StackRequestAction::Take {
             amount: 5,
             source: protocol::StackRequestSlot {
@@ -158,21 +158,18 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
     assert_eq!(take.displayed_stack(0).unwrap().stack_network_id, 44);
     assert_eq!(take.cursor_stack().unwrap().count, 5);
     assert_eq!(take.cursor_stack().unwrap().stack_network_id, 44);
+    assert_eq!(take.presented_slot_overlay(0), Some(&original_overlay));
     assert_eq!(
-        pending.prediction.source_overlay,
-        Some(original_overlay.clone())
-    );
-    assert_eq!(
-        pending.prediction.destination_overlay,
-        Some(original_overlay.clone())
+        take.view().get(Cell::Cursor).unwrap().overlay.as_ref(),
+        Some(&original_overlay)
     );
 
     let mut place = player_ledger(None, Some(original));
-    place.cursor_overlay = Some(original_overlay.clone());
+    place.set_confirmed_overlay(Cell::Cursor, original_overlay.clone());
     assert_eq!(place.begin_place_count(0, 5).unwrap(), -3);
-    let pending = place.pending.as_ref().unwrap();
+    let pending = place.newest_request().unwrap();
     assert!(matches!(
-        pending.action,
+        pending.actions[0],
         StackRequestAction::Place {
             amount: 5,
             source: protocol::StackRequestSlot {
@@ -190,13 +187,10 @@ fn partial_take_and_place_split_counts_ids_and_overlays() {
     assert_eq!(place.displayed_stack(0).unwrap().count, 5);
     assert_eq!(place.displayed_stack(0).unwrap().stack_network_id, 44);
     assert_eq!(
-        pending.prediction.source_overlay,
-        Some(original_overlay.clone())
+        place.view().get(Cell::Cursor).unwrap().overlay.as_ref(),
+        Some(&original_overlay)
     );
-    assert_eq!(
-        pending.prediction.destination_overlay,
-        Some(original_overlay)
-    );
+    assert_eq!(place.presented_slot_overlay(0), Some(&original_overlay));
 }
 
 #[test]
@@ -207,8 +201,8 @@ fn full_count_operations_match_existing_take_and_place_predictions() {
     explicit_take.begin_take_count(0, 12).unwrap();
     click_take.begin_click(0).unwrap();
     assert_eq!(
-        explicit_take.pending.as_ref().unwrap().action,
-        click_take.pending.as_ref().unwrap().action
+        explicit_take.newest_request().unwrap().actions,
+        click_take.newest_request().unwrap().actions
     );
     assert_eq!(
         explicit_take.displayed_stack(0),
@@ -221,8 +215,8 @@ fn full_count_operations_match_existing_take_and_place_predictions() {
     explicit_place.begin_place_count(0, 12).unwrap();
     click_place.begin_click(0).unwrap();
     assert_eq!(
-        explicit_place.pending.as_ref().unwrap().action,
-        click_place.pending.as_ref().unwrap().action
+        explicit_place.newest_request().unwrap().actions,
+        click_place.newest_request().unwrap().actions
     );
     assert_eq!(
         explicit_place.displayed_stack(0),
@@ -241,7 +235,7 @@ fn invalid_amounts_and_occupied_destinations_are_atomic() {
             Err(InventoryGestureError::InvalidRequest)
         );
         assert_eq!(take.next_request_id, -3);
-        assert!(take.pending.is_none());
+        assert!(take.newest_request().is_none());
         assert_eq!(take.displayed_stack(0), Some(&original));
         assert!(take.cursor_stack().is_none());
     }
@@ -253,7 +247,7 @@ fn invalid_amounts_and_occupied_destinations_are_atomic() {
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(take_occupied.next_request_id, -3);
-    assert!(take_occupied.pending.is_none());
+    assert!(take_occupied.newest_request().is_none());
 
     let mut place_occupied = player_ledger(Some(occupied), Some(original.clone()));
     assert_eq!(
@@ -261,7 +255,7 @@ fn invalid_amounts_and_occupied_destinations_are_atomic() {
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(place_occupied.next_request_id, -3);
-    assert!(place_occupied.pending.is_none());
+    assert!(place_occupied.newest_request().is_none());
 
     let mut empty = player_ledger(None, None);
     assert_eq!(
@@ -281,7 +275,7 @@ fn invalid_amounts_and_occupied_destinations_are_atomic() {
             Err(InventoryGestureError::InvalidRequest)
         );
         assert_eq!(place.next_request_id, -3);
-        assert!(place.pending.is_none());
+        assert!(place.newest_request().is_none());
         assert_eq!(place.cursor_stack(), Some(&original));
         assert!(place.displayed_stack(0).is_none());
     }
@@ -453,13 +447,14 @@ fn accepted_partial_split_can_retain_source_identity_when_destination_is_reissue
 }
 
 #[test]
-fn rejection_timeout_and_busy_paths_keep_the_single_request_contract() {
+fn rejection_deletes_prediction_and_timeout_keeps_it_pending_refresh() {
     let original = stack(44, 12);
     let mut rejected = player_ledger(Some(original.clone()), None);
     let request = rejected.begin_take_count(0, 5).unwrap();
     assert_eq!(
         rejected.begin_take_count(0, 1),
-        Err(InventoryGestureError::Busy)
+        Err(InventoryGestureError::AwaitingIdentity),
+        "an unsettled split cannot be named in another request"
     );
     assert!(rejected.mark_transport_enqueued(10));
     rejected.apply(&response(
@@ -472,12 +467,36 @@ fn rejection_timeout_and_busy_paths_keep_the_single_request_contract() {
     assert!(!rejected.resync_required());
 
     let mut timed_out = player_ledger(None, Some(original.clone()));
-    timed_out.begin_place_count(0, 5).unwrap();
+    let request = timed_out.begin_place_count(0, 5).unwrap();
     assert!(timed_out.mark_transport_enqueued(10));
     timed_out.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-    assert_eq!(timed_out.cursor_stack(), Some(&original));
-    assert!(timed_out.displayed_stack(0).is_none());
+    assert_eq!(timed_out.cursor_stack().map(|stack| stack.count), Some(7));
+    assert_eq!(
+        timed_out.displayed_stack(0).map(|stack| stack.count),
+        Some(5)
+    );
     assert!(timed_out.resync_required());
+    // A late acceptance still settles the retained prediction.
+    timed_out.apply(&response(
+        request,
+        StackResponseStatus::Accepted,
+        vec![correction(
+            ContainerIdentity {
+                window_id: None,
+                slot_type: Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY),
+                dynamic_id: None,
+            },
+            0,
+            5,
+            45,
+        )],
+    ));
+    assert_eq!(timed_out.pending_request_count(), 0);
+    assert_eq!(timed_out.displayed_stack(0).unwrap().stack_network_id, 45);
+    assert!(
+        !timed_out.resync_required(),
+        "a clean late settle clears the timeout's recovery"
+    );
 }
 
 #[test]
@@ -488,11 +507,11 @@ fn storage_count_operations_bind_generation_and_close_or_reset_safely() {
     assert_eq!(take.storage_stack(2).unwrap().count, 5);
     assert_eq!(take.cursor_stack().unwrap().count, 3);
     assert_eq!(
-        take.pending.as_ref().unwrap().storage_generation,
+        take.newest_request().unwrap().storage_generation,
         take.storage_generation()
     );
     take.request_storage_close();
-    assert!(take.pending.is_none());
+    assert!(take.newest_request().is_none());
     assert!(take.storage_generation().is_none());
     assert!(take.cursor_stack().is_none());
 
@@ -501,7 +520,7 @@ fn storage_count_operations_bind_generation_and_close_or_reset_safely() {
     assert_eq!(place.cursor_stack().unwrap().count, 5);
     assert_eq!(place.storage_stack(2).unwrap().count, 3);
     place.begin_session(2);
-    assert!(place.pending.is_none());
+    assert!(place.newest_request().is_none());
     assert!(place.storage_generation().is_none());
     assert!(place.cursor_stack().is_none());
 
@@ -513,7 +532,7 @@ fn storage_count_operations_bind_generation_and_close_or_reset_safely() {
         window_type: GENERIC_STORAGE_WINDOW_TYPE,
         server_initiated: true,
     }));
-    assert!(admitted.pending.is_none());
+    assert!(admitted.newest_request().is_none());
     assert!(admitted.storage_generation().is_none());
     assert!(admitted.resync_required());
 }

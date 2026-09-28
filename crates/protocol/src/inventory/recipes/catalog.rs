@@ -60,6 +60,15 @@ impl RecipeCatalog {
             .iter()
             .flat_map(|storage| &storage.entries)
             .filter_map(|entry| entry.handle.as_ref().map(RecipeHandle::recipe))
+            .filter(|recipe| recipe.is_personal_named())
+    }
+
+    /// Every retained crafting-table recipe, any shape.
+    pub(super) fn crafting_recipes(&self) -> impl Iterator<Item = &RecipeHandle> {
+        self.storage
+            .iter()
+            .flat_map(|storage| &storage.entries)
+            .filter_map(|entry| entry.handle.as_ref())
     }
     pub(super) fn observation_entries(&self) -> impl Iterator<Item = (u32, &super::model::Recipe)> {
         self.storage
@@ -70,6 +79,7 @@ impl RecipeCatalog {
                     .handle
                     .as_ref()
                     .map(|handle| (entry.id, handle.recipe()))
+                    .filter(|(_, recipe)| recipe.is_personal_named())
             })
     }
     /// Every accepted FIFO update advances authority, including unavailable-only
@@ -175,7 +185,10 @@ mod tests {
                     recipe: Some(Recipe {
                         width: 1,
                         height: 1,
-                        ingredients: [None, None, None, None],
+                        shapeless: false,
+                        mirror: false,
+                        priority: 0,
+                        ingredients: std::array::from_fn(|_| None),
                         output: Output {
                             id: 7,
                             aux: 0,
@@ -292,7 +305,7 @@ mod tests {
 
     #[test]
     fn oversized_merged_catalog_releases_reserved_scratch_on_policy_return() {
-        let owner = Credits::isolated(2 * 1024 * 1024);
+        let owner = Credits::isolated(4 * 1024 * 1024);
         let mut catalog = RecipeCatalog::default();
         catalog.begin_session(1);
         let first = update(&owner, true);

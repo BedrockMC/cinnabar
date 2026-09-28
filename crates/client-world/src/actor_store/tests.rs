@@ -185,7 +185,8 @@ fn sleeping_player_network_position_uses_explicit_sleeping_metadata() {
 #[test]
 fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
     const EXTENDED_FLAGS_KEY: u32 = 92;
-    const EXTENDED_SLEEPING_BIT: u64 = 1 << 11;
+    // Sleeping is actor flag 76, bit 12 of the overflow word.
+    const EXTENDED_SLEEPING_BIT: u64 = 1 << 12;
 
     let mut store = ActorStore::new(1, 0);
     let ActorEvent::Spawn(mut spawn) = player_spawn(42, -7, 0.0) else {
@@ -199,6 +200,19 @@ fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
     store.apply(1, 2, network_move(42, 64.2, true));
 
     assert!((store.get(42).unwrap().position[1] - 64.0).abs() < 1e-5);
+
+    // The neighbouring overflow bit is a shield flag, not sleeping.
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut spawn) = player_spawn(42, -7, 0.0) else {
+        unreachable!();
+    };
+    spawn.metadata = Arc::from([ActorMetadata {
+        key: EXTENDED_FLAGS_KEY,
+        value: ActorMetadataValue::FlagsExtended(1 << 11),
+    }]);
+    store.apply(1, 1, ActorEvent::Spawn(spawn));
+    store.apply(1, 2, network_move(42, 64.2, true));
+    assert!((store.get(42).unwrap().position[1] - (64.2 - PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
 }
 
 #[test]
@@ -536,9 +550,18 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
 
     let actor = store.get(42).expect("stored actor");
     assert_eq!(actor.movement_revision, 2);
+    assert_eq!(actor.received_pose.position, [9.0, 2.0, 8.0]);
+    assert_eq!(actor.received_pose.pitch, 10.0);
+    assert_eq!(actor.on_ground, Some(true));
+    let mut interpolated = store.get(42).unwrap().clone();
+    let start = interpolated.position;
+    store.advance_interpolation_ticks(1);
+    interpolated = store.get(42).unwrap().clone();
+    assert!((interpolated.position[0] - (start[0] + (9.0 - start[0]) / 3.0)).abs() < 1.0e-5);
+    store.advance_interpolation_ticks(2);
+    let actor = store.get(42).expect("stored actor");
     assert_eq!(actor.position, [9.0, 2.0, 8.0]);
     assert_eq!(actor.pitch, 10.0);
-    assert_eq!(actor.on_ground, Some(true));
     assert_eq!(
         actor.metadata[&4],
         ActorMetadataValue::String("Beeatrice".into())
@@ -958,4 +981,73 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
         store.players[&[2; 16]].skin,
         PlayerSkin::Standard(_)
     ));
+}
+
+#[test]
+fn bounding_box_needs_positive_finite_width_and_height_metadata() {
+    let ActorEvent::Spawn(mut sized) = spawn(5, 50) else {
+        unreachable!();
+    };
+    sized.metadata = Arc::from([
+        ActorMetadata {
+            key: 53,
+            value: ActorMetadataValue::Float(0.6),
+        },
+        ActorMetadata {
+            key: 54,
+            value: ActorMetadataValue::Float(1.8),
+        },
+    ]);
+    let ActorEvent::Spawn(mut flat) = spawn(6, 60) else {
+        unreachable!();
+    };
+    flat.metadata = Arc::from([ActorMetadata {
+        key: 54,
+        value: ActorMetadataValue::Float(f32::NAN),
+    }]);
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, ActorEvent::Spawn(sized));
+    store.apply(1, 2, ActorEvent::Spawn(flat));
+
+    assert_eq!(
+        store.get(5).unwrap().bounding_box(),
+        Some(([0.7, 2.0, 2.7], [1.3, 3.8, 3.3]))
+    );
+    assert_eq!(store.get(6).unwrap().bounding_box(), None);
+    let mut ids = store
+        .actors()
+        .map(|actor| actor.runtime_id)
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    assert_eq!(ids, [5, 6]);
+}
+
+#[test]
+fn remote_rotation_steps_the_short_way_across_the_wrap() {
+    let mut store = ActorStore::new(11, 0);
+    store.apply(11, 1, spawn(42, -7));
+    let turn = |sequence, yaw| {
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 42,
+            position: [None; 3],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: Some(yaw),
+            head_yaw: Some(yaw),
+            on_ground: None,
+            teleported: false,
+            player_mode: None,
+            source_tick: Some(sequence),
+        })
+    };
+    store.apply(11, 2, turn(2, 170.0));
+    store.advance_interpolation_ticks(3);
+    assert_eq!(store.get(42).unwrap().yaw, 170.0);
+    store.apply(11, 3, turn(3, -170.0));
+    store.advance_interpolation_ticks(1);
+    let yaw = store.get(42).unwrap().yaw;
+    assert!((yaw - (170.0 + 20.0 / 3.0)).abs() < 1.0e-4, "{yaw}");
+    store.advance_interpolation_ticks(2);
+    assert_eq!(store.get(42).unwrap().head_yaw, -170.0);
 }

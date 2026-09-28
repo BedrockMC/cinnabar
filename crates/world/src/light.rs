@@ -1,5 +1,6 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
+use hashbrown::HashMap;
 use thiserror::Error;
 
 use crate::{ChunkKey, SubChunkKey};
@@ -472,7 +473,7 @@ struct StoredSubChunkLight {
 /// Immutable copy-on-write snapshot used by worker jobs.
 #[derive(Debug, Clone, Default)]
 pub struct LightStoreSnapshot {
-    entries: BTreeMap<SubChunkKey, StoredSubChunkLight>,
+    entries: HashMap<SubChunkKey, StoredSubChunkLight>,
 }
 
 impl LightStoreSnapshot {
@@ -508,7 +509,7 @@ impl LightStoreSnapshot {
 /// Sparse light store kept separate from palette-native block storage.
 #[derive(Debug, Default)]
 pub struct LightStore {
-    entries: BTreeMap<SubChunkKey, StoredSubChunkLight>,
+    entries: HashMap<SubChunkKey, StoredSubChunkLight>,
 }
 
 impl LightStore {
@@ -578,14 +579,16 @@ impl LightStore {
         self.entries.remove(&key).is_some()
     }
 
-    /// Removes all light state in one horizontal chunk column.
+    /// Removes all light state in one horizontal chunk column, returning the
+    /// removed keys in ascending order.
     pub fn evict_chunk(&mut self, key: ChunkKey) -> Vec<SubChunkKey> {
-        let removed = self
+        let mut removed = self
             .entries
             .keys()
             .copied()
             .filter(|candidate| candidate.chunk() == key)
             .collect::<Vec<_>>();
+        removed.sort_unstable();
         for candidate in &removed {
             self.entries.remove(candidate);
         }

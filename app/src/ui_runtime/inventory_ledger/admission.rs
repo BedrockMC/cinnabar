@@ -15,25 +15,30 @@ use protocol::{
     NetworkItemStack, SlotIdentity, project_container_cell,
 };
 
+use super::cells::{ARMOR_CELLS, CellSurface, FIRST_CRAFT_SLOT, Held};
 use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
 use super::{
-    Cell, CellSurface, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT,
-    NO_CONTAINER_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner,
-    PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
+    Cell, GENERIC_STORAGE_WINDOW_TYPE, LARGE_STORAGE_SLOT_COUNT, NO_CONTAINER_WINDOW_TYPE,
+    PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner, PlayerInventoryLedger,
+    SMALL_STORAGE_SLOT_COUNT, StorageWindow,
 };
 
 impl PlayerInventoryLedger {
     pub fn apply(&mut self, event: &InventoryEvent) {
+        self.admit(event);
+        self.refold();
+    }
+
+    fn admit(&mut self, event: &InventoryEvent) {
         match event {
             // Recipe execution is not activated by protocol admission alone.
             InventoryEvent::Recipes(_) => {}
             InventoryEvent::Authority(authority) => {
                 self.authority = Some(*authority);
                 if *authority != InventoryAuthority::Server {
-                    self.pending = None;
+                    self.queue.clear();
                     self.personal = None;
-                    self.cursor = None;
-                    self.cursor_overlay = None;
+                    self.confirmed.set(Cell::Cursor, None);
                     self.player_resync_required = false;
                     self.cursor_resync_required = false;
                     self.storage = None;
@@ -79,9 +84,9 @@ impl PlayerInventoryLedger {
                 }
                 if self.storage.as_ref().is_some_and(|storage| {
                     close.container.window_id == Some(storage.window_id)
-                        && close.window_type == GENERIC_STORAGE_WINDOW_TYPE
+                        && close.window_type == storage.window_type
                 }) {
-                    self.close_storage(false);
+                    self.close_storage();
                 }
             }
             InventoryEvent::Content(content) => self.apply_content(content),
@@ -89,6 +94,7 @@ impl PlayerInventoryLedger {
                 self.apply_slot_update(update.identity, &update.stack);
             }
             InventoryEvent::Response(event) => self.apply_response(event),
+            InventoryEvent::Creative(content) => self.creative = Some(content.clone()),
             _ => {}
         }
     }
@@ -104,43 +110,65 @@ impl PlayerInventoryLedger {
             }
             Some(CanonicalCell::PlayerInventory(_)) => {
                 let complete = content.slots.len() == PLAYER_INVENTORY_SLOT_COUNT;
-                let revision = self.take_authority_revision();
-                for index in 0..content.slots.len().min(PLAYER_INVENTORY_SLOT_COUNT) {
-                    self.slots[index] = content
-                        .slots
-                        .get(index)
-                        .filter(|stack| !stack.is_empty())
-                        .cloned();
-                    self.slot_overlays[index] = None;
+                for (index, stack) in content
+                    .slots
+                    .iter()
+                    .take(PLAYER_INVENTORY_SLOT_COUNT)
+                    .enumerate()
+                {
+                    self.confirmed
+                        .set(Cell::Inventory(index as u8), Held::new(stack));
                     self.known[index] = true;
-                    self.slot_revisions[index] = revision;
                 }
                 if complete {
                     self.player_resync_required = false;
-                    self.cancel_pending_for_authority(CellSurface::Player, None);
+                    self.surface_refreshed(CellSurface::Player);
                 }
             }
             Some(CanonicalCell::Cursor) => {
                 // The cursor holds exactly one cell; anything else is odd
                 // remote data addressed to the cursor surface.
-                if content.slots.len() == 1 {
-                    self.cursor = content
-                        .slots
-                        .first()
-                        .filter(|stack| !stack.is_empty())
-                        .cloned();
-                    self.cursor_overlay = None;
-                    self.cursor_revision = self.take_authority_revision();
+                if let [stack] = content.slots.as_ref() {
+                    self.confirmed.set(Cell::Cursor, Held::new(stack));
                     self.cursor_resync_required = false;
-                    self.cancel_pending_for_authority(CellSurface::Cursor, None);
+                    self.surface_refreshed(CellSurface::Cursor);
                 } else {
                     self.note_unrouted_container();
                 }
             }
-            // Armor and offhand rewrites resolve canonically but this ledger
-            // retains neither surface yet, so they stay counted skips.
+            Some(CanonicalCell::Armor(_)) => {
+                for (slot, stack) in content.slots.iter().take(ARMOR_CELLS).enumerate() {
+                    self.confirmed
+                        .set(Cell::Armor(slot as u8), Held::new(stack));
+                }
+                if content.slots.len() >= ARMOR_CELLS - 1 {
+                    self.armor_resync_required = false;
+                    self.surface_refreshed(CellSurface::Armor);
+                }
+            }
+            Some(CanonicalCell::Offhand) => {
+                if let [stack] = content.slots.as_ref() {
+                    self.confirmed.set(Cell::Offhand, Held::new(stack));
+                    self.offhand_resync_required = false;
+                    self.surface_refreshed(CellSurface::Offhand);
+                } else {
+                    self.note_unrouted_container();
+                }
+            }
+            None if protocol::is_personal_ui_inventory(&content.container)
+                && content.slots.len() == UI_INVENTORY_SLOT_COUNT =>
+            {
+                for slot in protocol::CRAFTING_INPUT_SLOTS {
+                    let stack = &content.slots[usize::from(slot)];
+                    self.confirmed.set(Cell::Craft(slot), Held::new(stack));
+                }
+                self.crafting_resync_required = false;
+                self.surface_refreshed(CellSurface::Crafting);
+            }
             Some(
-                CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_),
+                CanonicalCell::CraftInput(_)
+                | CanonicalCell::TableCraftInput(_)
+                | CanonicalCell::CreatedOutput,
             )
             | None => {
                 self.note_unrouted_container();
@@ -169,8 +197,12 @@ impl PlayerInventoryLedger {
             Some(CanonicalCell::Cursor) => "cursor",
             Some(CanonicalCell::Armor(_)) => "armor",
             Some(CanonicalCell::Offhand) => "offhand",
-            Some(CanonicalCell::CraftInput(_)) => "unrouted",
-            None => "unrouted",
+            Some(
+                CanonicalCell::CraftInput(_)
+                | CanonicalCell::TableCraftInput(_)
+                | CanonicalCell::CreatedOutput,
+            )
+            | None => "unrouted",
         };
         let (open_window_id, open_generation) =
             self.storage.as_ref().map_or((None, None), |storage| {
@@ -193,18 +225,19 @@ impl PlayerInventoryLedger {
     fn apply_slot_update(&mut self, identity: SlotIdentity, stack: &NetworkItemStack) {
         match project_container_cell(&identity.container, identity.slot) {
             Some(CanonicalCell::PlayerInventory(index)) => {
-                let index = usize::from(index);
-                self.slots[index] = (!stack.is_empty()).then(|| stack.clone());
-                self.slot_overlays[index] = None;
-                self.known[index] = true;
-                let revision = self.take_authority_revision();
-                self.slot_revisions[index] = revision;
+                self.confirmed.set(Cell::Inventory(index), Held::new(stack));
+                self.known[usize::from(index)] = true;
             }
+            // A single-cell surface is completely restated by one slot update.
             Some(CanonicalCell::Cursor) => {
-                self.cursor = (!stack.is_empty()).then(|| stack.clone());
-                self.cursor_overlay = None;
-                self.cursor_revision = self.take_authority_revision();
+                self.confirmed.set(Cell::Cursor, Held::new(stack));
                 self.cursor_resync_required = false;
+                self.surface_refreshed(CellSurface::Cursor);
+            }
+            Some(CanonicalCell::Offhand) => {
+                self.confirmed.set(Cell::Offhand, Held::new(stack));
+                self.offhand_resync_required = false;
+                self.surface_refreshed(CellSurface::Offhand);
             }
             Some(CanonicalCell::GenericStorage { slot, .. }) => {
                 self.apply_storage_slot(identity.container, slot, stack);
@@ -217,12 +250,20 @@ impl PlayerInventoryLedger {
             None if bare_storage_window_matches(self.storage.as_ref(), &identity.container) => {
                 self.apply_storage_slot(identity.container, identity.slot, stack);
             }
-            Some(
-                CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_),
-            )
-            | None => {
-                self.note_unrouted_container();
+            None if protocol::is_personal_ui_inventory(&identity.container)
+                && u8::try_from(identity.slot)
+                    .is_ok_and(|slot| protocol::CRAFTING_INPUT_SLOTS.contains(&slot)) =>
+            {
+                self.confirmed
+                    .set(Cell::Craft(identity.slot as u8), Held::new(stack));
             }
+            Some(canonical) => match fixed_cell(canonical) {
+                Some(cell) => {
+                    self.confirmed.set(cell, Held::new(stack));
+                }
+                None => self.note_unrouted_container(),
+            },
+            None => self.note_unrouted_container(),
         }
     }
 
@@ -238,13 +279,11 @@ impl PlayerInventoryLedger {
             CanonicalCell::PlayerInventory(index) => Some(Cell::Inventory(index)),
             CanonicalCell::Cursor => Some(Cell::Cursor),
             CanonicalCell::GenericStorage { slot, .. } => {
-                let storage = self.storage.as_ref()?;
-                if usize::from(slot) >= storage.slots.len() {
-                    return None;
-                }
-                Some(Cell::Storage(u8::try_from(slot).ok()?))
+                self.storage.as_ref()?;
+                let cell = Cell::Storage(u8::try_from(slot).ok()?);
+                self.confirmed.contains(cell).then_some(cell)
             }
-            CanonicalCell::Armor(_) | CanonicalCell::Offhand | CanonicalCell::CraftInput(_) => None,
+            canonical => fixed_cell(canonical),
         }
     }
 
@@ -267,23 +306,18 @@ impl PlayerInventoryLedger {
             }
             return;
         }
-        if self
-            .pending
-            .as_ref()
-            .is_some_and(|pending| pending.storage_generation.is_some())
-        {
-            if self.pending_state() == Some(super::InventoryPendingState::AwaitingResponse) {
-                self.require_authoritative_recovery();
-            } else {
-                self.rollback_pending();
-            }
-        }
+        self.abandon_requests(|pending| pending.storage_generation.is_some());
         let Some(window_id) = open.container.window_id else {
             return;
         };
-        if open.window_type != GENERIC_STORAGE_WINDOW_TYPE || !valid_storage_window_id(window_id) {
+        if !matches!(
+            open.window_type,
+            GENERIC_STORAGE_WINDOW_TYPE | super::WORKBENCH_WINDOW_TYPE
+        ) || !valid_storage_window_id(window_id)
+        {
             self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             self.storage = None;
+            self.confirmed.clear_storage();
             return;
         }
         self.remove_pending_close(window_id, open.window_type);
@@ -291,14 +325,13 @@ impl PlayerInventoryLedger {
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
         self.storage = Some(StorageWindow {
             window_id,
+            window_type: open.window_type,
             generation,
             identity: None,
-            slots: Vec::new(),
-            revisions: Vec::new(),
-            overlays: Vec::new(),
             resync_required: false,
             closing: false,
         });
+        self.confirmed.clear_storage();
     }
 
     fn apply_personal_open(&mut self, open: protocol::ContainerOpenEvent) {
@@ -356,8 +389,10 @@ impl PlayerInventoryLedger {
             return;
         };
         let window_id = storage.window_id;
-        let generation = storage.generation;
-        if identity.window_id != Some(window_id) {
+        // A workbench keeps its grid in the UI inventory, never here.
+        if identity.window_id != Some(window_id)
+            || storage.window_type != GENERIC_STORAGE_WINDOW_TYPE
+        {
             return;
         }
         if storage.identity.is_some_and(|current| current != identity) {
@@ -369,20 +404,14 @@ impl PlayerInventoryLedger {
                 GENERIC_STORAGE_WINDOW_TYPE,
                 PendingCloseOwner::Storage,
             );
-            self.close_storage(false);
+            self.close_storage();
             return;
         }
-        let revision = self.take_authority_revision();
         let storage = self.storage.as_mut().expect("storage remains active");
         storage.identity = Some(identity);
-        storage.slots = slots
-            .iter()
-            .map(|stack| (!stack.is_empty()).then(|| stack.clone()))
-            .collect();
-        storage.revisions = vec![revision; slots.len()];
-        storage.overlays = vec![None; slots.len()];
         storage.resync_required = false;
-        self.cancel_pending_for_authority(CellSurface::Storage, Some(generation));
+        self.confirmed.replace_storage(slots);
+        self.surface_refreshed(CellSurface::Storage);
     }
 
     fn apply_storage_slot(
@@ -397,26 +426,28 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return;
         };
-        if !super::helpers::storage_slot_identity_matches(storage, identity)
-            || usize::from(slot) >= storage.slots.len()
-        {
+        if !super::helpers::storage_slot_identity_matches(storage, identity) {
             return;
         }
-        let revision = self.take_authority_revision();
-        let storage = self.storage.as_mut().expect("storage remains active");
-        storage.slots[usize::from(slot)] = (!stack.is_empty()).then(|| stack.clone());
-        storage.revisions[usize::from(slot)] = revision;
-        storage.overlays[usize::from(slot)] = None;
+        if let Ok(slot) = u8::try_from(slot) {
+            self.confirmed.set(Cell::Storage(slot), Held::new(stack));
+        }
     }
+}
 
-    pub(super) fn pending_identity_mismatch(&self, identity: ContainerIdentity) -> bool {
-        self.pending
-            .as_ref()
-            .and_then(|pending| pending.storage_identity)
-            .is_none_or(|expected| {
-                identity.window_id.is_some()
-                    || expected.slot_type != identity.slot_type
-                    || expected.dynamic_id != identity.dynamic_id
-            })
-    }
+/// The personal UI inventory's full content length.
+const UI_INVENTORY_SLOT_COUNT: usize = 54;
+
+/// Maps a fixed armor, offhand or crafting canonical cell onto its ledger cell.
+fn fixed_cell(canonical: CanonicalCell) -> Option<Cell> {
+    Some(match canonical {
+        CanonicalCell::Armor(slot) => Cell::Armor(slot),
+        CanonicalCell::Offhand => Cell::Offhand,
+        CanonicalCell::CraftInput(index) => Cell::Craft(FIRST_CRAFT_SLOT + index),
+        CanonicalCell::TableCraftInput(index) => Cell::Craft(FIRST_CRAFT_SLOT + 4 + index),
+        CanonicalCell::CreatedOutput => Cell::CreatedOutput,
+        CanonicalCell::PlayerInventory(_)
+        | CanonicalCell::Cursor
+        | CanonicalCell::GenericStorage { .. } => return None,
+    })
 }

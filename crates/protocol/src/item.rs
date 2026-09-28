@@ -122,11 +122,69 @@ impl NetworkItemStack {
 /// `None` — presentation simply skips the durability bar.
 #[must_use]
 pub fn item_stack_damage(stack: &NetworkItemStack) -> Option<u32> {
-    if stack.extra_data.is_empty() {
+    item_extra_damage(&stack.extra_data)
+}
+
+/// [`item_stack_damage`] over a stack's raw extra data.
+#[must_use]
+pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
+    root_damage_tag(&decode_extra_nbt(extra_data)?)
+}
+
+/// Reads one enchantment's level from the root `ench` list of a stack's extra data.
+///
+/// Each entry is a compound of short `id` and short `lvl`; malformed data reads as `None`.
+#[must_use]
+pub fn item_enchantment_level(extra_data: &[u8], enchantment_id: i16) -> Option<u8> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut list = root_tag(&mut cursor, 9, b"ench")?;
+    if read_u8(&mut list)? != 10 {
         return None;
     }
-    let nbt = decode_extra_nbt(&stack.extra_data)?;
-    root_damage_tag(&nbt)
+    let count = usize::try_from(read_i32_le(&mut list)?).ok()?;
+    for _ in 0..count {
+        let (mut id, mut level) = (None, None);
+        loop {
+            let tag = read_u8(&mut list)?;
+            if tag == 0 {
+                break;
+            }
+            let name_len = usize::from(read_u16_le(&mut list)?);
+            let name = list.get(..name_len)?;
+            list = list.get(name_len..)?;
+            if tag == 2 && (name == b"id" || name == b"lvl") {
+                let value = i16::from_le_bytes(list.get(..2)?.try_into().ok()?);
+                *if name == b"id" { &mut id } else { &mut level } = Some(value);
+            }
+            skip_le_payload(&mut list, tag, 1)?;
+        }
+        if id == Some(enchantment_id) {
+            return level.and_then(|level| u8::try_from(level).ok());
+        }
+    }
+    None
+}
+
+/// Positions `cursor` at the payload of the named root tag of type `tag`.
+fn root_tag<'a>(cursor: &mut &'a [u8], tag: u8, wanted: &[u8]) -> Option<&'a [u8]> {
+    if read_u8(cursor)? != 10 {
+        return None;
+    }
+    skip_le_string(cursor)?;
+    loop {
+        let entry = read_u8(cursor)?;
+        if entry == 0 {
+            return None;
+        }
+        let name_len = usize::from(read_u16_le(cursor)?);
+        let name = cursor.get(..name_len)?;
+        *cursor = cursor.get(name_len..)?;
+        if entry == tag && name == wanted {
+            return Some(cursor);
+        }
+        skip_le_payload(cursor, entry, 0)?;
+    }
 }
 
 /// Extracts the root NBT compound from an item's user-data buffer.
@@ -262,6 +320,8 @@ pub struct ItemRegistryEntry {
     pub negotiated_max_stack_size: Option<u8>,
     /// Whether the component payload is the exact canonical empty compound.
     pub canonical_empty_component_data: bool,
+    /// Item tags a component-based entry declares for itself.
+    pub item_tags: Arc<[Arc<str>]>,
 }
 
 /// Returns the retail-positive item registry for the pinned Bedrock protocol.
@@ -289,6 +349,7 @@ pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
             component_digest: [0; 32],
             negotiated_max_stack_size: None,
             canonical_empty_component_data: true,
+            item_tags: std::sync::Arc::from([]),
         });
     }
     Arc::from(entries)
@@ -585,9 +646,14 @@ pub(crate) fn normalize_item_registry(
             network_id,
             component_based: item.is_component_based,
             version,
-            component_digest: Sha256::digest(component_bytes).into(),
+            component_digest: Sha256::digest(&component_bytes).into(),
             negotiated_max_stack_size,
             canonical_empty_component_data,
+            item_tags: if item.is_component_based {
+                registry_capacity::declared_item_tags(&component_bytes).into()
+            } else {
+                Arc::from([])
+            },
         });
     }
     Ok(ItemActorEvent::Registry(ItemRegistryEvent {

@@ -26,6 +26,7 @@ fn entry(
         component_digest: [network_id as u8; 32],
         negotiated_max_stack_size: negotiated,
         canonical_empty_component_data: canonical_empty,
+        item_tags: std::sync::Arc::from([]),
     }
 }
 
@@ -200,12 +201,12 @@ fn occupied_primary_moves_only_free_capacity_and_retains_both_identities() {
     let target = ten_zero_stack(6, 60, 60);
     let cursor = stack(6, 33, 33);
     let mut ledger = player_ledger(Some(apple_registry()), target.clone(), cursor.clone());
-    ledger.slot_overlays[0] = Some(StackResponseOverlay::default());
-    ledger.cursor_overlay = Some(StackResponseOverlay::default());
+    ledger.set_confirmed_overlay(Cell::Inventory(0), StackResponseOverlay::default());
+    ledger.set_confirmed_overlay(Cell::Cursor, StackResponseOverlay::default());
 
     assert_eq!(ledger.begin_click(0), Ok(-3));
     assert!(matches!(
-        ledger.pending.as_ref().map(|pending| &pending.action),
+        ledger.newest_action().as_ref(),
         Some(StackRequestAction::Place {
             amount: 4,
             source: protocol::StackRequestSlot {
@@ -243,7 +244,7 @@ fn explicit_occupied_counts_reject_zero_overflow_and_full_targets_atomically() {
             Err(InventoryGestureError::InvalidRequest)
         );
         assert_eq!(place.next_request_id, -3);
-        assert!(place.pending.is_none());
+        assert!(place.newest_request().is_none());
     }
 
     let mut take = player_ledger(Some(apple_registry()), stack(6, 33, 33), stack(6, 60, 60));
@@ -257,7 +258,7 @@ fn explicit_occupied_counts_reject_zero_overflow_and_full_targets_atomically() {
         Err(InventoryGestureError::InvalidRequest)
     );
     assert_eq!(full.next_request_id, -3);
-    assert!(full.pending.is_none());
+    assert!(full.newest_request().is_none());
 }
 
 #[test]
@@ -339,7 +340,7 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
             Err(InventoryGestureError::InvalidRequest)
         );
         assert_eq!(ledger.next_request_id, -3);
-        assert!(ledger.pending.is_none());
+        assert!(ledger.newest_request().is_none());
     }
 
     let unsupported_component = registry(vec![entry(6, "minecraft:apple", None, true, true)]);
@@ -367,10 +368,13 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
 
     let mut meaningful_overlay =
         player_ledger(Some(apple_registry()), stack(6, 60, 60), stack(6, 33, 3));
-    meaningful_overlay.slot_overlays[0] = Some(StackResponseOverlay {
-        custom_name: Some(Arc::from("named")),
-        ..StackResponseOverlay::default()
-    });
+    meaningful_overlay.set_confirmed_overlay(
+        Cell::Inventory(0),
+        StackResponseOverlay {
+            custom_name: Some(Arc::from("named")),
+            ..StackResponseOverlay::default()
+        },
+    );
     assert_eq!(
         meaningful_overlay.begin_click(0),
         Err(InventoryGestureError::InvalidRequest)
@@ -512,7 +516,7 @@ fn known_incompatible_primary_stays_swap_and_explicit_merge_is_rejected() {
     let mut click = player_ledger(Some(items.clone()), stack(8, 60, 1), stack(6, 33, 3));
     assert_eq!(click.begin_click(0), Ok(-3));
     assert!(matches!(
-        click.pending.as_ref().map(|pending| &pending.action),
+        click.newest_action().as_ref(),
         Some(StackRequestAction::Swap { .. })
     ));
 
@@ -521,12 +525,12 @@ fn known_incompatible_primary_stays_swap_and_explicit_merge_is_rejected() {
         explicit.begin_place_count(0, 1),
         Err(InventoryGestureError::InvalidRequest)
     );
-    assert!(explicit.pending.is_none());
+    assert!(explicit.newest_request().is_none());
 
     let mut unregistered = player_ledger(None, stack(8, 60, 1), stack(6, 33, 3));
     assert_eq!(unregistered.begin_click(0), Ok(-3));
     assert!(matches!(
-        unregistered.pending.as_ref().map(|pending| &pending.action),
+        unregistered.newest_action().as_ref(),
         Some(StackRequestAction::Swap { .. })
     ));
 }
@@ -573,15 +577,20 @@ fn accepted_partial_occupied_merge_requires_distinct_authoritative_identities() 
 }
 
 #[test]
-fn occupied_merge_timeout_and_newer_full_update_do_not_commit_stale_prediction() {
+fn occupied_merge_timeout_keeps_prediction_and_newer_update_skips_stale_merge() {
     let target = stack(6, 60, 60);
     let cursor = stack(6, 33, 33);
     let mut timed_out = player_ledger(Some(apple_registry()), target.clone(), cursor.clone());
     timed_out.begin_click(0).unwrap();
     assert!(timed_out.mark_transport_enqueued(10));
     timed_out.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-    assert_eq!(timed_out.displayed_stack(0), Some(&target));
-    assert_eq!(timed_out.cursor_stack(), Some(&cursor));
+    // A timeout never rolls back: the server may still apply the merge.
+    assert_eq!(
+        timed_out.displayed_stack(0).map(|stack| stack.count),
+        Some(64)
+    );
+    assert_eq!(timed_out.cursor_stack().map(|stack| stack.count), Some(29));
+    assert_eq!(timed_out.confirmed_stack(Cell::Inventory(0)), Some(&target));
     assert!(timed_out.resync_required());
 
     let mut raced = player_ledger(Some(apple_registry()), target, cursor.clone());
@@ -596,6 +605,8 @@ fn occupied_merge_timeout_and_newer_full_update_do_not_commit_stale_prediction()
         storage_item: NetworkItemStack::default(),
     }));
     raced.apply(&accepted_response(request));
+    // The stale merge no longer applies to the pushed stack, so its
+    // corrections are never grafted onto it.
     assert_eq!(raced.displayed_stack(0), Some(&current));
     assert_eq!(raced.cursor_stack(), Some(&cursor));
     assert!(raced.resync_required());

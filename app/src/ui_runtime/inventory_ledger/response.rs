@@ -1,38 +1,14 @@
-//! Authoritative item-stack responses plus the retained per-cell response
-//! overlay.
-//!
-//! An accepted correction is authoritative for its whole cell: beyond the
-//! count/stack-network-id corrections applied directly to the retained
-//! stack, the server's custom display names and durability damage are kept
-//! as one [`StackResponseOverlay`] keyed to that cell. The overlay travels
-//! with its predicted stack through a pending gesture. Each correction
-//! restates only what changed: empty name halves and nonpositive durability
-//! are the wire's unstated encodings, so they never fabricate facts — a
-//! field stays absent until some accepted correction states it, a stated
-//! value replaces an earlier one, an omitted field keeps what the cell
-//! already retained, and presentation falls back to local derivation for
-//! every absent field. That guarantee is scoped deliberately: a well-formed
-//! accepted correction that restates a changed positive stack-network id
-//! updates the retained stack in place, and this module does not claim that
-//! unstated overlay fields follow such an id change. Rejected requests roll
-//! back without writing one.
+//! Response correlation and the per-cell overlay of server-stated names and
+//! durability; unstated fields stay absent rather than defaulted.
 
 use std::sync::Arc;
 
-use protocol::{
-    CanonicalCell, ItemStackResponseEvent, StackResponseSlot, StackResponseStatus,
-    project_container_cell,
-};
+use protocol::{ItemStackResponseEvent, StackResponseSlot, StackResponseStatus};
 
 use super::{Cell, PlayerInventoryLedger};
 
-/// Authoritative presentation facts an accepted server correction attached
-/// to one inventory cell: custom display names plus the exact durability
-/// damage. Every field is `None` while unstated, so absent facts stay
-/// genuinely absent and presentation keeps its local derivation instead of
-/// reading a defaulted value as authoritative. The overlay never alters
-/// stack identity; replacing the cell through any other authoritative path
-/// drops it.
+/// Names and durability an accepted correction stated for one cell; `None`
+/// while unstated. Any other authoritative write to the cell drops it.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct StackResponseOverlay {
     /// Server-owned display name once a response states it.
@@ -49,263 +25,57 @@ impl PlayerInventoryLedger {
     /// slot, or `None` when no accepted correction currently describes it.
     #[must_use]
     pub fn slot_overlay(&self, slot: u8) -> Option<&StackResponseOverlay> {
-        self.slot_overlays.get(usize::from(slot))?.as_ref()
+        self.confirmed.get(Cell::Inventory(slot))?.overlay.as_ref()
     }
 
-    /// The response overlay presented for one player-inventory slot,
-    /// following the same predicted-versus-committed stack authority as
-    /// [`PlayerInventorySlot`](super::PlayerInventorySlot): while a gesture
-    /// involving that slot is in flight the travelling predicted half
-    /// presents beside the predicted stack, otherwise the committed overlay.
+    /// The overlay presented for one player-inventory slot: the one travelling
+    /// with its predicted stack while a request touches it.
     #[must_use]
     pub fn presented_slot_overlay(&self, slot: u8) -> Option<&StackResponseOverlay> {
-        let cell = Cell::Inventory(slot);
-        if let Some(predicted) = self.predicted_cell_overlay(cell) {
-            return predicted;
-        }
-        self.cell_overlay(cell)
+        self.view().get(Cell::Inventory(slot))?.overlay.as_ref()
     }
 
     /// The authoritative response overlay retained for the cursor cell.
     #[must_use]
     pub fn cursor_overlay(&self) -> Option<&StackResponseOverlay> {
-        self.cursor_overlay.as_ref()
+        self.confirmed.get(Cell::Cursor)?.overlay.as_ref()
     }
 
     /// The authoritative response overlay retained for one open generic
     /// storage slot.
     #[must_use]
     pub fn storage_slot_overlay(&self, slot: u8) -> Option<&StackResponseOverlay> {
-        let storage = self.storage.as_ref()?;
-        storage.overlays.get(usize::from(slot))?.as_ref()
+        self.confirmed.get(Cell::Storage(slot))?.overlay.as_ref()
     }
 
+    /// Resolves responses by request id. A rejection deletes its request's
+    /// groups; an acceptance waits for every predecessor before committing.
     pub(super) fn apply_response(&mut self, event: &ItemStackResponseEvent) {
-        self.reconcile_response(event);
-        // Whatever the outcome, the consuming path may have settled the last
-        // retained prediction of a locally closing window.
+        for response in event.responses.iter() {
+            let Some(index) = self.queue.iter().position(|pending| {
+                pending.request_id == response.request_id && pending.accepted.is_none()
+            }) else {
+                continue;
+            };
+            if response.status == StackResponseStatus::Accepted
+                && self.request_is_current(&self.queue[index])
+            {
+                self.queue[index].accepted = Some(Arc::clone(&response.containers));
+            } else {
+                self.queue.remove(index);
+            }
+            self.settle_accepted_heads();
+        }
+        self.refold();
+        // Settlement may have released the last request of a closing window.
         self.finish_closing();
-    }
-
-    fn reconcile_response(&mut self, event: &ItemStackResponseEvent) {
-        let Some(request_id) = self.pending_request_id() else {
-            return;
-        };
-        let Some(response) = event
-            .responses
-            .iter()
-            .find(|response| response.request_id == request_id)
-        else {
-            return;
-        };
-        let pending = self.pending.as_ref().expect("pending request exists");
-        if pending.session_generation != self.session_generation
-            || pending.personal_generation.is_some_and(|generation| {
-                self.personal
-                    .as_ref()
-                    .map(super::PersonalWindow::generation)
-                    != Some(generation)
-            })
-            || pending.storage_generation.is_some_and(|generation| {
-                self.storage.as_ref().map(|storage| storage.generation) != Some(generation)
-            })
-            || pending.storage_identity.is_some_and(|identity| {
-                self.storage.as_ref().and_then(|storage| storage.identity) != Some(identity)
-            })
-        {
-            self.pending = None;
-            return;
-        }
-        if response.status != StackResponseStatus::Accepted {
-            self.rollback_pending();
-            return;
-        }
-        if response.containers.iter().any(|container| {
-            matches!(
-                project_container_cell(&container.container, 0),
-                Some(CanonicalCell::GenericStorage { .. })
-            ) && self.pending_identity_mismatch(container.container)
-        }) {
-            self.require_authoritative_recovery();
-            return;
-        }
-        let prediction = &self
-            .pending
-            .as_ref()
-            .expect("the matching pending request was observed")
-            .prediction;
-        if self.cell_revision(prediction.source) != prediction.source_revision
-            || self.cell_revision(prediction.destination) != prediction.destination_revision
-        {
-            self.require_authoritative_recovery();
-            return;
-        }
-        if prediction.requires_distinct_stack_ids
-            && !self.response_separates_split_identities(response, prediction)
-        {
-            self.require_authoritative_recovery();
-            return;
-        }
-        let prediction = self
-            .pending
-            .take()
-            .expect("the matching pending request was observed")
-            .prediction;
-        self.set_cell(prediction.source, prediction.source_stack);
-        self.set_cell(prediction.destination, prediction.destination_stack);
-        // The predicted halves carry each travelling overlay so a moved stack
-        // keeps its retained identity across the gesture it participated in.
-        self.replace_cell_overlay(prediction.source, prediction.source_overlay);
-        self.replace_cell_overlay(prediction.destination, prediction.destination_overlay);
-        self.bump_cell_revision(prediction.source);
-        self.bump_cell_revision(prediction.destination);
-        for container in response.containers.iter() {
-            for correction in container.slots.iter() {
-                // Corrections address cells through the same canonical
-                // projection as ingress, bounded by each surface's exact
-                // retention; identities outside it are counted skips.
-                let Some(cell) =
-                    self.retained_response_cell(&container.container, u16::from(correction.slot))
-                else {
-                    self.note_unrouted_container();
-                    continue;
-                };
-                if correction.count == 0 {
-                    self.set_cell(cell, None);
-                } else if self.correct_stack_count(cell, correction.count, correction.item_stack_id)
-                {
-                    self.merge_cell_overlay(cell, correction);
-                } else {
-                    self.mark_cell_recovery(cell);
-                }
-                self.bump_cell_revision(cell);
-            }
-        }
-    }
-
-    fn response_separates_split_identities(
-        &self,
-        response: &protocol::StackResponse,
-        prediction: &super::Prediction,
-    ) -> bool {
-        let mut source = prediction
-            .source_stack
-            .as_ref()
-            .map(|stack| stack.stack_network_id);
-        let mut destination = prediction
-            .destination_stack
-            .as_ref()
-            .map(|stack| stack.stack_network_id);
-        for container in response.containers.iter() {
-            for correction in container.slots.iter() {
-                let Some(cell) =
-                    self.retained_response_cell(&container.container, u16::from(correction.slot))
-                else {
-                    continue;
-                };
-                let identity = match cell {
-                    cell if cell == prediction.source => &mut source,
-                    cell if cell == prediction.destination => &mut destination,
-                    _ => continue,
-                };
-                if correction.count == 0 {
-                    *identity = None;
-                } else if correction.item_stack_id > 0 {
-                    *identity = Some(correction.item_stack_id);
-                }
-            }
-        }
-        match (source, destination) {
-            (None, None) => true,
-            (Some(identity), None) | (None, Some(identity)) => identity > 0,
-            (Some(source), Some(destination)) => {
-                source > 0 && destination > 0 && source != destination
-            }
-        }
-    }
-
-    /// The committed overlay for one cell, ignoring any in-flight prediction.
-    pub(super) fn cell_overlay(&self, cell: Cell) -> Option<&StackResponseOverlay> {
-        match cell {
-            Cell::Inventory(slot) => self.slot_overlays.get(usize::from(slot))?.as_ref(),
-            Cell::Storage(slot) => {
-                let storage = self.storage.as_ref()?;
-                storage.overlays.get(usize::from(slot))?.as_ref()
-            }
-            Cell::Cursor => self.cursor_overlay.as_ref(),
-        }
-    }
-
-    /// Writes one cell's overlay outright, including clearing it with `None`.
-    pub(super) fn replace_cell_overlay(
-        &mut self,
-        cell: Cell,
-        overlay: Option<StackResponseOverlay>,
-    ) {
-        match cell {
-            Cell::Inventory(slot) => {
-                if let Some(entry) = self.slot_overlays.get_mut(usize::from(slot)) {
-                    *entry = overlay;
-                }
-            }
-            Cell::Storage(slot) => {
-                if let Some(storage) = self.storage.as_mut()
-                    && let Some(entry) = storage.overlays.get_mut(usize::from(slot))
-                {
-                    *entry = overlay;
-                }
-            }
-            Cell::Cursor => self.cursor_overlay = overlay,
-        }
-    }
-
-    pub(super) fn clear_cell_overlay(&mut self, cell: Cell) {
-        self.replace_cell_overlay(cell, None);
-    }
-
-    /// Restates one accepted correction onto the cell's retained overlay.
-    ///
-    /// Empty name halves and nonpositive durability values are read as
-    /// unstated rather than as erasures, so a lazy correction cannot strip a
-    /// previously accepted name or damage value from a stack that is still
-    /// present, and a first corrected cell keeps those fields genuinely
-    /// absent instead of defaulted.
-    fn merge_cell_overlay(&mut self, cell: Cell, correction: &StackResponseSlot) {
-        match cell {
-            Cell::Inventory(slot) => {
-                if let Some(entry) = self.slot_overlays.get_mut(usize::from(slot)) {
-                    merge_response_overlay(entry, correction);
-                }
-            }
-            Cell::Storage(slot) => {
-                if let Some(storage) = self.storage.as_mut()
-                    && let Some(entry) = storage.overlays.get_mut(usize::from(slot))
-                {
-                    merge_response_overlay(entry, correction);
-                }
-            }
-            Cell::Cursor => merge_response_overlay(&mut self.cursor_overlay, correction),
-        }
-    }
-
-    /// Applies the count/stack-network-id half of one accepted correction,
-    /// returning whether a retained stack existed to correct.
-    fn correct_stack_count(&mut self, cell: Cell, count: u8, item_stack_id: i32) -> bool {
-        let Some(stack) = self.cell_mut(cell) else {
-            return false;
-        };
-        stack.count = u16::from(count);
-        if item_stack_id > 0 {
-            stack.stack_network_id = item_stack_id;
-        }
-        true
     }
 }
 
 /// Merges one accepted correction into a cell's retained overlay, creating
 /// the overlay when this is the cell's first corrected response. Only stated
 /// fields are written, so a fresh overlay keeps unstated facts absent.
-fn merge_response_overlay(
+pub(super) fn merge_response_overlay(
     entry: &mut Option<StackResponseOverlay>,
     correction: &StackResponseSlot,
 ) {

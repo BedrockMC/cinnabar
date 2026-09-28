@@ -3,6 +3,40 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
+(pipelined in-order requests, prediction groups, vanilla container addressing),
+with 2x2 and crafting-table crafting, creative take, number-key swap and drops;
+not live-accepted. Provisional, labeled incomplete: item tag membership comes
+from Dragonfly's table and registry-declared tags are read from
+`components.item_tags` without a live capture; the workbench layout, shift-click
+destinations, drop bindings and CraftResultsDeprecated contents need
+independent confirmation; armor/offhand placement is server-decided;
+drag-distribute, double-click collect and workstation windows are missing.
+
+2026-09-28 actor animation: remote players and mobs animate through the vanilla
+controllers with full Molang evaluation; not visually accepted (facing, box-UV
+side faces and limb swing need a native capture). Provisional, labeled
+incomplete: motion-model constants, the 6-tick swing, the look clamp, gliding
+divisor, baby leg-speed factor, seeded variables and Molang math tolerances need
+independent measurement; `loop` is capped at 1024 (vanilla has no cap); undefined
+variables read 0; non-uniform parent scale over rotated children is approximated
+without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
+transitions, render-controller part visibility and per-axis rotation objects are
+missing; queries without retained data read idle values; held items and most mob
+artwork are deferred.
+
+2026-09-28 survival interaction: hold-to-mine (both block-breaking authority
+modes), MineBlock wear with reconciled responses, standalone ClickBlock
+placement, and melee with swings and missed-swing reporting are implemented but
+not live-accepted. Provisional, labeled incomplete: tool/harvest classes are
+Java-derived (PrismarineJS) and may predict early on Bedrock-specific tool rules;
+unresolved rows use the slowest rate; hardness is 1.26.30 data; flying is never
+detected; Unbreaking is not modelled; the destroy delay, completion threshold,
+pick ranges, server pick slack, entity pick radius, swing adjustments, placement
+repeat timings, attack-to-use block and bridging rule need independent
+measurement; replaceable, interactive and unpickable-entity lists are local
+choices. A vanilla packet capture must still confirm the attack swing count.
+
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
 lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
 null biome slots, per-entity tail skips, unknown ids to air/default biome, inline
@@ -2856,6 +2890,14 @@ and dropped-item rendering, paper-doll first-person arm/held item.
   Capture bounded native visual and packet/pose evidence.
 
 - [ ] **4.5 Held items, actions, dropped items, and viewmodel.** `P4.5-ITEM-ACTIONS`
+  - [x] Render supported ordinary opaque full-cube held blocks using the current
+    selected stack, world materials, and session-bound local presentation authority.
+    A live controlled check covered Stone, distinct crafting-table faces, empty-slot
+    and unsupported-item fallback, resize, and reconnect. Current GPU completion
+    suppresses only the matching CPU fallback; rejected or stale submissions retain it.
+    This is a static geometry slice, not complete item, pose, animation, lighting,
+    or matched retail visual parity. Tinted, animated, partial, and unsupported
+    items remain on the existing fallback path.
 
 ## Phase 5 — Interaction, inventory, UI
 

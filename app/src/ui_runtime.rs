@@ -29,6 +29,8 @@ pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
 
 pub(crate) use gameplay_authority::drain_inventory_authority;
 pub use interaction::FastTransferAction;
+#[cfg(test)]
+pub(crate) use interaction::dispatch_inventory_click;
 pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
 #[cfg(test)]
 use interaction::{
@@ -192,6 +194,7 @@ pub struct UiRuntime {
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
     inventory_pointer_gui: Option<[f32; 2]>,
+    inventory_keys: interaction::InventoryKeys,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -268,6 +271,7 @@ impl UiRuntime {
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
             inventory_pointer_gui: None,
+            inventory_keys: interaction::InventoryKeys::default(),
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,

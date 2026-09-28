@@ -66,6 +66,13 @@ struct ActiveEffect {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MiningEffects {
+    pub(crate) haste: Option<i32>,
+    pub(crate) mining_fatigue: Option<i32>,
+    pub(crate) conduit_power: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct MovementEffectDiagnostics {
     pub(crate) stale_or_wrong_session: u64,
     pub(crate) unknown_effect_or_action: u64,
@@ -78,8 +85,7 @@ pub(crate) struct MovementEffectDiagnostics {
 /// only when local fixed-step prediction successfully commits a tick. Packet
 /// ticks remain correlation metadata and deliberately do not schedule or
 /// expire an effect in the local prediction clock.
-/// Haste, Mining Fatigue, and Conduit Power are retained without interpreting
-/// their signed amplifiers or applying any mining or movement calculation.
+/// Haste, Mining Fatigue, and Conduit Power are retained for destroy-rate prediction.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct LocalMovementEffectTimeline {
     session_generation: u64,
@@ -148,6 +154,17 @@ impl LocalMovementEffectTimeline {
                 self.diagnostics.unknown_effect_or_action =
                     self.diagnostics.unknown_effect_or_action.saturating_add(1);
             }
+        }
+    }
+
+    /// Wire amplifiers of the effects that scale destroy speed.
+    pub(crate) fn mining_effects(&self) -> MiningEffects {
+        let amplifier =
+            |effect: TrackedEffect| self.active[effect.index()].map(|effect| effect.amplifier);
+        MiningEffects {
+            haste: amplifier(TrackedEffect::Haste),
+            mining_fatigue: amplifier(TrackedEffect::MiningFatigue),
+            conduit_power: amplifier(TrackedEffect::ConduitPower),
         }
     }
 

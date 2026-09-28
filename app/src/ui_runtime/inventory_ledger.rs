@@ -1,12 +1,19 @@
 //! Server-authoritative player-inventory gestures.
 //!
-//! This first tranche deliberately owns one request at a time. It predicts only
-//! the two touched cells and never queues a second gesture behind an in-flight
-//! request.
+//! Requests pipeline up to [`queue::MAX_PENDING_REQUESTS`] deep. Each one
+//! contributes delta groups folded over confirmed server truth in queue order;
+//! responses settle strictly in wire order and a rejection simply deletes its
+//! groups.
 
 use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
+mod cells;
+mod crafting;
+#[cfg(test)]
+mod crafting_tests;
+#[cfg(test)]
+mod fixed_window_tests;
 mod gesture;
 #[cfg(test)]
 mod gesture_tests;
@@ -15,19 +22,31 @@ mod helpers;
 mod lifecycle_tests;
 #[cfg(test)]
 mod merge_tests;
+mod moves;
+#[cfg(test)]
+mod moves_tests;
+mod overlay;
+#[cfg(test)]
+mod overlay_tests;
 mod personal;
+mod queue;
 mod registry;
 mod response;
 
+use cells::{Cell, CellSurface, Cells};
+pub use crafting::{CraftGridCell, CraftingGrid, CreativeDestination};
+pub use gesture::{CellGesture, InventoryTarget};
+pub use moves::DropSource;
 use personal::PersonalWindow;
+pub use queue::MAX_PENDING_REQUESTS;
+use queue::PendingRequest;
 pub use response::StackResponseOverlay;
 
-use helpers::{cell_surface, valid_raw_window_id};
+use helpers::valid_raw_window_id;
 
 use protocol::{
     ContainerIdentity, InventoryAuthority, ItemRegistryEntry, NetworkItemStack, Packet,
-    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
-    item_stack_request_packet, open_inventory_packet,
+    container_close_packet, item_stack_request_packet, open_inventory_packet,
 };
 use thiserror::Error;
 
@@ -40,6 +59,8 @@ const MAX_PENDING_CLOSES: usize = 8;
 /// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
 pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
+/// The crafting-table window; its 3x3 grid lives in UI slots 32..=40.
+pub const WORKBENCH_WINDOW_TYPE: i8 = 1;
 pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
 /// A close acknowledgement sent after the addressed window no longer exists.
 const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
@@ -66,24 +87,18 @@ pub enum PlayerInventorySlot<'a> {
     /// The exact authoritative or predicted stack currently present in this slot.
     Present(&'a NetworkItemStack),
 }
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum Cell {
-    Inventory(u8),
-    Storage(u8),
-    Cursor,
-}
 
+/// Open generic-storage window metadata; its cells live in [`Cells`].
 #[derive(Debug, Clone)]
 struct StorageWindow {
     window_id: i32,
+    /// Generic storage or workbench.
+    window_type: i8,
     generation: u64,
     identity: Option<ContainerIdentity>,
-    slots: Vec<Option<NetworkItemStack>>,
-    revisions: Vec<u64>,
-    overlays: Vec<Option<StackResponseOverlay>>,
     resync_required: bool,
-    /// Set by a local close while one admitted prediction still awaits its
-    /// response, retaining the generation and journal it reconciles against.
+    /// Set by a local close while admitted predictions still await their
+    /// responses, retaining the generation they reconcile against.
     closing: bool,
 }
 
@@ -118,47 +133,6 @@ impl PendingCloseOwner {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum CellSurface {
-    Player,
-    Storage,
-    Cursor,
-}
-
-#[derive(Debug, Clone)]
-struct Prediction {
-    source: Cell,
-    source_stack: Option<NetworkItemStack>,
-    source_revision: u64,
-    destination: Cell,
-    destination_stack: Option<NetworkItemStack>,
-    destination_revision: u64,
-    /// The response overlay travelling with each predicted half so a moved
-    /// stack keeps its retained identity until the server restates it.
-    source_overlay: Option<StackResponseOverlay>,
-    destination_overlay: Option<StackResponseOverlay>,
-    /// A partial transfer temporarily presents two halves with the source's
-    /// retained identity. An accepted response must separate those
-    /// identities before either half becomes reusable authority.
-    requires_distinct_stack_ids: bool,
-    /// This prediction merged two occupied stacks using the session registry.
-    registry_bound_merge: bool,
-}
-
-#[derive(Debug, Clone)]
-struct PendingRequest {
-    request_id: i32,
-    action: StackRequestAction,
-    prediction: Prediction,
-    state: InventoryPendingState,
-    transport_deadline_millis: Option<u64>,
-    deadline_millis: Option<u64>,
-    session_generation: u64,
-    storage_generation: Option<u64>,
-    personal_generation: Option<u64>,
-    storage_identity: Option<ContainerIdentity>,
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Error)]
 pub enum InventoryGestureError {
     #[error("server-authoritative inventory is not active")]
@@ -171,8 +145,10 @@ pub enum InventoryGestureError {
     InvalidStorageSlot(u8),
     #[error("player inventory slot {0} is not known yet")]
     UnknownSlot(u8),
-    #[error("an inventory request is already in flight")]
+    #[error("the inventory request queue is full")]
     Busy,
+    #[error("a touched stack has no settled server identity yet")]
+    AwaitingIdentity,
     #[error("both the cursor and selected inventory slot are empty")]
     EmptyGesture,
     #[error("inventory is waiting for an authoritative resync")]
@@ -184,16 +160,14 @@ pub enum InventoryGestureError {
 #[derive(Debug, Clone)]
 pub struct PlayerInventoryLedger {
     authority: Option<InventoryAuthority>,
-    slots: [Option<NetworkItemStack>; PLAYER_INVENTORY_SLOT_COUNT],
+    /// Server truth only; predictions never write here.
+    confirmed: Cells,
+    /// `confirmed` with pending groups folded on top; `None` while idle.
+    view: Option<Cells>,
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
-    slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
-    slot_overlays: [Option<StackResponseOverlay>; PLAYER_INVENTORY_SLOT_COUNT],
-    cursor: Option<NetworkItemStack>,
-    cursor_overlay: Option<StackResponseOverlay>,
-    cursor_revision: u64,
     item_registry: Option<BTreeMap<i32, ItemRegistryEntry>>,
-    next_authority_revision: u64,
-    pending: Option<PendingRequest>,
+    creative: Option<protocol::CreativeContentEvent>,
+    queue: VecDeque<PendingRequest>,
     next_request_id: i32,
     session_generation: u64,
     next_open_generation: u64,
@@ -203,12 +177,13 @@ pub struct PlayerInventoryLedger {
     pending_closes: VecDeque<PendingClose>,
     player_resync_required: bool,
     cursor_resync_required: bool,
+    armor_resync_required: bool,
+    offhand_resync_required: bool,
+    crafting_resync_required: bool,
     storage_content_traces_remaining: u8,
     /// Well-formed authoritative inventory traffic whose container identity
-    /// did not resolve onto a retained canonical ledger cell: unknown
-    /// container codes, unreviewed surfaces (armor, offhand), or indices
-    /// outside every mapped surface. Typed counted leniency — these events
-    /// mutate nothing and never end the session.
+    /// did not resolve onto a retained canonical ledger cell. Typed counted
+    /// leniency: these events mutate nothing and never end the session.
     skipped_unknown_containers: u64,
 }
 
@@ -216,16 +191,12 @@ impl Default for PlayerInventoryLedger {
     fn default() -> Self {
         Self {
             authority: None,
-            slots: std::array::from_fn(|_| None),
+            confirmed: Cells::default(),
+            view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
-            slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
-            slot_overlays: std::array::from_fn(|_| None),
-            cursor: None,
-            cursor_overlay: None,
-            cursor_revision: 0,
             item_registry: None,
-            next_authority_revision: 1,
-            pending: None,
+            creative: None,
+            queue: VecDeque::new(),
             next_request_id: -3,
             session_generation: 0,
             next_open_generation: 1,
@@ -235,6 +206,9 @@ impl Default for PlayerInventoryLedger {
             pending_closes: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
+            armor_resync_required: false,
+            offhand_resync_required: false,
+            crafting_resync_required: false,
             storage_content_traces_remaining: MAX_STORAGE_CONTENT_TRACES,
             skipped_unknown_containers: 0,
         }
@@ -253,35 +227,44 @@ impl PlayerInventoryLedger {
     /// `None` means the requested slot is outside the player inventory.
     #[must_use]
     pub fn slot_state(&self, slot: u8) -> Option<PlayerInventorySlot<'_>> {
-        let index = usize::from(slot);
-        if !*self.known.get(index)? {
+        if !*self.known.get(usize::from(slot))? {
             return Some(PlayerInventorySlot::Unknown);
         }
-        let cell = Cell::Inventory(slot);
-        Some(
-            match self.predicted_cell(cell).unwrap_or_else(|| self.cell(cell)) {
-                Some(stack) => PlayerInventorySlot::Present(stack),
-                None => PlayerInventorySlot::Empty,
-            },
-        )
+        Some(match self.view_stack(Cell::Inventory(slot)) {
+            Some(stack) => PlayerInventorySlot::Present(stack),
+            None => PlayerInventorySlot::Empty,
+        })
     }
 
     #[must_use]
     pub fn displayed_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
-        if usize::from(slot) >= PLAYER_INVENTORY_SLOT_COUNT {
-            return None;
-        }
-        let cell = Cell::Inventory(slot);
-        self.predicted_cell(cell)
-            .unwrap_or_else(|| self.cell(cell))
-            .filter(|stack| !stack.is_empty())
+        self.view_stack(Cell::Inventory(slot))
     }
 
     #[must_use]
     pub fn cursor_stack(&self) -> Option<&NetworkItemStack> {
-        self.predicted_cell(Cell::Cursor)
-            .unwrap_or_else(|| self.cell(Cell::Cursor))
-            .filter(|stack| !stack.is_empty())
+        self.view_stack(Cell::Cursor)
+    }
+
+    #[must_use]
+    pub fn storage_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+        self.view_stack(Cell::Storage(slot))
+    }
+
+    /// The presented stack in any gesture target, including armor, offhand
+    /// and crafting cells.
+    #[must_use]
+    pub fn target_stack(&self, target: InventoryTarget) -> Option<&NetworkItemStack> {
+        self.view_stack(target.cell())
+    }
+
+    #[must_use]
+    pub fn created_output_stack(&self) -> Option<&NetworkItemStack> {
+        self.view_stack(Cell::CreatedOutput)
+    }
+
+    fn view_stack(&self, cell: Cell) -> Option<&NetworkItemStack> {
+        self.view().get(cell).map(|held| &held.stack)
     }
 
     #[must_use]
@@ -296,60 +279,116 @@ impl PlayerInventoryLedger {
 
     #[must_use]
     pub fn storage_slot_count(&self) -> Option<usize> {
-        let storage = self.storage.as_ref()?;
-        storage.identity.map(|_| storage.slots.len())
+        self.storage
+            .as_ref()?
+            .identity
+            .map(|_| self.confirmed.storage_len())
     }
 
-    #[must_use]
-    pub fn storage_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
-        let cell = Cell::Storage(slot);
-        self.predicted_cell(cell)
-            .unwrap_or_else(|| self.cell(cell))
-            .filter(|stack| !stack.is_empty())
-    }
-
+    /// The state of the oldest unresolved request.
     #[must_use]
     pub fn pending_state(&self) -> Option<InventoryPendingState> {
-        self.pending.as_ref().map(|pending| pending.state)
+        self.gestures().next().map(|pending| pending.state)
+    }
+
+    /// Queued gesture requests; mining requests ride player input instead.
+    fn gestures(&self) -> impl Iterator<Item = &PendingRequest> {
+        self.queue.iter().filter(|pending| pending.mining.is_none())
+    }
+
+    /// The oldest unresolved request id.
+    #[must_use]
+    pub fn pending_request_id(&self) -> Option<i32> {
+        self.gestures().next().map(|pending| pending.request_id)
     }
 
     #[must_use]
-    pub fn pending_request_id(&self) -> Option<i32> {
-        self.pending.as_ref().map(|pending| pending.request_id)
+    pub fn pending_request_count(&self) -> usize {
+        self.gestures().count()
+    }
+
+    /// Queues a mine-block prediction for hotbar `slot` and returns the id its
+    /// PlayerAuthInput carries; `None` sends the break without a request.
+    pub fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
+        self.enqueue_mining(slot, predicted_damage)
+    }
+
+    /// Forgets a mining request whose input never left, so it cannot hold back later answers.
+    pub fn cancel_mining_request(&mut self, request_id: i32) {
+        self.remove_unanswered_mining(request_id);
+    }
+
+    /// The newest outstanding mining prediction for `slot`, else its last
+    /// accepted damage.
+    #[must_use]
+    pub fn predicted_slot_damage(&self, slot: u8) -> Option<i32> {
+        self.queue
+            .iter()
+            .rev()
+            .filter_map(|pending| pending.mining)
+            .find(|mining| mining.slot == slot)
+            .map(|mining| mining.damage)
+            .or_else(|| self.slot_overlay(slot)?.durability_correction)
     }
 
     #[must_use]
     pub fn slot_pending(&self, slot: u8) -> bool {
-        let cell = Cell::Inventory(slot);
-        self.pending.as_ref().is_some_and(|pending| {
-            pending.prediction.source == cell || pending.prediction.destination == cell
-        })
+        self.cell_pending(Cell::Inventory(slot))
     }
 
     #[must_use]
     pub fn storage_slot_pending(&self, slot: u8) -> bool {
-        let cell = Cell::Storage(slot);
-        self.pending.as_ref().is_some_and(|pending| {
-            pending.prediction.source == cell || pending.prediction.destination == cell
-        })
+        self.cell_pending(Cell::Storage(slot))
+    }
+
+    fn cell_pending(&self, cell: Cell) -> bool {
+        self.queue.iter().any(|pending| pending.touches(cell))
     }
 
     #[must_use]
     pub fn resync_required(&self) -> bool {
-        self.player_resync_required
-            || self.cursor_resync_required
-            || self
+        [
+            CellSurface::Player,
+            CellSurface::Cursor,
+            CellSurface::Storage,
+            CellSurface::Armor,
+            CellSurface::Offhand,
+            CellSurface::Crafting,
+        ]
+        .into_iter()
+        .any(|surface| self.surface_flagged(surface))
+    }
+
+    /// Whether gestures touching `surface` must wait for authority.
+    fn surface_flagged(&self, surface: CellSurface) -> bool {
+        self.surface_awaiting_refresh(surface) || self.surface_recovering(surface)
+    }
+
+    fn surface_recovering(&self, surface: CellSurface) -> bool {
+        match surface {
+            CellSurface::Player => self.player_resync_required,
+            CellSurface::Cursor => self.cursor_resync_required,
+            CellSurface::Storage => self
                 .storage
                 .as_ref()
-                .is_some_and(|storage| storage.resync_required)
+                .is_some_and(|storage| storage.resync_required),
+            CellSurface::Armor => self.armor_resync_required,
+            CellSurface::Offhand => self.offhand_resync_required,
+            CellSurface::Crafting => self.crafting_resync_required,
+        }
     }
 
     /// How many well-formed authoritative events resolved onto no retained
-    /// canonical cell and were skipped as typed counted leniency. See
-    /// [`admission`].
+    /// canonical cell and were skipped as typed counted leniency.
     #[must_use]
     pub const fn skipped_unknown_containers(&self) -> u64 {
         self.skipped_unknown_containers
+    }
+
+    fn first_unsent(&self) -> Option<&PendingRequest> {
+        self.queue
+            .iter()
+            .find(|pending| pending.state == InventoryPendingState::AwaitingTransport)
     }
 
     pub fn pending_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
@@ -368,11 +407,9 @@ impl PlayerInventoryLedger {
                 .map(Some)
                 .map_err(|_| InventoryGestureError::InvalidRequest);
         }
-        self.pending
-            .as_ref()
-            .filter(|pending| pending.state == InventoryPendingState::AwaitingTransport)
+        self.first_unsent()
             .map(|pending| {
-                item_stack_request_packet(pending.request_id, pending.action)
+                item_stack_request_packet(pending.request_id, &pending.actions)
                     .map_err(|_| InventoryGestureError::InvalidRequest)
             })
             .transpose()
@@ -404,18 +441,21 @@ impl PlayerInventoryLedger {
             *deadline_millis = Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
             return true;
         }
-        let Some(pending) = self.pending.as_mut() else {
+        let Some(pending) = self
+            .queue
+            .iter_mut()
+            .find(|pending| pending.state == InventoryPendingState::AwaitingTransport)
+        else {
             return false;
         };
-        if pending.state != InventoryPendingState::AwaitingTransport {
-            return false;
-        }
         pending.state = InventoryPendingState::AwaitingResponse;
         pending.transport_deadline_millis = None;
         pending.deadline_millis = Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
         true
     }
 
+    /// Unsent requests never reached the server, so sustained queue pressure
+    /// rolls every one of them back.
     pub fn note_transport_pressure(&mut self, now_millis: u64) {
         if !self.pending_closes.is_empty()
             || matches!(
@@ -428,37 +468,30 @@ impl PlayerInventoryLedger {
         {
             return;
         }
-        let Some(pending) = self.pending.as_mut() else {
+        let Some(pending) = self
+            .queue
+            .iter_mut()
+            .find(|pending| pending.state == InventoryPendingState::AwaitingTransport)
+        else {
             return;
         };
-        if pending.state != InventoryPendingState::AwaitingTransport {
-            return;
-        }
-        let deadline = pending
+        let deadline = *pending
             .transport_deadline_millis
             .get_or_insert_with(|| now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
-        if now_millis >= *deadline {
-            self.rollback_pending();
+        if now_millis >= deadline {
+            self.abandon_requests(|pending| {
+                pending.state == InventoryPendingState::AwaitingTransport
+            });
+            self.finish_closing();
         }
     }
 
-    /// Fails closed once transport admission no longer proves whether the
-    /// server observed the request. Retransmitting an admitted mutation could
-    /// apply it twice; retry is limited to pre-admission queue pressure.
+    /// Admitted requests are never retransmitted or rolled back on a missing
+    /// response: they keep their prediction and require a full refresh.
     /// Returns `true` only when the personal Open/Close lifecycle expired.
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
         let personal_expired = self.poll_personal_timeout(now_millis);
-        let Some(pending) = self.pending.as_mut() else {
-            return personal_expired;
-        };
-        if pending.state != InventoryPendingState::AwaitingResponse
-            || pending
-                .deadline_millis
-                .is_none_or(|deadline| now_millis < deadline)
-        {
-            return personal_expired;
-        }
-        self.require_authoritative_recovery();
+        self.expire_overdue_requests(now_millis);
         personal_expired
     }
 
@@ -484,159 +517,33 @@ impl PlayerInventoryLedger {
         let generation = personal.generation();
         self.pending_closes
             .retain(|close| close.owner.personal_generation() != Some(generation));
-        if self
-            .pending
-            .as_ref()
-            .is_some_and(|pending| pending.personal_generation == Some(generation))
-        {
-            match self.pending_state() {
-                Some(InventoryPendingState::AwaitingTransport) => self.rollback_pending(),
-                Some(InventoryPendingState::AwaitingResponse) => {
-                    self.require_authoritative_recovery();
-                }
-                None => {}
-            }
-        }
+        self.abandon_requests(|pending| pending.personal_generation == Some(generation));
         self.personal = None;
         self.personal_lifecycle_failed = true;
-        if self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
-            self.cursor = None;
-            self.cursor_overlay = None;
-            self.bump_cell_revision(Cell::Cursor);
-            self.player_resync_required = true;
-            self.cursor_resync_required = true;
-        }
+        self.drop_confirmed_cursor();
+        self.refold();
         true
     }
 
     pub fn transport_closed(&mut self) {
         self.pending_closes.clear();
         self.personal = None;
-        match self.pending_state() {
-            Some(InventoryPendingState::AwaitingTransport) => self.rollback_pending(),
-            Some(InventoryPendingState::AwaitingResponse) => {
-                self.require_authoritative_recovery();
-            }
-            None => {}
-        }
-    }
-
-    fn rollback_pending(&mut self) {
-        self.pending = None;
+        self.abandon_requests(|_| true);
         self.finish_closing();
     }
 
-    fn require_authoritative_recovery(&mut self) {
-        if let Some(pending) = self.pending.take() {
-            self.mark_cell_recovery(pending.prediction.source);
-            self.mark_cell_recovery(pending.prediction.destination);
-        }
-        self.finish_closing();
-    }
-
-    fn predicted_cell(&self, cell: Cell) -> Option<Option<&NetworkItemStack>> {
-        let prediction = &self.pending.as_ref()?.prediction;
-        if prediction.source == cell {
-            Some(prediction.source_stack.as_ref())
-        } else if prediction.destination == cell {
-            Some(prediction.destination_stack.as_ref())
-        } else {
-            None
+    /// Clears a held cursor that no window vouches for any more.
+    fn drop_confirmed_cursor(&mut self) {
+        if self.confirmed.take(Cell::Cursor).is_some() {
+            self.player_resync_required = true;
+            self.cursor_resync_required = true;
         }
     }
 
-    /// The travelling overlay of the predicted half occupying `cell`, or
-    /// `None` when no in-flight gesture touches that cell.
-    fn predicted_cell_overlay(&self, cell: Cell) -> Option<Option<&StackResponseOverlay>> {
-        let prediction = &self.pending.as_ref()?.prediction;
-        if prediction.source == cell {
-            Some(prediction.source_overlay.as_ref())
-        } else if prediction.destination == cell {
-            Some(prediction.destination_overlay.as_ref())
-        } else {
-            None
-        }
-    }
-
-    fn cell(&self, cell: Cell) -> Option<&NetworkItemStack> {
-        match cell {
-            Cell::Inventory(slot) => self.slots.get(usize::from(slot))?.as_ref(),
-            Cell::Storage(slot) => self
-                .storage
-                .as_ref()?
-                .slots
-                .get(usize::from(slot))?
-                .as_ref(),
-            Cell::Cursor => self.cursor.as_ref(),
-        }
-    }
-
-    fn cell_mut(&mut self, cell: Cell) -> Option<&mut NetworkItemStack> {
-        match cell {
-            Cell::Inventory(slot) => self.slots.get_mut(usize::from(slot))?.as_mut(),
-            Cell::Storage(slot) => self
-                .storage
-                .as_mut()?
-                .slots
-                .get_mut(usize::from(slot))?
-                .as_mut(),
-            Cell::Cursor => self.cursor.as_mut(),
-        }
-    }
-
-    fn set_cell(&mut self, cell: Cell, stack: Option<NetworkItemStack>) {
-        self.clear_cell_overlay(cell);
-        match cell {
-            Cell::Inventory(slot) => self.slots[usize::from(slot)] = stack,
-            Cell::Storage(slot) => {
-                self.storage.as_mut().expect("validated storage").slots[usize::from(slot)] = stack
-            }
-            Cell::Cursor => self.cursor = stack,
-        }
-    }
-
-    fn cell_revision(&self, cell: Cell) -> u64 {
-        match cell {
-            Cell::Inventory(slot) => self
-                .slot_revisions
-                .get(usize::from(slot))
-                .copied()
-                .unwrap_or(0),
-            Cell::Cursor => self.cursor_revision,
-            Cell::Storage(slot) => self
-                .storage
-                .as_ref()
-                .and_then(|storage| storage.revisions.get(usize::from(slot)))
-                .copied()
-                .unwrap_or(0),
-        }
-    }
-
-    fn bump_cell_revision(&mut self, cell: Cell) {
-        let revision = self.take_authority_revision();
-        match cell {
-            Cell::Inventory(slot) => {
-                if let Some(current) = self.slot_revisions.get_mut(usize::from(slot)) {
-                    *current = revision;
-                }
-            }
-            Cell::Cursor => self.cursor_revision = revision,
-            Cell::Storage(slot) => {
-                if let Some(current) = self
-                    .storage
-                    .as_mut()
-                    .and_then(|storage| storage.revisions.get_mut(usize::from(slot)))
-                {
-                    *current = revision;
-                }
-            }
-        }
-    }
-
-    fn take_authority_revision(&mut self) -> u64 {
-        let revision = self.next_authority_revision;
-        self.next_authority_revision = self.next_authority_revision.wrapping_add(1).max(1);
-        revision
+    fn storage_request_bound(&self, generation: u64) -> bool {
+        self.queue
+            .iter()
+            .any(|pending| pending.storage_generation == Some(generation))
     }
 
     pub fn request_storage_close(&mut self) {
@@ -644,69 +551,56 @@ impl PlayerInventoryLedger {
             return;
         };
         if storage.closing {
-            // A prior local close is already waiting out its in-flight
-            // prediction; further close gestures stay blocked until
-            // authority settles the retained window.
+            // A prior local close is already waiting out its admitted
+            // predictions; further close gestures stay blocked.
             return;
         }
-        let (window_id, generation) = (storage.window_id, storage.generation);
-        self.queue_close(
-            window_id,
-            GENERIC_STORAGE_WINDOW_TYPE,
-            PendingCloseOwner::Storage,
-        );
-        let awaiting_response = self.pending.as_ref().is_some_and(|pending| {
-            pending.state == InventoryPendingState::AwaitingResponse
-                && pending.storage_generation == Some(generation)
+        let (window_id, window_type, generation) =
+            (storage.window_id, storage.window_type, storage.generation);
+        self.queue_close(window_id, window_type, PendingCloseOwner::Storage);
+        self.abandon_requests(|pending| {
+            pending.storage_generation == Some(generation)
+                && pending.state == InventoryPendingState::AwaitingTransport
         });
-        if awaiting_response {
-            // Retain the window so the outstanding response still
-            // reconciles against its exact generation and identity.
+        if self.storage_request_bound(generation) {
+            // Retain the window so outstanding responses still reconcile
+            // against its exact generation and identity.
             self.storage
                 .as_mut()
                 .expect("storage observed above")
                 .closing = true;
         } else {
-            self.close_storage(true);
+            self.close_storage();
         }
     }
 
-    /// Settles a locally requested close whose retained prediction is gone.
-    ///
-    /// The closing window survives exactly until that prediction resolves,
-    /// an authoritative close lands, or an existing timeout or recovery path
-    /// consumes it, so it can never outlive the ledger's timeout authority.
-    /// Settlement drops the generation and journal exactly like an immediate
-    /// close, including held-cursor restatement.
+    /// Settles a locally closing window once no request is bound to it any
+    /// more, exactly like an immediate close.
     fn finish_closing(&mut self) {
-        if !self.storage.as_ref().is_some_and(|storage| storage.closing) || self.pending.is_some() {
+        let Some(storage) = self.storage.as_ref() else {
             return;
-        }
-        self.storage = None;
-        if self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
-            self.player_resync_required = true;
-            self.cursor_resync_required = true;
+        };
+        if storage.closing && !self.storage_request_bound(storage.generation) {
+            self.discard_storage();
         }
     }
 
-    fn close_storage(&mut self, local: bool) {
-        let storage_generation = self.storage.as_ref().map(|storage| storage.generation);
-        if self
-            .pending
-            .as_ref()
-            .is_some_and(|pending| pending.storage_generation == storage_generation)
-        {
-            if local && self.pending_state() == Some(InventoryPendingState::AwaitingTransport) {
-                self.rollback_pending();
-            } else {
-                self.cancel_pending_for_authority(CellSurface::Storage, storage_generation);
-            }
+    fn close_storage(&mut self) {
+        if let Some(generation) = self.storage_generation() {
+            self.abandon_requests(|pending| pending.storage_generation == Some(generation));
         }
+        self.discard_storage();
+    }
+
+    fn discard_storage(&mut self) {
         self.storage = None;
-        if self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
+        self.confirmed.clear_storage();
+        self.clear_crafting();
+        if self.confirmed.get(Cell::Cursor).is_some() {
             self.player_resync_required = true;
             self.cursor_resync_required = true;
         }
+        self.refold();
     }
 
     fn finish_personal_close(&mut self, retain_confirmed_cursor: bool) {
@@ -718,31 +612,27 @@ impl PlayerInventoryLedger {
             _ => return,
         };
         // The cursor is session-owned rather than window-owned. Only a
-        // settled cursor may survive the acknowledgement of our own close;
-        // every pending or recovery-marked state keeps the fail-closed path.
+        // settled cursor may survive the acknowledgement of our own close.
         let retain_confirmed_cursor =
-            retain_confirmed_cursor && self.pending.is_none() && !self.cursor_resync_required;
-        if self
-            .pending
-            .as_ref()
-            .is_some_and(|pending| pending.personal_generation == Some(generation))
-        {
-            match self.pending_state() {
-                Some(InventoryPendingState::AwaitingTransport) => self.rollback_pending(),
-                Some(InventoryPendingState::AwaitingResponse) => {
-                    self.require_authoritative_recovery();
-                }
-                None => {}
-            }
-        }
+            retain_confirmed_cursor && self.queue.is_empty() && !self.cursor_resync_required;
+        self.abandon_requests(|pending| pending.personal_generation == Some(generation));
         self.personal = None;
-        if !retain_confirmed_cursor && self.cursor.as_ref().is_some_and(|stack| !stack.is_empty()) {
-            self.cursor = None;
-            self.cursor_overlay = None;
-            self.bump_cell_revision(Cell::Cursor);
-            self.player_resync_required = true;
-            self.cursor_resync_required = true;
+        self.clear_crafting();
+        if !retain_confirmed_cursor {
+            self.drop_confirmed_cursor();
         }
+        self.refold();
+    }
+
+    /// Closing a crafting screen returns its grid server-side; the cells are
+    /// known empty until the server restates them.
+    fn clear_crafting(&mut self) {
+        for slot in protocol::CRAFTING_INPUT_SLOTS {
+            self.confirmed.set(Cell::Craft(slot), None);
+        }
+        self.confirmed.set(Cell::CreatedOutput, None);
+        self.crafting_resync_required = false;
+        self.surface_refreshed(CellSurface::Crafting);
     }
 
     fn queue_close(&mut self, window_id: i32, window_type: i8, owner: PendingCloseOwner) {
@@ -784,39 +674,11 @@ impl PlayerInventoryLedger {
             .retain(|close| close.window_id != window_id || close.window_type != window_type);
     }
 
-    fn cancel_pending_for_authority(
-        &mut self,
-        confirmed: CellSurface,
-        storage_generation: Option<u64>,
-    ) {
-        if storage_generation.is_some()
-            && self
-                .pending
-                .as_ref()
-                .and_then(|pending| pending.storage_generation)
-                != storage_generation
-        {
-            return;
-        }
-        let Some(pending) = self.pending.take() else {
-            self.finish_closing();
-            return;
-        };
-        if pending.state != InventoryPendingState::AwaitingResponse {
-            self.finish_closing();
-            return;
-        }
-        for cell in [pending.prediction.source, pending.prediction.destination] {
-            if cell_surface(cell) != confirmed {
-                self.mark_cell_recovery(cell);
-            }
-        }
-        self.finish_closing();
-    }
-
     fn mark_cell_recovery(&mut self, cell: Cell) {
-        self.clear_cell_overlay(cell);
-        match cell_surface(cell) {
+        if let Some(held) = self.confirmed.get_mut(cell) {
+            held.overlay = None;
+        }
+        match cell.surface() {
             CellSurface::Player => self.player_resync_required = true,
             CellSurface::Cursor => self.cursor_resync_required = true,
             CellSurface::Storage => {
@@ -824,6 +686,9 @@ impl PlayerInventoryLedger {
                     storage.resync_required = true;
                 }
             }
+            CellSurface::Armor => self.armor_resync_required = true,
+            CellSurface::Offhand => self.offhand_resync_required = true,
+            CellSurface::Crafting => self.crafting_resync_required = true,
         }
     }
 }

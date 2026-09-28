@@ -3,8 +3,8 @@ use std::sync::Arc;
 use protocol::{
     CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CURSOR, ContainerCloseEvent,
     ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent,
-    ItemStackResponseEvent, NetworkItemStack, StackResponse, StackResponseContainer,
-    StackResponseSlot, StackResponseStatus,
+    ItemStackResponseEvent, NetworkItemStack, StackRequestAction, StackRequestContainer,
+    StackResponse, StackResponseContainer, StackResponseSlot, StackResponseStatus,
 };
 use sha2::{Digest, Sha256};
 
@@ -88,12 +88,12 @@ fn personal_gesture_waits_for_open_admission_and_uses_empty_stack_id_zero() {
 
     assert!(ledger.mark_transport_enqueued(10));
     assert_eq!(ledger.begin_click(0).unwrap(), -3);
-    let pending = ledger.pending.as_ref().unwrap();
+    let pending = ledger.newest_request().unwrap();
     let StackRequestAction::Take {
         amount,
         source,
         destination,
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Take action");
     };
@@ -572,12 +572,12 @@ fn accepted_personal_response_reconciles_player_and_cursor_cells() {
     assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(32));
 
     assert_eq!(ledger.begin_click(9).unwrap(), -5);
-    let pending = ledger.pending.as_ref().unwrap();
+    let pending = ledger.newest_request().unwrap();
     let StackRequestAction::Place {
         amount,
         source,
         destination,
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Place action");
     };
@@ -640,18 +640,18 @@ fn admitted_local_close_ack_preserves_confirmed_cursor_for_the_next_window() {
     assert!(ledger.mark_transport_enqueued(40));
     ledger.apply(&InventoryEvent::Open(personal_open(3)));
     assert_eq!(ledger.begin_click(9).unwrap(), -5);
-    let pending = ledger.pending.as_ref().unwrap();
+    let pending = ledger.newest_request().unwrap();
     let StackRequestAction::Place {
         source,
         destination,
         ..
-    } = pending.action
+    } = pending.actions[0]
     else {
         panic!("expected Place action")
     };
     assert_eq!(source.stack_network_id, 9);
     assert_eq!(destination.stack_network_id, 0);
-    assert_eq!(pending.prediction.destination_overlay, Some(overlay));
+    assert_eq!(ledger.cursor_overlay(), Some(&overlay));
 }
 
 #[test]
@@ -660,7 +660,7 @@ fn admitted_mutation_remains_ambiguous_when_its_personal_window_closes() {
     acknowledge_personal_open(&mut ledger, 2);
     ledger.begin_click(0).unwrap();
     assert!(ledger.mark_transport_enqueued(20));
-    assert!(ledger.cursor.is_none());
+    assert!(ledger.confirmed_stack(Cell::Cursor).is_none());
     assert!(ledger.cursor_stack().is_some(), "the prediction is visible");
 
     ledger.request_personal_close();
@@ -750,4 +750,164 @@ fn close_ack_clears_unrestated_cursor_and_session_reset_drops_all_personal_work(
     assert!(ledger.personal.is_none());
     assert!(ledger.pending_closes.is_empty());
     assert_eq!(ledger.pending_state(), None);
+}
+
+fn mining_response(
+    request_id: i32,
+    status: StackResponseStatus,
+    damage: i32,
+    stack_id: i32,
+) -> InventoryEvent {
+    let mut container = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 1, stack_id);
+    container.slots = Arc::from([StackResponseSlot {
+        durability_correction: damage,
+        ..container.slots[0].clone()
+    }]);
+    InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status,
+            request_id,
+            containers: Arc::from([container]),
+        }]),
+    })
+}
+
+#[test]
+fn mining_responses_correct_the_worn_slot_without_a_pending_gesture() {
+    let mut ledger = ledger_with_slot_zero();
+    let first = ledger.begin_mining_request(0, 4).unwrap();
+    let second = ledger.begin_mining_request(0, 5).unwrap();
+    assert_eq!(
+        (first, second),
+        (-3, -5),
+        "mining ids share the gesture counter"
+    );
+    // Outstanding predictions chain onto each other.
+    assert_eq!(ledger.predicted_slot_damage(0), Some(5));
+    ledger.apply(&mining_response(
+        first,
+        StackResponseStatus::Accepted,
+        4,
+        77,
+    ));
+    assert_eq!(
+        ledger
+            .displayed_stack(0)
+            .map(|stack| stack.stack_network_id),
+        Some(77)
+    );
+    assert_eq!(ledger.predicted_slot_damage(0), Some(5));
+    // A rejected prediction is dropped; the last accepted damage remains.
+    ledger.apply(&mining_response(
+        second,
+        StackResponseStatus::Rejected,
+        9,
+        88,
+    ));
+    assert_eq!(ledger.predicted_slot_damage(0), Some(4));
+    assert_eq!(
+        ledger
+            .displayed_stack(0)
+            .map(|stack| stack.stack_network_id),
+        Some(77)
+    );
+    // Unknown and repeated ids change nothing.
+    ledger.apply(&mining_response(
+        second,
+        StackResponseStatus::Accepted,
+        9,
+        88,
+    ));
+    assert_eq!(
+        ledger
+            .displayed_stack(0)
+            .map(|stack| stack.stack_network_id),
+        Some(77)
+    );
+    acknowledge_personal_open(&mut ledger, 2);
+    assert_eq!(
+        ledger.begin_click(0).unwrap(),
+        -7,
+        "the next gesture keeps a distinct id"
+    );
+}
+
+#[test]
+fn mining_corrections_never_touch_a_slot_owned_by_a_pending_gesture() {
+    let mut ledger = ledger_with_slot_zero();
+    acknowledge_personal_open(&mut ledger, 2);
+    let mining = ledger.begin_mining_request(0, 1).unwrap();
+    let gesture = ledger.begin_click(0).unwrap();
+    assert!(ledger.mark_transport_enqueued(20));
+    ledger.apply(&mining_response(
+        mining,
+        StackResponseStatus::Accepted,
+        1,
+        77,
+    ));
+    assert_eq!(ledger.pending_request_id(), Some(gesture));
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            status: StackResponseStatus::Accepted,
+            request_id: gesture,
+            containers: Arc::from([
+                correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 0, -1),
+                correction(CONTAINER_NAME_CURSOR, 0, 32, 9),
+            ]),
+        }]),
+    }));
+    assert_eq!(ledger.pending_state(), None);
+    assert!(!ledger.resync_required());
+}
+
+#[test]
+fn outstanding_mining_requests_are_bounded() {
+    let mut ledger = ledger_with_slot_zero();
+    let ids = (0..40)
+        .map(|damage| ledger.begin_mining_request(0, damage).unwrap())
+        .collect::<Vec<_>>();
+    ledger.apply(&mining_response(
+        ids[0],
+        StackResponseStatus::Accepted,
+        0,
+        55,
+    ));
+    assert_eq!(
+        ledger
+            .displayed_stack(0)
+            .map(|stack| stack.stack_network_id),
+        Some(9),
+        "an evicted request's late response is ignored"
+    );
+    assert_eq!(ledger.predicted_slot_damage(0), Some(39));
+}
+
+#[test]
+fn cancelled_mining_request_leaves_no_prediction_behind() {
+    let mut ledger = ledger_with_slot_zero();
+    let id = ledger.begin_mining_request(0, 4).unwrap();
+    ledger.cancel_mining_request(id);
+    assert_eq!(ledger.predicted_slot_damage(0), None);
+    assert_eq!(ledger.begin_mining_request(0, 4), Some(id - 2));
+}
+
+#[test]
+fn accepted_mining_behind_an_expired_head_still_corrects_the_slot() {
+    let mut ledger = ledger_with_slot_zero();
+    let _unanswered = ledger.begin_mining_request(0, 4).unwrap();
+    let answered = ledger.begin_mining_request(0, 5).unwrap();
+    ledger.poll_timeout(0);
+    ledger.apply(&mining_response(
+        answered,
+        StackResponseStatus::Accepted,
+        5,
+        88,
+    ));
+    ledger.poll_timeout(super::INVENTORY_REQUEST_TIMEOUT_MILLIS + 1);
+    assert_eq!(
+        ledger
+            .displayed_stack(0)
+            .map(|stack| stack.stack_network_id),
+        Some(88)
+    );
 }
