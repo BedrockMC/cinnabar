@@ -11,8 +11,8 @@ struct BoneMatrix {
     row_2: vec4<f32>,
 }
 
-// ActorGpuInstance is deliberately read as 18 packed words. Its Rust contract
-// is 72 bytes; a WGSL struct containing vec4 rows would round the array stride
+// ActorGpuInstance is deliberately read as 19 packed words. Its Rust contract
+// is 76 bytes; a WGSL struct containing vec4 rows would round the array stride
 // to 80 bytes under storage-buffer layout rules.
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
@@ -31,6 +31,7 @@ struct VertexOutput {
     @location(2) @interpolate(flat) valid: u32,
     @location(3) world_normal: vec3<f32>,
     @location(4) back_uv: vec2<f32>,
+    @location(5) @interpolate(flat) tint: u32,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -69,7 +70,7 @@ fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 18u;
+    let instance_base = instance_index * 19u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
@@ -79,6 +80,7 @@ fn actor_vertex(
 
     var out: VertexOutput;
     out.skin_layer = texture_layer;
+    out.tint = instance_words[instance_base + 18u];
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
@@ -142,9 +144,13 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (input.valid == 0u) {
         discard;
     }
-    let color = textureSample(skins, skin_sampler, select(input.back_uv, input.uv, front), i32(input.skin_layer));
+    var color = textureSample(skins, skin_sampler, select(input.back_uv, input.uv, front), i32(input.skin_layer));
     if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
         discard;
+    }
+    // Dye multiplies only fully opaque texels; partially transparent texels are untinted overlay.
+    if (input.tint != 0u && color.a > 0.99) {
+        color = vec4(color.rgb * pow(unpack4x8unorm(input.tint).rgb, vec3(2.2)), color.a);
     }
     return color;
 }

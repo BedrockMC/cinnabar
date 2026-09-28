@@ -12,11 +12,14 @@ mod artwork;
 #[path = "actor/geometry.rs"]
 mod geometry;
 pub use artwork::{
-    ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, MAX_ACTOR_GPU_PIXEL_BYTES,
-    MAX_ACTOR_TEXTURE_PAGES,
+    ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
+    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+pub use item_mesh::extruded_sprite_vertices;
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
+#[path = "actor/item_mesh.rs"]
+mod item_mesh;
 #[path = "actor/rig.rs"]
 mod rig;
 #[path = "actor/witness.rs"]
@@ -27,12 +30,14 @@ pub use gpu::{
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
 };
 pub use rig::{
-    ACTOR_BONE_MATRIX_BYTES, ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity,
-    ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
-    ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
-    ActorRigVertex, EntityRigId, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RIG_VERTICES,
+    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
+    ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometry,
+    ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, EntityRigId,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible,
+    actor_rig_submission_is_visible, equipment_rig_id, find_geometry_index, geometry_bone_names,
+    geometry_bone_pivots, item_mesh_rig_id,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -184,6 +189,34 @@ impl ActorRenderScene {
         })
     }
 
+    /// Like [`Self::with_runtime_entity_assets`], also registering equipment geometries by
+    /// entity-catalog geometry index under [`equipment_rig_id`].
+    pub fn with_runtime_entity_assets_and_equipment(
+        assets: &assets::RuntimeEntityAssets,
+        equipment_geometries: &[u32],
+    ) -> Result<Self, ActorRigGeometryError> {
+        Ok(Self {
+            frame: ActorRenderFrame::default(),
+            rig_builder: ActorRigFrameBuilder::from_runtime_assets_with_equipment(
+                assets,
+                equipment_geometries,
+            )?,
+        })
+    }
+
+    /// Registers or replaces one geometry, such as a generated item mesh.
+    pub fn insert_geometry(
+        &mut self,
+        geometry: ActorRigGeometry,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.rig_builder.insert_geometry(geometry)
+    }
+
+    #[must_use]
+    pub fn contains_geometry(&self, id: EntityRigId) -> bool {
+        self.rig_builder.contains_geometry(id)
+    }
+
     pub fn replace_runtime_entity_assets(
         &mut self,
         assets: &assets::RuntimeEntityAssets,
@@ -304,6 +337,7 @@ impl ActorRenderScene {
                         source_tick: None,
                         movement_revision: source.movement_revision,
                         pose_generation: source.movement_revision,
+                        layer: ACTOR_LAYER_BODY,
                     },
                     rig: EntityRigId(u32::MAX),
                     previous_bones: Arc::from(posed_bones),
@@ -318,6 +352,7 @@ impl ActorRenderScene {
                 ],
                 texture_layer: skin_layer,
                 route: ActorRigRoute::Diagnostic,
+                tint: 0,
             });
             skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));
         }
