@@ -431,6 +431,22 @@ impl ViewmodelPublish<'_, '_> {
             adapter.stats.avatar_model_identity_unavailable = false;
         }
     }
+
+    /// The near-camera animated rig owns the hand this frame. Retire the static empty-hand scene
+    /// so it never double-draws, and record the mode. No CPU fallback quad is bound.
+    pub(crate) fn use_animated_rig(&mut self) {
+        if let (Some(scene), Some(gate)) = (&mut self.scene, &self.gate) {
+            scene.clear(gate);
+        }
+        if let Some(adapter) = &mut self.adapter {
+            adapter.cube = None;
+            adapter.stats.mode = Some(ViewmodelMode::AnimatedRig);
+            adapter.stats.fallback = None;
+            adapter.stats.animation_parity_unavailable = false;
+            adapter.stats.lighting_parity_unavailable = false;
+            adapter.stats.avatar_model_identity_unavailable = false;
+        }
+    }
     pub(crate) fn observe(
         &mut self,
         runtime: &UiRuntime,
