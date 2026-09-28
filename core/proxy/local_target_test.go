@@ -41,3 +41,23 @@ func TestWithLocalTargetNilIsOnlineResolver(t *testing.T) {
 		t.Fatalf("target = %+v, %v", target, err)
 	}
 }
+
+func TestPendingTransferOutranksSelectedLocalWorld(t *testing.T) {
+	var transfers TransferState
+	local := withLocalTarget(func(context.Context) (string, bool, error) {
+		return "127.0.0.1:5000", true, nil
+	}, onlineStub("online:19132"))
+	dial := func(_ context.Context, address string) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{address: address}, nil
+	}
+	resolve := withPendingTransfer(&transfers, dial, local)
+	if target, err := resolve(context.Background()); err != nil || target.address != "127.0.0.1:5000" {
+		t.Fatalf("before transfer = %+v, %v", target, err)
+	}
+	if err := transfers.Record(TransferTarget{Host: "next.example", Port: 19133}); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := resolve(context.Background()); err != nil || target.address != "next.example:19133" {
+		t.Fatalf("after transfer = %+v, %v", target, err)
+	}
+}

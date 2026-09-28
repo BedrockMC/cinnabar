@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net"
@@ -46,12 +47,35 @@ func (s *TransferState) Record(target TransferTarget) error {
 
 // Upstream returns the recorded transfer address, or initial if none was recorded.
 func (s *TransferState) Upstream(initial string) string {
+	if address, ok := s.Pending(); ok {
+		return address
+	}
+	return initial
+}
+
+// Pending returns the recorded transfer address; ok is false before any transfer.
+func (s *TransferState) Pending() (address string, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.next == "" {
-		return initial
+	return s.next, s.next != ""
+}
+
+// withPendingTransfer dials a recorded server transfer ahead of next, since a Transfer
+// packet is an explicit instruction that outranks the client's own target selection.
+func withPendingTransfer(
+	transfers *TransferState,
+	dial func(context.Context, string) (*resolvedUpstreamTarget, error),
+	next func(context.Context) (*resolvedUpstreamTarget, error),
+) func(context.Context) (*resolvedUpstreamTarget, error) {
+	if transfers == nil {
+		return next
 	}
-	return s.next
+	return func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		if address, ok := transfers.Pending(); ok {
+			return dial(ctx, address)
+		}
+		return next(ctx)
+	}
 }
 
 // transferAddress joins a transfer host and port into a dialable address.
