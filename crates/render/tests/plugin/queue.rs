@@ -436,14 +436,14 @@ fn world_shaders_share_light_curve_channels_and_fragment_only_daylight() {
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert_eq!(
         lighting
-            .matches("const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.2;")
+            .matches("const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.083333336;")
             .count(),
         1,
         "the conservative floor remains explicitly provisional until native visual tuning"
     );
     assert_eq!(
         lighting
-            .matches("const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.04;")
+            .matches("const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.0;")
             .count(),
         1,
         "light level zero must retain an explicit, independently tunable ambient floor"

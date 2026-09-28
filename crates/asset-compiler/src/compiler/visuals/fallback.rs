@@ -228,7 +228,11 @@ impl<'a> FallbackInventory<'a> {
 
 /// Families with a dedicated exact compile rule, which supersede their inventory envelope.
 fn has_exact_family_route(record: &RegistryRecord) -> bool {
-    is_cross_visual(record) || is_torch(record) || is_ladder(record) || is_rail(record)
+    is_cross_visual(record)
+        || is_torch(record)
+        || is_ladder(record)
+        || is_rail(record)
+        || is_chain(record)
 }
 
 fn invalid_fallback(detail: &'static str) -> AssetError {
