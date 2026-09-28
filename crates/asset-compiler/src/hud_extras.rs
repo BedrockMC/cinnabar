@@ -9,7 +9,10 @@ fn read_sprite(pack: &Path, role: HudExtraRole) -> Result<Box<[u8]>, String> {
     let path = pack.join(role.source_path());
     let metadata = fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     if metadata.len() > MAX_SOURCE_BYTES {
-        return Err(format!("{} exceeds {MAX_SOURCE_BYTES} bytes", path.display()));
+        return Err(format!(
+            "{} exceeds {MAX_SOURCE_BYTES} bytes",
+            path.display()
+        ));
     }
     let bytes = fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     let decoded = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png)

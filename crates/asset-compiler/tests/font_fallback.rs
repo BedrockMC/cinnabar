@@ -87,7 +87,8 @@ fn two_provider_carrier_is_deterministic_and_preserves_primary_page_and_metrics(
     }
     // Exact present coverage of this pinned source, not universal Unicode support.
     for (first, last, present) in [
-        (0x2713, 0x2713, 1),
+        (0x2190, 0x23ff, 129),
+        (0x2460, 0x27bf, 489),
         (0x3000, 0x30ff, 253),
         (0x3400, 0x4dbf, 6582),
         (0x4e00, 0x9fff, 20976),
@@ -111,7 +112,9 @@ fn compiled_ui_font_covers_declared_native_samples() {
     let manifest = fs::read(root.join("assets/ui-font-source.json")).unwrap();
     let identity = assets::canonical_source_manifest_sha256(&manifest);
     let catalog = assets::RuntimeFontCatalog::decode(&bytes, identity).unwrap();
-    for codepoint in ['\u{2713}', '\u{4e16}', '\u{754c}', '\u{7b2c}', '\u{4e8c}'] {
+    for codepoint in [
+        '\u{2713}', '\u{2694}', '\u{2620}', '\u{4e16}', '\u{754c}', '\u{7b2c}', '\u{4e8c}',
+    ] {
         let glyph = catalog.glyph(codepoint).unwrap_or_else(|| {
             panic!(
                 "required U+{:04X} is absent from the carrier",
