@@ -20,7 +20,8 @@ use super::{
     blocks::{self, BlockSheets},
     display::{
         ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
-        LAYER_OFF_HAND, attach_to_bone, held_block_display, held_sprite_display,
+        LAYER_OFF_HAND, attach_to_bone, head_block_display, held_block_display,
+        held_sprite_display,
     },
     elytra,
 };
@@ -100,6 +101,7 @@ struct BodyBones {
     names: Vec<Box<str>>,
     right_item: Option<usize>,
     left_item: Option<usize>,
+    head: Option<usize>,
 }
 
 struct ArmorGeometry {
@@ -227,24 +229,10 @@ impl EquipmentRuntime {
             return layers;
         }
         if let Some(item) = &input.main {
-            self.push_held(
-                body,
-                item,
-                LAYER_MAIN_HAND,
-                bones.right_item,
-                display,
-                &mut layers,
-            );
+            self.push_held(body, item, LAYER_MAIN_HAND, bones.right_item, &mut layers);
         }
         if let Some(item) = &input.off {
-            self.push_held(
-                body,
-                item,
-                LAYER_OFF_HAND,
-                bones.left_item,
-                display,
-                &mut layers,
-            );
+            self.push_held(body, item, LAYER_OFF_HAND, bones.left_item, &mut layers);
         }
         let slots = [
             (ArmorSlot::Helmet, LAYER_HELMET),
@@ -254,6 +242,21 @@ impl EquipmentRuntime {
         ];
         for ((slot, layer), item) in slots.into_iter().zip(&input.armor) {
             if let Some(item) = item {
+                // A block worn in the helmet slot (a carved pumpkin) sits on the head bone.
+                if slot == ArmorSlot::Helmet
+                    && matches!(item.kind, HeldKind::Block(_))
+                    && !self.has_armor_binding(&item.identifier)
+                {
+                    self.push_attached(
+                        body,
+                        item,
+                        layer,
+                        bones.head,
+                        Some(head_block_display()),
+                        &mut layers,
+                    );
+                    continue;
+                }
                 let worn = ElytraStance {
                     sneaking: input.sneaking,
                     sleeping: input.sleeping,
@@ -339,6 +342,7 @@ impl EquipmentRuntime {
             Some(Arc::new(BodyBones {
                 right_item: find("rightItem"),
                 left_item: find("leftItem"),
+                head: find("head"),
                 names,
             }))
         });
@@ -353,6 +357,20 @@ impl EquipmentRuntime {
         hand: Option<usize>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
+        self.push_attached(body, item, layer, hand, None, layers);
+    }
+
+    /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
+    fn push_attached(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        layer: u8,
+        bone: Option<usize>,
+        override_display: Option<ItemDisplay>,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) {
+        let hand = bone;
         let Some(hand) = hand else {
             return;
         };
@@ -371,6 +389,7 @@ impl EquipmentRuntime {
             }
             HeldKind::Other => return,
         };
+        let display = override_display.unwrap_or(display);
         let Some(placement) = self.placements.get(sprite_index).copied().flatten() else {
             return;
         };
@@ -481,6 +500,12 @@ impl EquipmentRuntime {
             location,
             tint,
         ));
+    }
+
+    fn has_armor_binding(&self, identifier: &str) -> bool {
+        self.catalog
+            .as_ref()
+            .is_some_and(|catalog| catalog.binding(identifier).is_some())
     }
 
     fn armor_geometry_for(&mut self, identifier: &str) -> Option<Arc<ArmorGeometry>> {
