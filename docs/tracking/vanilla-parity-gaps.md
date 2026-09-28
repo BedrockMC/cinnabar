@@ -11,6 +11,11 @@
 - `task/enhanced-shaders` — opt-in Enhanced render mode (non-parity, off by default).
 
 ## Local player rendering
+Third-person body (S1) merged: local player routed through the shared animated rig.
+Known gap: a one-tick cosmetic body smear on same-dimension teleport/large snap
+(`teleported` is hardcoded false; physics exposes no snap signal yet). First-person
+hand (M2) not built (near-camera GPU pass).
+
 Root cause: the local player is never spawned as an actor, so it never gets the
 animated rig remotes use. All three below flow from that.
 - Third-person body: static 6-bone diagnostic biped placed at camera yaw (no body/head
