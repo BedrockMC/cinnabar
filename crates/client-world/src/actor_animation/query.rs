@@ -90,7 +90,7 @@ const KEY_NAME: u32 = 4;
 const KEY_TARGET: u32 = 6;
 const KEY_SWELL: u32 = 19;
 const FLAG_STANDING: u32 = 39;
-const FLAG_SWIMMING: u32 = 57;
+pub(super) const FLAG_SWIMMING: u32 = 57;
 
 // Fuse ticks a swell is normalised by; needs independent measurement.
 const SWELL_FULL_TICKS: f32 = 28.0;
@@ -229,10 +229,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                 .get("minecraft:health")
                 .is_some_and(|health| health.max > 0.0 && health.current <= health.max * 0.5),
         ),
-        // Unsmoothed 0/1 stand-ins for the pose blend amounts.
-        "swim_amount" => truth(actor_flag(actor, FLAG_SWIMMING)),
+        "swim_amount" => input.swim_amount,
+        // Unsmoothed 0/1 stand-in for the pose blend.
         "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),
         "is_in_water" => truth(in_water(actor, input)),
+        "is_in_lava" => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
+        "armor_texture_slot" => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
+        "armor_color_slot" => armor_color_slot(context, argument(0), argument(1)),
         "is_on_ground" => truth(input.on_ground),
         "is_riding" => truth(input.is_riding),
         "is_moving" => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
@@ -257,6 +260,53 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "has_rider" => truth(context.has_rider),
         "has_player_rider" => truth(context.has_player_rider),
         _ => 0.0,
+    }
+}
+
+fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::WornArmor> {
+    if !(0.0..5.0).contains(&slot) {
+        return None;
+    }
+    context.armor[slot as usize].as_ref()
+}
+
+// Material indices follow the order of the pack's armor texture arrays (none, leather, iron, gold,
+// diamond, copper, netherite); chainmail, turtle and elytra need independent measurement.
+fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
+    let Some(armor) = worn_armor(context, slot) else {
+        return 0.0;
+    };
+    let material = item_name(&armor.item).split('_').next().unwrap_or("");
+    match material {
+        "leather" => 1.0,
+        "iron" => 2.0,
+        "golden" | "gold" => 3.0,
+        "diamond" => 4.0,
+        "copper" => 5.0,
+        "netherite" => 6.0,
+        _ => 0.0,
+    }
+}
+
+// Undyed leather tints with the public default colour; every other stack tints white.
+const DEFAULT_LEATHER_RGB: u32 = 0x00A0_6540;
+
+/// One 0..1 channel (0 red, 1 green, 2 blue, 3 alpha) of the worn stack's tint.
+fn armor_color_slot(context: &ActorTickContext, slot: Option<f32>, channel: Option<f32>) -> f32 {
+    let (Some(slot), Some(channel)) = (slot, channel) else {
+        return 0.0;
+    };
+    let Some(armor) = worn_armor(context, slot) else {
+        return 1.0;
+    };
+    let rgb = armor.dye_rgb.or_else(|| {
+        item_name(&armor.item)
+            .starts_with("leather_")
+            .then_some(DEFAULT_LEATHER_RGB)
+    });
+    match (channel as i32, rgb) {
+        (0..=2, Some(rgb)) => ((rgb >> (16 - 8 * channel as u32)) & 0xff) as f32 / 255.0,
+        _ => 1.0,
     }
 }
 
@@ -321,11 +371,15 @@ fn texture_frame_index(actor: &ActorSnapshot) -> f32 {
         .unwrap_or(UPPER_BOUNDS.len()) as f32
 }
 
-fn has_target(actor: &ActorSnapshot) -> bool {
+pub(super) fn has_target(actor: &ActorSnapshot) -> bool {
     matches!(actor.metadata.get(&KEY_TARGET), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
 }
 
+/// Sampled fluid at the actor when available; otherwise the swimming flag or airborne fish.
 fn in_water(actor: &ActorSnapshot, input: &ActorTickInput) -> bool {
+    if let Some((water, _)) = actor.status.fluid {
+        return water;
+    }
     let aquatic = match &actor.kind {
         ActorKind::Entity { identifier } => {
             let name = identifier.as_ref();

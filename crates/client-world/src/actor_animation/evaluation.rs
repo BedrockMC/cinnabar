@@ -56,6 +56,10 @@ pub(super) struct EngineSlots {
     pub(super) player_x_rotation: Option<usize>,
     /// View-bobbing gate the first-person walk/breathing animations weigh against.
     pub(super) bob_animation: Option<usize>,
+    pub(super) swim_amount: Option<usize>,
+    pub(super) left_arm_swim_amount: Option<usize>,
+    pub(super) right_arm_swim_amount: Option<usize>,
+    pub(super) has_target: Option<usize>,
 }
 
 // Client-owned variables seeded on construction, observed in a client reconstruction and
@@ -120,6 +124,10 @@ impl VariableLayout {
                 is_first_person: slot("variable.is_first_person"),
                 player_x_rotation: slot("variable.player_x_rotation"),
                 bob_animation: slot("variable.bob_animation"),
+                swim_amount: slot("variable.swim_amount"),
+                left_arm_swim_amount: slot("variable.left_arm_swim_amount"),
+                right_arm_swim_amount: slot("variable.right_arm_swim_amount"),
+                has_target: slot("variable.has_target"),
             },
         }
     }

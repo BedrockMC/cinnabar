@@ -144,6 +144,15 @@ impl WorldStream {
     pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
         self.actors.take_status_notices()
     }
+    /// Feet position of every tracked actor, for [`Self::set_actor_fluids`] sampling.
+    #[must_use]
+    pub fn actor_fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {
+        self.actors.fluid_sample_points()
+    }
+    /// Records `(runtime_id, in_water, in_lava)` samples that back the fluid animation queries.
+    pub fn set_actor_fluids(&mut self, samples: &[(u64, bool, bool)]) {
+        self.actors.set_fluids(samples);
+    }
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);

@@ -55,6 +55,8 @@ pub struct ActorStatus {
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
     pub pickup: Option<ActorPickup>,
+    /// `(in_water, in_lava)` sampled from the block at the actor; `None` before the first sample.
+    pub fluid: Option<(bool, bool)>,
 }
 
 impl ActorStatus {
