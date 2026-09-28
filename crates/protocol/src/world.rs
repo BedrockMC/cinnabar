@@ -40,7 +40,7 @@ mod game_mode;
 mod requests;
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
-    CustomMaterialInstance, CustomPermutation, CustomStateAxis, CustomStateValue,
+    CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
     CustomTransformation, CustomVisualComponents, block_name_sort_key,
 };
 pub use self::events::{

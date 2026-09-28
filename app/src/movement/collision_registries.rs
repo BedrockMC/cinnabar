@@ -289,6 +289,7 @@ impl PhysicsCollisionRegistries {
                         physics.surface_response,
                     )
                     .ok()?;
+                apply_selection(&mut self.sequential, next, block);
                 next = next.checked_add(1)?;
             }
         }
@@ -346,6 +347,7 @@ impl PhysicsCollisionRegistries {
                             block.collides && block.collision_box.is_none(),
                         ),
                     );
+                    apply_selection(&mut self.hashed, state.hash, block);
                     self.session_hashes.push(state.hash);
                 }
             }
@@ -425,19 +427,32 @@ fn custom_block_box(block: &protocol::CustomBlock) -> Option<Aabb> {
     if !block.collides {
         return None;
     }
-    Some(block.collision_box.map_or_else(
-        || collision_box_to_aabb(FULL_CUBE),
-        |shape| {
-            let point = |values: [f32; 3]| {
-                Vec3::new(
-                    f64::from(values[0]),
-                    f64::from(values[1]),
-                    f64::from(values[2]),
-                )
-            };
-            Aabb::new(point(shape.min), point(shape.max))
-        },
-    ))
+    Some(
+        block
+            .collision_box
+            .map_or_else(|| collision_box_to_aabb(FULL_CUBE), box_to_aabb),
+    )
+}
+
+/// Applies the block's selection box to a registered state's pick ray.
+fn apply_selection(registry: &mut CollisionRegistry, id: u32, block: &protocol::CustomBlock) {
+    let shapes = match block.selection {
+        protocol::CustomSelection::Default => return,
+        protocol::CustomSelection::Disabled => Vec::new(),
+        protocol::CustomSelection::Box(shape) => vec![box_to_aabb(shape)],
+    };
+    registry.set_pick_shapes(id, shapes);
+}
+
+fn box_to_aabb(shape: protocol::CustomBox) -> Aabb {
+    let point = |values: [f32; 3]| {
+        Vec3::new(
+            f64::from(values[0]),
+            f64::from(values[1]),
+            f64::from(values[2]),
+        )
+    };
+    Aabb::new(point(shape.min), point(shape.max))
 }
 
 fn collision_box_to_aabb(collision: assets::CollisionBox) -> Aabb {
@@ -531,6 +546,7 @@ mod tests {
             state_count,
             collides: true,
             collision_box: None,
+            selection: Default::default(),
             visual: Default::default(),
         }
     }

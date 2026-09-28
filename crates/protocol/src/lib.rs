@@ -155,7 +155,7 @@ pub use world::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
     BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent, CustomBlock,
     CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
     CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange, HASHED_AIR_NETWORK_ID,
     LevelChunkEvent, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS,
     MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject,
