@@ -223,6 +223,9 @@ pub(super) fn apply_engine_variables(
         flag(query::FLAG_DAMAGE_NEARBY_MOBS),
     );
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
+    variables.set(engine.player_x_rotation, input.pitch);
+    // View bobbing is on by default; the first-person walk/breathing bob weigh against this.
+    variables.set(engine.bob_animation, 1.0);
 }
 
 /// A clip to sample, its blend weight, and the animation tick its controller state began.

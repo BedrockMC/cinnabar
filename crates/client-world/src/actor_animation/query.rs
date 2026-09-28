@@ -87,6 +87,18 @@ const FLOAT_QUERIES: [(&str, u32, f32); 3] = [
 ];
 const KEY_NAME: u32 = 4;
 
+// First-person and use-item queries the pack reads but the client has no timing, equipment, or
+// game-mode source for yet. Each returns its vanilla idle value so the pre-animation formulas
+// (item_use_normalized, helmet_layer_visible) and the use/crossbow animations stay neutral.
+// Wiring the real sources later replaces the entry, not the query name.
+const IDLE_QUERIES: [(&str, f32); 5] = [
+    ("main_hand_item_use_duration", 0.0),
+    ("main_hand_item_max_duration", 0.0),
+    ("item_remaining_use_duration", 0.0),
+    ("has_head_gear", 0.0),
+    ("is_spectator", 0.0),
+];
+
 // Head-over-body yaw bound for look-at queries; needs independent measurement.
 const TARGET_YAW_LIMIT: f32 = 85.0;
 
@@ -135,6 +147,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     }
     if let Some((_, key, idle)) = FLOAT_QUERIES.iter().find(|(query, ..)| *query == name) {
         return metadata_number(actor, *key).unwrap_or(*idle);
+    }
+    if let Some((_, idle)) = IDLE_QUERIES.iter().find(|(query, _)| *query == name) {
+        return *idle;
     }
     match name {
         "anim_time" => evaluator.anim_tick as f32 * 0.05,

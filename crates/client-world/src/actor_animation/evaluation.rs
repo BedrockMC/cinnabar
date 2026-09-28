@@ -52,6 +52,10 @@ pub(super) struct EngineSlots {
     pub(super) damage_nearby_mobs: Option<usize>,
     /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
     pub(super) is_first_person: Option<usize>,
+    /// Look pitch feeding `variable.map_angle`; refreshed per tick, unlike the seed.
+    pub(super) player_x_rotation: Option<usize>,
+    /// View-bobbing gate the first-person walk/breathing animations weigh against.
+    pub(super) bob_animation: Option<usize>,
 }
 
 // Client-owned variables seeded on construction, observed in a client reconstruction and
@@ -114,6 +118,8 @@ impl VariableLayout {
                 is_blocking: slot("variable.is_blocking"),
                 damage_nearby_mobs: slot("variable.damage_nearby_mobs"),
                 is_first_person: slot("variable.is_first_person"),
+                player_x_rotation: slot("variable.player_x_rotation"),
+                bob_animation: slot("variable.bob_animation"),
             },
         }
     }
