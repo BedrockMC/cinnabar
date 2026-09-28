@@ -191,6 +191,7 @@ impl WorldStream {
 pub(super) struct DecodeIds {
     pub(super) assets: Arc<RuntimeAssets>,
     pub(super) custom_blocks: std::ops::Range<u32>,
+    pub(super) remap: Arc<assets::SequentialIdRemap>,
     pub(super) mode: NetworkIdMode,
     pub(super) air: u32,
     pub(super) biome_tints: Arc<ResolvedBiomeTints>,
@@ -214,6 +215,11 @@ impl BlockIds for DecodeIds {
     }
 
     fn resolve(&self, network_id: u32) -> u32 {
+        let network_id = if self.mode == NetworkIdMode::Sequential {
+            self.remap.to_internal(network_id)
+        } else {
+            network_id
+        };
         if self.assets.is_known(self.mode, network_id) || self.custom_blocks.contains(&network_id) {
             network_id
         } else {
@@ -245,10 +251,16 @@ impl WorldStream {
         self.custom_block_ids = ids;
     }
 
+    /// Translates sequential wire ids when custom blocks sort among vanilla names.
+    pub fn set_sequential_id_remap(&mut self, remap: assets::SequentialIdRemap) {
+        self.id_remap = Arc::new(remap);
+    }
+
     pub(super) fn decode_ids(&self, dimension: i32) -> DecodeIds {
         DecodeIds {
             assets: Arc::clone(&self.runtime_assets),
             custom_blocks: self.custom_block_ids.clone(),
+            remap: Arc::clone(&self.id_remap),
             mode: self.network_id_mode,
             air: self.classifier.air_network_id(),
             biome_tints: Arc::clone(&self.resolved_biome_tints),

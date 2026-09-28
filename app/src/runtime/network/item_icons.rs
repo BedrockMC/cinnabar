@@ -19,8 +19,19 @@ pub(super) fn compile_session_icons(
         return None;
     }
     let paths = texture_key_paths(view, "textures/item_texture.json");
-    let icons = icon_keys
+    // Explicit icon components outrank short-name guesses when the icon cap bites.
+    let short_name = |identifier: &str| {
+        identifier
+            .rsplit_once(':')
+            .map_or(identifier, |(_, name)| name)
+            .to_owned()
+    };
+    let (guessed, explicit): (Vec<_>, Vec<_>) = icon_keys
         .iter()
+        .partition(|(identifier, key)| key.as_ref() == short_name(identifier));
+    let icons = explicit
+        .into_iter()
+        .chain(guessed)
         .filter_map(|(identifier, key)| {
             let texture = decode_pack_texture(view, paths.get(key.as_ref())?)?;
             Some(icon(Arc::clone(identifier), first_frame(texture)))

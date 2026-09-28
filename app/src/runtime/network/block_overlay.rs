@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 use assets::{
     Animation, BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties,
     MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_TWO_SIDED, Material,
-    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TextureArray, TextureMip,
-    TextureRef, VisualKind, VisualSupport,
+    MaterialKeys, MaterialOverride, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    TextureArray, TextureMip, TextureRef, VisualKind, VisualSupport,
 };
 use protocol::{CustomBlocks, CustomVisualComponents};
 use resource_pack::LayeredPackView;
@@ -55,10 +55,8 @@ pub(super) fn compile_block_overlay(
     view: &LayeredPackView,
     blocks: &CustomBlocks,
     hashed: bool,
+    vanilla_keys: Option<&MaterialKeys>,
 ) -> Option<CompiledBlockOverlay> {
-    if blocks.blocks.is_empty() {
-        return None;
-    }
     let wanted = blocks
         .blocks
         .iter()
@@ -106,6 +104,12 @@ pub(super) fn compile_block_overlay(
             builder.push_state(&components);
         }
     }
+    if let Some(keys) = vanilla_keys {
+        builder.override_vanilla_materials(keys);
+    }
+    if blocks.blocks.is_empty() && builder.overlay.material_overrides.is_empty() {
+        return None;
+    }
     builder.finish()
 }
 
@@ -133,6 +137,32 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
+    /// Repoints every base material whose terrain key the pack redefines.
+    fn override_vanilla_materials(&mut self, keys: &MaterialKeys) {
+        let mut candidates = self
+            .catalog
+            .terrain_keys()
+            .filter(|key| !keys.materials(key).is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        candidates.sort_unstable();
+        let mut claimed = HashSet::new();
+        for key in candidates {
+            let Some(slot) = self.texture_slot(&key) else {
+                continue;
+            };
+            for &material in keys.materials(&key) {
+                if material != DIAGNOSTIC_MATERIAL && claimed.insert(material) {
+                    self.overlay.material_overrides.push(MaterialOverride {
+                        material,
+                        texture: TextureRef::new(1, slot.layer).expect("bounded layer"),
+                        animation: slot.animation,
+                    });
+                }
+            }
+        }
+    }
+
     fn push_state(&mut self, components: &CustomVisualComponents) {
         let light = state_light(components);
         let visual = self.visual(components);

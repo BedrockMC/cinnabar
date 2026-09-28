@@ -114,6 +114,7 @@ impl WorldStream {
             network_id_mode,
             runtime_assets,
             custom_block_ids: 0..0,
+            id_remap: Arc::default(),
             biome_definitions: Arc::from([]),
             resolved_biome_tints,
             biome_tint_stream_id,

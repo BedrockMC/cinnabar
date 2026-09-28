@@ -1,5 +1,6 @@
 //! Merged reads of pack catalogs across the layered stack, for consumers that
-//! need one view (sound definitions, `blocks.json`, `ui/` overrides).
+//! need one view. `winning_files("ui/", "json")` feeds `json_ui::Catalog::overlay_text`;
+//! `merged_sound_definitions` is the audio hook (no runtime audio consumer yet).
 
 use serde_json::{Map, Value};
 
@@ -124,8 +125,8 @@ mod tests {
 
     fn view(top: &[(&str, &str)], bottom: &[(&str, &str)]) -> LayeredPackView {
         LayeredPackView::new(validate_handoff(ResourcePackHandoff::from_archives(vec![
-            pack(1, top),
             pack(2, bottom),
+            pack(1, top),
         ])))
     }
 

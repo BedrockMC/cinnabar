@@ -60,6 +60,7 @@ pub(crate) use inventory::{
 pub(crate) use resource_packs::PackApplication;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
+    set_base_material_keys,
 };
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, PacketSendError,
@@ -360,6 +361,7 @@ pub(crate) fn receive_network_events(
                     ]
                 };
                 let hashed_ids = bootstrap.block_network_ids_are_hashes;
+                let mut id_remap = assets::SequentialIdRemap::default();
                 let custom_block_ids = if hashed_ids {
                     collisions.begin_session_custom_blocks(&protocol::CustomBlocks::default());
                     if collisions
@@ -370,7 +372,12 @@ pub(crate) fn receive_network_events(
                     }
                     None
                 } else {
-                    collisions.begin_session_custom_blocks(&custom_blocks)
+                    collisions
+                        .begin_session_custom_blocks(&custom_blocks)
+                        .map(|(range, remap)| {
+                            id_remap = remap;
+                            range
+                        })
                 };
                 if !hashed_ids && custom_block_ids.is_none() && !custom_blocks.blocks.is_empty() {
                     warn!(
@@ -418,6 +425,7 @@ pub(crate) fn receive_network_events(
                     );
                 }
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
+                stream.set_sequential_id_remap(id_remap);
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)
                 {

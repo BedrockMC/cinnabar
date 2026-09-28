@@ -65,6 +65,10 @@ impl<'a> TextureCatalog<'a> {
         }
     }
 
+    pub(super) fn terrain_keys(&self) -> impl Iterator<Item = &str> {
+        self.terrain.keys().map(String::as_str)
+    }
+
     pub(super) fn flipbook(&self, key: &str) -> Option<&Flipbook> {
         self.flipbooks.get(key)
     }

@@ -88,6 +88,7 @@ fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBloc
         name: name.into(),
         state_count,
         collides: true,
+        collision_box: None,
         visual: Arc::new(visual),
     }
 }
@@ -156,7 +157,7 @@ fn compiled() -> super::CompiledBlockOverlay {
         blocks: vec![lucky, generator(), missing].into(),
         skipped: 0,
     };
-    compile_block_overlay(&view(), &blocks, false).expect("overlay")
+    compile_block_overlay(&view(), &blocks, false, None).expect("overlay")
 }
 
 // Full blocks become cubes on page 1; missing textures stay diagnostic and are counted.
@@ -371,7 +372,7 @@ fn light_components_drive_state_light() {
         blocks: vec![lit, plain].into(),
         skipped: 0,
     };
-    let compiled = compile_block_overlay(&view(), &blocks, false).expect("overlay");
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
     let light = &compiled.overlay.light_properties;
     assert_eq!((light[0].emission(), light[0].filter()), (13, 2));
     assert_eq!(
@@ -388,7 +389,7 @@ fn hashed_mode_emits_a_visual_and_hash_per_state() {
         blocks: vec![generator()].into(),
         skipped: 0,
     };
-    let compiled = compile_block_overlay(&view(), &blocks, true).expect("overlay");
+    let compiled = compile_block_overlay(&view(), &blocks, true, None).expect("overlay");
     assert_eq!(compiled.overlay.visuals.len(), 4);
     assert_eq!(compiled.overlay.hashes.len(), 4);
     let unique: std::collections::HashSet<_> = compiled.overlay.hashes.iter().collect();
@@ -399,4 +400,32 @@ fn hashed_mode_emits_a_visual_and_hash_per_state() {
         .expect("session assets");
     let hash = compiled.overlay.hashes[2];
     assert_eq!(session.sequential_id_for_hash(hash), Some(3));
+}
+
+// A pack redefining a vanilla terrain key repoints that key's base materials; unknown keys are ignored.
+#[test]
+fn vanilla_terrain_keys_override_base_materials() {
+    let keys = assets::MaterialKeys::from_entries([(5, "lucky"), (6, "gen"), (7, "not_in_pack")]);
+    let empty = CustomBlocks::default();
+    let compiled = compile_block_overlay(&view(), &empty, false, Some(&keys)).expect("overrides");
+    let mut materials = compiled
+        .overlay
+        .material_overrides
+        .iter()
+        .map(|replacement| replacement.material)
+        .collect::<Vec<_>>();
+    materials.sort_unstable();
+    assert_eq!(materials, [5, 6]);
+    let gen_override = compiled
+        .overlay
+        .material_overrides
+        .iter()
+        .find(|replacement| replacement.material == 6)
+        .unwrap();
+    assert_ne!(
+        gen_override.animation,
+        assets::NO_ANIMATION,
+        "flipbook carries over"
+    );
+    assert!(compile_block_overlay(&view(), &empty, false, None).is_none());
 }

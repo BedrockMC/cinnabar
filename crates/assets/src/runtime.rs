@@ -1,7 +1,9 @@
 mod decode;
+mod id_remap;
 mod overlay;
 
-pub use overlay::BlockOverlay;
+pub use id_remap::SequentialIdRemap;
+pub use overlay::{BlockOverlay, MaterialOverride};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -194,6 +196,12 @@ impl RuntimeAssets {
             },
             |(visual, light)| ResolvedBlock::known(visual, light),
         )
+    }
+
+    /// Number of materials in the carrier's table.
+    #[must_use]
+    pub fn material_count(&self) -> usize {
+        self.materials.len()
     }
 
     /// True for the programmatic diagnostic runtime, which carries no registries.

@@ -114,7 +114,7 @@ animated rig remotes use. All three below flow from that.
 - Leaves: Fancy look landed (leaf↔leaf faces kept); live compare pending.
 - Block-entity models (chests, beds, shulkers, banners, skulls, conduit, bell) + sign text — absent (MED-HIGH).
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
-  vanilla block/entity retexturing, custom entities, and merged sounds/ui consumption remain unapplied (HIGH).
+  vanilla entity retexturing, custom entities, custom-block selection boxes, and audio consumption of merged sounds remain unapplied (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 

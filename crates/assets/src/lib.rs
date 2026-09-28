@@ -17,6 +17,7 @@ mod icon;
 mod item;
 mod lang;
 mod light_registry;
+mod material_keys;
 mod model;
 mod physics_registry;
 mod provenance;
@@ -135,6 +136,7 @@ pub use lang::{
     VANILLA_EN_US_LANG_SHA256, encode_lang_catalog,
 };
 pub use light_registry::{LightProperties, read_light_registry, read_light_registry_for_protocol};
+pub use material_keys::{MAX_MATERIAL_KEYS_BYTES, MaterialKeys};
 pub use model::{
     ANIMATION_FLAG_BLEND, Animation, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_PAGES, MODEL_QUAD_FLAG_CULL_FACE_MASK,
@@ -155,7 +157,10 @@ pub use registry::{
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
     read_registry_for_protocol, registry_header_protocol,
 };
-pub use runtime::{BlockOverlay, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets};
+pub use runtime::{
+    BlockOverlay, MaterialOverride, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets,
+    SequentialIdRemap,
+};
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
