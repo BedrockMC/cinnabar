@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use render::{UiTextureCatalog, UiTexturePage, UiTexturePlan};
+use render::{MAX_UI_DYNAMIC_PAGES, UiTextureCatalog, UiTexturePage, UiTexturePlan};
 
 #[test]
 fn mixed_dimensions_plan_native_bytes_before_materialization() {
@@ -29,7 +29,7 @@ fn planner_checks_entire_catalog_and_all_limits() {
     assert!(UiTexturePage::owned([4097, 1], vec![0; 4].into()).is_err());
     assert!(UiTextureCatalog::new(Vec::new(), 0).is_err());
     let reserved = UiTexturePage::owned([256, 256], vec![0; 256 * 256 * 4].into()).unwrap();
-    assert!(UiTextureCatalog::new(vec![reserved; 10], 0).is_err());
+    assert!(UiTextureCatalog::new(vec![reserved; MAX_UI_DYNAMIC_PAGES + 1], 0).is_err());
     let unreserved = UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap();
     assert!(UiTextureCatalog::new(vec![unreserved], 0).is_err());
 }

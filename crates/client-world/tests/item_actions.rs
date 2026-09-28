@@ -964,3 +964,25 @@ fn custom_actions_replace_in_fifo_and_teleport_cancels_the_current_lifetime() {
     assert!(stream.actor_action(42).is_none());
     assert!(stream.actor_action_history(42).is_empty());
 }
+
+// A StartGame-only registry must resolve server item ids before any play-time packet.
+#[test]
+fn seeded_start_game_registry_resolves_custom_item_ids() {
+    let mut stream = stream();
+    let custom = stack(CUSTOM_ITEM_ID, 1, b"");
+    assert!(
+        stream
+            .canonical_item_stack(&custom)
+            .unwrap()
+            .identifier
+            .is_none()
+    );
+    let WorldEvent::ItemActor(ItemActorEvent::Registry(seed)) =
+        registry(CUSTOM_ITEM_ID, "test:gadget")
+    else {
+        unreachable!("fixture builds a registry");
+    };
+    assert!(stream.seed_item_registry(seed));
+    let resolved = stream.canonical_item_stack(&custom).unwrap();
+    assert_eq!(resolved.identifier.as_deref(), Some("test:gadget"));
+}

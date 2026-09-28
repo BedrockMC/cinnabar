@@ -76,10 +76,7 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
         independent_icons(735, 16),
     )
     .unwrap();
-    assert_eq!(
-        presentation.textures.plan().bytes(),
-        55 * 1024 * 1024 + 768 * 1024
-    );
+    assert_eq!(presentation.textures.plan().bytes(), 56 * 1024 * 1024);
     assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 735);
     assert!(
         UiPresentationRuntime::with_hud_and_icons(font, fixture_hud(), independent_icons(900, 64))
@@ -149,7 +146,7 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
     assert_eq!(
         presentation.textures.plan().bytes(),
-        52 * 1024 * 1024 + 10 * 256 * 256 * 4
+        52 * 1024 * 1024 + 11 * 256 * 256 * 4
     );
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];
@@ -330,4 +327,41 @@ fn preview_changes_do_not_reread_menu_files_or_copy_cached_menu_pages() {
             .as_ptr(),
         preview_pixels
     );
+}
+
+// Server icons pack onto the last dynamic page and win over the vanilla atlas.
+#[test]
+fn session_icons_pack_onto_the_last_dynamic_page() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let icons = Arc::new(SessionIcons {
+        icons: vec![
+            SessionIcon {
+                identifier: "test:gem".into(),
+                width: 2,
+                height: 1,
+                rgba8: vec![255, 0, 0, 255, 0, 255, 0, 255].into(),
+            },
+            SessionIcon {
+                identifier: "test:bad".into(),
+                width: 4,
+                height: 4,
+                rgba8: vec![0; 3].into(),
+            },
+        ],
+    });
+    session_icons::observe(&mut presentation, Some(&icons));
+    let icon = presentation.item_icon("test:gem", 0).expect("session icon");
+    let dynamic_start = presentation.textures.dynamic_start();
+    assert_eq!(
+        usize::from(icon.page),
+        dynamic_start + dynamic_textures::SESSION_ICON_PAGE
+    );
+    assert_eq!(icon.uv, [1, 1, 3, 2], "one-pixel gutter around the sprite");
+    assert!(
+        presentation.item_icon("test:bad", 0).is_none(),
+        "malformed sprites are left out"
+    );
+
+    session_icons::observe(&mut presentation, None);
+    assert!(presentation.item_icon("test:gem", 0).is_none());
 }

@@ -333,6 +333,7 @@ pub(crate) fn receive_network_events(
                 ui_runtime.begin_session(session_generation);
                 movement_effects.begin_session(session_generation);
                 movement_speed.begin_session(session_generation, bootstrap.dimension);
+                let world_item_registry = item_registry.clone();
                 if !publish_bootstrap_inventory(&mut ui_runtime, item_registry, inventory) {
                     record_fatal_error(
                         &mut client_world.fatal_error,
@@ -401,6 +402,11 @@ pub(crate) fn receive_network_events(
                     );
                 }
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
+                if let Some(registry) = world_item_registry
+                    && !stream.seed_item_registry(registry)
+                {
+                    warn!("StartGame item registry was refused by the world stream");
+                }
                 stream.set_publication_allowance(publication.allowance());
                 let resolved = stream.resolved_server_position();
                 if acceptance.enabled() {
@@ -478,6 +484,12 @@ pub(crate) fn receive_network_events(
                     &mut ui_runtime,
                     session_generation,
                     packs.server_lang,
+                    client_world.fatal_error.is_none(),
+                );
+                resource_packs::install_session_icons(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.item_icons,
                     client_world.fatal_error.is_none(),
                 );
                 ui_runtime.install_block_breaking_mode(
@@ -901,6 +913,7 @@ mod actor_publication;
 mod block_overlay;
 mod drain;
 mod inventory;
+mod item_icons;
 mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::publish_actor_render_frame;
