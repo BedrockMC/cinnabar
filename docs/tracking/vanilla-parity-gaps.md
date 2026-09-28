@@ -146,7 +146,7 @@ animated rig remotes use. All three below flow from that.
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar centered, magnified, alpha-faded from SetTitle timings; placement constants need measurement (uncompiled).
 - Screen overlays: see the camera section (dedicated overlay pass landed uncompiled; underwater overlay not listed there) (MED). No red damage flash is correct.
-- Boss-bar colors/notches approximate; effect-blink approximate; hardcore hearts (needs carrier roles + hardcore flag) (LOW). Heart jitter/regen wave, hunger shake, boxed sliding toasts, distance-scaled player nametags added uncompiled; nametags lack wall occlusion and mob tags. Offhand handedness has no Bedrock source.
+- Boss-bar colors/notches approximate; effect-blink approximate; boss-bar Java sprites (no source pack carries them; notches stay procedural) (LOW). Hardcore hearts ship via the optional `make hud-extras-assets` carrier. Heart jitter/regen wave, hunger shake, boxed sliding toasts, distance-scaled player nametags added uncompiled; nametags (players and flagged mobs) use a collision-ray see-through rule. Offhand handedness has no Bedrock source.
 - Chat/killfeed: unicode and format-code glyphs not rendering (open font / text renderer
   coverage) — garbled server killfeed text (MED, confirmed live).
 - Faithful already: hotbar, hearts/armor/absorption, hunger, air, XP, crosshair.

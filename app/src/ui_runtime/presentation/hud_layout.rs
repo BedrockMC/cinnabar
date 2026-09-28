@@ -96,6 +96,8 @@ pub(crate) struct HudFrame {
     pub attack_indicator_charge: Option<f32>,
     /// Whether the held player-list action keeps the tab overlay open.
     pub tab_list_open: bool,
+    /// Hardcore heart sprites, present only when the optional extras carrier is loaded.
+    pub hardcore_hearts: Option<super::hud_extras::HardcoreHearts>,
 }
 
 /// Per-frame layout geometry derived from the Java GUI-scale rule. All

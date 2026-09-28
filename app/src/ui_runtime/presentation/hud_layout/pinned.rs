@@ -152,9 +152,15 @@ pub(super) fn heart_role(
     })
 }
 
-/// Alpha for an effect entry: solid normally, blinking through the final ten
-/// seconds with a deterministic triangular wave (bounded approximation of the
-/// reference's accelerating flicker, pending the native gallery).
+/// Ticks per blink cycle in the final seconds. Needs independent measurement.
+const BLINK_PERIOD_TICKS: f32 = 10.0;
+/// Blink swing around the resting opacity, growing toward expiry. Needs independent measurement.
+const BLINK_MIN_SWING: f32 = 0.1;
+const BLINK_MAX_SWING: f32 = 0.25;
+const BLINK_CENTER: f32 = 0.75;
+
+/// Alpha for an effect entry: solid normally; through the final ten seconds it pulses on a fixed
+/// period with a swing that widens as the effect runs out.
 pub(super) fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
     let Some(remaining) = effect.remaining_ticks(now_tick) else {
         return 255;
@@ -162,13 +168,10 @@ pub(super) fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u
     if remaining >= EFFECT_BLINK_TICKS {
         return 255;
     }
-    let phase = (remaining % 20) as f32 / 20.0;
-    let wave = if phase < 0.5 {
-        phase * 2.0
-    } else {
-        (1.0 - phase) * 2.0
-    };
-    (64.0 + 191.0 * wave) as u8
+    let urgency = 1.0 - remaining as f32 / EFFECT_BLINK_TICKS as f32;
+    let swing = BLINK_MIN_SWING + (BLINK_MAX_SWING - BLINK_MIN_SWING) * urgency;
+    let wave = (remaining as f32 * std::f32::consts::TAU / BLINK_PERIOD_TICKS).cos();
+    ((BLINK_CENTER + swing * wave).clamp(0.0, 1.0) * 255.0) as u8
 }
 
 /// Durability hue: green at full durability sweeping to red, matching the
@@ -186,5 +189,45 @@ pub(super) fn hsv_to_rgb(hue: f32) -> [u8; 4] {
         3 => [0, descending, 255, 255],
         4 => [ascending, 0, 255, 255],
         _ => [255, 0, descending, 255],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn effect(expires: u64) -> HudEffect {
+        HudEffect {
+            effect_id: 1,
+            amplifier: 0,
+            ambient: false,
+            particles: true,
+            expires_at_tick: Some(expires),
+        }
+    }
+
+    #[test]
+    fn effects_are_solid_until_the_final_ten_seconds() {
+        assert_eq!(effect_blink_alpha(&effect(1_000), Some(0)), 255);
+        assert_eq!(effect_blink_alpha(&effect(1_000), Some(800)), 255);
+        let infinite = HudEffect {
+            expires_at_tick: None,
+            ..effect(0)
+        };
+        assert_eq!(effect_blink_alpha(&infinite, Some(5)), 255);
+    }
+
+    #[test]
+    fn blink_pulses_within_bounds_and_widens_toward_expiry() {
+        let range = |from: u64, to: u64| {
+            let alphas: Vec<u8> = (from..to)
+                .map(|now| effect_blink_alpha(&effect(1_000), Some(now)))
+                .collect();
+            (*alphas.iter().min().unwrap(), *alphas.iter().max().unwrap())
+        };
+        let (early_low, early_high) = range(801, 821);
+        let (late_low, late_high) = range(980, 1_000);
+        assert!(late_high - late_low > early_high - early_low);
+        assert!(late_low >= 120 && late_high <= 255);
     }
 }

@@ -289,6 +289,7 @@ pub(crate) fn receive_network_events(
                 world_default_game_mode,
                 player_game_mode_uses_world_default,
                 server_authoritative_block_breaking,
+                hardcore,
                 packs,
             } => {
                 match classify_bootstrap_generation(
@@ -348,6 +349,7 @@ pub(crate) fn receive_network_events(
                     world_default_game_mode,
                     player_game_mode_uses_world_default,
                 );
+                ui_runtime.set_hardcore(hardcore);
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }

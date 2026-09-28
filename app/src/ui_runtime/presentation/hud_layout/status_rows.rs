@@ -2,9 +2,12 @@
 
 use assets::HudTextureRole;
 
+use ui::{UiNode, UiNodeId, UiVisual};
+
 use super::{
     HudFrame, HudLayout, UiPresentationError, UiRuntime,
     pinned::{HOTBAR_WIDTH, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, damage_flash_phase, heart_role},
+    rect,
     status_motion::{heart_lift, hunger_shake_offset, hunger_shakes},
 };
 
@@ -61,9 +64,40 @@ impl HudLayout<'_> {
                 }
             };
             if let Some(role) = foreground {
-                self.sprite_gui(role, position, [255; 4])?;
+                let hardcore = frame
+                    .hardcore_hearts
+                    .filter(|_| runtime.gameplay_hud().hardcore())
+                    .and_then(|hearts| hearts.sprite(role));
+                match hardcore {
+                    Some((page, uv)) => self.extra_sprite_gui(page, uv, position)?,
+                    None => self.sprite_gui(role, position, [255; 4])?,
+                }
             }
         }
+        Ok(())
+    }
+
+    /// A 9x9 GUI px sprite from the extras page.
+    fn extra_sprite_gui(
+        &mut self,
+        page: u16,
+        uv: [u16; 4],
+        gui: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
+        let g = self.geometry;
+        let [x, y] = g.logical(gui);
+        let node = UiNode::new(
+            UiNodeId::new(*self.next_id),
+            None,
+            rect(x, y, x + 9.0 * g.scale, y + 9.0 * g.scale)?,
+        )
+        .with_visual(UiVisual::Sprite {
+            texture_page: page,
+            uv,
+            color: [255; 4],
+        });
+        self.nodes.push(node);
+        *self.next_id = self.next_id.saturating_add(1);
         Ok(())
     }
 

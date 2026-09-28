@@ -29,6 +29,12 @@ mod server_lang;
 mod texture;
 mod ui;
 mod weather_textures;
+mod hud_extras;
+
+pub use hud_extras::{
+    HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
+    MAX_HUD_EXTRAS_BYTES, decode_hud_extras, encode_hud_extras,
+};
 
 pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,

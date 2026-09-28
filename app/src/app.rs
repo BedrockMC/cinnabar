@@ -533,6 +533,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         icon_assets.into_runtime(),
     )
     .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
+    if let Some((extras, identity)) =
+        crate::ui_runtime::presentation::load_optional_hud_extras(&loaded_assets.selected_path)
+    {
+        ui_presentation.install_hud_extras(&extras, identity);
+    }
     // Hybrid HUD: Bedrock has no static scoreboard background alpha (it is a runtime engine
     // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
     // server publishes a sidebar objective.

@@ -86,6 +86,10 @@ impl UiRuntime {
         self.player_mode_from_default = false;
     }
 
+    pub(crate) fn set_hardcore(&mut self, hardcore: bool) {
+        self.gameplay_hud.set_hardcore(hardcore);
+    }
+
     /// Installs the StartGame game modes: the resolved player mode, the
     /// world's default mode, and whether the player is bound to that default
     /// (StartGame carried the level-default sentinel).

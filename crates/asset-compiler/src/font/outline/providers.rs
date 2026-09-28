@@ -7,7 +7,8 @@ const MAX_METADATA_BYTES: usize = 8 * 1024 * 1024;
 const FALLBACK_SIDE: u32 = 2_048;
 const MAX_FALLBACK_PAGES: usize = 3;
 const FALLBACK_RANGES: &[(u32, u32)] = &[
-    (0x2713, 0x2713),
+    (0x2190, 0x23ff),
+    (0x2460, 0x27bf),
     (0x3000, 0x30ff),
     (0x3400, 0x4dbf),
     (0x4e00, 0x9fff),
