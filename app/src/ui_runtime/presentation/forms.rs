@@ -5,6 +5,8 @@ mod engine;
 mod fallback;
 mod model;
 mod pages;
+#[cfg(test)]
+mod tests;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
@@ -57,6 +59,10 @@ impl UiPresentationRuntime {
 
     /// Overlay a joined server's resource-pack `ui/*.json` files (pack-relative
     /// paths); an empty set restores the vanilla catalog.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "fed once server resource-pack application lands")
+    )]
     pub(crate) fn set_server_ui_pack(&mut self, files: &[(String, Vec<u8>)]) {
         if let Some(engine) = self.form_presentation.engine.as_mut() {
             engine.set_server_pack(files);
