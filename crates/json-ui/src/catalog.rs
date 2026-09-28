@@ -130,7 +130,33 @@ impl Catalog {
                 return;
             }
         };
-        let value = match json5::parse(&text) {
+        self.load_text(entry, &text);
+    }
+
+    /// Layers one pack `ui/*.json` file over the catalog; controls it defines
+    /// replace earlier ones. Bad files are recorded in diagnostics and skipped.
+    pub fn overlay_text(&mut self, entry: &str, text: &str) {
+        self.load_text(entry, text);
+    }
+
+    /// Layers a pack's `_global_variables.json`; its variables replace earlier ones.
+    pub fn overlay_globals_text(&mut self, text: &str) {
+        match json5::parse(text) {
+            Ok(Value::Object(object)) => {
+                for (key, item) in object {
+                    if let Some(name) = key.strip_prefix('$') {
+                        self.globals.insert(name.to_owned(), item);
+                    }
+                }
+            }
+            _ => self
+                .diagnostics
+                .push("_global_variables.json: overlay is not an object".to_owned()),
+        }
+    }
+
+    fn load_text(&mut self, entry: &str, text: &str) {
+        let value = match json5::parse(text) {
             Ok(value) => value,
             Err(error) => {
                 self.diagnostics
@@ -221,4 +247,27 @@ pub enum LoadError {
     Parse { path: PathBuf, message: String },
     #[error("unexpected shape in {path}")]
     Shape { path: PathBuf },
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::Catalog;
+
+    // A pack file redefining a control replaces the vanilla one and adds new ones.
+    #[test]
+    fn overlay_text_replaces_and_adds_controls() {
+        let mut catalog = Catalog::default();
+        catalog.overlay_text("ui/a.json", r#"{"namespace":"n","box":{"size":[1,1]}}"#);
+        catalog.overlay_text(
+            "ui/b.json",
+            r#"{"namespace":"n","box":{"size":[2,2]},"extra":{}}"#,
+        );
+        catalog.overlay_globals_text(r#"{"$g": 3}"#);
+        assert_eq!(catalog.lookup("n", "box").unwrap().props["size"][0], 2);
+        assert!(catalog.lookup("n", "extra").is_some());
+        assert_eq!(
+            catalog.global("g").and_then(|value| value.as_i64()),
+            Some(3)
+        );
+    }
 }

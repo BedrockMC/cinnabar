@@ -7,7 +7,7 @@ use std::{
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
     compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
-    compile_pack_with_biomes, inspect_animation_inventory,
+    compile_pack_with_material_keys, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
@@ -543,7 +543,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .parent()
                 .ok_or("resource-pack path has no parent for behavior_pack")?
                 .join("behavior_pack");
-            let mut compiled = compile_pack_with_biomes(
+            let (mut compiled, material_keys) = compile_pack_with_material_keys(
                 &pack,
                 &behavior_pack,
                 &records,
@@ -559,6 +559,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let blob = encode_blob(&compiled)?;
             write_blob_atomic(&out, &blob)?;
+            // Sidecar for runtime retexturing; a stale or absent one only disables that.
+            write_blob_atomic(
+                &out.with_extension("matkeys.json"),
+                &material_keys.to_json(compiled.materials.len() as u32),
+            )?;
             let cutout_materials = compiled
                 .materials
                 .iter()

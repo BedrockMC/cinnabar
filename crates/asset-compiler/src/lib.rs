@@ -34,7 +34,10 @@ pub use audio_pcm::{
     AudioPcmCompileError, AudioPcmCompileReport, CompiledAudioPcmCarrier, compile_audio_pcm_assets,
 };
 pub use biome::compile_biome_assets;
-pub use compiler::{compile_pack, compile_pack_with_biomes, inspect_animation_inventory};
+pub use compiler::{
+    compile_pack, compile_pack_with_biomes, compile_pack_with_material_keys,
+    inspect_animation_inventory,
+};
 pub use entity::{
     CompileReferenceOutcome, EntityAssetCompilation, FallbackReason, RejectReason,
     compile_entity_assets, compile_entity_assets_with_report,

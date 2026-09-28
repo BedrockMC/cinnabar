@@ -235,6 +235,7 @@ pub struct WorldStream {
     network_id_mode: NetworkIdMode,
     runtime_assets: Arc<RuntimeAssets>,
     custom_block_ids: std::ops::Range<u32>,
+    id_remap: Arc<assets::SequentialIdRemap>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
     resolved_biome_tints: Arc<ResolvedBiomeTints>,
     biome_tint_stream_id: u64,

@@ -20,7 +20,16 @@ pub struct CustomBlock {
     pub state_count: u32,
     /// False when the definition disables its collision box.
     pub collides: bool,
+    /// Explicit `minecraft:collision_box` shape; `None` means a full cube when `collides`.
+    pub collision_box: Option<CustomBox>,
     pub visual: Arc<CustomBlockVisuals>,
+}
+
+/// An axis-aligned box in block units (`0..=1` on each axis).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CustomBox {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
 }
 
 /// The render-relevant parts of a custom block definition.
@@ -220,6 +229,7 @@ impl CustomBlocks {
                     name: Arc::from(name),
                     state_count: definition.state_count,
                     collides: definition.collides,
+                    collision_box: definition.collision_box,
                     visual: Arc::new(definition.visual),
                 }),
                 None => skipped += 1,
@@ -245,6 +255,7 @@ impl CustomBlocks {
 struct Definition {
     state_count: u32,
     collides: bool,
+    collision_box: Option<CustomBox>,
     visual: CustomBlockVisuals,
 }
 
@@ -300,6 +311,9 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
             }
             _ => true,
         };
+    let collision_box = components
+        .and_then(|components| components.field("minecraft:collision_box"))
+        .and_then(box_component);
     let permutations = root
         .list("permutations")
         .iter()
@@ -317,12 +331,45 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
     Some(Definition {
         state_count: u32::try_from(states).ok()?,
         collides,
+        collision_box,
         visual: CustomBlockVisuals {
             base: visual_components(components),
             permutations,
             state_axes: state_axes.into_boxed_slice(),
         },
     })
+}
+
+/// Reads a `{origin, size}` box given in sixteenths from the block's bottom
+/// centre, clamped to the block; `None` for anything malformed or empty.
+fn box_component(component: &Nbt) -> Option<CustomBox> {
+    let triple = |name: &str| -> Option<[f32; 3]> {
+        let values = component.list(name);
+        if values.len() != 3 {
+            return None;
+        }
+        let mut out = [0.0_f32; 3];
+        for (slot, value) in out.iter_mut().zip(values) {
+            let number = value.number()?;
+            if !number.is_finite() {
+                return None;
+            }
+            *slot = number as f32;
+        }
+        Some(out)
+    };
+    let (origin, size) = (triple("origin")?, triple("size")?);
+    let shift = [8.0, 0.0, 8.0];
+    let mut min = [0.0_f32; 3];
+    let mut max = [0.0_f32; 3];
+    for axis in 0..3 {
+        min[axis] = ((origin[axis] + shift[axis]) / 16.0).clamp(0.0, 1.0);
+        max[axis] = ((origin[axis] + shift[axis] + size[axis]) / 16.0).clamp(0.0, 1.0);
+        if max[axis] <= min[axis] {
+            return None;
+        }
+    }
+    Some(CustomBox { min, max })
 }
 
 /// Reads geometry, material instances, and transformation; odd values are
@@ -463,6 +510,7 @@ mod tests {
             name: "ns:b".into(),
             state_count: 6,
             collides: true,
+            collision_box: None,
             visual: std::sync::Arc::new(CustomBlockVisuals {
                 state_axes: Box::new([
                     CustomStateAxis {
@@ -592,6 +640,24 @@ mod tests {
             "zigzag 4 is two quarter turns"
         );
         assert_eq!(transform.scale, [2.0, 1.0, 1.0]);
+    }
+
+    // Origin is bottom-centre in sixteenths; a full 16-cube maps to the unit block.
+    #[test]
+    fn collision_box_maps_sixteenths_to_block_units() {
+        use crate::nbt_tree::Nbt;
+        let list = |values: [f64; 3]| Nbt::List(values.map(Nbt::Float).into());
+        let boxed = |origin, size| {
+            Nbt::Compound(vec![
+                ("origin".to_owned(), list(origin)),
+                ("size".to_owned(), list(size)),
+            ])
+        };
+        let full = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0])).unwrap();
+        assert_eq!((full.min, full.max), ([0.0; 3], [1.0; 3]));
+        let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
+        assert_eq!(slab.max, [1.0, 0.5, 1.0]);
+        assert!(super::box_component(&boxed([0.0; 3], [0.0; 3])).is_none());
     }
 
     #[test]

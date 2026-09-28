@@ -61,7 +61,15 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
-    let block_overlay = compile_block_overlay(&view, custom_blocks, hashed_block_ids).map(Arc::new);
+    let block_overlay = cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
+        compile_block_overlay(
+            &view,
+            custom_blocks,
+            hashed_block_ids,
+            BASE_MATERIAL_KEYS.get(),
+        )
+        .map(Arc::new)
+    });
     if let Some(compiled) = &block_overlay
         && compiled.gaps != Default::default()
     {
@@ -73,6 +81,70 @@ pub(super) fn prepare_pack_application(
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }
+}
+
+/// Texture keys of the vanilla carrier's materials, set once at startup when the sidecar loads.
+static BASE_MATERIAL_KEYS: std::sync::OnceLock<assets::MaterialKeys> = std::sync::OnceLock::new();
+
+pub(crate) fn set_base_material_keys(keys: assets::MaterialKeys) {
+    let _ = BASE_MATERIAL_KEYS.set(keys);
+}
+
+type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
+
+struct CachedOverlay {
+    stack: StackFingerprint,
+    hashed: bool,
+    blocks: protocol::CustomBlocks,
+    overlay: Option<Arc<CompiledBlockOverlay>>,
+}
+
+/// The previous session's compiled overlay, reused when the same pack stack and
+/// block definitions rejoin.
+static OVERLAY_CACHE: std::sync::Mutex<Option<CachedOverlay>> = std::sync::Mutex::new(None);
+
+/// Identity of each pack as (uuid, version, subpack, content hash), in stack order.
+fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> StackFingerprint {
+    use sha2::{Digest, Sha256};
+    stack
+        .packs()
+        .iter()
+        .map(|pack| {
+            (
+                pack.pack_id().to_string(),
+                pack.version().to_owned(),
+                pack.sub_pack_name().to_owned(),
+                Sha256::digest(&*pack.archive_bytes()).into(),
+            )
+        })
+        .collect()
+}
+
+fn cached_block_overlay(
+    stack: &resource_pack::ValidatedPackStack,
+    blocks: &protocol::CustomBlocks,
+    hashed: bool,
+    compile: impl FnOnce() -> Option<Arc<CompiledBlockOverlay>>,
+) -> Option<Arc<CompiledBlockOverlay>> {
+    let fingerprint = stack_fingerprint(stack);
+    let mut cache = OVERLAY_CACHE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    if let Some(cached) = cache.as_ref()
+        && cached.hashed == hashed
+        && cached.stack == fingerprint
+        && cached.blocks == *blocks
+    {
+        return cached.overlay.clone();
+    }
+    let overlay = compile();
+    *cache = Some(CachedOverlay {
+        stack: fingerprint,
+        hashed,
+        blocks: blocks.clone(),
+        overlay: overlay.clone(),
+    });
+    overlay
 }
 
 /// Returns the carrier extended with this session's custom block visuals, or the
@@ -517,8 +589,8 @@ mod tests {
     #[test]
     fn language_files_merge_across_the_stack_by_precedence() {
         let handoff = protocol::ResourcePackHandoff::from_archives(vec![
-            lang_pack(1, b"shared=top\ntop.only=T"),
             lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
+            lang_pack(1, b"shared=top\ntop.only=T"),
         ]);
         let application = super::prepare_pack_application(
             handoff,
@@ -530,6 +602,39 @@ mod tests {
         assert_eq!(overlay.lookup("shared"), Some("top"));
         assert_eq!(overlay.lookup("top.only"), Some("T"));
         assert_eq!(overlay.lookup("bottom.only"), Some("B"));
+    }
+
+    // The same stack and blocks reuse the compiled overlay instead of recompiling.
+    #[test]
+    fn overlay_cache_reuses_the_previous_session_compile() {
+        let blocks = protocol::CustomBlocks {
+            blocks: vec![protocol::CustomBlock {
+                name: "cache:test".into(),
+                state_count: 1,
+                collides: true,
+                collision_box: None,
+                visual: Default::default(),
+            }]
+            .into(),
+            skipped: 0,
+        };
+        let stack =
+            resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+                lang_pack(7, b"a=b"),
+            ]));
+        let mut compiles = 0;
+        for _ in 0..2 {
+            super::cached_block_overlay(&stack, &blocks, false, || {
+                compiles += 1;
+                None
+            });
+        }
+        assert_eq!(compiles, 1);
+        super::cached_block_overlay(&stack, &blocks, true, || {
+            compiles += 1;
+            None
+        });
+        assert_eq!(compiles, 2);
     }
 
     #[test]

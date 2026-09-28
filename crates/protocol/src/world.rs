@@ -12,9 +12,10 @@ use valentine::bedrock::version::v1_26_44::{
 use crate::{
     ActorPacketError, InventoryPacketError, ItemPacketError, Packet,
     actor::{
-        normalize_add_entity, normalize_add_item_actor, normalize_add_player, normalize_mob_effect, normalize_move_entity,
-        normalize_move_entity_delta, normalize_player_list, normalize_remove_entity,
-        normalize_set_entity_data, normalize_set_entity_link, normalize_update_attributes,
+        normalize_add_entity, normalize_add_item_actor, normalize_add_player, normalize_mob_effect,
+        normalize_move_entity, normalize_move_entity_delta, normalize_player_list,
+        normalize_remove_entity, normalize_set_entity_data, normalize_set_entity_link,
+        normalize_update_attributes,
     },
     audio::{normalize_level_sound, normalize_play_sound, normalize_stop_sound},
     inventory::{
@@ -38,9 +39,9 @@ mod events;
 mod game_mode;
 mod requests;
 pub use self::custom_blocks::{
-    CustomBlock, CustomBlockVisuals, CustomBlocks, CustomHashedState, CustomMaterialInstance,
-    CustomPermutation, CustomStateAxis, CustomStateValue, CustomTransformation,
-    CustomVisualComponents, block_name_sort_key,
+    CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
+    CustomMaterialInstance, CustomPermutation, CustomStateAxis, CustomStateValue,
+    CustomTransformation, CustomVisualComponents, block_name_sort_key,
 };
 pub use self::events::{
     ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,

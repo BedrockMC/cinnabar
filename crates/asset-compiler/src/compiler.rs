@@ -14,8 +14,8 @@ use assets::{
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
-    Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, RegistryRecord,
-    TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
+    Material, MaterialKeys, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION,
+    RegistryRecord, TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 
 use crate::{
@@ -134,6 +134,7 @@ pub fn compile_pack(
         CompiledBiomeAssets::diagnostic(),
         LEGACY_REGISTRY_PROTOCOL,
     )
+    .map(|(compiled, _)| compiled)
 }
 
 /// Compiles the complete v3 block and biome asset set, consuming the
@@ -147,6 +148,27 @@ pub fn compile_pack_with_biomes(
     light_properties: &[LightProperties],
     registry_protocol: u32,
 ) -> Result<CompiledAssets, AssetError> {
+    compile_pack_with_material_keys(
+        root,
+        behavior_pack,
+        records,
+        biome_registry,
+        light_properties,
+        registry_protocol,
+    )
+    .map(|(compiled, _)| compiled)
+}
+
+/// Like [`compile_pack_with_biomes`], also returning each material's source
+/// terrain texture key so a session can retexture vanilla blocks.
+pub fn compile_pack_with_material_keys(
+    root: &Path,
+    behavior_pack: &Path,
+    records: &[RegistryRecord],
+    biome_registry: &[BiomeRegistryRecord],
+    light_properties: &[LightProperties],
+    registry_protocol: u32,
+) -> Result<(CompiledAssets, MaterialKeys), AssetError> {
     let biomes = compile_biome_assets(root, behavior_pack, biome_registry)?;
     compile_pack_inner(root, records, light_properties, biomes, registry_protocol)
 }
@@ -204,7 +226,7 @@ fn compile_pack_inner(
     light_properties: &[LightProperties],
     biomes: CompiledBiomeAssets,
     registry_protocol: u32,
-) -> Result<CompiledAssets, AssetError> {
+) -> Result<(CompiledAssets, MaterialKeys), AssetError> {
     let pack = read_pack(root)?;
     validate_records(records)?;
     let fallback = visuals::fallback::inventory(registry_protocol)?;
@@ -394,6 +416,11 @@ fn compile_pack_inner(
     let (animations, animation_frames) = runtime_animation_tables(&animation_plan)?;
     let (materials, material_by_descriptor) =
         compile_materials(&descriptor_keys, &animation_plan, &alpha_paths)?;
+    let material_keys = MaterialKeys::from_entries(
+        material_by_descriptor
+            .iter()
+            .map(|(descriptor, &material)| (material, descriptor.texture_key.as_ref())),
+    );
     let vanilla_fallback_material =
         visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
     let (visuals, hashed, model_templates, model_quads) = compile_visuals(
@@ -419,19 +446,22 @@ fn compile_pack_inner(
         });
     }
 
-    Ok(CompiledAssets {
-        visuals,
-        light_properties: light_properties.into(),
-        hashed,
-        materials,
-        model_templates,
-        model_quads,
-        animations,
-        animation_frames,
-        texture_pages,
-        biomes,
-        provenance: UNBOUND_PROVENANCE,
-    })
+    Ok((
+        CompiledAssets {
+            visuals,
+            light_properties: light_properties.into(),
+            hashed,
+            materials,
+            model_templates,
+            model_quads,
+            animations,
+            animation_frames,
+            texture_pages,
+            biomes,
+            provenance: UNBOUND_PROVENANCE,
+        },
+        material_keys,
+    ))
 }
 
 fn validate_records(records: &[RegistryRecord]) -> Result<(), AssetError> {
