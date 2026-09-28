@@ -124,7 +124,7 @@ pub use permissions::{
 pub use raw_text::{
     MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
-    RawTextResolver, ResolvedRawText, parse_raw_text,
+    RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
 };
 pub use socket_transport::{SocketTransport, bridge_endpoint_path};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
