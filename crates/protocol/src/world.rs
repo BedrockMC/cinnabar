@@ -488,6 +488,9 @@ pub fn into_world_event(
         McpePacketData::ContainerSetDataPacket(packet) => {
             WorldEvent::Inventory(normalize_container_data(packet)?)
         }
+        McpePacketData::PlayerEnchantOptionsPacket(packet) => {
+            WorldEvent::Inventory(crate::inventory::normalize_enchant_options(packet)?)
+        }
         McpePacketData::AnimatePacket(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
         McpePacketData::AnimateEntityPacket(packet) => {
             WorldEvent::ItemActor(normalize_animate_entity(*packet)?)

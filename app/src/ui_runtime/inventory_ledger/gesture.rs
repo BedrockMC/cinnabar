@@ -1,6 +1,6 @@
-use protocol::{ContainerIdentity, NetworkItemStack, StackRequestAction, StackRequestSlot};
+use protocol::{NetworkItemStack, StackRequestAction, StackRequestSlot};
 
-use super::helpers::request_slot;
+use super::helpers::{WindowAddress, request_slot};
 use super::overlay::DeltaGroup;
 use super::registry::OccupiedStackRelation;
 use super::{
@@ -84,7 +84,7 @@ pub(super) fn counted_transfer(
     source: Cell,
     destination: Cell,
     stack: &NetworkItemStack,
-    storage_identity: Option<ContainerIdentity>,
+    storage_identity: Option<WindowAddress>,
     requested: Option<u16>,
 ) -> Result<Built, InventoryGestureError> {
     let amount = requested.unwrap_or(stack.count);
@@ -120,7 +120,7 @@ pub(super) fn counted_merge(
     destination: Cell,
     source_stack: &NetworkItemStack,
     destination_stack: &NetworkItemStack,
-    storage_identity: Option<ContainerIdentity>,
+    storage_identity: Option<WindowAddress>,
     amount: u16,
     capacity: u16,
 ) -> Result<Built, InventoryGestureError> {
@@ -163,7 +163,7 @@ pub(super) fn swap(
     destination: Cell,
     source_stack: &NetworkItemStack,
     destination_stack: &NetworkItemStack,
-    storage_identity: Option<ContainerIdentity>,
+    storage_identity: Option<WindowAddress>,
 ) -> Result<Built, InventoryGestureError> {
     Ok(Built {
         action: StackRequestAction::Swap {
@@ -260,7 +260,7 @@ impl PlayerInventoryLedger {
         {
             return Err(InventoryGestureError::AwaitingIdentity);
         }
-        let storage_identity = self.storage_identity();
+        let storage_identity = self.window_address();
         let target_overlay = target_held.as_ref().and_then(|held| held.overlay.as_ref());
         let cursor_overlay = cursor_held.as_ref().and_then(|held| held.overlay.as_ref());
         let target_stack = target_held.as_ref().map(|held| &held.stack);

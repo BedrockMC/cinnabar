@@ -10,7 +10,7 @@ use valentine::bedrock::{
         EnumsContainerEnumName as FullContainerNameContainerName,
         EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
         InventoryContentPacket, InventorySlotPacket, ItemStackResponsePacket, McpePacketName,
-        MobArmorEquipmentPacket, PlayerHotbarPacket,
+        MobArmorEquipmentPacket, PlayerEnchantOptionsPacket, PlayerHotbarPacket,
     },
 };
 use valentine::protocol::wire;
@@ -31,6 +31,7 @@ pub use creative::{
 pub mod recipes;
 mod request;
 mod validation;
+mod windows;
 pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
     CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY,
@@ -42,6 +43,7 @@ pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
+pub use windows::*;
 mod registry_snapshot;
 pub use recipes::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
@@ -50,9 +52,9 @@ pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_m
 pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
     ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
-    MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction,
-    StackRequestContainer, StackRequestSlot, container_close_packet, item_stack_request_packet,
-    open_inventory_packet,
+    MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
+    item_stack_request_packet, item_stack_request_packet_filtered, open_inventory_packet,
 };
 use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
@@ -171,6 +173,26 @@ pub struct ContainerDataEvent {
     pub value: i32,
 }
 
+/// One enchanting-table option the server offers for the input item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnchantOption {
+    pub cost: u8,
+    /// The option's display text in the standard galactic alphabet.
+    pub name: Arc<str>,
+    /// The recipe network id a selection request names.
+    pub network_id: u32,
+    /// `(enchantment type code, level)` pairs the option applies.
+    pub enchants: Arc<[(u8, u8)]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnchantOptionsEvent {
+    pub options: Arc<[EnchantOption]>,
+}
+
+/// Options one enchanting table shows at most; extras are dropped.
+pub const MAX_ENCHANT_OPTIONS: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
     Recipes(recipes::RecipeUpdate),
@@ -182,6 +204,7 @@ pub enum InventoryEvent {
     Open(ContainerOpenEvent),
     Close(ContainerCloseEvent),
     Data(ContainerDataEvent),
+    EnchantOptions(EnchantOptionsEvent),
     Creative(CreativeContentEvent),
 }
 
@@ -511,6 +534,36 @@ pub fn normalize_container_data(
         container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
         property: packet.id,
         value: packet.value,
+    }))
+}
+
+pub fn normalize_enchant_options(
+    packet: PlayerEnchantOptionsPacket,
+) -> Result<InventoryEvent, InventoryPacketError> {
+    let options = packet
+        .options
+        .into_iter()
+        .take(MAX_ENCHANT_OPTIONS)
+        .map(|option| {
+            let mut enchants = Vec::new();
+            for instance in option.enchants.item_enchants.iter().flatten() {
+                let mut bytes = BytesMut::with_capacity(1);
+                instance
+                    .enchant_type
+                    .encode(&mut bytes)
+                    .map_err(|_| InventoryPacketError::EncodingFailed)?;
+                enchants.push((bytes[0], instance.enchant_level));
+            }
+            Ok(EnchantOption {
+                cost: option.cost,
+                name: Arc::from(option.enchant_name),
+                network_id: option.enchant_net_id.raw_id,
+                enchants: Arc::from(enchants),
+            })
+        })
+        .collect::<Result<Vec<_>, InventoryPacketError>>()?;
+    Ok(InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+        options: Arc::from(options),
     }))
 }
 

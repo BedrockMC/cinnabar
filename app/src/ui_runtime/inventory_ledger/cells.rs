@@ -8,7 +8,6 @@ use super::{PLAYER_INVENTORY_SLOT_COUNT, StackResponseOverlay};
 pub(super) const ARMOR_CELLS: usize = protocol::ARMOR_SLOTS as usize;
 /// UI inventory slot of the first crafting cell.
 pub(super) const FIRST_CRAFT_SLOT: u8 = *protocol::CRAFTING_INPUT_SLOTS.start();
-const CRAFT_CELLS: usize = 13;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(super) enum Cell {
@@ -17,7 +16,7 @@ pub(super) enum Cell {
     Cursor,
     Armor(u8),
     Offhand,
-    /// One crafting cell addressed by its UI inventory slot, 28..=40.
+    /// One screen input or crafting cell addressed by its UI inventory slot.
     Craft(u8),
     CreatedOutput,
 }
@@ -70,7 +69,8 @@ pub(super) struct Cells {
     storage: Vec<Option<Held>>,
     armor: [Option<Held>; ARMOR_CELLS],
     offhand: Option<Held>,
-    craft: [Option<Held>; CRAFT_CELLS],
+    /// Screen inputs and grids, indexed by UI inventory slot.
+    craft: [Option<Held>; protocol::UI_SLOT_COUNT],
     created_output: Option<Held>,
 }
 
@@ -147,12 +147,43 @@ impl Cells {
         self.storage = slots.iter().map(Held::new).collect();
     }
 
+    /// Overwrites the run starting at `first`, growing the window up to `max_len`.
+    pub(super) fn write_storage(
+        &mut self,
+        first: usize,
+        slots: &[NetworkItemStack],
+        max_len: usize,
+    ) {
+        let end = first.saturating_add(slots.len()).min(max_len);
+        self.ensure_storage(end);
+        for (offset, stack) in slots.iter().enumerate() {
+            let index = first + offset;
+            if index >= end {
+                break;
+            }
+            self.storage[index] = Held::new(stack);
+        }
+    }
+
+    /// Grows the window to at least `len` empty cells.
+    pub(super) fn ensure_storage(&mut self, len: usize) {
+        if self.storage.len() < len {
+            self.storage.resize_with(len, || None);
+        }
+    }
+
     pub(super) fn storage_len(&self) -> usize {
         self.storage.len()
     }
 
     pub(super) fn clear_storage(&mut self) {
         self.storage = Vec::new();
+    }
+
+    /// Empties every screen input, grid cell and the created output.
+    pub(super) fn clear_ui(&mut self) {
+        self.craft = std::array::from_fn(|_| None);
+        self.created_output = None;
     }
 
     /// Every occupied retained cell in address order.
@@ -174,9 +205,11 @@ impl Cells {
             .enumerate()
             .filter_map(|(slot, held)| Some((Cell::Armor(slot as u8), held.as_ref()?)));
         let offhand = self.offhand.as_ref().map(|held| (Cell::Offhand, held));
-        let craft = self.craft.iter().enumerate().filter_map(|(index, held)| {
-            Some((Cell::Craft(FIRST_CRAFT_SLOT + index as u8), held.as_ref()?))
-        });
+        let craft = self
+            .craft
+            .iter()
+            .enumerate()
+            .filter_map(|(index, held)| Some((Cell::Craft(index as u8), held.as_ref()?)));
         let output = self
             .created_output
             .as_ref()
@@ -191,8 +224,8 @@ impl Cells {
     }
 }
 
+/// UI slots that hold a screen cell; the created output has its own cell.
 fn craft_index(slot: u8) -> Option<usize> {
-    protocol::CRAFTING_INPUT_SLOTS
-        .contains(&slot)
-        .then(|| usize::from(slot - FIRST_CRAFT_SLOT))
+    (slot != protocol::CREATED_OUTPUT_SLOT && protocol::ui_slot_container_name(slot).is_some())
+        .then_some(usize::from(slot))
 }
