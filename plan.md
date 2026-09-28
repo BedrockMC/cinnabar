@@ -2850,7 +2850,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
   delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
   `ClientMovementPredictionSync` is sent (fields from the reconstruction's sender and the
-  pinned gophertunnel) after a server correction is applied, at most once per second; the
+  pinned gophertunnel) after a server correction is applied, at most once per second, and is
+  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
+  live-test gate item: confirm anti-cheat servers accept the sync; the
   vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
   1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
   `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
