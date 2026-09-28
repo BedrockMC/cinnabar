@@ -502,4 +502,38 @@ mod tests {
         assert!(WindowKind::Anvil.is_ui_backed());
         assert!(!WindowKind::Hopper.is_ui_backed());
     }
+
+    #[test]
+    fn named_containers_project_onto_screen_cells() {
+        use super::super::ContainerIdentity;
+        use super::super::address::{CanonicalCell, project_container_cell};
+        let at = |name: u8, dynamic_id: Option<u32>| ContainerIdentity {
+            window_id: Some(5),
+            slot_type: Some(name),
+            dynamic_id,
+        };
+        assert_eq!(
+            project_container_cell(&at(NAME_ANVIL_MATERIAL, None), 2),
+            Some(CanonicalCell::UiSlot(2))
+        );
+        assert_eq!(
+            project_container_cell(&at(NAME_ANVIL_MATERIAL, None), 1),
+            None
+        );
+        assert_eq!(
+            project_container_cell(&at(2, None), 50),
+            Some(CanonicalCell::CreatedOutput)
+        );
+        assert_eq!(
+            project_container_cell(&at(NAME_FURNACE_FUEL, None), 0),
+            Some(CanonicalCell::WindowSlot { name: 24, slot: 0 })
+        );
+        assert_eq!(
+            project_container_cell(&at(NAME_BARREL, Some(3)), 4),
+            Some(CanonicalCell::GenericStorage {
+                dynamic_id: Some(3),
+                slot: 4
+            })
+        );
+    }
 }
