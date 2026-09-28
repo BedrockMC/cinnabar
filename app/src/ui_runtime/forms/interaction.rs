@@ -1,10 +1,14 @@
-use super::LocalFormAction;
+use super::{LocalFormAction, engine_input};
 use crate::{
     menu::MenuRuntime,
     ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
 };
 use bevy::{
-    input::mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel},
+    input::{
+        ButtonState,
+        keyboard::KeyboardInput,
+        mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel},
+    },
     prelude::{
         ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
     },
@@ -18,6 +22,7 @@ pub(crate) fn drive_server_form_input(
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
+    mut keyboard: MessageReader<KeyboardInput>,
     menu: Option<Res<MenuRuntime>>,
     presentation: Res<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
@@ -27,11 +32,13 @@ pub(crate) fn drive_server_form_input(
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         runtime.server_forms_mut().reject_active_busy();
         wheel.clear();
+        keyboard.clear();
         *owned_last_frame = false;
         return;
     }
     if !runtime.server_forms().owns_input() {
         wheel.clear();
+        keyboard.clear();
         if *owned_last_frame && !runtime.ui_focused() && window.focused {
             crate::ui_runtime::interaction::restore_gameplay_input_after_chat(
                 &mut cursor,
@@ -44,9 +51,37 @@ pub(crate) fn drive_server_form_input(
         return;
     }
     *owned_last_frame = true;
+    let engine_frame = runtime
+        .server_forms()
+        .active()
+        .and_then(|entry| presentation.form_engine_frame(entry.identity))
+        .cloned();
     if window.focused
+        && let Some(frame) = engine_frame
+    {
+        let input = engine_input::EngineInput {
+            cursor: window
+                .cursor_position()
+                .and_then(|point| ui::UiPoint::new(point.x, point.y).ok()),
+            keys: &keys,
+            mouse: &mouse,
+            wheel: wheel.read().map(|event| (event.y, event.unit)).collect(),
+            typed: keyboard
+                .read()
+                .filter(|input| input.state == ButtonState::Pressed)
+                .map(|input| {
+                    (
+                        input.key_code,
+                        input.text.as_ref().map(|text| text.to_string()),
+                    )
+                })
+                .collect(),
+        };
+        engine_input::drive(&mut runtime, &frame, input);
+    } else if window.focused
         && let Some(entry) = runtime.server_forms().active()
     {
+        keyboard.clear();
         let identity = entry.identity;
         if keys.just_pressed(KeyCode::ArrowUp)
             || (keys.just_pressed(KeyCode::Tab) && keys.pressed(KeyCode::ShiftLeft))
@@ -111,6 +146,7 @@ pub(crate) fn drive_server_form_input(
         }
     } else {
         wheel.clear();
+        keyboard.clear();
     }
     // Also retain ownership through the answer frame; pending enqueue owns
     // input until the later network phase accepts it or retires the session.

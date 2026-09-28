@@ -7,7 +7,7 @@
 use serde_json::{Map, Value};
 
 use crate::catalog::{Catalog, RawControl};
-use crate::env::{Env, apply_declarations, parse_var_key, substitute};
+use crate::env::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
 use crate::merge::{deep_merge_control, flatten_def};
 use crate::predicate;
 use crate::tree::{ControlRef, Factory, ResolvedControl};
@@ -227,7 +227,7 @@ impl<'a> Resolver<'a> {
                     continue;
                 }
                 if let Some((name, _)) = parse_var_key(key) {
-                    let resolved = substitute(value, env, &mut sink);
+                    let resolved = fold_expression(value, substitute(value, env, &mut sink), env);
                     env.set(name, resolved);
                 }
             }
@@ -288,7 +288,8 @@ fn build_properties(
         if control_ids_consumed && key == "control_ids" {
             continue;
         }
-        properties.insert(key.clone(), substitute(value, env, missing));
+        let substituted = substitute(value, env, missing);
+        properties.insert(key.clone(), fold_expression(value, substituted, env));
     }
     properties
 }

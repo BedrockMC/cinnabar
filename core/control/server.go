@@ -46,6 +46,7 @@ type responseError struct {
 type Server struct {
 	listener         net.Listener
 	store            *Store
+	worlds           Worlds // nil disables the world_* methods
 	done             chan struct{}
 	once             sync.Once
 	mu               sync.Mutex
@@ -60,7 +61,16 @@ func Start(socketDir string, store *Store) (*Server, error) {
 	return startWithRequestIOTimeout(socketDir, store, requestIOTimeout)
 }
 
+// StartWithWorlds is Start plus the versioned world_* methods backed by worlds.
+func StartWithWorlds(socketDir string, store *Store, worlds Worlds) (*Server, error) {
+	return startServer(socketDir, store, worlds, requestIOTimeout)
+}
+
 func startWithRequestIOTimeout(socketDir string, store *Store, timeout time.Duration) (*Server, error) {
+	return startServer(socketDir, store, nil, timeout)
+}
+
+func startServer(socketDir string, store *Store, worlds Worlds, timeout time.Duration) (*Server, error) {
 	if store == nil {
 		return nil, errors.New("control: status store is required")
 	}
@@ -74,6 +84,7 @@ func startWithRequestIOTimeout(socketDir string, store *Store, timeout time.Dura
 	server := &Server{
 		listener:         listener,
 		store:            store,
+		worlds:           worlds,
 		done:             make(chan struct{}),
 		requestIOTimeout: timeout,
 	}
@@ -135,6 +146,9 @@ func (server *Server) serveOne(conn net.Conn) error {
 	if call.Method == methodPackApplication {
 		return server.servePackApplication(conn, id, call.Params)
 	}
+	if server.worlds != nil && isWorldMethod(call.Method) {
+		return server.serveWorld(conn, id, call.Method, call.Params)
+	}
 	if len(call.Params) != 0 {
 		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
 	}
@@ -162,7 +176,7 @@ func (server *Server) servePackApplication(conn net.Conn, id uint64, raw json.Ra
 	return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: &status})
 }
 
-func (server *Server) writeResponse(conn net.Conn, value response) error {
+func (server *Server) writeResponse(conn net.Conn, value any) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(server.requestIOTimeout)); err != nil {
 		return fmt.Errorf("control: set response write deadline: %w", err)
 	}
@@ -205,7 +219,7 @@ func readFrame(reader io.Reader) ([]byte, error) {
 	return payload, err
 }
 
-func writeResponse(writer io.Writer, value response) error {
+func writeResponse(writer io.Writer, value any) error {
 	payload, err := json.Marshal(value)
 	if err != nil {
 		return err

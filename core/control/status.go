@@ -20,6 +20,15 @@ type StatusV1 struct {
 	SchemaVersion uint32                              `json:"schema_version"`
 	Lifecycle     Lifecycle                           `json:"lifecycle"`
 	PackAdmission proxy.ResourcePackAdmissionSnapshot `json:"pack_admission"`
+	Transfer      *TransferV1                         `json:"transfer,omitempty"`
+}
+
+// TransferV1 announces that the server transferred the session; the client should
+// reconnect to this same endpoint, which dials the new host.
+type TransferV1 struct {
+	Host     string `json:"host"`
+	Port     uint16 `json:"port"`
+	Sequence uint64 `json:"sequence"` // increases with every transfer
 }
 
 // Store retains only the newest resource-pack admission attempt.
@@ -28,6 +37,8 @@ type Store struct {
 	lifecycle Lifecycle
 	latest    proxy.ResourcePackAdmissionSnapshot
 	applied   uint64 // attempt whose packs the client confirmed applying
+	transfer  *TransferV1
+	transfers uint64
 }
 
 func NewStore() *Store {
@@ -54,8 +65,19 @@ func (store *Store) Observe(snapshot proxy.ResourcePackAdmissionSnapshot) {
 	snapshot.Application = proxy.ResourcePackApplicationUnavailable
 	store.mu.Lock()
 	if snapshot.AttemptID >= store.latest.AttemptID {
+		if snapshot.AttemptID > store.latest.AttemptID {
+			store.transfer = nil // the client reconnected
+		}
 		store.latest = snapshot
 	}
+	store.mu.Unlock()
+}
+
+// ObserveTransfer publishes a pending transfer until the next admission attempt begins.
+func (store *Store) ObserveTransfer(target proxy.TransferTarget) {
+	store.mu.Lock()
+	store.transfers++
+	store.transfer = &TransferV1{Host: target.Host, Port: target.Port, Sequence: store.transfers}
 	store.mu.Unlock()
 }
 
@@ -76,6 +98,10 @@ func (store *Store) SetApplied(attemptID uint64, applied bool) {
 func (store *Store) Status() StatusV1 {
 	store.mu.RLock()
 	status := StatusV1{SchemaVersion: 1, Lifecycle: store.lifecycle, PackAdmission: store.latest}
+	if store.transfer != nil {
+		pending := *store.transfer
+		status.Transfer = &pending
+	}
 	if store.applied != 0 && store.applied == store.latest.AttemptID {
 		status.PackAdmission.Application = proxy.ResourcePackApplicationApplied
 	}

@@ -344,6 +344,11 @@ pub(super) fn model_variant_index(
             "dark_oak_sapling" => 5,
             _ => sapling_variant(canonical_string(&record.canonical_state, "sapling_type")?)?,
         },
+        "repeater_up" | "comparator_up" => usize::from(
+            name.starts_with("powered")
+                || canonical_u32(&record.canonical_state, "output_lit_bit") == Some(1),
+        ),
+        "frosted_ice" => canonical_u32(&record.canonical_state, "age")? as usize,
         "wheat" => canonical_u32(&record.canonical_state, "growth")? as usize,
         "melon_stem" | "pumpkin_stem" => {
             usize::from(canonical_u32(&record.canonical_state, "facing_direction")? >= 2)

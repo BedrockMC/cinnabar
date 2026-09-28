@@ -27,7 +27,10 @@ mod rig;
 #[path = "actor/witness.rs"]
 mod witness;
 
-pub use asset_geometry::{find_geometry_index, geometry_bone_names, geometry_bone_pivots};
+pub use asset_geometry::{
+    equipment_geometry, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
+    skull_geometry,
+};
 pub use gpu::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
     MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
@@ -39,7 +42,8 @@ pub use rig::{
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, EntityRigId,
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, pack_overlay_rgba8,
+    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, pack_equipment_rig_id,
+    pack_overlay_rgba8, pack_rig_id,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -225,6 +229,30 @@ impl ActorRenderScene {
     ) -> Result<(), ActorRigGeometryError> {
         let replacement = ActorRigFrameBuilder::from_runtime_assets(assets)?;
         self.rig_builder = replacement;
+        self.frame = ActorRenderFrame::default();
+        Ok(())
+    }
+
+    /// Registers pack equipment geometries under pack equipment rig ids, replacing the
+    /// previous session's; an empty list removes them.
+    pub fn replace_pack_equipment(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.rig_builder
+            .replace_pack_equipment_geometries(geometries)
+    }
+
+    /// Registers the geometry of a session's server-pack entity catalog under pack rig
+    /// ids, replacing the previous session's; `None` removes them.
+    pub fn replace_pack_entities(
+        &mut self,
+        assets: Option<&assets::RuntimeEntityAssets>,
+    ) -> Result<(), ActorRigGeometryError> {
+        let geometries = assets
+            .map(asset_geometry::pack_geometries)
+            .unwrap_or_default();
+        self.rig_builder.replace_pack_geometries(geometries)?;
         self.frame = ActorRenderFrame::default();
         Ok(())
     }

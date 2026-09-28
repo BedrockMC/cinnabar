@@ -273,6 +273,7 @@ fn real_producer_to_hand_adapter_keeps_cpu_until_completion_and_clears_on_unknow
                     username: "test".into(),
                     verified: true,
                     skin: PlayerSkin::Standard(StandardSkin {
+                        cape: None,
                         width: 64,
                         height: 64,
                         rgba8: vec![255; 64 * 64 * 4].into(),

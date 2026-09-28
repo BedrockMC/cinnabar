@@ -37,21 +37,25 @@
 
 ## JSON-UI engine (clean-room, Bedrock target; Java HUD stays an override)
 Owner decision: a faithful 1:1 Bedrock JSON-UI interpreter drives forms, container
-screens and menus from the vanilla `ui/*.json` + textures (read at runtime from
-`.local/`, never committed); the Java-styled gameplay HUD (`hud_screen` family) stays
-on the existing path, never routed through the engine. 8 tranches: **T1 parser+resolver
-and T2 length-expr + two-pass layout + nine-slice emit — landed** (`crates/json-ui`,
-fixture- and golden-tested against real templates/sidecars; still no app wiring). Next:
-T3 bindings + ActionForm/ModalForm (and `grid`/`scroll_view`, laid out as plain panels
-for now), T4 input+response, T5 CustomForm controls, T6 chest container, T7 remaining
-containers+menus, T8 server-pack overrides. Nine-slice emits as ≤9 self-contained sprite
-quads carrying texture path + normalized UV (atlas binds later); no new render primitive.
-Layout is deterministic within the virtual root; needs native confirmation: the
-physical→virtual UI scale factor (parameterized, not guessed), and three inferred
-semantics — omitted `size` = 100% fill while the `default` keyword = natural content
-size (image base_size / label text extent); `anchor_to` = parent point and
-`anchor_from` = child point (symmetric vanilla dialogs can't distinguish); and no
-sub-pixel rounding in-engine (deferred to draw).
+screens and menus from the vanilla `ui/*.json` + textures; the Java-styled gameplay HUD
+(`hud_screen` family) stays on the existing path and is absent from the engine's screen
+allow-list (`json_ui::ENGINE_SCREENS`). Landed (uncompiled in-lane, pending reconcile):
+T1-T3; engine-owned widget state (button/toggle/edit-box/slider state children, scroll
+views and scrollbar box, slider travel and progress clipping), relative layers, wrapped
+labels, grids, hit regions/modal blocking/global mappings, `dropdown_area` re-parenting,
+focus auto-scroll, server-pack ui json (with `modifications`) and textures. The optional
+`.mcbeui` carrier loads at startup (absent: fallback dialog); action/element/modal/custom
+forms always draw through the engine with vanilla input. Container screens route through
+the engine only with `--json-ui-containers` (default: the Java-styled screens, pending the
+owner's choice): personal inventory and workbench (survival layout, preview raster for
+the live player renderer), storage windows by container type, item tooltips. Open: the
+ledger admits only generic storage and workbench windows, so furnace/anvil/enchanting/
+brewing/grindstone/loom/smithing/cartography/stonecutter/beacon/hopper/dispenser/dropper/
+horse screens are mapped but dormant; creative tabs need a creative catalog; per-stack
+custom names and lore in tooltips. Needs native measurement: the virtual UI scale (engine
+pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label: value`
+text, tooltip and durability placement/colours, the preview's size in its box, layer
+relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point).
 
 ## Equipment / attachable rendering (Bedrock 3D target)
 T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane work now adds
@@ -77,9 +81,20 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
 - **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
   gliding and swimming are Molang-driven and fall back to `default`.
-- **Not done:** bow/crossbow pull frames, trident geometry, shield re-parent/blocking pose,
-  spyglass/goat-horn poses (attachable-to-hand-bone origin semantics and use state need native
-  measurement), enchant glint and armor trims.
+- **Trident and shield:** single-bone attachable geometry at the hand item bone, placed by the
+  carrier's literal wield transforms (shield poses resolved per hand). Attachable origin rule
+  (behavior only): the attachable's model origin is the parent's `rightItem`/`leftItem` bone
+  origin and bones turn about their own pivots; a geometry with only a `rightitem` locator bone
+  (bow, crossbow) draws the extruded item texture there.
+- **Worn heads:** skeleton, wither skeleton, zombie, player, creeper heads reuse the
+  block-entity carrier's skull textures on the head bone; dragon/piglin heads are not drawn.
+- **Item use:** `main_hand_item_max_duration`/`item_remaining_use_duration` read carrier use
+  durations (behavior-pack food, spears, honey; ticks) and the local player's held items feed
+  the animation runtime. Bow, crossbow, trident, potion, shield and spyglass durations are
+  engine-side and unavailable.
+- **Not done:** bow/crossbow pull frames (frame index and charge semantics are engine-side),
+  spyglass/goat-horn poses, enchant glint (needs an additive pass ordered after the base draw),
+  armor trims (per armor x pattern x material composite textures).
 
 ## Local player rendering
 Third-person body (S1) merged: local player routed through the shared animated rig.
@@ -129,14 +144,19 @@ animated rig remotes use. All three below flow from that.
   (`lighting.wgsl`, `chunk/gpu/upload/lighting.rs`, cloud) still clamp at 0.2/0.04 and must drop to `NIGHT_SKY_TRANSFER` (HIGH).
 - Stars: procedural star field landed uncompiled; twinkle unverified *(measure)*.
 - Leaves: Fancy look landed (leaf↔leaf faces kept); live compare pending.
-- Block-entity models: chests (single/double, lid cue), beds, shulkers, banners, skulls, bell, enchant/lectern book, beacon
-  beam, end portal, sign text, break-crack overlay are drawn from the `.mcbeben` carrier but uncompiled/unmeasured
-  and lit only by retained light; conduit, pots, campfire, frames, spawner, dragon/piglin heads, banner/beam
-  scroll and hanging-sign extents remain absent or provisional (MED-HIGH).
+- Block-entity models: chests (single/double, lid cue), beds, shulkers, banners, skulls (incl. dragon/piglin),
+  bell with frame and swing, lectern, enchant-table book, conduit, decorated pot, item/glow frames with framed items
+  (dropped-item sprite path), campfire items, tinted scrolling beacon beam, additive end portal, sign text and
+  model-shaped crack overlay draw from the `.mcbeben` carrier; all uncompiled, unmeasured and lit by the terrain
+  light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
+  terrain models and exact bell/lectern/pot dimensions remain open (MED-HIGH).
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
-  vanilla entity retexturing, custom entities, custom-block selection boxes, and audio consumption of merged sounds remain unapplied (HIGH).
+  custom entities apply in the neutral material profile only (pack attachables apply to held/worn items on player bodies through a per-session equipment layer; no custom materials, cross-catalog vanilla clip references, or conditional/multi-texture render controllers); pack property defaults seed query.property only when a resource pack carries `entities/` behavior definitions; vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; merged pack sounds now feed the audio engine as server overrides (uncompiled) (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
+- Terrain blocks (uncompiled): ice, slime, honey, tinted glass, powder snow, snow layers, named opaque cubes, amethyst
+  and standing coral-fan sprites, redstone bases now compile; lanterns, candles, end/lightning rods, cauldron, hopper,
+  anvils, pistons, scaffolding, dripleaf, campfire and slime/honey inner cubes still diagnostic pending measurement (HIGH).
 
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar centered, magnified, alpha-faded from SetTitle timings; placement constants need measurement (uncompiled).
@@ -166,10 +186,14 @@ animated rig remotes use. All three below flow from that.
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
 - Live movement still `FreeCamera`; validated physics not yet the production source (known).
-- Sprint activation (double-tap / sprint-on-movement) and toggle-sneak/sprint absent (HIGH).
-- Scaffolding empty collision + wrong climb (fall-through); honey block behaviors unconsumed (HIGH).
-- Step height 0.6 vs ~0.5625 *(measure)*; swimming pose/swim-sprint; creative flight prediction;
-  lava strata; depth strider; scroll-notch magnitude; UI key-repeat (MED/LOW).
+- Sprint latch (key, double-tap, toggle option) and toggle-sneak are implemented but provisional
+  (double-tap window unmeasured); item-use sprint stop is not classified yet.
+- Ability flight, pose-swimming, elytra gliding and crawl/forced-sneak are provisional simulator
+  modes (no oracle; coefficients need measurement); firework boost relies on server motion only.
+- Scaffolding is solid only from above and sneak descends (provisional rate); honey slide,
+  depth strider, soul speed and riding input remain open (HIGH/MED).
+- Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
+  scroll-notch magnitude; UI key-repeat (MED/LOW).
 
 ## Audio
 - Not yet audited. Earlier note: no footstep/block-sound lookups by runtime id exist — likely a large gap.
@@ -191,24 +215,29 @@ Queries referenced by the vanilla pack's entity, controller, animation and rende
 | Block sample | is_in_water, is_in_lava (block at the actor's feet, app-fed each frame; is_in_water falls back to the swimming flag or airborne fish before the first sample) |
 | Smoothed | swim_amount (ramps toward the swimming flag; step unmeasured) |
 | Heuristic | is_grazing (eating flag, unmeasured), standing_scale (unsmoothed 0/1) |
+| World / item state | sleep_rotation (bed `direction` state under the sleeper, quarter turns; origin unmeasured), item_is_charged (crossbow `chargedItem` NBT kept on the canonical stack), has_cape (skin carries a valid cape image), property (SyncActorProperty names resolved per entity type; enums read as their value name) |
 | Armor | armor_texture_slot, armor_color_slot (equipment store; chainmail, turtle, elytra indices unmeasured) |
-| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (evaluated at tick boundaries by design), item_is_charged (25), has_cape, sleep_rotation, property (21), armor_material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
+| Idle (0) | main_hand_item_max_duration, item_remaining_use_duration, has_head_gear, is_spectator, frame_alpha (evaluated at tick boundaries by design), armor_material_slot, equipped_item_any_tag, kinetic_weapon_*, bone_*/get_root_locator_offset, surface_particle_*, panda counters, wing/tail/shake values, is_levitating, is_jumping |
 
 Engine-fed variables: attack_time, gliding_speed_value, is_holding_right/left, is_sneaking,
 is_blocking, damage_nearby_mobs, is_first_person, player_x_rotation, bob_animation, swim_amount,
 left/right_arm_swim_amount, has_target (per tick); the rest of the seeded set in `evaluation.rs`
 (charge_amount, arm offsets) stays at its seed.
 
-Local player: sneak and sprint come from the latest predicted tick and swim is sprint while in
-water; glide, crawl, sleep and item-use flags arrive from server metadata, with no client-predicted
-source (the movement simulator models none of them).
+Local player: sneak and sprint come from the latest predicted tick, swim is sprint while in
+water, and using and blocking are predicted for bow, trident, spears, spyglass, shield and an
+uncharged crossbow while Use is held (food and drink wait for the server flag, since the client
+cannot tell whether eating is allowed). Glide, crawl and sleep arrive from server metadata; the
+movement simulator models none of them, and sleep_rotation samples the bed under the local rig.
 
-Riders with a streamed seat offset (metadata key 56) are placed at mount position plus the offset
-rotated by the mount's yaw each tick; the offset frame and vertical origin need native
+Riders are placed at mount position plus a seat offset rotated by the mount's yaw each tick: the
+streamed offset (metadata key 56) when present, else the mount type's `minecraft:rideable` seat
+from the local behavior pack (chosen by rider count and unique-id order; absent pack means no
+defaults); layouts are picked by the mount's saddled, baby, tamed and sheared flags, and the
+seat's `rotate_rider_by` (numeric only) and `lock_rider_rotation` turn the rider's body with the
+mount and clamp its head. The offset frame, vertical origin, seat ordering and rotation locks need native
 verification. Invisible bodies draw as NoDraw after equipment layers are built, so armor and held
 items stay.
 
-Open, each blocked on data no lane carries yet: `property` needs SyncActorProperty decoding;
-`has_cape` needs cape pixels in the protocol skin; `item_is_charged` needs held-item NBT
-retention; `sleep_rotation` needs the bed block's facing; `armor_material_slot` semantics are
-unmeasured.
+Open: cape pixels are retained on the decoded skin but no render path draws them yet;
+`armor_material_slot` semantics are unmeasured.

@@ -149,6 +149,15 @@ impl VisualCompiler {
             return Ok(CompileRuleResult::Compiled(visual));
         }
 
+        ordered_rule!(super::entity_drawn::compile_rule(
+            record,
+            inputs,
+            &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::fallback::compile_rule(
             record,
             inputs,
@@ -158,6 +167,10 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        match super::literal::compile_rule(record, inputs) {
+            CompileRuleResult::NoMatch => {}
+            outcome => return Ok(outcome),
+        }
         let mut exact_visual = diagnostic_visual(record);
         ordered_rule!(super::exact::compile_exact_families(
             record,
@@ -323,6 +336,33 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.thin_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::named_blocks::compile_rule(
+            record,
+            inputs,
+            &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::crystals::compile_rule(
+            record,
+            inputs,
+            &mut self.thin_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::translucent_cubes::compile_rule(
+            record,
+            inputs,
+            &mut self.transparent_cube_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

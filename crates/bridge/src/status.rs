@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::endpoint::EndpointKind;
 use crate::{BridgeError, FramedStream};
 
-const CONTROL_MAX_FRAME_LEN: usize = 64 * 1024;
+pub(crate) const CONTROL_MAX_FRAME_LEN: usize = 64 * 1024;
 const STATUS_REQUEST_ID: u64 = 1;
 const STATUS_SCHEMA_VERSION: u32 = 1;
 
@@ -81,12 +81,25 @@ pub struct PackAdmission {
 }
 
 /// Complete Status v1 result returned by the local core.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StatusV1 {
     pub schema_version: u32,
     pub lifecycle: Lifecycle,
     pub pack_admission: PackAdmission,
+    /// Present while the server's transfer awaits the client's reconnect.
+    #[serde(default)]
+    pub transfer: Option<TransferPending>,
+}
+
+/// Server-directed transfer target; reconnecting to the same core dials it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TransferPending {
+    pub host: String,
+    pub port: u16,
+    /// Increases with every transfer the core records.
+    pub sequence: u64,
 }
 
 #[derive(Serialize)]
@@ -123,9 +136,9 @@ struct StatusResponse {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RpcError {
-    code: i64,
-    message: String,
+pub(crate) struct RpcError {
+    pub(crate) code: i64,
+    pub(crate) message: String,
 }
 
 /// Connects to the local read-only control endpoint and reads one Status v1 response.
@@ -193,7 +206,7 @@ fn parse_status_response(payload: &[u8]) -> Result<StatusV1, BridgeError> {
     }
 }
 
-fn invalid<T>(reason: &'static str) -> Result<T, BridgeError> {
+pub(crate) fn invalid<T>(reason: &'static str) -> Result<T, BridgeError> {
     Err(BridgeError::InvalidControlResponse { reason })
 }
 
@@ -223,6 +236,25 @@ mod tests {
             }
         }
     }"#;
+
+    #[test]
+    fn parses_pending_transfer_and_defaults_to_none() {
+        let plain = parse_status_response(VALID_RESULT.as_bytes()).expect("valid response");
+        assert_eq!(plain.transfer, None);
+        let with_transfer = VALID_RESULT.replace(
+            r#""lifecycle":"running","#,
+            r#""lifecycle":"running","transfer":{"host":"next.example","port":19133,"sequence":2},"#,
+        );
+        let status = parse_status_response(with_transfer.as_bytes()).expect("transfer response");
+        assert_eq!(
+            status.transfer,
+            Some(TransferPending {
+                host: "next.example".to_owned(),
+                port: 19133,
+                sequence: 2
+            })
+        );
+    }
 
     #[test]
     fn request_is_the_exact_parameterless_status_v1_call() {

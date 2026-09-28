@@ -455,6 +455,7 @@ impl WorldStream {
                 }
                 self.provisional_publisher_rebase = false;
             }
+            WorldEvent::MapData(event) => self.consume_map_data(&event),
             WorldEvent::BlockEvent(event) => {
                 let sequence = sequence.expect("sequenced block events commit through submit");
                 self.consume_block_event(sequence, event);
@@ -719,6 +720,9 @@ impl WorldStream {
                 if event.actor_runtime_id == self.local_player_runtime_id {
                     self.push_committed_ui(CommittedUiEvent::LocalArmor { sequence, event });
                 }
+            }
+            WorldEvent::ActorPropertySync(event) => {
+                let _ = self.actors.apply_property_sync(&event);
             }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");

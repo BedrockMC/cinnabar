@@ -9,6 +9,7 @@ publish = false
 bytes.workspace = true
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }
+asset-compiler = { path = "../crates/asset-compiler" }
 assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_anti_alias",
@@ -23,6 +24,7 @@ bevy = { workspace = true, default-features = false, features = [
 crossbeam-channel = "0.5"
 client-world = { path = "../crates/client-world" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
+json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }

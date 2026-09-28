@@ -65,3 +65,25 @@ func TestApplicationIsReportedOnlyForTheHandedOffLatestAttempt(t *testing.T) {
 		t.Fatalf("attempt without a handoff applied: %q", got)
 	}
 }
+
+func TestTransferIsPendingUntilNextAttemptBegins(t *testing.T) {
+	store := NewStore()
+	if store.Status().Transfer != nil {
+		t.Fatal("fresh store reports a transfer")
+	}
+	store.Observe(snapshot(1, proxy.ResourcePackOfferNone))
+	store.ObserveTransfer(proxy.TransferTarget{Host: "a.example", Port: 19132})
+	store.ObserveTransfer(proxy.TransferTarget{Host: "b.example", Port: 19133})
+	got := store.Status().Transfer
+	if got == nil || got.Host != "b.example" || got.Port != 19133 || got.Sequence != 2 {
+		t.Fatalf("transfer = %+v, want newest with sequence 2", got)
+	}
+	store.Observe(snapshot(1, proxy.ResourcePackOfferRequired))
+	if store.Status().Transfer == nil {
+		t.Fatal("same-attempt update cleared the pending transfer")
+	}
+	store.Observe(snapshot(2, proxy.ResourcePackOfferNone))
+	if store.Status().Transfer != nil {
+		t.Fatal("reconnect attempt kept the pending transfer")
+	}
+}

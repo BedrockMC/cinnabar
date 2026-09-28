@@ -95,6 +95,9 @@ struct Node {
 #[derive(Debug, PartialEq, Eq)]
 enum Model {
     TextMenu,
+    ElementMenu,
+    Modal,
+    Custom,
     Family,
     Controls,
     Limit,
@@ -127,6 +130,9 @@ fn inspect(enabled: bool, claimed: &AtomicBool, event: &FormRequestEvent) -> Opt
     }
     let model = match event.model {
         ServerFormModel::TextMenu(_) => Model::TextMenu,
+        ServerFormModel::ElementMenu(_) => Model::ElementMenu,
+        ServerFormModel::Modal(_) => Model::Modal,
+        ServerFormModel::Custom(_) => Model::Custom,
         ServerFormModel::Unsupported(UnsupportedForm::Family) => Model::Family,
         ServerFormModel::Unsupported(UnsupportedForm::Controls) => Model::Controls,
         ServerFormModel::Unsupported(UnsupportedForm::Limit) => Model::Limit,
