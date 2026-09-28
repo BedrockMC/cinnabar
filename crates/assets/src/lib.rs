@@ -86,7 +86,6 @@ pub use compiled::{
     MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
 };
-pub use entity::PACK_RIG_ID_BASE;
 pub use entity::{
     CompiledEntityAssets, CompiledMolangExpression, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION,
     EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
@@ -114,6 +113,7 @@ pub use entity::{
     MolangEaseMode, MolangFunction, MolangOp, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets,
     encode_entity_blob, molang_call, molang_program_stack, validate_entity_geometry_inheritance,
 };
+pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, EQUIPMENT_CARRIER_MAGIC,

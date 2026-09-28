@@ -13,6 +13,11 @@ pub struct ActorPackCompilation {
     pub skipped: EntityPackSkips,
     /// Rigs left without artwork, with the reason each was rejected.
     pub fallbacks: Vec<ActorFallback>,
+    /// Attachable bindings of the pack's held and worn items, and their decoded rasters.
+    pub equipment_bindings: Vec<assets::EquipmentBinding>,
+    pub equipment_textures: Vec<assets::EquipmentTexture>,
+    /// Digest of the pack sources, stable for identical packs.
+    pub identity: [u8; 32],
 }
 
 /// Compiles `(pack-relative path, bytes)` files; `Ok(None)` when the pack has no
@@ -32,7 +37,25 @@ pub fn compile_actor_pack(
             .ok_or_else(|| invalid("pack entity source payload is absent"))
     };
     let build = build_artwork(&pack.assets, &runtime, &mut read)?;
+    let equipment_textures = crate::entity::compile_equipment_textures_with(
+        &pack.assets.sources,
+        &pack.equipment_bindings,
+        &mut |source| {
+            pack.payloads
+                .get(source.path.as_ref())
+                .map(|bytes| bytes.to_vec())
+                .ok_or_else(|| invalid("pack equipment raster is absent"))
+        },
+    )?;
+    let mut identity = Sha256::new();
+    for source in pack.assets.sources.iter() {
+        identity.update(source.path.as_bytes());
+        identity.update(source.source_sha256);
+    }
     Ok(Some(ActorPackCompilation {
+        equipment_bindings: pack.equipment_bindings.to_vec(),
+        equipment_textures,
+        identity: identity.finalize().into(),
         entities: pack.assets,
         textures: build.textures,
         bindings: build.bindings,

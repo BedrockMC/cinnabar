@@ -10,13 +10,15 @@ pub const MAX_PACK_ENTITY_SOURCES: usize = 4_096;
 pub const MAX_PACK_ENTITY_BYTES: usize = 128 * 1024 * 1024;
 
 /// Directories whose files feed the entity catalog, with their extensions.
-const FAMILIES: [(&str, &[&str]); 6] = [
+const FAMILIES: [(&str, &[&str]); 8] = [
     ("entity/", &["json"]),
     ("models/entity/", &["json"]),
     ("animations/", &["json"]),
     ("animation_controllers/", &["json"]),
     ("render_controllers/", &["json"]),
     ("textures/entity/", &["json", "png", "tga"]),
+    ("attachables/", &["json"]),
+    ("textures/models/armor/", &["json", "png", "tga"]),
 ];
 
 /// Counted reasons pack sources were left out of the catalog.
@@ -37,6 +39,8 @@ pub struct EntityPackSkips {
 pub struct EntityPackCompilation {
     pub assets: CompiledEntityAssets,
     pub reference_outcomes: Box<[CompileReferenceOutcome<u32>]>,
+    /// Attachable bindings for the pack's items, geometry and texture resolved within it.
+    pub equipment_bindings: Box<[EquipmentBinding]>,
     pub skipped: EntityPackSkips,
     /// Retained source bytes by pack-relative path, for consumers that read rasters.
     pub payloads: BTreeMap<Box<str>, Box<[u8]>>,
@@ -164,6 +168,7 @@ fn compile_selected(
     Ok(Some(EntityPackCompilation {
         assets: compilation.assets,
         reference_outcomes: compilation.reference_outcomes,
+        equipment_bindings: compilation.equipment_bindings,
         skipped,
         payloads,
     }))
