@@ -341,7 +341,7 @@ pub(crate) fn creative_observation(
         ui,
         client_world,
         collisions,
-        verified_selection(ui)?,
+        hand_interaction_selection(ui)?,
         (
             input_mode,
             creative_reach(input_mode),
@@ -363,8 +363,24 @@ pub(crate) fn creative_observation(
 pub(crate) fn verified_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
     let selected = ui.selected_stack_snapshot()?;
     let stack = match selected.state {
-        // Before the inventory arrives the slot is unknown; vanilla assumes an
-        // empty hand until restated, so mining works by hand from the first tick.
+        PlayerInventorySlot::Unknown => return None,
+        PlayerInventorySlot::Empty => protocol::NetworkItemStack::empty(),
+        PlayerInventorySlot::Present(stack) => stack.clone(),
+    };
+    let item = VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).ok()?;
+    Some(FrozenMiningSelection {
+        slot: selected.slot,
+        item,
+    })
+}
+
+/// Selection for bare-hand interactions (mining, melee): an unknown or empty
+/// selected slot resolves to an empty hand, matching vanilla (assume empty
+/// until restated), so hand actions work before the inventory arrives. Block
+/// placement must not use this — it stays fail-closed via `verified_selection`.
+pub(crate) fn hand_interaction_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
+    let selected = ui.selected_stack_snapshot()?;
+    let stack = match selected.state {
         PlayerInventorySlot::Unknown | PlayerInventorySlot::Empty => {
             protocol::NetworkItemStack::empty()
         }
