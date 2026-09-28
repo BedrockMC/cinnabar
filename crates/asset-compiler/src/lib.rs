@@ -47,7 +47,7 @@ pub use entity::{
     CompileReferenceOutcome, EntityAssetCompilation, EntityPackCompilation, EntityPackSkips,
     FallbackReason, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES, RejectReason,
     compile_entity_assets, compile_entity_assets_with_report, compile_entity_pack,
-    compile_equipment_textures, compile_item_use_durations,
+    compile_equipment_textures, compile_equipment_textures_with, compile_item_use_durations,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
