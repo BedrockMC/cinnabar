@@ -125,17 +125,6 @@ fn held_sprite_display_points_the_sprite_up_axis_up_and_width_forward() {
 }
 
 #[test]
-fn mirrored_display_reflects_across_the_body_centre_plane() {
-    let display = held_sprite_display();
-    let mirrored = display.mirrored();
-    let forward = display.rotation * Vec3::X;
-    let mirrored_forward = mirrored.rotation * Vec3::X;
-    assert!((mirrored_forward - forward).length() < 1e-5);
-    assert_eq!(mirrored.translation.x, -display.translation.x);
-    assert_eq!(mirrored.scale, display.scale);
-}
-
-#[test]
 fn armor_bones_follow_same_named_body_bones_and_hide_when_unmatched() {
     let names = |list: &[&str]| {
         list.iter()

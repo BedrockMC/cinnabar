@@ -18,22 +18,6 @@ pub(super) struct ItemDisplay {
     pub(super) scale: f32,
 }
 
-impl ItemDisplay {
-    /// The same placement reflected across the body's centre plane, for the off hand.
-    pub(super) fn mirrored(self) -> Self {
-        Self {
-            rotation: Quat::from_xyzw(
-                self.rotation.x,
-                -self.rotation.y,
-                -self.rotation.z,
-                self.rotation.w,
-            ),
-            translation: Vec3::new(-self.translation.x, self.translation.y, self.translation.z),
-            scale: self.scale,
-        }
-    }
-}
-
 /// Third-person placement of a flat sprite item held in the main hand.
 ///
 /// Provisional: it turns the sprite's up axis to the hand's up and its width axis to forward so

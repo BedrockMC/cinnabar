@@ -1,4 +1,7 @@
 //! Flat sprite items extruded one texel deep, in item space.
+//!
+//! Each slab face shows the sprite unmirrored to a viewer on that face's side, so a held item
+//! reads correctly from either side of the character.
 use super::ActorRigVertex;
 
 /// Extrudes an RGBA8 sprite into a slab centred on the origin: the longer side spans one unit,
@@ -93,7 +96,7 @@ pub fn extruded_sprite_vertices(
                     [xs[1], ys[1], -half_depth],
                     [xs[1], ys[1], half_depth],
                 ];
-                push_quad(&mut vertices, corners, [uv; 4], normal);
+                push_quad(&mut vertices, corners, [uv; 4], [uv; 4], normal);
             }
         }
     }
@@ -104,6 +107,7 @@ fn push_quad(
     vertices: &mut Vec<ActorRigVertex>,
     corners: [[f32; 3]; 4],
     uvs: [[f32; 2]; 4],
+    back_uvs: [[f32; 2]; 4],
     normal: [f32; 3],
 ) {
     let edge_a = std::array::from_fn::<f32, 3, _>(|axis| corners[1][axis] - corners[0][axis]);
@@ -124,7 +128,7 @@ fn push_quad(
             position: corners[index],
             normal,
             uv: uvs[index],
-            back_uv: uvs[index],
+            back_uv: back_uvs[index],
             bone_index: 0,
         });
     }
@@ -176,6 +180,26 @@ mod tests {
         for vertex in extruded_sprite_vertices(4, 4, &opaque(4, 4), region).unwrap() {
             assert!((0.25..=0.5).contains(&vertex.uv[0]));
             assert!((0.5..=0.75).contains(&vertex.uv[1]));
+        }
+    }
+
+    #[test]
+    fn faces_show_the_sprite_unmirrored_from_their_own_side() {
+        let vertices = extruded_sprite_vertices(4, 4, &opaque(4, 4), FULL).unwrap();
+        for triangle in vertices[..12].chunks_exact(3) {
+            for vertex in triangle {
+                // The front-facing UV of one slab is the other slab's back-facing UV, mirrored in u.
+                let other = vertices[..12]
+                    .iter()
+                    .find(|other| {
+                        other.position[..2] == vertex.position[..2]
+                            && other.position[2] != vertex.position[2]
+                    })
+                    .unwrap();
+                assert!((vertex.uv[0] - (1.0 - other.uv[0])).abs() < 1e-6);
+                assert_eq!(vertex.uv[1], other.uv[1]);
+                assert_eq!(vertex.back_uv, other.uv);
+            }
         }
     }
 

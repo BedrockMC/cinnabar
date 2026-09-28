@@ -465,6 +465,18 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("load pinned official Mojang sample item-icon carrier")?;
     eprintln!("{}", icon_assets.startup_summary());
+    // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
+    let equipment_catalog = crate::asset_startup::load_optional_equipment_assets(
+        &loaded_assets.selected_path,
+        &loaded_assets.entities,
+    );
+    let (equipment_runtime, actor_artwork, equipment_geometries) =
+        crate::presentation::equipment::EquipmentRuntime::build(
+            Arc::clone(&entity_runtime),
+            equipment_catalog,
+            Arc::clone(icon_assets.runtime()),
+            actor_artwork,
+        );
     let lang_assets = crate::asset_startup::require_lang_assets(
         &loaded_assets.selected_path,
         crate::asset_startup::vanilla_source_manifest_json(),
@@ -522,12 +534,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
-    let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets(&entity_runtime)
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "prepare validated runtime entity geometry for actor rendering: {error:?}"
-            )
-        })?;
+    let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
+        &entity_runtime,
+        &equipment_geometries,
+    )
+    .map_err(|error| {
+        anyhow::anyhow!("prepare validated runtime entity geometry for actor rendering: {error:?}")
+    })?;
     actor_render_scene.configure_artwork(actor_artwork.clone());
     // A dedicated single-instance builder for the local player's first-person rig, sharing the
     // same validated geometry catalog as the third-person actor pass.
@@ -715,6 +728,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(LocalMovementSpeedAuthority::default())
         .insert_resource(collision_registries)
         .insert_resource(actor_render_scene)
+        .insert_resource(equipment_runtime)
         .insert_resource(hand_rig_builder)
         .insert_resource(AtmosphereFrame::default())
         .insert_resource(AtmosphereTextureAssets::new(

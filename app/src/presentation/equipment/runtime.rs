@@ -174,7 +174,7 @@ impl EquipmentRuntime {
                 item,
                 LAYER_OFF_HAND,
                 bones.left_item,
-                display.mirrored(),
+                display,
                 &mut layers,
             );
         }
