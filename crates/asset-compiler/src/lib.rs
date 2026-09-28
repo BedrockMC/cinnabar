@@ -23,7 +23,6 @@ pub use actor::{
     compile_actor_assets,
 };
 pub use animation::AnimationInventory;
-pub use weather_textures::{compile_weather_textures, compile_weather_textures_to_file};
 pub use assets::BlockFace;
 pub use atmosphere::{
     AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
@@ -66,3 +65,4 @@ pub use particle::{
     decode_particle_carrier,
 };
 pub use ui::{CompiledUiCarrier, UiCompileReport, compile_ui_assets, decode_ui_carrier};
+pub use weather_textures::{compile_weather_textures, compile_weather_textures_to_file};
