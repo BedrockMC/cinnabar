@@ -99,6 +99,10 @@ impl ActorStore {
         self.items.canonicalize(stack)
     }
 
+    pub(crate) fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
+        self.items.apply_registry(registry)
+    }
+
     pub(crate) fn get(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(&runtime_id)
     }

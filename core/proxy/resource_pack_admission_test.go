@@ -1,12 +1,13 @@
 package proxy
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net"
 	"path/filepath"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -26,20 +28,20 @@ import (
 
 type offerTestDownstream struct {
 	dialerTestDownstream
-	configured         bool
-	configuredOffer    bool
-	configuredSnapshot bool
-	configuredStack    bool
-	stack              minecraft.ResourcePackStackSnapshot
-	required           bool
-	err                error
-	writes             []packet.Packet
-	writeErr           error
-	writePanic         any
-	configPanic        any
-	writeStarted       chan struct{}
-	writeUnblock       <-chan struct{}
-	writeStartOnce     sync.Once
+	configured      bool
+	configuredOffer bool
+	configuredStack bool
+	offered         []*resource.Pack
+	stack           minecraft.ResourcePackStackSnapshot
+	required        bool
+	err             error
+	writes          []packet.Packet
+	writeErr        error
+	writePanic      any
+	configPanic     any
+	writeStarted    chan struct{}
+	writeUnblock    <-chan struct{}
+	writeStartOnce  sync.Once
 }
 
 func (downstream *offerTestDownstream) ConfigureResourcePackOffer(packs []*resource.Pack, required bool) error {
@@ -48,20 +50,7 @@ func (downstream *offerTestDownstream) ConfigureResourcePackOffer(packs []*resou
 	}
 	downstream.configured = true
 	downstream.configuredOffer = true
-	downstream.required = required
-	if len(packs) != 0 {
-		return errors.New("test downstream received a non-empty compatibility offer")
-	}
-	return downstream.err
-}
-
-func (downstream *offerTestDownstream) ConfigureResourcePackOfferSnapshot(_ minecraft.ResourcePackOfferSnapshot, required bool) error {
-	if downstream.configPanic != nil {
-		panic(downstream.configPanic)
-	}
-	downstream.configured = true
-	downstream.configuredOffer = true
-	downstream.configuredSnapshot = true
+	downstream.offered = slices.Clone(packs)
 	downstream.required = required
 	return downstream.err
 }
@@ -97,7 +86,7 @@ func (downstream *offerTestDownstream) ConfigureResourcePackStack(stack minecraf
 	return downstream.err
 }
 
-func TestConfigureResourcePackOfferStripsOptionalSelectedStack(t *testing.T) {
+func TestConfigureResourcePackOfferForwardsOptionalSelectedStack(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack), new(resource.Pack)}
 	downstream := new(offerTestDownstream)
@@ -106,11 +95,8 @@ func TestConfigureResourcePackOfferStripsOptionalSelectedStack(t *testing.T) {
 	if err := configureResourcePackOffer(downstream, stack); err != nil {
 		t.Fatalf("configureResourcePackOffer() error = %v", err)
 	}
-	if !downstream.configured {
-		t.Fatal("downstream offer was not configured")
-	}
-	if !downstream.configuredOffer || downstream.configuredSnapshot || !downstream.configuredStack || downstream.required || len(downstream.stack.Entries()) != 0 {
-		t.Fatalf("downstream offer = (offer=%t, snapshot=%t, stack=%t, entries=%d, required=%t), want direct empty optional offer and stack", downstream.configuredOffer, downstream.configuredSnapshot, downstream.configuredStack, len(downstream.stack.Entries()), downstream.required)
+	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required || !slices.Equal(downstream.offered, stack.packs) {
+		t.Fatalf("downstream offer = (offer=%t, stack=%t, offered=%d, required=%t), want selected optional offer and stack", downstream.configuredOffer, downstream.configuredStack, len(downstream.offered), downstream.required)
 	}
 	if got := len(upstream.ResourcePacks()); got != 2 {
 		t.Fatalf("retained upstream pack count = %d, want 2", got)
@@ -140,7 +126,7 @@ func TestFailedOptionalConfigureDoesNotReportStrippedOutcome(t *testing.T) {
 	}
 }
 
-func TestConfigureResourcePackOfferStripsRequiredSelectionAsEmptyOptionalCompatibilityStack(t *testing.T) {
+func TestConfigureResourcePackOfferForwardsRequiredSelectionAsOptionalCompatibilityStack(t *testing.T) {
 	upstream := newFakeUpstream(nil)
 	upstream.packs = []*resource.Pack{new(resource.Pack)}
 	upstream.required = true
@@ -149,8 +135,8 @@ func TestConfigureResourcePackOfferStripsRequiredSelectionAsEmptyOptionalCompati
 	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{packs: slices.Clone(upstream.packs), required: true}); err != nil {
 		t.Fatalf("configureResourcePackOffer() error = %v", err)
 	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.stack.Entries()) != 0 {
-		t.Fatalf("downstream offer = (configured=%t, stack=%t, entries=%d, required=%t), want empty optional compatibility stack", downstream.configured, downstream.configuredStack, len(downstream.stack.Entries()), downstream.required)
+	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.offered) != 1 {
+		t.Fatalf("downstream offer = (configured=%t, stack=%t, offered=%d, required=%t), want optional compatibility stack", downstream.configured, downstream.configuredStack, len(downstream.offered), downstream.required)
 	}
 	if len(downstream.writes) != 0 {
 		t.Fatalf("downstream packet count = %d, want no pre-login Disconnect", len(downstream.writes))
@@ -188,10 +174,7 @@ func TestSelectedResourcePackStackRetainsExactOrderAndOwnsClones(t *testing.T) {
 	second := testAdmissionPack(t).WithDownloadURL("https://example.invalid/second")
 	third := testAdmissionPack(t).WithDownloadURL("https://example.invalid/third")
 
-	stack, err := newSelectedResourcePackStack([]*resource.Pack{third, first}, true, resourcePackSize)
-	if err != nil {
-		t.Fatalf("newSelectedResourcePackStack() error = %v", err)
-	}
+	stack := newSelectedResourcePackStack([]*resource.Pack{third, first}, true, resourcePackSize)
 	if !stack.required || len(stack.packs) != 2 {
 		t.Fatalf("selected stack = (required=%t, count=%d), want (true, 2)", stack.required, len(stack.packs))
 	}
@@ -225,7 +208,7 @@ func TestSelectedStackCompatibilityDoesNotSubstituteOfferOrderOrCounts(t *testin
 	}
 }
 
-func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsStripped(t *testing.T) {
+func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsForwarded(t *testing.T) {
 	stack := &selectedResourcePackStack{packs: []*resource.Pack{testAdmissionPack(t), testAdmissionPack(t)}}
 	downstream := new(offerTestDownstream)
 	if err := configureResourcePackOffer(downstream, stack); err != nil {
@@ -234,33 +217,54 @@ func TestOptionalSelectedStackIsRetainedWhileDownstreamOfferIsStripped(t *testin
 	if len(stack.packs) != 2 {
 		t.Fatalf("retained selected count = %d, want 2", len(stack.packs))
 	}
-	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.stack.Entries()) != 0 {
-		t.Fatalf("downstream offer = (configured=%t, stack=%t, entries=%d, required=%t), want empty optional handoff", downstream.configured, downstream.configuredStack, len(downstream.stack.Entries()), downstream.required)
+	if !downstream.configured || !downstream.configuredStack || downstream.required || len(downstream.offered) != 2 {
+		t.Fatalf("downstream offer = (configured=%t, stack=%t, offered=%d, required=%t), want selected optional handoff", downstream.configured, downstream.configuredStack, len(downstream.offered), downstream.required)
 	}
 }
 
-func TestSelectedResourcePackStackFailsClosedForMissingNilAndBounds(t *testing.T) {
+// An empty selection (every pack ignored) still configures an empty optional hop.
+func TestConfigureResourcePackOfferStripsIgnoredSelection(t *testing.T) {
+	downstream := new(offerTestDownstream)
+	if err := configureResourcePackOffer(downstream, &selectedResourcePackStack{required: true}); err != nil {
+		t.Fatalf("configureResourcePackOffer() error = %v", err)
+	}
+	if !downstream.configuredOffer || !downstream.configuredStack || downstream.required || len(downstream.offered) != 0 {
+		t.Fatalf("downstream offer = (offer=%t, stack=%t, offered=%d, required=%t), want empty optional hop", downstream.configuredOffer, downstream.configuredStack, len(downstream.offered), downstream.required)
+	}
+}
+
+func TestSelectedResourcePackStackSkipsUnavailableNilAndOverBudgetPacks(t *testing.T) {
 	if _, err := captureSelectedResourcePackStack(newFakeUpstream(nil)); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("missing post-negotiation snapshot error = %v", err)
 	}
-	if _, err := newSelectedResourcePackStack([]*resource.Pack{nil}, false, resourcePackSize); !errors.Is(err, errResourcePackStackInvalid) {
-		t.Fatalf("nil selected pack error = %v", err)
+	// A nil entry is skipped, not fatal.
+	if stack := newSelectedResourcePackStack([]*resource.Pack{nil}, false, resourcePackSize); len(stack.packs) != 0 {
+		t.Fatalf("nil selected pack count = %d, want 0", len(stack.packs))
 	}
+	// Count beyond the bound truncates to the first maxSelectedResourcePacks.
 	tooMany := make([]*resource.Pack, maxSelectedResourcePacks+1)
-	if _, err := newSelectedResourcePackStack(tooMany, false, resourcePackSize); !errors.Is(err, errResourcePackStackInvalid) {
-		t.Fatalf("selected count overflow error = %v", err)
+	for index := range tooMany {
+		tooMany[index] = testAdmissionPack(t)
 	}
-	packs := []*resource.Pack{testAdmissionPack(t), testAdmissionPack(t)}
+	if stack := newSelectedResourcePackStack(tooMany, false, resourcePackSize); len(stack.packs) != maxSelectedResourcePacks {
+		t.Fatalf("count overflow kept %d packs, want %d", len(stack.packs), maxSelectedResourcePacks)
+	}
+	// A pack whose size would break the byte bound is skipped while later packs
+	// that still fit are kept.
+	first, second, third := testAdmissionPack(t), testAdmissionPack(t), testAdmissionPack(t)
 	index := 0
-	overflowingSize := func(*resource.Pack) (uint64, bool) {
+	sizes := func(*resource.Pack) (uint64, bool) {
 		index++
-		if index == 1 {
-			return math.MaxUint64, true
+		switch index {
+		case 2:
+			return maxSelectedResourcePackTotalBytes + 1, true
+		default:
+			return 1, true
 		}
-		return 1, true
 	}
-	if _, err := newSelectedResourcePackStack(packs, false, overflowingSize); !errors.Is(err, errResourcePackStackInvalid) {
-		t.Fatalf("selected byte overflow error = %v", err)
+	stack := newSelectedResourcePackStack([]*resource.Pack{first, second, third}, false, sizes)
+	if len(stack.packs) != 2 {
+		t.Fatalf("byte overflow kept %d packs, want the 2 that fit", len(stack.packs))
 	}
 	if err := configureResourcePackOffer(new(offerTestDownstream), nil); !errors.Is(err, errResourcePackStackUnavailable) {
 		t.Fatalf("nil prepared stack policy error = %v", err)
@@ -1707,5 +1711,202 @@ func assertPreparedClosedExactlyOnce(t *testing.T, prepared *preparedConnection,
 	}
 	if got := targetCloses.Load(); got != 1 {
 		t.Fatalf("target close count = %d, want 1", got)
+	}
+}
+
+func encodeLatest(t *testing.T, pk packet.Packet) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	pk.Marshal(minecraft.DefaultProtocol.NewWriter(&buf, 0))
+	return buf.Bytes()
+}
+
+func packInfos(sizes ...uint64) *packet.ResourcePacksInfo {
+	info := &packet.ResourcePacksInfo{TexturePackRequired: true}
+	for _, size := range sizes {
+		info.TexturePacks = append(info.TexturePacks, protocol.TexturePackInfo{UUID: uuid.New(), Version: "1.0.0", Size: size})
+	}
+	return info
+}
+
+func observedBudget(t *testing.T, info *packet.ResourcePacksInfo) (*resourcePackAcquisitionBudget, *[]error) {
+	t.Helper()
+	var causes []error
+	budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { causes = append(causes, cause) })
+	budget.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, info))
+	t.Cleanup(budget.stop)
+	return budget, &causes
+}
+
+func admitted(budget *resourcePackAcquisitionBudget, total int) []bool {
+	result := make([]bool, total)
+	for index := range total {
+		result[index] = budget.admit(uuid.New(), "1.0.0", index, total)
+	}
+	return result
+}
+
+// Packs past the count or byte bound are ignored individually, never fatal.
+func TestAcquisitionBudgetAdmitsOfferOrderWithinCountAndByteBounds(t *testing.T) {
+	const mib = 1024 * 1024
+	budget, _ := observedBudget(t, packInfos(10*mib, 65*mib, 60*mib, 60*mib, 8*mib))
+	if got, want := admitted(budget, 5), []bool{true, false, true, false, true}; !slices.Equal(got, want) {
+		t.Fatalf("admitted = %v, want %v", got, want)
+	}
+	sizes := make([]uint64, maxSelectedResourcePacks+2)
+	for index := range sizes {
+		sizes[index] = 1
+	}
+	budget, _ = observedBudget(t, packInfos(sizes...))
+	got := admitted(budget, len(sizes))
+	if slices.Index(got, false) != maxSelectedResourcePacks || got[len(got)-1] {
+		t.Fatalf("admitted = %v, want the first %d only", got, maxSelectedResourcePacks)
+	}
+	if budget.admit(uuid.New(), "1.0.0", 0, len(sizes)+1) {
+		t.Fatal("admit accepted a callback total that disagrees with the decoded offer")
+	}
+}
+
+func TestAcquisitionBudgetDeclinesUndecodableOffer(t *testing.T) {
+	var causes []error
+	budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { causes = append(causes, cause) })
+	budget.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, []byte{1, 2, 3})
+	if budget.admit(uuid.New(), "1.0.0", 0, 1) || len(causes) != 0 {
+		t.Fatalf("undecodable offer admitted=%t causes=%v, want declined without cancellation", budget.admit(uuid.New(), "1.0.0", 0, 1), causes)
+	}
+}
+
+func admissionPackWithUUID(t *testing.T, id string) *resource.Pack {
+	t.Helper()
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	manifest, err := writer.Create("manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(manifest, `{"format_version":2,"header":{"name":"t","description":"t","uuid":"%s","version":[1,0,0],"min_engine_version":[1,0,0]},"modules":[{"type":"resources","uuid":"ffeeddcc-bbaa-9988-7766-554433221100","version":[1,0,0]}]}`, id)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	pack, err := resource.ReadBytes(archive.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pack
+}
+
+// A pack whose transfer grew past its offer is dropped from the handoff while
+// the honest packs still apply; the join is never failed.
+func TestSelectedStackDropsBudgetExcludedGrownPacks(t *testing.T) {
+	const grownID = "aaaaaaaa-0000-0000-0000-000000000000"
+	grown := admissionPackWithUUID(t, grownID)
+	honest := admissionPackWithUUID(t, "bbbbbbbb-0000-0000-0000-000000000000")
+	stack := newSelectedResourcePackStack([]*resource.Pack{grown, honest}, false, resourcePackSize)
+	if len(stack.packs) != 2 {
+		t.Fatalf("selected count = %d, want 2 before exclusion", len(stack.packs))
+	}
+	stack.withoutPacks(func(pack *resource.Pack) bool { return pack.UUID().String() == grownID })
+	if len(stack.packs) != 1 || stack.packs[0].UUID().String() != honest.UUID().String() {
+		t.Fatalf("post-exclusion packs = %v, want only the honest pack", stack.packs)
+	}
+}
+
+func dataInfo(id string, size uint64) *packet.ResourcePackDataInfo {
+	return &packet.ResourcePackDataInfo{UUID: id + "_1.0.0", DataChunkSize: 1, Size: size, Hash: make([]byte, 32)}
+}
+
+// A transfer larger than its offer, or for an unadvertised pack, is dropped from
+// the handoff without cancelling the join; only the memory ceiling cancels.
+func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(t *testing.T) {
+	const mib = 1024 * 1024
+	info := packInfos(mib, mib)
+	grown, honest := info.TexturePacks[0].UUID.String(), info.TexturePacks[1].UUID.String()
+	budget, causes := observedBudget(t, info)
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(grown, 5*mib)))
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(honest, mib)))
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo("unadvertised", mib)))
+	budget.mu.Lock()
+	excluded := map[string]bool{grown: budget.excluded[grown], honest: budget.excluded[honest], "unadvertised": budget.excluded["unadvertised"]}
+	budget.mu.Unlock()
+	if !excluded[grown] || excluded[honest] || !excluded["unadvertised"] || len(*causes) != 0 {
+		t.Fatalf("excluded = %v causes = %v, want only grown+unadvertised dropped and no cancel", excluded, *causes)
+	}
+
+	over, overCauses := observedBudget(t, packInfos(mib))
+	over.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo("flood", maxResourcePackTransferBytes+1)))
+	if len(*overCauses) != 1 || !errors.Is((*overCauses)[0], errResourcePackTransferTooLarge) {
+		t.Fatalf("memory ceiling causes = %v", *overCauses)
+	}
+}
+
+func TestAcquisitionBudgetCancelsSlowAcquisitionButNotCompletion(t *testing.T) {
+	fired := make(chan error, 1)
+	slow := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
+	slow.limit = time.Millisecond
+	slow.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)))
+	select {
+	case cause := <-fired:
+		if !errors.Is(cause, errResourcePackAcquisitionTimeout) {
+			t.Fatalf("slow acquisition cause = %v", cause)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("slow acquisition was not cancelled")
+	}
+
+	quick := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
+	quick.limit = 50 * time.Millisecond
+	quick.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)))
+	quick.observe(packet.Header{PacketID: packet.IDResourcePackStack}, nil)
+	select {
+	case cause := <-fired:
+		t.Fatalf("completed acquisition was cancelled: %v", cause)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// A budgeted dialer downloads a required offer and hands its stack onward.
+func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
+	pack := testAdmissionPack(t)
+	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dialCtx, cancelDial := context.WithCancelCause(ctx)
+	defer cancelDial(nil)
+	dialer := withResourcePackAcquisitionBudget(minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "Budgeted"},
+		Protocol:     minecraft.DefaultProtocol,
+	}, newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, cancelDial))
+	clientDone := make(chan admissionDialResult, 1)
+	go func() {
+		client, err := dialer.DialContextNetwork(dialCtx, network, "")
+		clientDone <- admissionDialResult{conn: client, err: err}
+	}()
+	acceptedRaw, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("listener Accept: %v", err)
+	}
+	accepted := acceptedRaw.(*minecraft.Conn)
+	defer accepted.Close()
+	if err := accepted.StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 9}); err != nil {
+		t.Fatalf("start game: %v", err)
+	}
+	result := <-clientDone
+	if result.err != nil {
+		t.Fatalf("budgeted dial: %v", result.err)
+	}
+	defer result.conn.Close()
+	stack, err := captureSelectedResourcePackStack(result.conn)
+	if err != nil {
+		t.Fatalf("capture stack: %v", err)
+	}
+	if len(stack.packs) != 1 || stack.packs[0].UUID() != pack.UUID() {
+		t.Fatalf("captured stack packs = %d, want the acquired required pack", len(stack.packs))
+	}
+	telemetry := newResourcePackAdmissionTelemetry(1, nil)
+	telemetry.observeOffer(result.conn)
+	if got := telemetry.snapshot(); got.Offer != ResourcePackOfferRequired || got.Acquisition != ResourcePackAcquisitionComplete {
+		t.Fatalf("telemetry = %#v, want complete required acquisition", got)
 	}
 }

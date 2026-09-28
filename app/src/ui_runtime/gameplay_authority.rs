@@ -579,6 +579,17 @@ impl UiRuntime {
         self.server_lang = overlay;
     }
 
+    pub(crate) fn set_session_icons(
+        &mut self,
+        icons: Option<Arc<super::presentation::SessionIcons>>,
+    ) {
+        self.session_icons = icons;
+    }
+
+    pub(crate) fn session_icons(&self) -> Option<&Arc<super::presentation::SessionIcons>> {
+        self.session_icons.as_ref()
+    }
+
     pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {
         self.server_lang
             .as_ref()

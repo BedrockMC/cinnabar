@@ -1,0 +1,75 @@
+use std::{io::Write, sync::Arc};
+
+use resource_pack::LayeredPackView;
+
+use super::compile_session_icons;
+
+fn png(width: u32, height: u32) -> Vec<u8> {
+    let image = image::RgbaImage::from_fn(width, height, |_, y| image::Rgba([y as u8, 0, 0, 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+fn view() -> LayeredPackView {
+    let id = "00000000-0000-0000-0000-000000000002";
+    let manifest = format!(
+        r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+    );
+    let catalog = r#"{"texture_data": {"test:gem": {"textures": "textures/items/gem"},
+        "test:strip": {"textures": ["textures/items/strip"]},
+        "test:huge": {"textures": "textures/items/huge"}}}"#;
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, bytes) in [
+        ("manifest.json", manifest.into_bytes()),
+        ("textures/item_texture.json", catalog.as_bytes().to_vec()),
+        ("textures/items/gem.png", png(16, 16)),
+        ("textures/items/strip.png", png(16, 48)),
+        ("textures/items/huge.png", png(128, 64)),
+    ] {
+        writer
+            .start_file(path, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(&bytes).unwrap();
+    }
+    let archive = protocol::ResourcePackArchive::unencrypted(
+        id.parse().unwrap(),
+        "1.0.0".into(),
+        String::new(),
+        writer.finish().unwrap().into_inner(),
+    );
+    LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![archive]),
+    ))
+}
+
+// Keys resolve through item_texture.json; strips keep frame one and big icons shrink.
+#[test]
+fn icon_keys_resolve_to_bounded_sprites() {
+    let key = |identifier: &str, key: &str| (Arc::<str>::from(identifier), Arc::<str>::from(key));
+    let icons = compile_session_icons(
+        &view(),
+        &[
+            key("lifeboat:gem", "test:gem"),
+            key("lifeboat:strip", "test:strip"),
+            key("lifeboat:huge", "test:huge"),
+            key("lifeboat:missing", "test:absent"),
+        ],
+    )
+    .expect("icons");
+    let sizes = icons
+        .icons
+        .iter()
+        .map(|icon| (icon.identifier.as_ref(), icon.width, icon.height))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sizes,
+        [
+            ("lifeboat:gem", 16, 16),
+            ("lifeboat:strip", 16, 16),
+            ("lifeboat:huge", 64, 32)
+        ]
+    );
+    let strip = &icons.icons[1];
+    assert_eq!(strip.rgba8[(15 * 16) * 4], 15, "first frame rows only");
+}

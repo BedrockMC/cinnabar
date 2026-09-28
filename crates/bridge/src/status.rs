@@ -36,6 +36,8 @@ pub enum PackAcquisition {
     None,
     Complete,
     Ignored,
+    /// Some offered packs were acquired and the rest ignored by bounds.
+    Partial,
     Failed,
     Cancelled,
 }
@@ -236,6 +238,14 @@ mod tests {
                 PackApplication::Unavailable
             );
         }
+    }
+
+    #[test]
+    fn parses_partial_acquisition() {
+        let payload =
+            VALID_RESULT.replace(r#""acquisition":"complete""#, r#""acquisition":"partial""#);
+        let status = parse_status_response(payload.as_bytes()).expect("partial status");
+        assert_eq!(status.pack_admission.acquisition, PackAcquisition::Partial);
     }
 
     #[test]

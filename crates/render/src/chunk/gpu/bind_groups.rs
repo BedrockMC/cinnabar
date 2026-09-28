@@ -235,7 +235,8 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     };
     let mut upload_plans = Vec::with_capacity(2);
     for texture in bound_pages {
-        if let Err(error) = limits.validate(texture.layers, assets::TILE_SIZE) {
+        let tile_size = texture.mips.first().map_or(0, |mip| mip.size);
+        if let Err(error) = limits.validate(texture.layers, tile_size) {
             bevy::log::error!(?error, "chunk texture page exceeds adapter limits");
             return;
         }
@@ -443,9 +444,10 @@ pub(in crate::chunk) fn upload_texture_page(
         .expect("validated texture pages have a bounded mip count");
     let texture = render_device.create_texture(&TextureDescriptor {
         label: Some(label),
+        // Pages may differ in layer size; server overlay pages keep source resolution.
         size: Extent3d {
-            width: assets::TILE_SIZE,
-            height: assets::TILE_SIZE,
+            width: texture_array.mips.first().map_or(1, |mip| mip.size),
+            height: texture_array.mips.first().map_or(1, |mip| mip.size),
             depth_or_array_layers: texture_array.layers,
         },
         mip_level_count,

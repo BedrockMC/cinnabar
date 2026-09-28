@@ -43,6 +43,8 @@ mod player_preview;
 mod primitives;
 mod publish;
 mod retained_hud;
+mod session_icons;
+pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
 mod texture_atlas;
 #[cfg_attr(
@@ -223,6 +225,7 @@ pub struct UiPresentationRuntime {
     menu_artwork_paths: Vec<String>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_artwork_dirty: bool,
+    session_icons: session_icons::SessionIconPage,
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
@@ -306,6 +309,7 @@ impl UiPresentationRuntime {
             menu_artwork_paths: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             menu_artwork_dirty: false,
+            session_icons: session_icons::SessionIconPage::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),
@@ -316,17 +320,6 @@ impl UiPresentationRuntime {
 
     pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
         self.loading_message = message;
-    }
-
-    /// Resolves an authoritative item identity to the packed icon atlas.
-    /// Unknown/custom items fail closed and keep the hotbar frame and server
-    /// state intact.
-    pub(crate) fn item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
-        let sprite = self
-            .icon_catalog
-            .as_ref()?
-            .lookup_index(identifier, metadata)?;
-        self.icon_refs.as_deref()?.get(sprite).copied()
     }
 
     /// Updates the cached corner avatar. The raster is regenerated and the UI
@@ -446,6 +439,7 @@ impl UiPresentationRuntime {
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
         dynamic_textures::observe_session(self, runtime.session_id());
+        session_icons::observe(self, runtime.session_icons());
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =

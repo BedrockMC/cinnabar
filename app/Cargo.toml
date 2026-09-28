@@ -22,7 +22,7 @@ bevy = { workspace = true, default-features = false, features = [
 ] }
 crossbeam-channel = "0.5"
 client-world = { path = "../crates/client-world" }
-image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 meshing = { path = "../crates/meshing" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
@@ -44,6 +44,7 @@ world = { path = "../crates/world" }
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
 
 [dev-dependencies]
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 asset-compiler = { path = "../crates/asset-compiler" }
 client-world = { path = "../crates/client-world", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }

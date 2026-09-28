@@ -10,6 +10,8 @@ use crate::ui::{
 };
 
 pub const MAX_UI_TEXTURE_BUCKETS: usize = 8;
+/// Replaceable 256x256 pages after the static UI pages.
+pub const MAX_UI_DYNAMIC_PAGES: usize = 10;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Pixels {
@@ -218,7 +220,7 @@ impl UiTextureCatalog {
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
-        if pages.len() - dynamic_start > 9
+        if pages.len() - dynamic_start > MAX_UI_DYNAMIC_PAGES
             || pages[dynamic_start..].iter().any(|page| {
                 page.dimensions != [256, 256] || matches!(&page.pixels, Pixels::Font { .. })
             })
