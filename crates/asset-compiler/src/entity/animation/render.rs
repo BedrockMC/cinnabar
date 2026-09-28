@@ -12,11 +12,10 @@ use serde_json::{Map, Value};
 use super::{
     super::{SourcePayloads, molang::MolangCompiler},
     clip::{read_json, required_object},
+    selection::{Selector, condition_text},
 };
 
-const MAX_CANDIDATES_PER_SLOT: usize = 256;
 const MAX_SLOTS_PER_LAYER: usize = 16;
-const MAX_EXPANSION_DEPTH: usize = 8;
 
 pub(super) struct RenderSources<'a> {
     pub root: &'a Path,
@@ -26,159 +25,6 @@ pub(super) struct RenderSources<'a> {
     pub geometries: &'a [EntityGeometry],
     pub rigs: &'a [EntityRigBinding],
     pub rig_geometries: &'a [EntityRigGeometryBinding],
-}
-
-/// One step of the path to a texture leaf.
-#[derive(Clone)]
-enum Step {
-    /// A ternary condition and the branch taken.
-    Branch(String, bool),
-    /// Element `index` of an array of `len` entries selected by an index expression.
-    Element(String, usize, usize),
-}
-
-fn condition_text(path: &[Step]) -> Option<String> {
-    let parts: Vec<String> = path
-        .iter()
-        .map(|step| match step {
-            Step::Branch(text, true) => format!("({text})"),
-            Step::Branch(text, false) => format!("!({text})"),
-            Step::Element(index, len, element) => {
-                format!("(math.mod(math.max(math.floor(({index})), 0), {len}) == {element})")
-            }
-        })
-        .collect();
-    (!parts.is_empty()).then(|| parts.join(" && "))
-}
-
-struct TextureScope<'a> {
-    /// Lowercased alias to raster path stem.
-    aliases: BTreeMap<String, String>,
-    /// Lowercased `array.name` to member expressions.
-    arrays: BTreeMap<String, Vec<String>>,
-    sources: &'a [EntityAssetSource],
-}
-
-impl TextureScope<'_> {
-    fn source_of(&self, stem: &str) -> Option<u32> {
-        [".png", ".tga"].into_iter().find_map(|extension| {
-            let path = format!("{stem}{extension}");
-            self.sources
-                .binary_search_by(|source| source.path.as_ref().cmp(path.as_str()))
-                .ok()
-                .map(|index| index as u32)
-        })
-    }
-
-    /// Every texture the expression can select, with the conditions selecting each.
-    fn expand(
-        &self,
-        expression: &str,
-        path: &mut Vec<Step>,
-        output: &mut Vec<(Vec<Step>, u32)>,
-        depth: usize,
-    ) -> Option<()> {
-        if depth > MAX_EXPANSION_DEPTH || output.len() > MAX_CANDIDATES_PER_SLOT {
-            return None;
-        }
-        let expression = strip_outer_parentheses(expression.trim());
-        if let Some((condition, then_branch, else_branch)) = split_ternary(expression) {
-            path.push(Step::Branch(condition.to_owned(), true));
-            let then_result = self.expand(then_branch, path, output, depth + 1);
-            path.pop();
-            path.push(Step::Branch(condition.to_owned(), false));
-            let else_result = self.expand(else_branch?, path, output, depth + 1);
-            path.pop();
-            return (then_result.is_some() && else_result.is_some()).then_some(());
-        }
-        let lower = expression.to_ascii_lowercase();
-        if let Some(alias) = lower.strip_prefix("texture.") {
-            if let Some(source) = self
-                .aliases
-                .get(alias)
-                .and_then(|stem| self.source_of(stem))
-            {
-                output.push((path.clone(), source));
-            }
-            return Some(());
-        }
-        let (name, index) = split_index(expression)?;
-        let members = self.arrays.get(&name.to_ascii_lowercase())?;
-        for (element, member) in members.iter().enumerate() {
-            path.push(Step::Element(index.to_owned(), members.len(), element));
-            let result = self.expand(member, path, output, depth + 1);
-            path.pop();
-            result?;
-        }
-        Some(())
-    }
-}
-
-fn strip_outer_parentheses(mut text: &str) -> &str {
-    while text.starts_with('(') && text.ends_with(')') {
-        let mut depth = 0i32;
-        let mut encloses = true;
-        for (offset, ch) in text.char_indices() {
-            match ch {
-                '(' => depth += 1,
-                ')' => depth -= 1,
-                _ => {}
-            }
-            if depth == 0 && offset + ch.len_utf8() < text.len() {
-                encloses = false;
-                break;
-            }
-        }
-        if !encloses {
-            break;
-        }
-        text = text[1..text.len() - 1].trim();
-    }
-    text
-}
-
-/// `(condition, then, else)` of a top-level `?:`; the else part is `None` for a bare `?`.
-fn split_ternary(text: &str) -> Option<(&str, &str, Option<&str>)> {
-    let mut depth = 0i32;
-    let mut quoted = false;
-    let mut question = None;
-    let mut nested = 0i32;
-    for (offset, ch) in text.char_indices() {
-        if ch == '\'' {
-            quoted = !quoted;
-        }
-        if quoted {
-            continue;
-        }
-        match ch {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            '?' if depth == 0 => match question {
-                None => question = Some(offset),
-                Some(_) => nested += 1,
-            },
-            ':' if depth == 0 && question.is_some() => {
-                if nested == 0 {
-                    let question = question?;
-                    return Some((
-                        text[..question].trim(),
-                        text[question + 1..offset].trim(),
-                        Some(text[offset + 1..].trim()),
-                    ));
-                }
-                nested -= 1;
-            }
-            _ => {}
-        }
-    }
-    question.map(|question| (text[..question].trim(), text[question + 1..].trim(), None))
-}
-
-/// `name` and `index` of `name[index]`.
-fn split_index(text: &str) -> Option<(&str, &str)> {
-    let open = text.find('[')?;
-    let inner = text.strip_suffix(']')?;
-    Some((text[..open].trim(), inner[open + 1..].trim()))
 }
 
 fn expression_text(value: &Value) -> Option<String> {
@@ -366,10 +212,20 @@ pub(super) fn compile_render(
                     )
                 })
                 .collect();
-            let scope = TextureScope {
-                aliases: scope_aliases.clone(),
+            let resolve = |alias: &str| {
+                let stem = scope_aliases.get(alias)?;
+                [".png", ".tga"].into_iter().find_map(|extension| {
+                    let path = format!("{stem}{extension}");
+                    sources
+                        .binary_search_by(|source| source.path.as_ref().cmp(path.as_str()))
+                        .ok()
+                        .map(|index| index as u32)
+                })
+            };
+            let scope = Selector {
+                prefix: "texture.",
                 arrays,
-                sources,
+                resolve: &resolve,
             };
             let first_slot = slots.len();
             for expression in definition
@@ -380,13 +236,9 @@ pub(super) fn compile_render(
                 .filter_map(Value::as_str)
                 .take(MAX_SLOTS_PER_LAYER)
             {
-                let mut leaves = Vec::new();
-                if scope
-                    .expand(expression, &mut Vec::new(), &mut leaves, 0)
-                    .is_none()
-                {
+                let Some(leaves) = scope.leaves(expression) else {
                     continue;
-                }
+                };
                 let first_candidate = candidates.len();
                 for (path, source) in leaves {
                     let condition = match condition_text(&path) {
@@ -449,89 +301,4 @@ pub(super) fn compile_render(
         candidates: candidates.into_boxed_slice(),
         visibility: visibility.into_boxed_slice(),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn scope(sources: &[EntityAssetSource]) -> TextureScope<'_> {
-        TextureScope {
-            aliases: BTreeMap::from([
-                ("a".into(), "textures/entity/a".into()),
-                ("b".into(), "textures/entity/b".into()),
-            ]),
-            arrays: BTreeMap::from([(
-                "array.skins".into(),
-                vec!["Texture.a".into(), "Texture.b".into()],
-            )]),
-            sources,
-        }
-    }
-
-    fn source(path: &str) -> EntityAssetSource {
-        EntityAssetSource {
-            path: path.into(),
-            source_bytes: 1,
-            source_sha256: [1; 32],
-        }
-    }
-
-    #[test]
-    fn ternaries_and_arrays_expand_into_conditioned_leaves() {
-        let sources = [
-            source("textures/entity/a.png"),
-            source("textures/entity/b.png"),
-        ];
-        let scope = scope(&sources);
-        let mut leaves = Vec::new();
-        scope
-            .expand(
-                "query.is_baby ? Texture.a : Array.skins[query.variant]",
-                &mut Vec::new(),
-                &mut leaves,
-                0,
-            )
-            .unwrap();
-        let texts: Vec<_> = leaves
-            .iter()
-            .map(|(path, source)| (condition_text(path).unwrap(), *source))
-            .collect();
-        assert_eq!(texts.len(), 3);
-        assert_eq!(texts[0], ("(query.is_baby)".into(), 0));
-        assert!(texts[1].0.starts_with("!(query.is_baby) && (math.mod("));
-        assert_eq!(texts[2].1, 1);
-    }
-
-    #[test]
-    fn unsupported_atoms_reject_the_slot_and_plain_aliases_are_unconditional() {
-        let sources = [source("textures/entity/a.png")];
-        let scope = scope(&sources);
-        let mut leaves = Vec::new();
-        assert!(
-            scope
-                .expand("variable.foo", &mut Vec::new(), &mut leaves, 0)
-                .is_none()
-        );
-        let mut leaves = Vec::new();
-        scope
-            .expand("Texture.a", &mut Vec::new(), &mut leaves, 0)
-            .unwrap();
-        assert_eq!(leaves.len(), 1);
-        assert!(condition_text(&leaves[0].0).is_none());
-    }
-
-    #[test]
-    fn ternary_split_respects_nesting_brackets_and_quotes() {
-        assert_eq!(
-            split_ternary("a ? b ? c : d : e"),
-            Some(("a", "b ? c : d", Some("e")))
-        );
-        assert_eq!(
-            split_ternary("query.x('m?n') ? Array.t[q ? 1 : 0] : d"),
-            Some(("query.x('m?n')", "Array.t[q ? 1 : 0]", Some("d")))
-        );
-        assert_eq!(strip_outer_parentheses("(a ? b : c)"), "a ? b : c");
-        assert_eq!(strip_outer_parentheses("(a) ? (b) : c"), "(a) ? (b) : c");
-    }
 }
