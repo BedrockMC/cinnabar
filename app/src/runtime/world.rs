@@ -107,6 +107,8 @@ pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
+    /// The session's server-pack entities, layered over `entity_assets`.
+    pub(crate) pack_entities: Option<Arc<crate::runtime::network::entity_pack::SessionEntityPack>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) fatal_error: Option<String>,
     pub(crate) transfer_notice: Option<TransferNotice>,
@@ -128,6 +130,7 @@ impl ClientWorld {
             stream: None,
             runtime_assets,
             entity_assets: None,
+            pack_entities: None,
             pending_surface_spawn: None,
             fatal_error: None,
             transfer_notice: None,

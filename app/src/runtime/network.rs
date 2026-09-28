@@ -428,6 +428,10 @@ pub(crate) fn receive_network_events(
                 }
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
+                stream.set_pack_entities(
+                    packs.entities.as_ref().map(|pack| Arc::clone(&pack.assets)),
+                );
+                client_world.pack_entities = packs.entities.clone();
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)
                 {
@@ -942,6 +946,7 @@ mod actor_publication;
 mod block_overlay;
 mod drain;
 mod dropped_items;
+pub(crate) mod entity_pack;
 mod inventory;
 mod item_icons;
 mod resource_packs;

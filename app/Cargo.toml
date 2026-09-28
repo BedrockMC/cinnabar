@@ -9,6 +9,7 @@ publish = false
 bytes.workspace = true
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }
+asset-compiler = { path = "../crates/asset-compiler" }
 assets = { path = "../crates/assets" }
 bevy = { workspace = true, default-features = false, features = [
     "bevy_anti_alias",

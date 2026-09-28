@@ -18,6 +18,7 @@ pub struct PackApplication {
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
+    pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
 }
 
 impl Default for PackApplication {
@@ -27,6 +28,7 @@ impl Default for PackApplication {
             server_lang: None,
             block_overlay: None,
             item_icons: None,
+            entities: None,
         }
     }
 }
@@ -78,6 +80,7 @@ pub(super) fn prepare_pack_application(
     PackApplication {
         server_lang: merged_server_lang(&view),
         item_icons: compile_session_icons(&view, icon_keys),
+        entities: super::entity_pack::compile_session_entities(&stack, &view),
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }
@@ -90,7 +93,7 @@ pub(crate) fn set_base_material_keys(keys: assets::MaterialKeys) {
     let _ = BASE_MATERIAL_KEYS.set(keys);
 }
 
-type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
+pub(super) type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
 
 struct CachedOverlay {
     stack: StackFingerprint,
@@ -104,7 +107,7 @@ struct CachedOverlay {
 static OVERLAY_CACHE: std::sync::Mutex<Option<CachedOverlay>> = std::sync::Mutex::new(None);
 
 /// Identity of each pack as (uuid, version, subpack, content hash), in stack order.
-fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> StackFingerprint {
+pub(super) fn stack_fingerprint(stack: &resource_pack::ValidatedPackStack) -> StackFingerprint {
     use sha2::{Digest, Sha256};
     stack
         .packs()
