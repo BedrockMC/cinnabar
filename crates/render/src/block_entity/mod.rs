@@ -18,12 +18,15 @@ mod gpu;
 mod heads;
 mod items;
 mod mesh;
+mod mob;
 mod portal;
 mod pot;
 mod scene;
 mod shulker;
 mod sign;
 mod skull;
+mod spawner;
+mod statue;
 
 pub use atlas::{AtlasRect, BlockEntityAtlas, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
 pub use banner::{
@@ -43,6 +46,7 @@ pub use mesh::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,
     model_matrix as block_matrix,
 };
+pub use mob::SPAWNER_MOBS;
 pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
     BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
@@ -51,3 +55,5 @@ pub use scene::{
 pub use shulker::{ShulkerModel, shulker_color_from_block_name};
 pub use sign::{SignFace, SignModel, SignMount};
 pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees};
+pub use spawner::SpawnerModel;
+pub use statue::{Oxidation, StatueModel, StatuePose};

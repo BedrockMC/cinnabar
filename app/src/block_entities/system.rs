@@ -378,6 +378,23 @@ fn held_placement(
 const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-4.0, 4.0]];
 const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
+const FLOWER_SCALE: f32 = 0.5;
+
+/// Cache key for a map image at one revision.
+fn map_cache_key(map_id: i64, revision: u64) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (map_id, revision).hash(&mut hasher);
+    hasher.finish()
+}
+
+/// A 128x128 RGBA8 canvas from packed map pixels (red in the low byte).
+fn map_canvas(pixels: &[u32]) -> Vec<u8> {
+    pixels
+        .iter()
+        .flat_map(|pixel| pixel.to_le_bytes())
+        .collect()
+}
 
 /// Applies per-frame state (lid openness, sign canvases, viewer yaw) to a template.
 fn resolve(
@@ -456,11 +473,19 @@ fn resolve(
             }))
         }
         Template::ItemFrame {
-            model,
+            mut model,
             item,
             rotation_steps,
+            map_id,
         } => {
-            if let Some(item) = item {
+            let map = map_id.and_then(|id| {
+                let image = stream.map_image(id)?;
+                scene.map_rect(map_cache_key(id, image.revision), || {
+                    map_canvas(&image.pixels)
+                })
+            });
+            model.map = map;
+            if let (Some(item), None) = (item, map) {
                 held.push(held_placement(
                     &item,
                     item_frame_item_transform(position, model.outward, rotation_steps),
@@ -468,6 +493,17 @@ fn resolve(
                 ));
             }
             Some(BlockEntityKind::ItemFrame(model))
+        }
+        Template::FlowerPot { plant } => {
+            // Two crossed sprites standing in the pot; the plant icon stands in for the model.
+            let base = render::block_matrix(position, [0.5, 0.32, 0.5], 0.0);
+            for yaw in [45.0_f32, 135.0] {
+                let pose = base
+                    * Mat4::from_rotation_y(yaw.to_radians())
+                    * Mat4::from_scale(Vec3::splat(FLOWER_SCALE * 16.0));
+                held.push(held_placement(&plant, matrix_rows(pose), None));
+            }
+            None
         }
         Template::Campfire { yaw_degrees, items } => {
             let base = render::block_matrix(position, [0.5, 0.0, 0.5], yaw_degrees);
@@ -625,5 +661,13 @@ mod tests {
         let east = yaw_toward(Vec3::new(5.5, 0.0, 0.5), [0, 0, 0]);
         let front = Mat4::from_rotation_y(east.to_radians()).transform_vector3(Vec3::NEG_Z);
         assert!(front.abs_diff_eq(Vec3::X, 1.0e-4));
+    }
+
+    #[test]
+    fn map_pixels_unpack_red_first_and_keys_track_revisions() {
+        assert_eq!(map_canvas(&[0x4433_2211]), vec![0x11, 0x22, 0x33, 0x44]);
+        assert_ne!(map_cache_key(1, 1), map_cache_key(1, 2));
+        assert_ne!(map_cache_key(1, 1), map_cache_key(2, 1));
+        assert_eq!(map_cache_key(5, 9), map_cache_key(5, 9));
     }
 }
