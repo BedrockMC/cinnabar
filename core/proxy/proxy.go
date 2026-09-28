@@ -47,6 +47,9 @@ type Config struct {
 	// ResourcePackAdmissionUpdate receives an initial reset snapshot and the
 	// final snapshot for each attempt. It is intended for latest-status stores.
 	ResourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
+	// LocalTarget, when set, is asked per connection for a local server address; ok=false
+	// falls back to Upstream. Upstream may then be empty.
+	LocalTarget LocalTargetFunc
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -72,7 +75,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	if cfg.SocketDir == "" {
 		return errors.New("proxy: socket directory is required")
 	}
-	if cfg.Upstream == "" {
+	if cfg.Upstream == "" && cfg.LocalTarget == nil {
 		return errors.New("proxy: upstream address is required")
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
@@ -83,6 +86,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
+	prepared.resolveTarget = withLocalTarget(cfg.LocalTarget, prepared.resolveTarget)
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AcceptedProtocols:      []minecraft.Protocol{minecraft.Protocol12644()},
