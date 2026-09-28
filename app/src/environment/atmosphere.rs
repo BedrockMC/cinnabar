@@ -125,6 +125,7 @@ pub(crate) fn update_atmosphere_frame(
     atmosphere_assets: Res<render::AtmosphereTextureAssets>,
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
+    vision: Res<crate::camera::VisionEffects>,
     outputs: (ResMut<AtmosphereFrame>, ResMut<EnvironmentProfileRoute>),
     mut display: Local<WeatherDisplay>,
 ) {
@@ -150,7 +151,8 @@ pub(crate) fn update_atmosphere_frame(
     let submerged = display.submerged_seconds(medium.0);
     let next_frame = next_frame
         .with_underwater_fog_fraction(underwater_fog_fraction(submerged))
-        .with_lightning_flash(flash.level(elapsed));
+        .with_lightning_flash(flash.level(elapsed))
+        .with_vision_effects(vision.blindness, vision.darkness, vision.night_vision);
     *frame = apply_boss_environment(next_frame, medium.0, state);
     *route = next_route;
 }

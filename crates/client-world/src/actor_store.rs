@@ -395,12 +395,14 @@ pub(crate) struct ActorStore {
 mod dropped;
 mod hurt;
 mod lifecycle;
+mod lightning;
 mod query;
 
 pub use dropped::{DroppedItemView, MAX_DROPPED_ITEM_COPIES, dropped_item_copy_count};
 pub use hurt::{
     ActorPickup, ActorStatus, DEATH_DURATION_TICKS, HURT_DURATION_TICKS, PICKUP_DURATION_TICKS,
 };
+pub use lightning::LightningBoltView;
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {

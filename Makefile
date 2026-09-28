@@ -59,6 +59,7 @@ ACTOR_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeact
 ACTOR_ASSET_REPORT ?= .local/assets/compiled/actor-assets.json
 EQUIPMENT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeeqp
 EQUIPMENT_ASSET_REPORT ?= .local/assets/compiled/equipment-assets.json
+WEATHER_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbewth
 UI_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeui
 UI_ASSET_REPORT ?= .local/assets/compiled/ui-assets.json
 CINNABAR_CLOUDS_PNG ?=
@@ -139,6 +140,11 @@ assets: $(ASSET_BLOB) $(ATMOSPHERE_BLOB) $(ATMOSPHERE_REPORT) $(ENTITY_ASSET_BLO
 assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 assets: $(EQUIPMENT_ASSET_BLOB) $(EQUIPMENT_ASSET_REPORT)
 assets: $(UI_ASSET_BLOB) $(UI_ASSET_REPORT)
+assets: $(WEATHER_ASSET_BLOB)
+.PHONY: weather-assets
+weather-assets: $(WEATHER_ASSET_BLOB)
+$(WEATHER_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)
+	$(CARGO) run --locked -p asset-compiler --bin assetc -- weather-assets --pack "$(PACK_DIR)" --out "$(WEATHER_ASSET_BLOB)"
 .PHONY: actor-assets
 actor-assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 $(ACTOR_ASSET_BLOB): $(ENTITY_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) crates/assets/data/neutral-actor-materials-v1.json
