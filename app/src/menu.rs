@@ -271,6 +271,8 @@ pub(crate) struct MenuRuntime {
     auth_attempted: bool,
     auth_restart_requested: bool,
     layout: InstallLayout,
+    /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
+    player_skin: crate::player_skin::LocalPlayerSkin,
     /// Identity-checked owner of this session's runtime directory; bound
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
@@ -286,11 +288,13 @@ struct PendingConnect {
 impl MenuRuntime {
     #[cfg(test)]
     pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
+        let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
         Self::new_with_layout(
             visible,
             gui_scale,
             display_name,
             InstallLayout::discover().expect("test executable must have a development layout"),
+            player_skin,
         )
     }
 
@@ -299,6 +303,7 @@ impl MenuRuntime {
         gui_scale: u8,
         display_name: String,
         layout: InstallLayout,
+        player_skin: crate::player_skin::LocalPlayerSkin,
     ) -> Self {
         let config_path = layout.server_file();
         let loaded = load_servers(&config_path);
@@ -343,6 +348,7 @@ impl MenuRuntime {
             auth_attempted: false,
             auth_restart_requested: false,
             layout,
+            player_skin,
             session_directory: None,
         }
     }

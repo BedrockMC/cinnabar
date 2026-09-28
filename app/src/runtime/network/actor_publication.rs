@@ -64,6 +64,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
+    local_skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -79,6 +80,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
+        local_skin,
     } = params;
     let ActorPresentationState {
         avatar,
@@ -100,7 +102,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     }
     let step = actor_clock.advance(time.delta());
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let local_feed = build_local_player_feed(&local_physics, view.rotation(), first_person);
+    let local_feed =
+        build_local_player_feed(&local_physics, view.rotation(), first_person, &local_skin);
     if let Some(stream) = client_world.stream.as_mut() {
         // Feed the client-authored local pose before the tick advance and rig read so the
         // local body/hand are driven by the shared rig, not the static fallback.
@@ -317,6 +320,7 @@ fn build_local_player_feed(
     physics: &crate::movement::LocalPhysicsController,
     look: bevy::math::Quat,
     first_person: bool,
+    local_skin: &crate::player_skin::LocalPlayerSkin,
 ) -> Option<LocalPlayerFeed> {
     let state = physics.state()?;
     let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
@@ -341,9 +345,11 @@ fn build_local_player_feed(
         return None;
     }
     Some(LocalPlayerFeed {
-        // The stream adopts the authoritative identity and skin from the retained player list.
-        uuid: [0; 16],
+        // A real player-list echo overrides this; without one, the stream backs the local body
+        // with the client's own uploaded skin under this stable local uuid.
+        uuid: local_skin.local_uuid,
         username: std::sync::Arc::from(""),
+        skin: local_skin.player_skin(),
         position,
         velocity,
         on_ground: state.on_ground,
