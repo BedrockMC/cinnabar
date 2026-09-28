@@ -1,12 +1,12 @@
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Local, Res, ResMut, Time},
+    prelude::{Local, Projection, Res, ResMut, Resource, Time},
     time::Real,
 };
 use client_world::{LocalPlayerFeed, WorldStream};
 use render::{
-    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene,
-    MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    ActorCullView, ActorMainWitness, ActorRenderFrame, ActorRenderScene, ActorRigFrameBuilder,
+    HandRigLight, HandRigScene, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
 };
 
 use super::{
@@ -15,11 +15,41 @@ use super::{
 };
 use crate::{
     presentation::actors::{
-        actor_rig_presentation, local_actor_presentation_for_visibility,
-        local_diagnostic_presentation, select_actor_presentations_for_view, update_actor_rig_scene,
+        ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
+        local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
+        update_actor_rig_scene,
     },
     runtime::world::ClientWorld,
 };
+
+/// The local player's own first-person rig, built as a single instance placed in camera space.
+#[derive(Resource)]
+pub(crate) struct HandRigBuilder(pub(crate) ActorRigFrameBuilder);
+
+impl HandRigBuilder {
+    pub(crate) fn from_runtime_assets(
+        assets: &assets::RuntimeEntityAssets,
+    ) -> anyhow::Result<Self> {
+        ActorRigFrameBuilder::from_runtime_assets(assets)
+            .map(Self)
+            .map_err(|error| {
+                anyhow::anyhow!("prepare validated first-person hand rig geometry: {error:?}")
+            })
+    }
+}
+
+// Camera-local placement of the first-person rig. The rig is authored feet-up; it is faced away
+// from the camera (arms reach toward the near plane) and dropped so the eye lands near the camera
+// origin. These are initial estimates: the exact camera-to-rig offset is native-tuning work
+// against the 26.30 client (the vanilla transform composes the camera matrix with data-driven
+// animations rather than a single constant), while scale 0.9375 and the arm rest pose come from
+// the samples and are carried by the evaluated pose itself.
+const HAND_RIG_CAMERA_YAW_DEGREES: f32 = 180.0;
+const HAND_RIG_CAMERA_OFFSET: [f32; 3] = [0.0, -1.5, 0.0];
+
+fn hand_camera_from_rig(scale: f32) -> [[f32; 4]; 3] {
+    rig_world_from_actor(HAND_RIG_CAMERA_OFFSET, HAND_RIG_CAMERA_YAW_DEGREES, scale)
+}
 
 #[derive(SystemParam)]
 pub(crate) struct ActorFramePublication<'w, 's> {
@@ -31,6 +61,9 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     actor_clock: Local<'s, ActorFrameClock>,
     presentation: ActorPresentationState<'w, 's>,
     artwork: Res<'w, render::ActorArtworkPages>,
+    hand_builder: ResMut<'w, HandRigBuilder>,
+    hand_scene: ResMut<'w, HandRigScene>,
+    hand_revision: Local<'s, u64>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -43,6 +76,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut actor_clock,
         presentation,
         artwork,
+        mut hand_builder,
+        mut hand_scene,
+        mut hand_revision,
     } = params;
     let ActorPresentationState {
         avatar,
@@ -95,6 +131,15 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
+    // The hand rig shares the main camera's vertical FOV; with no dynamic FOV modifiers yet this
+    // is the base FOV (getFovWithoutGameplay). Wire it to the base setting once modifiers land.
+    let hand_camera_fov = camera
+        .single()
+        .ok()
+        .and_then(|(_, projection)| match projection {
+            Projection::Perspective(perspective) => Some(perspective.fov),
+            _ => None,
+        });
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         client_world
             .stream
@@ -139,6 +184,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 )
             })
             .unwrap_or((0, 0, 0, Vec::new(), None, 0));
+    // The local rig, evaluated first-person this tick, feeds the near-camera hand pass before
+    // canonical_local is consumed by the world batch (which excludes it while first person).
+    let hand_source = if first_person {
+        canonical_local.clone()
+    } else {
+        None
+    };
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -198,6 +250,64 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         rejects: frame.rig.rejects,
         unrigged_actors,
     });
+    let hand_light = client_world.stream.as_ref().map_or(
+        HandRigLight {
+            block_level: 0,
+            sky_level: 0,
+            daylight: 1.0,
+            pad: 0,
+        },
+        |stream| {
+            let (block, sky) = authoritative_subject_eye
+                .map_or((0, 0), |eye| stream.light_level_at(eye.to_array()));
+            HandRigLight {
+                block_level: u32::from(block),
+                sky_level: u32::from(sky),
+                // Daylight is full until the celestial curve feeds the first-person pass; sky
+                // light is already sampled per-position above.
+                daylight: 1.0,
+                pad: 0,
+            }
+        },
+    );
+    publish_hand_rig(
+        &mut hand_builder.0,
+        &mut hand_scene,
+        &mut hand_revision,
+        hand_source,
+        hand_camera_fov,
+        hand_light,
+        step.partial_tick,
+    );
+}
+
+/// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
+/// it when not in first person, when the look FOV is unavailable, or when no skin resolved.
+fn publish_hand_rig(
+    builder: &mut ActorRigFrameBuilder,
+    scene: &mut HandRigScene,
+    revision: &mut u64,
+    source: Option<ActorRigPresentation>,
+    fov_radians: Option<f32>,
+    light: HandRigLight,
+    partial_tick: f32,
+) {
+    let (Some(source), Some(fov)) = (source, fov_radians) else {
+        scene.clear();
+        return;
+    };
+    let Some(skin) = source.skin_rgba8 else {
+        scene.clear();
+        return;
+    };
+    let scale = source.model_scale;
+    let mut submission = source.submission;
+    submission.world_from_actor = hand_camera_from_rig(scale);
+    // The hand skin is a single-layer array; the third-person layer index does not apply.
+    submission.texture_layer = 0;
+    let frame = builder.build(partial_tick, None, [submission]);
+    *revision = revision.wrapping_add(1).max(1);
+    scene.publish(frame, skin, light, fov, *revision);
 }
 
 /// Builds this frame's client-authored local-player feed from the predicted physics state and

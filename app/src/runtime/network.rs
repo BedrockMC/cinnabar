@@ -895,7 +895,7 @@ mod drain;
 mod inventory;
 mod resource_packs;
 pub(crate) mod session;
-pub(crate) use actor_publication::publish_actor_render_frame;
+pub(crate) use actor_publication::{HandRigBuilder, publish_actor_render_frame};
 
 #[cfg(test)]
 pub(crate) use drain::drain_network_ingress;

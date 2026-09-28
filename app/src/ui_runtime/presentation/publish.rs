@@ -34,7 +34,11 @@ pub(crate) fn publish_ui_runtime(
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime): (Res<WorldStreamFramePoll>, Res<crate::menu::MenuRuntime>),
+    (frame_poll, menu_runtime, hand_rig): (
+        Res<WorldStreamFramePoll>,
+        Res<crate::menu::MenuRuntime>,
+        Res<render::HandRigScene>,
+    ),
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
     let Ok(window) = windows.single() else {
@@ -149,13 +153,19 @@ pub(crate) fn publish_ui_runtime(
         &camera_settings,
         now_millis,
     );
-    hand.observe(
-        &runtime,
-        &client_world,
-        presentation.hud_frame.first_person,
-        menu_runtime.is_visible() || presentation.loading_message.is_some(),
-        physical_size,
-    );
+    // When the local player's first-person rig is drawing near-camera, it owns the hand; the
+    // static empty-hand scene and its CPU fallback quad are retired so nothing double-draws.
+    if hand_rig.is_active() {
+        hand.use_animated_rig();
+    } else {
+        hand.observe(
+            &runtime,
+            &client_world,
+            presentation.hud_frame.first_person,
+            menu_runtime.is_visible() || presentation.loading_message.is_some(),
+            physical_size,
+        );
+    }
     let anchors = client_world
         .stream
         .as_ref()
@@ -206,11 +216,13 @@ pub(crate) fn publish_ui_runtime(
             return;
         }
     };
-    hand.bind_cpu_fallback(
-        &input,
-        presentation.cpu_empty_hand_fallback(),
-        presentation.hud_frame.held_item_icon,
-    );
+    if !hand_rig.is_active() {
+        hand.bind_cpu_fallback(
+            &input,
+            presentation.cpu_empty_hand_fallback(),
+            presentation.hud_frame.held_item_icon,
+        );
+    }
     if let Err(error) = scene.publish(input, &stats) {
         hand.clear();
         record_fatal_error(

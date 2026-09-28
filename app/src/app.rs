@@ -529,6 +529,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             )
         })?;
     actor_render_scene.configure_artwork(actor_artwork.clone());
+    // A dedicated single-instance builder for the local player's first-person rig, sharing the
+    // same validated geometry catalog as the third-person actor pass.
+    let hand_rig_builder =
+        crate::runtime::network::HandRigBuilder::from_runtime_assets(&entity_runtime)?;
     // One shared authority drives both startup registry gates: the
     // world-carrier provenance pins and this physics binding both derive
     // their protocol expectation from it, so a partially flipped carrier set
@@ -705,6 +709,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource(LocalMovementSpeedAuthority::default())
         .insert_resource(collision_registries)
         .insert_resource(actor_render_scene)
+        .insert_resource(hand_rig_builder)
         .insert_resource(AtmosphereFrame::default())
         .insert_resource(AtmosphereTextureAssets::new(
             atmosphere_runtime,
@@ -758,6 +763,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         ),
         UiRenderPlugin,
         render::ViewmodelRenderPlugin,
+        render::HandRigRenderPlugin,
     ));
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
