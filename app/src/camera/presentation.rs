@@ -15,7 +15,7 @@ use super::{
         HeadMedium, PortalProgress, ScreenEffectInputs, ScreenOverlays, VisionEffects,
         compute_overlays, nausea_roll_radians, probe_head_medium,
     },
-    server_view::ServerCameraView,
+    server_view::{ActorView, ServerCameraView, ViewContext},
 };
 use crate::{
     local_player::LocalViewPose,
@@ -212,6 +212,8 @@ pub(super) fn apply_camera_presentation(
     instructions: Option<Res<ServerCameraInstructions>>,
     hand: Res<FirstPersonHandMotion>,
     vision: Res<VisionEffects>,
+    view: Res<LocalViewPose>,
+    client_world: Option<Res<ClientWorld>>,
     mut server: ResMut<ServerCameraView>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
 ) {
@@ -220,17 +222,37 @@ pub(super) fn apply_camera_presentation(
     };
     let dt = time.delta_secs();
     let base = *transform;
+    let stream = client_world
+        .as_deref()
+        .and_then(|world| world.stream.as_ref());
+    let actors = |unique_id: i64| {
+        let (position, yaw, pitch) = stream?.actor_pose_by_unique(unique_id)?;
+        Some(ActorView {
+            position: Vec3::from_array(position),
+            yaw_degrees: yaw,
+            pitch_degrees: pitch,
+        })
+    };
+    let context = ViewContext {
+        base,
+        subject: Transform {
+            translation: view.eye_translation(),
+            rotation: view.rotation(),
+            ..Transform::IDENTITY
+        },
+        base_fov: settings.horizontal_fov_degrees(),
+        actors: &actors,
+    };
     if let Some(instructions) = instructions.as_deref() {
         server.observe_resets(instructions.resets());
-        let fov = settings.horizontal_fov_degrees();
         let seen = server.last_sequence();
         for entry in instructions.iter().filter(|entry| entry.sequence > seen) {
-            server.apply(entry.sequence, &entry.event, &base, fov);
+            server.apply(entry.sequence, &entry.event, &context);
         }
     }
     server.advance(dt);
 
-    let override_pose = server.pose_override();
+    let override_pose = server.pose_override(&context);
     let mut pose = override_pose.unwrap_or(base);
     let mut changed = override_pose.is_some();
 
@@ -271,6 +293,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<Time>()
             .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<LocalViewPose>()
             .init_resource::<FirstPersonHandMotion>()
             .init_resource::<VisionEffects>()
             .init_resource::<ServerCameraView>()

@@ -485,6 +485,9 @@ pub fn into_world_event(
         McpePacketData::CameraPacket(packet) => {
             WorldEvent::Camera(crate::camera::normalize_switch(packet))
         }
+        McpePacketData::CameraPresetsPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_presets(packet))
+        }
         McpePacketData::CameraShakePacket(packet) => {
             WorldEvent::Camera(crate::camera::normalize_shake(*packet)?)
         }

@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use valentine::bedrock::version::v1_26_44::{
-    CameraInstruction, CameraPacket, CameraShakePacket, EnumsCameraShakeAction as WireShakeAction,
-    EnumsCameraShakeType as WireShakeType,
+    CameraInstruction, CameraPacket, CameraPresetsPacket, CameraShakePacket,
+    EnumsCameraShakeAction as WireShakeAction, EnumsCameraShakeType as WireShakeType,
 };
 
 use crate::WorldPacketError;
@@ -19,11 +19,29 @@ use crate::WorldPacketError;
 /// This is an allocation-safety ceiling, not an identifier allowlist.
 pub const MAX_CAMERA_EASE_IDENTIFIER_BYTES: usize = 64;
 
+/// Maximum retained camera presets; preset ids index this list, so extras past it are dropped.
+pub const MAX_CAMERA_PRESETS: usize = 256;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CameraEvent {
+    /// The server's preset registry; a preset id in `set` indexes it.
+    Presets(Arc<[CameraPreset]>),
     Switch(CameraSwitchEvent),
     Instruction(CameraInstructionEvent),
     Shake(CameraShakeEvent),
+}
+
+/// One camera preset reduced to the fields the client applies; non-finite values are dropped to `None`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CameraPreset {
+    pub name: Arc<str>,
+    pub inherit_from: Arc<str>,
+    pub position: [Option<f32>; 3],
+    /// Pitch then yaw in degrees.
+    pub rotation_degrees: [Option<f32>; 2],
+    pub view_offset: Option<[f32; 2]>,
+    pub entity_offset: Option<[f32; 3]>,
+    pub radius: Option<f32>,
 }
 
 /// One legacy CameraPacket carrying two actor unique ids as named by the wire.
@@ -123,6 +141,44 @@ pub enum CameraShakeAction {
     Add,
     Stop,
     Unknown(u8),
+}
+
+fn finite(value: Option<f32>) -> Option<f32> {
+    value.filter(|value| value.is_finite())
+}
+
+pub(crate) fn normalize_presets(packet: CameraPresetsPacket) -> CameraEvent {
+    let presets: Vec<CameraPreset> = packet
+        .camera_presets
+        .presets
+        .into_iter()
+        .take(MAX_CAMERA_PRESETS)
+        .map(|preset| {
+            let bounded = |name: String| {
+                if name.len() <= MAX_CAMERA_EASE_IDENTIFIER_BYTES * 2 {
+                    Arc::from(name)
+                } else {
+                    Arc::from("")
+                }
+            };
+            CameraPreset {
+                name: bounded(preset.name),
+                inherit_from: bounded(preset.inherit_from),
+                position: [preset.pos_x, preset.pos_y, preset.pos_z].map(finite),
+                rotation_degrees: [preset.rot_x, preset.rot_y].map(finite),
+                view_offset: preset
+                    .view_offset
+                    .map(|offset| [offset.x, offset.y])
+                    .filter(|offset| offset.iter().all(|value| value.is_finite())),
+                entity_offset: preset
+                    .entity_offset
+                    .map(|offset| [offset.x, offset.y, offset.z])
+                    .filter(|offset| offset.iter().all(|value| value.is_finite())),
+                radius: finite(preset.radius),
+            }
+        })
+        .collect();
+    CameraEvent::Presets(presets.into())
 }
 
 pub(crate) fn normalize_switch(packet: CameraPacket) -> CameraEvent {
