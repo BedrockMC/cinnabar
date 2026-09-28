@@ -3220,9 +3220,11 @@ Rust's duplicate no-ID loading-screen Start/End may occupy two adjacent local ba
 bounded filter now holds at most one Start through the next read, drops only the exact initial
 pair, and flushes a mismatch or EOF in its original batch before current traffic. Full core
 tests, independent review, and a successful native BDS join are green through `a6c1ffc`.
-Porting the
-remaining PR-specific slow-reader/decode-error/disconnect regressions and completing the
-join-latency/resource comparison remain open, so this final polish item is not yet complete.
+The slow-reader, mid-batch decode-close, deferred-loading-boundary, and pre-disconnect
+batch-boundary regressions are written in `core/proxy/relay_backpressure_test.go` and the
+comparison benchmarks in `core/proxy/relay_compare_test.go` (both uncompiled until reconcile);
+running the benchmarks against a live server for the join-latency/memory record remains open,
+so this final polish item is not yet complete.
 
 ---
 
