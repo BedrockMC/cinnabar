@@ -93,7 +93,8 @@ pub(crate) struct HudFrame {
     pub attack_indicator_charge: Option<f32>,
     /// Whether the held player-list action keeps the tab overlay open.
     pub tab_list_open: bool,
-    pub engine_containers: bool, // storage screens draw through JSON-UI instead
+    pub engine_containers: bool, // container screens draw through JSON-UI instead
+    pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
 }
 
 /// Per-frame layout geometry derived from the Java GUI-scale rule. All

@@ -21,6 +21,13 @@ use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 const UNWRAPPED_LOGICAL: f64 = 65_536.0;
+/// Player preview height relative to its renderer box (needs native measurement).
+const PREVIEW_BOX_SCALE: f32 = 2.2;
+/// Tooltip placement relative to the pointer and its padding, in virtual px
+/// (needs native measurement).
+const TOOLTIP_OFFSET: [f32; 2] = [8.0, -12.0];
+const TOOLTIP_PAD: f32 = 2.0;
+const TOOLTIP_BACKGROUND: [u8; 4] = [16, 0, 16, 224];
 
 pub(crate) struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
@@ -80,13 +87,17 @@ impl FormEngine {
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
-        self.render_with(inputs, out, &[], Some(identity), |env, root| {
-            render_form_with(model, &self.catalog, &self.context, root, env, view)
-        })
+        self.render_with(
+            inputs,
+            out,
+            ScreenArt::default(),
+            Some(identity),
+            |env, root| render_form_with(model, &self.catalog, &self.context, root, env, view),
+        )
     }
 
-    /// Render an allow-listed screen against `data`. `icons` backs the
-    /// `inventory_item_renderer` cells, whose data names an index into it.
+    /// Render an allow-listed screen against `data`; `art` backs its custom
+    /// renderers (item icons, the player preview, the pointer tooltip).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_screen(
         &self,
@@ -94,11 +105,11 @@ impl FormEngine {
         data: &DataSource,
         context: &Context,
         view: &ViewState,
-        icons: &[IconRef],
+        art: ScreenArt<'_>,
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
-        self.render_with(inputs, out, icons, None, |env, root| {
+        self.render_with(inputs, out, art, None, |env, root| {
             render_screen(reference, &self.catalog, context, data, root, env, view)
         })
     }
@@ -107,7 +118,7 @@ impl FormEngine {
         &self,
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
-        icons: &[IconRef],
+        art: ScreenArt<'_>,
         identity: Option<ServerFormIdentity>,
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<FormRender>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
@@ -140,7 +151,8 @@ impl FormEngine {
             assets: &self.assets,
             first_page: self.first_page,
             solid_page: inputs.solid_page,
-            icons,
+            art,
+            screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
             layouts,
             font: inputs.font,
             metrics: inputs.metrics,
@@ -165,6 +177,15 @@ impl FormEngine {
                 .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
         }))
     }
+}
+
+/// Caller art the custom renderers draw: the icon table `#item_renderer_data`
+/// indexes, the player preview, and the pointer (virtual px) tooltips follow.
+#[derive(Clone, Copy, Default)]
+pub(super) struct ScreenArt<'a> {
+    pub(super) icons: &'a [IconRef],
+    pub(super) preview: Option<IconRef>,
+    pub(super) pointer: Option<[f32; 2]>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -282,7 +303,9 @@ struct Painter<'a> {
     assets: &'a RuntimeUiAssets,
     first_page: u16,
     solid_page: u16,
-    icons: &'a [IconRef],
+    art: ScreenArt<'a>,
+    /// The whole content area, the clip for unclipped tooltips.
+    screen: [f32; 4],
     layouts: &'a mut TextLayoutCache,
     font: &'a RuntimeFontCatalog,
     metrics: TextMetrics,
@@ -338,7 +361,10 @@ impl Painter<'_> {
         let number = |key: &str| data.get(key).and_then(serde_json::Value::as_f64);
         match renderer {
             "inventory_item_renderer" => {
-                let icon = self.icons.get(number("#item_renderer_data")? as usize)?;
+                let icon = self
+                    .art
+                    .icons
+                    .get(number("#item_renderer_data")? as usize)?;
                 Some((
                     UiVisual::Sprite {
                         texture_page: icon.page,
@@ -367,8 +393,75 @@ impl Painter<'_> {
                     fill,
                 ))
             }
+            // The live model is approximated by the cached preview raster, kept at
+            // its aspect and scaled to the renderer's box (needs native measurement).
+            "live_player_renderer" | "paper_doll_renderer" => {
+                let preview = self.art.preview?;
+                let w = f32::from(preview.uv[2].saturating_sub(preview.uv[0]));
+                let h = f32::from(preview.uv[3].saturating_sub(preview.uv[1]));
+                if w <= 0.0 || h <= 0.0 {
+                    return None;
+                }
+                let height = (dest[3] - dest[1]) * PREVIEW_BOX_SCALE;
+                let width = height * w / h;
+                let centre = (dest[0] + dest[2]) * 0.5;
+                let top = (dest[1] + dest[3]) * 0.5 - height * 0.5 + height * 0.25;
+                Some((
+                    UiVisual::Sprite {
+                        texture_page: preview.page,
+                        uv: preview.uv,
+                        color: alpha([255; 4]),
+                    },
+                    [
+                        centre - width * 0.5,
+                        top,
+                        centre + width * 0.5,
+                        top + height,
+                    ],
+                ))
+            }
+            "hover_text_renderer" => {
+                let text = data
+                    .get("#hover_text")?
+                    .as_str()
+                    .filter(|text| !text.is_empty())?;
+                self.tooltip(text, dest).ok().flatten()
+            }
             _ => None,
         }
+    }
+
+    /// A tooltip box beside the pointer (or the hovered control) holding `text`.
+    fn tooltip(
+        &mut self,
+        text: &str,
+        dest: [f32; 4],
+    ) -> Result<Option<(UiVisual, [f32; 4])>, UiPresentationError> {
+        let anchor = self.art.pointer.map_or([dest[2], dest[1]], |point| {
+            [point[0] * self.px, point[1] * self.px]
+        });
+        let request = self
+            .metrics
+            .request(text, width_64(UNWRAPPED_LOGICAL), self.font);
+        let Ok(layout) = self.layouts.layout(request) else {
+            return Ok(None);
+        };
+        let [w, h] = layout.size_64().map(|size| size as f32 / 64.0);
+        let pad = TOOLTIP_PAD * self.px;
+        let x = (anchor[0] + TOOLTIP_OFFSET[0] * self.px).min(self.screen[2] - w - pad * 2.0);
+        let y = (anchor[1] + TOOLTIP_OFFSET[1] * self.px).max(0.0);
+        self.solid(
+            [x, y, x + w + pad * 2.0, y + h + pad * 2.0],
+            TOOLTIP_BACKGROUND,
+        )?;
+        Ok(Some((
+            UiVisual::Text {
+                layout,
+                color: [255; 4],
+                shadow: self.metrics.shadow(),
+            },
+            [x + pad, y + pad, x + pad + w, y + pad + h],
+        )))
     }
 
     /// A solid rect in the current clip group.
@@ -410,6 +503,11 @@ impl Painter<'_> {
         let alpha = |color: [u8; 4]| {
             let a = (f32::from(color[3]) * node.alpha.clamp(0.0, 1.0)).round() as u8;
             [color[0], color[1], color[2], a]
+        };
+        // Tooltips ignore the hovered control's clip.
+        let clip = match &node.draw {
+            Draw::Custom { renderer, .. } if renderer == "hover_text_renderer" => self.screen,
+            _ => clip,
         };
         let parent = self.group(clip)?;
         let (visual, bounds) = match &node.draw {

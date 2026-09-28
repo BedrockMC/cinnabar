@@ -30,6 +30,7 @@ Options:
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --gui-scale <1-4|auto>       Fix the Java HUD GUI scale (default: 2)
+  --json-ui-containers         Draw container screens through JSON-UI (default: Java-styled)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   --require-transparent-presentation
                                Wait up to 2s for GPU-presented water at timed exit
@@ -100,6 +101,8 @@ pub struct ClientArgs {
     /// Fixed Java GUI scale (1..=4) for the pinned capture matrix. `None`
     /// selects the Java auto rule; the normal client default is scale 2.
     pub gui_scale: Option<u8>,
+    /// Route container screens through the JSON-UI engine; off keeps the Java path.
+    pub json_ui_containers: bool,
     pub full_view_teleport_gate: bool,
     pub require_transparent_presentation: bool,
     pub transparent_witness_request: Option<PathBuf>,
@@ -126,6 +129,7 @@ impl Default for ClientArgs {
             no_vsync: false,
             frame_cap: None,
             gui_scale: Some(DEFAULT_GUI_SCALE),
+            json_ui_containers: false,
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
             transparent_witness_request: None,
@@ -207,6 +211,7 @@ impl ClientArgs {
                 Some("-h" | "--help") => return Ok(ParseOutcome::Help),
                 Some("--auto-fly") => parsed.auto_fly = true,
                 Some("--freecam") => parsed.freecam = true,
+                Some("--json-ui-containers") => parsed.json_ui_containers = true,
                 Some("--vsync") => parsed.force_vsync = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
                 Some("--full-view-teleport-gate") => parsed.full_view_teleport_gate = true,
@@ -513,6 +518,7 @@ mod tests {
             "--model-witness-request",
             "--phase3-evidence-target",
             "--phase3-candidate-physics",
+            "--json-ui-containers",
         ] {
             assert!(HELP.contains(flag));
         }

@@ -310,6 +310,20 @@ pub(crate) fn refresh_hud_frame(
             crafting.output = Some((icon, stack));
         }
     }
+    // Hover names for the open container's cells (JSON-UI tooltips).
+    let item_names = if runtime.inventory_open() {
+        let ledger = runtime.inventory_ledger();
+        (0..36u8)
+            .filter_map(|slot| ledger.displayed_stack(slot))
+            .chain((0..54u8).filter_map(|slot| ledger.storage_stack(slot)))
+            .filter_map(|stack| {
+                let name = runtime.localized_item_name(&resolve_identifier(stack)?);
+                Some(((stack.network_id, stack.metadata), Arc::from(name)))
+            })
+            .collect()
+    } else {
+        Default::default()
+    };
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
@@ -418,6 +432,7 @@ pub(crate) fn refresh_hud_frame(
         .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
         .map_or(0.0, |actor| actor.pitch);
     frame.selected_item_name = selected_item_name;
+    frame.item_names = item_names;
     frame.mount_jump = mount_jump;
     frame.attack_indicator_charge = Some(1.0);
     let diagnostics = runtime.gameplay_hud().diagnostics();

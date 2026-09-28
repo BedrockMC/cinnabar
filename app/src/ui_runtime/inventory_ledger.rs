@@ -285,6 +285,12 @@ impl PlayerInventoryLedger {
             .map(|_| self.confirmed.storage_len())
     }
 
+    /// The open storage window's container type code, for picking its screen.
+    #[must_use]
+    pub fn storage_window_type(&self) -> Option<i8> {
+        self.storage.as_ref().map(|storage| storage.window_type)
+    }
+
     /// The state of the oldest unresolved request.
     #[must_use]
     pub fn pending_state(&self) -> Option<InventoryPendingState> {
