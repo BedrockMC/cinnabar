@@ -92,10 +92,13 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	if transfers == nil {
 		transfers = new(TransferState)
 	}
-	prepared.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, transfers.Upstream(cfg.Upstream), cfg.TokenSource, logger)
+	dial := func(ctx context.Context, address string) (*resolvedUpstreamTarget, error) {
+		return resolveUpstreamTarget(ctx, address, cfg.TokenSource, logger)
 	}
-	prepared.resolveTarget = withLocalTarget(cfg.LocalTarget, prepared.resolveTarget)
+	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		return dial(ctx, cfg.Upstream)
+	}
+	prepared.resolveTarget = withPendingTransfer(transfers, dial, withLocalTarget(cfg.LocalTarget, online))
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AcceptedProtocols:      []minecraft.Protocol{minecraft.Protocol12644()},
