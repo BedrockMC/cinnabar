@@ -118,3 +118,18 @@ func TestParseKeys(t *testing.T) {
 		t.Fatal("bad key accepted")
 	}
 }
+
+func TestSignRoundTripsThroughVerify(t *testing.T) {
+	pub, priv, manifest := fixture(t)
+	body, err := Sign(manifest, "k1", priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Verify(body, map[string]ed25519.PublicKey{"k1": pub}, fixedNow)
+	if err != nil || got.Version != manifest.Version {
+		t.Fatalf("got=%+v err=%v", got, err)
+	}
+	if _, err := Sign(manifest, "k1", nil); err == nil {
+		t.Fatal("empty key accepted")
+	}
+}

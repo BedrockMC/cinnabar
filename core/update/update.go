@@ -231,3 +231,19 @@ func ParseKeys(list string) (map[string]ed25519.PublicKey, error) {
 	}
 	return keys, nil
 }
+
+// Sign marshals the manifest and wraps it in a signed envelope for publication.
+func Sign(manifest Manifest, keyID string, key ed25519.PrivateKey) ([]byte, error) {
+	if len(key) != ed25519.PrivateKeySize {
+		return nil, errors.New("invalid signing key")
+	}
+	payload, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(Envelope{
+		KeyID:     keyID,
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(key, payload)),
+		Manifest:  base64.StdEncoding.EncodeToString(payload),
+	})
+}
