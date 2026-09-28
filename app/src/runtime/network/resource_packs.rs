@@ -38,7 +38,8 @@ pub(super) fn prepare_session_packs(
 ) -> (protocol::CustomBlocks, PackApplication) {
     let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
     let icon_keys = protocol::item_icon_keys(game_data);
-    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys);
+    let hashed = game_data.start_game.block_network_ids_are_hashes;
+    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
     (custom_blocks, packs)
 }
 
@@ -46,6 +47,7 @@ pub(super) fn prepare_pack_application(
     handoff: protocol::ResourcePackHandoff,
     custom_blocks: &protocol::CustomBlocks,
     icon_keys: &[(Arc<str>, Arc<str>)],
+    hashed_block_ids: bool,
 ) -> PackApplication {
     if handoff.is_empty() {
         return PackApplication::default();
@@ -59,7 +61,7 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
-    let block_overlay = compile_block_overlay(&view, custom_blocks).map(Arc::new);
+    let block_overlay = compile_block_overlay(&view, custom_blocks, hashed_block_ids).map(Arc::new);
     if let Some(compiled) = &block_overlay
         && compiled.gaps != Default::default()
     {
@@ -361,6 +363,7 @@ mod tests {
             protocol::ResourcePackHandoff::default(),
             &protocol::CustomBlocks::default(),
             &[],
+            false,
         );
         assert!(matches!(application.admission, PackAdmission::None));
         assert!(application.server_lang.is_none());
@@ -374,6 +377,7 @@ mod tests {
             protocol::ResourcePackHandoff::from_archives(vec![pack]),
             &protocol::CustomBlocks::default(),
             &[],
+            false,
         );
         let overlay = application.server_lang;
         let PackAdmission::Validated(stack) = application.admission else {
@@ -419,8 +423,12 @@ mod tests {
             lang_pack(1, b"shared=top\ntop.only=T"),
             lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
         ]);
-        let application =
-            super::prepare_pack_application(handoff, &protocol::CustomBlocks::default(), &[]);
+        let application = super::prepare_pack_application(
+            handoff,
+            &protocol::CustomBlocks::default(),
+            &[],
+            false,
+        );
         let overlay = application.server_lang.expect("merged overlay");
         assert_eq!(overlay.lookup("shared"), Some("top"));
         assert_eq!(overlay.lookup("top.only"), Some("T"));
