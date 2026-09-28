@@ -19,6 +19,7 @@ pub struct PackApplication {
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
+    pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
 }
 
 impl Default for PackApplication {
@@ -29,6 +30,7 @@ impl Default for PackApplication {
             block_overlay: None,
             item_icons: None,
             entities: None,
+            property_defaults: Vec::new(),
         }
     }
 }
@@ -81,6 +83,7 @@ pub(super) fn prepare_pack_application(
         server_lang: merged_server_lang(&view),
         item_icons: compile_session_icons(&view, icon_keys),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
+        property_defaults: super::entity_pack::pack_property_defaults(&view),
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }

@@ -75,6 +75,7 @@ fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
             oversized = skipped.oversized,
             unparsable = skipped.unparsable,
             over_budget = skipped.over_budget,
+            isolated = skipped.isolated,
             rigs_without_artwork = compiled.fallbacks.len(),
             "server pack entities are incomplete"
         );
@@ -118,6 +119,62 @@ fn drop_shadowed_entities(view: &LayeredPackView, files: &mut Vec<(Box<str>, Vec
     });
 }
 
+/// Property defaults of each `entities/*.json` behavior definition the stack carries, keyed by
+/// entity type. Only the winning copy of a file is read; a malformed property is skipped.
+pub(super) fn pack_property_defaults(
+    view: &LayeredPackView,
+) -> Vec<(Arc<str>, Vec<client_world::PropertyDefault>)> {
+    view.winning_files("entities/", "json")
+        .into_iter()
+        .filter_map(|(_, bytes)| {
+            let root = parse_pack_json(&bytes)?;
+            let description = &root["minecraft:entity"]["description"];
+            let identifier: Arc<str> = description["identifier"].as_str()?.into();
+            let defaults = description["properties"]
+                .as_object()?
+                .iter()
+                .filter_map(|(name, definition)| property_default(name, definition))
+                .collect::<Vec<_>>();
+            (!defaults.is_empty()).then_some((identifier, defaults))
+        })
+        .collect()
+}
+
+fn property_default(
+    name: &str,
+    definition: &serde_json::Value,
+) -> Option<client_world::PropertyDefault> {
+    let values = definition["values"].as_array().map(|values| {
+        values
+            .iter()
+            .filter_map(|value| value.as_str().map(Arc::<str>::from))
+            .collect::<Arc<[Arc<str>]>>()
+    });
+    let default = &definition["default"];
+    let number = match definition["type"].as_str()? {
+        "bool" => f32::from(u8::from(default.as_bool().unwrap_or(false))),
+        "int" | "float" => default.as_f64().unwrap_or(0.0) as f32,
+        "enum" => default
+            .as_str()
+            .and_then(|wanted| {
+                values
+                    .as_deref()?
+                    .iter()
+                    .position(|value| value.as_ref() == wanted)
+            })
+            .map_or(0.0, |index| index as f32),
+        _ => return None,
+    };
+    Some(client_world::PropertyDefault {
+        name: name.into(),
+        values: definition["type"]
+            .as_str()
+            .filter(|kind| *kind == "enum")
+            .and(values),
+        default: number,
+    })
+}
+
 fn entity_identifier(bytes: &[u8]) -> Option<String> {
     parse_pack_json(bytes)?["minecraft:client_entity"]["description"]["identifier"]
         .as_str()
@@ -127,6 +184,23 @@ fn entity_identifier(bytes: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::entity_identifier;
+
+    #[test]
+    fn property_defaults_read_bool_number_and_enum_index() {
+        use super::property_default;
+        let json = |text: &str| serde_json::from_str::<serde_json::Value>(text).unwrap();
+        let flag = property_default("a", &json(r#"{"type":"bool","default":true}"#)).unwrap();
+        assert_eq!(flag.default, 1.0);
+        let level = property_default("b", &json(r#"{"type":"int","default":4}"#)).unwrap();
+        assert_eq!(level.default, 4.0);
+        let variant = property_default(
+            "c",
+            &json(r#"{"type":"enum","values":["x","y"],"default":"y"}"#),
+        )
+        .unwrap();
+        assert_eq!((variant.default, variant.values.unwrap().len()), (1.0, 2));
+        assert!(property_default("d", &json(r#"{"type":"weird"}"#)).is_none());
+    }
 
     #[test]
     fn identifier_is_read_from_the_client_entity_description() {
