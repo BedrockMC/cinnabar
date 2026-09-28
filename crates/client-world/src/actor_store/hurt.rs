@@ -223,8 +223,14 @@ mod tests {
         assert_eq!(store.apply(1, 2, take), ActorApplyResult::Updated);
         store.advance_interpolation_ticks(u32::from(PICKUP_DURATION_TICKS) + 4);
         let status = store.get(7).unwrap().status;
-        assert_eq!(status.pickup.map(|pickup| pickup.ticks), Some(PICKUP_DURATION_TICKS));
-        assert_eq!(status.pickup.map(|pickup| pickup.collector_runtime_id), Some(99));
+        assert_eq!(
+            status.pickup.map(|pickup| pickup.ticks),
+            Some(PICKUP_DURATION_TICKS)
+        );
+        assert_eq!(
+            status.pickup.map(|pickup| pickup.collector_runtime_id),
+            Some(99)
+        );
     }
 
     #[test]
