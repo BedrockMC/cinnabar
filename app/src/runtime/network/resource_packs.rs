@@ -62,7 +62,13 @@ pub(super) fn prepare_pack_application(
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
     let block_overlay = cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
-        compile_block_overlay(&view, custom_blocks, hashed_block_ids).map(Arc::new)
+        compile_block_overlay(
+            &view,
+            custom_blocks,
+            hashed_block_ids,
+            BASE_MATERIAL_KEYS.get(),
+        )
+        .map(Arc::new)
     });
     if let Some(compiled) = &block_overlay
         && compiled.gaps != Default::default()
@@ -75,6 +81,13 @@ pub(super) fn prepare_pack_application(
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }
+}
+
+/// Texture keys of the vanilla carrier's materials, set once at startup when the sidecar loads.
+static BASE_MATERIAL_KEYS: std::sync::OnceLock<assets::MaterialKeys> = std::sync::OnceLock::new();
+
+pub(crate) fn set_base_material_keys(keys: assets::MaterialKeys) {
+    let _ = BASE_MATERIAL_KEYS.set(keys);
 }
 
 type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
@@ -113,9 +126,6 @@ fn cached_block_overlay(
     hashed: bool,
     compile: impl FnOnce() -> Option<Arc<CompiledBlockOverlay>>,
 ) -> Option<Arc<CompiledBlockOverlay>> {
-    if blocks.blocks.is_empty() {
-        return None;
-    }
     let fingerprint = stack_fingerprint(stack);
     let mut cache = OVERLAY_CACHE
         .lock()

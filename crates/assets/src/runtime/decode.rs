@@ -59,7 +59,6 @@ impl RuntimeAssets {
             texture_pages: decode_pages(sections[8], &page_meta)?,
             biomes,
             provenance,
-            material_keys: None,
             missing: AtomicU64::new(0),
         })
     }
