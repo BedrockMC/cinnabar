@@ -1927,6 +1927,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       render Fancy. Wall-torch pivot, ladder/rail offsets, and rail curve
       sprite orientation need native measurement; the coverage baseline must
       be regenerated. Residual names: `docs/phase-2-family-inventory.md`.
+    - [x] Round two: night light floors lowered to the night sky transfer,
+      biome tints blend on a 4-block lattice (four taps per axis; vertical axis
+      unblended, needs measurement), chains route through crossed link planes.
+      Remaining families and notes: `docs/phase-2-family-inventory.md`.
     - [x] Lava implementation: all 32 `minecraft:lava` and
       `minecraft:flowing_lava` depth states compile through the animated liquid
       mesher without water tint or alpha blending, use an immutable packed route
