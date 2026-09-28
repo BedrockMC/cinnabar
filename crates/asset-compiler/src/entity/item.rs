@@ -8,7 +8,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{SourcePayloads, invalid, item_bindings, json::parse_semantic_json};
+use super::{
+    SourcePayloads, attachable::ItemTransforms, invalid, item_bindings, json::parse_semantic_json,
+};
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
     include_bytes!("../../../assets/data/block-item-routes-v2168.json");
@@ -57,6 +59,7 @@ pub(super) fn compile(
     root: &Path,
     payloads: &SourcePayloads,
     sources: &[EntityAssetSource],
+    transforms: &BTreeMap<Box<str>, ItemTransforms>,
 ) -> Result<ItemPayload, AssetError> {
     let source_indices = sources
         .iter()
@@ -189,13 +192,24 @@ pub(super) fn compile(
     }
     let visuals = definitions
         .into_iter()
-        .map(|(key, (source, route))| ItemVisualDefinition {
-            key,
-            source,
-            route,
-            first_person: ItemDisplayTransform::identity(),
-            third_person: ItemDisplayTransform::identity(),
-            dropped: ItemDisplayTransform::identity(),
+        .map(|(key, (source, route))| {
+            // Attachable transforms are keyed to the base (metadata 0) variant.
+            let literal = (key.metadata == 0)
+                .then(|| transforms.get(&key.identifier))
+                .flatten();
+            let display = |select: fn(&ItemTransforms) -> Option<ItemDisplayTransform>| {
+                literal
+                    .and_then(select)
+                    .unwrap_or_else(ItemDisplayTransform::identity)
+            };
+            ItemVisualDefinition {
+                first_person: display(|transforms| transforms.first_person),
+                third_person: display(|transforms| transforms.third_person),
+                dropped: display(|transforms| transforms.dropped),
+                key,
+                source,
+                route,
+            }
         })
         .collect::<Vec<_>>();
     Ok(ItemPayload {
