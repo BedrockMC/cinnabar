@@ -471,7 +471,7 @@ fn atmosphere_pipeline_specializes_msaa_and_keeps_reversed_z_without_depth_write
     assert!(source.contains("BindingType::Sampler"));
     assert_eq!(
         source.matches("visibility: ShaderStages::FRAGMENT").count(),
-        5,
+        6,
         "Metal requires every fragment-read atmosphere binding to declare fragment visibility"
     );
     assert!(!source.contains("BufferBindingType::Storage"));

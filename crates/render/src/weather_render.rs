@@ -13,12 +13,14 @@ use bevy::{
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::{
-            BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingType, BlendState, Buffer, BufferBindingType, BufferId, BufferInitDescriptor,
-            BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
-            DepthStencilState, FragmentState, PipelineCache, RenderPipeline,
-            RenderPipelineDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
-            TextureFormat, Variants, VertexState,
+            AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
+            BufferBindingType, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
+            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FilterMode,
+            FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
+            SpecializerKey, Texture, TextureFormat, TextureSampleType, TextureView,
+            TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -28,10 +30,10 @@ use bevy::{
 
 use crate::{
     AtmosphereFrame,
-    atmosphere_render::AtmosphereGpu,
+    atmosphere_render::{AtmosphereGpu, upload_rgba},
     weather::{
         MAX_PRECIPITATION_COLUMNS, PRECIPITATION_ABOVE_CAMERA, PrecipitationColumn,
-        PrecipitationScene, precipitation_wind,
+        PrecipitationScene, WeatherTextureAssets, precipitation_wind,
     },
 };
 
@@ -73,12 +75,20 @@ pub(crate) struct WeatherGpu {
     record_buffer: Buffer,
     params_buffer: Buffer,
     pub(crate) column_count: u32,
+    _sheet: Texture,
+    sheet_view: TextureView,
+    sheet_identity: Option<[u8; 32]>,
+    sampler: Sampler,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
     atmosphere_buffer_id: Option<BufferId>,
 }
 
-fn init_weather_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
+fn init_weather_gpu(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+) {
     let record_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("precipitation column records"),
         contents: &vec![0_u8; MAX_PRECIPITATION_COLUMNS * COLUMN_BYTES],
@@ -89,10 +99,30 @@ fn init_weather_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         contents: bytemuck::bytes_of(&WeatherParamsGpu::default()),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
+    let (sheet, sheet_view) = upload_rgba(
+        &render_device,
+        &render_queue,
+        1,
+        1,
+        &[255; 4],
+        "absent precipitation sheet fallback",
+    );
+    let sampler = render_device.create_sampler(&SamplerDescriptor {
+        label: Some("precipitation sheet repeat sampler"),
+        address_mode_u: AddressMode::Repeat,
+        address_mode_v: AddressMode::Repeat,
+        mag_filter: FilterMode::Nearest,
+        min_filter: FilterMode::Nearest,
+        ..default()
+    });
     commands.insert_resource(WeatherGpu {
         record_buffer,
         params_buffer,
         column_count: 0,
+        _sheet: sheet,
+        sheet_view,
+        sheet_identity: None,
+        sampler,
         bind_group: None,
         view_buffer_id: None,
         atmosphere_buffer_id: None,
@@ -101,9 +131,41 @@ fn init_weather_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 
 pub(crate) fn prepare_weather_records(
     scene: Res<PrecipitationScene>,
+    textures: Option<Res<WeatherTextureAssets>>,
+    render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<WeatherGpu>,
 ) {
+    let sheet = textures.as_deref().and_then(|assets| {
+        assets
+            .textures()
+            .map(|textures| (assets.identity(), textures))
+    });
+    if gpu.sheet_identity != sheet.map(|(identity, _)| identity) {
+        gpu.sheet_identity = sheet.map(|(identity, _)| identity);
+        let (texture, view) = match sheet {
+            Some((_, textures)) => upload_rgba(
+                &render_device,
+                &render_queue,
+                textures.weather.width,
+                textures.weather.height,
+                &textures.weather.rgba8,
+                "vanilla precipitation sheet",
+            ),
+            None => upload_rgba(
+                &render_device,
+                &render_queue,
+                1,
+                1,
+                &[255; 4],
+                "absent precipitation sheet fallback",
+            ),
+        };
+        gpu._sheet = texture;
+        gpu.sheet_view = view;
+        gpu.bind_group = None;
+    }
+    let has_sheet = f32::from(u8::from(sheet.is_some()));
     let count = scene.columns.len().min(MAX_PRECIPITATION_COLUMNS);
     gpu.column_count = u32::try_from(count).expect("bounded precipitation column count");
     if count == 0 {
@@ -117,7 +179,7 @@ pub(crate) fn prepare_weather_records(
     let wind = precipitation_wind(scene.clock);
     let params = WeatherParamsGpu {
         clock: [scene.clock, scene.level, wind[0], wind[1]],
-        extent: [PRECIPITATION_ABOVE_CAMERA, 0.0, 0.0, 0.0],
+        extent: [PRECIPITATION_ABOVE_CAMERA, has_sheet, 0.0, 0.0],
     };
     render_queue.write_buffer(&gpu.params_buffer, 0, bytemuck::bytes_of(&params));
 }
@@ -162,6 +224,22 @@ impl FromWorld for WeatherPipeline {
                     BufferSize::new(PARAMS_BYTES as u64).expect("non-zero params size"),
                     false,
                 ),
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -267,6 +345,14 @@ fn prepare_weather_bind_group(
             BindGroupEntry {
                 binding: 3,
                 resource: gpu.params_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: BindingResource::TextureView(&gpu.sheet_view),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::Sampler(&gpu.sampler),
             },
         ],
     ));

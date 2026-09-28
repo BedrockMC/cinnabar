@@ -132,6 +132,33 @@ pub trait ColumnSampler {
     fn sample(&mut self, x: i32, z: i32) -> Option<ColumnSample>;
 }
 
+/// Decoded weather sheet and End sky, when the optional carrier is present.
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct WeatherTextureAssets {
+    textures: Option<std::sync::Arc<assets::WeatherTextures>>,
+    identity: [u8; 32],
+}
+
+impl WeatherTextureAssets {
+    #[must_use]
+    pub fn new(textures: std::sync::Arc<assets::WeatherTextures>, identity: [u8; 32]) -> Self {
+        Self {
+            textures: Some(textures),
+            identity,
+        }
+    }
+
+    #[must_use]
+    pub fn textures(&self) -> Option<&std::sync::Arc<assets::WeatherTextures>> {
+        self.textures.as_ref()
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> [u8; 32] {
+        self.identity
+    }
+}
+
 /// Precipitation state consumed by the render world.
 #[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq)]
 pub struct PrecipitationScene {
