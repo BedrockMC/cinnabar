@@ -141,12 +141,12 @@ pub fn cloud_directional_illuminance(
         * lerp(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional)
 }
 
-/// Finite legacy-cloud distance fog with explicit collapsed-range semantics.
+/// Finite linear cloud distance fog with explicit collapsed-range semantics.
 ///
 /// Cloud coverage ends one block before the 256-block texture period. Valid
 /// render-relative fog can therefore collapse at, or extend beyond, that cap.
 /// A collapsed or reversed range becomes a deterministic step at the bounded
-/// end instead of relying on undefined `smoothstep` behavior. Non-finite input
+/// end instead of dividing by zero. Non-finite input
 /// fails closed to full fog so the derived transparent alpha remains finite.
 #[must_use]
 pub fn cloud_fog_factor(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
@@ -165,7 +165,7 @@ pub fn cloud_fog_factor(world_distance: f32, fog_start: f32, fog_end: f32) -> f3
     }
     let amount =
         ((bounded_distance - bounded_start) / (bounded_end - bounded_start)).clamp(0.0, 1.0);
-    amount * amount * (3.0 - 2.0 * amount)
+    amount
 }
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.

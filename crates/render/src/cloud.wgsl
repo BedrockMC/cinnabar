@@ -84,7 +84,7 @@ fn bounded_cloud_fog(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
         0.0,
         1.0,
     );
-    return amount * amount * (3.0 - 2.0 * amount);
+    return amount;
 }
 
 fn corner_uv(corner_index: u32) -> vec2<f32> {
