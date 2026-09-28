@@ -1,9 +1,9 @@
 use crate::chunk::*;
 
 #[cfg(test)]
-pub(in crate::chunk) const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.2;
+pub(in crate::chunk) const PROVISIONAL_NIGHT_SKY_TRANSFER_FLOOR: f32 = 0.083_333_336;
 #[cfg(test)]
-pub(in crate::chunk) const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.04;
+pub(in crate::chunk) const PROVISIONAL_ZERO_LIGHT_AMBIENT_FLOOR: f32 = 0.0;
 
 #[cfg(test)]
 pub(in crate::chunk) fn packed_light_factor(sample: u16, daylight: f32) -> f32 {

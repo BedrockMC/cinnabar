@@ -133,7 +133,7 @@ fn cloud_fragment_uses_face_lighting_weather_bounded_fog_and_camera_band_fade() 
     assert!(shader.contains("dot(in.normal, sun_direction)"));
     assert!(shader.contains("atmosphere.sun_direction_daylight.xyz"));
     assert!(shader.contains("atmosphere.sun_direction_daylight.w"));
-    assert!(shader.contains("const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.2;"));
+    assert!(shader.contains("const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.083333336;"));
     assert!(shader.contains("let illuminance = max("));
     assert!(shader.contains("PROVISIONAL_CLOUD_NIGHT_FLOOR,"));
     assert!(shader.contains("atmosphere.sky_zenith_rain.w"));
