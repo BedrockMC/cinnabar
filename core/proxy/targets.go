@@ -149,14 +149,7 @@ func resolveFriendTarget(ctx context.Context, address string, src oauth2.TokenSo
 	if err != nil {
 		return nil, fmt.Errorf("request friend worlds: %w", err)
 	}
-	var world *p2p.World
-	for index := range worlds {
-		candidate := &worlds[index]
-		if candidate.OwnerID == xuid && candidate.Joinability == p2p.JoinabilityFriends {
-			world = candidate
-			break
-		}
-	}
+	world := selectFriendWorld(worlds, xuid)
 	if world == nil {
 		return nil, fmt.Errorf("friend world %q is no longer joinable", xuid)
 	}
@@ -183,6 +176,27 @@ func resolveFriendTarget(ctx context.Context, address string, src oauth2.TokenSo
 	target.friend = session
 	closeXBLOnError = false
 	return target, nil
+}
+
+// selectFriendWorld prefers a friends-joinable world of the owner and falls back to an
+// invite-only one the account can already see; nil when the owner hosts nothing joinable.
+func selectFriendWorld(worlds []p2p.World, ownerXUID string) *p2p.World {
+	var inviteOnly *p2p.World
+	for index := range worlds {
+		candidate := &worlds[index]
+		if candidate.OwnerID != ownerXUID {
+			continue
+		}
+		switch candidate.Joinability {
+		case p2p.JoinabilityFriends:
+			return candidate
+		case p2p.JoinabilityInviteOnly:
+			if inviteOnly == nil {
+				inviteOnly = candidate
+			}
+		}
+	}
+	return inviteOnly
 }
 
 func resolveRawNetherNetTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {

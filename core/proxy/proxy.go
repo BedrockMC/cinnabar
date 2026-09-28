@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -47,6 +46,9 @@ type Config struct {
 	// ResourcePackAdmissionUpdate receives an initial reset snapshot and the
 	// final snapshot for each attempt. It is intended for latest-status stores.
 	ResourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
+	// Transfers, when set, receives server-directed transfers; the next local client
+	// connection then dials the recorded target instead of Upstream.
+	Transfers *TransferState
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -83,6 +85,13 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
+	transfers := cfg.Transfers
+	if transfers == nil {
+		transfers = new(TransferState)
+	}
+	prepared.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		return resolveUpstreamTarget(ctx, transfers.Upstream(cfg.Upstream), cfg.TokenSource, logger)
+	}
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AcceptedProtocols:      []minecraft.Protocol{minecraft.Protocol12644()},
@@ -341,6 +350,15 @@ func connectUpstream(
 	return result, nil
 }
 
+// networkForAddress keeps the resolved transport for the target itself; a server transfer
+// names a plain host:port, which is always RakNet.
+func networkForAddress(target *resolvedUpstreamTarget, address string) minecraft.Network {
+	if strings.EqualFold(address, target.address) {
+		return target.network
+	}
+	return minecraft.RakNet{}
+}
+
 func dialFollowingTransfers(
 	ctx context.Context,
 	initialAddress string,
@@ -378,20 +396,7 @@ func initialTransferTarget(transfer *minecraft.TransferError) (string, error) {
 	if transfer == nil {
 		return "", errors.New("proxy: invalid transfer: nil transfer")
 	}
-	host := strings.TrimSpace(transfer.Address)
-	if host == "" {
-		return "", errors.New("proxy: invalid transfer: empty address")
-	}
-	if transfer.Port == 0 {
-		return "", errors.New("proxy: invalid transfer: zero port")
-	}
-	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
-		host = strings.TrimSpace(host[1 : len(host)-1])
-		if host == "" {
-			return "", errors.New("proxy: invalid transfer: empty address")
-		}
-	}
-	return net.JoinHostPort(host, strconv.Itoa(int(transfer.Port))), nil
+	return transferAddress(transfer.Address, transfer.Port)
 }
 
 type dialerDownstream interface {

@@ -152,3 +152,38 @@ func TestRelayCancellationUnblocksDisconnectDelivery(t *testing.T) {
 		t.Fatal("canceled relay did not close both sessions")
 	}
 }
+
+type recordingDisconnecter struct{ got []packet.Disconnect }
+
+func (r *recordingDisconnecter) DisconnectPacket(pk packet.Disconnect) error {
+	r.got = append(r.got, pk)
+	return nil
+}
+
+func TestRelayPreLoginDisconnectForwardsServerReason(t *testing.T) {
+	reason := &minecraft.DisconnectPacketError{Reason: 3, Message: "you are banned", FilteredMessage: "filtered"}
+	var rec recordingDisconnecter
+	relayPreLoginDisconnect(&rec, fmt.Errorf("dial upstream: %w", errors.Join(errors.New("cleanup"), reason)))
+	if len(rec.got) != 1 || !reflect.DeepEqual(rec.got[0], *reason.Packet()) {
+		t.Fatalf("forwarded = %#v, want %#v", rec.got, *reason.Packet())
+	}
+}
+
+func TestRelayPreLoginDisconnectIgnoresOtherErrors(t *testing.T) {
+	var rec recordingDisconnecter
+	relayPreLoginDisconnect(&rec, errors.New("i/o timeout"))
+	relayPreLoginDisconnect(&rec, nil)
+	if len(rec.got) != 0 {
+		t.Fatalf("forwarded %#v for a non-disconnect error", rec.got)
+	}
+}
+
+func TestNetworkForAddressUsesRakNetForTransferTargets(t *testing.T) {
+	target := &resolvedUpstreamTarget{address: "Host:1", network: scopedNetherNetNetwork{}}
+	if _, ok := networkForAddress(target, "host:1").(scopedNetherNetNetwork); !ok {
+		t.Fatal("resolved address lost its transport")
+	}
+	if _, ok := networkForAddress(target, "other.example:19132").(minecraft.RakNet); !ok {
+		t.Fatal("transfer target must dial over RakNet")
+	}
+}
