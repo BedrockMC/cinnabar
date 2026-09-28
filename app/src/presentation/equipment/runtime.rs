@@ -22,6 +22,7 @@ use super::{
         ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
         LAYER_OFF_HAND, attach_to_bone, held_block_display, held_sprite_display,
     },
+    elytra,
 };
 
 /// Generated item meshes kept resident; further distinct items draw nothing.
@@ -58,6 +59,8 @@ pub(crate) struct ActorEquipmentInput {
     pub(crate) off: Option<WornItem>,
     /// Helmet, chestplate, leggings, boots.
     pub(crate) armor: [Option<WornItem>; 4],
+    pub(crate) sneaking: bool,
+    pub(crate) sleeping: bool,
 }
 
 /// One extra instance plus the artwork page/layer its texture lives on.
@@ -85,6 +88,12 @@ impl FirstPersonArms {
             left: (main == Some(FILLED_MAP) && off != Some(SHIELD)) || off == Some(FILLED_MAP),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct ElytraStance {
+    sneaking: bool,
+    sleeping: bool,
 }
 
 struct BodyBones {
@@ -160,8 +169,10 @@ impl EquipmentRuntime {
             .iter()
             .flat_map(|catalog| catalog.bindings())
             .filter(|binding| {
-                matches!(binding.category, EquipmentCategory::Armor { .. })
-                    && binding.geometry.resolution == EntityDependencyResolution::Catalog
+                matches!(
+                    binding.category,
+                    EquipmentCategory::Armor { .. } | EquipmentCategory::Elytra
+                ) && binding.geometry.resolution == EntityDependencyResolution::Catalog
             })
             .filter_map(|binding| find_geometry_index(&assets, &binding.geometry.identifier))
             .collect::<Vec<_>>();
@@ -243,7 +254,18 @@ impl EquipmentRuntime {
         ];
         for ((slot, layer), item) in slots.into_iter().zip(&input.armor) {
             if let Some(item) = item {
-                self.push_armor(body, &bones, geometry, slot, layer, item, &mut layers);
+                let worn = ElytraStance {
+                    sneaking: input.sneaking,
+                    sleeping: input.sleeping,
+                };
+                self.push_armor(
+                    body,
+                    &bones,
+                    geometry,
+                    (slot, layer, worn),
+                    item,
+                    &mut layers,
+                );
             }
         }
         layers
@@ -387,8 +409,7 @@ impl EquipmentRuntime {
         body: &ActorRigSubmission,
         bones: &BodyBones,
         body_geometry: u32,
-        slot: ArmorSlot,
-        layer: u8,
+        (slot, layer, stance): (ArmorSlot, u8, ElytraStance),
         item: &WornItem,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
@@ -398,7 +419,9 @@ impl EquipmentRuntime {
         let Some(binding) = catalog.binding(&item.identifier) else {
             return;
         };
-        if binding.category != (EquipmentCategory::Armor { slot }) {
+        let elytra_in_chest =
+            binding.category == EquipmentCategory::Elytra && slot == ArmorSlot::Chestplate;
+        if binding.category != (EquipmentCategory::Armor { slot }) && !elytra_in_chest {
             return;
         }
         let Some(location) = self
@@ -411,6 +434,34 @@ impl EquipmentRuntime {
         let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier) else {
             return;
         };
+        if elytra_in_chest {
+            let Some(pose) = elytra::stance_pose(&binding, stance.sneaking, stance.sleeping) else {
+                return;
+            };
+            let Some(body_index) = bones
+                .names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case("body"))
+            else {
+                return;
+            };
+            let (Some(previous), Some(current)) = (
+                body.input.previous_bones.get(body_index),
+                body.input.current_bones.get(body_index),
+            ) else {
+                return;
+            };
+            layers.push(layer_presentation(
+                body,
+                layer,
+                geometry.rig,
+                elytra::pose(&geometry.names, pose, *previous),
+                elytra::pose(&geometry.names, pose, *current),
+                location,
+                0,
+            ));
+            return;
+        }
         let map = Arc::clone(
             self.armor_maps
                 .entry((body_geometry, binding.geometry.identifier.clone()))

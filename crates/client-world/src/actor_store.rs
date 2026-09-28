@@ -29,6 +29,7 @@ const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
 /// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
 /// 64 live in the overflow flag word.
 pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
+const ACTOR_FLAG_SNEAKING: u32 = 1;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -233,6 +234,16 @@ impl ActorSnapshot {
                 }
             }
         }
+    }
+
+    #[must_use]
+    pub fn is_sneaking(&self) -> bool {
+        self.flag(ACTOR_FLAG_SNEAKING)
+    }
+
+    #[must_use]
+    pub fn is_sleeping(&self) -> bool {
+        self.player_is_sleeping()
     }
 
     pub(crate) fn player_is_sleeping(&self) -> bool {

@@ -45,10 +45,13 @@ pub(crate) fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipm
             .actor_equipment_in_hand(runtime_id, hand)
             .and_then(|equipment| worn_item(&equipment.item, None))
     };
+    let actor = stream.actor(runtime_id);
     ActorEquipmentInput {
         main: held(ActorHandedness::Right),
         off: held(ActorHandedness::Left),
         armor: armor_slots(stream.actor_armor(runtime_id)),
+        sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
+        sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
     }
 }
 
@@ -59,6 +62,7 @@ pub(crate) fn local_input(
     ui: Option<&UiRuntime>,
     runtime_id: u64,
 ) -> ActorEquipmentInput {
+    let actor = stream.actor(runtime_id);
     let resolve = |stack: &protocol::NetworkItemStack| {
         stream
             .canonical_item_stack(stack)
@@ -70,5 +74,7 @@ pub(crate) fn local_input(
             .and_then(|ui| ui.gameplay_hud().offhand_stack())
             .and_then(resolve),
         armor: armor_slots(stream.actor_armor(runtime_id)),
+        sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
+        sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
     }
 }

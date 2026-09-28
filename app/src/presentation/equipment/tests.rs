@@ -244,3 +244,40 @@ fn block_face_rects_tile_the_three_by_two_sheet() {
     assert_eq!(rects[0], [0.0, 0.0, 0.25, 0.25]);
     assert_eq!(rects[5], [0.5, 0.25, 0.75, 0.5]);
 }
+
+#[test]
+fn elytra_wings_hang_off_the_body_at_their_literal_offsets() {
+    use assets::{AttachablePose, AttachablePoseBone, ItemDisplayScalar};
+    let scalar = |value: f32| ItemDisplayScalar::new(value).unwrap();
+    let uniform = |value: f32| Some([scalar(value); 3]);
+    let pose = AttachablePose {
+        key: "default".into(),
+        bones: Box::new([
+            AttachablePoseBone {
+                bone: "body".into(),
+                translation: None,
+                rotation: None,
+                scale: uniform(1.5),
+            },
+            AttachablePoseBone {
+                bone: "left_wing".into(),
+                translation: Some([scalar(4.0), scalar(8.0), scalar(-16.0)]),
+                rotation: None,
+                scale: Some([scalar(1.0), scalar(1.0), scalar(2.0)]),
+            },
+        ]),
+    };
+    let names = ["body", "left_wing", "right_wing"]
+        .map(Box::<str>::from)
+        .to_vec();
+    let posed = super::elytra::pose(&names, &pose, bone([0.0, 1.0, 0.0], 1.0));
+    assert_eq!(posed[0].translation_scale, [0.0, 1.0, 0.0, 1.5]);
+    // X is mirrored, offsets scale with the body, and the wing stacks its own axis scale.
+    let wing = posed[1].translation_scale;
+    assert!((wing[0] + 4.0 / 16.0 * 1.5).abs() < 1e-6);
+    assert!((wing[1] - (1.0 + 8.0 / 16.0 * 1.5)).abs() < 1e-6);
+    assert!((wing[2] + 1.0 * 1.5).abs() < 1e-6);
+    assert_eq!(wing[3], 1.5);
+    assert_eq!(posed[1].axis_scale, [1.0, 1.0, 2.0, 1.0]);
+    assert_eq!(posed[2], hidden_bone());
+}
