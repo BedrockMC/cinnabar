@@ -24,6 +24,8 @@ mod actor_command;
 mod audio_command;
 #[path = "assetc/audio_pcm_command.rs"]
 mod audio_pcm_command;
+#[path = "assetc/equipment_command.rs"]
+mod equipment_command;
 #[path = "assetc/font_command.rs"]
 mod font_command;
 #[path = "assetc/hud_command.rs"]
@@ -39,6 +41,7 @@ mod registry_version;
 
 use audio_command::compile_audio_assets_command;
 use audio_pcm_command::compile_audio_pcm_command;
+use equipment_command::compile_equipment_assets_command;
 use hud_command::compile_hud_assets_command;
 use icon_command::compile_icon_assets_command;
 use lang_command::compile_lang_assets_command;
@@ -84,6 +87,22 @@ enum Command {
         #[arg(long)]
         source_manifest: PathBuf,
         /// Ignored/local MCBEENT3 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON provenance report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
+    /// Compile the pinned pack's attachable equipment bindings into the
+    /// equipment carrier, pinned to the sibling entity carrier.
+    EquipmentAssets {
+        /// Root of the pinned vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Tracked manifest that pins the local resource-pack source.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Ignored/local MCBEEQP1 output path.
         #[arg(long)]
         out: PathBuf,
         /// Ignored/local deterministic JSON provenance report path.
@@ -364,6 +383,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_entity_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::EquipmentAssets {
+            pack,
+            source_manifest,
+            out,
+            report,
+        } => {
+            compile_equipment_assets_command(&pack, &source_manifest, &out, &report)?;
         }
         Command::FontAssets {
             pack,
