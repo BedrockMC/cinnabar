@@ -40,7 +40,10 @@ pub(crate) use source::{open_source_handle, read_bounded_source};
 
 #[allow(unused_imports)] // Integration publishes this private leaf after review.
 pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};
-pub use attachable::compile_textures as compile_equipment_textures;
+pub use attachable::{
+    compile_item_use as compile_item_use_durations, compile_textures as compile_equipment_textures,
+    compile_textures_with as compile_equipment_textures_with,
+};
 
 /// Deterministic carrier plus the attributed resolution decision for every rig.
 ///
@@ -193,7 +196,7 @@ pub fn compile_entity_assets_with_report(
     assemble(
         root,
         sources,
-        source_payloads,
+        &source_payloads,
         symbols,
         geometries,
         source_manifest_sha256,
@@ -206,7 +209,7 @@ pub fn compile_entity_assets_with_report(
 fn assemble(
     root: &Path,
     mut sources: Vec<EntityAssetSource>,
-    source_payloads: SourcePayloads,
+    source_payloads: &SourcePayloads,
     symbols: BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
     geometries: BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
     source_manifest_sha256: [u8; 32],
@@ -306,7 +309,7 @@ fn assemble(
     let mut molang_compiler = molang::MolangCompiler::default();
     let animation = animation::compile(
         root,
-        &source_payloads,
+        source_payloads,
         &sources,
         &symbols,
         &geometries,
@@ -314,21 +317,16 @@ fn assemble(
     )?;
     validate_reference_coverage(&symbols, &animation)?;
     let molang = molang_compiler.finish()?;
-    let (equipment_bindings, items) = if include_items {
-        let equipment_bindings =
-            attachable::compile_bindings(&source_payloads, &symbols, &sources)?;
+    let equipment_bindings = attachable::compile_bindings(source_payloads, &symbols, &sources)?;
+    let items = if include_items {
         let item_transforms = attachable::transform_lookup(&equipment_bindings);
-        let items = item::compile(root, &source_payloads, &sources, &item_transforms)?;
-        (equipment_bindings, items)
+        item::compile(root, source_payloads, &sources, &item_transforms)?
     } else {
-        (
-            Box::default(),
-            item::ItemPayload {
-                block_visual_count: 0,
-                visuals: Box::default(),
-                aliases: Box::default(),
-            },
-        )
+        item::ItemPayload {
+            block_visual_count: 0,
+            visuals: Box::default(),
+            aliases: Box::default(),
+        }
     };
     let reference_outcomes = animation.outcomes;
     let assets = CompiledEntityAssets {

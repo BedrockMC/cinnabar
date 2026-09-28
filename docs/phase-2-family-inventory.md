@@ -392,3 +392,31 @@ behind unnamed data symbols, so each needs a native measurement pass. Random
 plant offsets are a per-block data component with an RNG-derived offset and no
 vanilla ranges in the pack; per-biome `surface_opacity` (3 biomes) needs a
 carrier format bump.
+
+## Entity-drawn blocks (block-entity lane)
+
+Chests (all variants), beds, shulker boxes, standing/wall banners, skulls, decorated pots,
+conduits, bells and item frames compile to `VisualKind::Invisible`/`Exact` in
+`entity_drawn.rs`; the block-entity renderer owns their whole model. The enchanting table keeps
+a 12/16-tall terrain base. The `visual-coverage-v1001.json` diagnostic baseline must be
+regenerated to drop these states; campfire, hopper, brewing stand and copper-golem statues
+remain diagnostic.
+
+### Round-3 terrain conversions (visual-coverage baseline not regenerated)
+
+The pinned pack carries textures but no block geometry, so only literal facts are promoted:
+
+- `literal.rs` compiles these stateless full cubes from the block texture map (each stays
+  diagnostic if its faces do not resolve): `redstone_lamp`, `lit_redstone_lamp`,
+  `glowingobsidian`, `lodestone`, `cartography_table`, `target`, `netherreactor`, `moss_block`,
+  `pale_moss_block`, `mud`, `soul_sand`, `sculk`, `dirt_with_roots`, `budding_amethyst`,
+  `crimson_nylium`, `warped_nylium`.
+- `literal.rs` compiles these to `Invisible`: `barrier`, `structure_void`, `invisible_bedrock`,
+  `moving_block`, `light_block_0`..`light_block_15`.
+- `entity_drawn.rs` additionally covers `*copper_golem_statue` (all oxidation and waxed forms).
+- Still diagnostic and marked needs-measurement (geometry exists only in decompiled constants or
+  as collision shapes): campfire, soul campfire, hopper, brewing stand, lantern and copper
+  lanterns, candles and candle cakes, cauldron, end rod, anvils, bulbs, chains, coral fans,
+  amethyst buds, dripleaf, grindstone, lightning rods, pistons, sea pickle, turtle egg, scaffolding,
+  rails, repeaters, comparators, redstone wire and every translucent cube (ice, slime, honey,
+  tinted glass, powder snow).

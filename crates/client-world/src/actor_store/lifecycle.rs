@@ -87,7 +87,10 @@ impl ActorStore {
             synthetic_local_uuid: None,
             synthetic_local_revision: 0,
             local_first_person: false,
+            local_hands: [None, None],
             camera_rotation: [0.0; 2],
+            seat_defaults: Default::default(),
+            property_registry: Default::default(),
             local_knockback: None,
             status_notices: Vec::new(),
         }
@@ -122,6 +125,7 @@ impl ActorStore {
             return;
         }
         self.local_first_person = feed.first_person;
+        self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
         let pose = ActorPose {
             position: feed.position,
             pitch: feed.pitch,
@@ -503,9 +507,13 @@ impl ActorStore {
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
             let camera_rotation = self.camera_rotation;
+            let property_registry = &self.property_registry;
+            let players = &self.players;
             let local_first_person = self
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);
+            let local_runtime = self.remote_state_excluded_runtime_id;
+            let local_hands = self.local_hands.clone();
             self.animation.advance_tick(actors, |actor| {
                 let lifetime = ActorLifetimeId {
                     session_id,
@@ -513,19 +521,32 @@ impl ActorStore {
                     runtime_id: actor.runtime_id,
                     spawn_revision: actor.spawn_revision,
                 };
+                let is_local = local_runtime == Some(actor.runtime_id);
                 let held = |hand| {
+                    if is_local {
+                        return local_hands[usize::from(hand != protocol::ActorHandedness::Right)]
+                            .clone();
+                    }
                     items
                         .get_in_hand(lifetime, hand)
                         .filter(|equipment| equipment.item.identity.network_id != 0)
                         .and_then(|equipment| equipment.item.identifier.clone())
                 };
-                let hand_charged = [protocol::ActorHandedness::Right, protocol::ActorHandedness::Left]
-                    .into_iter()
-                    .any(|hand| {
-                        items
-                            .get_in_hand(lifetime, hand)
-                            .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
-                    });
+                let hand_charged = [
+                    protocol::ActorHandedness::Right,
+                    protocol::ActorHandedness::Left,
+                ]
+                .into_iter()
+                .any(|hand| {
+                    items
+                        .get_in_hand(lifetime, hand)
+                        .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
+                });
+                let main_hand = held(protocol::ActorHandedness::Right);
+                let main_hand_max_use_ticks = main_hand
+                    .as_deref()
+                    .and_then(|identifier| items.max_use_ticks(identifier))
+                    .unwrap_or(0);
                 let kind_of = |unique_id: &i64| {
                     unique_to_runtime
                         .get(unique_id)
@@ -545,7 +566,8 @@ impl ActorStore {
                 crate::actor_animation::ActorTickContext {
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
-                    main_hand: held(protocol::ActorHandedness::Right),
+                    main_hand,
+                    main_hand_max_use_ticks,
                     off_hand: held(protocol::ActorHandedness::Left),
                     ridden: rider_to_ridden
                         .get(&actor.unique_id)
@@ -559,6 +581,13 @@ impl ActorStore {
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     camera_rotation,
                     armor: worn_armor(items.armor(actor.runtime_id)),
+                    properties: property_registry.for_kind(&actor.kind),
+                    has_cape: match &actor.kind {
+                        ActorKind::Player { uuid, .. } => players.get(uuid).is_some_and(|profile| {
+                            matches!(&profile.skin, protocol::PlayerSkin::Standard(skin) if skin.cape.is_some())
+                        }),
+                        ActorKind::Entity { .. } => false,
+                    },
                 }
             });
             self.actions.advance_tick();
@@ -730,6 +759,21 @@ impl ActorStore {
         } else {
             ActorApplyResult::CapacityRejected
         }
+    }
+
+    /// Layers a session's server-pack entity catalog over the vanilla one.
+    pub(crate) fn set_pack_entities(
+        &mut self,
+        assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+    ) {
+        self.animation.set_pack(assets);
+    }
+
+    pub(crate) fn set_item_use_durations(
+        &mut self,
+        durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
+    ) {
+        self.items.set_use_durations(durations);
     }
 
     /// Applies worn armor to a live remote actor, or to the client-owned local runtime even

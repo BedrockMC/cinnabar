@@ -1,9 +1,11 @@
 use std::path::Path;
 
-use asset_compiler::{compile_entity_assets_with_report, compile_equipment_textures};
+use asset_compiler::{
+    compile_entity_assets_with_report, compile_equipment_textures, compile_item_use_durations,
+};
 use assets::{
     AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
-    encode_entity_blob, encode_equipment_catalog_with_textures,
+    encode_entity_blob, encode_equipment_catalog_full,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -27,6 +29,7 @@ struct EquipmentAssetsReport {
 struct EquipmentCounts {
     bindings: usize,
     textures: usize,
+    item_use: usize,
     held: usize,
     armor: usize,
     shield: usize,
@@ -42,6 +45,7 @@ pub(super) fn compile_equipment_assets_command(
     source_manifest: &Path,
     out: &Path,
     report: &Path,
+    behavior_pack: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let manifest_bytes = read_bounded_with_limit(
         source_manifest,
@@ -60,15 +64,21 @@ pub(super) fn compile_equipment_assets_command(
     let entity_blob_sha256: [u8; 32] = Sha256::digest(&entity_blob).into();
     let bindings = &compilation.equipment_bindings;
     let textures = compile_equipment_textures(pack, &compilation.assets.sources, bindings)?;
-    let carrier = encode_equipment_catalog_with_textures(
+    let item_use = behavior_pack
+        .map(compile_item_use_durations)
+        .transpose()?
+        .unwrap_or_default();
+    let carrier = encode_equipment_catalog_full(
         compilation.assets.source_manifest_sha256,
         entity_blob_sha256,
         bindings,
         &textures,
+        &item_use,
     )?;
     let counts = EquipmentCounts {
         bindings: bindings.len(),
         textures: textures.len(),
+        item_use: item_use.len(),
         held: bindings
             .iter()
             .filter(|binding| binding.category == EquipmentCategory::Held)

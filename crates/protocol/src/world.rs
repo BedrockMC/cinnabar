@@ -17,7 +17,10 @@ use crate::{
         normalize_remove_entity, normalize_set_entity_data, normalize_set_entity_link,
         normalize_update_attributes,
     },
-    audio::{normalize_level_sound, normalize_play_sound, normalize_stop_sound},
+    audio::{
+        normalize_level_event_sound, normalize_level_sound, normalize_play_sound,
+        normalize_stop_sound,
+    },
     inventory::{
         normalize_armor_equipment, normalize_container_close, normalize_container_data,
         normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
@@ -44,14 +47,15 @@ pub use self::custom_blocks::{
     CustomTransformation, CustomVisualComponents, block_name_sort_key,
 };
 pub use self::events::{
-    ActorMotionEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent, BlockEntityUpdateEvent,
-    BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent, ChunkResyncEvent,
-    DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode, MovePlayerEvent,
-    MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
-    air_network_id, vanilla_dimension_range,
+    ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
+    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
+    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode,
+    MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent, MovePlayerMode,
+    MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
+    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
+    SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id,
+    vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 pub use self::requests::request_sub_chunk_column;
@@ -438,6 +442,15 @@ pub fn into_world_event(
         McpePacketData::MobEffectPacket(packet) => {
             WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?)
         }
+        McpePacketData::SyncActorPropertyPacket(packet) => {
+            let data = &packet.property_data.0;
+            if data.len() > MAX_ACTOR_PROPERTY_SYNC_BYTES {
+                return Ok(None);
+            }
+            WorldEvent::ActorPropertySync(ActorPropertySyncEvent {
+                data: Arc::from(&data[..]),
+            })
+        }
         McpePacketData::SetActorLinkPacket(packet) => {
             WorldEvent::ActorLink(normalize_set_entity_link(*packet, current_dimension))
         }
@@ -692,6 +705,43 @@ pub fn into_world_event(
                 nbt: packet.actor_data_tags.0.to_vec(),
             })
         }
+        McpePacketData::ClientboundMapItemDataPacket(packet) => {
+            let (Some(width), Some(height), Some(start_x), Some(start_y), Some(pixels)) = (
+                packet.width,
+                packet.height,
+                packet.start_x,
+                packet.start_y,
+                packet.pixels,
+            ) else {
+                return Ok(None);
+            };
+            let (Ok(width), Ok(height), Ok(start_x), Ok(start_y)) = (
+                u32::try_from(width),
+                u32::try_from(height),
+                u32::try_from(start_x),
+                u32::try_from(start_y),
+            ) else {
+                return Ok(None);
+            };
+            // A rectangle outside the fixed 128x128 image or with the wrong pixel count is a
+            // semantic skip, not a session failure.
+            let fits = width != 0
+                && height != 0
+                && width.saturating_add(start_x) <= MAP_IMAGE_SIDE
+                && height.saturating_add(start_y) <= MAP_IMAGE_SIDE
+                && pixels.len() as u64 == u64::from(width) * u64::from(height);
+            if !fits {
+                return Ok(None);
+            }
+            WorldEvent::MapData(MapDataEvent {
+                map_id: packet.map_id.actor_unique_id,
+                start_x,
+                start_y,
+                width,
+                height,
+                pixels: pixels.into(),
+            })
+        }
         McpePacketData::BlockEventPacket(packet) => WorldEvent::BlockEvent(BlockEventEvent {
             dimension: current_dimension,
             position: [
@@ -823,6 +873,9 @@ pub fn into_world_event(
                     | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
             ) {
                 return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
+            }
+            if let Some(event) = normalize_level_event_sound(&packet) {
+                return Ok(Some(WorldEvent::Audio(event)));
             }
             if let Some(event) = crate::particle::normalize_level_event(&packet) {
                 return Ok(Some(WorldEvent::Particle(event)));

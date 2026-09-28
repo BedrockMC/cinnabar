@@ -555,6 +555,7 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     assert_eq!(
         skin,
         &PlayerSkin::Standard(StandardSkin {
+            cape: None,
             width: 64,
             height: 64,
             rgba8: vec![0x7f; 64 * 64 * 4].into(),

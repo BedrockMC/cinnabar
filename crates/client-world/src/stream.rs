@@ -58,6 +58,7 @@ mod diagnostics;
 mod dirty;
 mod helpers;
 mod lighting;
+mod map_data;
 mod meshing;
 mod model;
 mod movement_attribute;
@@ -220,6 +221,7 @@ pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
 pub use block_events::{BlockEventCue, MAX_RETAINED_BLOCK_EVENTS};
+pub use map_data::{MAX_RETAINED_MAPS, MapImage};
 pub use model::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
     CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
@@ -232,6 +234,7 @@ pub struct WorldStream {
     store: ChunkStore,
     block_cracks: block_cracks::BlockCracks,
     block_events: block_events::BlockEvents,
+    map_images: map_data::MapImages,
     block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,

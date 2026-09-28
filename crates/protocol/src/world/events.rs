@@ -146,6 +146,21 @@ pub struct BlockEntityUpdateEvent {
     pub nbt: Vec<u8>,
 }
 
+/// Side of a map image in pixels.
+pub const MAP_IMAGE_SIDE: u32 = 128;
+
+/// A pixel rectangle of a map image from `ClientboundMapItemData`; pixels are packed RGBA with
+/// red in the low byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapDataEvent {
+    pub map_id: i64,
+    pub start_x: u32,
+    pub start_y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Arc<[u32]>,
+}
+
 /// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockEventEvent {
@@ -362,6 +377,15 @@ pub struct BiomeDefinitionsEvent {
     pub definitions: Arc<[BiomeDefinitionEvent]>,
 }
 
+/// Largest property-definition NBT retained; a larger payload is dropped, not fatal.
+pub const MAX_ACTOR_PROPERTY_SYNC_BYTES: usize = 1 << 20;
+
+/// One entity type's property definitions as the raw network NBT the server sent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActorPropertySyncEvent {
+    pub data: Arc<[u8]>,
+}
+
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
@@ -375,6 +399,7 @@ pub enum WorldEvent {
     BlockUpdates(Vec<BlockUpdateEvent>),
     BlockEntityUpdate(BlockEntityUpdateEvent),
     BlockEvent(BlockEventEvent),
+    MapData(MapDataEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),
@@ -390,6 +415,7 @@ pub enum WorldEvent {
     Actor(ActorEvent),
     ActorEffect(ActorEffectEvent),
     ActorLink(ActorLinkEvent),
+    ActorPropertySync(ActorPropertySyncEvent),
     Ui(UiEvent),
     BlockCrack(BlockCrackEvent),
     Equipment(EquipmentEvent),

@@ -108,6 +108,7 @@ impl WorldStream {
             store: ChunkStore::new(),
             block_cracks: block_cracks::BlockCracks::default(),
             block_events: block_events::BlockEvents::default(),
+            map_images: map_data::MapImages::default(),
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors,
             actor_session_id,

@@ -4,6 +4,7 @@ mod endpoint;
 mod error;
 mod framed;
 mod status;
+mod worlds;
 
 use std::path::Path;
 
@@ -11,7 +12,12 @@ pub use error::BridgeError;
 pub use framed::FramedStream;
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
-    StatusV1, read_status, report_pack_application,
+    StatusV1, TransferPending, read_status, report_pack_application,
+};
+pub use worlds::{
+    Difficulty, GameMode, Generator, NewWorld, World, WorldState, WorldStatus, close_world,
+    create_world, delete_world, list_worlds, open_world, rename_world, set_world_paused,
+    world_status,
 };
 
 /// Returns the platform endpoint used for the logical socket directory.

@@ -68,6 +68,7 @@ impl LocalPlayerSkin {
     #[must_use]
     pub fn player_skin(&self) -> protocol::PlayerSkin {
         protocol::PlayerSkin::Standard(protocol::StandardSkin {
+            cape: None,
             width: self.width,
             height: self.height,
             rgba8: Arc::clone(&self.rgba8),

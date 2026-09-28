@@ -15,6 +15,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -23,6 +24,10 @@ import (
 
 func main() {
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	if handled, code := helperMode(signalCtx, os.Args[1:], os.Stdout, os.Stderr); handled {
+		stopSignals()
+		os.Exit(code)
+	}
 	ctx := signalCtx
 	stopStdin := func() {}
 	if !catalogMode(os.Args[1:]) {
@@ -57,6 +62,8 @@ type options struct {
 	resourcePackCacheQuotaSet bool
 	controlStatus             bool
 	upstreamClientCache       bool
+	localWorldsDir            string
+	localServerBin            string
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -72,8 +79,16 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
+	flags.StringVar(&opts.localWorldsDir, "local-worlds-dir", "", "enable local single-player worlds stored in this directory (requires -control-status)")
+	flags.StringVar(&opts.localServerBin, "local-server-bin", "", "local world server binary (default: bedrock-local-server beside the core)")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
+	}
+	if opts.localWorldsDir != "" && !opts.controlStatus {
+		return options{}, errors.New("local-worlds-dir requires -control-status")
+	}
+	if opts.localServerBin != "" && opts.localWorldsDir == "" {
+		return options{}, errors.New("local-server-bin requires -local-worlds-dir")
 	}
 	flags.Visit(func(value *flag.Flag) {
 		if value.Name == "resource-pack-cache-quota-bytes" {
@@ -179,13 +194,33 @@ func runWithResourcePackCacheFactory(
 			closeResourcePackCache = cache.Close
 		}
 	}
+	var localWorlds *localworld.Manager
+	var localTarget proxy.LocalTargetFunc
+	if opts.localWorldsDir != "" {
+		localWorlds, err = openLocalWorlds(opts, logger)
+		if err != nil {
+			if closeResourcePackCache != nil {
+				_ = closeResourcePackCache()
+			}
+			return err
+		}
+		localTarget = localWorlds.Target
+	}
 	var statusStore *control.Store
 	var controlServer *control.Server
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
+	transfers := new(proxy.TransferState)
 	if opts.controlStatus {
 		statusStore = control.NewStore()
-		controlServer, err = control.Start(opts.socketDir, statusStore)
+		if localWorlds != nil {
+			controlServer, err = control.StartWithWorlds(opts.socketDir, statusStore, localWorlds)
+		} else {
+			controlServer, err = control.Start(opts.socketDir, statusStore)
+		}
 		if err != nil {
+			if localWorlds != nil {
+				localWorlds.Shutdown()
+			}
 			if closeResourcePackCache != nil {
 				_ = closeResourcePackCache()
 			}
@@ -193,6 +228,7 @@ func runWithResourcePackCacheFactory(
 		}
 		statusStore.SetLifecycle(control.LifecycleRunning)
 		resourcePackAdmissionUpdate = statusStore.Observe
+		transfers.OnTransfer = statusStore.ObserveTransfer
 	}
 	serveErr := serve(ctx, proxy.Config{
 		SocketDir:           opts.socketDir,
@@ -200,6 +236,8 @@ func runWithResourcePackCacheFactory(
 		TokenSource:         tokenSource,
 		Logger:              logger,
 		UpstreamClientCache: opts.upstreamClientCache,
+		Transfers:           transfers,
+		LocalTarget:         localTarget,
 		ResourcePackCache:   resourcePackCache,
 		ResourcePackAdmission: func(snapshot proxy.ResourcePackAdmissionSnapshot) {
 			logger.Info("RESOURCE_PACK_ADMISSION",
@@ -221,6 +259,9 @@ func runWithResourcePackCacheFactory(
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())
+	}
+	if localWorlds != nil {
+		localWorlds.Shutdown()
 	}
 	if closeResourcePackCache == nil {
 		return serveErr

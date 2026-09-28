@@ -114,12 +114,7 @@ const AQUATIC: [&str; 10] = [
 // game-mode source for yet. Each returns its vanilla idle value so the pre-animation formulas
 // (item_use_normalized, helmet_layer_visible) and the use/crossbow animations stay neutral.
 // Wiring the real sources later replaces the entry, not the query name.
-const IDLE_QUERIES: [(&str, f32); 4] = [
-    ("main_hand_item_max_duration", 0.0),
-    ("item_remaining_use_duration", 0.0),
-    ("has_head_gear", 0.0),
-    ("is_spectator", 0.0),
-];
+const IDLE_QUERIES: [(&str, f32); 2] = [("has_head_gear", 0.0), ("is_spectator", 0.0)];
 
 // Head-over-body yaw bound for look-at queries; needs independent measurement.
 const TARGET_YAW_LIMIT: f32 = 85.0;
@@ -154,7 +149,52 @@ pub(super) fn query(
             _ => None,
         }),
         "owner_identifier" => text(None),
+        "property" => property(evaluator, arguments.first()),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
+    }
+}
+
+/// The actor's synced property by name: enums read as their value name, everything else as its
+/// stored number; an unsynced or unknown property reads 0.
+fn property(evaluator: &QueryInputs<'_>, name: Option<&MolangValue>) -> MolangValue {
+    use crate::actor_store::properties::PropertyKind;
+    let (actor, context) = (evaluator.actor, evaluator.context);
+    let Some(MolangValue::String(name)) = name else {
+        return MolangValue::Number(0.0);
+    };
+    let found = context.properties.as_deref().and_then(|definitions| {
+        definitions
+            .iter()
+            .position(|definition| definition.name == *name)
+            .map(|index| (index as u32, &definitions[index].kind))
+    });
+    let Some((index, kind)) = found else {
+        return MolangValue::Number(0.0);
+    };
+    if let Some(value) = actor.float_properties.get(&index) {
+        return MolangValue::Number(*value);
+    }
+    // Before the server sets it, an actor reads the pack-declared default (0 without one).
+    let default = context
+        .properties
+        .as_deref()
+        .map_or(0.0, |definitions| definitions[index as usize].default);
+    let value = actor
+        .int_properties
+        .get(&index)
+        .copied()
+        .unwrap_or(default as i32);
+    match kind {
+        PropertyKind::Enum(values) => usize::try_from(value)
+            .ok()
+            .and_then(|index| values.get(index))
+            .map_or(MolangValue::Number(0.0), |name| {
+                MolangValue::String(Arc::clone(name))
+            }),
+        PropertyKind::Number if !actor.int_properties.contains_key(&index) => {
+            MolangValue::Number(default)
+        }
+        PropertyKind::Number => MolangValue::Number(value as f32),
     }
 }
 
@@ -216,6 +256,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
         "main_hand_item_use_duration" => input.item_use_ticks as f32 * 0.05,
+        "main_hand_item_max_duration" => context.main_hand_max_use_ticks as f32 * 0.05,
+        "item_remaining_use_duration" => {
+            context
+                .main_hand_max_use_ticks
+                .saturating_sub(input.item_use_ticks) as f32
+                * 0.05
+        }
         "death_ticks" => f32::from(actor.status.death_time),
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
@@ -233,6 +280,8 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Unsmoothed 0/1 stand-in for the pose blend.
         "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),
         "is_in_water" => truth(in_water(actor, input)),
+        "sleep_rotation" => actor.status.sleep_rotation.unwrap_or(0.0),
+        "has_cape" => truth(context.has_cape),
         "item_is_charged" => truth(context.hand_charged),
         "is_in_lava" => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
         "armor_texture_slot" => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
