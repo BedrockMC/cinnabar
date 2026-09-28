@@ -3,6 +3,7 @@ use std::time::Instant;
 use crate::{
     acceptance::AcceptanceRun, camera::AutoFly, local_player::LocalViewPose,
     runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot,
+    settings_runtime::RuntimeSettings, ui_runtime::UiRuntime,
 };
 use bevy::{
     log::debug,
@@ -12,12 +13,20 @@ use bevy::{
 use protocol::PlayerInputMode;
 use semantic_input::Action;
 
+use super::control_modes::{ControlModes, ControlObservation, DoubleTap};
 use super::physics::is_transient_collision_unavailability;
 use super::{
-    LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
+    LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController, ModeIntent,
     MovementTicker, PhysicsAuthorityFault, PhysicsCollisionRegistries, PhysicsSampleContext,
-    physics_movement_input,
+    local_facts, physics_movement_input,
 };
+
+/// Frame-persistent sprint/sneak latches and the flight double-tap detector.
+#[derive(Default)]
+pub(crate) struct LocomotionLocals {
+    controls: ControlModes,
+    fly_tap: DoubleTap,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
@@ -33,11 +42,16 @@ pub(crate) fn advance_local_physics(
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
     mut previous_blocker: Local<Option<String>>,
+    settings: Option<Res<RuntimeSettings>>,
+    ui: Option<Res<UiRuntime>>,
+    mut locals: Local<LocomotionLocals>,
 ) {
     if acceptance.deadline_reached(Instant::now()) {
         movement_ticker.begin_terminal_drain();
     }
     if auto_fly.enabled() || !physics.is_active() {
+        locals.controls.reset();
+        locals.fly_tap.reset();
         return;
     }
     if !movement_ticker.can_advance_physics_frame() {
@@ -60,13 +74,39 @@ pub(crate) fn advance_local_physics(
     let analogue_movement = input.analogue_movement();
     let (bevy_yaw, bevy_pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     let yaw = (180.0 - bevy_yaw.to_degrees()).rem_euclid(360.0);
+    let facts = local_facts::read(ui.as_deref(), stream);
+    let gameplay = settings
+        .as_deref()
+        .map(|settings| settings.user_settings_update().1.gameplay)
+        .unwrap_or_default();
+    let now = time.elapsed();
+    let jump = input.phase(Action::Jump);
+    let sprint = input.phase(Action::Sprint);
+    let sneak = input.phase(Action::Sneak);
+    if !active {
+        locals.controls.reset();
+    }
+    let fly_toggle = jump.pressed && locals.fly_tap.press(now);
+    let controlled = locals.controls.update(ControlObservation {
+        now,
+        forward: movement[1],
+        sprint_pressed: sprint.pressed,
+        sprint_held: sprint.held,
+        sneak_pressed: sneak.pressed,
+        sneak_held: sneak.held,
+        toggle_sprint: gameplay.toggle_sprint,
+        toggle_sneak: gameplay.toggle_sneak,
+        sprint_blocked: facts.sprint_blocked,
+        horizontal_collision: physics.latest_horizontal_collision(),
+        flying: physics.mode() == sim::MovementMode::Flying,
+    });
     let mut input = physics_movement_input(
         movement,
         yaw,
         active,
-        input.phase(Action::Jump).held,
-        input.phase(Action::Sneak).held,
-        input.phase(Action::Sprint).held,
+        jump.held,
+        controlled.sneaking,
+        controlled.sprint_request,
         input.phase(Action::Use).held,
     );
     input.movement_speed = movement_speed.current();
@@ -85,6 +125,12 @@ pub(crate) fn advance_local_physics(
             input_mode,
             raw_move_vector: raw_movement,
             analogue_move_vector: analogue_movement,
+            mode_intent: ModeIntent {
+                can_fly: facts.can_fly,
+                fly_toggle,
+                fly_speed: facts.fly_speed,
+                elytra_ready: facts.elytra_ready,
+            },
         },
         &world,
         &mut *movement_effects,

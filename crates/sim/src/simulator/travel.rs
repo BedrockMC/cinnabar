@@ -9,8 +9,8 @@ use crate::{
 };
 
 use super::{
-    COLLISION_EPSILON, ControlledTickResult, INPUT_IMPULSE_MULTIPLIER, MovementInput,
-    MovementMode, NORMAL_GRAVITY, PlayerState, SimulationError, TickResult, apply_relative_movement,
+    COLLISION_EPSILON, ControlledTickResult, INPUT_IMPULSE_MULTIPLIER, MovementInput, MovementMode,
+    NORMAL_GRAVITY, PlayerState, SimulationError, TickResult, apply_relative_movement,
     collision::resolve_motion, controls, effects, environment::SampledEnvironment,
     scaffolding::ScaffoldingView,
 };
@@ -87,7 +87,13 @@ pub(super) fn tick_mode(
 
     let view = ScaffoldingView::new(world, next.position.y, input.sneaking);
     let height = input.mode.hitbox_height(input.sneaking);
-    let motion = resolve_motion(&view, next.position, next.velocity, grounded_at_start, height)?;
+    let motion = resolve_motion(
+        &view,
+        next.position,
+        next.velocity,
+        grounded_at_start,
+        height,
+    )?;
     let identity = sampled.identity.merge(&motion.identity)?;
     let pre_collision_velocity = next.velocity;
     next.position += motion.resolved;

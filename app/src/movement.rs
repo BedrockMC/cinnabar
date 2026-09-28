@@ -9,10 +9,13 @@ mod anchor_probe;
 mod anchor_probe_evidence;
 mod authority;
 mod collision_registries;
+mod control_modes;
 mod correction_shape;
 mod effects;
 mod encoding;
 mod evidence;
+mod local_facts;
+mod locomotion;
 mod outbox;
 mod physics;
 mod runtime_system;
@@ -29,6 +32,7 @@ pub(crate) use effects::{LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
+pub use locomotion::ModeIntent;
 pub use outbox::MovementSendError;
 pub use outbox::OUTBOX_CAPACITY;
 #[cfg(test)]
@@ -925,6 +929,8 @@ mod correction_tests;
 mod effects_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod locomotion_tests;
 #[cfg(test)]
 mod settle_tests;
 #[cfg(test)]
