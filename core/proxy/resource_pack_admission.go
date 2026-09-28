@@ -434,7 +434,7 @@ func newPreparedConnections(upstreamAddress string, tokenSource oauth2.TokenSour
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(tokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialMinecraftUpstream(ctx, target.network, address, dialer.DialContextNetwork)
+			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dialer.DialContextNetwork)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack

@@ -596,6 +596,7 @@ fn completed_physics_ticks_enqueue_exact_positions_ticks_modes_and_edges() {
             input_mode: PlayerInputMode::GamePad,
             raw_move_vector: [0.0, 1.0],
             analogue_move_vector: [0.0, 1.0],
+            ..PhysicsSampleContext::default()
         },
         &Floor,
     );

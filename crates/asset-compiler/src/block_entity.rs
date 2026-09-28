@@ -19,6 +19,12 @@ use sha2::{Digest, Sha256};
 
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_TEXTURE_SIDE: u32 = 256;
+/// Animation strips packed frame-stacked; only these names may exceed the side bound in height.
+const STRIP_TEXTURES: &[&str] = &[
+    "textures/blocks/conduit_wind_horizontal",
+    "textures/blocks/conduit_wind_vertical",
+];
+const MAX_STRIP_HEIGHT: u32 = 1024;
 const ATLAS_WIDTH: u32 = 1024;
 const GUTTER: u32 = 1;
 
@@ -28,12 +34,16 @@ const SOURCE_DIRECTORIES: &[&str] = &[
     "textures/entity/bed",
     "textures/entity/bell",
     "textures/entity/chest",
+    "textures/entity/copper_golem",
     "textures/entity/shulker",
     "textures/entity/skulls",
 ];
 
 /// Individual textures packed by exact logical name (no extension).
 const SOURCE_FILES: &[&str] = &[
+    "textures/blocks/bell_bottom",
+    "textures/blocks/bell_side",
+    "textures/blocks/bell_top",
     "textures/blocks/conduit_base",
     "textures/blocks/conduit_cage",
     "textures/blocks/conduit_closed",
@@ -45,6 +55,10 @@ const SOURCE_FILES: &[&str] = &[
     "textures/blocks/end_gateway",
     "textures/blocks/glow_item_frame",
     "textures/blocks/itemframe_background",
+    "textures/blocks/lectern_base",
+    "textures/blocks/lectern_front",
+    "textures/blocks/lectern_sides",
+    "textures/blocks/lectern_top",
     "textures/blocks/mob_spawner",
     "textures/entity/alex",
     "textures/entity/beacon_beam",
@@ -251,13 +265,18 @@ fn decode(path: &Path, name: &str) -> Result<Outcome, AssetError> {
     else {
         return Ok(Outcome::Undecodable);
     };
-    if width == 0 || height == 0 || width > MAX_TEXTURE_SIDE || height > MAX_TEXTURE_SIDE {
+    let max_height = if STRIP_TEXTURES.contains(&name) {
+        MAX_STRIP_HEIGHT
+    } else {
+        MAX_TEXTURE_SIDE
+    };
+    if width == 0 || height == 0 || width > MAX_TEXTURE_SIDE || height > max_height {
         return Ok(Outcome::Oversized);
     }
     let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_TEXTURE_SIDE);
-    limits.max_image_height = Some(MAX_TEXTURE_SIDE);
+    limits.max_image_height = Some(max_height);
     limits.max_alloc = Some(4 * 1024 * 1024);
     reader.limits(limits);
     let Ok(image) = reader.decode() else {

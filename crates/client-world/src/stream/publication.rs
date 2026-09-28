@@ -153,6 +153,19 @@ impl WorldStream {
     pub fn actor_fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {
         self.actors.fluid_sample_points()
     }
+    /// Installs the per-mount seat layouts riders fall back to when the server streams no offset.
+    pub fn set_actor_seat_defaults(&mut self, defaults: std::sync::Arc<crate::SeatDefaults>) {
+        self.actors.set_seat_defaults(defaults);
+    }
+    /// Bed block under every sleeping actor, for [`Self::set_actor_bed_rotations`] sampling.
+    #[must_use]
+    pub fn actor_bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
+        self.actors.bed_sample_points()
+    }
+    /// Records the `(runtime_id, degrees)` bed orientation that backs `query.sleep_rotation`.
+    pub fn set_actor_bed_rotations(&mut self, samples: &[(u64, f32)]) {
+        self.actors.set_bed_rotations(samples);
+    }
     /// Records `(runtime_id, in_water, in_lava)` samples that back the fluid animation queries.
     pub fn set_actor_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         self.actors.set_fluids(samples);
@@ -214,6 +227,31 @@ impl WorldStream {
         hand: ActorHandedness,
     ) -> Option<&ActorEquipmentSnapshot> {
         self.actors.equipment_in_hand(runtime_id, hand)
+    }
+    /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
+    /// Layers the session's server-pack entity catalog over the vanilla one; its entities
+    /// win by identifier for actors spawned afterwards.
+    pub fn set_pack_entities(
+        &mut self,
+        assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+    ) {
+        self.actors.set_pack_entities(assets);
+    }
+
+    /// Seeds `query.property` definitions from pack behavior defaults for entity types the
+    /// server has not synced.
+    pub fn seed_property_defaults(
+        &mut self,
+        types: &[(std::sync::Arc<str>, Vec<crate::PropertyDefault>)],
+    ) {
+        self.actors.seed_property_defaults(types);
+    }
+
+    pub fn set_item_use_durations(
+        &mut self,
+        durations: std::sync::Arc<std::collections::BTreeMap<Box<str>, u32>>,
+    ) {
+        self.actors.set_item_use_durations(durations);
     }
     pub fn actor_armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
         self.actors.armor(runtime_id)

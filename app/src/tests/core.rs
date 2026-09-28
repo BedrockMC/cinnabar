@@ -42,6 +42,7 @@ fn remote_actor_clock_is_twenty_hertz_and_exposes_frame_fraction() {
 #[test]
 fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     let skin = PlayerSkin::Standard(StandardSkin {
+        cape: None,
         width: 64,
         height: 64,
         rgba8: vec![23; 64 * 64 * 4].into(),

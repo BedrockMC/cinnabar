@@ -12,6 +12,7 @@ mod cloud_render;
 mod dropped_item;
 mod dropped_item_render;
 mod hand_rig_render;
+mod item_geometry;
 mod lightning;
 mod lightning_render;
 mod particles;
@@ -66,9 +67,10 @@ pub use actor::{
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
     MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible, default_actor_skin_rgba8, equipment_rig_id,
-    extruded_sprite_vertices, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
-    item_mesh_rig_id, normalize_actor_skin, pack_overlay_rgba8, standard_biped_overlay_vertices,
+    actor_rig_submission_is_visible, default_actor_skin_rgba8, equipment_geometry,
+    equipment_rig_id, extruded_sprite_vertices, find_geometry_index, geometry_bone_names,
+    geometry_bone_pivots, item_mesh_rig_id, normalize_actor_skin, pack_equipment_rig_id,
+    pack_overlay_rgba8, pack_rig_id, skull_geometry, standard_biped_overlay_vertices,
     standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
@@ -82,13 +84,16 @@ pub use atmosphere::{
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{
     AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BannerLayer, BannerModel, BannerMount, BeaconModel,
-    BedModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,
-    BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission, BlockEntityVertex,
-    ChestModel, ChestPair, ChestVariant, CopperAge, CrackInstance, Facing, MAX_BANNER_LAYERS,
-    MAX_BLOCK_ENTITY_VERTICES, SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind,
-    SkullModel, SkullMount, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef, banner_color, bed_color,
-    crack_texture_name, floor_yaw_degrees, lid_angle_radians, pattern_texture,
-    shulker_color_from_block_name,
+    BedModel, BellAttachment, BellModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame,
+    BlockEntityKind, BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission,
+    BlockEntityVertex, ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance,
+    CrackQuad, CrackShape, DecoratedPotModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
+    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
+    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
+    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
+    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
+    sherd_pattern, shulker_color_from_block_name, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,

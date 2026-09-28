@@ -51,9 +51,13 @@ states by network hash (pack visuals via the runtime overlay; stone-surface coll
 provisional); sequential customs sorting among vanilla remap wire ids, custom collision
 uses `minecraft:collision_box`, and vanilla blocks retexture from a pack's terrain keys
 via the `.matkeys.json` sidecar (rebuild assets to emit it). Vanilla item icons override by
-short-name key (provisional). Custom-block selection boxes drive the pick ray. Server-pack entities have a lenient in-memory
-compile (`compile_entity_pack`) but are not applied: catalog indices are shared with the actor
-and equipment carriers, so a session catalog needs its own index space (incomplete); pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
+short-name key (provisional). Custom-block selection boxes drive the pick ray. Server-pack entities compile in memory per session (`compile_actor_pack`) into their own
+index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
+entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
+labeled incomplete: neutral material profile only (custom materials and conditional/multi-texture
+render controllers fall back), pack attachables (held/worn on player bodies) layer over the equipment runtime per session
+(pack bindings win by item identifier; pack property defaults seed only from `entities/` in
+resource packs), rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
@@ -2056,11 +2060,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         - [ ] Provisional, uncompiled and unmeasured (never closes a gate): the
           `.mcbeben` carrier (`make block-entity-assets`) and a dedicated
           block-entity pass draw chests (single/double, lid cue), ender and copper
-          chests, beds, shulker boxes, skulls, banners, bell, enchant/lectern book,
-          beacon beam, end portal, sign text and the break-crack overlay.
-          Conduit, decorated pots, campfire, item frames, spawner, dragon/piglin
-          heads, hanging-sign extents, banner/beam scroll and native lighting
-          remain open; every hand-authored dimension is marked for measurement.
+          chests, beds, shulker boxes, skulls (dragon and piglin from entity
+          geometry), banners, bell with frame and swing, lectern, enchant/lectern
+          book, conduit, decorated pots, item and glow frames with their items,
+          campfire items, tinted scrolling beacon beams, end portal, sign text and
+          model-shaped break cracks. Entity-drawn block states compile to
+          `Invisible` terrain (`entity_drawn.rs`). Filled maps, spawner mob,
+          flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
+          terrain and native lighting/measurement remain open.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
       into their respective `main` branches through reviewed PRs using normal
       history-preserving merge commits (never squash or rebase the feature
@@ -2816,6 +2823,12 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
+  **Provisional (incomplete, closes no acceptance gate):** sprint latch/double-tap/toggle
+  options, forced sneak and crawl under low ceilings, ability flight, pose-swimming and elytra
+  gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
+  double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
+  edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
+  against a native client. Not started: honey slide, depth strider, soul speed, riding input.
 
 ## Phase 4 — Entities and other players
 
@@ -3189,6 +3202,8 @@ LevelDB world persistence via dragonfly; pause/resume semantics on window focus;
 path as online (core points the game socket at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
 
+Status: provisional implementation landed (see `docs/local-worlds.md`); uncompiled and unmeasured, so no acceptance gate is closed.
+
 ## Phase 8 — Audio, polish, packaging
 
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
@@ -3197,6 +3212,14 @@ bedrock-samples vs. client-assets-import); performance hardening pass against bu
 macOS .app + codesign/notarize, Windows installer, Linux AppImage; core binary bundled and
 lifecycle-managed by the app; crash reporting (sentry for Rust + core); auto-update channel;
 first-run experience.
+
+**Packaging status (provisional):** `packaging/` holds macOS `.app`/DMG, Windows MSI, and Linux
+AppImage recipes plus `.github/workflows/package.yml`; first-run asset preparation, opt-in crash
+upload, signed-manifest update checks, and the core log/backoff helpers are in `app/src/{first_run,lifecycle}`
+and `core/{update,crashreport}`. Unverified until compiled and run on a clean machine: every
+recipe, the WiX authoring, and notarization. Incomplete: a graphical progress/consent surface (native
+dialogs only), locating a user's own Bedrock install instead of the pinned pack, in-app update
+install, mid-session core restart wiring, and Sentry for Rust panics beyond report capture.
 
 **Final Go relay/batching polish:** adopt the batch-boundary API from
 [`HashimTheArab/gophertunnel` PR #80](https://github.com/HashimTheArab/gophertunnel/pull/80)
@@ -3220,9 +3243,11 @@ Rust's duplicate no-ID loading-screen Start/End may occupy two adjacent local ba
 bounded filter now holds at most one Start through the next read, drops only the exact initial
 pair, and flushes a mismatch or EOF in its original batch before current traffic. Full core
 tests, independent review, and a successful native BDS join are green through `a6c1ffc`.
-Porting the
-remaining PR-specific slow-reader/decode-error/disconnect regressions and completing the
-join-latency/resource comparison remain open, so this final polish item is not yet complete.
+The slow-reader, mid-batch decode-close, deferred-loading-boundary, and pre-disconnect
+batch-boundary regressions are written in `core/proxy/relay_backpressure_test.go` and the
+comparison benchmarks in `core/proxy/relay_compare_test.go` (both uncompiled until reconcile);
+running the benchmarks against a live server for the join-latency/memory record remains open,
+so this final polish item is not yet complete.
 
 ---
 

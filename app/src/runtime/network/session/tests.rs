@@ -105,7 +105,7 @@ fn blob_cache_semantic_warning_schedule_is_logarithmically_bounded() {
 
 #[test]
 fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
-    let source = include_str!("../session.rs");
+    let source = include_str!("blob_cache_telemetry.rs");
     let telemetry = source
         .split_once("fn emit_blob_cache_telemetry(stats: BlobCacheStats)")
         .expect("blob-cache telemetry function")
