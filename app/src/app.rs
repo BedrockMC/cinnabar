@@ -525,6 +525,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut block_entity_scene =
         crate::block_entities::load_block_entity_scene(&loaded_assets.selected_path);
     block_entity_scene.install_entity_assets(&entity_runtime);
+    // Spawner mobs read the actor catalog; without it cages stay empty.
+    match crate::asset_startup::require_actor_assets(
+        &loaded_assets.selected_path,
+        &loaded_assets.entities,
+    ) {
+        Ok(catalog) => block_entity_scene.install_mob_assets(&entity_runtime, &catalog),
+        Err(error) => eprintln!("spawner mobs unavailable: {error}"),
+    }
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(

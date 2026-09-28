@@ -1,12 +1,12 @@
 //! Conduits: a shell cube, plus a spinning cage and a viewer-facing eye while active.
 //!
-//! Box sizes follow the conduit textures (6x6x6 shell, 8x8x8 cage); the animated wind cube is
-//! not drawn, and bob, spin and eye size need native measurement.
+//! Box sizes follow the conduit textures (6x6x6 shell, 8x8x8 cage, 16x16x16 wind cube); wind
+//! frame timing, wind spin, bob and eye size need native measurement.
 
 use bevy::math::{Mat4, Vec3};
 
 use super::{
-    atlas::BlockEntityAtlas,
+    atlas::{AtlasRect, BlockEntityAtlas, TextureRef},
     mesh::{BoxSpec, Layer, MeshBuilder, WHITE, model_matrix},
     scene::SceneClock,
 };
@@ -16,6 +16,21 @@ const BOB_PIXELS: f32 = 1.6;
 const BOB_PERIOD_TICKS: f64 = 40.0;
 const EYE_HALF_PIXELS: f32 = 2.0;
 const ACTIVE_HEIGHT_PIXELS: f32 = 8.0;
+/// The wind strips stack 22 frames of a 64x32 cube unwrap.
+const WIND_FRAMES: u32 = 22;
+const WIND_FRAME_ROWS: f32 = 32.0;
+const WIND_TICKS_PER_FRAME: f64 = 2.0;
+
+/// The rect of wind frame `frame` in a strip placed at `strip`; `frame` wraps.
+#[must_use]
+pub fn wind_frame_rect(strip: AtlasRect, frame: u32) -> AtlasRect {
+    AtlasRect {
+        x: strip.x,
+        y: strip.y + WIND_FRAME_ROWS * (frame % WIND_FRAMES) as f32,
+        width: strip.width,
+        height: WIND_FRAME_ROWS,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConduitModel {
@@ -65,6 +80,28 @@ pub(super) fn emit(
             WHITE,
         );
     }
+    let frame = (clock.ticks / WIND_TICKS_PER_FRAME) as u32;
+    for (strip, spin_scale) in [
+        ("textures/blocks/conduit_wind_horizontal", 1.0),
+        ("textures/blocks/conduit_wind_vertical", -1.3),
+    ] {
+        if let Some(strip) = atlas.texture(strip, [64.0, 704.0]) {
+            let texture = TextureRef {
+                rect: wind_frame_rect(strip.rect, frame),
+                logical: [64.0, WIND_FRAME_ROWS],
+            };
+            let spin = Mat4::from_rotation_y(
+                ((clock.ticks * SPIN_DEGREES_PER_TICK * spin_scale) % 360.0).to_radians() as f32,
+            );
+            builder.cuboid(
+                Layer::Overlay,
+                &texture,
+                center * spin,
+                BoxSpec::new([-8.0, -8.0, -8.0], [16.0, 16.0, 16.0], [0.0, 0.0]),
+                WHITE,
+            );
+        }
+    }
     let eye = if model.hunting {
         "textures/blocks/conduit_open"
     } else {
@@ -80,5 +117,27 @@ pub(super) fn emit(
         ]
         .map(|corner| facing.transform_point3(Vec3::from_array(corner)).to_array());
         builder.textured_quad(Layer::Solid, corners, eye.rect, WHITE);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wind_frames_stack_down_the_strip_and_wrap() {
+        let strip = AtlasRect {
+            x: 10.0,
+            y: 100.0,
+            width: 64.0,
+            height: 704.0,
+        };
+        assert_eq!(wind_frame_rect(strip, 0).y, 100.0);
+        assert_eq!(wind_frame_rect(strip, 3).y, 100.0 + 3.0 * 32.0);
+        assert_eq!(
+            wind_frame_rect(strip, WIND_FRAMES),
+            wind_frame_rect(strip, 0)
+        );
+        assert_eq!(wind_frame_rect(strip, 1).height, 32.0);
     }
 }

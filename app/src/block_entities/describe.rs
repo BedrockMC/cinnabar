@@ -5,8 +5,9 @@ use std::sync::Arc;
 use render::{
     BannerLayer, BannerModel, BannerMount, BedModel, BellAttachment, BlockEntityKind, ChestModel,
     ChestPair, ChestVariant, CopperAge, DecoratedPotModel, Facing, ItemFrameModel,
-    MAX_BANNER_LAYERS, ShulkerModel, SignMount, SkullKind, SkullModel, SkullMount, banner_color,
-    bed_color, pattern_texture, sherd_pattern, shulker_color_from_block_name,
+    MAX_BANNER_LAYERS, Oxidation, ShulkerModel, SignMount, SkullKind, SkullModel, SkullMount,
+    SpawnerModel, StatueModel, StatuePose, banner_color, bed_color, pattern_texture, sherd_pattern,
+    shulker_color_from_block_name,
 };
 use world::NbtCompound;
 
@@ -29,6 +30,11 @@ pub(super) enum Template {
         model: ItemFrameModel,
         item: Option<HeldItem>,
         rotation_steps: u8,
+        /// The filled map's id when the framed item is a map.
+        map_id: Option<i64>,
+    },
+    FlowerPot {
+        plant: HeldItem,
     },
     Campfire {
         yaw_degrees: f32,
@@ -271,14 +277,29 @@ pub(super) fn describe(
                 model: ItemFrameModel {
                     glow: id == "GlowItemFrame",
                     outward: toward_wall ^ 1,
+                    map: None,
                 },
                 item: nbt.compound("Item").and_then(held_item),
+                map_id: nbt
+                    .compound("Item")
+                    .and_then(|stack| stack.compound("tag"))
+                    .and_then(|tag| tag.integer("map_uuid")),
                 rotation_steps: nbt
                     .integer("ItemRotation")
                     .and_then(|steps| u8::try_from(steps.rem_euclid(8)).ok())
                     .unwrap_or(0),
             })
         }
+        "FlowerPot" => nbt
+            .compound("PlantBlock")
+            .and_then(|plant| plant.string("name"))
+            .filter(|name| !name.is_empty() && *name != "minecraft:air")
+            .map(|name| Template::FlowerPot {
+                plant: HeldItem {
+                    identifier: Arc::from(name),
+                    metadata: 0,
+                },
+            }),
         "Campfire" => Some(Template::Campfire {
             yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
             items: (1..=4)
@@ -309,6 +330,19 @@ pub(super) fn describe(
                 },
             )))
         }
+        "CopperGolemStatue" => Some(Template::Static(BlockEntityKind::Statue(StatueModel {
+            pose: StatuePose::from_nbt(nbt.string("Pose"), nbt.integer("Pose"))?,
+            oxidation: Oxidation::from_block_name(block_name)?,
+            facing: facing(state).unwrap_or(Facing::North),
+        }))),
+        "MobSpawner" => nbt
+            .string("EntityIdentifier")
+            .filter(|mob| !mob.is_empty())
+            .map(|mob| {
+                Template::Static(BlockEntityKind::Spawner(SpawnerModel {
+                    mob: Arc::from(mob),
+                }))
+            }),
         "EndPortal" => Some(Template::Static(BlockEntityKind::EndPortal)),
         "EndGateway" => Some(Template::Static(BlockEntityKind::EndGateway)),
         _ => None,

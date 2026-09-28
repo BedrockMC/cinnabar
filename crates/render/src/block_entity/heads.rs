@@ -31,7 +31,17 @@ pub struct HeadModel {
 pub struct HeadModels {
     pub piglin: Option<HeadModel>,
     pub dragon: Option<HeadModel>,
+    /// Copper golem statue poses: standing, sitting, star, running.
+    pub statues: [Option<HeadModel>; 4],
 }
+
+/// Entity geometry identifiers for the statue poses, in [`HeadModels::statues`] order.
+const STATUE_GEOMETRIES: [&str; 4] = [
+    "geometry.copper_golem",
+    "geometry.copper_golem.sitting",
+    "geometry.copper_golem.star",
+    "geometry.copper_golem.running",
+];
 
 impl HeadModels {
     #[must_use]
@@ -46,6 +56,10 @@ impl HeadModels {
             piglin: find("geometry.piglin").and_then(|geometry| HeadModel::build(geometry, 1.0)),
             dragon: find("geometry.dragon")
                 .and_then(|geometry| HeadModel::build(geometry, DRAGON_SKULL_SCALE)),
+            statues: STATUE_GEOMETRIES.map(|identifier| {
+                find(identifier)
+                    .and_then(|geometry| HeadModel::build_tree(geometry, None, 1.0, false))
+            }),
         }
     }
 }
@@ -132,28 +146,50 @@ fn cube_box(cube: &EntityGeometryCube, bone_inflate: f32) -> Option<(BoxSpec, Ma
 }
 
 impl HeadModel {
-    /// Boxes of the `head` bone tree; `None` when the geometry has no such boxes.
+    /// Boxes of the `head` bone tree, bottom on the floor; `None` when there are none.
     #[must_use]
     pub fn build(geometry: &EntityGeometry, scale: f32) -> Option<Self> {
+        Self::build_tree(geometry, Some("head"), scale, true)
+    }
+
+    /// Boxes of `root` and its descendants (every drawn bone when `root` is `None`), scaled about
+    /// the origin, optionally sitting on the floor; `None` when there are no boxes.
+    #[must_use]
+    pub fn build_tree(
+        geometry: &EntityGeometry,
+        root: Option<&str>,
+        scale: f32,
+        align_floor: bool,
+    ) -> Option<Self> {
         let mut boxes = Vec::new();
-        for bone in geometry
-            .bones
-            .iter()
-            .filter(|bone| descends_from(geometry, bone, "head"))
-        {
-            let bone_matrix = chain(geometry, bone)?;
+        for bone in geometry.bones.iter().filter(|bone| {
+            bone.never_render != Some(true)
+                && root.is_none_or(|root| descends_from(geometry, bone, root))
+        }) {
+            let Some(bone_matrix) = chain(geometry, bone) else {
+                continue;
+            };
             for cube in &bone.cubes {
-                let (spec, local) = cube_box(cube, bone.inflate.map_or(0.0, |value| value.get()))?;
+                // Per-face UV cubes are not expressible as box UVs and are skipped.
+                let Some((spec, local)) =
+                    cube_box(cube, bone.inflate.map_or(0.0, |value| value.get()))
+                else {
+                    continue;
+                };
                 boxes.push(HeadBox {
                     matrix: bone_matrix * local,
                     spec,
                 });
             }
         }
-        let floor = boxes
-            .iter()
-            .map(|head_box| head_box.spec.origin[1])
-            .fold(f32::MAX, f32::min);
+        let floor = if align_floor {
+            boxes
+                .iter()
+                .map(|head_box| head_box.spec.origin[1])
+                .fold(f32::MAX, f32::min)
+        } else {
+            0.0
+        };
         if boxes.is_empty() || !floor.is_finite() {
             return None;
         }
