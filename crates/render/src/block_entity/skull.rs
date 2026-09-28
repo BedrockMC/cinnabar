@@ -36,7 +36,9 @@ impl SkullKind {
         })
     }
 
-    fn texture(self, atlas: &BlockEntityAtlas) -> Option<TextureRef> {
+    /// The head's packed texture and the size its UVs were authored against.
+    #[must_use]
+    pub fn texture(self, atlas: &BlockEntityAtlas) -> Option<TextureRef> {
         match self {
             Self::Skeleton => atlas.texture("textures/entity/skulls/skeleton", [64.0, 32.0]),
             Self::WitherSkeleton => {
@@ -49,7 +51,9 @@ impl SkullKind {
         }
     }
 
-    const fn has_hat_layer(self) -> bool {
+    /// Whether the head carries a second, slightly larger hat layer.
+    #[must_use]
+    pub const fn has_hat_layer(self) -> bool {
         matches!(self, Self::Zombie | Self::Player)
     }
 }

@@ -99,7 +99,9 @@ mod equipment_carrier;
 pub(crate) use actor_carrier::require_actor_artwork;
 pub use actor_carrier::{ACTOR_ASSETS_FILENAME, actor_asset_path, require_actor_assets};
 pub(crate) use audio_pcm_carrier::load_audio_pcm_assets;
-pub(crate) use equipment_carrier::load_optional_equipment_assets;
+pub(crate) use equipment_carrier::{
+    load_optional_block_entity_assets, load_optional_equipment_assets,
+};
 mod hud_carrier;
 mod icon_carrier;
 mod lang_carrier;
