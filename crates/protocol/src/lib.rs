@@ -21,6 +21,7 @@ mod socket_transport;
 mod transfer;
 mod ui;
 mod world;
+pub mod world_control;
 
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
