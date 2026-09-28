@@ -14,7 +14,7 @@ use assets::{
     ArmorSlot, AssetError, AttachablePose, AttachablePoseBone, EntityAssetKind, EntityAssetSource,
     EntityAssetSymbol, EntityDependencyResolution, EquipmentBinding, EquipmentCategory,
     EquipmentReference, EquipmentTexture, EquipmentTransform, ItemDisplayScalar,
-    ItemDisplayTransform, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_IDENTIFIER_BYTES,
+    ItemDisplayTransform, ItemUseDuration, MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_IDENTIFIER_BYTES,
     MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
 };
 use image::{ImageFormat, ImageReader, Limits};
@@ -99,6 +99,64 @@ pub(super) fn transform_lookup(
             )
         })
         .collect()
+}
+
+/// Item use durations the behavior pack states, sorted by identifier: `use_modifiers.use_duration`
+/// in seconds or the older `minecraft:use_duration` in ticks. Unreadable items are skipped.
+pub fn compile_item_use(behavior_pack: &Path) -> Result<Vec<ItemUseDuration>, AssetError> {
+    const MAX_ITEM_JSON_BYTES: u64 = 256 * 1024;
+    let directory = behavior_pack.join("items");
+    let entries = std::fs::read_dir(&directory).map_err(|source| AssetError::Io {
+        path: directory.clone(),
+        source,
+    })?;
+    let mut durations = BTreeMap::<Box<str>, u32>::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let bounded = entry
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() <= MAX_ITEM_JSON_BYTES);
+        if !bounded || path.extension().is_none_or(|extension| extension != "json") {
+            continue;
+        }
+        let Some(item) = std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|document| document.get("minecraft:item").cloned())
+        else {
+            continue;
+        };
+        let (Some(identifier), Some(components)) = (
+            item.pointer("/description/identifier")
+                .and_then(Value::as_str),
+            item.get("components"),
+        ) else {
+            continue;
+        };
+        let seconds = components
+            .pointer("/minecraft:use_modifiers/use_duration")
+            .and_then(Value::as_f64)
+            .map(|seconds| seconds * 20.0);
+        let ticks = seconds.or_else(|| {
+            components
+                .get("minecraft:use_duration")
+                .and_then(Value::as_f64)
+        });
+        let Some(ticks) = ticks.filter(|ticks| ticks.is_finite() && *ticks >= 1.0) else {
+            continue;
+        };
+        let (Ok(identifier), Ok(ticks)) = (
+            bounded_identifier(identifier),
+            u32::try_from(ticks.round() as u64),
+        ) else {
+            continue;
+        };
+        durations.insert(identifier, ticks);
+    }
+    Ok(durations
+        .into_iter()
+        .map(|(identifier, ticks)| ItemUseDuration { identifier, ticks })
+        .collect())
 }
 
 /// Decodes every binding's default texture found among the collected sources, sorted by
@@ -234,11 +292,19 @@ fn parse_attachable(
     let (item_identifier, prefer) = item_binding(description)?;
     let animations = description.get("animations").and_then(Value::as_object);
     let geometry = named_default(description, "geometry")?;
-    // Only elytra poses its own bones from literal clips; held items use the wield transforms.
-    let poses = if category(&item_identifier, &geometry) == EquipmentCategory::Elytra {
-        literal_poses(animations, payloads, animation_sources)
-    } else {
-        Box::new([])
+    // Elytra and shields pose their own bones from literal clips; a shield's clip picks values by
+    // the hand it is held in, so it stores one pose per hand.
+    let poses = match category(&item_identifier, &geometry) {
+        EquipmentCategory::Elytra => {
+            literal_poses(animations, payloads, animation_sources, &[None])
+        }
+        EquipmentCategory::Shield => literal_poses(
+            animations,
+            payloads,
+            animation_sources,
+            &[Some("main_hand"), Some("off_hand")],
+        ),
+        _ => Box::new([]),
     };
     Ok(ParsedAttachable {
         poses,
@@ -366,24 +432,34 @@ fn literal_bone_transform(
     })
 }
 
-/// Every animation of the attachable whose bone channels are all pure numbers, sorted by its
-/// local key. Clips with any Molang channel are left out (`NeedsMeasurement` at the consumer).
+/// Every animation of the attachable whose bone channels are all literal, sorted by key. A slot
+/// resolves `c.item_slot == 'name' ? a : b` channels and suffixes the key with `@slot`. Clips
+/// with any other Molang are left out (`NeedsMeasurement` at the consumer).
 fn literal_poses(
     animations: Option<&serde_json::Map<String, Value>>,
     payloads: &SourcePayloads,
     animation_sources: &BTreeMap<&str, &str>,
+    slots: &[Option<&str>],
 ) -> Box<[AttachablePose]> {
-    let mut poses = animations
-        .into_iter()
-        .flatten()
-        .filter_map(|(key, identifier)| {
-            let bones = literal_clip_bones(identifier.as_str()?, payloads, animation_sources)?;
-            Some(AttachablePose {
-                key: bounded_identifier(key).ok()?,
-                bones,
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut poses = Vec::new();
+    for (key, identifier) in animations.into_iter().flatten() {
+        let Some(identifier) = identifier.as_str() else {
+            continue;
+        };
+        for slot in slots {
+            let Some(bones) = literal_clip_bones(identifier, payloads, animation_sources, *slot)
+            else {
+                continue;
+            };
+            let key = match slot {
+                Some(slot) => format!("{key}@{slot}"),
+                None => key.clone(),
+            };
+            if let Ok(key) = bounded_identifier(&key) {
+                poses.push(AttachablePose { key, bones });
+            }
+        }
+    }
     poses.sort_by(|left, right| left.key.cmp(&right.key));
     poses.into_boxed_slice()
 }
@@ -392,6 +468,7 @@ fn literal_clip_bones(
     identifier: &str,
     payloads: &SourcePayloads,
     animation_sources: &BTreeMap<&str, &str>,
+    slot: Option<&str>,
 ) -> Option<Box<[AttachablePoseBone]>> {
     let source = animation_sources.get(identifier)?;
     let document: Value = serde_json::from_slice(payloads.get(*source)?).ok()?;
@@ -408,7 +485,14 @@ fn literal_clip_bones(
                 let value = scalar(number.as_f64()? as f32)?;
                 Some(Some([value; 3]))
             }
-            Some(other) => numeric_vec3(Some(other)).map(Some),
+            Some(Value::Array(array)) if array.len() == 3 => {
+                let mut out = [scalar(0.0)?; 3];
+                for (target, element) in out.iter_mut().zip(array) {
+                    *target = scalar(slot_number(element, slot)?)?;
+                }
+                Some(Some(out))
+            }
+            Some(_) => None,
         }
     };
     let mut out = Vec::new();
@@ -421,6 +505,25 @@ fn literal_clip_bones(
         });
     }
     (!out.is_empty() && out.len() <= 32).then(|| out.into_boxed_slice())
+}
+
+/// A JSON number, or `c.item_slot == 'name' ? a : b` with literal branches resolved for `slot`.
+fn slot_number(value: &Value, slot: Option<&str>) -> Option<f32> {
+    match value {
+        Value::Number(number) => number.as_f64().map(|value| value as f32),
+        Value::String(text) => {
+            let compact = text
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>();
+            let rest = compact.strip_prefix("c.item_slot==")?;
+            let (name, rest) = rest.strip_prefix('\'')?.split_once('\'')?;
+            let (when_true, when_false) = rest.strip_prefix('?')?.split_once(':')?;
+            let chosen = if slot? == name { when_true } else { when_false };
+            chosen.parse::<f32>().ok()
+        }
+        _ => None,
+    }
 }
 
 fn numeric_vec3(value: Option<&Value>) -> Option<[ItemDisplayScalar; 3]> {
@@ -697,5 +800,87 @@ mod tests {
             .unwrap();
         assert_eq!(body.scale.unwrap().map(|value| value.get()), [1.067; 3]);
         assert!(body.translation.is_none());
+    }
+
+    #[test]
+    fn shield_third_person_resolves_the_hand_conditional_into_one_pose_per_hand() {
+        const SHIELD: &str = r#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
+            "identifier":"minecraft:shield",
+            "materials":{"default":"entity_alphatest"},
+            "textures":{"default":"textures/entity/shield"},
+            "geometry":{"default":"geometry.shield"},
+            "animations":{"wield_third_person":"animation.shield.wield_third_person","wield_main_hand_first_person":"animation.shield.wield_main_hand_first_person"},
+            "render_controllers":["controller.render.item_default"]}}}"#;
+        const SHIELD_ANIM: &str = r#"{"format_version":"1.10.0","animations":{
+            "animation.shield.wield_third_person":{"bones":{"shield":{"position":["c.item_slot == 'main_hand' ? -0.4 : -1.6",9.0,9.3],"rotation":[-90.0,0.0,90.0],"scale":["c.item_slot == 'main_hand' ? 1.0 : -1.0",-1.0,"c.item_slot == 'main_hand' ? -1.0 : 1.0"]}}},
+            "animation.shield.wield_main_hand_first_person":{"bones":{"shield":{"position":["variable.x",0,0]}}}}}"#;
+        let payloads = payloads(&[
+            ("attachables/shield.entity.json", SHIELD),
+            ("animations/shield.animation.json", SHIELD_ANIM),
+        ]);
+        let symbols = symbols(&[
+            (EntityAssetKind::Geometry, "geometry.shield", 1),
+            (EntityAssetKind::Texture, "textures/entity/shield", 2),
+            (
+                EntityAssetKind::Animation,
+                "animation.shield.wield_third_person",
+                0,
+            ),
+            (
+                EntityAssetKind::Animation,
+                "animation.shield.wield_main_hand_first_person",
+                0,
+            ),
+        ]);
+        let sources = sources(&["animations/shield.animation.json"]);
+        let bindings = compile_bindings(&payloads, &symbols, &sources).unwrap();
+        let shield = &bindings[0];
+        assert_eq!(shield.category, EquipmentCategory::Shield);
+        assert_eq!(shield.poses.len(), 2);
+        let main = shield.pose("wield_third_person@main_hand").unwrap();
+        let off = shield.pose("wield_third_person@off_hand").unwrap();
+        let translation =
+            |pose: &AttachablePose| pose.bones[0].translation.unwrap().map(|v| v.get());
+        assert_eq!(translation(main), [-0.4, 9.0, 9.3]);
+        assert_eq!(translation(off), [-1.6, 9.0, 9.3]);
+        assert_eq!(
+            off.bones[0].scale.unwrap().map(|v| v.get()),
+            [-1.0, -1.0, 1.0]
+        );
+    }
+
+    #[test]
+    fn item_use_durations_read_seconds_and_ticks_and_skip_the_rest() {
+        let root = tempfile::tempdir().unwrap();
+        let items = root.path().join("items");
+        std::fs::create_dir(&items).unwrap();
+        let write = |name: &str, body: &str| std::fs::write(items.join(name), body).unwrap();
+        write(
+            "honey.json",
+            r#"{"minecraft:item":{"description":{"identifier":"minecraft:honey_bottle"},
+                "components":{"minecraft:use_modifiers":{"use_duration":1.6}}}}"#,
+        );
+        write(
+            "spear.json",
+            r#"{"minecraft:item":{"description":{"identifier":"minecraft:iron_spear"},
+                "components":{"minecraft:use_duration":72000}}}"#,
+        );
+        write(
+            "seed.json",
+            r#"{"minecraft:item":{"description":{"identifier":"minecraft:seeds"},"components":{}}}"#,
+        );
+        write("broken.json", "{");
+        let durations = compile_item_use(root.path()).unwrap();
+        let pairs = durations
+            .iter()
+            .map(|entry| (entry.identifier.as_ref(), entry.ticks))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pairs,
+            [
+                ("minecraft:honey_bottle", 32),
+                ("minecraft:iron_spear", 72000)
+            ]
+        );
     }
 }

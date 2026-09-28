@@ -4,19 +4,21 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{
     ArmorSlot, EntityDependencyResolution, EquipmentCategory, IconSprite, RuntimeAssets,
-    RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog,
+    RuntimeBlockEntityAssets, RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog,
 };
 use bevy::prelude::Resource;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, EntityRigId, EquipmentRaster,
-    RenderBoneTransform, equipment_rig_id, extruded_sprite_vertices, find_geometry_index,
-    geometry_bone_names, item_mesh_rig_id, textured_cube_vertices,
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, BlockEntityAtlas, EntityRigId,
+    EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, extruded_sprite_vertices,
+    find_geometry_index, geometry_bone_names, item_mesh_rig_id, skull_geometry,
+    textured_cube_vertices,
 };
 
 use super::{
     armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{Placement, SpriteAtlas},
+    attachable::{self, BoneChannels},
     blocks::{self, BlockSheets},
     display::{
         ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
@@ -25,6 +27,35 @@ use super::{
     },
     elytra,
 };
+
+/// Equipment geometry index space reserved for worn skulls (above any entity geometry index).
+const SKULL_RIG_INDEX_BASE: u32 = 0x00ff_0000;
+const SKULL_KINDS: [SkullKind; 5] = [
+    SkullKind::Skeleton,
+    SkullKind::WitherSkeleton,
+    SkullKind::Zombie,
+    SkullKind::Player,
+    SkullKind::Creeper,
+];
+
+fn kind_index(kind: SkullKind) -> u8 {
+    SKULL_KINDS
+        .iter()
+        .position(|candidate| *candidate == kind)
+        .map_or(u8::MAX, |index| index as u8)
+}
+
+/// The head an item identifier wears as, for the heads with a packed texture.
+pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
+    Some(match identifier.strip_prefix("minecraft:")? {
+        "skeleton_skull" => SkullKind::Skeleton,
+        "wither_skeleton_skull" => SkullKind::WitherSkeleton,
+        "zombie_head" => SkullKind::Zombie,
+        "player_head" => SkullKind::Player,
+        "creeper_head" => SkullKind::Creeper,
+        _ => return None,
+    })
+}
 
 /// Generated item meshes kept resident; further distinct items draw nothing.
 const MAX_ITEM_MESHES: usize = 512;
@@ -107,6 +138,7 @@ struct BodyBones {
 struct ArmorGeometry {
     rig: EntityRigId,
     names: Vec<Box<str>>,
+    pivots: Vec<[f32; 3]>,
 }
 
 #[derive(Resource)]
@@ -124,6 +156,9 @@ pub(crate) struct EquipmentRuntime {
     armor_maps: BTreeMap<(u32, Box<str>), Arc<[Option<usize>]>>,
     meshes: BTreeMap<MeshKey, Option<EntityRigId>>,
     pending: Vec<ActorRigGeometry>,
+    /// Worn head geometry and texture location per skull kind.
+    skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
+    item_use: Arc<BTreeMap<Box<str>, u32>>,
 }
 
 impl EquipmentRuntime {
@@ -134,6 +169,7 @@ impl EquipmentRuntime {
         catalog: Option<Arc<RuntimeEquipmentCatalog>>,
         icons: Arc<RuntimeIconCatalog>,
         world: Option<Arc<RuntimeAssets>>,
+        block_entities: Option<Arc<RuntimeBlockEntityAssets>>,
         artwork: ActorArtworkPages,
     ) -> (Self, ActorArtworkPages, Vec<u32>) {
         let BlockSheets { sheets, by_visual } = world.as_deref().map_or_else(
@@ -161,28 +197,55 @@ impl EquipmentRuntime {
             height: texture.height,
             rgba8: Arc::clone(&texture.rgba8),
         }));
+        let skull_atlas = block_entities
+            .as_deref()
+            .map(BlockEntityAtlas::from_assets)
+            .filter(|atlas| {
+                let static_bytes = atlas.size()[0] as usize * atlas.static_height() as usize * 4;
+                atlas.size()[0] <= u32::from(u16::MAX)
+                    && atlas.static_height() <= u32::from(u16::MAX)
+                    && atlas.static_rgba8().len() == static_bytes
+            });
+        let skull_raster_index = skull_atlas.as_ref().map(|atlas| {
+            rasters.push(EquipmentRaster {
+                width: atlas.size()[0] as u16,
+                height: atlas.static_height() as u16,
+                rgba8: Arc::clone(atlas.static_rgba8()),
+            });
+            rasters.len() - 1
+        });
         let (artwork, locations) = artwork.with_equipment_rasters(&rasters);
         let texture_locations = textures
             .iter()
             .zip(&locations[atlas_layers..])
             .filter_map(|(texture, location)| Some((texture.identifier.clone(), (*location)?)))
             .collect();
+        let skull_location = skull_raster_index.and_then(|index| locations[index]);
+        let mut pending = Vec::new();
+        let mut skulls = BTreeMap::new();
+        if let (Some(atlas), Some(location)) = (&skull_atlas, skull_location) {
+            for (index, kind) in SKULL_KINDS.into_iter().enumerate() {
+                let id = equipment_rig_id(SKULL_RIG_INDEX_BASE + index as u32);
+                if let Some(geometry) = skull_geometry(id, atlas, kind) {
+                    pending.push(geometry);
+                    skulls.insert(kind_index(kind), (id, location));
+                }
+            }
+        }
         let mut geometries = catalog
             .iter()
             .flat_map(|catalog| catalog.bindings())
             .filter(|binding| {
-                matches!(
-                    binding.category,
-                    EquipmentCategory::Armor { .. } | EquipmentCategory::Elytra
-                ) && binding.geometry.resolution == EntityDependencyResolution::Catalog
+                !matches!(binding.category, EquipmentCategory::Held)
+                    || binding.third_person.literal().is_some()
             })
+            .filter(|binding| binding.geometry.resolution == EntityDependencyResolution::Catalog)
             .filter_map(|binding| find_geometry_index(&assets, &binding.geometry.identifier))
             .collect::<Vec<_>>();
         geometries.sort_unstable();
         geometries.dedup();
         let runtime = Self {
             assets,
-            catalog,
             icons,
             placements: atlas.placements,
             block_sheets: by_visual
@@ -195,9 +258,23 @@ impl EquipmentRuntime {
             armor_geometry: BTreeMap::new(),
             armor_maps: BTreeMap::new(),
             meshes: BTreeMap::new(),
-            pending: Vec::new(),
+            item_use: Arc::new(
+                catalog
+                    .iter()
+                    .flat_map(|catalog| catalog.item_use())
+                    .map(|entry| (entry.identifier.clone(), entry.ticks))
+                    .collect(),
+            ),
+            catalog,
+            pending,
+            skulls,
         };
         (runtime, artwork, geometries)
+    }
+
+    /// Item use durations for the animation runtime's max-duration query.
+    pub(crate) fn item_use_durations(&self) -> Arc<BTreeMap<Box<str>, u32>> {
+        Arc::clone(&self.item_use)
     }
 
     /// Geometries generated since the last call; the actor scene must register them before the
@@ -242,6 +319,12 @@ impl EquipmentRuntime {
         ];
         for ((slot, layer), item) in slots.into_iter().zip(&input.armor) {
             if let Some(item) = item {
+                if slot == ArmorSlot::Helmet
+                    && let Some(kind) = skull_kind(&item.identifier)
+                {
+                    self.push_skull(body, kind, layer, bones.head, &mut layers);
+                    continue;
+                }
                 // A block worn in the helmet slot (a carved pumpkin) sits on the head bone.
                 if slot == ArmorSlot::Helmet
                     && matches!(item.kind, HeldKind::Block(_))
@@ -357,7 +440,98 @@ impl EquipmentRuntime {
         hand: Option<usize>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
+        if self.push_attachable(body, item, layer, hand, layer == LAYER_OFF_HAND, layers) {
+            return;
+        }
         self.push_attached(body, item, layer, hand, None, layers);
+    }
+
+    /// A held item whose attachable ships its own single-bone geometry and a literal
+    /// third-person placement (trident, shield). `false` when the item is not one, or its
+    /// placement is Molang-driven (then the sprite/cube path draws it).
+    fn push_attachable(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        layer: u8,
+        hand: Option<usize>,
+        off_hand: bool,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) -> bool {
+        let (Some(hand), Some(catalog)) = (hand, self.catalog.clone()) else {
+            return false;
+        };
+        let Some(binding) = catalog.binding(&item.identifier) else {
+            return false;
+        };
+        let channels = match binding.category {
+            EquipmentCategory::Held => {
+                binding
+                    .third_person
+                    .literal()
+                    .map(|transform| BoneChannels {
+                        translation: transform.translation.map(|value| value.get()),
+                        rotation: transform.rotation.map(|value| value.get()),
+                        scale: transform.scale.map(|value| value.get()),
+                    })
+            }
+            EquipmentCategory::Shield => {
+                let slot = if off_hand { "off_hand" } else { "main_hand" };
+                binding
+                    .pose(&format!("wield_third_person@{slot}"))
+                    .and_then(|pose| pose.bones.first())
+                    .map(|bone| {
+                        let channel = |value: Option<[assets::ItemDisplayScalar; 3]>, rest: f32| {
+                            value.map_or([rest; 3], |value| value.map(|scalar| scalar.get()))
+                        };
+                        BoneChannels {
+                            translation: channel(bone.translation, 0.0),
+                            rotation: channel(bone.rotation, 0.0),
+                            scale: channel(bone.scale, 1.0),
+                        }
+                    })
+            }
+            _ => None,
+        };
+        let Some(channels) = channels else {
+            return false;
+        };
+        let Some(location) = self
+            .texture_locations
+            .get(binding.texture.identifier.as_ref())
+            .copied()
+        else {
+            return false;
+        };
+        let Some(geometry) = self.armor_geometry_for(&binding.geometry.identifier) else {
+            return false;
+        };
+        // Only single-bone models are placed; a hierarchy needs its parent chain composed.
+        let [pivot] = geometry.pivots[..] else {
+            return false;
+        };
+        let (Some(previous), Some(current)) = (
+            body.input.previous_bones.get(hand),
+            body.input.current_bones.get(hand),
+        ) else {
+            return false;
+        };
+        let (Some(previous), Some(current)) = (
+            attachable::attach(*previous, pivot, channels),
+            attachable::attach(*current, pivot, channels),
+        ) else {
+            return false;
+        };
+        layers.push(layer_presentation(
+            body,
+            layer,
+            geometry.rig,
+            vec![previous],
+            vec![current],
+            location,
+            0,
+        ));
+        true
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
@@ -502,6 +676,38 @@ impl EquipmentRuntime {
         ));
     }
 
+    /// A worn head riding the body's head bone.
+    fn push_skull(
+        &mut self,
+        body: &ActorRigSubmission,
+        kind: SkullKind,
+        layer: u8,
+        head: Option<usize>,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) {
+        let Some(&(rig, location)) = self.skulls.get(&kind_index(kind)) else {
+            return;
+        };
+        let Some(head) = head else {
+            return;
+        };
+        let (Some(previous), Some(current)) = (
+            body.input.previous_bones.get(head),
+            body.input.current_bones.get(head),
+        ) else {
+            return;
+        };
+        layers.push(layer_presentation(
+            body,
+            layer,
+            rig,
+            vec![*previous],
+            vec![*current],
+            location,
+            0,
+        ));
+    }
+
     fn has_armor_binding(&self, identifier: &str) -> bool {
         self.catalog
             .as_ref()
@@ -516,6 +722,7 @@ impl EquipmentRuntime {
             Some(Arc::new(ArmorGeometry {
                 rig: equipment_rig_id(index),
                 names: geometry_bone_names(&self.assets, index as usize)?,
+                pivots: geometry_bone_pivots(&self.assets, index as usize)?,
             }))
         });
         self.armor_geometry.insert(identifier.into(), entry.clone());

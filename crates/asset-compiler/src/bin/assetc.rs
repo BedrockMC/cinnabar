@@ -116,6 +116,9 @@ enum Command {
         /// Ignored/local deterministic JSON provenance report path.
         #[arg(long)]
         report: PathBuf,
+        /// Optional vanilla behavior pack root, read for item use durations.
+        #[arg(long)]
+        behavior_pack: Option<PathBuf>,
     },
     /// Compile bounded bitmap-font metrics and raw RGBA8 texture pages.
     FontAssets {
@@ -448,8 +451,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             source_manifest,
             out,
             report,
+            behavior_pack,
         } => {
-            compile_equipment_assets_command(&pack, &source_manifest, &out, &report)?;
+            compile_equipment_assets_command(
+                &pack,
+                &source_manifest,
+                &out,
+                &report,
+                behavior_pack.as_deref(),
+            )?;
         }
         Command::FontAssets {
             pack,

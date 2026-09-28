@@ -281,3 +281,35 @@ fn elytra_wings_hang_off_the_body_at_their_literal_offsets() {
     assert_eq!(posed[1].axis_scale, [1.0, 1.0, 2.0, 1.0]);
     assert_eq!(posed[2], hidden_bone());
 }
+
+#[test]
+fn head_items_map_to_their_skull_kinds_and_others_to_none() {
+    use render::SkullKind;
+    let kind = super::runtime::skull_kind;
+    assert_eq!(kind("minecraft:zombie_head"), Some(SkullKind::Zombie));
+    assert_eq!(kind("minecraft:skeleton_skull"), Some(SkullKind::Skeleton));
+    assert_eq!(kind("minecraft:player_head"), Some(SkullKind::Player));
+    assert_eq!(kind("minecraft:dragon_head"), None);
+    assert_eq!(kind("minecraft:carved_pumpkin"), None);
+}
+
+#[test]
+fn attachable_bone_sits_at_its_pivot_plus_the_mirrored_literal_offset() {
+    use super::attachable::{BoneChannels, attach};
+    let hand = bone([1.0, 1.0, 1.0], 2.0);
+    let channels = BoneChannels {
+        translation: [16.0, 8.0, -16.0],
+        rotation: [0.0; 3],
+        scale: [1.0, -1.0, -1.0],
+    };
+    let posed = attach(hand, [0.0, 1.5, 0.0], channels).unwrap();
+    // Pivot and offset are in the hand frame, so the hand scale (2) stretches them.
+    assert_eq!(
+        posed.translation_scale,
+        [1.0 - 2.0, 1.0 + 2.0 * (1.5 + 0.5), 1.0 - 2.0, 2.0]
+    );
+    assert_eq!(posed.axis_scale, [1.0, -1.0, -1.0, 1.0]);
+    let mut broken = hand;
+    broken.rotation = [0.0; 4];
+    assert!(attach(broken, [0.0; 3], channels).is_none());
+}
