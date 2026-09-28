@@ -14,9 +14,11 @@ use valentine::bedrock::{
 
 use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
 
+mod display;
 mod icons;
 mod registry_capacity;
 
+pub use display::{ItemDisplay, item_display};
 pub use icons::item_icon_keys;
 
 /// The single item shape 1.26.40 puts on the wire.
