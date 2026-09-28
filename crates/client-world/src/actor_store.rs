@@ -26,6 +26,8 @@ const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
+const FLAG_SNEAKING: u32 = 1;
+const FLAG_SPRINTING: u32 = 3;
 /// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
 /// 64 live in the overflow flag word.
 pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
@@ -145,7 +147,7 @@ impl ActorSnapshot {
             yaw: feed.yaw,
             head_yaw: feed.head_yaw,
         };
-        Self {
+        let mut snapshot = Self {
             unique_id,
             runtime_id,
             spawn_revision: revision,
@@ -169,6 +171,30 @@ impl ActorSnapshot {
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
             status: ActorStatus::default(),
+        };
+        snapshot.apply_local_flags(feed);
+        snapshot
+    }
+
+    /// Overwrites the primary-word flags the client predicts itself.
+    fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
+        self.set_flag(FLAG_SNEAKING, feed.sneaking);
+        self.set_flag(FLAG_SPRINTING, feed.sprinting);
+    }
+
+    /// Sets one primary-word flag bit, creating the flag word when absent.
+    fn set_flag(&mut self, bit: u32, on: bool) {
+        debug_assert!(bit < 64);
+        let entry = self
+            .metadata
+            .entry(0)
+            .or_insert(ActorMetadataValue::Flags(0));
+        if let ActorMetadataValue::Flags(flags) = entry {
+            if on {
+                *flags |= 1_u64 << bit;
+            } else {
+                *flags &= !(1_u64 << bit);
+            }
         }
     }
 
@@ -360,6 +386,9 @@ pub struct LocalPlayerFeed {
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
     pub first_person: bool,
+    /// Predicted movement state; overrides the streamed sneak and sprint flags on the local rig.
+    pub sneaking: bool,
+    pub sprinting: bool,
 }
 
 /// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.

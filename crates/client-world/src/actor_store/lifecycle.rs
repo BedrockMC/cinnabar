@@ -144,6 +144,7 @@ impl ActorStore {
             actor.on_ground = Some(feed.on_ground);
             actor.movement_revision = revision;
             actor.teleported = feed.teleported;
+            actor.apply_local_flags(feed);
             // A zero remaining count lands each tick exactly on the fed pose (no server-style
             // easing), so the body tracks local physics without lag.
             actor.interpolation_ticks_remaining = 0;

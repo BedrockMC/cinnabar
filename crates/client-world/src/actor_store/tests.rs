@@ -1093,7 +1093,24 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         pitch: 0.0,
         teleported: false,
         first_person: false,
+        sneaking: false,
+        sprinting: false,
     }
+}
+
+#[test]
+fn local_feed_overrides_only_the_predicted_sneak_and_sprint_flags() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.sneaking = true;
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.get(1).unwrap().flag(1) && !store.get(1).unwrap().flag(3));
+    feed.sneaking = false;
+    feed.sprinting = true;
+    store.sync_local_player(1, -100, &feed);
+    let actor = store.get(1).unwrap();
+    assert!(!actor.flag(1) && actor.flag(3));
 }
 
 #[test]

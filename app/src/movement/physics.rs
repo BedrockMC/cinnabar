@@ -852,6 +852,13 @@ impl LocalPhysicsController {
         self.state.as_ref()
     }
 
+    /// Processed `(sneaking, sprinting)` of the latest completed tick.
+    #[must_use]
+    pub fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
+        let sample = self.sample_history.back()?;
+        Some((sample.processed.sneaking, sample.processed.sprinting))
+    }
+
     #[must_use]
     pub fn history_len(&self) -> usize {
         self.history.len()
