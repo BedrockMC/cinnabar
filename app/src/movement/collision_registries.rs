@@ -240,11 +240,11 @@ impl PhysicsCollisionRegistries {
     ) -> Option<(Range<u32>, assets::SequentialIdRemap)> {
         let first = u32::try_from(self.sequential_count).ok()?;
         self.sequential.remove_runtime_ids_from(first);
+        self.interaction_blocks.split_off(&first);
         if custom.blocks.is_empty() {
             return Some((first..first, assets::SequentialIdRemap::default()));
         }
         let physics = self.custom_block_physics?;
-        let full_cube = collision_box_to_aabb(FULL_CUBE);
         let mut next = first;
         let mut runs = Vec::new();
         for block in custom.blocks.iter() {
@@ -261,8 +261,13 @@ impl PhysicsCollisionRegistries {
             let vanilla_before = self.vanilla_runs.get(after).map_or(first, |run| run.2);
             let earlier_customs = next - first;
             runs.push((vanilla_before + earlier_customs, block.state_count, next));
+            let binding = (
+                Arc::clone(&block.name),
+                block.collides && block.collision_box.is_none(),
+            );
             for _ in 0..block.state_count {
-                let boxes = block.collides.then_some(full_cube);
+                self.interaction_blocks.insert(next, binding.clone());
+                let boxes = custom_block_box(block);
                 self.sequential
                     .register_primitives(
                         next,
@@ -299,18 +304,18 @@ impl PhysicsCollisionRegistries {
     ) -> Option<usize> {
         for hash in self.session_hashes.drain(..) {
             self.hashed.remove_runtime_id(hash);
+            self.hashed_interaction_blocks.remove(&hash);
         }
         if custom.blocks.is_empty() {
             return Some(0);
         }
         let physics = self.custom_block_physics?;
-        let full_cube = collision_box_to_aabb(FULL_CUBE);
         for block in custom.blocks.iter() {
             for state in block.hashed_states() {
                 if self.hashed.contains_runtime_id(state.hash) {
                     continue;
                 }
-                let boxes = block.collides.then_some(full_cube);
+                let boxes = custom_block_box(block);
                 if self
                     .hashed
                     .register_primitives(
@@ -325,6 +330,13 @@ impl PhysicsCollisionRegistries {
                     )
                     .is_ok()
                 {
+                    self.hashed_interaction_blocks.insert(
+                        state.hash,
+                        (
+                            Arc::clone(&block.name),
+                            block.collides && block.collision_box.is_none(),
+                        ),
+                    );
                     self.session_hashes.push(state.hash);
                 }
             }
@@ -384,6 +396,26 @@ impl PhysicsCollisionRegistries {
     pub const fn breg_sha256(&self) -> [u8; 32] {
         self.breg_sha256
     }
+}
+
+/// The block's collision shape: none when disabled, else its box or a full cube.
+fn custom_block_box(block: &protocol::CustomBlock) -> Option<Aabb> {
+    if !block.collides {
+        return None;
+    }
+    Some(block.collision_box.map_or_else(
+        || collision_box_to_aabb(FULL_CUBE),
+        |shape| {
+            let point = |values: [f32; 3]| {
+                Vec3::new(
+                    f64::from(values[0]),
+                    f64::from(values[1]),
+                    f64::from(values[2]),
+                )
+            };
+            Aabb::new(point(shape.min), point(shape.max))
+        },
+    ))
 }
 
 fn collision_box_to_aabb(collision: assets::CollisionBox) -> Aabb {
@@ -476,6 +508,7 @@ mod tests {
             name: name.into(),
             state_count,
             collides: true,
+            collision_box: None,
             visual: Default::default(),
         }
     }

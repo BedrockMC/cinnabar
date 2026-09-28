@@ -88,6 +88,7 @@ fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBloc
         name: name.into(),
         state_count,
         collides: true,
+        collision_box: None,
         visual: Arc::new(visual),
     }
 }
