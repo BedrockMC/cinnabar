@@ -327,6 +327,41 @@ fn bare_head_rotation_queries_read_zero_and_limited_forms_clamp() {
 }
 
 #[test]
+fn is_first_person_variable_tracks_the_local_camera_context() {
+    let engine = EngineSlots {
+        is_first_person: Some(0),
+        ..EngineSlots::default()
+    };
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    let motion = MotionState::default();
+    let mut variables = MolangVariables::slots(1);
+    let first_person = ActorTickContext {
+        is_local_first_person: true,
+        ..ActorTickContext::default()
+    };
+    tick::apply_engine_variables(
+        &engine,
+        &mut variables,
+        &actor,
+        &first_person,
+        &input,
+        &motion,
+    );
+    assert_eq!(variables.number_at(0), Some(1.0));
+    let third_person = ActorTickContext::default();
+    tick::apply_engine_variables(
+        &engine,
+        &mut variables,
+        &actor,
+        &third_person,
+        &input,
+        &motion,
+    );
+    assert_eq!(variables.number_at(0), Some(0.0));
+}
+
+#[test]
 fn loop_counts_run_their_ceiling_up_to_the_bound_and_skip_when_not_positive() {
     use evaluation::loop_iterations;
     assert_eq!(loop_iterations(2.5), Some(3));

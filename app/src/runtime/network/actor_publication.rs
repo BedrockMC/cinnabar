@@ -63,7 +63,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         *published_session = session_id;
     }
     let step = actor_clock.advance(time.delta());
-    let local_feed = build_local_player_feed(&local_physics, view.rotation());
+    let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let local_feed = build_local_player_feed(&local_physics, view.rotation(), first_person);
     if let Some(stream) = client_world.stream.as_mut() {
         // Feed the client-authored local pose before the tick advance and rig read so the
         // local body/hand are driven by the shared rig, not the static fallback.
@@ -205,6 +206,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
 fn build_local_player_feed(
     physics: &crate::movement::LocalPhysicsController,
     look: bevy::math::Quat,
+    first_person: bool,
 ) -> Option<LocalPlayerFeed> {
     let state = physics.state()?;
     let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
@@ -239,5 +241,6 @@ fn build_local_player_feed(
         head_yaw: yaw_degrees,
         pitch: pitch_degrees,
         teleported: false,
+        first_person,
     })
 }

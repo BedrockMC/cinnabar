@@ -11,6 +11,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) ridden: Option<Arc<str>>,
     pub(crate) has_rider: bool,
     pub(crate) has_player_rider: bool,
+    /// The local player rendered from its own camera; selects the first-person render controller.
+    pub(crate) is_local_first_person: bool,
 }
 
 // Babies' legs cycle faster by this factor; needs independent measurement.
@@ -188,7 +190,7 @@ pub(super) fn evaluate_state(
 }
 
 /// Refreshes the variables the client assigns every tick before `pre_animation`.
-fn apply_engine_variables(
+pub(super) fn apply_engine_variables(
     engine: &EngineSlots,
     variables: &mut MolangVariables,
     actor: &ActorSnapshot,
@@ -220,6 +222,7 @@ fn apply_engine_variables(
         engine.damage_nearby_mobs,
         flag(query::FLAG_DAMAGE_NEARBY_MOBS),
     );
+    variables.set(engine.is_first_person, truth(context.is_local_first_person));
 }
 
 /// A clip to sample, its blend weight, and the animation tick its controller state began.
