@@ -186,7 +186,10 @@ impl SignEdit {
     pub(crate) fn into_encoded_nbt(self) -> Vec<u8> {
         let text = self.text();
         let mut root = self.base;
-        root.insert("id", NbtValue::String("Sign".into()));
+        // Hanging signs keep their own block-entity id.
+        if root.string("id").is_none() {
+            root.insert("id", NbtValue::String("Sign".into()));
+        }
         for (axis, value) in ["x", "y", "z"].into_iter().zip(self.position) {
             root.insert(axis, NbtValue::Int(value));
         }
