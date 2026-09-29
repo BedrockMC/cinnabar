@@ -15,6 +15,7 @@
 
 use serde_json::Value;
 
+use crate::anim::{self, Chain, Fade};
 use crate::expr::{self, AxisContext, Length, Resolved};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
@@ -82,6 +83,8 @@ pub struct LaidOut<'a> {
     /// Absolute draw layer (the parent's plus this control's own).
     pub layer: i32,
     pub alpha: f32,
+    /// Animations scaling `alpha` at paint time, own and propagated.
+    pub fades: Vec<Fade>,
     pub visible: bool,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
@@ -120,7 +123,15 @@ pub fn layout_with<'a>(
         ancestors: Vec::new(),
     };
     let key = child_key("", root);
-    let laid = place_subtree(root, key, rect, screen, 0, true, &mut ctx);
+    let laid = place_subtree(
+        root,
+        key,
+        rect,
+        screen,
+        (0, true),
+        &Inherited::default(),
+        &mut ctx,
+    );
     (laid, ctx.report)
 }
 
@@ -153,16 +164,57 @@ fn child_key(parent: &str, control: &ResolvedControl) -> String {
     key
 }
 
+/// What a control takes from its ancestors: the creation time of the nearest
+/// factory instance, and a `propagate_alpha` parent's alpha and fades.
+#[derive(Clone, Default)]
+struct Inherited {
+    alpha: Option<f32>,
+    fades: Vec<Fade>,
+    born: f64,
+}
+
+impl Inherited {
+    /// This control's alpha and fades, and what its children inherit.
+    fn apply(&self, control: &ResolvedControl) -> (f32, Vec<Fade>, Inherited) {
+        let born = widgets::bound_number(control, anim::BORN_KEY).unwrap_or(self.born);
+        let rest = alpha(control);
+        let mut fades = self.fades.clone();
+        if let Some(Value::Array(chains)) = control.properties.get(anim::CHAINS_KEY) {
+            fades.extend(chains.iter().filter_map(|chain| {
+                serde_json::from_value::<Chain>(chain.clone())
+                    .ok()
+                    .map(|chain| Fade { chain, rest, born })
+            }));
+        }
+        let own = rest * self.alpha.unwrap_or(1.0);
+        let propagate = matches!(
+            control.properties.get("propagate_alpha"),
+            Some(Value::Bool(true))
+        );
+        let children = Inherited {
+            alpha: if propagate { Some(own) } else { self.alpha },
+            fades: if propagate {
+                fades.clone()
+            } else {
+                self.fades.clone()
+            },
+            born,
+        };
+        (own, fades, children)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn place_subtree<'a>(
     control: &'a ResolvedControl,
     key: String,
     rect: Rect,
     parent_clip: Rect,
-    parent_layer: i32,
-    shown: bool,
+    (parent_layer, shown): (i32, bool),
+    inherited: &Inherited,
     ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
+    let (own_alpha, fades, inherit) = inherited.apply(control);
     let child_clip = if clip_children(control) {
         parent_clip.intersect(rect)
     } else {
@@ -220,8 +272,8 @@ fn place_subtree<'a>(
             next_key,
             child_rect,
             clip_for_child,
-            absolute_layer,
-            child_shown,
+            (absolute_layer, child_shown),
+            &inherit,
             ctx,
         ));
     }
@@ -242,7 +294,8 @@ fn place_subtree<'a>(
         rect,
         clip: parent_clip,
         layer: absolute_layer,
-        alpha: alpha(control),
+        alpha: own_alpha,
+        fades,
         visible: shown && visible(control),
         children,
     }
@@ -423,8 +476,8 @@ fn stack_children<'a>(
         let off = offset(child, parent_rect, env);
         let main_pos = cursor + axis_pick(off, main);
         let cross_pos = axis_min(parent_rect, cross)
-            + parent_cross * anchor_frac(anchor_to(child), cross)
-            - cross_size * anchor_frac(anchor_from(child), cross)
+            + parent_cross * anchor_frac(anchor_from(child), cross)
+            - cross_size * anchor_frac(anchor_to(child), cross)
             + axis_pick(off, cross);
         placed.push((
             child,
@@ -435,7 +488,8 @@ fn stack_children<'a>(
     placed
 }
 
-/// The child's rect from its resolved size and anchor/offset within `parent_rect`.
+/// The child's rect from its resolved size and anchor/offset within `parent_rect`:
+/// its `anchor_to` point lands on the parent's `anchor_from` point.
 fn place_by_anchor(
     control: &ResolvedControl,
     parent_rect: Rect,
@@ -445,11 +499,11 @@ fn place_by_anchor(
     let from = anchor_from(control);
     let to = anchor_to(control);
     let off = offset(control, parent_rect, env);
-    let x = parent_rect.x + parent_rect.w * anchor_frac(to, Axis::X)
-        - size[0] * anchor_frac(from, Axis::X)
+    let x = parent_rect.x + parent_rect.w * anchor_frac(from, Axis::X)
+        - size[0] * anchor_frac(to, Axis::X)
         + off[0];
-    let y = parent_rect.y + parent_rect.h * anchor_frac(to, Axis::Y)
-        - size[1] * anchor_frac(from, Axis::Y)
+    let y = parent_rect.y + parent_rect.h * anchor_frac(from, Axis::Y)
+        - size[1] * anchor_frac(to, Axis::Y)
         + off[1];
     Rect::new(x, y, size[0], size[1])
 }
@@ -483,7 +537,16 @@ fn resolve_size(
         Axis::Y,
     );
     let height = pixels_or(length(control, Axis::Y).eval(&height_ctx), parent_rect.h);
-    clamp_bounds(control, parent_rect, [width, height], content, nat, env)
+    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, env);
+    for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
+        .into_iter()
+        .enumerate()
+    {
+        if matches!(control.properties.get(key), Some(Value::Bool(true))) {
+            size[index] = size[index].max(sibling_max[index]);
+        }
+    }
+    size
 }
 
 fn clamp_bounds(
@@ -644,11 +707,24 @@ fn natural(control: &ResolvedControl, env: &LayoutEnv, width: Option<f64>) -> Op
     }
 }
 
-/// A label's `font_scale_factor` (1 when absent or non-positive).
+/// A label's glyph scale: `font_scale_factor` (1 when absent or non-positive)
+/// times its `font_size` step.
 pub(crate) fn font_scale(control: &ResolvedControl) -> f64 {
-    widgets::bound_number(control, "font_scale_factor")
+    let factor = widgets::bound_number(control, "font_scale_factor")
         .filter(|scale| *scale > 0.0)
-        .unwrap_or(1.0)
+        .unwrap_or(1.0);
+    factor * font_size_scale(control)
+}
+
+/// Glyph scale of a `font_size` (small/normal/large/extra_large); needs native
+/// measurement of the client's font-size table.
+fn font_size_scale(control: &ResolvedControl) -> f64 {
+    match control.properties.get("font_size").and_then(Value::as_str) {
+        Some("small") => 0.75,
+        Some("large") => 1.5,
+        Some("extra_large") => 2.0,
+        _ => 1.0,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -694,8 +770,9 @@ fn length(control: &ResolvedControl, axis: Axis) -> Length {
         }
         _ => None,
     };
+    let is_grid = control.control_type.as_deref() == Some("grid");
     match explicit {
-        Some(Length::Default) | None if stack_axis(control) == Some(axis) => {
+        Some(Length::Default) | None if stack_axis(control) == Some(axis) || is_grid => {
             expr::parse_length("100%c").unwrap_or(Length::Default)
         }
         Some(length) => length,

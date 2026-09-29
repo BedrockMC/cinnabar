@@ -6,6 +6,7 @@
 
 use serde_json::{Map, Value};
 
+use crate::anim;
 use crate::catalog::{Catalog, RawControl, child_controls};
 use crate::env::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
 use crate::merge::{deep_merge_control, flatten_def};
@@ -13,6 +14,8 @@ use crate::predicate;
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 const MAX_DEPTH: usize = 256;
+/// Property recording the `$vars` a factory's or grid's created controls see.
+pub(crate) const FACTORY_SCOPE: &str = "factory_scope";
 const MAX_NODES: usize = 200_000;
 
 /// Drives resolution over one [`Catalog`], accumulating diagnostics.
@@ -20,6 +23,8 @@ pub struct Resolver<'a> {
     catalog: &'a Catalog,
     diagnostics: Vec<String>,
     nodes: usize,
+    /// The scope resolution started in; a factory records what it adds to it.
+    root: Option<Env>,
 }
 
 impl<'a> Resolver<'a> {
@@ -28,6 +33,7 @@ impl<'a> Resolver<'a> {
             catalog,
             diagnostics: Vec::new(),
             nodes: 0,
+            root: None,
         }
     }
 
@@ -51,6 +57,9 @@ impl<'a> Resolver<'a> {
         name: &str,
         root_env: &Env,
     ) -> Option<ResolvedControl> {
+        if self.root.is_none() {
+            self.root = Some(root_env.clone());
+        }
         let (control, provenance) = flatten_def(
             self.catalog,
             namespace,
@@ -79,7 +88,11 @@ impl<'a> Resolver<'a> {
             .and_then(value_string);
         let (factory, control_ids_consumed) =
             self.extract_factory(control, control_type.as_deref(), env);
-        let properties = build_properties(control, env, control_ids_consumed, &mut missing);
+        let mut properties = build_properties(control, env, control_ids_consumed, &mut missing);
+        self.resolve_anims(&mut properties, env);
+        if factory.is_some() || properties.contains_key("grid_item_template") {
+            properties.insert(FACTORY_SCOPE.to_owned(), self.local_scope(env));
+        }
         if !missing.is_empty() {
             missing.sort();
             missing.dedup();
@@ -99,6 +112,41 @@ impl<'a> Resolver<'a> {
             properties,
             children,
             factory,
+        }
+    }
+
+    /// The variables `env` holds beyond the root scope, which the controls a
+    /// factory or grid creates resolve with, as they would inside it.
+    fn local_scope(&self, env: &Env) -> Value {
+        let root = self.root.as_ref();
+        Value::Object(
+            env.iter()
+                .filter(|(name, value)| root.and_then(|root| root.get(name)) != Some(*value))
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect(),
+        )
+    }
+
+    /// Replace `@anim` references in `alpha`/`anims` with their resolved chains.
+    fn resolve_anims(&self, properties: &mut std::collections::BTreeMap<String, Value>, env: &Env) {
+        let mut chains = Vec::new();
+        if let Some(Value::String(reference)) = properties.get("alpha")
+            && reference.starts_with('@')
+        {
+            chains.extend(anim::resolve_chain(self.catalog, reference, env));
+            properties.remove("alpha");
+        }
+        if let Some(Value::Array(items)) = properties.get("anims") {
+            for reference in items.iter().filter_map(Value::as_str) {
+                if reference.starts_with('@') {
+                    chains.extend(anim::resolve_chain(self.catalog, reference, env));
+                }
+            }
+        }
+        if !chains.is_empty()
+            && let Ok(value) = serde_json::to_value(chains)
+        {
+            properties.insert(anim::CHAINS_KEY.to_owned(), value);
         }
     }
 
@@ -263,23 +311,39 @@ impl<'a> Resolver<'a> {
                 .get("control_name")
                 .and_then(Value::as_str)
                 .map(|reference| parse_reference(reference, owner, env));
+            let max_children_size = spec
+                .get("max_children_size")
+                .and_then(Value::as_u64)
+                .map(|max| max as usize);
             let factory = Factory {
                 name,
                 control_ids,
                 control_name,
+                max_children_size,
             };
             if !factory.is_empty() || factory.name.is_some() {
                 return (Some(factory), false);
             }
         }
+        // A `type: "factory"` control is its own factory, named by its instance.
         if control_type == Some("factory") {
             let control_ids = control_id_map(control.props.get("control_ids"), owner, env);
-            if !control_ids.is_empty() {
+            let control_name = control
+                .props
+                .get("control_name")
+                .and_then(Value::as_str)
+                .map(|reference| parse_reference(reference, owner, env));
+            if !control_ids.is_empty() || control_name.is_some() {
                 return (
                     Some(Factory {
-                        name: None,
+                        name: Some(instance_name(&control.name, env)),
                         control_ids,
-                        control_name: None,
+                        control_name,
+                        max_children_size: control
+                            .props
+                            .get("max_children_size")
+                            .and_then(Value::as_u64)
+                            .map(|max| max as usize),
                     }),
                     true,
                 );

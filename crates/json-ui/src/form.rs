@@ -397,6 +397,19 @@ impl ControlLibrary for CatalogLibrary<'_> {
         let name = format!("{}.{}", reference.namespace, reference.name);
         resolve(self.catalog, &name, self.context).control
     }
+
+    fn resolve_with(
+        &self,
+        reference: &ControlRef,
+        vars: &std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Option<ResolvedControl> {
+        let mut context = self.context.clone();
+        for (name, value) in vars {
+            context = context.with_var(name.trim_start_matches('$'), value.clone());
+        }
+        let name = format!("{}.{}", reference.namespace, reference.name);
+        resolve(self.catalog, &name, &context).control
+    }
 }
 
 /// Resolve the model's template and bind it against the mapped data source,

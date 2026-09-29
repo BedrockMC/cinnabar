@@ -30,6 +30,10 @@ impl Env {
     pub fn set(&mut self, name: impl Into<String>, value: Value) {
         self.vars.insert(name.into(), value);
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> {
+        self.vars.iter()
+    }
 }
 
 /// Apply a control's `$decl` properties onto `env`. A `$x|default` fills `x` only

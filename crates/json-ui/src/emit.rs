@@ -108,6 +108,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
+    /// Animations scaling `alpha`, evaluated by the caller at paint time.
+    #[serde(default)]
+    pub fades: Vec<crate::anim::Fade>,
     pub draw: Draw,
 }
 
@@ -147,6 +150,7 @@ fn collect(
                 clip: node.clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
+                fades: node.fades.clone(),
                 draw,
             },
         ));
@@ -181,6 +185,31 @@ fn sprite_draws(
 ) -> Vec<(Rect, Draw)> {
     let color = color_of(control, [255, 255, 255, 255]);
     let meta = env.textures.texture(path);
+    if let Some(source) = uv_rect(control, meta.as_ref()) {
+        return vec![(
+            rect,
+            Draw::Sprite {
+                texture: path.to_owned(),
+                uv: source,
+                color,
+            },
+        )];
+    }
+    if let (Some(axes), Some(meta)) = (tiled_axes(control), meta.as_ref()) {
+        return tiles(rect, meta.base_size, axes)
+            .into_iter()
+            .map(|(dest, uv)| {
+                (
+                    dest,
+                    Draw::Sprite {
+                        texture: path.to_owned(),
+                        uv,
+                        color,
+                    },
+                )
+            })
+            .collect();
+    }
     match meta {
         Some(meta) if meta.nineslice.is_some() => nine_slice(rect, &meta)
             .into_iter()
@@ -204,6 +233,71 @@ fn sprite_draws(
             },
         )],
     }
+}
+
+/// A literal `uv`/`uv_size` sub-rect of the texture, normalised.
+fn uv_rect(control: &ResolvedControl, meta: Option<&TextureMeta>) -> Option<UvRect> {
+    let pair = |key: &str| {
+        let items = control.properties.get(key)?.as_array()?;
+        Some([items.first()?.as_f64()?, items.get(1)?.as_f64()?])
+    };
+    let [u, v] = pair("uv")?;
+    let [w, h] = pair("uv_size")?;
+    let [bw, bh] = meta?.base_size;
+    if bw <= 0.0 || bh <= 0.0 {
+        return None;
+    }
+    Some(UvRect {
+        u0: (u / bw) as f32,
+        v0: (v / bh) as f32,
+        u1: ((u + w) / bw) as f32,
+        v1: ((v + h) / bh) as f32,
+    })
+}
+
+/// `tiled`: `true` or `"xy"` repeats on both axes, `"x"`/`"y"` on one.
+fn tiled_axes(control: &ResolvedControl) -> Option<[bool; 2]> {
+    match control.properties.get("tiled")? {
+        Value::Bool(true) => Some([true, true]),
+        Value::String(axes) if axes == "x" => Some([true, false]),
+        Value::String(axes) if axes == "y" => Some([false, true]),
+        Value::String(axes) if axes == "xy" || axes == "true" => Some([true, true]),
+        _ => None,
+    }
+}
+
+/// Repeat a `base`-sized texture across `rect` on the tiled axes, cropping the
+/// last tile; an untiled axis stretches.
+fn tiles(rect: Rect, base: [f64; 2], axes: [bool; 2]) -> Vec<(Rect, UvRect)> {
+    const MAX_TILES: usize = 4096;
+    let spans = |start: f64, length: f64, tile: f64, tiled: bool| {
+        if !tiled || tile <= 0.0 {
+            return vec![(start, length, 1.0f32)];
+        }
+        let mut out = Vec::new();
+        let mut at = 0.0;
+        while at < length && out.len() < MAX_TILES {
+            let span = tile.min(length - at);
+            out.push((start + at, span, (span / tile) as f32));
+            at += tile;
+        }
+        out
+    };
+    let mut quads = Vec::new();
+    for (y, h, v) in spans(rect.y, rect.h, base[1], axes[1]) {
+        for (x, w, u) in spans(rect.x, rect.w, base[0], axes[0]) {
+            quads.push((
+                Rect::new(x, y, w, h),
+                UvRect {
+                    u0: 0.0,
+                    v0: 0.0,
+                    u1: u,
+                    v1: v,
+                },
+            ));
+        }
+    }
+    quads
 }
 
 fn text_draw(control: &ResolvedControl) -> Draw {
