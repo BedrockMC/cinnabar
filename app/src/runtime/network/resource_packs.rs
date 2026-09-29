@@ -23,6 +23,8 @@ pub struct PackApplication {
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
+    /// Installed only once the session's Bootstrap is accepted.
+    pub(crate) server_sounds: Option<Arc<crate::audio::ServerSoundPack>>,
 }
 
 impl Default for PackApplication {
@@ -36,6 +38,7 @@ impl Default for PackApplication {
             entities: None,
             property_defaults: Vec::new(),
             server_ui: None,
+            server_sounds: None,
         }
     }
 }
@@ -59,7 +62,6 @@ pub(super) fn prepare_pack_application(
     hashed_block_ids: bool,
 ) -> PackApplication {
     if handoff.is_empty() {
-        crate::audio::publish_server_sounds(None);
         super::item_diagnostics::session_icons(icon_keys.len(), None);
         return PackApplication::default();
     }
@@ -72,7 +74,6 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
-    crate::audio::publish_server_sounds(Some(&view));
     let block_overlay = cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
         compile_block_overlay(
             &view,
@@ -96,6 +97,7 @@ pub(super) fn prepare_pack_application(
         entities: super::entity_pack::compile_session_entities(&stack, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
         server_ui: collect_server_ui(&view),
+        server_sounds: crate::audio::ServerSoundPack::from_view(&view).map(Arc::new),
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }
@@ -572,8 +574,18 @@ mod tests {
 
     use super::ResourcePackAdmissionState;
 
+    /// Serializes tests that go through the process-wide block overlay cache.
+    static OVERLAY_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn overlay_cache() -> std::sync::MutexGuard<'static, ()> {
+        OVERLAY_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     #[test]
     fn absent_or_rejected_application_preserves_optional_admission() {
+        let _cache = overlay_cache();
         let application = super::prepare_pack_application(
             protocol::ResourcePackHandoff::default(),
             &protocol::CustomBlocks::default(),
@@ -607,16 +619,19 @@ mod tests {
     }
 
     fn lang_pack(id: u128, lang: &[u8]) -> protocol::ResourcePackArchive {
+        archive(id, &[("texts/en_US.lang", lang)])
+    }
+
+    fn archive(id: u128, files: &[(&str, &[u8])]) -> protocol::ResourcePackArchive {
         use std::io::Write;
         let id = format!("00000000-0000-0000-0000-{id:012x}");
         let manifest = format!(
             r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
         );
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        for (path, bytes) in [
-            ("manifest.json", manifest.as_bytes()),
-            ("texts/en_US.lang", lang),
-        ] {
+        for (path, bytes) in
+            std::iter::once(("manifest.json", manifest.as_bytes())).chain(files.iter().copied())
+        {
             writer
                 .start_file(path, zip::write::SimpleFileOptions::default())
                 .unwrap();
@@ -657,6 +672,28 @@ mod tests {
         ))
     }
 
+    // A cancelled session's late preparation must not replace the live session's sounds.
+    #[test]
+    fn preparing_packs_leaves_sound_publication_to_bootstrap() {
+        let _cache = overlay_cache();
+        let _mailbox = crate::audio::SERVER_SOUNDS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let before = crate::audio::server_sounds_generation();
+        let sounds = br#"{"sound_definitions":{"custom.beep":{"sounds":["sounds/beep"]}}}"#;
+        let application = super::prepare_pack_application(
+            protocol::ResourcePackHandoff::from_archives(vec![archive(
+                3,
+                &[("sounds/sound_definitions.json", sounds)],
+            )]),
+            &protocol::CustomBlocks::default(),
+            &[],
+            false,
+        );
+        assert_eq!(crate::audio::server_sounds_generation(), before);
+        assert!(application.server_sounds.is_some(), "carried to Bootstrap");
+    }
+
     // A texture set resolves to its sibling color image or a solid color.
     #[test]
     fn texture_sets_supply_color_layers() {
@@ -688,6 +725,7 @@ mod tests {
     // Higher packs override shared keys; keys only a lower pack defines survive.
     #[test]
     fn language_files_merge_across_the_stack_by_precedence() {
+        let _cache = overlay_cache();
         let handoff = protocol::ResourcePackHandoff::from_archives(vec![
             lang_pack(2, b"\xef\xbb\xbfshared=bottom\nbottom.only=B"),
             lang_pack(1, b"shared=top\ntop.only=T"),
@@ -707,6 +745,7 @@ mod tests {
     // The same stack and blocks reuse the compiled overlay instead of recompiling.
     #[test]
     fn overlay_cache_reuses_the_previous_session_compile() {
+        let _cache = overlay_cache();
         let blocks = protocol::CustomBlocks {
             blocks: vec![protocol::CustomBlock {
                 name: "cache:test".into(),

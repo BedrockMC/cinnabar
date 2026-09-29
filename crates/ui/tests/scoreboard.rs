@@ -290,6 +290,58 @@ fn oversized_incoming_score_batch_is_rejected_before_duplicate_key_staging() {
     assert_eq!(store.diagnostics().score_event_limit_rejections, 1);
 }
 
+// An objective-less removal clears the entry everywhere, alongside its siblings.
+#[test]
+fn objective_less_removal_clears_the_entry_from_every_objective() {
+    let mut store = ScoreboardStore::default();
+    store.apply(1, display("sidebar", "kills", 0)).unwrap();
+    store.apply(2, display("list", "deaths", 0)).unwrap();
+    let scores = [
+        score("kills", 7, 5, ScoreOwner::None),
+        score("deaths", 7, 2, ScoreOwner::None),
+        score("kills", 8, 1, ScoreOwner::None),
+    ];
+    store
+        .apply(
+            3,
+            ScoreboardEvent::Scores {
+                entries: Arc::from(scores),
+            },
+        )
+        .unwrap();
+    let everywhere = ScoreEntry {
+        action: ScoreAction::RemoveFromAll,
+        ..removed("", 7)
+    };
+    assert_eq!(
+        store.apply(
+            4,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([everywhere.clone(), score("kills", 9, 3, ScoreOwner::None)]),
+            }
+        ),
+        Ok(RetainedUiApply::Applied)
+    );
+    let ids = |rows: &[ui::ScoreRow]| {
+        rows.iter()
+            .map(|row| row.identity.entry_id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&store.sidebar().unwrap().rows), [8, 9]);
+    assert!(store.list().unwrap().rows.is_empty());
+    assert_eq!(store.score_count(), 2);
+    assert_eq!(
+        store.apply(
+            5,
+            ScoreboardEvent::Scores {
+                entries: Arc::from([everywhere])
+            }
+        ),
+        Ok(RetainedUiApply::Ignored)
+    );
+    assert_eq!(store.diagnostics().missing_scores, 1);
+}
+
 #[test]
 fn malformed_or_missing_score_siblings_reject_the_whole_event() {
     let mut store = ScoreboardStore::default();

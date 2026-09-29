@@ -169,11 +169,29 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
     world
         .run_system_once(super::prepare_actor_resources)
         .unwrap();
-    assert!(!world.resource::<ActorGpu>().artwork_current);
-    assert_eq!(world.resource::<ActorGpu>().artwork.pages.len(), 1);
+    // A session pack's artwork replaces the old generation instead of hiding neutral pages.
+    let gpu = world.resource::<ActorGpu>();
+    assert!(gpu.artwork_current);
+    assert_eq!(gpu.artwork_identity, [3; 32]);
+    assert_eq!(gpu.artwork.pages.len(), 1);
+    assert!(gpu.artwork.pages[0].bind_group.is_none());
     let now = std::time::Instant::now();
     assert!(!gate.publish_reserved(old, now, now));
     assert!(gate.drain().is_empty());
+
+    let mut next = world
+        .resource::<crate::actor::ActorRenderFrame>()
+        .artwork
+        .as_ref()
+        .clone();
+    next.entity_identity = [5; 32];
+    world
+        .resource_mut::<crate::actor::ActorRenderFrame>()
+        .artwork = Arc::new(next);
+    world
+        .run_system_once(super::prepare_actor_resources)
+        .unwrap();
+    assert!(world.resource::<ActorGpu>().artwork_current);
 }
 
 fn app_with_noop_render_sub_app() -> App {

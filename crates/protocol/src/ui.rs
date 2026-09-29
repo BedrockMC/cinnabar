@@ -228,6 +228,8 @@ pub enum ObjectiveEvent {
 pub enum ScoreAction {
     Change,
     Remove,
+    /// A removal without an objective: the entry leaves every objective.
+    RemoveFromAll,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -516,15 +518,21 @@ pub(crate) fn normalize_score(packet: SetScorePacket) -> Result<UiEvent, UiPacke
         .score_info
         .into_iter()
         .map(|entry| match entry {
-            SetScorePacketScoreInfoItem::RemoveScore(entry) => Ok(ScoreEntry {
-                action: ScoreAction::Remove,
-                scoreboard_id: entry.scoreboard_id.scoreboard_id,
+            SetScorePacketScoreInfoItem::RemoveScore(entry) => {
                 // A removal carries an optional objective name and nothing
                 // else, so there is no score or identity to report.
-                objective_name: bounded_text(entry.objective_name.flatten().unwrap_or_default())?,
-                score: 0,
-                identity: ScoreIdentity::None,
-            }),
+                let objective = entry.objective_name.flatten();
+                Ok(ScoreEntry {
+                    action: match objective {
+                        Some(_) => ScoreAction::Remove,
+                        None => ScoreAction::RemoveFromAll,
+                    },
+                    scoreboard_id: entry.scoreboard_id.scoreboard_id,
+                    objective_name: bounded_text(objective.unwrap_or_default())?,
+                    score: 0,
+                    identity: ScoreIdentity::None,
+                })
+            }
             SetScorePacketScoreInfoItem::ChangePlayerScore(entry) => Ok(ScoreEntry {
                 action: ScoreAction::Change,
                 scoreboard_id: entry.scoreboard_id.scoreboard_id,

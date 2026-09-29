@@ -542,6 +542,7 @@ pub(crate) fn receive_network_events(
                     packs.glyph_sheets,
                     client_world.fatal_error.is_none(),
                 );
+                crate::audio::publish_server_sounds(packs.server_sounds);
                 ui_runtime.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,
