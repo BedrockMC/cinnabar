@@ -407,6 +407,11 @@ impl AccountControl for LauncherAccount {
         Some(MenuProfile {
             gamertag: profile.gamertag,
             picture_path: profile.gamerpic.path,
+            real_name: profile.real_name,
+            presence: profile.presence_text,
+            gamerscore: profile.gamerscore,
+            friends: profile.friends,
+            followers: profile.followers,
         })
     }
 }

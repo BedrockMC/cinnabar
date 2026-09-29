@@ -65,9 +65,14 @@ type Gathering struct {
 
 // Profile is the signed-in account as the start and profile screens show it.
 type Profile struct {
-	Gamertag string `json:"gamertag"`
-	XUID     string `json:"xuid"`
-	Gamerpic Image  `json:"gamerpic"`
+	Gamertag     string `json:"gamertag"`
+	XUID         string `json:"xuid"`
+	Gamerpic     Image  `json:"gamerpic"`
+	RealName     string `json:"real_name,omitempty"`
+	PresenceText string `json:"presence_text,omitempty"`
+	Gamerscore   int64  `json:"gamerscore"`
+	Friends      int    `json:"friends"`
+	Followers    int    `json:"followers"`
 }
 
 // FeaturedServers lists the featured servers from the gatherings service.
@@ -123,13 +128,25 @@ func AccountProfile(ctx context.Context, src oauth2.TokenSource) (Profile, error
 	defer xbl.Close()
 	info := xbl.UserInfo()
 	profile := Profile{Gamertag: info.GamerTag, XUID: info.XUID}
-	if user, err := xbl.Social().UserByXUID(ctx, info.XUID); err == nil {
+	social := xbl.Social()
+	if user, err := social.UserByXUID(ctx, info.XUID); err == nil {
 		if validArtworkURL(user.DisplayPictureRawURL) {
 			profile.Gamerpic.URL = user.DisplayPictureRawURL
 		}
 		if profile.Gamertag == "" {
 			profile.Gamertag = strings.TrimSpace(user.GamerTag)
 		}
+		profile.RealName = strings.TrimSpace(user.RealName)
+		profile.PresenceText = strings.TrimSpace(user.PresenceText)
+		if score, err := user.GamerScore.Int64(); err == nil && score > 0 {
+			profile.Gamerscore = score
+		}
+	}
+	if friends, err := social.Friends(ctx); err == nil {
+		profile.Friends = len(friends)
+	}
+	if followers, err := social.Followers(ctx); err == nil {
+		profile.Followers = len(followers)
 	}
 	return profile, nil
 }

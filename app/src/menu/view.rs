@@ -86,6 +86,11 @@ pub(crate) struct MenuGameCard {
 pub(crate) struct MenuProfile {
     pub(crate) gamertag: String,
     pub(crate) picture_path: String,
+    pub(crate) real_name: String,
+    pub(crate) presence: String,
+    pub(crate) gamerscore: i64,
+    pub(crate) friends: u32,
+    pub(crate) followers: u32,
 }
 
 /// Service feed data beyond the catalog cards: featured-server details keyed
