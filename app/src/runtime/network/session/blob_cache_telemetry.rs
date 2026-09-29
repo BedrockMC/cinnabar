@@ -27,7 +27,7 @@ pub(super) fn try_emit_blob_cache_telemetry<S: NetworkSession>(
     }
 }
 
-async fn send_final_blob_cache_telemetry<S: NetworkSession>(
+pub(super) async fn send_final_blob_cache_telemetry<S: NetworkSession>(
     session: &S,
     control_event_tx: &mpsc::Sender<NetworkControlEvent>,
 ) -> bool {

@@ -39,6 +39,8 @@ pub(crate) enum Widget {
     BookPage {
         next: bool,
     },
+    /// A book reader or editor button.
+    Reader(super::ReaderButton),
 }
 
 pub(crate) const STONECUTTER_COLUMNS: usize = 4;

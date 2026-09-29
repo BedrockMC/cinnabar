@@ -78,7 +78,7 @@ use retained_hud::{
     ScoreboardOwnerNameAuthority,
 };
 use startup::{StartupPresentationState, StartupReadinessInput};
-use text_metrics::{TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextMetrics};
+use text_metrics::{FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64, TextMetrics};
 pub(crate) use texture_atlas::IconRef;
 use texture_atlas::{
     HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,

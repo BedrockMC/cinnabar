@@ -739,7 +739,7 @@ mod tests {
     fn preset_only_set_is_counted_not_applied() {
         let mut view = ServerCameraView::default();
         view.apply(1, &set_event(empty_set()), &ctx(Transform::IDENTITY));
-        assert!(!view.has_pose_override(&ctx(Transform::IDENTITY)));
+        assert!(!view.has_pose_override());
         assert_eq!(view.skips().unresolved_presets, 1);
     }
 
@@ -840,7 +840,7 @@ mod tests {
         view.apply(1, &set_event(empty_set()), &ctx(Transform::IDENTITY));
         view.apply(2, &set_event(set), &ctx(Transform::IDENTITY));
         view.observe_resets(1);
-        assert!(!view.has_pose_override(&ctx(Transform::IDENTITY)));
+        assert!(!view.has_pose_override());
         assert_eq!(view.skips().unresolved_presets, 1);
     }
 

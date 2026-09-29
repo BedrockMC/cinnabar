@@ -192,7 +192,7 @@ pub(super) fn update_screen_overlays(
     } else {
         0.0
     };
-    let goal = |on: bool| if on { 1.0 } else { 0.0 };
+    let goal = |on: bool| if on { 1.0_f32 } else { 0.0 };
     vision.nausea = approach(vision.nausea, goal(active[0]).max(portal.value()), step);
     vision.blindness = approach(vision.blindness, goal(active[1]), step);
     vision.night_vision = approach(vision.night_vision, goal(active[2]), step);

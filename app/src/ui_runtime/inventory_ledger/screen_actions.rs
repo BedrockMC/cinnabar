@@ -23,14 +23,23 @@ pub enum ScreenCraft {
     /// Anvil result; `rename` is the typed item name, if any.
     Anvil {
         rename: Option<Arc<str>>,
+        multi_recipe_id: u32,
     },
-    Grindstone,
+    Grindstone {
+        recipe_network_id: i32,
+        repair_cost: i32,
+    },
     Loom {
         pattern: Arc<str>,
     },
     /// A recipe-selected screen: stonecutter, smithing table or cartography table.
     Recipe {
         recipe_network_id: u32,
+    },
+    /// A recipe-selected screen whose output the client predicts from the recipe.
+    Predicted {
+        recipe_network_id: u32,
+        output: RecipeOutput,
     },
 }
 

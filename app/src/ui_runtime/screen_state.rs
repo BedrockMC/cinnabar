@@ -12,7 +12,7 @@ const MAX_SEARCH_CHARS: usize = 32;
 /// Longest item name an anvil accepts.
 const MAX_ANVIL_NAME_CHARS: usize = 50;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ScreenState {
     pub(crate) pointer: InventoryPointer,
     pub(crate) hover: Option<InventoryCellHit>,
