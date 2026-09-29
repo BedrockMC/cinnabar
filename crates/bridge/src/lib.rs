@@ -10,8 +10,10 @@ mod worlds;
 use std::path::Path;
 
 pub use account::{
-    Account, AuthState, ConnectTarget, Events, Friend, Realm, ServerDisconnect, account_status,
-    connect_target, list_friends, list_realms, poll_events, sign_out,
+    Account, Artwork, AuthState, ConnectTarget, Events, FeaturedGame, FeaturedServer, Friend,
+    Gathering, Profile, Realm, ServerDisconnect, account_status, connect_target,
+    list_featured_servers, list_friends, list_gatherings, list_realms, poll_events, profile,
+    sign_out,
 };
 pub use error::BridgeError;
 pub use framed::FramedStream;
