@@ -77,6 +77,7 @@ pub(in crate::inventory) struct Batch {
 #[derive(Debug, Clone)]
 pub struct RecipeUpdate {
     pub(in crate::inventory) batch: Option<Arc<Batch>>,
+    pub(in crate::inventory) screen: Option<Arc<super::screen::ScreenRecipes>>,
 }
 
 impl RecipeUpdate {
@@ -90,17 +91,21 @@ impl RecipeUpdate {
         self.batch.as_ref().map_or(0, |b| b.records.len())
     }
     pub(in crate::inventory) fn unavailable() -> Self {
-        Self { batch: None }
+        Self {
+            batch: None,
+            screen: None,
+        }
     }
 }
 
 impl PartialEq for RecipeUpdate {
     fn eq(&self, other: &Self) -> bool {
-        match (&self.batch, &other.batch) {
-            (Some(a), Some(b)) => a.clear == b.clear && a.records == b.records,
-            (None, None) => true,
-            _ => false,
-        }
+        self.screen == other.screen
+            && match (&self.batch, &other.batch) {
+                (Some(a), Some(b)) => a.clear == b.clear && a.records == b.records,
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
 impl Eq for RecipeUpdate {}

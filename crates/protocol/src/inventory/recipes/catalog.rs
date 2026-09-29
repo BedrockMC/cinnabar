@@ -1,6 +1,7 @@
 use super::{
     budget::{Credits, MAX_RECORDS, Permit},
     model::{RecipeHandle, RecipeUpdate},
+    screen::{MAX_SCREEN_RECIPES, ScreenRecipe, ScreenRecipeKind, ScreenRecipes},
 };
 use std::{mem::size_of, sync::Arc};
 
@@ -23,6 +24,7 @@ pub struct RecipeCatalog {
     sequence: u64,
     revision: u64,
     storage: Option<Arc<CatalogEntries>>,
+    screen: ScreenRecipes,
     available: bool,
     exhausted: bool,
 }
@@ -35,12 +37,55 @@ impl RecipeCatalog {
     }
     fn retire(&mut self) {
         self.storage = None;
+        self.screen = ScreenRecipes::default();
         self.available = false;
         match self.revision.checked_add(1) {
             Some(next) => self.revision = next,
             None => self.exhausted = true,
         }
     }
+    /// One stonecutter, cartography or smithing recipe by network id.
+    #[must_use]
+    pub fn screen_recipe(&self, id: u32) -> Option<&ScreenRecipe> {
+        self.screen.recipes.iter().find(|recipe| recipe.id == id)
+    }
+
+    /// Every retained recipe of one screen kind.
+    pub fn screen_recipes(&self, kind: ScreenRecipeKind) -> impl Iterator<Item = &ScreenRecipe> {
+        self.screen
+            .recipes
+            .iter()
+            .filter(move |recipe| recipe.kind == kind)
+    }
+
+    /// The network id of the item-repair multi-recipe the anvil names.
+    #[must_use]
+    pub fn repair_multi_recipe_id(&self) -> Option<u32> {
+        self.screen
+            .multi
+            .iter()
+            .find(|multi| multi.is_repair())
+            .map(|multi| multi.id)
+    }
+
+    fn merge_screens(&mut self, update: &RecipeUpdate, clear: bool) {
+        if clear {
+            self.screen = ScreenRecipes::default();
+        }
+        let Some(incoming) = update.screen.as_ref() else {
+            return;
+        };
+        self.screen
+            .recipes
+            .retain(|old| incoming.recipes.iter().all(|new| new.id != old.id));
+        self.screen.recipes.extend(incoming.recipes.iter().cloned());
+        self.screen.recipes.truncate(MAX_SCREEN_RECIPES);
+        self.screen
+            .multi
+            .retain(|old| incoming.multi.iter().all(|new| new.id != old.id));
+        self.screen.multi.extend(incoming.multi.iter().copied());
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -166,6 +211,7 @@ impl RecipeCatalog {
             entries: merged,
             _permit: permit,
         }));
+        self.merge_screens(update, batch.clear);
         self.available = true;
         self.revision += 1; // checked exhaustion above, before any new authority.
         true
@@ -179,6 +225,7 @@ mod tests {
 
     fn update(owner: &Arc<Credits>, clear: bool) -> RecipeUpdate {
         RecipeUpdate {
+            screen: None,
             batch: Some(Arc::new(Batch {
                 records: vec![Record {
                     id: 17,
@@ -314,6 +361,7 @@ mod tests {
         let charge = MAX_RECORDS * size_of::<Record>() + 512;
         let permit = owner.reserve(charge).unwrap();
         let replacement = RecipeUpdate {
+            screen: None,
             batch: Some(Arc::new(Batch {
                 records: (100..100 + MAX_RECORDS as u32)
                     .map(|id| Record { id, recipe: None })
