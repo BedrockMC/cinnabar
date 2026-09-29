@@ -37,6 +37,7 @@ mod forms;
 mod hud_extras;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
+mod inventory_tooltip;
 pub(crate) mod screens;
 mod item_sprite;
 mod item_viewmodel;
