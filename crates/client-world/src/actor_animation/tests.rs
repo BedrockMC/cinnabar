@@ -658,3 +658,28 @@ fn has_cape_reads_the_tick_context() {
         1.0
     );
 }
+
+#[test]
+fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_ground_speed() {
+    let actor = actor_with_metadata(HashMap::new());
+    let mut context = ActorTickContext::default();
+    context.armor[1] = Some(WornArmor {
+        item: "minecraft:elytra".into(),
+        dye_rgb: None,
+    });
+    let input = ActorTickInput {
+        velocity: [0.0, 0.0, 0.1],
+        ..ActorTickInput::default()
+    };
+    let slot = read_with(
+        &actor,
+        &input,
+        &context,
+        0,
+        "query.armor_texture_slot",
+        &[MolangValue::Number(1.0)],
+    );
+    assert_eq!(slot.number(), 5.0);
+    let flap = read_with(&actor, &input, &context, 0, "query.cape_flap_amount", &[]);
+    assert!((flap.number() - 0.4).abs() < 1.0e-6);
+}

@@ -137,6 +137,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
             visual: ItemVisualId(0),
         }]
         .into_boxed_slice(),
+        render: Default::default(),
     };
     let bytes = encode_entity_blob(&compiled).unwrap();
     Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap())
