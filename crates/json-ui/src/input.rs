@@ -62,6 +62,8 @@ pub struct HitRegion {
     pub enabled: bool,
     pub checked: Option<bool>,
     pub max_length: Option<usize>,
+    /// A radio toggle's `toggle_group_forced_index`, its place in the group.
+    pub group_index: Option<usize>,
     /// The `custom` renderer name for [`HitKind::Custom`].
     pub renderer: Option<String>,
 }
@@ -153,6 +155,12 @@ fn collect(
                 .get("max_length")
                 .and_then(Value::as_u64)
                 .map(|length| length as usize),
+            group_index: control
+                .properties
+                .get("toggle_group_forced_index")
+                .and_then(Value::as_f64)
+                .filter(|index| *index >= 0.0)
+                .map(|index| index as usize),
             renderer: (kind == HitKind::Custom)
                 .then(|| text("renderer"))
                 .flatten(),

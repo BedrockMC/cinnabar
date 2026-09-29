@@ -426,6 +426,52 @@ pub(super) fn pause(
     solid_page: u16,
     area: ContentArea,
 ) -> Result<(), UiPresentationError> {
+    let items = [
+        (MenuAction::PauseResume, "Back to game"),
+        (MenuAction::PauseSettings, "Settings"),
+        (MenuAction::PauseDisconnect, "Disconnect"),
+    ];
+    let out = (nodes, hits, next_id, layouts, font, metrics, solid_page);
+    action_panel(view, out, area, "Game menu", &items)
+}
+
+/// The death screen when the JSON-UI carrier is absent.
+pub(super) fn death(
+    view: &MenuView,
+    nodes: &mut Vec<UiNode>,
+    hits: &mut Vec<(MenuAction, UiRect)>,
+    next_id: &mut u32,
+    layouts: &mut TextLayoutCache,
+    font: &assets::RuntimeFontCatalog,
+    metrics: TextMetrics,
+    solid_page: u16,
+    area: ContentArea,
+) -> Result<(), UiPresentationError> {
+    let items = [
+        (MenuAction::Respawn, "Respawn"),
+        (MenuAction::PauseDisconnect, "Main menu"),
+    ];
+    let out = (nodes, hits, next_id, layouts, font, metrics, solid_page);
+    action_panel(view, out, area, "You died!", &items)
+}
+
+type PanelOut<'a> = (
+    &'a mut Vec<UiNode>,
+    &'a mut Vec<(MenuAction, UiRect)>,
+    &'a mut u32,
+    &'a mut TextLayoutCache,
+    &'a assets::RuntimeFontCatalog,
+    TextMetrics,
+    u16,
+);
+
+fn action_panel(
+    view: &MenuView,
+    (nodes, hits, next_id, layouts, font, metrics, solid_page): PanelOut<'_>,
+    area: ContentArea,
+    title: &str,
+    items: &[(MenuAction, &str)],
+) -> Result<(), UiPresentationError> {
     let width = area.width.min(460.0);
     let height = 314.0;
     let left = (area.width - width) * 0.5;
@@ -438,19 +484,12 @@ pub(super) fn pause(
         font,
         metrics,
         solid_page,
-        "Game menu",
+        title,
         [left + SPACE_LG, top + SPACE_LG],
         width - SPACE_LG * 2.0,
         TEXT,
     )?;
-    for (index, (action, label)) in [
-        (MenuAction::PauseResume, "Back to game"),
-        (MenuAction::PauseSettings, "Settings"),
-        (MenuAction::PauseDisconnect, "Disconnect"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    for (index, (action, label)) in items.iter().enumerate() {
         button(
             view,
             nodes,
@@ -460,7 +499,7 @@ pub(super) fn pause(
             font,
             metrics,
             solid_page,
-            action,
+            *action,
             usize::MAX,
             label,
             left + SPACE_LG,

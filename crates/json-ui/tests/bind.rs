@@ -320,3 +320,75 @@ fn empty_texture_binding_emits_no_texture_property() {
     let shown = bind(&image, &present, &EmptyLibrary);
     assert_eq!(prop(&shown, "texture"), &json!("textures/items/apple"));
 }
+
+#[test]
+fn strict_screens_hide_unbound_visibility_flags_but_keep_text() {
+    let control = ctrl(
+        "panel",
+        Some("panel"),
+        json!({
+            "text": "#playername",
+            "bindings": [
+                { "binding_name": "#store_button_visible", "binding_name_override": "#visible" },
+                { "binding_name": "#playername" }
+            ],
+        }),
+    );
+    let mut data = DataSource::new();
+    let lenient = bind(&control, &data, &EmptyLibrary);
+    assert!(!lenient.properties.contains_key("visible"));
+    data.set_strict(true);
+    let strict = bind(&control, &data, &EmptyLibrary);
+    assert_eq!(prop(&strict, "visible"), &json!(false));
+    assert_eq!(
+        prop(&strict, "text"),
+        &json!(""),
+        "unbound text is not \"false\""
+    );
+}
+
+#[test]
+fn radio_selection_and_distant_view_sources_drive_tab_content() {
+    let tab = |name: &str, index: u64| {
+        ctrl(
+            name,
+            Some("toggle"),
+            json!({
+                "radio_toggle_group": true, "toggle_name": "navigation_tab",
+                "toggle_group_forced_index": index
+            }),
+        )
+    };
+    let tabs = ctrl_children(
+        "tabs",
+        Some("stack_panel"),
+        json!({}),
+        vec![tab("worlds_toggle", 0), tab("servers_toggle", 2)],
+    );
+    let content = ctrl(
+        "servers_content",
+        Some("panel"),
+        json!({ "bindings": [ { "binding_type": "view", "source_control_name": "servers_toggle",
+            "source_property_name": "#toggle_state", "target_property_name": "#visible" } ] }),
+    );
+    let body = ctrl_children("body", Some("panel"), json!({}), vec![content]);
+    let screen = ctrl_children("screen", Some("panel"), json!({}), vec![tabs, body]);
+    let mut data = DataSource::new();
+    data.select_radio("navigation_tab", 2);
+    let bound = bind(&screen, &data, &EmptyLibrary);
+    let tabs = bound.child("tabs").unwrap();
+    assert_eq!(
+        prop(tabs.child("servers_toggle").unwrap(), "#toggle_state"),
+        &json!(true)
+    );
+    assert_eq!(
+        prop(tabs.child("worlds_toggle").unwrap(), "#toggle_state"),
+        &json!(false)
+    );
+    let content = bound
+        .child("body")
+        .unwrap()
+        .child("servers_content")
+        .unwrap();
+    assert_eq!(prop(content, "visible"), &json!(true));
+}

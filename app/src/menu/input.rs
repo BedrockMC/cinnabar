@@ -363,11 +363,10 @@ pub(crate) fn drive_menu_input(
     mut modifiers: Local<MenuModifiers>,
 ) {
     let (window, mut cursor) = window.into_inner();
-    if runtime
-        .as_ref()
-        .is_some_and(|runtime| runtime.server_forms().owns_input())
-        && !menu.is_visible()
-    {
+    if runtime.as_ref().is_some_and(|runtime| {
+        runtime.server_forms().owns_input()
+            && (!menu.is_visible() || runtime.server_forms().settings_form_active())
+    }) {
         keyboard_messages.clear();
         return;
     }
@@ -377,6 +376,14 @@ pub(crate) fn drive_menu_input(
         keyboard_messages.clear();
         menu.pointer_down = false;
         return;
+    }
+    // Zero health in play opens the death screen; recovery closes it.
+    if let Some(health) = runtime.as_ref().and_then(|runtime| runtime.hud().health()) {
+        if health.current() == 0 {
+            menu.open_death();
+        } else {
+            menu.note_player_alive();
+        }
     }
     if !menu.is_visible() {
         // Gameplay/chat handled these messages already. In particular, do not
@@ -500,8 +507,18 @@ pub(crate) fn drive_menu_connection(
     mut menu: ResMut<MenuRuntime>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
     mut session: MenuSessionState,
+    launcher_account: Option<ResMut<super::launcher_account::LauncherAccount>>,
+    local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
+    audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
 ) {
     menu.poll_catalog();
+    menu.sync_audio_settings(audio_settings);
+    if let Some(mut account) = launcher_account {
+        menu.sync_account_control(&mut *account);
+    }
+    if let Some(mut worlds) = local_worlds {
+        menu.sync_local_worlds(&mut worlds);
+    }
     if menu.is_connecting() && session.client_world.stream.is_some() {
         menu.mark_connected();
     }

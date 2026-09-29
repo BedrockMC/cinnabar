@@ -4,7 +4,10 @@ mod container_kinds;
 mod containers;
 mod engine;
 mod fallback;
+mod menu_screens;
+mod menus;
 mod model;
+mod npc;
 mod pages;
 mod server_pack;
 mod sign_editor;
@@ -33,6 +36,8 @@ pub(super) struct FormPresentation {
     engine: Option<Box<engine::FormEngine>>,
     /// The container screen the engine drew this build, with its cell layout.
     container: Option<(EngineFrame, containers::ScreenLayout)>,
+    /// The engine menu's regions by action, for next frame's hover state.
+    menu_keys: Vec<(crate::menu::MenuAction, String)>,
 }
 
 impl UiPresentationRuntime {
@@ -161,11 +166,18 @@ impl UiPresentationRuntime {
     ) -> Result<(), UiPresentationError> {
         let engine = self.form_presentation.engine.take();
         let previous_container = self.form_presentation.container.take();
+        let menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
         self.form_presentation = FormPresentation {
             engine,
+            menu_keys,
             ..FormPresentation::default()
         };
-        if self.menu_view.is_some() {
+        // Server settings draw over the settings menu; other forms wait it out.
+        let settings_form = runtime
+            .server_forms()
+            .active()
+            .is_some_and(|entry| entry.kind == protocol::FormKind::ServerSettings);
+        if self.menu_view.is_some() && !settings_form {
             return Ok(());
         }
         self.append_engine_container(
@@ -180,6 +192,20 @@ impl UiPresentationRuntime {
         let Some(entry) = runtime.server_forms().active() else {
             return Ok(());
         };
+        if let protocol::ServerFormModel::NpcDialogue(npc) = &entry.model
+            && self.append_npc_dialogue(
+                runtime,
+                npc,
+                entry.identity,
+                nodes,
+                next,
+                metrics,
+                width,
+                height,
+            )?
+        {
+            return Ok(());
+        }
         if let Some(renderer) = self.form_presentation.engine.as_deref() {
             let translate = |key: &str| runtime.translation(key);
             let state = runtime.server_forms().engine();
