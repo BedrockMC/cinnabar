@@ -45,8 +45,8 @@ pub use expr::{
 };
 pub use form::{
     ActionElement, ActionForm, ButtonImage, CatalogLibrary, CustomElement, CustomForm, FormButton,
-    FormModel, FormRender, ModalForm, bind_form, form_context, form_data_source, form_template,
-    render_form, render_form_with,
+    FormModel, FormRender, ModalForm, bind_form, form_context, form_data_source,
+    form_screen_cancel, form_template, render_bound, render_form, render_form_with,
 };
 pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,

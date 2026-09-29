@@ -96,24 +96,36 @@ pub fn parse_var_key(key: &str) -> Option<(String, bool)> {
 /// Substitute `$var` references throughout a value using `env`. Unknown variables
 /// are left in place and reported through `unresolved`.
 pub fn substitute(value: &Value, env: &Env, unresolved: &mut Vec<String>) -> Value {
+    substitute_within(value, env, unresolved, 0)
+}
+
+/// How many times a variable's value may itself name a variable.
+const MAX_SUBSTITUTION_DEPTH: usize = 8;
+
+fn substitute_within(
+    value: &Value,
+    env: &Env,
+    unresolved: &mut Vec<String>,
+    depth: usize,
+) -> Value {
     match value {
-        Value::String(text) => substitute_string(text, env, unresolved),
+        Value::String(text) => substitute_string(text, env, unresolved, depth),
         Value::Array(items) => Value::Array(
             items
                 .iter()
-                .map(|item| substitute(item, env, unresolved))
+                .map(|item| substitute_within(item, env, unresolved, depth))
                 .collect(),
         ),
         Value::Object(map) => Value::Object(
             map.iter()
-                .map(|(key, item)| (key.clone(), substitute(item, env, unresolved)))
+                .map(|(key, item)| (key.clone(), substitute_within(item, env, unresolved, depth)))
                 .collect(),
         ),
         other => other.clone(),
     }
 }
 
-fn substitute_string(text: &str, env: &Env, unresolved: &mut Vec<String>) -> Value {
+fn substitute_string(text: &str, env: &Env, unresolved: &mut Vec<String>, depth: usize) -> Value {
     let Some(first) = text.find('$') else {
         return Value::String(text.to_owned());
     };
@@ -121,7 +133,12 @@ fn substitute_string(text: &str, env: &Env, unresolved: &mut Vec<String>) -> Val
     if first == 0
         && let Some(name) = whole_token(text)
     {
+        // The value may carry further `$vars` (a shared binding list naming
+        // `$condition`), replaced in turn as the vanilla client does.
         return match env.get(&name) {
+            Some(value) if depth < MAX_SUBSTITUTION_DEPTH => {
+                substitute_within(value, env, unresolved, depth + 1)
+            }
             Some(value) => value.clone(),
             None => {
                 unresolved.push(name);
@@ -143,6 +160,9 @@ fn whole_token(text: &str) -> Option<String> {
 }
 
 fn replace_tokens(text: &str, env: &Env, unresolved: &mut Vec<String>) -> String {
+    // Inside a parenthesised expression a string variable is one string operand,
+    // as the vanilla client makes a token from the variable's value.
+    let expression = text.trim_start().starts_with('(');
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
@@ -156,6 +176,11 @@ fn replace_tokens(text: &str, env: &Env, unresolved: &mut Vec<String>) -> String
             if end > start {
                 let name = &text[start..end];
                 match env.get(name) {
+                    Some(Value::String(value)) if expression && !value.contains('\'') => {
+                        out.push('\'');
+                        out.push_str(value);
+                        out.push('\'');
+                    }
                     Some(value) => out.push_str(&scalar_string(value).unwrap_or_default()),
                     None => {
                         unresolved.push(name.to_owned());
@@ -271,6 +296,31 @@ mod tests {
         );
         let runtime = json!("(not #enabled)");
         assert_eq!(fold_expression(&runtime, runtime.clone(), &env), runtime);
+    }
+
+    // Marker strings such as `§j` or `@pack/form` stay single operands.
+    #[test]
+    fn string_variables_substitute_into_expressions_as_literals() {
+        let mut env = Env::new();
+        env.set("boxes", json!("@mineville/boxes"));
+        let out = substitute(&json!("(not ((#t - $boxes) = #t))"), &env, &mut Vec::new());
+        assert_eq!(out, json!("(not ((#t - '@mineville/boxes') = #t))"));
+        assert_eq!(
+            substitute(&json!("a $boxes"), &env, &mut Vec::new()),
+            json!("a @mineville/boxes")
+        );
+    }
+
+    #[test]
+    fn a_substituted_value_has_its_own_variables_replaced() {
+        let mut env = Env::new();
+        env.set(
+            "visible_binding",
+            json!([{ "binding_type": "view", "source_property_name": "$condition" }]),
+        );
+        env.set("condition", json!("(#a = '')"));
+        let out = substitute(&json!("$visible_binding"), &env, &mut Vec::new());
+        assert_eq!(out[0]["source_property_name"], json!("(#a = '')"));
     }
 
     #[test]

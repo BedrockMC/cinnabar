@@ -35,16 +35,24 @@ impl RawControl {
         let (name, base) = split_key(key);
         let mut props = Map::new();
         let mut children = Vec::new();
-        if let Value::Object(object) = value {
-            for (property, item) in object {
-                if property == "controls" {
-                    children = child_controls(owner_ns, item, diagnostics);
-                } else {
-                    props.insert(property.clone(), item.clone());
+        match value {
+            Value::Object(object) => {
+                for (property, item) in object {
+                    match (property.as_str(), item) {
+                        // A `$var` child list resolves against the scope later.
+                        ("controls", Value::String(_)) => {
+                            props.insert(property.clone(), item.clone());
+                        }
+                        ("controls", _) => children = child_controls(owner_ns, item, diagnostics),
+                        _ => {
+                            props.insert(property.clone(), item.clone());
+                        }
+                    }
                 }
             }
-        } else {
-            diagnostics.push(format!("{owner_ns}.{name}: control body is not an object"));
+            // Packs write an empty body as `[]`.
+            Value::Array(items) if items.is_empty() => {}
+            _ => diagnostics.push(format!("{owner_ns}.{name}: control body is not an object")),
         }
         Self {
             owner_ns: owner_ns.to_owned(),
@@ -91,6 +99,8 @@ pub(crate) fn split_key(key: &str) -> (String, Option<String>) {
 pub struct Catalog {
     globals: BTreeMap<String, Value>,
     defs: BTreeMap<String, BTreeMap<String, RawControl>>,
+    /// Each loaded file's namespace, which a pack file at that path may omit.
+    file_namespaces: BTreeMap<String, String>,
     diagnostics: Vec<String>,
 }
 
@@ -189,6 +199,8 @@ impl Catalog {
             return;
         };
         let namespace = namespace.clone();
+        self.file_namespaces
+            .insert(entry.to_owned(), namespace.clone());
         for (key, body) in &object {
             if key == "namespace" {
                 continue;
@@ -217,6 +229,10 @@ impl Catalog {
             .entry(control.owner_ns.clone())
             .or_default()
             .insert(control.name.clone(), control);
+    }
+
+    pub(crate) fn file_namespace(&self, entry: &str) -> Option<&str> {
+        self.file_namespaces.get(entry).map(String::as_str)
     }
 
     pub(crate) fn note(&mut self, message: String) {

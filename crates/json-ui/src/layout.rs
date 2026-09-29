@@ -561,7 +561,11 @@ fn intrinsic_uncached(
         Axis::Y,
     );
     let height = pixels_or(length(control, Axis::Y).eval(&height_ctx), 0.0);
-    [width, height]
+    // A parent aggregating this child sees it after its own min/max clamp.
+    let content = content_extent(control, env, known);
+    let parent_rect = Rect::new(0.0, 0.0, parent, 0.0);
+    let nat = natural(control, env, known);
+    clamp_bounds(control, parent_rect, [width, height], content, nat, env)
 }
 
 /// The extent of a control's children, the value `%c` reports. A stack sums along
@@ -676,17 +680,26 @@ fn axis_context(
 
 // --- property readers -------------------------------------------------------
 
+/// A control's size on `axis`. An omitted size is `default`: a label's text or
+/// an image's texture size, a stack panel's children along its axis, else the
+/// parent's full extent.
 fn length(control: &ResolvedControl, axis: Axis) -> Length {
     let index = axis_index(axis);
-    match control.properties.get("size") {
+    let explicit = match control.properties.get("size") {
         Some(Value::Array(items)) if items.len() >= 2 => {
-            expr::length_from_value(&items[index]).unwrap_or_else(|_| Length::percent(100.0))
+            Some(expr::length_from_value(&items[index]).unwrap_or_else(|_| Length::percent(100.0)))
         }
         Some(scalar @ (Value::String(_) | Value::Number(_))) => {
-            expr::length_from_value(scalar).unwrap_or_else(|_| Length::percent(100.0))
+            Some(expr::length_from_value(scalar).unwrap_or_else(|_| Length::percent(100.0)))
         }
-        // Omitted size fills the parent; see the module note on `default`.
-        _ => Length::percent(100.0),
+        _ => None,
+    };
+    match explicit {
+        Some(Length::Default) | None if stack_axis(control) == Some(axis) => {
+            expr::parse_length("100%c").unwrap_or(Length::Default)
+        }
+        Some(length) => length,
+        None => Length::Default,
     }
 }
 
