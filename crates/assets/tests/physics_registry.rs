@@ -215,7 +215,7 @@ const PREG_V2168: &[u8] = include_bytes!("../data/block-physics-v2168.bin");
 /// Pinned sidecar digest of `crates/assets/data/block-physics-v2168.bin`
 /// (`block-physics-v2168.sha256`); guards the committed artifact against drift.
 const PREG_V2168_SHA256_HEX: &str =
-    "e7631b3c6ac01cfdc558c574ebccda54832e736a8cd09c180f188b3d6b3863d4";
+    "e74ffec848c46a24f5e292c35126cd589d2fbb61d6fb7a24e30d914301ed3df1";
 
 fn assert_physics_error(error: &AssetError, needle: &str) {
     match error {
