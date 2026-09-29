@@ -79,16 +79,29 @@ impl UiPresentationRuntime {
             return;
         };
         engine.set_server_pack(&pack.ui_layers);
-        let packed = server_pack::pack(&pack.textures, dynamic_textures::SERVER_UI_PAGES);
+        let atlas =
+            server_pack::ServerAtlas::new(&pack.textures, dynamic_textures::SERVER_UI_PAGES);
         bevy::log::info!(
             layers = pack.ui_layers.len(),
             ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),
-            textures = packed.textures.len(),
-            pages = packed.pages.len(),
+            textures = pack.textures.len(),
             "server resource-pack UI applied to the form engine"
         );
-        engine.set_server_textures(packed.textures, packed.pages, first as u16);
-        self.rebuild_dynamic_textures();
+        engine.set_server_atlas(atlas, first as u16);
+        self.sync_server_ui_pages();
+    }
+
+    /// Hands changed server atlas pages to the dynamic texture pages; runs
+    /// after the frame's screens drew, before the frame publishes.
+    pub(super) fn sync_server_ui_pages(&mut self) {
+        let changed = self
+            .form_presentation
+            .engine
+            .as_mut()
+            .is_some_and(|engine| engine.take_server_pages().is_some());
+        if changed {
+            self.rebuild_dynamic_textures();
+        }
     }
 
     /// The dynamic pages holding the server pack's UI textures.

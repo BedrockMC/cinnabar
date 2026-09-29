@@ -959,6 +959,7 @@ impl UiPresentationRuntime {
             content_width,
             content_height,
         )?;
+        self.sync_server_ui_pages();
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;
