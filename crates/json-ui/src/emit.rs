@@ -108,6 +108,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
+    /// Animations scaling `alpha`, evaluated by the caller at paint time.
+    #[serde(default)]
+    pub fades: Vec<crate::anim::Fade>,
     pub draw: Draw,
 }
 
@@ -147,6 +150,7 @@ fn collect(
                 clip: node.clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
+                fades: node.fades.clone(),
                 draw,
             },
         ));
@@ -187,6 +191,31 @@ fn sprite_draws(
 ) -> Vec<(Rect, Draw)> {
     let color = color_of(control, [255, 255, 255, 255]);
     let meta = env.textures.texture(path);
+    if let Some(source) = uv_rect(control, meta.as_ref()) {
+        return vec![(
+            rect,
+            Draw::Sprite {
+                texture: path.to_owned(),
+                uv: source,
+                color,
+            },
+        )];
+    }
+    if let (Some(axes), Some(meta)) = (tiled_axes(control), meta.as_ref()) {
+        return tiles(rect, meta.base_size, axes)
+            .into_iter()
+            .map(|(dest, uv)| {
+                (
+                    dest,
+                    Draw::Sprite {
+                        texture: path.to_owned(),
+                        uv,
+                        color,
+                    },
+                )
+            })
+            .collect();
+    }
     match meta {
         Some(meta) if meta.nineslice.is_some() => nine_slice(rect, &meta)
             .into_iter()
@@ -210,6 +239,71 @@ fn sprite_draws(
             },
         )],
     }
+}
+
+/// A literal `uv`/`uv_size` sub-rect of the texture, normalised.
+fn uv_rect(control: &ResolvedControl, meta: Option<&TextureMeta>) -> Option<UvRect> {
+    let pair = |key: &str| {
+        let items = control.properties.get(key)?.as_array()?;
+        Some([items.first()?.as_f64()?, items.get(1)?.as_f64()?])
+    };
+    let [u, v] = pair("uv")?;
+    let [w, h] = pair("uv_size")?;
+    let [bw, bh] = meta?.base_size;
+    if bw <= 0.0 || bh <= 0.0 {
+        return None;
+    }
+    Some(UvRect {
+        u0: (u / bw) as f32,
+        v0: (v / bh) as f32,
+        u1: ((u + w) / bw) as f32,
+        v1: ((v + h) / bh) as f32,
+    })
+}
+
+/// `tiled`: `true` or `"xy"` repeats on both axes, `"x"`/`"y"` on one.
+fn tiled_axes(control: &ResolvedControl) -> Option<[bool; 2]> {
+    match control.properties.get("tiled")? {
+        Value::Bool(true) => Some([true, true]),
+        Value::String(axes) if axes == "x" => Some([true, false]),
+        Value::String(axes) if axes == "y" => Some([false, true]),
+        Value::String(axes) if axes == "xy" || axes == "true" => Some([true, true]),
+        _ => None,
+    }
+}
+
+/// Repeat a `base`-sized texture across `rect` on the tiled axes, cropping the
+/// last tile; an untiled axis stretches.
+fn tiles(rect: Rect, base: [f64; 2], axes: [bool; 2]) -> Vec<(Rect, UvRect)> {
+    const MAX_TILES: usize = 4096;
+    let spans = |start: f64, length: f64, tile: f64, tiled: bool| {
+        if !tiled || tile <= 0.0 {
+            return vec![(start, length, 1.0f32)];
+        }
+        let mut out = Vec::new();
+        let mut at = 0.0;
+        while at < length && out.len() < MAX_TILES {
+            let span = tile.min(length - at);
+            out.push((start + at, span, (span / tile) as f32));
+            at += tile;
+        }
+        out
+    };
+    let mut quads = Vec::new();
+    for (y, h, v) in spans(rect.y, rect.h, base[1], axes[1]) {
+        for (x, w, u) in spans(rect.x, rect.w, base[0], axes[0]) {
+            quads.push((
+                Rect::new(x, y, w, h),
+                UvRect {
+                    u0: 0.0,
+                    v0: 0.0,
+                    u1: u,
+                    v1: v,
+                },
+            ));
+        }
+    }
+    quads
 }
 
 fn text_draw(control: &ResolvedControl) -> Draw {
@@ -422,11 +516,13 @@ pub fn nine_slice(dest: Rect, meta: &TextureMeta) -> Vec<SpriteQuad> {
         for col in 0..3 {
             let (dx0, dx1) = (dst_x[col], dst_x[col + 1]);
             let (dy0, dy1) = (dst_y[row], dst_y[row + 1]);
-            let (sx0, sx1) = (src_x[col], src_x[col + 1]);
-            let (sy0, sy1) = (src_y[row], src_y[row + 1]);
-            if dx1 - dx0 <= 0.0 || dy1 - dy0 <= 0.0 || sx1 - sx0 <= 0.0 || sy1 - sy0 <= 0.0 {
+            if dx1 - dx0 <= 0.0 || dy1 - dy0 <= 0.0 {
                 continue;
             }
+            // Insets meeting in the middle (a 2x2 texture sliced at 1) leave no
+            // source span; the stretched region samples the texel line there.
+            let (sx0, sx1) = texel_span(src_x[col], src_x[col + 1], bw);
+            let (sy0, sy1) = texel_span(src_y[row], src_y[row + 1], bh);
             quads.push(SpriteQuad {
                 dest: RectOut {
                     x: dx0,
@@ -444,6 +540,15 @@ pub fn nine_slice(dest: Rect, meta: &TextureMeta) -> Vec<SpriteQuad> {
         }
     }
     quads
+}
+
+/// A source span, widened to the one texel at its position when empty.
+fn texel_span(start: f64, end: f64, size: f64) -> (f64, f64) {
+    if end > start {
+        return (start, end);
+    }
+    let low = (start - 0.5).clamp(0.0, (size - 1.0).max(0.0));
+    (low, (low + 1.0).min(size))
 }
 
 fn full_quad(dest: Rect) -> SpriteQuad {
@@ -497,6 +602,25 @@ mod tests {
         // The middle row starts at the top edge (y = 0) since the top inset is gone.
         assert!(quads.iter().all(|q| q.dest.y >= 0.0));
         assert_eq!(quads[0].dest.y, 0.0);
+    }
+
+    // A 2x2 texture sliced at 1 still fills its centre.
+    #[test]
+    fn meeting_insets_stretch_the_middle_texel() {
+        let meta = TextureMeta {
+            base_size: [2.0, 2.0],
+            nineslice: Some(NineSlice {
+                left: 1.0,
+                top: 1.0,
+                right: 1.0,
+                bottom: 1.0,
+            }),
+        };
+        let quads = nine_slice(Rect::new(0.0, 0.0, 30.0, 9.0), &meta);
+        assert_eq!(quads.len(), 9);
+        let centre = quads[4];
+        assert_eq!([centre.dest.w, centre.dest.h], [28.0, 7.0]);
+        assert_eq!([centre.uv.u0, centre.uv.u1], [0.25, 0.75]);
     }
 
     #[test]

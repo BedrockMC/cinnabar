@@ -4,6 +4,7 @@ mod container_kinds;
 mod containers;
 mod engine;
 mod fallback;
+mod hud;
 mod menu_screens;
 mod menus;
 mod model;
@@ -24,6 +25,7 @@ use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_tex
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
 pub(crate) use containers::engine_panel_contains;
+pub(crate) use engine::hud_renderers;
 pub(crate) use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
@@ -47,6 +49,8 @@ pub(super) struct FormPresentation {
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
     /// The form whose render path was last logged, so each form logs once.
     logged: Option<ServerFormIdentity>,
+    /// The engine HUD's cached screens; carried across the per-frame reset.
+    hud: hud::HudScreens,
 }
 
 impl UiPresentationRuntime {
@@ -228,10 +232,12 @@ impl UiPresentationRuntime {
         let previous_container = self.form_presentation.container.take();
         let menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
         let logged = self.form_presentation.logged;
+        let hud = std::mem::take(&mut self.form_presentation.hud);
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
             logged,
+            hud,
             ..FormPresentation::default()
         };
         // Server settings draw over the settings menu; other forms wait it out.

@@ -1,7 +1,5 @@
-//! The screens the engine is allowed to draw, and the generic renderer for them.
-//! The gameplay HUD (`hud.hud_screen` and its family) stays on the Java-styled
-//! HUD path by owner decision, so it is deliberately absent from the allow-list
-//! and [`render_screen`] refuses anything not on it.
+//! The screens the engine is allowed to draw, and the generic renderer for them;
+//! [`render_screen`] refuses anything not on the allow-list.
 
 use crate::bind::{DataSource, bind};
 use crate::catalog::Catalog;
@@ -13,8 +11,10 @@ use crate::{Context, resolve};
 /// A rendered engine screen: bound tree, draw nodes, hit regions, scroll report.
 pub type ScreenRender = FormRender;
 
-/// Every `namespace.name` screen the engine renders. Never includes `hud_screen`.
+/// Every `namespace.name` screen the engine renders.
 pub const ENGINE_SCREENS: &[&str] = &[
+    crate::hud::HUD_SCREEN,
+    crate::hud::CROSSHAIR_SCREEN,
     "server_form.third_party_server_screen",
     "server_form.long_form",
     "server_form.custom_form",
@@ -84,9 +84,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_gameplay_hud_is_never_an_engine_screen() {
-        assert!(!ENGINE_SCREENS.iter().any(|screen| screen.contains("hud")));
-        assert!(!is_engine_screen("hud.hud_screen"));
-        assert!(is_engine_screen("chest.small_chest_screen"));
+    fn the_gameplay_hud_is_an_engine_screen() {
+        assert!(is_engine_screen("hud.hud_screen"));
+        assert!(is_engine_screen("hud_crosshair.hud_crosshair_screen"));
+        assert!(!is_engine_screen("hud.hud_content"));
     }
 }

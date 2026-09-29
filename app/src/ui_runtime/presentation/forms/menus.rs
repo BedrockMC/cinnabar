@@ -122,6 +122,7 @@ impl UiPresentationRuntime {
             icons: &[],
             preview: self.hud_frame.player_preview,
             pointer: None,
+            ..engine::ScreenArt::default()
         };
         let rendered = renderer.render_screen(
             screen.reference,

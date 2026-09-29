@@ -121,6 +121,7 @@ impl UiPresentationRuntime {
             icons: &icons,
             preview: self.hud_frame.player_preview,
             pointer,
+            ..engine::ScreenArt::default()
         };
         let translate = |key: &str| runtime.translation(key);
         let rollback = (nodes.len(), *next);
@@ -389,6 +390,7 @@ fn held_stack(
         clip,
         layer: i32::MAX,
         alpha: 1.0,
+        fades: Vec::new(),
         draw,
     };
     let mut nodes = vec![node(

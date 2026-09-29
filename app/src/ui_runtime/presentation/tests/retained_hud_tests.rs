@@ -1,22 +1,17 @@
 use super::super::retained_hud::{
     MAX_PRESENTED_BELOW_NAME_ROWS, MAX_PRESENTED_PLAYER_LIST_ROWS, MAX_PRESENTED_SCOREBOARD_HEARTS,
     MAX_PRESENTED_SCOREBOARD_ROWS, PresentedScoreValue, SCOREBOARD_HORIZONTAL_PADDING,
-    SCOREBOARD_LIST_OFFSET, SCOREBOARD_MAIN_HORIZONTAL_EXPANSION, SCOREBOARD_NAME_WIDTH,
-    SCOREBOARD_TEXT_HEIGHT, SCOREBOARD_TITLE_BACKGROUND_HEIGHT, SCOREBOARD_TITLE_WIDTH,
+    SCOREBOARD_NAME_WIDTH, SCOREBOARD_TEXT_HEIGHT, SCOREBOARD_TITLE_WIDTH,
     ScoreboardPresentationScope, project_below_name_scores, project_scoreboard_for_scope,
-    required_sidebar_owner_ids,
 };
 use super::*;
 use ui::ScoreOwner;
 
 #[test]
 fn scoreboard_contract_matches_hash_pinned_1_26_3301_ui_definition() {
-    assert_eq!(SCOREBOARD_MAIN_HORIZONTAL_EXPANSION, 4.0);
     assert_eq!(SCOREBOARD_TEXT_HEIGHT, 10.0);
-    assert_eq!(SCOREBOARD_TITLE_BACKGROUND_HEIGHT, 9.0);
     assert_eq!(SCOREBOARD_TITLE_WIDTH, 170.0);
     assert_eq!(SCOREBOARD_NAME_WIDTH, 100.0);
-    assert_eq!(SCOREBOARD_LIST_OFFSET, 10.0);
     assert_eq!(SCOREBOARD_HORIZONTAL_PADDING, 10.0);
     assert_eq!(MAX_PRESENTED_SCOREBOARD_ROWS, 15);
     assert_eq!(
@@ -201,57 +196,6 @@ fn xuid_keyed_owner_ids_resolve_through_the_roster_map_then_fall_back_cleanly() 
 }
 
 #[test]
-fn hearts_sidebar_renders_a_bounded_sprite_row_instead_of_decimal_text() {
-    let mut runtime = UiRuntime::new(1);
-    install_mixed_scoreboard_slot_with_criteria(
-        &mut runtime,
-        "sidebar",
-        "dummy",
-        &[(1, ProtocolScoreIdentity::FakePlayer(Arc::from("Alex")), 20)],
-    );
-    // Spectator isolates the sidebar from survival stat sprites.
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Spectator);
-    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
-    presentation.set_native_scoreboard_opacity(77, 88);
-
-    let integer_build = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-
-    runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 3,
-            local_millis: 0,
-            server_tick: None,
-            event: UiEvent::Objective(ObjectiveEvent::Display {
-                display_slot: Arc::from("sidebar"),
-                objective_name: Arc::from("objective"),
-                display_name: Arc::from("Objective"),
-                criteria_name: Arc::from("health"),
-                sort_order: 1,
-            }),
-        })
-        .unwrap();
-    let hearts_build = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-
-    // Ten heart sprite quads replace the two shadowed decimal glyphs.
-    assert_eq!(
-        hearts_build.vertices.len() - integer_build.vertices.len(),
-        MAX_PRESENTED_SCOREBOARD_HEARTS as usize * 4 - 2 * 8
-    );
-    // No decimal score text remains on the sidebar.
-    assert!(
-        hearts_build
-            .vertices
-            .iter()
-            .all(|vertex| vertex.color != [255, 0, 0, 255])
-    );
-}
-
-#[test]
 fn below_name_projection_preserves_actor_identity_and_raw_objective_semantics() {
     let mut runtime = UiRuntime::new(1);
     install_mixed_scoreboard_slot(
@@ -279,199 +223,7 @@ fn below_name_projection_preserves_actor_identity_and_raw_objective_semantics() 
     assert_eq!(projected.rows[1].score, 7);
 }
 
-#[test]
-fn scoreboard_fails_closed_without_native_alpha_authority_then_uses_exact_dynamic_geometry() {
-    let font = fixture_font();
-    let mut presentation = UiPresentationRuntime::with_hud(font, fixture_hud()).unwrap();
-    let mut runtime = UiRuntime::new(1);
-    install_scoreboard(&mut runtime, "W", &[(1, "A", 2)]);
-
-    let hidden = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-    assert!(bounds_for_color(&hidden, [0, 0, 0, 77]).is_none());
-    assert!(bounds_for_color(&hidden, [255, 0, 0, 255]).is_none());
-
-    presentation.set_native_scoreboard_opacity(77, 88);
-    let visible = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-    let body = bounds_for_color(&visible, [0, 0, 0, 77]).unwrap();
-    let title = bounds_for_color(&visible, [0, 0, 0, 88]).unwrap();
-
-    assert_eq!(body[2], 800.0);
-    assert_eq!(body[3] - body[1], 20.0);
-    assert!(body[2] - body[0] < SCOREBOARD_TITLE_WIDTH + 4.0);
-    assert_eq!(title[0], body[0]);
-    assert_eq!(title[2], body[2]);
-    assert_eq!(title[3] - title[1], SCOREBOARD_TITLE_BACKGROUND_HEIGHT);
-    assert!(bounds_for_color(&visible, [255, 0, 0, 255]).is_some());
-}
-
-// A server pack that hides the score label removes the red column and keeps the rest.
-#[test]
-fn server_pack_hides_the_sidebar_score_column() {
-    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
-    presentation.set_native_scoreboard_opacity(77, 88);
-    let mut runtime = UiRuntime::new(1);
-    install_scoreboard(&mut runtime, "W", &[(1, "A", 2)]);
-    let build = |presentation: &mut UiPresentationRuntime, runtime: &UiRuntime| {
-        presentation
-            .build(runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-            .unwrap()
-    };
-    assert!(bounds_for_color(&build(&mut presentation, &runtime), [255, 0, 0, 255]).is_some());
-
-    runtime.set_hud_overrides(Some(Arc::new(SessionHudOverrides {
-        hide_sidebar_scores: true,
-    })));
-    let hidden = build(&mut presentation, &runtime);
-    assert!(bounds_for_color(&hidden, [255, 0, 0, 255]).is_none());
-    assert!(bounds_for_color(&hidden, [0, 0, 0, 77]).is_some());
-}
-
-#[test]
-fn production_sidebar_resolves_player_entity_and_fake_rows_from_owned_actor_authority() {
-    let mut runtime = UiRuntime::new(1);
-    install_mixed_scoreboard_slot(
-        &mut runtime,
-        "sidebar",
-        &[
-            (3, ProtocolScoreIdentity::Player(17), 3),
-            (4, ProtocolScoreIdentity::Entity(23), 2),
-            (5, ProtocolScoreIdentity::FakePlayer(Arc::from("Server")), 1),
-        ],
-    );
-    assert_eq!(required_sidebar_owner_ids(runtime.scoreboards()), [17, 23]);
-    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
-    presentation
-        .set_scoreboard_owner_names([(17, Arc::from("Alex")), (23, Arc::from("Beeatrice"))]);
-    presentation.set_native_scoreboard_opacity(77, 88);
-
-    let visible = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-
-    let red_score_vertices = visible
-        .vertices
-        .iter()
-        .filter(|vertex| vertex.color == [255, 0, 0, 255])
-        .count();
-    assert_eq!(red_score_vertices, 3 * 4);
-}
-
-#[test]
-fn boss_bars_render_titled_tinted_tracks_and_replacement_updates_them() {
-    let mut runtime = UiRuntime::new(1);
-    runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 1,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::Show,
-                7,
-                "Boss",
-                0.5,
-                ProtocolBossColor::Purple,
-                ProtocolBossOverlay::Notched10,
-            ),
-        })
-        .unwrap();
-    assert_eq!(runtime.boss_bars().stacked().len(), 1);
-
-    // Spectator mode isolates the boss surface from hotbar/stat sprites.
-    runtime.publish_player_game_mode(protocol::PlayerGameMode::Spectator);
-    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
-    let input = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-    // One 182-wide track, its purple-tinted fill, and the title glyphs.
-    let purple = input
-        .vertices
-        .iter()
-        .filter(|vertex| vertex.color == [170, 0, 170, 255])
-        .count();
-    assert_eq!(purple, 4, "the half-health fill is tinted by boss color");
-    assert!(!input.indices.is_empty());
-
-    // A second bar for another entity stacks below the first.
-    runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 2,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::Show,
-                8,
-                "Other",
-                1.0,
-                ProtocolBossColor::Red,
-                ProtocolBossOverlay::Progress,
-            ),
-        })
-        .unwrap();
-    let stacked = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-    let red = stacked
-        .vertices
-        .iter()
-        .filter(|vertex| vertex.color == [255, 85, 85, 255])
-        .count();
-    assert_eq!(red, 4, "the second bar renders with its own tint");
-    assert!(stacked.vertices.len() > input.vertices.len());
-
-    // Health/style replacement on the same entity updates the fill in place.
-    runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 3,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::SetProgress,
-                7,
-                "",
-                0.0,
-                ProtocolBossColor::Purple,
-                ProtocolBossOverlay::Notched10,
-            ),
-        })
-        .unwrap();
-    let drained = presentation
-        .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
-        .unwrap();
-    let purple_after = drained
-        .vertices
-        .iter()
-        .filter(|vertex| vertex.color == [170, 0, 170, 255])
-        .count();
-    assert_eq!(purple_after, 0, "an emptied bar draws no fill");
-
-    // Hide removes the first bar's track while the second remains.
-    runtime
-        .apply(SequencedUiEvent {
-            session_id: 1,
-            fifo_sequence: 4,
-            local_millis: 0,
-            server_tick: None,
-            event: boss_event(
-                ProtocolBossAction::Hide,
-                7,
-                "",
-                0.0,
-                ProtocolBossColor::Purple,
-                ProtocolBossOverlay::Notched10,
-            ),
-        })
-        .unwrap();
-    assert_eq!(runtime.boss_bars().stacked().len(), 1);
-}
-
-fn install_mixed_scoreboard_slot(
+pub(super) fn install_mixed_scoreboard_slot(
     runtime: &mut UiRuntime,
     slot: &str,
     rows: &[(i64, ProtocolScoreIdentity, i32)],
