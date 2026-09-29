@@ -1,6 +1,10 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::*;
@@ -267,7 +271,7 @@ pub(crate) fn update_block_entity_scene(
         });
 
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
-    let mut seen: Vec<BlockEntityKey> = Vec::new();
+    let mut seen: HashSet<BlockEntityKey> = HashSet::new();
     let mut held: Vec<StaticItemPlacement> = Vec::new();
     runtime.lids.begin();
     let chunk_range = |center: f32| {
@@ -302,7 +306,7 @@ pub(crate) fn update_block_entity_scene(
                 }) else {
                     continue;
                 };
-                seen.push(key);
+                seen.insert(key);
                 let stale = runtime.described.get(&key).is_none_or(|entry| {
                     !Arc::ptr_eq(&entry.nbt, &nbt) || entry.runtime_id != runtime_id
                 });
