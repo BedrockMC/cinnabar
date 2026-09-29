@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::BytesMut;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
@@ -9,8 +9,8 @@ use valentine::bedrock::{
         ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
         EnumsContainerEnumName as FullContainerNameContainerName,
         EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
-        InventoryContentPacket, InventorySlotPacket, ItemStackResponsePacket, McpePacketName,
-        MobArmorEquipmentPacket, PlayerHotbarPacket,
+        InventoryContentPacket, InventorySlotPacket, ItemStackResponsePacket,
+        MobArmorEquipmentPacket, PlayerEnchantOptionsPacket, PlayerHotbarPacket,
     },
 };
 use valentine::protocol::wire;
@@ -31,6 +31,10 @@ pub use creative::{
 pub mod recipes;
 mod request;
 mod validation;
+mod client_packets;
+mod raw_scan;
+mod windows;
+pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
     CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY,
@@ -42,6 +46,8 @@ pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
+pub use client_packets::*;
+pub use windows::*;
 mod registry_snapshot;
 pub use recipes::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
@@ -50,9 +56,9 @@ pub use recipes::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_m
 pub use registry_snapshot::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use request::{
     ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
-    MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction,
-    StackRequestContainer, StackRequestSlot, container_close_packet, item_stack_request_packet,
-    open_inventory_packet,
+    MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
+    item_stack_request_packet, item_stack_request_packet_filtered, open_inventory_packet,
 };
 use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
@@ -171,6 +177,26 @@ pub struct ContainerDataEvent {
     pub value: i32,
 }
 
+/// One enchanting-table option the server offers for the input item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnchantOption {
+    pub cost: u8,
+    /// The option's display text in the standard galactic alphabet.
+    pub name: Arc<str>,
+    /// The recipe network id a selection request names.
+    pub network_id: u32,
+    /// `(enchantment type code, level)` pairs the option applies.
+    pub enchants: Arc<[(u8, u8)]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnchantOptionsEvent {
+    pub options: Arc<[EnchantOption]>,
+}
+
+/// Options one enchanting table shows at most; extras are dropped.
+pub const MAX_ENCHANT_OPTIONS: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
     Recipes(recipes::RecipeUpdate),
@@ -182,6 +208,7 @@ pub enum InventoryEvent {
     Open(ContainerOpenEvent),
     Close(ContainerCloseEvent),
     Data(ContainerDataEvent),
+    EnchantOptions(EnchantOptionsEvent),
     Creative(CreativeContentEvent),
 }
 
@@ -514,6 +541,36 @@ pub fn normalize_container_data(
     }))
 }
 
+pub fn normalize_enchant_options(
+    packet: PlayerEnchantOptionsPacket,
+) -> Result<InventoryEvent, InventoryPacketError> {
+    let options = packet
+        .options
+        .into_iter()
+        .take(MAX_ENCHANT_OPTIONS)
+        .map(|option| {
+            let mut enchants = Vec::new();
+            for instance in option.enchants.item_enchants.iter().flatten() {
+                let mut bytes = BytesMut::with_capacity(1);
+                instance
+                    .enchant_type
+                    .encode(&mut bytes)
+                    .map_err(|_| InventoryPacketError::EncodingFailed)?;
+                enchants.push((bytes[0], instance.enchant_level));
+            }
+            Ok(EnchantOption {
+                cost: option.cost,
+                name: Arc::from(option.enchant_name),
+                network_id: option.enchant_net_id.raw_id,
+                enchants: Arc::from(enchants),
+            })
+        })
+        .collect::<Result<Vec<_>, InventoryPacketError>>()?;
+    Ok(InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+        options: Arc::from(options),
+    }))
+}
+
 pub fn validate_item_nbt_size(bytes: usize) -> Result<(), InventoryPacketError> {
     if bytes > MAX_ITEM_NBT_BYTES {
         return Err(InventoryPacketError::ItemNbtTooLarge {
@@ -522,226 +579,6 @@ pub fn validate_item_nbt_size(bytes: usize) -> Result<(), InventoryPacketError> 
         });
     }
     Ok(())
-}
-
-pub(crate) fn validate_raw_inventory_packet(
-    raw: &jolyne::raw::RawPacket,
-) -> Result<(), InventoryPacketError> {
-    let mut body = raw.body().clone();
-    let mut semantic_error = None;
-    let scanned = match raw.id {
-        McpePacketName::InventoryContentPacket => {
-            read_var_i32(&mut body)?;
-            let count = read_count(&mut body)?;
-            if count > MAX_CONTAINER_SLOTS {
-                defer_inventory_error(
-                    &mut semantic_error,
-                    InventoryPacketError::TooManySlots {
-                        count,
-                        max: MAX_CONTAINER_SLOTS,
-                    },
-                );
-            }
-            for _ in 0..count {
-                scan_item_descriptor(&mut body, &mut semantic_error)?;
-            }
-            scan_full_container(&mut body)?;
-            scan_item_descriptor(&mut body, &mut semantic_error)?;
-            true
-        }
-        McpePacketName::InventorySlotPacket => {
-            // The container ID is a plain byte in 1.26.40, not a varint.
-            take_u8(&mut body)?;
-            read_var_i32(&mut body)?;
-            if read_presence(&mut body)? {
-                scan_full_container(&mut body)?;
-            }
-            if read_presence(&mut body)? {
-                scan_item_descriptor(&mut body, &mut semantic_error)?;
-            }
-            scan_item_descriptor(&mut body, &mut semantic_error)?;
-            true
-        }
-        McpePacketName::ItemStackResponsePacket => {
-            scan_stack_responses(&mut body, &mut semantic_error)?;
-            true
-        }
-        _ => false,
-    };
-    if scanned && body.has_remaining() {
-        return Err(InventoryPacketError::MalformedWire);
-    }
-    if let Some(error) = semantic_error {
-        return Err(error);
-    }
-    Ok(())
-}
-
-/// Retains the first semantic or policy error while structural scanning continues.
-fn defer_inventory_error(
-    semantic_error: &mut Option<InventoryPacketError>,
-    error: InventoryPacketError,
-) {
-    if semantic_error.is_none() {
-        *semantic_error = Some(error);
-    }
-}
-
-fn scan_stack_responses(
-    body: &mut Bytes,
-    semantic_error: &mut Option<InventoryPacketError>,
-) -> Result<(), InventoryPacketError> {
-    let response_count = read_count(body)?;
-    if response_count > MAX_STACK_RESPONSES {
-        defer_inventory_error(
-            semantic_error,
-            InventoryPacketError::TooManyResponses {
-                count: response_count,
-                max: MAX_STACK_RESPONSES,
-            },
-        );
-    }
-    for _ in 0..response_count {
-        take_u8(body)?;
-        read_var_i32(body)?;
-        // The generated DoubleOptionalFunc shape carries its constant outer
-        // flag and then the actual optional-list presence byte.
-        read_presence(body)?;
-        if !read_presence(body)? {
-            continue;
-        }
-        let container_count = read_count(body)?;
-        if container_count > MAX_RESPONSE_CONTAINERS {
-            defer_inventory_error(
-                semantic_error,
-                InventoryPacketError::TooManyResponseContainers {
-                    count: container_count,
-                    max: MAX_RESPONSE_CONTAINERS,
-                },
-            );
-        }
-        for _ in 0..container_count {
-            scan_full_container(body)?;
-            let slot_count = read_count(body)?;
-            if slot_count > MAX_CONTAINER_SLOTS {
-                defer_inventory_error(
-                    semantic_error,
-                    InventoryPacketError::TooManyResponseSlots {
-                        count: slot_count,
-                        max: MAX_CONTAINER_SLOTS,
-                    },
-                );
-            }
-            for _ in 0..slot_count {
-                // requested_slot, slot, amount
-                take_bytes(body, 3)?;
-                // The stack net ID is another DoubleOptionalFunc: consume its
-                // constant outer flag before the actual optional presence.
-                read_presence(body)?;
-                if read_presence(body)? {
-                    read_var_i32(body)?;
-                }
-                scan_response_name(body, semantic_error)?;
-                if read_presence(body)? {
-                    scan_response_name(body, semantic_error)?;
-                }
-                read_var_i32(body)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn scan_response_name(
-    body: &mut Bytes,
-    semantic_error: &mut Option<InventoryPacketError>,
-) -> Result<(), InventoryPacketError> {
-    let length = read_count(body)?;
-    if length > MAX_RESPONSE_NAME_BYTES {
-        defer_inventory_error(
-            semantic_error,
-            InventoryPacketError::ResponseNameTooLong {
-                bytes: length,
-                max: MAX_RESPONSE_NAME_BYTES,
-            },
-        );
-    }
-    take_bytes(body, length)
-}
-
-/// Walks one item descriptor without materialising it.
-///
-/// Protocol 1001 needed a scanner per item encoding; 1.26.40 has one shape. The
-/// layout is `id: i16 LE`, `stacksize: u16 LE`, `auxvalue` varint, an optional
-/// net ID (presence byte then one zigzag varint -- the old model wrote two
-/// varints here for its `empty`/`id` pair), `block_runtime_id` varint, and the
-/// length-prefixed user-data buffer.
-fn scan_item_descriptor(
-    body: &mut Bytes,
-    semantic_error: &mut Option<InventoryPacketError>,
-) -> Result<(), InventoryPacketError> {
-    take_bytes(body, 4)?;
-    read_var_i32(body)?;
-    if read_presence(body)? {
-        read_var_i32(body)?;
-    }
-    read_var_i32(body)?;
-    scan_item_extra(body, semantic_error)
-}
-
-fn scan_item_extra(
-    body: &mut Bytes,
-    semantic_error: &mut Option<InventoryPacketError>,
-) -> Result<(), InventoryPacketError> {
-    let bytes = read_count(body)?;
-    if bytes > MAX_ITEM_EXTRA_BYTES {
-        defer_inventory_error(
-            semantic_error,
-            InventoryPacketError::ItemExtraTooLarge {
-                bytes,
-                max: MAX_ITEM_EXTRA_BYTES,
-            },
-        );
-    }
-    take_bytes(body, bytes)
-}
-
-fn scan_full_container(body: &mut Bytes) -> Result<(), InventoryPacketError> {
-    take_u8(body)?;
-    if read_presence(body)? {
-        take_bytes(body, 4)?;
-    }
-    Ok(())
-}
-
-fn read_presence(body: &mut Bytes) -> Result<bool, InventoryPacketError> {
-    Ok(take_u8(body)? != 0)
-}
-
-fn take_u8(body: &mut Bytes) -> Result<u8, InventoryPacketError> {
-    if !body.has_remaining() {
-        return Err(InventoryPacketError::MalformedWire);
-    }
-    Ok(body.get_u8())
-}
-
-fn take_bytes(body: &mut Bytes, bytes: usize) -> Result<(), InventoryPacketError> {
-    if body.remaining() < bytes {
-        return Err(InventoryPacketError::MalformedWire);
-    }
-    body.advance(bytes);
-    Ok(())
-}
-
-fn read_count(body: &mut Bytes) -> Result<usize, InventoryPacketError> {
-    let value = read_var_i32(body)?;
-    usize::try_from(value).map_err(|_| InventoryPacketError::MalformedWire)
-}
-
-fn read_var_i32(body: &mut Bytes) -> Result<i32, InventoryPacketError> {
-    wire::read_var_u32(body)
-        .map(|value| i32::from_ne_bytes(value.to_ne_bytes()))
-        .map_err(|_| InventoryPacketError::MalformedWire)
 }
 
 fn validate_slot_count(count: usize) -> Result<(), InventoryPacketError> {

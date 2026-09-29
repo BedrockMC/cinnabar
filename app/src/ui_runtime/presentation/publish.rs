@@ -342,6 +342,195 @@ pub(crate) fn refresh_hud_frame(
     } else {
         Default::default()
     };
+    let mut durability = super::hud_layout::Durability::default();
+    let mut window_icons = super::hud_layout::WindowIcons::default();
+    {
+        use crate::ui_runtime::inventory_ledger::InventoryTarget;
+        let ledger = runtime.inventory_ledger();
+        let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
+            let identifier = resolve_identifier(stack);
+            item_facts::cell_durability_fraction(stack, identifier.as_deref(), correction)
+        };
+        for (slot, bar) in durability.player.iter_mut().enumerate() {
+            if let Some(stack) = ledger.displayed_stack(slot as u8) {
+                let correction = ledger
+                    .presented_slot_overlay(slot as u8)
+                    .and_then(|overlay| overlay.durability_correction);
+                *bar = fraction(stack, correction);
+            }
+        }
+        for (slot, bar) in durability.storage.iter_mut().enumerate() {
+            if let Some(stack) = ledger.storage_stack(slot as u8) {
+                *bar = fraction(stack, None);
+            }
+        }
+        for slot in 0..protocol::UI_SLOT_COUNT as u8 {
+            let stack = if slot == protocol::CREATED_OUTPUT_SLOT {
+                ledger.created_output_stack()
+            } else if protocol::ui_slot_container_name(slot).is_some() {
+                ledger.target_stack(InventoryTarget::Craft(slot))
+            } else {
+                None
+            };
+            if let Some(stack) = stack {
+                durability.ui[usize::from(slot)] = fraction(stack, None);
+                window_icons.ui[usize::from(slot)] = resolve_identifier(stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata));
+            }
+        }
+    }
+    let inventory_screen = super::inventory_pointer::InventoryScreen::of_runtime(runtime);
+    let mut window_text = super::hud_layout::WindowText::default();
+    if runtime.inventory_open() {
+        let stated_title = runtime
+            .inventory_ledger()
+            .window_position()
+            .and_then(|position| stream?.block_entity_custom_name(position));
+        window_text.inventory_label = runtime
+            .translation("container.inventory")
+            .map(|text| text.to_string());
+        window_text.title = match inventory_screen {
+            super::inventory_pointer::InventoryScreen::Window(kind, _) => {
+                stated_title.or_else(|| {
+                    runtime
+                        .translation(super::hud_layout::title_key(kind))
+                        .map(|text| text.to_string())
+                })
+            }
+            super::inventory_pointer::InventoryScreen::Storage(count) => {
+                stated_title.or_else(|| {
+                    runtime
+                        .translation(if count == 54 {
+                            "container.chestDouble"
+                        } else {
+                            "container.chest"
+                        })
+                        .map(|text| text.to_string())
+                })
+            }
+            super::inventory_pointer::InventoryScreen::Workbench => stated_title.or_else(|| {
+                runtime
+                    .translation("container.crafting")
+                    .map(|text| text.to_string())
+            }),
+            super::inventory_pointer::InventoryScreen::Creative => {
+                let key = match runtime.screen_state().creative_tab {
+                    0 => "itemGroup.name.construction",
+                    1 => "itemGroup.name.nature",
+                    2 => "itemGroup.name.equipment",
+                    3 => "itemGroup.name.items",
+                    _ => "itemGroup.name.search",
+                };
+                runtime.translation(key).map(|text| text.to_string())
+            }
+            super::inventory_pointer::InventoryScreen::Personal => None,
+        };
+        if matches!(
+            inventory_screen,
+            super::inventory_pointer::InventoryScreen::Window(protocol::WindowKind::Beacon, _)
+        ) {
+            window_text.effect_names = [
+                (1, "effect.moveSpeed"),
+                (3, "effect.digSpeed"),
+                (11, "effect.resistance"),
+                (8, "effect.jump"),
+                (5, "effect.damageBoost"),
+                (10, "effect.regeneration"),
+            ]
+            .iter()
+            .map(|(id, key)| {
+                let name = runtime
+                    .translation(key)
+                    .map_or_else(|| (*key).to_owned(), |text| text.to_string());
+                (*id, name)
+            })
+            .collect();
+        }
+        if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
+            let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
+                runtime.inventory_ledger(),
+                runtime.screen_state(),
+            );
+            let first = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS;
+            for (cell, item) in entries
+                .iter()
+                .skip(first)
+                .take(super::screens::GRID_CELLS)
+                .enumerate()
+            {
+                window_icons.creative[cell] = resolve_identifier(&item.stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, item.stack.metadata));
+            }
+            for (tab, id) in [
+                "minecraft:brick",
+                "minecraft:oak_sapling",
+                "minecraft:iron_sword",
+                "minecraft:stick",
+                "minecraft:compass",
+            ]
+            .iter()
+            .enumerate()
+            {
+                window_icons.creative_tabs[tab] = presentation.item_icon(id, 0);
+            }
+        }
+        // The tooltip follows the hovered cell's stack.
+        let hovered = runtime.screen_state().hover.and_then(|hit| {
+            use super::inventory_pointer::InventoryCellHit as Hit;
+            let ledger = runtime.inventory_ledger();
+            let (stack, name) = match hit {
+                Hit::Player(slot) => (
+                    ledger.displayed_stack(slot),
+                    ledger
+                        .presented_slot_overlay(slot)
+                        .and_then(|overlay| overlay.custom_name.clone()),
+                ),
+                Hit::Storage(slot) => (ledger.storage_stack(slot), None),
+                Hit::Craft(slot) => (
+                    ledger.target_stack(
+                        crate::ui_runtime::inventory_ledger::InventoryTarget::Craft(slot),
+                    ),
+                    None,
+                ),
+                Hit::Armor(row) => (
+                    ledger.target_stack(
+                        crate::ui_runtime::inventory_ledger::InventoryTarget::Armor(row),
+                    ),
+                    None,
+                ),
+                Hit::Offhand => (
+                    ledger.target_stack(
+                        crate::ui_runtime::inventory_ledger::InventoryTarget::Offhand,
+                    ),
+                    None,
+                ),
+                Hit::CraftOutput => (ledger.created_output_stack(), None),
+                Hit::CreativeGrid(index) => {
+                    let position = runtime.screen_state().creative_row
+                        * super::screens::GRID_COLUMNS
+                        + usize::from(index);
+                    let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
+                        ledger,
+                        runtime.screen_state(),
+                    );
+                    (entries.get(position).copied().map(|item| &item.stack), None)
+                }
+                Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
+            };
+            stack.map(|stack| (stack, name))
+        });
+        if let Some((stack, name)) = hovered {
+            let identifier = resolve_identifier(stack);
+            window_text.tooltip = super::inventory_tooltip::tooltip_lines(
+                runtime,
+                stack,
+                identifier.as_deref(),
+                name.as_deref(),
+            );
+        }
+    }
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
@@ -438,6 +627,9 @@ pub(crate) fn refresh_hud_frame(
     frame.inventory_icons = inventory_icons;
     frame.storage_icons = storage_icons;
     frame.crafting = crafting;
+    frame.window_icons = window_icons;
+    frame.durability = durability;
+    frame.window_text = window_text;
     frame.cursor_icon = cursor_icon;
     frame.armor_icons = armor_icons;
     frame.offhand_icon = offhand_icon;
