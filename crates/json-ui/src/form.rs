@@ -140,6 +140,54 @@ pub struct FormRender {
 const LONG_FORM: &str = "server_form.long_form";
 const CUSTOM_FORM: &str = "server_form.custom_form";
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
+const FORM_SCREEN: (&str, &str) = ("server_form", "third_party_server_screen");
+
+/// The `server_form_factory` id the screen controller selects for a model.
+fn factory_id(model: &FormModel) -> Option<&'static str> {
+    match model {
+        FormModel::Action(_) => Some("long_form"),
+        FormModel::Custom(_) => Some("custom_form"),
+        FormModel::Modal(_) => None,
+    }
+}
+
+/// The form screen's `$screen_content` (a resource pack may repoint it), the
+/// control whose factory picks the long or custom form.
+fn screen_content(catalog: &Catalog) -> Option<String> {
+    let (screen, _) = crate::merge::flatten_def(
+        catalog,
+        FORM_SCREEN.0,
+        FORM_SCREEN.1,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )?;
+    ["$screen_content", "$screen_content|default"]
+        .iter()
+        .find_map(|key| screen.props.get(*key)?.as_str().map(str::to_owned))
+}
+
+/// Where the form screen routes `button.menu_cancel` (Escape), from its own
+/// global mappings, which sit above the content a form renders.
+pub fn form_screen_cancel(catalog: &Catalog) -> Option<String> {
+    let (screen, _) = crate::merge::flatten_def(
+        catalog,
+        FORM_SCREEN.0,
+        FORM_SCREEN.1,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )?;
+    screen
+        .props
+        .get("button_mappings")?
+        .as_array()?
+        .iter()
+        .find(|mapping| {
+            mapping["from_button_id"] == "button.menu_cancel" && mapping["mapping_type"] == "global"
+        })?
+        .get("to_button_id")?
+        .as_str()
+        .map(str::to_owned)
+}
 
 /// The `namespace.name` of the vanilla template a model renders through.
 pub fn form_template(model: &FormModel) -> &'static str {
@@ -193,10 +241,10 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
 fn long_form_source(data: &mut DataSource, form: &ActionForm) {
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#form_text", Scalar::Text(form.body.clone()));
-    data.set_global(
-        "#form_button_contents",
-        Scalar::Num(form.elements.len() as f64),
-    );
+    let length = Scalar::Num(form.elements.len() as f64);
+    data.set_global("#form_button_contents", length.clone());
+    data.set_global("#form_button_length", length);
+    data.set_global("#submit_button_visible", Scalar::Bool(true));
     let text_item = |role: &str, text: &str| {
         CollectionItem::new(role).with("#form_button_text", Scalar::Text(text.to_owned()))
     };
@@ -359,8 +407,19 @@ pub fn bind_form(
     context: &Context,
 ) -> Option<ResolvedControl> {
     let context = form_context(model, context);
-    let root = resolve(catalog, form_template(model), &context).control?;
-    let data = form_data_source(model);
+    let mut data = form_data_source(model);
+    // Action and custom forms open through the screen's content factory, so a
+    // pack's screen override applies; the bare template is the fallback.
+    let routed = factory_id(model).and_then(|id| {
+        let content = screen_content(catalog)?;
+        let root = resolve(catalog, &content, &context).control?;
+        data.set_factory_id(id);
+        Some(root)
+    });
+    let root = match routed {
+        Some(root) => root,
+        None => resolve(catalog, form_template(model), &context).control?,
+    };
     let library = CatalogLibrary {
         catalog,
         context: &context,
@@ -397,6 +456,17 @@ pub fn render_form_with(
 ) -> Option<FormRender> {
     let bound = bind_form(model, catalog, context)?;
     Some(finish(bound, root_size, env, state))
+}
+
+/// Lay out, emit, and collect input for a tree [`bind_form`] already bound, so a
+/// caller can re-lay out under new view state without re-resolving.
+pub fn render_bound(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+) -> FormRender {
+    finish(bound, root_size, env, state)
 }
 
 /// Lay out, emit, and collect input for a bound tree.

@@ -1,8 +1,10 @@
-//! Boolean/string predicate evaluator for `ignored`, `variables[]` `requires`, and
-//! the data-binding `view` grammar. It handles what the vanilla pack uses: `$var`
-//! references, `#binding` lookups, `not`/`and`/`or`, parentheses, single-quoted
-//! string literals, `=` comparison, and `+` string concatenation. Anything outside
-//! that grammar (an unbound variable, an unbound `#binding`, an unknown operator)
+//! Binding-expression evaluator for `ignored`, `variables[]` `requires`, and the
+//! data-binding `view` grammar, following the vanilla client's: `$var` and
+//! `#binding` operands, quoted strings, bare int/float/bool literals, `not`,
+//! `and`/`or` (one precedence level), `=`/`<`/`>`, `+`/`-`, and `*`/`/`, all
+//! left-associative. On strings `+` concatenates, `-` removes every occurrence,
+//! `/` counts occurrences, and a string result that reads as a number or bool
+//! becomes one. Anything outside the grammar (an unbound variable or binding)
 //! yields `None`, and the caller decides the lenient default.
 
 use serde_json::Value;
@@ -84,7 +86,14 @@ enum Token {
     And,
     Or,
     Eq,
+    Less,
+    Greater,
+    LessEq,
+    GreaterEq,
     Plus,
+    Minus,
+    Times,
+    Divide,
     Str(String),
     Ident(String),
 }
@@ -93,6 +102,7 @@ enum Token {
 enum Operand {
     Bool(bool),
     Str(String),
+    Num(f64),
 }
 
 impl Operand {
@@ -104,6 +114,7 @@ impl Operand {
                 "false" => Some(false),
                 _ => None,
             },
+            Operand::Num(number) => Some(*number != 0.0),
         }
     }
 
@@ -111,6 +122,7 @@ impl Operand {
         match self {
             Operand::Bool(value) => value.to_string(),
             Operand::Str(text) => text.clone(),
+            Operand::Num(number) => format_number(*number),
         }
     }
 
@@ -118,7 +130,7 @@ impl Operand {
         match scalar {
             Scalar::Bool(value) => Operand::Bool(value),
             Scalar::Text(text) => Operand::Str(text),
-            Scalar::Num(number) => Operand::Str(format_number(number)),
+            Scalar::Num(number) => Operand::Num(number),
         }
     }
 
@@ -126,6 +138,7 @@ impl Operand {
         match self {
             Operand::Bool(value) => Scalar::Bool(value),
             Operand::Str(text) => Scalar::Text(text),
+            Operand::Num(number) => Scalar::Num(number),
         }
     }
 }
@@ -145,22 +158,45 @@ fn tokenize(expression: &str) -> Option<Vec<Token>> {
     let mut tokens = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
+        let single = match bytes[i] {
+            b'(' => Some(Token::Open),
+            b')' => Some(Token::Close),
+            b'=' => Some(Token::Eq),
+            b'+' => Some(Token::Plus),
+            b'*' => Some(Token::Times),
+            b'/' => Some(Token::Divide),
+            _ => None,
+        };
+        if let Some(token) = single {
+            tokens.push(token);
+            i += 1;
+            continue;
+        }
         match bytes[i] {
             b' ' | b'\t' | b'\n' | b'\r' => i += 1,
-            b'(' => {
-                tokens.push(Token::Open);
-                i += 1;
+            b'<' | b'>' => {
+                let or_equal = bytes.get(i + 1) == Some(&b'=');
+                tokens.push(match (bytes[i], or_equal) {
+                    (b'<', false) => Token::Less,
+                    (b'<', true) => Token::LessEq,
+                    (_, false) => Token::Greater,
+                    (_, true) => Token::GreaterEq,
+                });
+                i += 1 + usize::from(or_equal);
             }
-            b')' => {
-                tokens.push(Token::Close);
+            // A leading `-` on a number where an operand is expected is its sign.
+            b'-' if !operand_ended(tokens.last())
+                && bytes.get(i + 1).is_some_and(u8::is_ascii_digit) =>
+            {
+                let start = i;
                 i += 1;
+                while i < bytes.len() && is_word_byte(bytes[i]) {
+                    i += 1;
+                }
+                tokens.push(Token::Ident(expression[start..i].to_owned()));
             }
-            b'=' => {
-                tokens.push(Token::Eq);
-                i += 1;
-            }
-            b'+' => {
-                tokens.push(Token::Plus);
+            b'-' => {
+                tokens.push(Token::Minus);
                 i += 1;
             }
             b'\'' => {
@@ -175,7 +211,7 @@ fn tokenize(expression: &str) -> Option<Vec<Token>> {
                 tokens.push(Token::Str(expression[start..end].to_owned()));
                 i = end + 1;
             }
-            b'$' | b'#' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'.' | b'%' | b'-' => {
+            b'$' | b'#' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'.' | b'%' => {
                 let start = i;
                 while i < bytes.len() && is_word_byte(bytes[i]) {
                     i += 1;
@@ -194,8 +230,88 @@ fn tokenize(expression: &str) -> Option<Vec<Token>> {
     Some(tokens)
 }
 
+fn operand_ended(last: Option<&Token>) -> bool {
+    matches!(last, Some(Token::Close | Token::Str(_) | Token::Ident(_)))
+}
+
 fn is_word_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'$' | b'#' | b'_' | b'.' | b'%' | b'-')
+    byte.is_ascii_alphanumeric() || matches!(byte, b'$' | b'#' | b'_' | b'.' | b'|' | b'%')
+}
+
+/// Removes every non-overlapping occurrence of `needle` from `text`.
+fn subtract_text(text: &str, needle: &str) -> String {
+    if needle.is_empty() {
+        text.to_owned()
+    } else {
+        text.replace(needle, "")
+    }
+}
+
+/// A string result re-read as a literal: an int or float, a bool, else text.
+fn reparse(text: String) -> Operand {
+    if let Ok(number) = text.parse::<f64>()
+        && !text.starts_with(['+', '-'])
+    {
+        return Operand::Num(number);
+    }
+    match text.as_str() {
+        "true" => Operand::Bool(true),
+        "false" => Operand::Bool(false),
+        _ => Operand::Str(text),
+    }
+}
+
+/// `"%.Ns"` picks the first N characters of the other operand.
+fn truncation(format: &str) -> Option<usize> {
+    format.strip_prefix("%.")?.strip_suffix('s')?.parse().ok()
+}
+
+/// `=`, `<`, `>` (and the `<=`/`>=` spellings) with the vanilla type rules.
+fn compare(operator: &Token, left: &Operand, right: &Operand) -> Option<bool> {
+    use Operand::{Bool, Num, Str};
+    Some(match operator {
+        Token::Eq => match (left, right) {
+            (Str(a), Str(b)) => a == b,
+            (Num(a), Num(b)) => a == b,
+            (Bool(_), _) | (_, Bool(_)) => left.as_bool()? == right.as_bool()?,
+            // A numeric string compares as its number; other text against a
+            // number is equal only when both read as false.
+            (Str(text), Num(number)) | (Num(number), Str(text)) => match reparse(text.clone()) {
+                Num(parsed) => parsed == *number,
+                _ => !truthy(left) && !truthy(right),
+            },
+        },
+        _ => {
+            let ordering = match (left, right) {
+                (Str(a), Str(b)) => a.cmp(b),
+                (Num(a), Num(b)) => a.partial_cmp(b)?,
+                _ => {
+                    let (a, b) = (truthy(left), truthy(right));
+                    return Some(match operator {
+                        Token::Greater => a && !b,
+                        Token::Less => !a && b,
+                        Token::GreaterEq => a || !b,
+                        _ => !a || b,
+                    });
+                }
+            };
+            match operator {
+                Token::Less => ordering.is_lt(),
+                Token::Greater => ordering.is_gt(),
+                Token::LessEq => ordering.is_le(),
+                _ => ordering.is_ge(),
+            }
+        }
+    })
+}
+
+/// Truthiness for mixed comparisons: nonzero numbers and nonempty strings.
+fn truthy(operand: &Operand) -> bool {
+    match operand {
+        Operand::Bool(value) => *value,
+        Operand::Num(number) => *number != 0.0,
+        Operand::Str(text) => text.as_str() == "true" || (!text.is_empty() && text != "false"),
+    }
 }
 
 struct Parser<'a> {
@@ -211,21 +327,20 @@ impl Parser<'_> {
     }
 
     fn parse_or(&mut self) -> Option<Operand> {
-        let mut left = self.parse_and()?;
-        while self.peek() == Some(&Token::Or) {
-            self.pos += 1;
-            let right = self.parse_and()?;
-            left = Operand::Bool(left.as_bool()? || right.as_bool()?);
-        }
-        Some(left)
-    }
-
-    fn parse_and(&mut self) -> Option<Operand> {
         let mut left = self.parse_not()?;
-        while self.peek() == Some(&Token::And) {
+        while let Some(operator) = self
+            .peek()
+            .filter(|token| matches!(token, Token::And | Token::Or))
+            .cloned()
+        {
             self.pos += 1;
             let right = self.parse_not()?;
-            left = Operand::Bool(left.as_bool()? && right.as_bool()?);
+            let (a, b) = (left.as_bool()?, right.as_bool()?);
+            left = Operand::Bool(if operator == Token::And {
+                a && b
+            } else {
+                a || b
+            });
         }
         Some(left)
     }
@@ -240,21 +355,77 @@ impl Parser<'_> {
     }
 
     fn parse_comparison(&mut self) -> Option<Operand> {
-        let left = self.parse_concat()?;
-        if self.peek() == Some(&Token::Eq) {
+        let mut left = self.parse_additive()?;
+        while let Some(operator) = self
+            .peek()
+            .filter(|token| {
+                matches!(
+                    token,
+                    Token::Eq | Token::Less | Token::Greater | Token::LessEq | Token::GreaterEq
+                )
+            })
+            .cloned()
+        {
             self.pos += 1;
-            let right = self.parse_concat()?;
-            return Some(Operand::Bool(left.as_str() == right.as_str()));
+            let right = self.parse_additive()?;
+            left = Operand::Bool(compare(&operator, &left, &right)?);
         }
         Some(left)
     }
 
-    fn parse_concat(&mut self) -> Option<Operand> {
+    fn parse_additive(&mut self) -> Option<Operand> {
+        let mut left = self.parse_multiplicative()?;
+        while let Some(operator) = self
+            .peek()
+            .filter(|token| matches!(token, Token::Plus | Token::Minus))
+            .cloned()
+        {
+            self.pos += 1;
+            let right = self.parse_multiplicative()?;
+            left = match (operator, &left, &right) {
+                (Token::Plus, Operand::Num(a), Operand::Num(b)) => Operand::Num(a + b),
+                (Token::Plus, Operand::Str(_), _) | (Token::Plus, _, Operand::Str(_)) => {
+                    reparse(format!("{}{}", left.as_str(), right.as_str()))
+                }
+                (Token::Plus, ..) => return None,
+                (_, Operand::Num(a), Operand::Num(b)) => Operand::Num(a - b),
+                (_, Operand::Str(a), Operand::Str(b)) => reparse(subtract_text(a, b)),
+                // A string minus a number, or anything minus a string, keeps lhs.
+                (_, Operand::Str(_), _) | (_, _, Operand::Str(_)) => left,
+                _ => return None,
+            };
+        }
+        Some(left)
+    }
+
+    fn parse_multiplicative(&mut self) -> Option<Operand> {
         let mut left = self.parse_atom()?;
-        while self.peek() == Some(&Token::Plus) {
+        while let Some(operator) = self
+            .peek()
+            .filter(|token| matches!(token, Token::Times | Token::Divide))
+            .cloned()
+        {
             self.pos += 1;
             let right = self.parse_atom()?;
-            left = Operand::Str(format!("{}{}", left.as_str(), right.as_str()));
+            left = match (operator, &left, &right) {
+                (Token::Times, Operand::Num(a), Operand::Num(b)) => Operand::Num(a * b),
+                (Token::Times, Operand::Str(format), _) => match truncation(format) {
+                    Some(count) => reparse(right.as_str().chars().take(count).collect()),
+                    None => right,
+                },
+                (Token::Divide, Operand::Str(a), Operand::Str(b)) => {
+                    Operand::Num(if b.is_empty() {
+                        1.0
+                    } else {
+                        a.matches(b.as_str()).count() as f64
+                    })
+                }
+                (Token::Divide, Operand::Num(a), Operand::Num(b)) if *b != 0.0 => {
+                    Operand::Num(a / b)
+                }
+                (Token::Divide, Operand::Num(_), Operand::Num(_)) => left,
+                _ => return None,
+            };
         }
         Some(left)
     }
@@ -289,16 +460,20 @@ impl Parser<'_> {
             _ => {}
         }
         if let Some(name) = word.strip_prefix('$') {
+            let name = name.split_once('|').map_or(name, |(name, _)| name);
             return match self.env.get(name)? {
                 Value::Bool(value) => Some(Operand::Bool(*value)),
                 Value::String(text) => Some(Operand::Str(text.clone())),
-                Value::Number(number) => Some(Operand::Str(number.to_string())),
+                Value::Number(number) => number.as_f64().map(Operand::Num),
                 _ => None,
             };
         }
         if word.starts_with('#') {
             // Runtime binding: resolved from the view's binding scope, or undecidable.
             return self.bindings.get(word).map(Operand::from_scalar);
+        }
+        if let Ok(number) = word.parse::<f64>() {
+            return Some(Operand::Num(number));
         }
         Some(Operand::Str(word.to_owned()))
     }
@@ -392,6 +567,63 @@ mod tests {
         let scope = bindings(&[("#name", Scalar::Text("apple".into()))]);
         let value = eval_scalar("'textures/items/' + #name", &env(), &scope);
         assert_eq!(value, Some(Scalar::Text("textures/items/apple".into())));
+    }
+
+    // Packs detect title markers by subtracting them and comparing.
+    #[test]
+    fn string_subtraction_detects_and_strips_markers() {
+        let scope = bindings(&[("#t", Scalar::Text("@mineville/boxes:Spirit Bundle".into()))]);
+        let strip = eval_scalar("(#t - '@mineville/boxes' - ':')", &env(), &scope);
+        assert_eq!(strip, Some(Scalar::Text("Spirit Bundle".into())));
+        let found = "(not ((#t - '@mineville/boxes') = #t))";
+        assert_eq!(eval_bool(found, &env(), &scope), Some(true));
+        let absent = "(not ((#t - '§j' - '§z') = #t))";
+        assert_eq!(eval_bool(absent, &env(), &scope), Some(false));
+    }
+
+    #[test]
+    fn arithmetic_and_ordering_follow_precedence() {
+        let scope = bindings(&[("#n", Scalar::Num(7.0))]);
+        assert_eq!(
+            eval_scalar("(#n - 1) * 2 + 3", &env(), &scope),
+            Some(Scalar::Num(15.0))
+        );
+        assert_eq!(
+            eval_bool("(#n > 6) and (#n <= 7)", &env(), &scope),
+            Some(true)
+        );
+        assert_eq!(
+            eval_bool("true or false and false", &env(), &scope),
+            Some(false)
+        );
+        assert_eq!(
+            eval_scalar("-2 + #n", &env(), &scope),
+            Some(Scalar::Num(5.0))
+        );
+        assert_eq!(
+            eval_scalar("#n / 0", &env(), &scope),
+            Some(Scalar::Num(7.0))
+        );
+    }
+
+    #[test]
+    fn string_operators_follow_the_vanilla_rules() {
+        let none = bindings(&[]);
+        let text = |value: &str| Some(Scalar::Text(value.into()));
+        assert_eq!(
+            eval_scalar("('a-b-a' / 'a')", &env(), &none),
+            Some(Scalar::Num(2.0))
+        );
+        assert_eq!(
+            eval_scalar("('%.3s' * 'abcdef')", &env(), &none),
+            text("abc")
+        );
+        assert_eq!(
+            eval_scalar("('x12' - 'x')", &env(), &none),
+            Some(Scalar::Num(12.0))
+        );
+        assert_eq!(eval_scalar("('ab' - 3)", &env(), &none), text("ab"));
+        assert_eq!(eval_scalar("100%", &env(), &none), text("100%"));
     }
 
     #[test]

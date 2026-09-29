@@ -6,7 +6,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::catalog::{Catalog, RawControl};
+use crate::catalog::{Catalog, RawControl, child_controls};
 use crate::env::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
 use crate::merge::{deep_merge_control, flatten_def};
 use crate::predicate;
@@ -117,8 +117,23 @@ impl<'a> Resolver<'a> {
             }
             return Vec::new();
         }
+        // A `$var` child list (`"controls": "$button_contents"`) is read here.
+        let dynamic = match control.props.get("controls") {
+            Some(Value::String(reference)) => {
+                match reference.strip_prefix('$').and_then(|name| env.get(name)) {
+                    Some(value) => child_controls(&control.owner_ns, value, &mut self.diagnostics),
+                    None => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        };
+        let children = if dynamic.is_empty() {
+            &control.children
+        } else {
+            &dynamic
+        };
         let mut resolved = Vec::new();
-        for child in &control.children {
+        for child in children {
             let (working, provenance, unresolved) = self.resolve_child_base(child, env);
             let child_env = self.build_env(env, &working.props);
             if self.is_ignored(&working, &child_env) {
@@ -295,16 +310,21 @@ fn build_properties(
 }
 
 fn is_reserved(key: &str) -> bool {
-    matches!(key, "type" | "ignored" | "variables" | "factory")
+    matches!(
+        key,
+        "type" | "ignored" | "variables" | "factory" | "controls"
+    )
 }
 
+/// A factory's role map; the whole map may itself be a `$var` holding an object.
 fn control_id_map(
     value: Option<&Value>,
     owner: &str,
     env: &Env,
 ) -> std::collections::BTreeMap<String, ControlRef> {
     let mut map = std::collections::BTreeMap::new();
-    if let Some(Value::Object(entries)) = value {
+    let value = value.map(|value| substitute(value, env, &mut Vec::new()));
+    if let Some(Value::Object(entries)) = &value {
         for (role, reference) in entries {
             if let Some(text) = reference.as_str() {
                 map.insert(role.clone(), parse_reference(text, owner, env));

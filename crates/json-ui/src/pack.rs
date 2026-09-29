@@ -85,21 +85,37 @@ impl Catalog {
             Ok(_) => return self.note(format!("pack {entry}: top level is not an object")),
             Err(error) => return self.note(format!("pack {entry}: parse error ({error})")),
         };
-        let Some(Value::String(namespace)) = object.get("namespace") else {
-            return self.note(format!("pack {entry}: missing string `namespace`"));
+        // A file overriding a vanilla path may omit the namespace it extends.
+        let namespace = match object.get("namespace") {
+            Some(Value::String(namespace)) => namespace.clone(),
+            _ => match self.file_namespace(entry) {
+                Some(namespace) => namespace.to_owned(),
+                None => return self.note(format!("pack {entry}: missing string `namespace`")),
+            },
         };
-        let namespace = namespace.clone();
         for (key, body) in &object {
             if key == "namespace" {
                 continue;
             }
-            let (name, base) = split_key(key);
             let mut diagnostics = Vec::new();
-            match self.lookup_mut(&namespace, &name) {
-                Some(existing) => merge_into(existing, base, body, &mut diagnostics),
-                None => {
-                    let control = RawControl::from_entry(&namespace, key, body, &mut diagnostics);
-                    self.insert(control);
+            // `parent/child` addresses a nested control by instance names.
+            if let Some((top, rest)) = key.split_once('/') {
+                let target = self
+                    .lookup_mut(&namespace, top)
+                    .and_then(|control| descendant(control, rest));
+                match target {
+                    Some(existing) => merge_into(existing, None, body, &mut diagnostics),
+                    None => diagnostics.push(format!("{key}: nested control not found")),
+                }
+            } else {
+                let (name, base) = split_key(key);
+                match self.lookup_mut(&namespace, &name) {
+                    Some(existing) => merge_into(existing, base, body, &mut diagnostics),
+                    None => {
+                        let control =
+                            RawControl::from_entry(&namespace, key, body, &mut diagnostics);
+                        self.insert(control);
+                    }
                 }
             }
             for message in diagnostics {
@@ -107,6 +123,13 @@ impl Catalog {
             }
         }
     }
+}
+
+/// The control at a `/`-joined instance-name path below `control`.
+fn descendant<'a>(control: &'a mut RawControl, path: &str) -> Option<&'a mut RawControl> {
+    path.split('/').try_fold(control, |node, name| {
+        node.children.iter_mut().find(|child| child.name == name)
+    })
 }
 
 fn merge_into(
@@ -118,13 +141,22 @@ fn merge_into(
     if base.is_some() {
         existing.base = base;
     }
-    let Value::Object(body) = body else {
-        diagnostics.push(format!("{}: control body is not an object", existing.name));
-        return;
+    let body = match body {
+        Value::Object(body) => body,
+        Value::Array(items) if items.is_empty() => return,
+        _ => {
+            diagnostics.push(format!("{}: control body is not an object", existing.name));
+            return;
+        }
     };
     for (property, value) in body {
         match property.as_str() {
+            "controls" if value.is_string() => {
+                existing.children.clear();
+                existing.props.insert(property.clone(), value.clone());
+            }
             "controls" => {
+                existing.props.remove("controls");
                 existing.children = child_controls(&existing.owner_ns, value, diagnostics);
             }
             "modifications" => apply_modifications(existing, value, diagnostics),
