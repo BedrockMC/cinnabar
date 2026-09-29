@@ -112,6 +112,11 @@ impl ActorStore {
         }
     }
 
+    /// Starts an actor's arm swing from a local cause rather than a server action.
+    pub(crate) fn start_swing(&mut self, runtime_id: u64) {
+        self.animation.start_swing(runtime_id);
+    }
+
     /// Feeds the client-authored local-player pose into the shared actor rig, spawning the
     /// synthetic actor on the first call so `actor_rigs()` drives its third-person body.
     /// Items and actions stay client-owned via `exclude_remote_state_for`.

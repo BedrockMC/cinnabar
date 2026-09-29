@@ -192,8 +192,18 @@ pub(super) fn evaluate_state(
     }
     apply_engine_variables(engine, &mut variables, actor, context, &observed, &motion);
     variables.clear_temporaries();
+    variables.clear(engine.first_person_item_rotation_factor);
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
+    }
+    // Provisional: without an assignment the first-person swing would not move at all, so the
+    // factor takes the value the pack computes under its older name.
+    if variables
+        .get(engine.first_person_item_rotation_factor)
+        .is_none()
+        && let Some(factor) = variables.get(engine.first_person_rotation_factor)
+    {
+        variables.set(engine.first_person_item_rotation_factor, factor);
     }
     let mut controllers = state.controllers.clone();
     if reset {

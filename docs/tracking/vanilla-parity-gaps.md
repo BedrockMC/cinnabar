@@ -91,6 +91,11 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
   poses are neutral: `query.main_hand_item_use_duration` now counts using-item flag ticks, but
   `max_duration` has no source (no item-use state; only food durations exist in pack data).
+- **Arm swing:** attacks, mining and use swing the local rig when the swing is accepted (the
+  server never echoes the owner's swing); remote swings come from the Animate packet. The pinned
+  pack's first-person attack rotation reads `variable.first_person_item_rotation_factor`, which
+  neither the pack nor the 26.30 client assigns; it provisionally takes the pack's
+  `first_person_rotation_factor`. Haste and fatigue do not yet change the rig's 6-tick swing.
 - **Block items:** plain opaque cubes in hand (third and first person) and on the head
   (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
 - **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;

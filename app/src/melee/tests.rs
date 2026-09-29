@@ -110,7 +110,13 @@ fn survival_reach_and_block_occlusion_decide_the_press() {
 #[test]
 fn a_new_swing_waits_for_half_the_current_one() {
     let mut swings = SwingTracker::default();
+    assert!(!swings.take_started());
     assert!(swings.try_swing(10, 6));
+    assert!(
+        swings.take_started(),
+        "an accepted swing is handed to the local rig once"
+    );
+    assert!(!swings.take_started());
     assert!(!swings.try_swing(10, 6));
     assert!(!swings.try_swing(12, 6));
     assert!(swings.try_swing(13, 6));
