@@ -383,7 +383,7 @@ fn focused_chat_editor_uses_a_dedicated_solid_panel_layer() {
 
     assert_eq!(
         active.textures.pages().len(),
-        font_page_count as usize + 1 + render::MAX_UI_DYNAMIC_PAGES
+        font_page_count as usize + 1 + render::MAX_UI_DYNAMIC_PAGES + render::MAX_UI_ART_PAGES
     );
     let panel_batch = active
         .batches
