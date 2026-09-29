@@ -7,7 +7,6 @@
 use std::{
     borrow::{Borrow, Cow},
     cell::RefCell,
-    collections::BTreeMap,
     sync::Arc,
 };
 
@@ -22,7 +21,7 @@ use ui::{
 };
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
-use super::server_pack::{ServerTexture, ServerUiPack};
+use super::server_pack::{ServerAtlas, ServerUiPack};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
@@ -42,11 +41,15 @@ pub(crate) struct FormEngine {
     /// Texture page of carrier atlas page 0.
     first_page: u16,
     context: Context,
-    /// Server-pack textures shadowing the carrier's, the dynamic pages holding
-    /// them, and the texture page of the first of those.
-    server: BTreeMap<String, ServerTexture>,
+    /// Server-pack textures shadowing the carrier's, packed as screens draw
+    /// them; a lock only because renders borrow the engine shared.
+    server: std::sync::Mutex<ServerAtlas>,
+    /// The atlas page images last handed to the dynamic pages.
     pub(super) server_pages: Vec<render::UiTexturePage>,
+    /// Texture page of the first reserved server page.
     server_page: u16,
+    /// Carrier texture keys by lowercase spelling; pack paths match any case.
+    carrier_names: CarrierNames,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
     /// The last form's bound tree and laid-out output, reused while unchanged.
@@ -73,7 +76,8 @@ struct LaidForm {
 #[derive(Clone, Copy)]
 struct Art<'a> {
     assets: &'a RuntimeUiAssets,
-    server: &'a BTreeMap<String, ServerTexture>,
+    server: &'a std::sync::Mutex<ServerAtlas>,
+    names: &'a CarrierNames,
     first_page: u16,
     server_page: u16,
 }
@@ -92,14 +96,20 @@ pub(super) struct EngineInputs<'a> {
 impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, catalog: Catalog, first_page: u16) -> Self {
         let base = Arc::new(catalog);
+        let carrier_names = assets
+            .textures()
+            .iter()
+            .map(|texture| (texture.path.to_ascii_lowercase(), texture.path.to_string()))
+            .collect();
         Self {
             assets,
             catalog: Arc::clone(&base),
             base,
             first_page,
             context: Context::desktop(),
-            server: BTreeMap::new(),
+            server: Default::default(),
             server_pages: Vec::new(),
+            carrier_names,
             server_page: 0,
             server_source: None,
             cache: None,
@@ -111,6 +121,7 @@ impl FormEngine {
         Art {
             assets: &self.assets,
             server: &self.server,
+            names: &self.carrier_names,
             first_page: self.first_page,
             server_page: self.server_page,
         }
@@ -137,16 +148,56 @@ impl FormEngine {
         }
     }
 
-    /// Install packed server textures living on the dynamic pages from `first`.
-    pub(super) fn set_server_textures(
-        &mut self,
-        textures: BTreeMap<String, ServerTexture>,
-        pages: Vec<render::UiTexturePage>,
-        first: u16,
-    ) {
-        self.server = textures;
-        self.server_pages = pages;
+    /// Install a server texture atlas whose pages start at texture page `first`.
+    pub(super) fn set_server_atlas(&mut self, atlas: ServerAtlas, first: u16) {
+        self.server = std::sync::Mutex::new(atlas);
         self.server_page = first;
+    }
+
+    /// The atlas page images when they changed since the last call.
+    pub(super) fn take_server_pages(&mut self) -> Option<&[render::UiTexturePage]> {
+        let atlas = self
+            .server
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if !atlas.take_dirty() {
+            return None;
+        }
+        self.server_pages = atlas.images().to_vec();
+        Some(&self.server_pages)
+    }
+
+    /// The last form's sprite textures, and those resolving to neither the
+    /// server atlas nor the carrier.
+    #[cfg(test)]
+    pub(super) fn drawn_sprites(&self) -> (Vec<String>, Vec<String>) {
+        let atlas = lock(&self.server);
+        let mut drawn: Vec<String> = self
+            .cache
+            .iter()
+            .flat_map(|cache| cache.laid.iter())
+            .flat_map(|laid| laid.render.nodes.iter())
+            .filter_map(|node| match &node.draw {
+                Draw::Sprite { texture, .. } => Some(
+                    canonical(
+                        texture_key(texture),
+                        &atlas,
+                        &self.carrier_names,
+                        &self.assets,
+                    )
+                    .into_owned(),
+                ),
+                _ => None,
+            })
+            .collect();
+        drawn.sort();
+        drawn.dedup();
+        let missing = drawn
+            .iter()
+            .filter(|key| atlas.placement(key).is_none() && self.assets.texture(key).is_none())
+            .cloned()
+            .collect();
+        (drawn, missing)
     }
 
     /// Re-apply a server resource pack's ui files over the vanilla catalog;
@@ -198,6 +249,7 @@ impl FormEngine {
         let art = Art {
             assets: &self.assets,
             server: &self.server,
+            names: &self.carrier_names,
             first_page: self.first_page,
             server_page: self.server_page,
         };
@@ -268,6 +320,7 @@ fn render_with<R: Borrow<FormRender>>(
     ];
     let cache = RefCell::new(inputs.layouts);
     let render = {
+        let atlas = lock(textures.server);
         let measure = Measure {
             layouts: &cache,
             font: inputs.font,
@@ -277,7 +330,8 @@ fn render_with<R: Borrow<FormRender>>(
         };
         let sidecars = Sidecars {
             assets: textures.assets,
-            server: textures.server,
+            server: &atlas,
+            names: textures.names,
         };
         let env = LayoutEnv {
             text: &measure,
@@ -290,9 +344,23 @@ fn render_with<R: Borrow<FormRender>>(
     };
     let render = render.borrow();
     let layouts = cache.into_inner();
+    let mut atlas = lock(textures.server);
+    // Only what this screen draws needs to be resident.
+    let drawn: Vec<String> = render
+        .nodes
+        .iter()
+        .chain(out.overlay)
+        .filter_map(|node| match &node.draw {
+            Draw::Sprite { texture, .. } => Some(texture_key(texture)),
+            _ => None,
+        })
+        .map(|key| canonical(key, &atlas, textures.names, textures.assets).into_owned())
+        .collect();
+    atlas.require(drawn.iter().map(String::as_str));
     let mut painter = Painter {
         assets: textures.assets,
-        server: textures.server,
+        server: &atlas,
+        names: textures.names,
         server_page: textures.server_page,
         first_page: textures.first_page,
         solid_page: inputs.solid_page,
@@ -411,21 +479,24 @@ impl TextMeasure for Measure<'_, '_> {
     }
 }
 
+fn lock(atlas: &std::sync::Mutex<ServerAtlas>) -> std::sync::MutexGuard<'_, ServerAtlas> {
+    atlas.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
 /// Sidecar metadata keyed like the ui json references it; a sidecar-less texture
 /// reports its packed pixel size with no nine-slice.
 struct Sidecars<'a> {
     assets: &'a RuntimeUiAssets,
-    server: &'a BTreeMap<String, ServerTexture>,
+    server: &'a ServerAtlas,
+    names: &'a CarrierNames,
 }
 
 impl TextureSource for Sidecars<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
-        let key = texture_key(path);
-        if let Some(texture) = self.server.get(key) {
-            return Some(texture.meta.unwrap_or(TextureMeta {
-                base_size: [f64::from(texture.rect[2]), f64::from(texture.rect[3])],
-                nineslice: None,
-            }));
+        let key = canonical(texture_key(path), self.server, self.names, self.assets);
+        let key = key.as_ref();
+        if let Some(meta) = self.server.meta(key) {
+            return Some(meta);
         }
         if let Some(sidecar) = self.assets.sidecar(key) {
             return Some(TextureMeta {
@@ -446,6 +517,29 @@ impl TextureSource for Sidecars<'_> {
     }
 }
 
+type CarrierNames = std::collections::HashMap<String, String>;
+
+/// A texture path as a pack or the carrier spells it: resource paths match
+/// regardless of case, and a server pack texture wins over the carrier's.
+fn canonical<'a>(
+    key: &'a str,
+    atlas: &ServerAtlas,
+    names: &CarrierNames,
+    assets: &RuntimeUiAssets,
+) -> Cow<'a, str> {
+    if atlas.meta(key).is_some() || assets.texture(key).is_some() {
+        return Cow::Borrowed(key);
+    }
+    let folded = key.to_ascii_lowercase();
+    match atlas
+        .folded(&folded)
+        .or_else(|| names.get(&folded).map(String::as_str))
+    {
+        Some(found) => Cow::Owned(found.to_owned()),
+        None => Cow::Borrowed(key),
+    }
+}
+
 /// Ui json sometimes spells a texture with its file extension; the carrier keys
 /// drop it.
 fn texture_key(path: &str) -> &str {
@@ -461,7 +555,8 @@ fn texture_key(path: &str) -> &str {
 /// the clip rect changes so draw order is preserved.
 struct Painter<'a> {
     assets: &'a RuntimeUiAssets,
-    server: &'a BTreeMap<String, ServerTexture>,
+    server: &'a ServerAtlas,
+    names: &'a CarrierNames,
     /// Texture page of server page 0.
     server_page: u16,
     first_page: u16,
@@ -774,8 +869,9 @@ impl Painter<'_> {
                 dest,
             ),
             Draw::Sprite { texture, uv, color } => {
-                let key = texture_key(texture);
-                let (page, [x, y, w, h]) = match self.server.get(key) {
+                let key = canonical(texture_key(texture), self.server, self.names, self.assets);
+                let key = key.as_ref();
+                let (page, [x, y, w, h]) = match self.server.placement(key) {
                     Some(server) => (
                         self.server_page.saturating_add(server.page),
                         server.rect.map(f32::from),

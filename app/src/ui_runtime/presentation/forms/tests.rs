@@ -162,7 +162,10 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
     let pack = super::ServerUiPack {
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),
-            br#"{ "namespace": "server_form", "form_button": { "size": ["100%", 40] } }"#.to_vec(),
+            br#"{ "namespace": "server_form", "form_button": { "modifications": [
+                { "array_name": "controls", "operation": "insert_back", "value": [
+                    { "art": { "type": "image", "texture": "textures/ui/pack_button", "size": [16, 8] } } ] } ] } }"#
+                .to_vec(),
         )]],
         textures: vec![("textures/ui/pack_button.png".to_owned(), png)],
     };
@@ -176,7 +179,16 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
     };
     publish(&mut presentation);
     presentation.set_server_ui_pack(&pack);
-    assert_eq!(presentation.server_ui_pages().len(), 1);
+    assert!(
+        presentation.server_ui_pages().is_empty(),
+        "nothing packs until drawn"
+    );
+    publish(&mut presentation);
+    assert_eq!(
+        presentation.server_ui_pages().len(),
+        1,
+        "the drawn texture packed"
+    );
     publish(&mut presentation);
     presentation.set_server_ui_pack(&super::ServerUiPack::default());
     assert!(presentation.server_ui_pages().is_empty());
