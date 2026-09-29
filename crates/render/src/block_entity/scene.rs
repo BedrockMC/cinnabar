@@ -52,6 +52,22 @@ pub enum BlockEntityKind {
     EndGateway,
 }
 
+impl BlockEntityKind {
+    /// Whether its mesh animates with [`SceneClock`] rather than only with its model.
+    const fn is_clock_driven(&self) -> bool {
+        matches!(
+            self,
+            Self::Banner(_)
+                | Self::EnchantTable { .. }
+                | Self::Conduit(_)
+                | Self::Beacon(_)
+                | Self::Spawner(_)
+                | Self::EndPortal
+                | Self::EndGateway
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockEntitySubmission {
     pub block: [i32; 3],
@@ -106,6 +122,8 @@ pub struct BlockEntityScene {
     heads: HeadModels,
     mobs: MobModels,
     rejected_quads: u64,
+    /// Inputs of the current frame when it holds no clock-driven kind; unchanged inputs reuse it.
+    reusable: Option<(Vec<CrackInstance>, Vec<BlockEntitySubmission>)>,
 }
 
 impl BlockEntityScene {
@@ -120,11 +138,13 @@ impl BlockEntityScene {
         self.text = Some(DynamicCells::new(atlas.size()[0]));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
+        self.reusable = None;
     }
 
     /// Builds dragon and piglin heads from the entity catalog's geometry.
     pub fn install_entity_assets(&mut self, assets: &assets::RuntimeEntityAssets) {
         self.heads = HeadModels::from_assets(assets);
+        self.reusable = None;
     }
 
     #[must_use]
@@ -173,6 +193,7 @@ impl BlockEntityScene {
             static_rgba8: Arc::clone(atlas.static_rgba8()),
         }));
         self.mobs = mobs;
+        self.reusable = None;
     }
 
     pub fn update(
@@ -184,6 +205,21 @@ impl BlockEntityScene {
         let (Some(atlas), Some(text)) = (self.atlas.as_ref(), self.text.as_ref()) else {
             return &self.frame;
         };
+        // Rebuilding would emit the same vertices; keeping the revision spares the GPU upload.
+        if self.frame.dynamic_revision == text.revision()
+            && self
+                .reusable
+                .as_ref()
+                .is_some_and(|(previous_cracks, previous)| {
+                    previous_cracks.as_slice() == cracks && previous.as_slice() == submissions
+                })
+        {
+            return &self.frame;
+        }
+        self.reusable = (!submissions
+            .iter()
+            .any(|submission| submission.kind.is_clock_driven()))
+        .then(|| (cracks.to_vec(), submissions.to_vec()));
         let mut builder = MeshBuilder::new(atlas.size());
         for submission in submissions {
             builder.light = submission.light.clamp(0.0, 1.0);
@@ -320,6 +356,52 @@ mod tests {
         assert!(frame.overlay.is_empty());
         assert_eq!(frame.revision, 1);
         assert!(frame.atlas.is_some());
+    }
+
+    /// Static block entities must not re-mesh and re-upload every frame; changes still rebuild.
+    #[test]
+    fn unchanged_static_submissions_keep_the_frame_revision() {
+        let mut scene = scene_with_chest_and_crack_textures();
+        let chest = |lid: f32| BlockEntitySubmission {
+            block: [1, 2, 3],
+            light: 1.0,
+            kind: BlockEntityKind::Chest(ChestModel {
+                variant: ChestVariant::Normal,
+                facing: Facing::North,
+                pair: ChestPair::Single,
+                lid,
+            }),
+        };
+        let first = scene
+            .update(SceneClock::default(), &[], &[chest(0.0)])
+            .clone();
+        for tick in 1..100 {
+            let clock = SceneClock {
+                ticks: f64::from(tick),
+            };
+            let frame = scene.update(clock, &[], &[chest(0.0)]);
+            assert_eq!(frame.revision, first.revision);
+            assert!(Arc::ptr_eq(&frame.solid, &first.solid));
+        }
+        assert_eq!(
+            scene
+                .update(SceneClock::default(), &[], &[chest(0.5)])
+                .revision,
+            first.revision + 1
+        );
+        let portal = BlockEntitySubmission {
+            block: [0; 3],
+            light: 1.0,
+            kind: BlockEntityKind::EndPortal,
+        };
+        let animated = scene
+            .update(SceneClock::default(), &[], std::slice::from_ref(&portal))
+            .revision;
+        assert_eq!(
+            scene.update(SceneClock::default(), &[], &[portal]).revision,
+            animated + 1,
+            "clock-driven kinds rebuild every frame"
+        );
     }
 
     #[test]

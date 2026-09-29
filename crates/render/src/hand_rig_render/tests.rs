@@ -83,3 +83,50 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
     scene.set_item_atlas(Some(atlas(32)));
     assert!(scene.frame.as_ref().unwrap().item_atlas.is_some());
 }
+
+/// A per-frame pose rewrites the same buffers instead of reallocating them and the bind group.
+#[test]
+fn pose_updates_reuse_their_buffers() {
+    use bevy::{
+        ecs::system::RunSystemOnce,
+        render::renderer::{RenderDevice, RenderQueue, WgpuWrapper},
+    };
+    use std::{
+        future::Future,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions { enable: true },
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let mut context = Context::from_waker(Waker::noop());
+    let Poll::Ready(Ok(adapter)) =
+        pin!(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).poll(&mut context)
+    else {
+        panic!("noop adapter must be immediate");
+    };
+    let Poll::Ready(Ok((device, queue))) =
+        pin!(adapter.request_device(&wgpu::DeviceDescriptor::default())).poll(&mut context)
+    else {
+        panic!("noop device must be immediate");
+    };
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
+    let mut world = bevy::prelude::World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut scene = HandRigScene::default();
+    let mut buffers = Vec::new();
+    for revision in 1..=3 {
+        assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, revision));
+        upload_pose(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+        buffers.push(gpu.instances.as_ref().unwrap().id());
+    }
+    assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
+}

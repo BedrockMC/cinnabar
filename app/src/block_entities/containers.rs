@@ -1,6 +1,6 @@
 //! Lid openness for chests and shulker boxes, eased toward the server's open cue.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const TICKS_PER_SECOND: f32 = 20.0;
 /// Openness change per tick while a lid moves; needs native measurement per container.
@@ -33,7 +33,7 @@ pub(super) fn cue_is_open(event_type: i32, event_value: i32) -> bool {
 #[derive(Debug, Default)]
 pub(super) struct ContainerLids {
     openness: HashMap<[i32; 3], f32>,
-    seen: Vec<[i32; 3]>,
+    seen: HashSet<[i32; 3]>,
 }
 
 impl ContainerLids {
@@ -50,7 +50,7 @@ impl ContainerLids {
         open: bool,
         delta_seconds: f32,
     ) -> f32 {
-        self.seen.push(position);
+        self.seen.insert(position);
         let step = kind.rate() * TICKS_PER_SECOND * delta_seconds.max(0.0);
         let value = self.openness.entry(position).or_insert(0.0);
         *value = if open {

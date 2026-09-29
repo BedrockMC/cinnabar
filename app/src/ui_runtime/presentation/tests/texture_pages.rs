@@ -292,6 +292,34 @@ fn actual_preview_updates_share_static_pages_and_retire_superseded_scenes() {
     assert!(extracted.input.is_some());
 }
 
+/// Mouse look must not rebuild the dynamic page while neither the paper doll nor CPU hands show.
+#[test]
+fn hidden_preview_defers_pose_changes_until_shown() {
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let pose =
+        |yaw: f32, pitch: f32| player_preview::PlayerPreviewPose::new(yaw, yaw, pitch, false);
+    presentation.sync_player_preview(None, pose(0.0, 0.0), false, false);
+    let drawn = Arc::clone(&presentation.textures);
+    for frame in 1..=100 {
+        let turn = frame as f32;
+        presentation.sync_player_preview(None, pose(turn, turn / 4.0), false, false);
+        // Yaw alone does not move the CPU hands.
+        presentation.sync_player_preview(None, pose(turn, 0.0), false, true);
+    }
+    assert!(Arc::ptr_eq(&drawn, &presentation.textures));
+    presentation.sync_player_preview(None, pose(100.0, 0.0), true, false);
+    assert!(!Arc::ptr_eq(&drawn, &presentation.textures));
+    let shown = Arc::clone(&presentation.textures);
+    presentation.sync_player_preview(None, pose(100.0, 5.0), false, true);
+    assert!(!Arc::ptr_eq(&shown, &presentation.textures));
+    let hands = Arc::clone(&presentation.textures);
+    presentation.sync_player_preview(Some(&vec![255; 64 * 64 * 4]), pose(7.0, 5.0), false, false);
+    assert!(
+        !Arc::ptr_eq(&hands, &presentation.textures),
+        "skin changes still redraw"
+    );
+}
+
 #[test]
 fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_ownership() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
@@ -583,4 +611,26 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
         .iter()
         .any(|byte| *byte != 0);
     assert!(installed, "the glyph page was not installed");
+}
+
+/// Mouse look with the preview hidden; run with `-- --ignored --nocapture`.
+#[test]
+#[ignore = "benchmark"]
+fn frame_cost_bench_hidden_player_preview_while_turning() {
+    let skin = vec![200; 64 * 64 * 4];
+    let pose = |frame: u32| player_preview::PlayerPreviewPose::new(frame as f32, 0.0, 0.0, false);
+    let time = |mut frame: Box<dyn FnMut(u32) + '_>| {
+        let started = std::time::Instant::now();
+        (0..200).for_each(&mut frame);
+        started.elapsed().as_secs_f64() * 1e3 / 200.0
+    };
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let old = time(Box::new(|frame| {
+        presentation.set_player_preview_skin(Some(&skin), pose(frame));
+    }));
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let new = time(Box::new(|frame| {
+        presentation.sync_player_preview(Some(&skin), pose(frame), false, false);
+    }));
+    eprintln!("FRAME_COST player_preview_turning_hidden: old={old:.3}ms new={new:.3}ms");
 }

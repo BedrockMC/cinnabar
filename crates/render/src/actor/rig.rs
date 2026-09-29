@@ -231,6 +231,8 @@ pub struct ActorRigGeometry {
     pub id: EntityRigId,
     pub vertices: Arc<[ActorRigVertex]>,
     pub bone_pivots: Arc<[[f32; 3]]>,
+    /// One past the highest bone any vertex uses; a pose needs at least this many bones.
+    bones_used: usize,
 }
 
 impl ActorRigGeometry {
@@ -260,10 +262,16 @@ impl ActorRigGeometry {
         {
             return Err(ActorRigGeometryError::InvalidVertex);
         }
+        let bones_used = vertices
+            .iter()
+            .map(|vertex| vertex.bone_index as usize + 1)
+            .max()
+            .unwrap_or(0);
         Ok(Self {
             id,
             vertices,
             bone_pivots,
+            bones_used,
         })
     }
 
@@ -442,29 +450,48 @@ impl ActorRigFrameBuilder {
         &mut self,
         geometry: ActorRigGeometry,
     ) -> Result<(), ActorRigGeometryError> {
-        if geometry.id == DIAGNOSTIC_RIG_ID {
+        self.insert_geometries(vec![geometry])
+    }
+
+    /// [`Self::insert_geometry`] for several geometries under one catalog rebuild; on error the
+    /// catalog is unchanged.
+    pub fn insert_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        if geometries.is_empty() {
+            return Ok(());
+        }
+        if geometries
+            .iter()
+            .any(|geometry| geometry.id == DIAGNOSTIC_RIG_ID)
+        {
             return Err(ActorRigGeometryError::DuplicateRig);
         }
-        let id = geometry.id;
-        let vertex_count = geometry.vertices.len() as u64;
-        let previous = self.geometries.insert(id, geometry);
+        let mut revision = self.geometry_revision;
+        let mut previous = Vec::with_capacity(geometries.len());
+        for geometry in geometries {
+            let id = geometry.id;
+            revision = revision
+                .rotate_left(5)
+                .wrapping_add((u64::from(id.0) << 24) | geometry.vertices.len() as u64);
+            previous.push((id, self.geometries.insert(id, geometry)));
+        }
         match catalog_layout(&self.geometries) {
             Ok((geometry_indices, vertices, spans)) => {
                 self.geometry_indices = geometry_indices;
                 self.geometry_vertices = Arc::from(vertices);
                 self.geometry_spans = Arc::from(spans);
-                self.geometry_revision = self
-                    .geometry_revision
-                    .rotate_left(5)
-                    .wrapping_add((u64::from(id.0) << 24) | vertex_count)
-                    .max(1);
+                self.geometry_revision = revision.max(1);
                 Ok(())
             }
             Err(error) => {
-                match previous {
-                    Some(previous) => self.geometries.insert(id, previous),
-                    None => self.geometries.remove(&id),
-                };
+                for (id, previous) in previous.into_iter().rev() {
+                    match previous {
+                        Some(previous) => self.geometries.insert(id, previous),
+                        None => self.geometries.remove(&id),
+                    };
+                }
                 Err(error)
             }
         }
@@ -651,10 +678,8 @@ impl ActorRigFrameBuilder {
                 rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
                 continue;
             };
-            if geometry.vertices.iter().any(|vertex| {
-                vertex.bone_index as usize >= previous.len()
-                    || vertex.bone_index as usize >= geometry.bone_pivots.len()
-            }) {
+            // Construction already bounds every vertex bone by the pivots.
+            if geometry.bones_used > previous.len() {
                 rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
                 continue;
             }
