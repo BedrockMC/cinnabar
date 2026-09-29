@@ -122,6 +122,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     /// The startup artwork plus the session's server-pack pages; `None` in a vanilla session.
     session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
+    skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -146,6 +147,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         artwork,
         mut session_artwork,
         mut cape_state,
+        mut skin_rigs,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -190,6 +192,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     }
     let artwork = session_artwork.as_ref().unwrap_or(&artwork);
     let step = actor_clock.advance(time.delta());
+    skin_rigs.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let item_use = client_world
         .stream
@@ -275,7 +278,34 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                     };
                     let profile = stream.actor_player_profile(rig.actor.runtime_id);
                     let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
-                        actor_rig_presentation(&rig, actor, profile, step.partial_tick)
+                        actor_rig_presentation(&rig, actor, profile, step.partial_tick).map(
+                            |mut presentation| {
+                                if let Some(geometry) = rig.skin_geometry {
+                                    // The pose drives the skin's own bones, so only its model fits.
+                                    match skin_rigs.rig(geometry, |built| {
+                                        if let Some(equipment) = equipment.as_deref_mut() {
+                                            equipment.register_skin_rig(
+                                                built.id,
+                                                geometry
+                                                    .bones
+                                                    .iter()
+                                                    .map(|bone| bone.name.clone())
+                                                    .collect(),
+                                            );
+                                        }
+                                        let _ = hand_builder.0.insert_geometry(built.clone());
+                                        let _ = scene.insert_geometry(built);
+                                    }) {
+                                        Some(id) => presentation.submission.input.rig = id,
+                                        None => {
+                                            presentation.submission.route =
+                                                render::ActorRigRoute::NoDraw;
+                                        }
+                                    }
+                                }
+                                presentation
+                            },
+                        )
                     } else {
                         crate::presentation::actors::entity_rig_presentation(
                             &rig,

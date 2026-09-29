@@ -582,6 +582,15 @@ impl ActorStore {
                     camera_rotation,
                     armor: worn_armor(items.armor(actor.runtime_id)),
                     properties: property_registry.for_kind(&actor.kind),
+                    skin_geometry: match &actor.kind {
+                        ActorKind::Player { uuid, .. } => players.get(uuid).and_then(|profile| {
+                            match &profile.skin {
+                                protocol::PlayerSkin::Standard(skin) => skin.geometry.clone(),
+                                protocol::PlayerSkin::Unavailable(_) => None,
+                            }
+                        }),
+                        ActorKind::Entity { .. } => None,
+                    },
                     has_cape: match &actor.kind {
                         ActorKind::Player { uuid, .. } => players.get(uuid).is_some_and(|profile| {
                             matches!(&profile.skin, protocol::PlayerSkin::Standard(skin) if skin.cape.is_some())

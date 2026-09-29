@@ -511,7 +511,12 @@ pub use properties::PropertyDefault;
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
         PlayerSkin::Standard(skin) => {
-            skin.rgba8.len() + skin.cape.as_ref().map_or(0, |cape| cape.rgba8.len())
+            skin.rgba8.len()
+                + skin.cape.as_ref().map_or(0, |cape| cape.rgba8.len())
+                + skin
+                    .geometry
+                    .as_ref()
+                    .map_or(0, |geometry| geometry.byte_len())
         }
         PlayerSkin::Unavailable(_) => 0,
     }

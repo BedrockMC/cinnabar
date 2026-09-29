@@ -37,6 +37,20 @@ use super::{
     elytra,
 };
 
+fn body_bones(names: Vec<Box<str>>) -> BodyBones {
+    let find = |wanted: &str| {
+        names
+            .iter()
+            .position(|name| name.eq_ignore_ascii_case(wanted))
+    };
+    BodyBones {
+        right_item: find("rightItem"),
+        left_item: find("leftItem"),
+        head: find("head"),
+        names,
+    }
+}
+
 /// Equipment geometry index space reserved for worn skulls (above any entity geometry index).
 const SKULL_RIG_INDEX_BASE: u32 = 0x00ff_0000;
 const SKULL_KINDS: [SkullKind; 5] = [
@@ -83,6 +97,8 @@ pub(crate) struct EquipmentRuntime {
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
+    /// Bones of player skins' own models, by skin rig id.
+    skin_bones: BTreeMap<EntityRigId, Arc<BodyBones>>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     armor_maps: BTreeMap<(u32, Box<str>), ArmorBoneMap>,
     meshes: BTreeMap<MeshKey, Option<EntityRigId>>,
@@ -188,6 +204,7 @@ impl EquipmentRuntime {
             atlas_locations: locations[..atlas_layers].to_vec(),
             texture_locations,
             body_bones: BTreeMap::new(),
+            skin_bones: BTreeMap::new(),
             armor_geometry: BTreeMap::new(),
             armor_maps: BTreeMap::new(),
             meshes: BTreeMap::new(),
@@ -343,25 +360,27 @@ impl EquipmentRuntime {
         layers.pop()
     }
 
+    /// Records the bones of a skin model registered under `rig`, replacing any earlier model.
+    pub(crate) fn register_skin_rig(&mut self, rig: EntityRigId, names: Vec<Box<str>>) {
+        self.armor_maps.retain(|(body, _), _| *body != rig.0);
+        self.skin_bones.insert(rig, Arc::new(body_bones(names)));
+    }
+
     fn body_bones_for(&mut self, rig: EntityRigId) -> Option<(u32, Arc<BodyBones>)> {
+        if let Some(bones) = self.skin_bones.get(&rig) {
+            // Skin rig ids lie far above every catalog geometry index, so they key armor maps.
+            return Some((rig.0, Arc::clone(bones)));
+        }
         let geometry = self
             .assets
             .rig_geometries()
             .get(usize::try_from(rig.0).ok()?)?
             .geometry;
         let entry = self.body_bones.entry(geometry).or_insert_with(|| {
-            let names = geometry_bone_names(&self.assets, geometry as usize)?;
-            let find = |wanted: &str| {
-                names
-                    .iter()
-                    .position(|name| name.eq_ignore_ascii_case(wanted))
-            };
-            Some(Arc::new(BodyBones {
-                right_item: find("rightItem"),
-                left_item: find("leftItem"),
-                head: find("head"),
-                names,
-            }))
+            Some(Arc::new(body_bones(geometry_bone_names(
+                &self.assets,
+                geometry as usize,
+            )?)))
         });
         entry.clone().map(|bones| (geometry, bones))
     }

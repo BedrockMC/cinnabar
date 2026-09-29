@@ -29,7 +29,7 @@ mod witness;
 
 pub use asset_geometry::{
     entity_geometry, equipment_geometry, find_geometry_index, geometry_bone_names,
-    geometry_bone_pivots, skull_geometry,
+    geometry_bone_pivots, skin_geometry, skull_geometry,
 };
 pub use gpu::{
     ActorDrawFrame, ActorPresentationGate, ActorPresentedFrameAck,
@@ -43,7 +43,7 @@ pub use rig::{
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
     actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, pack_equipment_rig_id,
-    pack_overlay_rgba8, pack_rig_id,
+    pack_overlay_rgba8, pack_rig_id, skin_rig_id,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
