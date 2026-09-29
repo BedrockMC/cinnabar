@@ -55,7 +55,15 @@ horse screens are mapped but dormant; creative tabs need a creative catalog; per
 custom names and lore in tooltips. Needs native measurement: the virtual UI scale (engine
 pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label: value`
 text, tooltip and durability placement/colours, the preview's size in its box, layer
-relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point).
+relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point). Menus (landed, uncompiled): start, play (worlds/friends/servers tabs), add/edit server,
+settings (sections, GUI scale; volumes are placeholders until an audio settings resource
+exists), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue
+(student view) and server settings (a form over the settings menu, not yet a settings
+section) draw from their vanilla screens; profile and first-run progress (it completes
+before the window opens) stay programmatic. Launcher screens sit on an opaque backdrop
+until the panorama is packed; respawn and local-world choices are exposed for the
+session and local-worlds modules to consume; the launcher control resource needs inserting
+where the launcher core serves `-control-status`.
 
 ## Equipment / attachable rendering (Bedrock 3D target)
 T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane work now adds
