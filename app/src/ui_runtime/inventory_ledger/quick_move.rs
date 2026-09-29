@@ -203,7 +203,7 @@ impl PlayerInventoryLedger {
             WindowKind::Stonecutter => ui(&[3]),
             WindowKind::Cartography => ui(&[item_roles::cartography_slot(id)]),
             WindowKind::Smithing => ui(&[item_roles::smithing_slot(id)]),
-            WindowKind::Beacon | WindowKind::Workbench => Vec::new(),
+            WindowKind::Beacon | WindowKind::Workbench | WindowKind::Lectern => Vec::new(),
         }
     }
 }

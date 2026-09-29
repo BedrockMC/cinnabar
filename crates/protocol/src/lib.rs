@@ -96,13 +96,14 @@ pub use inventory::{
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
+    lectern_update_packet,
 };
 pub use inventory::{
     EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, OpenCells, UI_SLOT_COUNT,
     WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
     WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER,
     WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE,
-    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE,
+    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE,
     WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment,
     is_chest_like_name, is_open_window_name, is_result_preview_name, normalize_enchant_options,
     open_cell_request, open_name_first_cell, ui_slot_container_name, ui_slot_for_name,
@@ -122,7 +123,7 @@ pub use item::{
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemDisplay, ItemPacketError, ItemRegistryEntry,
     ItemRegistryEvent, ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, item_bundle_id, item_charged_projectile, item_custom_color, item_display,
+    NetworkItemStack, item_book, item_bundle_id, item_charged_projectile, item_custom_color, item_display,
     item_enchantment_level, item_extra_damage, item_icon_keys, item_stack_damage,
     select_hotbar_slot_packet, vanilla_item_registry,
 };

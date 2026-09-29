@@ -21,6 +21,7 @@ pub const WINDOW_TYPE_CART_HOPPER: i8 = 11;
 pub const WINDOW_TYPE_HORSE: i8 = 12;
 pub const WINDOW_TYPE_BEACON: i8 = 13;
 pub const WINDOW_TYPE_LOOM: i8 = 24;
+pub const WINDOW_TYPE_LECTERN: i8 = 25;
 pub const WINDOW_TYPE_GRINDSTONE: i8 = 26;
 pub const WINDOW_TYPE_BLAST_FURNACE: i8 = 27;
 pub const WINDOW_TYPE_SMOKER: i8 = 28;
@@ -89,6 +90,7 @@ pub enum WindowKind {
     Cartography,
     Smithing,
     Crafter,
+    Lectern,
 }
 
 /// One run of a window's own cells that share a container name.
@@ -165,6 +167,7 @@ impl WindowKind {
             WINDOW_TYPE_CARTOGRAPHY => Self::Cartography,
             WINDOW_TYPE_SMITHING_TABLE => Self::Smithing,
             WINDOW_TYPE_CRAFTER => Self::Crafter,
+            WINDOW_TYPE_LECTERN => Self::Lectern,
             _ => return None,
         })
     }
@@ -209,7 +212,8 @@ impl WindowKind {
             | Self::Grindstone
             | Self::Stonecutter
             | Self::Cartography
-            | Self::Smithing => return None,
+            | Self::Smithing
+            | Self::Lectern => return None,
         })
     }
 

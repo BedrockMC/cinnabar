@@ -98,8 +98,7 @@ use crate::{
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
         drive_inventory_ui_actions, drive_server_form_input, drive_world_inventory_keys,
-        flush_chat_network,
-        flush_inventory_network, flush_server_form_network,
+        flush_chat_network, flush_inventory_network, flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
     },
@@ -247,6 +246,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 produce_survival_mining,
                 produce_block_use,
                 send_player_auth_inputs,
+                crate::pick_block::produce_pick_block,
             )
                 .chain()
                 .in_set(ClientFrameSet::NetworkSend),
