@@ -34,7 +34,7 @@ fn checked_in_v2168_block_and_light_registries_are_exact_and_bound() {
     );
     assert_eq!(
         format!("{:x}", Sha256::digest(LREG)),
-        "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272"
+        "f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab"
     );
 }
 

@@ -400,7 +400,7 @@ func encodeResolvedLightRegistryForProtocol(protocol uint32, breg []byte, record
 	return append(encoded, payloadDigest[:]...), nil
 }
 
-func writeV2168BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allowlistPath, outputPath, lightOutputPath, manifestPath string) error {
+func writeV2168BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allowlistPath, outputPath, lightOutputPath, manifestPath, retailLightPath string) error {
 	source, err := v2168SourceRecords(sourcePath)
 	if err != nil {
 		return err
@@ -455,6 +455,15 @@ func writeV2168BlockProjection(sourcePath, legacyBREGPath, legacyLightPath, allo
 	properties, unresolved, unresolvedFingerprint, err := resolveV2168Lights(source, projected, legacy, legacyProperties, classes)
 	if err != nil {
 		return err
+	}
+	if unresolved == 0 && retailLightPath != "" {
+		retail, err := readPMMPLightProperties(retailLightPath)
+		if err != nil {
+			return err
+		}
+		if _, err := applyRetailLightCorrections(projected, properties, retail); err != nil {
+			return err
+		}
 	}
 	if unresolved == 0 {
 		light, err := encodeResolvedLightRegistryForProtocol(v2168BlockProtocol, encoded, projected, properties)
