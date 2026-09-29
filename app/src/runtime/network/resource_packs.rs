@@ -305,6 +305,20 @@ pub(super) fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<
 }
 
 fn decode_image_file(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
+    // Vanilla's loader also tries the literal path, so a pack path that already
+    // names its image (`textures/items/gem.png`) resolves.
+    let named = path.rsplit_once('.').and_then(|(_, extension)| {
+        IMAGE_EXTENSIONS
+            .into_iter()
+            .find(|(known, _)| extension.eq_ignore_ascii_case(known))
+    });
+    if let Some((_, format)) = named
+        && let Some(texture) = view
+            .read_capped(path, MAX_TEXTURE_SOURCE_BYTES as u64)
+            .and_then(|bytes| decode_image(&bytes, format))
+    {
+        return Some(texture);
+    }
     IMAGE_EXTENSIONS
         .into_iter()
         .find_map(|(extension, format)| {
