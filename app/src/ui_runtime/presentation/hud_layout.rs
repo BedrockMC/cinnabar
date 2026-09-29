@@ -86,6 +86,8 @@ pub(crate) struct HudFrame {
     /// player's authoritative skin.
     pub left_hand: Option<IconRef>,
     pub right_hand: Option<IconRef>,
+    /// The near-camera rig owns the first-person hand, so the CPU hand/item carriers stay undrawn.
+    pub hand_rig_active: bool,
     /// Local actor pitch used by the compatibility viewmodel to keep the
     /// hand/item carrier aligned with the camera-facing native path.
     pub viewmodel_pitch_degrees: f32,

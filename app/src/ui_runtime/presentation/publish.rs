@@ -170,7 +170,9 @@ pub(crate) fn publish_ui_runtime(
         now_millis,
     );
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
-    // static empty-hand scene and its CPU fallback quad are retired so nothing double-draws.
+    // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
+    // double-draws.
+    presentation.hud_frame.hand_rig_active = hand_rig.is_active();
     if hand_rig.is_active() {
         hand.use_animated_rig();
     } else {

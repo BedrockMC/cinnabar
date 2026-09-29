@@ -135,6 +135,47 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
     assert_eq!(presentation.hud_frame().right_hand, right);
 }
 
+// The GPU first-person rig owns the hand: the HUD's CPU hand and held-item quads must not also
+// draw in the screen corner.
+#[test]
+fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
+    use crate::ui_runtime::presentation::{
+        UiPresentationRuntime, refresh_hud_frame,
+        tests::{fixture_font, fixture_hud},
+    };
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    presentation.set_player_preview_skin(Some(&vec![255; 64 * 64 * 4]), Default::default());
+    let mut runtime = UiRuntime::new(1);
+    let settings = crate::camera::CameraSettingsAuthority::default();
+    refresh_hud_frame(&mut runtime, &mut presentation, None, &settings, 0);
+    let hand = presentation.hud_frame().right_hand.expect("hand carrier");
+    let frame = presentation.hud_frame_mut();
+    frame.first_person = true;
+    frame.held_item_icon = Some(hand);
+    let carriers = |presentation: &mut UiPresentationRuntime| {
+        let input = presentation
+            .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.).unwrap())
+            .unwrap();
+        let corner = [hand.uv[0], hand.uv[1]];
+        let mut vertices = input
+            .batches
+            .iter()
+            .filter(|batch| batch.texture_page == u32::from(hand.page))
+            .flat_map(|batch| {
+                let start = batch.first_index as usize;
+                input.indices[start..start + batch.index_count as usize].to_vec()
+            })
+            .filter(|&index| input.vertices[index as usize].uv == corner)
+            .collect::<Vec<_>>();
+        vertices.sort_unstable();
+        vertices.dedup();
+        vertices.len()
+    };
+    assert_eq!(carriers(&mut presentation), 2, "hand and item quads");
+    presentation.hud_frame_mut().hand_rig_active = true;
+    assert_eq!(carriers(&mut presentation), 0);
+}
+
 struct FixturePack(std::path::PathBuf);
 impl FixturePack {
     fn write(&self, path: &str, value: &[u8]) {

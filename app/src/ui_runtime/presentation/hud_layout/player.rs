@@ -9,6 +9,10 @@ impl HudLayout<'_> {
         &mut self,
         frame: &super::HudFrame,
     ) -> Result<(), UiPresentationError> {
+        // The viewmodel omits these quads only when it drew the hand itself; the rig never does.
+        if frame.hand_rig_active {
+            return Ok(());
+        }
         let g = self.geometry;
         const HAND_SIZE: [f32; 2] = [72.0, 88.0];
         const ITEM_SIZE: f32 = 64.0;
