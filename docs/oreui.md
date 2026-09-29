@@ -20,9 +20,9 @@ names them, so they default off. Evidence: the 26.30 reconstruction
 | --- | --- | --- | --- |
 | Main menu | `/main-menu` | JSON-UI (dev override only) | `start_screen.json` |
 | Play | `/play/:tab` | **OreUI** (selected and supported) | OreUI, drawn natively |
-| Create / edit world, templates | `/create-new-world`, `/edit-world`, `/start-from-template` | **OreUI** | OreUI where the local-worlds flow uses them |
+| Create / edit world, templates | `/create-new-world`, `/edit-world`, `/start-from-template` | **OreUI** | not built yet (create buttons are disabled) |
 | Death | `/gameplay/death` | **OreUI** | OreUI |
-| Bed | `/gameplay/bedtime` | **OreUI** | OreUI |
+| Bed | `/gameplay/bedtime` | **OreUI** | not built yet |
 | Settings | `/oreui-settings` | JSON-UI unless the `mc-new-settings-screen` treatment (default off; preference default unrecovered) | `settings_screen.json` |
 | Disconnected | `/disconnected` | JSON-UI unless treatment toggle 0x42 (default off) | `disconnect_screen.json` |
 | Send invites | invite screen | JSON-UI (dev override only) | not built |
@@ -56,6 +56,9 @@ per screen) and `app/src/ui_runtime/oreui_assets.rs` (the dev-mode loader).
 - Inbox: category menu, card layout, the Recent/History split.
 - Friends drawer: search field (not interactive), tab icons, the People list (only friends
   currently in worlds are known).
+- Play: tab bar bevels, world rows (thumbnails are placeholders; no pager or grid mode), the
+  Servers tab's classic layout (the `servers_tab_v2` flag's default is unknown), the Realms tab
+  details (shows the first Realm; no selection), and Add server still opening the JSON-UI form.
 - Every screen: text sizes, since the open font replaces the Minecraft fonts.
 
 ## Reference screenshots
