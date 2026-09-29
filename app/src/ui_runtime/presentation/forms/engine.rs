@@ -63,6 +63,8 @@ pub(super) struct FormCache {
     catalog: Arc<Catalog>,
     bound: ResolvedControl,
     laid: Option<LaidForm>,
+    /// The screen's Escape target; flattening the screen per frame deep-clones pack controls.
+    screen_cancel: Option<String>,
 }
 
 struct LaidForm {
@@ -243,6 +245,7 @@ impl FormEngine {
                 catalog: Arc::clone(&self.catalog),
                 bound,
                 laid: None,
+                screen_cancel: json_ui::form_screen_cancel(&self.catalog),
             });
         }
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -253,7 +256,10 @@ impl FormEngine {
             first_page: self.first_page,
             server_page: self.server_page,
         };
-        let screen_cancel = json_ui::form_screen_cancel(&self.catalog);
+        let screen_cancel = self
+            .cache
+            .as_ref()
+            .and_then(|cache| cache.screen_cancel.clone());
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
         let frame = render_with(
             art,
