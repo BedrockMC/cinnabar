@@ -71,6 +71,16 @@ pub(crate) fn flush_inventory_network(
             runtime.inventory_transport_closed();
         }
     }
+    while let Some(packet) = runtime.take_client_packet() {
+        match network.send_inventory_packet(packet) {
+            Ok(()) => {}
+            Err(crate::runtime::network::PacketSendError::Full(packet)) => {
+                runtime.requeue_client_packet(packet);
+                break;
+            }
+            Err(crate::runtime::network::PacketSendError::Closed(_)) => break,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -322,6 +332,9 @@ pub(crate) fn drive_inventory_ui_actions(
     {
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
+        if !runtime.inventory_open() {
+            runtime.screen_state_mut().book = None;
+        }
         return;
     }
     let now_millis = time.map_or(0, |time| {
@@ -355,7 +368,21 @@ pub(crate) fn drive_inventory_ui_actions(
     let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
     runtime.set_inventory_pointer_gui(gui);
     let book_open = runtime.screen_state().book_open;
+    let reader_mode = runtime
+        .screen_state()
+        .book
+        .as_ref()
+        .map(|book| (book.editable, book.signing));
     let hit = gui.and_then(|gui| {
+        if let Some((editable, signing)) = reader_mode {
+            return presentation.inventory_reader_hit(
+                gui,
+                physical_size,
+                window.scale_factor(),
+                editable,
+                signing,
+            );
+        }
         presentation
             .inventory_book_hit(gui, physical_size, window.scale_factor(), screen, book_open)
             .or_else(|| {
@@ -400,22 +427,29 @@ pub(crate) fn drive_inventory_ui_actions(
     }
 }
 
-/// The in-world drop key: Q drops one item from the selected hotbar cell and
-/// Control+Q the whole stack, with no window open.
+/// In-world inventory keys: Q drops one item from the selected hotbar cell
+/// (Control+Q the whole stack) and a right-click with a book in hand opens it.
 pub(crate) fn drive_world_inventory_keys(
     window: Single<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
     mut runtime: ResMut<UiRuntime>,
 ) {
+    let drop = keys.just_pressed(KeyCode::KeyQ);
+    let use_book = mouse.just_pressed(MouseButton::Right);
     if !window.focused
         || runtime.ui_focused()
         || menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || !keys.just_pressed(KeyCode::KeyQ)
+        || !(drop || use_book)
         || runtime
             .player_game_mode()
             .is_some_and(|mode| !mode.shows_hotbar())
     {
+        return;
+    }
+    if use_book {
+        runtime.open_held_book();
         return;
     }
     let Some(slot) = runtime.selected_hotbar_slot() else {
@@ -451,6 +485,9 @@ pub(crate) fn dispatch_inventory_key(
     .position(|digit| *digit == key);
     if let (Some(InventoryCellHit::CraftOutput), Some(slot)) = (hit, hotbar) {
         return Some(runtime.craft_into_hotbar(slot as u8));
+    }
+    if runtime.screen_state().book.is_some() && runtime.book_key(key) {
+        return None;
     }
     let scroll = match key {
         KeyCode::ArrowUp | KeyCode::PageUp => Some(-1),
@@ -617,10 +654,12 @@ pub(crate) fn drive_chat_keyboard_input(
                 // A text field owns typed text, including `e`.
                 match input.key_code {
                     KeyCode::Escape => {
+                        runtime.commit_book(false);
                         runtime.close_inventory();
                         inventory_ownership_changed = true;
                     }
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
+                    key if runtime.book_key(key) => {}
                     _ => {
                         let modified = keys.pressed(KeyCode::ControlLeft)
                             || keys.pressed(KeyCode::ControlRight)

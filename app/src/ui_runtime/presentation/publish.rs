@@ -378,6 +378,41 @@ pub(crate) fn refresh_hud_frame(
             }
         }
     }
+    if runtime.inventory_open()
+        && runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Lectern)
+        && runtime.screen_state().book.is_none()
+        && let Some(position) = runtime.inventory_ledger().window_position()
+        && let Some(nbt) = stream.and_then(|stream| stream.block_entity_compound(position))
+    {
+        let pages: Vec<String> = nbt
+            .compound("book")
+            .and_then(|book| book.compound("tag"))
+            .and_then(|tag| tag.list("pages"))
+            .map(|pages| {
+                pages
+                    .iter()
+                    .map(|page| match page {
+                        world::NbtValue::Compound(page) => {
+                            page.string("text").unwrap_or_default().to_owned()
+                        }
+                        _ => String::new(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut state = crate::ui_runtime::book_screen::BookState::new(
+            crate::ui_runtime::book_screen::BookSource::Lectern(position),
+            pages,
+            false,
+            String::new(),
+            String::new(),
+        );
+        state.page = nbt
+            .integer("page")
+            .and_then(|page| usize::try_from(page).ok())
+            .map_or(0, |page| page.min(state.pages.len() - 1));
+        runtime.open_book(state);
+    }
     let inventory_screen = super::inventory_pointer::InventoryScreen::of_runtime(runtime);
     let mut window_text = super::hud_layout::WindowText::default();
     if runtime.inventory_open() {
@@ -422,7 +457,8 @@ pub(crate) fn refresh_hud_frame(
                 };
                 runtime.translation(key).map(|text| text.to_string())
             }
-            super::inventory_pointer::InventoryScreen::Personal => None,
+            super::inventory_pointer::InventoryScreen::Personal
+            | super::inventory_pointer::InventoryScreen::Book => None,
         };
         if matches!(
             inventory_screen,
