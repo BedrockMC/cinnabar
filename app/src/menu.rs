@@ -7,10 +7,11 @@
 //! the same font, safe-area, and pointer coordinates as the gameplay HUD.
 
 mod account;
-#[cfg(test)]
-mod flow_tests;
+mod account_control;
 pub(crate) mod auth;
 pub(crate) mod core_process;
+#[cfg(test)]
+mod flow_tests;
 mod input;
 pub(crate) mod servers;
 mod view;
@@ -130,6 +131,7 @@ pub(crate) enum MenuAction {
     SettingsSection(u8),
     Respawn,
     PlayLocalWorld(usize),
+    SignOut,
 }
 
 #[derive(Debug, Resource)]
@@ -182,6 +184,9 @@ pub(crate) struct MenuRuntime {
     respawn_requested: bool,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
+    /// Sign-in state reported by the core's account control, when bound.
+    control_auth: Option<AuthState>,
+    sign_out_requested: bool,
     /// Identity-checked owner of this session's runtime directory; bound
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
@@ -266,6 +271,8 @@ impl MenuRuntime {
             respawn_requested: false,
             local_worlds: Vec::new(),
             local_world_requested: None,
+            control_auth: None,
+            sign_out_requested: false,
         }
     }
 
@@ -291,10 +298,11 @@ impl MenuRuntime {
     }
 
     pub(crate) fn view(&self) -> MenuView {
-        let auth_state = self
-            .auth_process
-            .as_ref()
-            .map_or(AuthState::SignedOut, |process| process.state().clone());
+        let auth_state = self.control_auth.clone().unwrap_or_else(|| {
+            self.auth_process
+                .as_ref()
+                .map_or(AuthState::SignedOut, |process| process.state().clone())
+        });
         let catalog_loading = matches!(
             &auth_state,
             AuthState::Checking | AuthState::AwaitingCode { .. }
@@ -630,6 +638,7 @@ impl MenuRuntime {
                 self.respawn_requested = true;
                 self.set_visible(false);
             }
+            MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);
