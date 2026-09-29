@@ -231,8 +231,27 @@ pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
     face: Face,
     positions: [[i16; 3]; 4],
 ) -> PackedQuadLighting {
+    bake_quad_with(inputs, block, face, positions, false)
+}
+
+/// `own_cell_if_occluded` lights a face against an opaque neighbour from its own cell.
+pub(crate) fn bake_quad_with<I: LightingInputs + ?Sized>(
+    inputs: &I,
+    block: [i32; 3],
+    face: Face,
+    positions: [[i16; 3]; 4],
+    own_cell_if_occluded: bool,
+) -> PackedQuadLighting {
     let (normal, tangent_a, tangent_b) = face_basis(face);
     let outward = add_normal(block, normal);
+    // A face against an opaque neighbour (a vine on a log) takes the light of its own cell,
+    // as the neighbour holds none.
+    let light_normal = if own_cell_if_occluded && inputs.occludes(outward) {
+        [0; 3]
+    } else {
+        normal
+    };
+    let light_origin = add_normal(block, light_normal);
     let samples = positions.map(|position| {
         let sign_a = corner_sign(position[tangent_a]);
         let sign_b = corner_sign(position[tangent_b]);
@@ -248,10 +267,16 @@ pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
             (a, b, c) => u8::from(a) + u8::from(b) + u8::from(c),
         };
         let light = average_light([
-            inputs.sample(outward),
-            inputs.sample(side_a),
-            inputs.sample(side_b),
-            inputs.sample(corner),
+            inputs.sample(light_origin),
+            inputs.sample(offset(block, light_normal, tangent_a, sign_a, None)),
+            inputs.sample(offset(block, light_normal, tangent_b, sign_b, None)),
+            inputs.sample(offset(
+                block,
+                light_normal,
+                tangent_a,
+                sign_a,
+                Some((tangent_b, sign_b)),
+            )),
         ]);
         pack_sample(light.block(), light.sky(), ao)
     });
@@ -330,12 +355,13 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
                 model_quad_face(*quad, rotation).map_or_else(
                     || lighting_at(inputs.sample(block)),
                     |face| {
-                        bake_quad(
+                        bake_quad_with(
                             inputs,
                             block,
                             face,
                             quad.positions
                                 .map(|position| rotate_model_position(position, rotation)),
+                            true,
                         )
                     },
                 )
@@ -514,7 +540,37 @@ const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
 
 #[cfg(test)]
 mod tests {
-    use super::{HALO_VOLUME, halo_index};
+    use super::{
+        HALO_VOLUME, LightingInputs, MeshLightSample, bake_quad, bake_quad_with, halo_index,
+    };
+    use crate::Face;
+
+    /// A log to the west (opaque, unlit) beside an open cell lit at block 9, sky 12.
+    struct VineOnLog;
+
+    impl LightingInputs for VineOnLog {
+        fn occludes(&self, coordinate: [i32; 3]) -> bool {
+            coordinate[0] < 0
+        }
+
+        fn sample(&self, coordinate: [i32; 3]) -> MeshLightSample {
+            if coordinate[0] < 0 {
+                MeshLightSample::try_new(0, 0).unwrap()
+            } else {
+                MeshLightSample::try_new(9, 12).unwrap()
+            }
+        }
+    }
+
+    // A model face against an opaque neighbour reads its own cell instead of the dark neighbour.
+    #[test]
+    fn attached_model_face_samples_its_own_cell() {
+        let positions = [[0, 0, 0], [0, 0, 256], [0, 256, 256], [0, 256, 0]];
+        let attached = bake_quad_with(&VineOnLog, [0, 0, 0], Face::NegativeX, positions, true);
+        let plain = bake_quad(&VineOnLog, [0, 0, 0], Face::NegativeX, positions);
+        assert_eq!(attached.samples()[0] & 0xff, 9 | (12 << 4));
+        assert_eq!(plain.samples()[0] & 0xff, 0);
+    }
 
     /// The memo covers exactly the one-block halo; anything else takes the direct path.
     #[test]
