@@ -129,6 +129,27 @@ impl IngestState {
         }
     }
 
+    /// Replaces the jukebox record at `position` with `name`, or silences it for `None`.
+    fn start_record(
+        &mut self,
+        position: [f32; 3],
+        name: Option<Arc<str>>,
+        engine: &mut AudioEngine,
+    ) {
+        let cell = position.map(|axis| axis.floor() as i32);
+        if let Some(previous) = self.records.remove(&cell) {
+            engine.stop_named(&previous);
+        }
+        let Some(name) = name else { return };
+        self.records.retain(|_, playing| engine.is_active(playing));
+        if self.records.len() >= MAX_RECORDS {
+            engine.stats.voice_limit += 1;
+            return;
+        }
+        self.records.insert(cell, Arc::clone(&name));
+        engine.enqueue(SoundRequest::new(name).at(position));
+    }
+
     /// Whether `event` belongs to the bound session and current dimension, in order.
     fn admits(&mut self, event: &SequencedAudioEvent, dimension: i32) -> bool {
         let fresh = event.origin_stream_session_id == self.stream
@@ -145,6 +166,8 @@ impl IngestState {
 /// Level sound events also produced by local prediction; the second copy within the window is dropped.
 const DEDUPED_EVENTS: [&str; 4] = ["place", "break", "hurt", "death"];
 const RECORD_EVENT: i32 = 1006;
+/// Jukebox records tracked at once; entries whose sound is no longer active are pruned first.
+const MAX_RECORDS: usize = 64;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn ingest_audio_events(
@@ -208,10 +231,6 @@ pub(super) fn ingest_audio_events(
                     .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup))
             }
             protocol::AudioEvent::LevelEvent(level) if level.event_id == RECORD_EVENT => {
-                let cell = level.position.map(|axis| axis.floor() as i32);
-                if let Some(previous) = state.records.remove(&cell) {
-                    engine.stop_named(&previous);
-                }
                 let name = (level.data != 0)
                     .then(|| stream.item_identifier(level.data))
                     .flatten()
@@ -221,11 +240,7 @@ pub(super) fn ingest_audio_events(
                             .bank()
                             .is_some_and(|bank| bank.definition(name).is_some())
                     });
-                if let Some(name) = name {
-                    let name: Arc<str> = name.into();
-                    state.records.insert(cell, Arc::clone(&name));
-                    engine.enqueue(SoundRequest::new(name).at(level.position));
-                }
+                state.start_record(level.position, name.map(Arc::from), &mut engine);
                 continue;
             }
             protocol::AudioEvent::LevelEvent(level) => engine
@@ -600,6 +615,20 @@ mod tests {
                 stop_music_legacy: false,
             }),
         }
+    }
+
+    // Record starts that never become (or stop being) voices must not stay tracked.
+    #[test]
+    fn record_bookkeeping_follows_voice_lifetimes() {
+        let mut engine = AudioEngine::default();
+        let mut state = IngestState::default();
+        let settings = AudioSettings::default();
+        for x in 0..1000 {
+            let position = [x as f32, 64.0, 0.0];
+            state.start_record(position, Some(Arc::from("record.cat")), &mut engine);
+            engine.pump(None, 0.0, &settings);
+        }
+        assert!(state.records.len() <= 1, "{} retained", state.records.len());
     }
 
     // A sound committed before a 0 -> 1 -> 0 roundtrip must not play in the new visit.

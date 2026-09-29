@@ -234,6 +234,16 @@ impl AudioEngine {
             || self.pending.iter().any(|start| start.category == category)
     }
 
+    /// Whether `name` is queued, waiting on a decode, or playing.
+    pub(crate) fn is_active(&self, name: &str) -> bool {
+        self.queue.iter().any(|request| &*request.name == name)
+            || self
+                .pending
+                .iter()
+                .any(|start| &*start.request.name == name)
+            || (self.voices.iter()).any(|voice| &*voice.name == name && !voice.shared.finished())
+    }
+
     /// Cancels every voice playing `name`.
     pub(crate) fn stop_named(&mut self, name: &str) {
         for voice in self.voices.iter().filter(|voice| &*voice.name == name) {
