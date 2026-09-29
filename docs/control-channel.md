@@ -16,6 +16,13 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `account_status.v1` | none | `account` |
 | `sign_out.v1` | none | `account`; deletes cached tokens |
 | `events.v1` | none | `auth`, `disconnect?`, `transfer?` |
+| `featured_servers.v1` | none | `servers: [{name, address, caption, description?, news_title?, news?, logo, screenshots, games}]` |
+| `gatherings.v1` | none | `gatherings: [{id, name, caption, description?, creator?, address?, image, start_unix?, end_unix?}]` |
+| `profile.v1` | none | `profile: {gamertag, xuid, gamerpic}` |
+
+Artwork fields are `{url, path?}`: an HTTPS URL plus the core's bounded cached copy. Realms also
+carry `owner`, `motd`, `world_type`, `online_players`, `max_players`, `days_left`, `expired`, `member`.
+Feed sources: `docs/menus-services.md`.
 
 `account` / `auth`: `state` is `offline | signed_out | awaiting_code | signed_in | failed`, with
 `verification_uri` and `user_code` while awaiting a code, `gamertag` when signed in, `reason` on failure.
