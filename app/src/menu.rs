@@ -34,7 +34,7 @@ use servers::{load_servers, save_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 use view::{CatalogFile, MenuFeeds};
 pub(crate) use view::{
-    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
 };
 
 use std::{
@@ -143,6 +143,8 @@ pub(crate) enum MenuAction {
     SettingsVolume(u8, u8),
     /// Show a featured server in the Servers tab's info panel.
     SelectFeatured(usize),
+    /// Flip the info panel's description (0) or news (1) past "read more".
+    ToggleReadMore(u8),
 }
 
 #[derive(Debug, Resource)]
@@ -669,7 +671,8 @@ impl MenuRuntime {
             }
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
-            MenuAction::SelectFeatured(index) => self.feeds.selected_featured = Some(index),
+            MenuAction::SelectFeatured(index) => self.feeds.select(index),
+            MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);

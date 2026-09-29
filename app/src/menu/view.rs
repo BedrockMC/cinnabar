@@ -95,6 +95,38 @@ pub(crate) struct MenuFeeds {
     pub(crate) details: HashMap<String, ServerDetails>,
     pub(crate) profile: MenuProfile,
     pub(crate) selected_featured: Option<usize>,
+    /// RakNet pongs keyed by the address the row joins.
+    pub(crate) pings: HashMap<String, PingInfo>,
+    /// The info panel's description and news are expanded past "read more".
+    pub(crate) description_expanded: bool,
+    pub(crate) news_expanded: bool,
+}
+
+impl MenuFeeds {
+    /// Show another featured server; its panel opens collapsed.
+    pub(crate) fn select(&mut self, index: usize) {
+        if self.selected_featured != Some(index) {
+            self.description_expanded = false;
+            self.news_expanded = false;
+        }
+        self.selected_featured = Some(index);
+    }
+
+    pub(crate) fn toggle_read_more(&mut self, section: u8) {
+        match section {
+            0 => self.description_expanded = !self.description_expanded,
+            _ => self.news_expanded = !self.news_expanded,
+        }
+    }
+}
+
+/// One server's pong: `online` is false when it did not answer.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PingInfo {
+    pub(crate) online: bool,
+    pub(crate) players: u32,
+    pub(crate) max_players: u32,
+    pub(crate) ping_ms: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

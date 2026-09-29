@@ -196,7 +196,11 @@ pub(super) fn dialog_model(
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
         MenuDialog::Exit => (
-            translated(translate, "menu.quit", "Quit Game"),
+            translated(
+                translate,
+                "gui.warning.exitGameWarning",
+                "Do you want to exit Minecraft?",
+            ),
             String::new(),
             translated(translate, "gui.yes", "Yes"),
             translated(translate, "gui.no", "No"),
@@ -205,14 +209,18 @@ pub(super) fn dialog_model(
         MenuDialog::RemoveSaved(index) => (
             translated(
                 translate,
-                "selectServer.deleteQuestion",
+                "addExternalServerScreen.removeConfirmation",
                 "Are you sure you want to remove this server?",
             ),
             view.servers
                 .get(index)
                 .map(|server| server.name.clone())
                 .unwrap_or_default(),
-            translated(translate, "selectServer.deleteButton", "Delete"),
+            translated(
+                translate,
+                "addExternalServerScreen.removeButtonLabel",
+                "Remove",
+            ),
             translated(translate, "gui.cancel", "Cancel"),
             MenuAction::ConfirmRemoveSaved(index),
         ),
@@ -345,6 +353,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             }
         }
         "button.menu_network_server_world_edit" => MenuAction::EditSaved(index?),
+        "button.description_read_toggle" => MenuAction::ToggleReadMore(0),
+        "button.news_read_toggle" => MenuAction::ToggleReadMore(1),
         "button.menu_start_realms_world" => return play_screen::realm_action(view, region),
         "button.menu_start_local_world" => MenuAction::PlayLocalWorld(index?),
         _ => return None,

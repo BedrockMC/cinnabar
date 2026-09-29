@@ -15,10 +15,11 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
     self, Account, AuthState as CoreAuth, FeaturedServer, Friend, Gathering, Profile, Realm,
+    ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
-use super::view::{MenuGameCard, MenuProfile, ServerDetails};
+use super::view::{MenuGameCard, MenuProfile, PingInfo, ServerDetails};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
 /// How often auth state and events refresh.
@@ -27,6 +28,8 @@ const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
 /// How often the screen feeds refresh; they change rarely and cost several calls.
 const FEED_INTERVAL: Duration = Duration::from_secs(300);
+/// How often shown server rows are pinged.
+const PING_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Default)]
 struct Snapshot {
@@ -37,6 +40,8 @@ struct Snapshot {
     featured: Option<Vec<FeaturedServer>>,
     gatherings: Option<Vec<Gathering>>,
     profile: Option<Profile>,
+    ping_targets: Vec<String>,
+    pings: Option<Vec<ServerPing>>,
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
 }
@@ -77,6 +82,7 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
     };
     let mut catalog_due = Instant::now();
     let mut feed_due = Instant::now();
+    let mut ping_due = Instant::now();
     loop {
         match requests.recv_timeout(EVENT_INTERVAL) {
             Ok(()) => {
@@ -111,7 +117,21 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
                 runtime.block_on(launcher_control::profile(socket_dir)).ok(),
             )
         });
+        let targets = shared
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .ping_targets
+            .clone();
+        let pings = (!targets.is_empty() && Instant::now() >= ping_due).then(|| {
+            ping_due = Instant::now() + PING_INTERVAL;
+            runtime
+                .block_on(launcher_control::ping_servers(socket_dir, &targets))
+                .ok()
+        });
         let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+        if let Some(Some(pings)) = pings {
+            snapshot.pings = Some(pings);
+        }
         if let Some((featured, gatherings, profile)) = feeds {
             snapshot.featured = featured.or(snapshot.featured.take());
             snapshot.gatherings = gatherings.or(snapshot.gatherings.take());
@@ -252,6 +272,33 @@ impl AccountControl for LauncherAccount {
                         ..ServerDetails::default()
                     };
                     (card, details)
+                })
+                .collect(),
+        )
+    }
+
+    fn set_ping_targets(&mut self, mut targets: Vec<String>) {
+        targets.truncate(64);
+        self.with(|snapshot| {
+            if snapshot.ping_targets != targets {
+                snapshot.ping_targets = targets;
+            }
+        });
+    }
+
+    fn pings(&mut self) -> Option<Vec<(String, PingInfo)>> {
+        let pings = self.with(|snapshot| snapshot.pings.take())?;
+        Some(
+            pings
+                .into_iter()
+                .map(|ping| {
+                    let info = PingInfo {
+                        online: ping.online,
+                        players: ping.players,
+                        max_players: ping.max_players,
+                        ping_ms: ping.ping_ms,
+                    };
+                    (ping.address, info)
                 })
                 .collect(),
         )
