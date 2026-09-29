@@ -401,6 +401,8 @@ pub(super) struct ScreenArt<'a> {
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
+    /// Creation times that fades naming a clock read instead of their own.
+    pub(super) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
 }
 
@@ -849,7 +851,11 @@ impl Painter<'_> {
         {
             return Ok(());
         }
-        let opacity = node.alpha * json_ui::fade_factor(&node.fades, self.art.now);
+        let fade = match self.art.clocks {
+            Some(clocks) => json_ui::fade_factor_at(&node.fades, self.art.now, clocks),
+            None => json_ui::fade_factor(&node.fades, self.art.now),
+        };
+        let opacity = node.alpha * fade;
         if opacity <= 0.0 {
             return Ok(());
         }

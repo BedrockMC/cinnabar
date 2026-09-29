@@ -548,8 +548,8 @@ fn selected_item_label_counts_and_durability_render_and_fade() {
     )));
     // Java: the name stands 1.5 s, then fades out over 0.5 s.
     let name = text(nodes, "Emerald").unwrap();
-    assert_eq!(json_ui::fade_factor(&name.fades, 1.5), 1.0);
-    assert!(json_ui::fade_factor(&name.fades, 2.75) < 1.0);
+    assert_eq!(presentation.hud_fade(name, 1.5), 1.0);
+    assert!(presentation.hud_fade(name, 2.75) < 1.0);
 
     build(&mut presentation, &runtime, 3_100);
     let nodes = presentation.hud_draw_nodes();
@@ -742,13 +742,20 @@ fn titles_and_chat_carry_their_fades() {
     let nodes = presentation.hud_draw_nodes();
     let title = text(nodes, "Victory").unwrap();
     // 0.5 s fade in from its start at 1 s, 3.5 s hold, 1 s out.
-    assert!((json_ui::fade_factor(&title.fades, 1.25) - 0.5).abs() < 1e-3);
-    assert_eq!(json_ui::fade_factor(&title.fades, 3.0), 1.0);
-    assert!((json_ui::fade_factor(&title.fades, 5.5) - 0.5).abs() < 1e-3);
+    assert!((presentation.hud_fade(title, 1.25) - 0.5).abs() < 1e-3);
+    assert_eq!(presentation.hud_fade(title, 3.0), 1.0);
+    assert!((presentation.hud_fade(title, 5.5) - 0.5).abs() < 1e-3);
     let chat = text(nodes, "gg").unwrap();
     assert_eq!(json_ui::fade_factor(&chat.fades, 9.0), 1.0);
     assert!(json_ui::fade_factor(&chat.fades, 10.5) < 1.0);
     assert_eq!(json_ui::fade_factor(&chat.fades, 11.0), 0.0);
+    // A re-sent title restarts its fade without re-binding the screen.
+    let passes = presentation.hud_passes();
+    runtime.hud.set_title(Arc::from("Victory"), 3, 2_000);
+    build(&mut presentation, &runtime, 2_100);
+    assert_eq!(presentation.hud_passes(), passes);
+    let title = text(presentation.hud_draw_nodes(), "Victory").unwrap();
+    assert!((presentation.hud_fade(title, 2.25) - 0.5).abs() < 1e-3);
 }
 
 // A steady HUD repaints from cache; a changed binding re-binds once.
@@ -811,4 +818,89 @@ fn chat_line(sequence: u64, message: &str) -> SequencedUiEvent {
         server_tick: None,
         event: chat_event(message),
     }
+}
+
+/// A busy survival session: stats, XP, hotbar, a ten-row sidebar, a boss bar,
+/// five chat lines, and a title.
+fn busy_session() -> UiRuntime {
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    select_slot(&mut runtime);
+    runtime.hud.set_experience(12, 0.4);
+    let rows: Vec<_> = (0..10)
+        .map(|row| {
+            (
+                i64::from(row) + 10,
+                ProtocolScoreIdentity::FakePlayer(Arc::from(format!("Line {row}"))),
+                row,
+            )
+        })
+        .collect();
+    super::retained_hud_tests::install_mixed_scoreboard_slot(&mut runtime, "sidebar", &rows);
+    runtime
+        .apply(SequencedUiEvent {
+            session_id: 1,
+            fifo_sequence: 30,
+            local_millis: 0,
+            server_tick: None,
+            event: boss_event(
+                ProtocolBossAction::Show,
+                9,
+                "Boss",
+                0.5,
+                ProtocolBossColor::Red,
+                ProtocolBossOverlay::Progress,
+            ),
+        })
+        .unwrap();
+    for line in 0..5 {
+        runtime
+            .apply(chat_line(40 + line, &format!("chat line {line}")))
+            .unwrap();
+    }
+    runtime.hud.set_title(Arc::from("Round 1"), 50, 0);
+    full_stats(&mut runtime, 60);
+    runtime
+}
+
+// Steady and changing-data frame costs, printed for profiling (HUD_TIMING=1).
+#[test]
+fn hud_frame_timing() {
+    if std::env::var_os("HUD_TIMING").is_none() {
+        return;
+    }
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    *presentation.hud_frame_mut() = first_person();
+    let mut runtime = busy_session();
+    let frames: u32 = std::env::var("HUD_FRAMES")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(240);
+    build_at(&mut presentation, &runtime, 100, [1920, 1080], 1.0);
+    let started = std::time::Instant::now();
+    for frame in 0..frames {
+        build_at(
+            &mut presentation,
+            &runtime,
+            100 + u64::from(frame),
+            [1920, 1080],
+            1.0,
+        );
+    }
+    let steady = started.elapsed() / frames;
+    let started = std::time::Instant::now();
+    for frame in 0..frames {
+        runtime.hud.set_experience(12, frame as f32 / frames as f32);
+        build_at(
+            &mut presentation,
+            &runtime,
+            100 + u64::from(frame),
+            [1920, 1080],
+            1.0,
+        );
+    }
+    let changing = started.elapsed() / frames;
+    eprintln!("engine HUD frame: steady {steady:?}, re-bound every frame {changing:?}");
 }
