@@ -1,9 +1,9 @@
 //! Client packets tied to inventory screens: block pick and book editing.
 
 use valentine::bedrock::version::v1_26_44::{
-    LecternUpdatePacket, BlockPickRequestPacket, BlockPos, BookEditActionAddPage, BookEditActionDeletePage,
+    BlockPickRequestPacket, BlockPos, BookEditActionAddPage, BookEditActionDeletePage,
     BookEditActionFinalize, BookEditActionReplacePage, BookEditActionSwapPages, BookEditPacket,
-    BookEditPacketOperation,
+    BookEditPacketOperation, LecternUpdatePacket,
 };
 
 /// Longest page text a book edit carries.

@@ -33,6 +33,8 @@ pub(crate) struct ScreenState {
     /// The beacon's pyramid level, from its block entity.
     pub(crate) beacon_level: Option<u8>,
     pub(crate) book_open: bool,
+    /// The book, sign-off or lectern reader being shown, if any.
+    pub(crate) book: Option<super::book_screen::BookState>,
     /// Page of the recipe book, in whole grids.
     pub(crate) book_page: usize,
     window: Option<u64>,
@@ -62,12 +64,18 @@ impl ScreenState {
     }
 
     /// Whether a text field owns the keyboard.
-    pub(crate) const fn text_focused(&self) -> bool {
-        self.search_focused || self.anvil_focused
+    pub(crate) fn text_focused(&self) -> bool {
+        self.search_focused
+            || self.anvil_focused
+            || self.book.as_ref().is_some_and(|book| book.editable)
     }
 
     /// Appends typed text to the focused field, dropping control characters.
     pub(crate) fn type_text(&mut self, text: &str) {
+        if let Some(book) = self.book.as_mut().filter(|book| book.editable) {
+            book.type_text(text);
+            return;
+        }
         let (field, limit) = if self.anvil_focused {
             (&mut self.anvil_name, MAX_ANVIL_NAME_CHARS)
         } else {
@@ -82,7 +90,9 @@ impl ScreenState {
     }
 
     pub(crate) fn backspace_text(&mut self) {
-        if self.anvil_focused {
+        if let Some(book) = self.book.as_mut().filter(|book| book.editable) {
+            book.backspace();
+        } else if self.anvil_focused {
             self.anvil_name.pop();
         } else {
             self.search.pop();

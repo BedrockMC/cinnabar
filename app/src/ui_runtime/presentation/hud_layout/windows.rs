@@ -347,7 +347,7 @@ impl HudLayout<'_> {
         self.held_item(runtime, frame)
     }
 
-    fn measure(&mut self, text: &str) -> Result<f32, UiPresentationError> {
+    pub(super) fn measure(&mut self, text: &str) -> Result<f32, UiPresentationError> {
         let layout = self
             .layouts
             .layout(TextLayoutRequest {

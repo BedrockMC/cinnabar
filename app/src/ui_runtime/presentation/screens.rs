@@ -9,7 +9,12 @@ use super::inventory_pointer::{InventoryCellHit, InventoryScreen};
 
 mod book;
 mod creative;
+mod reader;
 mod window;
+
+pub(crate) use reader::{
+    PAGE_TEXT_ORIGIN, PAGE_TEXT_WIDTH, READER_PANEL, ReaderButton, reader_buttons, reader_hit,
+};
 
 pub(crate) use book::{
     BOOK_CELL_SIZE, BOOK_CELLS, BOOK_PANEL, book_hit, book_origin, cell_origin as book_cell_origin,
@@ -49,6 +54,7 @@ pub(crate) fn panel_size(screen: InventoryScreen) -> [f32; 2] {
             window_layout(kind, cells).map_or(PERSONAL_PANEL, |layout| layout.panel)
         }
         InventoryScreen::Creative => CREATIVE_PANEL,
+        InventoryScreen::Book => READER_PANEL,
         _ => PERSONAL_PANEL,
     }
 }
@@ -149,6 +155,7 @@ pub(crate) fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
             })
             .unwrap_or_default(),
         InventoryScreen::Creative => creative_slots(),
+        InventoryScreen::Book => Vec::new(),
     }
 }
 

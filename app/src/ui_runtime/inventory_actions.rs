@@ -11,7 +11,7 @@ use super::inventory_ledger::{
 };
 use super::presentation::inventory_pointer::InventoryCellHit;
 use super::presentation::screens::{
-    BEACON_LEVEL_FOR, BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, Widget,
+    BEACON_LEVEL_FOR, BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, ReaderButton, Widget,
 };
 use super::screen_recipes::LOOM_PATTERNS;
 use super::screen_state::{ScreenState, creative_entries};
@@ -119,6 +119,31 @@ impl UiRuntime {
         };
         self.inventory_ledger_mut()
             .begin_target_gesture(target, gesture)
+    }
+
+    /// Runs one book reader or editor button.
+    fn reader_button(&mut self, button: ReaderButton) {
+        let Some(book) = self.screen_state_mut().book.as_mut() else {
+            return;
+        };
+        match button {
+            ReaderButton::Prev => {
+                if book.turn(-1) {
+                    self.report_lectern_page();
+                }
+            }
+            ReaderButton::Next => {
+                // The last page's arrow starts a new page in a writable book.
+                let last = book.page + 1 == book.pages.len();
+                if (last && book.add_page()) || (!last && book.turn(1)) {
+                    self.report_lectern_page();
+                }
+            }
+            ReaderButton::Done => self.finish_book(false),
+            ReaderButton::Sign => book.signing = true,
+            ReaderButton::Finalize => self.finish_book(true),
+            ReaderButton::Cancel => book.signing = false,
+        }
     }
 
     /// The bundle under `hit` when the cursor holds a non-bundle item to put in it.
@@ -261,6 +286,10 @@ impl UiRuntime {
             }
             Widget::AnvilName => {
                 self.screen_state_mut().anvil_focused = true;
+                Ok(0)
+            }
+            Widget::Reader(button) => {
+                self.reader_button(button);
                 Ok(0)
             }
             Widget::BookToggle => {

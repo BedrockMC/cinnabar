@@ -45,6 +45,7 @@ impl HudLayout<'_> {
                 self.window_screen(runtime, frame, kind, cells)?
             }
             InventoryScreen::Creative => self.creative_screen(runtime, frame)?,
+            InventoryScreen::Book => return self.book_screen(runtime, frame),
             _ => self.classic_screen(runtime, frame, screen)?,
         }
         self.inventory_overlays(runtime, frame, screen)
