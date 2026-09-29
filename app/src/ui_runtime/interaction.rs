@@ -18,7 +18,7 @@ use crate::acceptance::markers::FAST_TRANSFER_ACTION;
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
-use super::inventory_ledger::{CellGesture, DropSource, InventoryGestureError, InventoryTarget};
+use super::inventory_ledger::{CellGesture, DropSource, InventoryGestureError};
 use super::{PlatformClipboard, UiRuntime, presentation};
 use presentation::inventory_pointer::InventoryCellHit;
 
@@ -303,6 +303,7 @@ impl InventoryKeys {
 }
 
 pub(crate) fn drive_inventory_ui_actions(
+    time: Option<Res<Time<Real>>>,
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
@@ -320,33 +321,61 @@ pub(crate) fn drive_inventory_ui_actions(
         || !window.focused
     {
         runtime.set_inventory_pointer_gui(None);
+        runtime.screen_state_mut().hover = None;
         return;
     }
+    let now_millis = time.map_or(0, |time| {
+        u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
+    });
     let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
     let secondary_pressed = mouse_buttons.just_pressed(MouseButton::Right);
-    // The inventory owns pointer buttons while open. Preserve the primary
-    // and secondary edges long enough to resolve their cell, then clear every
-    // button before gameplay systems can observe this frame.
+    let primary_released = mouse_buttons.just_released(MouseButton::Left);
+    let secondary_released = mouse_buttons.just_released(MouseButton::Right);
+    // The inventory owns pointer buttons while open. Preserve the edges long
+    // enough to resolve their cell, then clear every button before gameplay
+    // systems can observe this frame.
     mouse_buttons.reset_all();
+    let generation = runtime.inventory_ledger().storage_generation();
+    runtime.screen_state_mut().observe_window(generation);
+    let screen = presentation::inventory_pointer::InventoryScreen::of_runtime(&runtime);
+    if screen != presentation::inventory_pointer::InventoryScreen::Creative {
+        runtime.screen_state_mut().search_focused = false;
+    }
     let Some(position) = window.cursor_position() else {
         runtime.set_inventory_pointer_gui(None);
+        runtime.screen_state_mut().hover = None;
         return;
     };
     let Ok(point) = UiPoint::new(position.x, position.y) else {
         runtime.set_inventory_pointer_gui(None);
+        runtime.screen_state_mut().hover = None;
         return;
     };
     let physical_size = [window.physical_width(), window.physical_height()];
     let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
     runtime.set_inventory_pointer_gui(gui);
-    let screen = presentation::inventory_pointer::InventoryScreen::of(runtime.inventory_ledger());
     let hit = gui.and_then(|gui| {
         presentation.inventory_cell_hit(gui, physical_size, window.scale_factor(), screen)
     });
+    runtime.screen_state_mut().hover = hit;
     for key in presses {
         let _ = dispatch_inventory_key(runtime.as_mut(), hit, key, control);
     }
-    let Some(hit) = hit else {
+    let frame = super::inventory_drag::PointerFrame {
+        primary_pressed,
+        primary_released,
+        secondary_pressed,
+        secondary_released,
+        shift,
+        holding: runtime.inventory_ledger().cursor_stack().is_some(),
+        hit,
+        now_millis,
+    };
+    let actions = runtime.screen_state_mut().pointer.step(frame);
+    for action in actions {
+        runtime.perform_pointer_action(action);
+    }
+    if hit.is_none() {
         // A held stack released outside the panel is dropped: all of it on a
         // primary click, one item on a secondary click.
         let outside = gui.is_some_and(|gui| {
@@ -363,52 +392,18 @@ pub(crate) fn drive_inventory_ui_actions(
                 .inventory_ledger_mut()
                 .begin_drop(DropSource::Cursor, amount);
         }
-        return;
-    };
-    // When both physical edges arrive together, the primary operation wins
-    // as a deterministic local policy.
-    if primary_pressed
-        && shift
-        && let Some(target) = gesture_target(hit)
-    {
-        let _ = runtime.inventory_ledger_mut().begin_quick_move(target);
-    } else if primary_pressed {
-        let _ = dispatch_inventory_click(runtime.as_mut(), hit, CellGesture::Click);
-    } else if secondary_pressed {
-        let ledger = runtime.inventory_ledger();
-        let Some(target) = gesture_target(hit) else {
-            return;
-        };
-        let gesture = match (ledger.cursor_stack(), ledger.target_stack(target)) {
-            (Some(_), _) => CellGesture::PlaceCount(1),
-            (None, Some(stack)) => CellGesture::TakeCount(stack.count.div_ceil(2)),
-            (None, None) => return,
-        };
-        let _ = dispatch_inventory_click(runtime.as_mut(), hit, gesture);
     }
 }
 
-const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTarget> {
-    Some(match hit {
-        InventoryCellHit::Player(slot) => InventoryTarget::Player(slot),
-        InventoryCellHit::Storage(slot) => InventoryTarget::Storage(slot),
-        InventoryCellHit::Armor(slot) => InventoryTarget::Armor(slot),
-        InventoryCellHit::Offhand => InventoryTarget::Offhand,
-        InventoryCellHit::Craft(slot) => InventoryTarget::Craft(slot),
-        InventoryCellHit::CraftOutput => return None,
-    })
-}
-
 /// Keyboard gestures over the hovered cell: digits swap with that hotbar
-/// cell, Q drops one item and Control+Q the whole stack.
+/// cell (or craft into it over the result), Q drops one item and Control+Q
+/// the whole stack; arrows scroll the creative grid.
 pub(crate) fn dispatch_inventory_key(
     runtime: &mut UiRuntime,
     hit: Option<InventoryCellHit>,
     key: KeyCode,
     control: bool,
 ) -> Option<Result<i32, InventoryGestureError>> {
-    let target = gesture_target(hit?)?;
-    let ledger = runtime.inventory_ledger_mut();
     let hotbar = [
         KeyCode::Digit1,
         KeyCode::Digit2,
@@ -422,6 +417,28 @@ pub(crate) fn dispatch_inventory_key(
     ]
     .iter()
     .position(|digit| *digit == key);
+    if let (Some(InventoryCellHit::CraftOutput), Some(slot)) = (hit, hotbar) {
+        return Some(runtime.craft_into_hotbar(slot as u8));
+    }
+    let scroll = match key {
+        KeyCode::ArrowUp | KeyCode::PageUp => Some(-1),
+        KeyCode::ArrowDown | KeyCode::PageDown => Some(1),
+        _ => None,
+    };
+    if let Some(rows) = scroll
+        && presentation::inventory_pointer::InventoryScreen::of_runtime(runtime)
+            == presentation::inventory_pointer::InventoryScreen::Creative
+    {
+        let total = super::inventory_actions::visible_creative_entries(
+            runtime.inventory_ledger(),
+            runtime.screen_state(),
+        )
+        .len();
+        runtime.screen_state_mut().scroll_creative(rows, total);
+        return None;
+    }
+    let target = super::inventory_actions::gesture_target(hit?)?;
+    let ledger = runtime.inventory_ledger_mut();
     match (hotbar, key) {
         (Some(slot), _) => Some(ledger.begin_hotbar_swap(target, slot as u8)),
         (None, KeyCode::KeyQ) => {
@@ -438,7 +455,7 @@ pub(crate) fn dispatch_inventory_click(
     hit: InventoryCellHit,
     gesture: CellGesture,
 ) -> Result<i32, InventoryGestureError> {
-    match gesture_target(hit) {
+    match super::inventory_actions::gesture_target(hit) {
         Some(target) => runtime
             .inventory_ledger_mut()
             .begin_target_gesture(target, gesture),
@@ -556,6 +573,28 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         if runtime.inventory_open() {
             consumed_gameplay = true;
+            if runtime.screen_state().search_focused {
+                // The creative search field owns typed text, including `e`.
+                match input.key_code {
+                    KeyCode::Escape => {
+                        runtime.close_inventory();
+                        inventory_ownership_changed = true;
+                    }
+                    KeyCode::Backspace => runtime.screen_state_mut().backspace_search(),
+                    _ => {
+                        let modified = keys.pressed(KeyCode::ControlLeft)
+                            || keys.pressed(KeyCode::ControlRight)
+                            || keys.pressed(KeyCode::AltLeft)
+                            || keys.pressed(KeyCode::AltRight)
+                            || keys.pressed(KeyCode::SuperLeft)
+                            || keys.pressed(KeyCode::SuperRight);
+                        if !modified && let Some(text) = input.text.as_deref() {
+                            runtime.screen_state_mut().type_search(text);
+                        }
+                    }
+                }
+                continue;
+            }
             match input.key_code {
                 KeyCode::KeyE => {
                     runtime.toggle_inventory();

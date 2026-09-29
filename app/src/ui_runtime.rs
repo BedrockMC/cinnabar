@@ -9,6 +9,8 @@ pub(crate) mod gameplay_hud;
 pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
+mod inventory_actions;
+mod inventory_drag;
 mod inventory_ingress;
 pub(crate) mod json_ui_assets;
 pub mod inventory_ledger;
@@ -20,6 +22,7 @@ pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
+mod screen_state;
 mod use_on_identity_evidence;
 
 pub use forms::{
@@ -196,6 +199,7 @@ pub struct UiRuntime {
     forms: ServerFormStore,
     inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
+    screen: screen_state::ScreenState,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -273,6 +277,7 @@ impl UiRuntime {
             forms: ServerFormStore::default(),
             inventory_pointer_gui: None,
             inventory_keys: interaction::InventoryKeys::default(),
+            screen: screen_state::ScreenState::default(),
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
@@ -422,6 +427,14 @@ impl UiRuntime {
 
     pub const fn inventory_pointer_gui(&self) -> Option<[f32; 2]> {
         self.inventory_pointer_gui
+    }
+
+    pub(crate) const fn screen_state(&self) -> &screen_state::ScreenState {
+        &self.screen
+    }
+
+    pub(crate) fn screen_state_mut(&mut self) -> &mut screen_state::ScreenState {
+        &mut self.screen
     }
 
     pub(crate) fn set_inventory_pointer_gui(&mut self, position: Option<[f32; 2]>) {
