@@ -181,6 +181,16 @@ pub(super) enum Command {
         #[arg(long)]
         report: PathBuf,
     },
+    /// Compile every other language the pack lists as optional
+    /// `<out-dir>/<code>.mcbelang` carriers.
+    LanguageAssets {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out_dir: PathBuf,
+    },
     /// Compile the pinned vanilla sound definitions into a dormant lookup catalog.
     AudioAssets {
         /// Root of the pinned vanilla resource pack.

@@ -145,7 +145,7 @@ pub use icon_carrier::{
 };
 pub use lang_carrier::{
     LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
-    require_lang_assets,
+    load_active_language, require_lang_assets,
 };
 
 impl LoadedFontAssets {

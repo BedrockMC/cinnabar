@@ -505,6 +505,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
+    let active_lang = crate::asset_startup::load_active_language(
+        &loaded_assets.selected_path,
+        args.language.as_deref(),
+    );
     // The sound-definition catalog binds optionally (VPA-017): absence falls
     // back to a bounded empty catalog with this one-time notice, while a
     // present-but-invalid carrier fails startup closed above through the
@@ -774,6 +778,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .insert_resource({
             let mut ui_runtime = UiRuntime::new(0);
             ui_runtime.set_lang_catalog(lang_assets.into_runtime());
+            ui_runtime.set_active_language(active_lang);
             ui_runtime
         })
         .insert_resource(ui_presentation)

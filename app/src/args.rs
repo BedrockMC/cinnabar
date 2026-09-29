@@ -31,6 +31,7 @@ Options:
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --gui-scale <1-4|auto>       Fix the Java HUD GUI scale (default: 2)
   --json-ui-containers         Draw container screens through JSON-UI (default: Java-styled)
+  --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   --require-transparent-presentation
                                Wait up to 2s for GPU-presented water at timed exit
@@ -103,6 +104,8 @@ pub struct ClientArgs {
     pub gui_scale: Option<u8>,
     /// Route container screens through the JSON-UI engine; off keeps the Java path.
     pub json_ui_containers: bool,
+    /// Requested UI language code; `None` follows the environment locale.
+    pub language: Option<String>,
     pub full_view_teleport_gate: bool,
     pub require_transparent_presentation: bool,
     pub transparent_witness_request: Option<PathBuf>,
@@ -130,6 +133,7 @@ impl Default for ClientArgs {
             frame_cap: None,
             gui_scale: Some(DEFAULT_GUI_SCALE),
             json_ui_containers: false,
+            language: None,
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
             transparent_witness_request: None,
@@ -171,6 +175,9 @@ pub enum ArgsError {
 
     #[error("--gui-scale must be an integer from 1 through 4, got {0:?}")]
     InvalidGuiScale(String),
+
+    #[error("--language must be a code like de_DE, got {0:?}")]
+    InvalidLanguage(String),
 
     #[error("--display-name cannot be empty")]
     EmptyDisplayName,
@@ -321,6 +328,15 @@ impl ClientArgs {
                             .filter(|fps| (1..=1_000).contains(fps))
                             .ok_or_else(|| ArgsError::InvalidFrameCap(value.clone()))?,
                     );
+                }
+                Some("--language") => {
+                    let value = next_value(&mut arguments, "--language")?
+                        .into_string()
+                        .map_err(|_| ArgsError::InvalidUtf8 { flag: "--language" })?;
+                    if !assets::is_language_code(&value) {
+                        return Err(ArgsError::InvalidLanguage(value));
+                    }
+                    parsed.language = Some(value);
                 }
                 Some("--gui-scale") => {
                     let value = next_value(&mut arguments, "--gui-scale")?

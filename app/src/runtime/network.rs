@@ -60,7 +60,7 @@ pub(crate) use inventory::{
 pub(crate) use resource_packs::PackApplication;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, classify_bootstrap_generation,
-    set_base_material_keys,
+    set_active_language, set_base_material_keys,
 };
 pub(crate) use session::{
     NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, PacketSendError,

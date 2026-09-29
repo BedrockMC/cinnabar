@@ -223,6 +223,7 @@ pub struct UiRuntime {
     /// Startup-loaded localization catalog; survives session replacement
     /// because it is local pinned data, not server state.
     lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
+    active_lang: Option<Arc<assets::RuntimeLangCatalog>>,
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     session_icons: Option<Arc<presentation::SessionIcons>>,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
@@ -305,6 +306,7 @@ impl UiRuntime {
             last_selected_identity: None,
             mount_jump_hold_started_millis: None,
             lang_catalog: None,
+            active_lang: None,
             server_lang: None,
             session_icons: None,
             server_ui: None,

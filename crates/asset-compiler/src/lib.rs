@@ -64,7 +64,10 @@ pub use hud_extras::compile_hud_extras_to_file;
 pub use icon::{
     CompiledIconCarrier, IconCompileReport, compile_icon_assets, compile_icon_assets_with_blocks,
 };
-pub use lang::{CompiledLangCarrier, LangCompileError, LangCompileReport, compile_lang_assets};
+pub use lang::{
+    CompiledLangCarrier, LangCompileError, LangCompileReport, compile_lang_assets,
+    compile_language, vanilla_language_codes,
+};
 pub use pack::{
     BlockTextureMap, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS, PackSources,
     TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,
