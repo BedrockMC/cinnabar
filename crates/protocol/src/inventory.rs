@@ -31,6 +31,7 @@ pub use creative::{
 pub mod recipes;
 mod request;
 mod validation;
+mod client_packets;
 mod windows;
 pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
@@ -43,6 +44,7 @@ pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
+pub use client_packets::*;
 pub use windows::*;
 mod registry_snapshot;
 pub use recipes::{

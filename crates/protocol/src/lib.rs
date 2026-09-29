@@ -91,6 +91,9 @@ pub use inventory::{
     MAX_CREATIVE_ITEMS,
 };
 pub use inventory::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
+};
+pub use inventory::{
     EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, OpenCells, UI_SLOT_COUNT,
     WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
     WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER,

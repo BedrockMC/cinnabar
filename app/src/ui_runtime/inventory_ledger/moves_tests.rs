@@ -205,3 +205,15 @@ fn quick_move_from_player_targets_open_storage() {
     );
     assert_eq!(ledger.storage_stack(0).unwrap().stack_network_id, 100);
 }
+
+/// The in-world drop key needs no open window, unlike a screen drop.
+#[test]
+fn world_drop_works_without_an_open_window() {
+    let mut ledger = known_ledger(&[(2, stack(8, 100, 3))]);
+    assert_eq!(
+        ledger.begin_drop(DropSource::Target(InventoryTarget::Player(2)), Some(1)),
+        Err(InventoryGestureError::PersonalInventoryUnavailable)
+    );
+    ledger.begin_world_drop(2, Some(1)).unwrap();
+    assert_eq!(ledger.displayed_stack(2).unwrap().count, 2);
+}

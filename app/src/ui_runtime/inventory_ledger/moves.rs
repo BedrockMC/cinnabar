@@ -52,11 +52,34 @@ impl PlayerInventoryLedger {
         source: DropSource,
         amount: Option<u16>,
     ) -> Result<i32, InventoryGestureError> {
+        self.drop_from(source, amount, true)
+    }
+
+    /// Drops from hotbar cell `slot` with no window open, like the in-world drop key.
+    pub fn begin_world_drop(
+        &mut self,
+        slot: u8,
+        amount: Option<u16>,
+    ) -> Result<i32, InventoryGestureError> {
+        self.drop_from(
+            DropSource::Target(InventoryTarget::Player(slot)),
+            amount,
+            false,
+        )
+    }
+
+    fn drop_from(
+        &mut self,
+        source: DropSource,
+        amount: Option<u16>,
+        needs_window: bool,
+    ) -> Result<i32, InventoryGestureError> {
         let cell = match source {
             DropSource::Target(target) => target.cell(),
             DropSource::Cursor => Cell::Cursor,
         };
-        let personal_generation = self.gesture_preflight(!matches!(cell, Cell::Storage(_)))?;
+        let personal_generation =
+            self.gesture_preflight(needs_window && !matches!(cell, Cell::Storage(_)))?;
         self.check_surfaces([cell])?;
         let held = match cell {
             Cell::Cursor => self.named(self.view().get(Cell::Cursor).cloned())?,
