@@ -15,6 +15,9 @@ use crate::tree::ControlRef;
 pub(crate) const CHAINS_KEY: &str = "anim_alpha";
 /// Property holding a factory instance's creation time in seconds.
 pub(crate) const BORN_KEY: &str = "anim_born";
+/// Property naming the caller clock that holds an instance's creation time, so
+/// a re-sent title restarts its fade without re-binding the screen.
+pub(crate) const CLOCK_KEY: &str = "anim_clock";
 /// Longest `next` chain followed; a longer or cyclic chain loops from its start.
 const MAX_STEPS: usize = 16;
 
@@ -53,6 +56,9 @@ pub struct Fade {
     pub rest: f32,
     /// Seconds on the caller's clock when the animated control was created.
     pub born: f64,
+    /// The caller clock that overrides `born`, when the control has one.
+    #[serde(default)]
+    pub clock: Option<String>,
 }
 
 impl Fade {
@@ -70,6 +76,26 @@ impl Fade {
 /// The product of every fade's multiplier at `now`.
 pub fn fade_factor(fades: &[Fade], now: f64) -> f32 {
     fades.iter().map(|fade| fade.factor(now)).product()
+}
+
+/// [`fade_factor`] with each fade's creation time read from `clocks` when it names one.
+pub fn fade_factor_at(
+    fades: &[Fade],
+    now: f64,
+    clocks: &std::collections::BTreeMap<String, f64>,
+) -> f32 {
+    fades
+        .iter()
+        .map(|fade| {
+            let born = fade
+                .clock
+                .as_ref()
+                .and_then(|clock| clocks.get(clock))
+                .copied()
+                .unwrap_or(fade.born);
+            fade.factor(now - born + fade.born)
+        })
+        .product()
 }
 
 impl Chain {
@@ -273,6 +299,7 @@ mod tests {
             chain,
             rest: 0.5,
             born: 100.0,
+            clock: None,
         };
         assert_eq!(fade.factor(105.0), 1.0);
         assert_eq!(fade.factor(110.5), 0.5);

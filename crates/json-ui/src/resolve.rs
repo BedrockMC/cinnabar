@@ -16,6 +16,8 @@ use crate::tree::{ControlRef, Factory, ResolvedControl};
 const MAX_DEPTH: usize = 256;
 /// Property recording the `$vars` a factory's or grid's created controls see.
 pub(crate) const FACTORY_SCOPE: &str = "factory_scope";
+/// A digest of [`FACTORY_SCOPE`], so equal scopes are recognised without comparing.
+pub(crate) const FACTORY_SCOPE_KEY: &str = "factory_scope_key";
 const MAX_NODES: usize = 200_000;
 
 /// Drives resolution over one [`Catalog`], accumulating diagnostics.
@@ -91,7 +93,10 @@ impl<'a> Resolver<'a> {
         let mut properties = build_properties(control, env, control_ids_consumed, &mut missing);
         self.resolve_anims(&mut properties, env);
         if factory.is_some() || properties.contains_key("grid_item_template") {
-            properties.insert(FACTORY_SCOPE.to_owned(), self.local_scope(env));
+            let scope = self.local_scope(env);
+            let key = scope_key(&scope);
+            properties.insert(FACTORY_SCOPE.to_owned(), scope);
+            properties.insert(FACTORY_SCOPE_KEY.to_owned(), Value::String(key));
         }
         if !missing.is_empty() {
             missing.sort();
@@ -351,6 +356,16 @@ impl<'a> Resolver<'a> {
         }
         (None, false)
     }
+}
+
+/// A stable digest of a scope's serialized vars.
+fn scope_key(scope: &Value) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_string(scope)
+        .unwrap_or_default()
+        .hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 fn build_properties(

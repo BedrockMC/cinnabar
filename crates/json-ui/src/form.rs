@@ -401,14 +401,58 @@ impl ControlLibrary for CatalogLibrary<'_> {
     fn resolve_with(
         &self,
         reference: &ControlRef,
-        vars: &std::collections::BTreeMap<String, serde_json::Value>,
+        _key: &str,
+        vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Option<ResolvedControl> {
         let mut context = self.context.clone();
-        for (name, value) in vars {
-            context = context.with_var(name.trim_start_matches('$'), value.clone());
+        for (name, value) in vars() {
+            context = context.with_var(name.trim_start_matches('$'), value);
         }
         let name = format!("{}.{}", reference.namespace, reference.name);
         resolve(self.catalog, &name, &context).control
+    }
+}
+
+/// Factory and grid resolutions kept across binds of one catalog and context,
+/// so a screen re-bound for changed data reuses its created controls' trees.
+#[derive(Debug, Default)]
+pub struct ResolveCache {
+    memo:
+        std::sync::Mutex<std::collections::BTreeMap<(ControlRef, String), Option<ResolvedControl>>>,
+}
+
+/// A [`CatalogLibrary`] answering from a [`ResolveCache`] first.
+pub struct CachedLibrary<'a> {
+    pub library: CatalogLibrary<'a>,
+    pub cache: &'a ResolveCache,
+}
+
+impl ControlLibrary for CachedLibrary<'_> {
+    fn resolve(&self, reference: &ControlRef) -> Option<ResolvedControl> {
+        self.resolve_with(reference, "", &std::collections::BTreeMap::new)
+    }
+
+    fn resolve_with(
+        &self,
+        reference: &ControlRef,
+        key: &str,
+        vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Option<ResolvedControl> {
+        let cache_key = (reference.clone(), key.to_owned());
+        if let Some(resolved) = self
+            .cache
+            .memo
+            .lock()
+            .ok()
+            .and_then(|memo| memo.get(&cache_key).cloned())
+        {
+            return resolved;
+        }
+        let resolved = self.library.resolve_with(reference, key, vars);
+        if let Ok(mut memo) = self.cache.memo.lock() {
+            memo.insert(cache_key, resolved.clone());
+        }
+        resolved
     }
 }
 

@@ -38,8 +38,10 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-pub use anim::{Chain, Fade, Step, StepKind, fade_factor};
-pub use bind::{CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind};
+pub use anim::{Chain, Fade, Step, StepKind, fade_factor, fade_factor_at};
+pub use bind::{
+    CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_shared,
+};
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};
 pub use env::Env;
@@ -47,12 +49,13 @@ pub use expr::{
     AxisContext, ExprError, Length, Resolved, Term, Unit, length_from_value, parse_length,
 };
 pub use form::{
-    ActionElement, ActionForm, ButtonImage, CatalogLibrary, CustomElement, CustomForm, FormButton,
-    FormModel, FormRender, ModalForm, bind_form, form_context, form_data_source,
-    form_screen_cancel, form_template, render_bound, render_form, render_form_with,
+    ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
+    CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
+    form_context, form_data_source, form_screen_cancel, form_template, render_bound, render_form,
+    render_form_with,
 };
 pub use hud::{
-    BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed,
+    BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
     hud_context, hud_data_source,
 };
 pub use input::{
