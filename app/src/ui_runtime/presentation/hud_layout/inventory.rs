@@ -116,7 +116,7 @@ impl HudLayout<'_> {
         width: usize,
         output: [f32; 2],
     ) -> Result<(), UiPresentationError> {
-        let first_slot = if width == 3 { 32 } else { 28 };
+        let first_slot: u8 = if width == 3 { 32 } else { 28 };
         for index in 0..width * width {
             let slot = [
                 origin[0] + grid[0] + (index % width) as f32 * SLOT_SIZE,
