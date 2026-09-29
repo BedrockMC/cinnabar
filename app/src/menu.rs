@@ -33,10 +33,11 @@ pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{load_servers, save_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
-use view::{CatalogFile, MenuFeeds};
 pub(crate) use view::{
-    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
+    ButtonArt, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard, MenuView,
+    PingInfo, SavedServer,
 };
+use view::{CatalogFile, MenuFeeds};
 
 use std::{
     fs,
@@ -146,6 +147,8 @@ pub(crate) enum MenuAction {
     SelectFeatured(usize),
     /// Flip the info panel's description (0) or news (1) past "read more".
     ToggleReadMore(u8),
+    /// The start screen's live-event button.
+    OpenLiveEvent,
 }
 
 #[derive(Debug, Resource)]
@@ -674,6 +677,7 @@ impl MenuRuntime {
             MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
+            MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);
@@ -752,6 +756,18 @@ impl MenuRuntime {
             return false;
         }
         true
+    }
+
+    /// Joins the live event's venue, or opens the Servers tab when it routes there.
+    fn open_live_event(&mut self) {
+        let Some(event) = self.feeds.home.live_event.clone() else {
+            return;
+        };
+        if event.route_to_servers || event.address.is_empty() {
+            self.enter(MenuScreen::Servers);
+        } else {
+            self.request_connect(event.address);
+        }
     }
 
     fn request_connect(&mut self, address: String) {

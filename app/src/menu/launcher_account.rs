@@ -5,6 +5,7 @@
 //! the menu never blocks on the socket; sign-out requests queue to the same worker.
 
 use std::{
+    collections::HashSet,
     path::PathBuf,
     sync::{Arc, Mutex},
     thread,
@@ -14,12 +15,14 @@ use std::{
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
-    self, Account, AuthState as CoreAuth, FeaturedServer, Friend, Gathering, Profile, Realm,
-    ServerPing,
+    self, Account, AuthState as CoreAuth, FeaturedServer, Friend, Gathering, Home, Message,
+    MessageEvent, Profile, Realm, ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
-use super::view::{MenuGameCard, MenuProfile, PingInfo, ServerDetails};
+use super::view::{
+    ButtonArt, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo, ServerDetails,
+};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
 /// How often auth state and events refresh.
@@ -42,6 +45,7 @@ struct Snapshot {
     profile: Option<Profile>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
+    home: Option<Home>,
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
 }
@@ -83,6 +87,7 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
     let mut catalog_due = Instant::now();
     let mut feed_due = Instant::now();
     let mut ping_due = Instant::now();
+    let mut reported = HashSet::new();
     loop {
         match requests.recv_timeout(EVENT_INTERVAL) {
             Ok(()) => {
@@ -107,7 +112,12 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
         });
         let feeds = (Instant::now() >= feed_due).then(|| {
             feed_due = Instant::now() + FEED_INTERVAL;
+            let home = runtime.block_on(launcher_control::home(socket_dir)).ok();
+            if let Some(home) = &home {
+                report_impressions(&runtime, socket_dir, home, &mut reported);
+            }
             (
+                home,
                 runtime
                     .block_on(launcher_control::list_featured_servers(socket_dir))
                     .ok(),
@@ -132,7 +142,8 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
         if let Some(Some(pings)) = pings {
             snapshot.pings = Some(pings);
         }
-        if let Some((featured, gatherings, profile)) = feeds {
+        if let Some((home, featured, gatherings, profile)) = feeds {
+            snapshot.home = home.or(snapshot.home.take());
             snapshot.featured = featured.or(snapshot.featured.take());
             snapshot.gatherings = gatherings.or(snapshot.gatherings.take());
             snapshot.profile = profile.or(snapshot.profile.take());
@@ -164,6 +175,85 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             }
         }
     }
+}
+
+/// Button-art surfaces the start screen shows, reported once per message instance.
+const SHOWN_SURFACES: [&str; 2] = ["PlayButton", "MarketplaceButton"];
+
+fn report_impressions(
+    runtime: &tokio::runtime::Runtime,
+    socket_dir: &std::path::Path,
+    home: &Home,
+    reported: &mut HashSet<String>,
+) {
+    for message in &home.messages {
+        if !SHOWN_SURFACES.contains(&message.surface.as_str())
+            || !reported.insert(message.instance_id.clone())
+        {
+            continue;
+        }
+        let event = MessageEvent {
+            event_type: "Impression".to_owned(),
+            instance_id: message.instance_id.clone(),
+            report_id: message.report_id.clone(),
+            button_id: String::new(),
+        };
+        let _ = runtime.block_on(launcher_control::report_message_event(socket_dir, &event));
+    }
+}
+
+/// The start screen's view of the core's home feed.
+fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
+    let art = |surface: &str| {
+        home.messages
+            .iter()
+            .find(|message| message.surface == surface)
+            .map(button_art)
+    };
+    let live_event = home
+        .live_events
+        .iter()
+        .find(|event| event.end_unix == 0 || now_unix < event.end_unix)
+        .map(|event| LiveEventCard {
+            button_text: event.button_text.clone(),
+            caption: event.caption_text.clone(),
+            countdown: event.caption_countdown,
+            start_unix: event.start_unix,
+            badge_path: event.badge.path.clone(),
+            address: event.address.clone(),
+            route_to_servers: event.route_to_servers,
+        });
+    MenuHome {
+        play_art: art("PlayButton"),
+        store_art: art("MarketplaceButton"),
+        inbox_unread: home.inbox.unread,
+        realm_invites: home.realm_invites,
+        live_event,
+        persona_head: home.persona_head.path.clone(),
+    }
+}
+
+/// Sorts a tile's images into the button's layers by their ids (hover, foreground).
+fn button_art(message: &Message) -> ButtonArt {
+    let mut art = ButtonArt {
+        banner: message.banner.clone(),
+        ..ButtonArt::default()
+    };
+    for image in message.images.iter().filter(|image| !image.path.is_empty()) {
+        let id = image.id.to_ascii_lowercase();
+        let hover = id.contains("hover");
+        let foreground = id.contains("fore") || id.contains("fg");
+        let slot = match (hover, foreground) {
+            (true, true) => &mut art.hover_foreground,
+            (true, false) => &mut art.hover_background,
+            (false, true) => &mut art.default_foreground,
+            (false, false) => &mut art.default_background,
+        };
+        if slot.is_empty() {
+            *slot = image.path.clone();
+        }
+    }
+    art
 }
 
 /// The core's account state as the menu's sign-in state; an offline core
@@ -277,6 +367,14 @@ impl AccountControl for LauncherAccount {
         )
     }
 
+    fn home(&mut self) -> Option<MenuHome> {
+        let home = self.with(|snapshot| snapshot.home.take())?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs() as i64);
+        Some(menu_home(&home, now))
+    }
+
     fn set_ping_targets(&mut self, mut targets: Vec<String>) {
         targets.truncate(64);
         self.with(|snapshot| {
@@ -348,6 +446,38 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tile_images_sort_into_button_layers() {
+        let image = |id: &str| protocol::launcher_control::MessageImage {
+            id: id.into(),
+            url: String::new(),
+            path: format!("/art/{id}.img"),
+        };
+        let message = Message {
+            surface: "PlayButton".into(),
+            banner: "New".into(),
+            images: vec![
+                image("background"),
+                image("hoverForeground"),
+                image("hover"),
+            ],
+            ..Message::default()
+        };
+        let home = Home {
+            messages: vec![message],
+            realm_invites: 2,
+            ..Home::default()
+        };
+        let menu = menu_home(&home, 0);
+        let art = menu.play_art.expect("play art");
+        assert_eq!(art.default_background, "/art/background.img");
+        assert_eq!(art.hover_foreground, "/art/hoverForeground.img");
+        assert_eq!(art.hover_background, "/art/hover.img");
+        assert_eq!(art.banner, "New");
+        assert!(menu.store_art.is_none());
+        assert_eq!(menu.realm_invites, 2);
+    }
 
     #[test]
     fn featured_servers_split_into_cards_and_details() {

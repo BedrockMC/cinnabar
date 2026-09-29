@@ -2,7 +2,7 @@
 //! sign-in screens never see the transport. Without a launcher core the
 //! account catalog and the auth supervisor keep feeding the menu.
 
-use super::view::{MenuProfile, PingInfo, ServerDetails};
+use super::view::{MenuHome, MenuProfile, PingInfo, ServerDetails};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
 
 /// Control method names the implementation calls.
@@ -52,6 +52,10 @@ pub(crate) trait AccountControl {
     fn profile(&mut self) -> Option<MenuProfile> {
         None
     }
+    /// `home.v1`: the start screen's service data, when fetched.
+    fn home(&mut self) -> Option<MenuHome> {
+        None
+    }
     /// The server rows `ping.v1` keeps fresh while the launcher shows them.
     fn set_ping_targets(&mut self, _targets: Vec<String>) {}
     /// Pongs from the latest ping round, keyed by address.
@@ -96,6 +100,9 @@ impl MenuRuntime {
         }
         if let Some(profile) = control.profile() {
             self.feeds.profile = profile;
+        }
+        if let Some(home) = control.home() {
+            self.feeds.home = home;
         }
         let targets = if self.visible && !self.connecting {
             self.featured
@@ -148,6 +155,7 @@ impl MenuRuntime {
         self.realms.clear();
         self.friends.clear();
         self.feeds.profile = MenuProfile::default();
+        self.feeds.home = MenuHome::default();
         self.catalog_message = None;
         self.enter(super::MenuScreen::Profile);
     }

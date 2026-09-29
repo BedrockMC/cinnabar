@@ -464,6 +464,21 @@ impl Painter<'_> {
                     fill,
                 ))
             }
+            // Messaging art is drawn as its first frame.
+            "animated_gif_renderer" => {
+                let path = data.get("#gif_path")?.as_str()?;
+                let image = self.art.images?.get(path)?;
+                let opacity = number("#alpha").unwrap_or(1.0).clamp(0.0, 1.0);
+                let tint = alpha([255, 255, 255, (255.0 * opacity) as u8]);
+                Some((
+                    UiVisual::Sprite {
+                        texture_page: image.page,
+                        uv: image.uv,
+                        color: tint,
+                    },
+                    dest,
+                ))
+            }
             "profile_image_renderer" => {
                 let portrait = self.art.portrait?;
                 Some((
