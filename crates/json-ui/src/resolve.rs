@@ -211,8 +211,11 @@ impl<'a> Resolver<'a> {
                 Some(flag) => flag,
                 None => {
                     self.diagnostics.push(format!(
-                        "{}.{}: undecidable `ignored` `{expression}`; keeping",
-                        control.owner_ns, control.name
+                        "{}.{}: undecidable `ignored` `{}` ({} bytes); keeping",
+                        control.owner_ns,
+                        control.name,
+                        clipped(expression),
+                        expression.len()
                     ));
                     false
                 }
@@ -422,6 +425,15 @@ fn parse_reference(reference: &str, owner: &str, env: &Env) -> ControlRef {
         None => reference.to_owned(),
     };
     ControlRef::parse(&resolved, owner)
+}
+
+/// A diagnostic-sized prefix of server-supplied text.
+fn clipped(text: &str) -> &str {
+    let mut end = text.len().min(80);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 fn value_string(value: Value) -> Option<String> {
