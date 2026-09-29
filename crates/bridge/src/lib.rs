@@ -1,5 +1,6 @@
 //! Local stream bridge between the Rust client and Go core.
 
+mod account;
 mod endpoint;
 mod error;
 mod framed;
@@ -8,6 +9,10 @@ mod worlds;
 
 use std::path::Path;
 
+pub use account::{
+    Account, AuthState, ConnectTarget, Events, Friend, Realm, ServerDisconnect, account_status,
+    connect_target, list_friends, list_realms, poll_events, sign_out,
+};
 pub use error::BridgeError;
 pub use framed::FramedStream;
 pub use status::{

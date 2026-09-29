@@ -10,6 +10,7 @@ mod interaction;
 mod inventory;
 mod item;
 mod item_capacity;
+pub mod launcher_control;
 mod login;
 mod movement;
 mod nbt_tree;
