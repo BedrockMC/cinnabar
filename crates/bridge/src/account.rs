@@ -118,6 +118,130 @@ pub struct Profile {
     pub gamerpic: Artwork,
 }
 
+/// The start screen's service data: messaging surfaces, inbox counts,
+/// treatments, the pending Realms invite count, live events and the persona head.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct Home {
+    #[serde(default)]
+    pub messages: Vec<Message>,
+    #[serde(default)]
+    pub inbox: Inbox,
+    #[serde(default)]
+    pub treatments: Vec<String>,
+    #[serde(default)]
+    pub realm_invites: u32,
+    #[serde(default)]
+    pub live_events: Vec<LiveEvent>,
+    #[serde(default)]
+    pub persona_head: Artwork,
+}
+
+/// One player-messaging message; `surface` places it (`PlayButton`, `InboxMessage`, ...).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Message {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub instance_id: String,
+    #[serde(default)]
+    pub report_id: String,
+    #[serde(default)]
+    pub surface: String,
+    #[serde(default)]
+    pub template: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub header: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub sub_title: String,
+    #[serde(default)]
+    pub banner: String,
+    #[serde(default)]
+    pub images: Vec<MessageImage>,
+    #[serde(default)]
+    pub buttons: Vec<MessageButton>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct MessageImage {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct MessageButton {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub link: String,
+    #[serde(default)]
+    pub action: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Inbox {
+    #[serde(default)]
+    pub total: u32,
+    #[serde(default)]
+    pub unread: u32,
+}
+
+/// A live gathering with its active segment's start-screen UI.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct LiveEvent {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub start_unix: i64,
+    #[serde(default)]
+    pub end_unix: i64,
+    #[serde(default)]
+    pub route_to_servers: bool,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub button_text: String,
+    #[serde(default)]
+    pub caption_text: String,
+    #[serde(default)]
+    pub caption_countdown: bool,
+    #[serde(default)]
+    pub badge: Artwork,
+    #[serde(default)]
+    pub event_image: Artwork,
+}
+
+/// A messaging report: `event_type` is Click, Dismiss, Delete, Impression, ControlImpression or ReadAll.
+#[derive(Clone, Debug, Default, Serialize, Eq, PartialEq)]
+pub struct MessageEvent {
+    pub event_type: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub instance_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub report_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub button_id: String,
+}
+
+#[derive(Deserialize)]
+struct HomeBody {
+    #[serde(default)]
+    home: Home,
+}
+
 /// One server's RakNet pong; `online` is false when it did not answer.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct ServerPing {
@@ -394,6 +518,21 @@ pub async fn ping_servers(
     Ok(body.servers)
 }
 
+/// Reads the start screen's service data.
+pub async fn home(socket_dir: &Path) -> Result<Home, BridgeError> {
+    let body: HomeBody = call::<_, ()>(socket_dir, "home.v1", None).await?;
+    Ok(body.home)
+}
+
+/// Reports one messaging event (impression, click, dismiss, ...).
+pub async fn report_message_event(
+    socket_dir: &Path,
+    event: &MessageEvent,
+) -> Result<(), BridgeError> {
+    call::<Empty, _>(socket_dir, "message_event.v1", Some(event)).await?;
+    Ok(())
+}
+
 /// Reads the signed-in profile.
 pub async fn profile(socket_dir: &Path) -> Result<Profile, BridgeError> {
     let body: ProfileBody = call::<_, ()>(socket_dir, "profile.v1", None).await?;
@@ -506,6 +645,28 @@ mod tests {
             {"address":"a.test:19132","online":true,"players":3,"max_players":20,"ping_ms":41}]}}"#;
         let body: PingBody = parse_response(reply).expect("ping");
         assert_eq!(body.servers[0].ping_ms, 41);
+    }
+
+    #[test]
+    fn home_parses_leniently_and_events_skip_empty_fields() {
+        let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"home":{
+            "messages":[{"id":"m","surface":"PlayButton","template":"t",
+              "images":[{"id":"tile","url":"https://a.test/t.png","path":"/art/t.img"}]}],
+            "inbox":{"total":3,"unread":2,"categories":[]},"realm_invites":1,
+            "live_events":[{"id":"g","caption_countdown":true}],"extra":1}}}"#;
+        let body: HomeBody = parse_response(reply).expect("home");
+        assert_eq!(body.home.messages[0].images[0].path, "/art/t.img");
+        assert_eq!(body.home.inbox.unread, 2);
+        assert!(body.home.live_events[0].caption_countdown);
+        let event = MessageEvent {
+            event_type: "Impression".into(),
+            instance_id: "i".into(),
+            ..MessageEvent::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&event).expect("encode"),
+            r#"{"event_type":"Impression","instance_id":"i"}"#
+        );
     }
 
     #[test]
