@@ -4,6 +4,8 @@ mod container_kinds;
 mod containers;
 mod engine;
 mod fallback;
+mod menu_screens;
+mod menus;
 mod model;
 mod pages;
 mod server_pack;
@@ -32,6 +34,8 @@ pub(super) struct FormPresentation {
     engine: Option<Box<engine::FormEngine>>,
     /// The container screen the engine drew this build, with its cell layout.
     container: Option<(EngineFrame, containers::ScreenLayout)>,
+    /// The engine menu's regions by action, for next frame's hover state.
+    menu_keys: Vec<(crate::menu::MenuAction, String)>,
 }
 
 impl UiPresentationRuntime {
@@ -160,8 +164,10 @@ impl UiPresentationRuntime {
     ) -> Result<(), UiPresentationError> {
         let engine = self.form_presentation.engine.take();
         let previous_container = self.form_presentation.container.take();
+        let menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
         self.form_presentation = FormPresentation {
             engine,
+            menu_keys,
             ..FormPresentation::default()
         };
         if self.menu_view.is_some() {
