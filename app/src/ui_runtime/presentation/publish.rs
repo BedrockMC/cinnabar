@@ -926,7 +926,7 @@ fn project_nametags(
                 camera_transform,
                 content_size,
                 safe_area,
-                &is_occluded,
+                is_occluded,
             )
         })
         .take(nametags::MAX_PRESENTED_NAMETAGS)

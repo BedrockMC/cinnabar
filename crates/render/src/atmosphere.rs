@@ -1,4 +1,4 @@
-use std::{f32::consts::TAU, sync::Arc};
+use std::sync::Arc;
 
 use assets::{ResolvedFog, RuntimeAtmosphereAssets};
 use bevy::{
@@ -19,12 +19,12 @@ const THUNDER_CLOUD_CHANNEL: f32 = 30.0 / 255.0;
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
 
 // Fallbacks mirroring the vanilla default fog profile, used only without a compiled carrier.
-const WATER_FOG_RGB8: u32 = 0x44AF_F5;
+const WATER_FOG_RGB8: u32 = 0x0044_AFF5;
 const WATER_FOG_END: f32 = 60.0;
-const LAVA_FOG_RGB8: u32 = 0x991A_00;
+const LAVA_FOG_RGB8: u32 = 0x0099_1A00;
 const LAVA_FOG_END: f32 = 0.64;
-const AIR_FOG_RGB8: u32 = 0xABD2_FF;
-const WEATHER_FOG_RGB8: u32 = 0x6666_66;
+const AIR_FOG_RGB8: u32 = 0x00AB_D2FF;
+const WEATHER_FOG_RGB8: u32 = 0x0066_6666;
 const FALLBACK_RENDER_DISTANCE: f32 = 256.0;
 const AIR_FOG_FRACTIONS: [f32; 2] = [0.92, 1.0];
 const WEATHER_FOG_FRACTIONS: [f32; 2] = [0.23, 0.7];
@@ -37,7 +37,7 @@ const PROVISIONAL_FLASH_COLOUR: [f32; 3] = [0.85, 0.87, 1.0];
 const BLINDNESS_FOG_END: f32 = 5.0;
 const DARKNESS_LIGHT_LOSS: f32 = 0.7;
 const DARKNESS_FOG_END_SCALE: f32 = 0.4;
-const NETHER_FOG_RGB8: u32 = 0x3308_08;
+const NETHER_FOG_RGB8: u32 = 0x0033_0808;
 /// Provisional flat end sky until `end_sky.png` is carried; needs native calibration.
 const PROVISIONAL_END_SKY: [f32; 3] = [0.035, 0.028, 0.05];
 
@@ -202,9 +202,8 @@ pub fn cloud_fog_factor(world_distance: f32, fog_start: f32, fog_end: f32) -> f3
             0.0
         };
     }
-    let amount =
-        ((bounded_distance - bounded_start) / (bounded_end - bounded_start)).clamp(0.0, 1.0);
-    amount
+
+    ((bounded_distance - bounded_start) / (bounded_end - bounded_start)).clamp(0.0, 1.0)
 }
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.
@@ -767,8 +766,8 @@ mod tests {
         assert_eq!(water.fog_end(), 60.0);
         assert_eq!(lava.fog_start(), 0.0);
         assert_eq!(lava.fog_end(), 0.64);
-        assert_eq!(water.fog_color(), super::rgb8_to_linear(0x44AF_F5));
-        assert_eq!(lava.fog_color(), super::rgb8_to_linear(0x991A_00));
+        assert_eq!(water.fog_color(), super::rgb8_to_linear(0x0044_AFF5));
+        assert_eq!(lava.fog_color(), super::rgb8_to_linear(0x0099_1A00));
     }
 
     #[test]

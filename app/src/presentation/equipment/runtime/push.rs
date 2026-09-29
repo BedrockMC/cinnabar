@@ -196,7 +196,7 @@ impl EquipmentRuntime {
             return;
         };
         if elytra_in_chest {
-            let Some(pose) = elytra::stance_pose(&binding, stance.sneaking, stance.sleeping) else {
+            let Some(pose) = elytra::stance_pose(binding, stance.sneaking, stance.sleeping) else {
                 return;
             };
             let Some(body_index) = bones

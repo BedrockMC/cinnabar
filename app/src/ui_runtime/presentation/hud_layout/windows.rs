@@ -102,7 +102,7 @@ pub(crate) struct WindowText {
     pub(crate) book_title: Option<String>,
 }
 
-fn stack_of<'a>(runtime: &'a UiRuntime, hit: InventoryCellHit) -> Option<&'a NetworkItemStack> {
+fn stack_of(runtime: &UiRuntime, hit: InventoryCellHit) -> Option<&NetworkItemStack> {
     let ledger = runtime.inventory_ledger();
     match hit {
         InventoryCellHit::Player(slot) => ledger.displayed_stack(slot),

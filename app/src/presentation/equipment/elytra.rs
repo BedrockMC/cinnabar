@@ -8,11 +8,11 @@ use super::armor::hidden_bone;
 
 /// The literal pose an elytra takes for the wearer's stance. Gliding and swimming poses are
 /// Molang-driven, so they fall back to the default pose until measured.
-pub(super) fn stance_pose<'a>(
-    binding: &'a EquipmentBinding,
+pub(super) fn stance_pose(
+    binding: &EquipmentBinding,
     sneaking: bool,
     sleeping: bool,
-) -> Option<&'a AttachablePose> {
+) -> Option<&AttachablePose> {
     let key = if sleeping {
         "sleeping"
     } else if sneaking {

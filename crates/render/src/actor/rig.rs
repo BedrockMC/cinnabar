@@ -397,13 +397,10 @@ impl ActorRigFrameBuilder {
             }
             // Like entity rigs, an unbuildable equipment geometry is omitted, not fatal.
             if let Ok(geometry) = geometry_from_geometry_index(assets, geometry_index as usize, id)
+                && let Err(ActorRigGeometryError::CatalogCapacity) =
+                    builder.insert_geometry(geometry)
             {
-                match builder.insert_geometry(geometry) {
-                    Err(ActorRigGeometryError::CatalogCapacity) => {
-                        return Err(ActorRigGeometryError::CatalogCapacity);
-                    }
-                    Ok(()) | Err(_) => {}
-                }
+                return Err(ActorRigGeometryError::CatalogCapacity);
             }
         }
         Ok(builder)

@@ -65,7 +65,11 @@ pub(super) fn emit(
     model: &BellModel,
 ) {
     // Frame bar axis: X for even directions, Z for odd; the model turns a quarter for Z.
-    let yaw = if model.direction % 2 == 0 { 0.0 } else { 90.0 };
+    let yaw = if model.direction.is_multiple_of(2) {
+        0.0
+    } else {
+        90.0
+    };
     let base = model_matrix(block, [0.5, 0.0, 0.5], yaw);
     emit_frame(builder, atlas, base, model.attachment);
     let Some(texture) = atlas.texture("textures/entity/bell/bell", [32.0, 32.0]) else {
