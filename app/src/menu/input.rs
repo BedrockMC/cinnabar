@@ -363,11 +363,10 @@ pub(crate) fn drive_menu_input(
     mut modifiers: Local<MenuModifiers>,
 ) {
     let (window, mut cursor) = window.into_inner();
-    if runtime
-        .as_ref()
-        .is_some_and(|runtime| runtime.server_forms().owns_input())
-        && !menu.is_visible()
-    {
+    if runtime.as_ref().is_some_and(|runtime| {
+        runtime.server_forms().owns_input()
+            && (!menu.is_visible() || runtime.server_forms().settings_form_active())
+    }) {
         keyboard_messages.clear();
         return;
     }

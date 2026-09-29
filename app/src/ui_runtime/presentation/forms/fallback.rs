@@ -37,6 +37,7 @@ impl UiPresentationRuntime {
         let list_bottom = list_top + list_height;
         let modal_buttons;
         let element_buttons: Vec<Arc<str>>;
+        let npc_buttons: Vec<Arc<str>>;
         let (title, mut body, mut buttons): (&str, &str, &[Arc<str>]) = match &entry.model {
             ServerFormModel::TextMenu(menu) => (&menu.title, &menu.content, &menu.buttons),
             ServerFormModel::ElementMenu(menu) => {
@@ -49,6 +50,14 @@ impl UiPresentationRuntime {
                     })
                     .collect();
                 (&menu.title, &menu.content, &element_buttons)
+            }
+            ServerFormModel::NpcDialogue(npc) => {
+                npc_buttons = npc
+                    .buttons
+                    .iter()
+                    .map(|button| Arc::clone(&button.text))
+                    .collect();
+                (&npc.npc_name, &npc.dialogue, &npc_buttons)
             }
             ServerFormModel::Modal(modal) => {
                 modal_buttons = [Arc::clone(&modal.button1), Arc::clone(&modal.button2)];

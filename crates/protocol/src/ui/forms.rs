@@ -7,10 +7,16 @@
 //! unsupported, and malformed JSON is a semantic skip.
 
 mod custom;
+mod npc;
 
 use std::sync::Arc;
 
 pub use custom::{CustomForm, CustomFormElement, FormNumber};
+pub use npc::{
+    NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind, npc_request_packet,
+    server_settings_request_packet,
+};
+pub(crate) use npc::{normalize_npc_dialogue, normalize_server_settings};
 
 use serde::{
     Deserialize, Deserializer,
@@ -96,6 +102,7 @@ pub enum ServerFormModel {
     ElementMenu(ElementMenuForm),
     Modal(ModalDialogForm),
     Custom(CustomForm),
+    NpcDialogue(NpcDialogueForm),
     Unsupported(UnsupportedForm),
 }
 
@@ -106,6 +113,10 @@ pub enum FormKind {
     Custom,
     /// Missing, non-string, or unrecognized `"type"` member.
     Unknown,
+    /// A server settings response (a custom form shown with the settings).
+    ServerSettings,
+    /// An NPC dialogue opened or closed by the server.
+    NpcDialogue,
 }
 
 impl FormKind {

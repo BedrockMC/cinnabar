@@ -80,7 +80,8 @@ pub(super) fn engine_model(
             },
             submit_visible: true,
         }),
-        ServerFormModel::Unsupported(_) => return None,
+        // NPC dialogue draws through its own screen, not a form template.
+        ServerFormModel::NpcDialogue(_) | ServerFormModel::Unsupported(_) => return None,
     })
 }
 
