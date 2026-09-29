@@ -51,8 +51,9 @@ pub(crate) fn platform_key(os: &str, arch: &str) -> Option<String> {
     matches!(os, "macos" | "windows" | "linux").then(|| format!("{os}-{arch}"))
 }
 
+/// A stamp from the future (clock moved back) counts as due rather than suppressing checks.
 fn due(last_checked: Option<u64>, now: u64) -> bool {
-    last_checked.is_none_or(|last| now.saturating_sub(last) >= CHECK_INTERVAL.as_secs())
+    last_checked.is_none_or(|last| now < last || now - last >= CHECK_INTERVAL.as_secs())
 }
 
 fn now_secs() -> u64 {

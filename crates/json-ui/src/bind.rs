@@ -209,8 +209,16 @@ impl Binder<'_> {
                 Some("collection_details") => {}
                 // `view` reads other controls' values; deferred to pass two.
                 Some("view") => {}
-                // Explicitly inert, or an unrecognised type: skip leniently.
-                Some("none") => {}
+                // `none` binds once at creation; stateless evaluation reads the global
+                // when it exists and otherwise leaves the property unbound.
+                Some("none") => {
+                    let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    if let Some(value) = self.data.globals.get(source) {
+                        own.insert(target_name(binding, source), value.clone());
+                    }
+                }
                 Some("global") | None => {
                     let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
                         continue;
@@ -407,7 +415,13 @@ impl Binder<'_> {
                     &snapshot
                 }
             };
-            let scope = LayeredBindings(scope_values, &EMPTY, self.data.strict);
+            // A named source's unbound properties come from the screen's globals.
+            let fallback = if source.is_some() {
+                &self.data.globals
+            } else {
+                &EMPTY
+            };
+            let scope = LayeredBindings(scope_values, fallback, self.data.strict);
             if let Some(value) = predicate::eval_scalar(expression, &self.env, &scope) {
                 own.insert(target.to_owned(), value);
             }

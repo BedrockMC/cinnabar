@@ -98,7 +98,9 @@ impl InventoryPointer {
         if frame.primary_pressed {
             self.press_primary(frame, &mut actions);
         }
+        // When both edges arrive together the primary operation wins.
         if frame.secondary_pressed
+            && !frame.primary_pressed
             && let Some(hit) = frame.hit
         {
             if frame.holding && draggable(hit) {

@@ -1,14 +1,16 @@
 use bevy::{
+    ecs::message::{MessageCursor, Messages},
     input::{
         ButtonState,
         gamepad::{Gamepad, GamepadButton},
         keyboard::KeyboardInput,
-        mouse::AccumulatedMouseMotion,
+        mouse::{AccumulatedMouseMotion, MouseButtonInput},
         touch::Touches,
     },
     math::Vec2,
     prelude::{
-        ButtonInput, KeyCode, MessageReader, MouseButton, Query, Res, ResMut, Single, Time, With,
+        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Query, Res, ResMut, Single, Time,
+        With,
     },
     time::Real,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
@@ -325,14 +327,31 @@ impl InventoryKeys {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_inventory_ui_actions(
     time: Option<Res<Time<Real>>>,
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
+    mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
+    mut release_cursor: Local<MessageCursor<MouseButtonInput>>,
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
+    // Button state is reset below while the inventory owns the pointer, so a later
+    // physical release no longer surfaces as `just_released`; read raw releases too.
+    let (mut raw_primary_release, mut raw_secondary_release) = (false, false);
+    if let Some(messages) = mouse_messages.as_deref() {
+        for input in release_cursor.read(messages) {
+            if input.state == ButtonState::Released {
+                match input.button {
+                    MouseButton::Left => raw_primary_release = true,
+                    MouseButton::Right => raw_secondary_release = true,
+                    _ => {}
+                }
+            }
+        }
+    }
     // Presses are this frame's only; modifiers stay held across frames.
     let presses = std::mem::take(&mut runtime.inventory_keys.presses);
     let (shift, control) = (runtime.inventory_keys.shift, runtime.inventory_keys.control);
@@ -355,8 +374,9 @@ pub(crate) fn drive_inventory_ui_actions(
     });
     let primary_pressed = mouse_buttons.just_pressed(MouseButton::Left);
     let secondary_pressed = mouse_buttons.just_pressed(MouseButton::Right);
-    let primary_released = mouse_buttons.just_released(MouseButton::Left);
-    let secondary_released = mouse_buttons.just_released(MouseButton::Right);
+    let primary_released = mouse_buttons.just_released(MouseButton::Left) || raw_primary_release;
+    let secondary_released =
+        mouse_buttons.just_released(MouseButton::Right) || raw_secondary_release;
     // The inventory owns pointer buttons while open. Preserve the edges long
     // enough to resolve their cell, then clear every button before gameplay
     // systems can observe this frame.
