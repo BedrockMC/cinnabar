@@ -608,6 +608,7 @@ impl UiPresentationRuntime {
                 metrics,
                 self.solid_texture_page,
                 &self.nametag_anchors,
+                [content_width, content_height],
             )?;
             retained_hud::append_below_name_nodes(
                 &mut nodes,
