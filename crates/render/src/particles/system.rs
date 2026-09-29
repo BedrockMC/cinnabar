@@ -200,6 +200,28 @@ impl ParticleSystem {
             .collect()
     }
 
+    /// Updates each active actor-bound emitter once. A missing transform stops its emission;
+    /// its existing particles finish as usual.
+    pub fn update_bound_emitters(
+        &mut self,
+        mut transform: impl FnMut(u64, [f32; 3]) -> Option<([f32; 3], [[f32; 3]; 3])>,
+    ) {
+        for emitter in &mut self.emitters {
+            if emitter.done {
+                continue;
+            }
+            let Some((actor, offset)) = emitter.bound else {
+                continue;
+            };
+            if let Some((position, basis)) = transform(actor, offset) {
+                emitter.pos = position;
+                emitter.basis = basis;
+            } else {
+                emitter.done = true;
+            }
+        }
+    }
+
     /// Moves an attached emitter; ignored once the emitter is gone.
     pub fn set_transform(&mut self, id: u64, position: [f32; 3], basis: [[f32; 3]; 3]) {
         if let Some(emitter) = self.emitters.iter_mut().find(|e| e.id == id) {
@@ -346,5 +368,124 @@ mod tests {
         }
         system.tick(0.02, &EmptyWorld);
         assert!(system.live_particles() <= MAX_LIVE_PARTICLES);
+    }
+
+    /// Starts bound and unbound emitters with identical seeded particles for comparisons.
+    fn bound_system(count: u64) -> ParticleSystem {
+        let mut system = system();
+        for actor in 0..count {
+            system.spawn(&SpawnRequest {
+                bound: Some((actor, [1.0, 2.0, 3.0])),
+                ..request("burst", 0.0)
+            });
+        }
+        system.spawn(&request("burst", 0.0));
+        system.tick(0.02, &EmptyWorld);
+        system
+    }
+
+    /// Reproduces the host's previous allocate-and-find refresh for exact comparisons.
+    fn old_bound_refresh(
+        system: &mut ParticleSystem,
+        mut transform: impl FnMut(u64, [f32; 3]) -> Option<([f32; 3], [[f32; 3]; 3])>,
+    ) {
+        for (id, actor, offset) in system.bound_emitters() {
+            match transform(actor, offset) {
+                Some((position, basis)) => system.set_transform(id, position, basis),
+                None => system.stop(id),
+            }
+        }
+    }
+
+    #[test]
+    fn bound_refresh_visits_each_active_attachment_once_and_matches_the_old_path() {
+        let mut old = bound_system(4);
+        let mut new = bound_system(4);
+        // A stopped emitter can still contain particles; neither refresh visits it again.
+        old.stop(1);
+        new.stop(1);
+        let mut visited = Vec::new();
+        let transform = |actor, offset: [f32; 3]| {
+            (actor != 2).then_some((
+                [offset[0] + actor as f32, offset[1], offset[2]],
+                [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            ))
+        };
+        old_bound_refresh(&mut old, transform);
+        new.update_bound_emitters(|actor, offset| {
+            visited.push(actor);
+            transform(actor, offset)
+        });
+        assert_eq!(visited, [1, 2, 3]);
+        for (old, new) in old.emitters.iter().zip(&new.emitters) {
+            assert_eq!(old.pos, new.pos);
+            assert_eq!(old.basis, new.basis);
+            assert_eq!(old.done, new.done);
+            assert_eq!(old.particles.len(), new.particles.len());
+        }
+        assert!(new.emitters[2].done, "missing actor stops new emission");
+        assert_eq!(new.emitters[2].particles.len(), 4, "live particles remain");
+        let view = super::super::draw::ParticleView {
+            position: [0.0, 0.0, 10.0],
+            right: [1.0, 0.0, 0.0],
+            up: [0.0, 1.0, 0.0],
+            forward: [0.0, 0.0, -1.0],
+            half_diagonal: 1.0,
+        };
+        for _ in 0..4 {
+            old.tick(0.02, &EmptyWorld);
+            new.tick(0.02, &EmptyWorld);
+            let old_draw = old.build_draw(&view, &EmptyWorld);
+            let new_draw = new.build_draw(&view, &EmptyWorld);
+            assert_eq!(old_draw.blend, new_draw.blend);
+            assert_eq!(old_draw.add, new_draw.add);
+        }
+        visited.clear();
+        new.update_bound_emitters(|actor, offset| {
+            visited.push(actor);
+            transform(actor, offset)
+        });
+        assert_eq!(visited, [1, 3]);
+    }
+
+    #[test]
+    #[ignore = "benchmark"]
+    fn frame_cost_bench_bound_particle_emitters_768() {
+        let transform = |actor, offset: [f32; 3]| {
+            Some((
+                [offset[0] + actor as f32, offset[1], offset[2]],
+                [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            ))
+        };
+        let frames = 500;
+        // The cap is 768; leave out the unbound comparison emitter so every slot is attached.
+        let mut old = bound_system(MAX_EMITTERS as u64 - 1);
+        old.emitters.pop();
+        old.spawn(&SpawnRequest {
+            bound: Some((MAX_EMITTERS as u64 - 1, [1.0, 2.0, 3.0])),
+            ..request("burst", 0.0)
+        });
+        let started = std::time::Instant::now();
+        for _ in 0..frames {
+            old_bound_refresh(&mut old, std::hint::black_box(transform));
+        }
+        let old_time = started.elapsed() / frames;
+        let mut new = bound_system(MAX_EMITTERS as u64 - 1);
+        new.emitters.pop();
+        new.spawn(&SpawnRequest {
+            bound: Some((MAX_EMITTERS as u64 - 1, [1.0, 2.0, 3.0])),
+            ..request("burst", 0.0)
+        });
+        let started = std::time::Instant::now();
+        for _ in 0..frames {
+            new.update_bound_emitters(std::hint::black_box(transform));
+        }
+        let new_time = started.elapsed() / frames;
+        assert_eq!(new.bound_emitters().len(), MAX_EMITTERS);
+        eprintln!(
+            "FRAME_COST bound_particle_emitters_768: old={:.3}ms new={:.3}ms",
+            old_time.as_secs_f64() * 1e3,
+            new_time.as_secs_f64() * 1e3,
+        );
     }
 }
