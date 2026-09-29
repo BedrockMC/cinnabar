@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -79,7 +80,7 @@ func FeaturedServers(ctx context.Context, src oauth2.TokenSource) ([]FeaturedSer
 		}
 		result = featuredServers(values)
 		return nil
-	})
+	}, nil)
 	return result, err
 }
 
@@ -105,7 +106,7 @@ func Gatherings(ctx context.Context, src oauth2.TokenSource) ([]Gathering, error
 			result = append(result, entry)
 		}
 		return nil
-	})
+	}, nil)
 	return result, err
 }
 
@@ -133,8 +134,15 @@ func AccountProfile(ctx context.Context, src oauth2.TokenSource) (Profile, error
 	return profile, nil
 }
 
-// withGatherings signs in to Xbox Live and PlayFab and hands run a gatherings client.
-func withGatherings(ctx context.Context, src oauth2.TokenSource, run func(*xsapi.Client, *gatherings.Client) error) error {
+// withGatherings signs in to Xbox Live, PlayFab and the Minecraft-services
+// auth environment, then hands a gatherings client and/or a service session
+// to whichever callbacks are set.
+func withGatherings(
+	ctx context.Context,
+	src oauth2.TokenSource,
+	runGatherings func(*xsapi.Client, *gatherings.Client) error,
+	runServices func(*serviceSession) error,
+) error {
 	if src == nil {
 		return errors.New("catalog authentication token source is nil")
 	}
@@ -156,7 +164,21 @@ func withGatherings(ctx context.Context, src oauth2.TokenSource, run func(*xsapi
 		return fmt.Errorf("PlayFab login: %w", err)
 	}
 	defer session.Close()
-	return run(xbl, gatherings.NewClient(env.TokenSource(session, service.TokenConfig{})))
+	tokens := env.TokenSource(session, service.TokenConfig{})
+	if runGatherings != nil {
+		if err := runGatherings(xbl, gatherings.NewClient(tokens)); err != nil {
+			return err
+		}
+	}
+	if runServices != nil {
+		return runServices(&serviceSession{
+			discovery: discovery,
+			tokens:    tokens,
+			xuid:      xbl.UserInfo().XUID,
+			client:    http.DefaultClient,
+		})
+	}
+	return nil
 }
 
 func featuredServers(values []*gatherings.FeaturedServer) []FeaturedServer {

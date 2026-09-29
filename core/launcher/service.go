@@ -41,12 +41,15 @@ type Config struct {
 	Profile    func(context.Context, oauth2.TokenSource) (catalog.Profile, error)
 	CacheArt   func(ctx context.Context, directory string, images []*catalog.Image)
 	Ping       func(ctx context.Context, addresses []string) []catalog.PingResult
+	Home       func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
+	Report     func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, event catalog.MessageEvent) error
 }
 
 // Service implements control.Services.
 type Service struct {
 	cfg       Config
 	signedOut atomic.Bool
+	messaging catalog.MessagingSession
 }
 
 // New returns a Service; it fills unset injectables with the real implementations.
@@ -77,6 +80,12 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Ping == nil {
 		cfg.Ping = catalog.PingServers
+	}
+	if cfg.Home == nil {
+		cfg.Home = catalog.HomeFeed
+	}
+	if cfg.Report == nil {
+		cfg.Report = catalog.ReportMessageEvent
 	}
 	return &Service{cfg: cfg}
 }
@@ -150,6 +159,39 @@ func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
 	}
 	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
 	return profile, nil
+}
+
+// Home returns the start screen's service data with its artwork cached.
+func (s *Service) Home(ctx context.Context) (catalog.Home, error) {
+	src, err := s.source()
+	if err != nil {
+		return catalog.Home{}, err
+	}
+	home, err := s.cfg.Home(ctx, src, &s.messaging, s.cfg.ArtworkDir)
+	if err != nil {
+		return catalog.Home{}, err
+	}
+	var images []*catalog.Image
+	for index := range home.Messages {
+		for image := range home.Messages[index].Images {
+			images = append(images, &home.Messages[index].Images[image].Image)
+		}
+	}
+	for index := range home.LiveEvents {
+		images = append(images, &home.LiveEvents[index].Badge, &home.LiveEvents[index].EventImage)
+	}
+	images = append(images, &home.PersonaHead)
+	s.cacheArt(ctx, images)
+	return home, nil
+}
+
+// ReportMessage posts one messaging report for the signed-in session.
+func (s *Service) ReportMessage(ctx context.Context, event catalog.MessageEvent) error {
+	src, err := s.source()
+	if err != nil {
+		return err
+	}
+	return s.cfg.Report(ctx, src, &s.messaging, event)
 }
 
 // Ping pings servers for their player counts and round trip; it needs no account.

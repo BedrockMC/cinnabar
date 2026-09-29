@@ -183,3 +183,28 @@ func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 		t.Fatalf("offline gatherings err = %v", err)
 	}
 }
+
+func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
+	service := New(Config{
+		TokenSource: staticSource{}, ArtworkDir: "/art",
+		Home: func(context.Context, oauth2.TokenSource, *catalog.MessagingSession, string) (catalog.Home, error) {
+			return catalog.Home{
+				Messages: []catalog.Message{{ID: "m", Images: []catalog.MessageImage{
+					{ID: "tile", Image: catalog.Image{URL: "https://a.test/t.png"}},
+				}}},
+				LiveEvents: []catalog.LiveEvent{{ID: "g", Badge: catalog.Image{URL: "https://a.test/b.png"}}},
+			}, nil
+		},
+		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
+			for _, image := range images {
+				if image.URL != "" {
+					image.Path = directory + "/cached"
+				}
+			}
+		},
+	})
+	home, err := service.Home(context.Background())
+	if err != nil || home.Messages[0].Images[0].Path != "/art/cached" || home.LiveEvents[0].Badge.Path != "/art/cached" {
+		t.Fatalf("home = %+v, err = %v", home, err)
+	}
+}

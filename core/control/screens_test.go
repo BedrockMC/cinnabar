@@ -22,6 +22,12 @@ func (stubScreens) Profile(context.Context) (catalog.Profile, error) {
 	return catalog.Profile{Gamertag: "Steve", XUID: "1"}, nil
 }
 
+func (stubScreens) Home(context.Context) (catalog.Home, error) {
+	return catalog.Home{RealmInvites: 2, Messages: []catalog.Message{}}, nil
+}
+
+func (stubScreens) ReportMessage(context.Context, catalog.MessageEvent) error { return nil }
+
 func (stubScreens) Ping(_ context.Context, addresses []string) []catalog.PingResult {
 	results := make([]catalog.PingResult, len(addresses))
 	for index, address := range addresses {
@@ -57,6 +63,17 @@ func TestScreenFeedsServeWhenTheBackendSupportsThem(t *testing.T) {
 	}
 	if reply := rpc(t, dir, methodPing, ""); reply.Error == nil || reply.Error.Code != -32602 {
 		t.Fatalf("ping needs addresses: %+v", reply.Error)
+	}
+	var home homeResultV1
+	if reply := rpc(t, dir, methodHome, ""); reply.Error != nil || json.Unmarshal(reply.Result, &home) != nil ||
+		home.Home.RealmInvites != 2 {
+		t.Fatalf("home = %+v / %+v", home, reply.Error)
+	}
+	if reply := rpc(t, dir, methodMessageEvent, `{"event_type":"Click","instance_id":"i","report_id":"r","button_id":"b"}`); reply.Error != nil {
+		t.Fatalf("event = %+v", reply.Error)
+	}
+	if reply := rpc(t, dir, methodMessageEvent, `{"event_type":"Hack"}`); reply.Error == nil || reply.Error.Code != -32602 {
+		t.Fatalf("unknown events must be rejected: %+v", reply.Error)
 	}
 }
 
