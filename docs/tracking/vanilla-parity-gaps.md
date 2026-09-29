@@ -127,12 +127,20 @@ animated rig remotes use. All three below flow from that.
 - Provisional *(measure)*: every screen offset, widget shape/colour, shift-click destination order and item
   role tables (`item_roles.rs`), horse/crafter/cartography/smithing-template wire slots, cook totals (200/100)
   and brew total (400), anvil/grindstone/loom/smithing consume amounts and craft-action mix (`screen_actions.rs`).
-- Missing: stonecutter/loom/smithing/cartography result take (needs block-specific recipe records from
-  CraftingData, which the catalog rejects today); anvil rename text field and multi-recipe id; grindstone
-  repair cost; loom pattern picker; beacon level gating and effect icons; ghost icons for empty
-  armor/offhand slots; enlarged personal/workbench output cell; recipe book; bundles (storage-item tooltip
-  and insert/extract); writable-book screen (`book_edit_packet` exists); survival middle-click pick
-  (`block_pick_request_packet` exists, no caller); creative pick-block key.
+- Round 2 landed uncompiled: CraftingData screen recipes (stonecutter, cartography, smithing transform and
+  trim, multi-recipe ids) feed stonecutter/smithing/cartography result takes; anvil rename field and repair
+  multi-recipe id; loom pattern picker (blind take, provisional pattern list); beacon level gating and effect
+  icons; ghost slot icons (need item-atlas art named `empty_armor_slot_*`, `empty_armor_slot_shield`,
+  `empty_slot_smithing_template`; absent art draws nothing); 26px result cells; Java-styled recipe book
+  (craftable recipes, vanilla auto-craft into the cursor, drawn beside the panel instead of shifting it);
+  bundle contents (dynamic container 63 keyed by the item's `bundle_id`), tooltip lines, insert/extract;
+  writable-book editor, written-book reader and lectern page screens (`BookEdit`, `LecternUpdate`); middle-click
+  block pick for survival and creative; right-click with a book in hand opens it.
+- Still missing: smithing-trim results (unpredicted), grindstone repair cost and recipe id (no server data
+  channel; sent as 0), loom result NBT (client cannot build it), recipe-book search and grid fill, book
+  photos, author/xuid on signing, a separate creative pick key, lectern placement while holding a book
+  (right-click always opens the book), anvil name prefill, clicks on the recipe-book panel background
+  count as outside-panel drops.
 
 ## World rendering / atmosphere (Bedrock target)
 - Weather precipitation: procedural rain/snow sheets, biome/height classification and per-column surface limits landed uncompiled; optional `make weather-assets` carrier supplies the vanilla rain band and End sky (procedural when absent); biome samples are averaged on a provisional 27-point lattice; additive bolt renderer and flash trigger from `lightning_bolt` actors landed; splash and rain-sound consumers (`RainSplashQueue`, `PrecipitationMix`) are unwired *(measure)*.
