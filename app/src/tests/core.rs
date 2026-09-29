@@ -196,6 +196,17 @@ fn shutdown_watchdog_arms_only_once() {
     assert!(termination.recv_timeout(Duration::from_millis(50)).is_err());
 }
 
+// macOS `terminate:` tears the world down without an AppExit; that teardown must still be bounded.
+#[test]
+fn teardown_without_app_exit_arms_the_watchdog() {
+    let (terminated, termination) = mpsc::channel();
+    let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
+        terminated.send(code).unwrap();
+    });
+    drop(TeardownWatchdog(watchdog));
+    assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
+}
+
 #[test]
 fn window_close_request_exits_before_the_window_is_despawned() {
     assert_eq!(window_close_exit(false), None);
