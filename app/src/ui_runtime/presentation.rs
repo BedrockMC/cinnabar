@@ -138,6 +138,7 @@ pub struct UiPresentationRuntime {
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
+    leave_bed_hit: Option<UiRect>,
     /// Java GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
     /// Platform safe-area insets in logical px, applied to the HUD geometry,
@@ -234,6 +235,7 @@ impl UiPresentationRuntime {
             scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
+            leave_bed_hit: None,
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
@@ -419,6 +421,7 @@ impl UiPresentationRuntime {
             .max(chat_left);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
+        self.leave_bed_hit = None;
         let menu_visible = self.menu_view.is_some();
         // Titles, the action bar and toasts lay out in the Java-parity HUD when it renders.
         let hud_lays_out_overlays = hud_geometry.is_some() && self.hud_textures.is_some();
@@ -440,6 +443,11 @@ impl UiPresentationRuntime {
                 geometry,
             )?;
             layout.append(runtime, &frame)?;
+            self.leave_bed_hit = frame
+                .sleep
+                .is_sleeping()
+                .then(|| hud_layout::leave_bed_bounds(&geometry, safe_area))
+                .flatten();
         }
 
         let inventory_open = runtime.inventory_open();
