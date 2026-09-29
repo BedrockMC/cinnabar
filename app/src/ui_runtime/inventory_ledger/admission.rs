@@ -108,6 +108,12 @@ impl PlayerInventoryLedger {
     /// projection. A content payload addresses its surface from index zero,
     /// so the projected first cell identifies the surface.
     fn apply_content(&mut self, content: &InventoryContentEvent) {
+        if content.container.slot_type == Some(protocol::CONTAINER_NAME_DYNAMIC)
+            && let Some(dynamic_id) = content.container.dynamic_id
+        {
+            self.apply_bundle_content(dynamic_id, &content.slots);
+            return;
+        }
         self.trace_storage_sized_content(content);
         match project_container_cell(&content.container, 0) {
             Some(CanonicalCell::GenericStorage { .. }) => {
@@ -244,6 +250,12 @@ impl PlayerInventoryLedger {
 
     /// Admits one authoritative slot update through the canonical projection.
     fn apply_slot_update(&mut self, identity: SlotIdentity, stack: &NetworkItemStack) {
+        if identity.container.slot_type == Some(protocol::CONTAINER_NAME_DYNAMIC)
+            && let Some(dynamic_id) = identity.container.dynamic_id
+        {
+            self.apply_bundle_slot(dynamic_id, identity.slot, stack);
+            return;
+        }
         match project_container_cell(&identity.container, identity.slot) {
             Some(CanonicalCell::PlayerInventory(index)) => {
                 self.confirmed.set(Cell::Inventory(index), Held::new(stack));

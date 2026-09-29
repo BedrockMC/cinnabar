@@ -42,6 +42,17 @@ pub fn item_display(extra_data: &[u8]) -> ItemDisplay {
     display
 }
 
+const TAG_INT: u8 = 3;
+
+/// Reads the `bundle_id` int that ties a bundle item to its dynamic container.
+#[must_use]
+pub fn item_bundle_id(extra_data: &[u8]) -> Option<u32> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut payload = root_tag(&mut cursor, TAG_INT, b"bundle_id")?;
+    u32::try_from(read_i32_le(&mut payload)?).ok()
+}
+
 fn read_text(cursor: &mut &[u8]) -> Option<Arc<str>> {
     let length = usize::from(read_u16_le(cursor)?);
     let bytes = cursor.get(..length)?;
@@ -170,6 +181,18 @@ mod tests {
         assert_eq!(display.name.as_deref(), Some("Blade"));
         assert_eq!(display.lore.len(), 2);
         assert_eq!(display.enchantments, vec![(9, 3)]);
+    }
+
+    #[test]
+    fn reads_the_bundle_id() {
+        let data = extra(|nbt| {
+            nbt.push(TAG_INT);
+            nbt.extend(9_u16.to_le_bytes());
+            nbt.extend(b"bundle_id");
+            nbt.extend(42_i32.to_le_bytes());
+        });
+        assert_eq!(item_bundle_id(&data), Some(42));
+        assert_eq!(item_bundle_id(&[]), None);
     }
 
     #[test]

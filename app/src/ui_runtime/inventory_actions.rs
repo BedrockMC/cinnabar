@@ -88,6 +88,12 @@ impl UiRuntime {
             }
             InventoryCellHit::CreativeGrid(index) => self.creative_click(index, false),
             InventoryCellHit::CraftOutput => self.output_click(false),
+            hit if self.bundle_insert_target(hit).is_some() => {
+                let target = self
+                    .bundle_insert_target(hit)
+                    .expect("checked by the guard");
+                self.inventory_ledger_mut().begin_bundle_insert(target)
+            }
             hit => match gesture_target(hit) {
                 Some(target) => self
                     .inventory_ledger_mut()
@@ -102,6 +108,10 @@ impl UiRuntime {
             return Err(InventoryGestureError::InvalidRequest);
         };
         let ledger = self.inventory_ledger();
+        if ledger.cursor_stack().is_none() && ledger.bundle_id_at(target).is_some() {
+            return self.inventory_ledger_mut().begin_bundle_extract(target);
+        }
+        let ledger = self.inventory_ledger();
         let gesture = match (ledger.cursor_stack(), ledger.target_stack(target)) {
             (Some(_), _) => CellGesture::PlaceCount(1),
             (None, Some(stack)) => CellGesture::TakeCount(stack.count.div_ceil(2)),
@@ -109,6 +119,16 @@ impl UiRuntime {
         };
         self.inventory_ledger_mut()
             .begin_target_gesture(target, gesture)
+    }
+
+    /// The bundle under `hit` when the cursor holds a non-bundle item to put in it.
+    fn bundle_insert_target(&self, hit: InventoryCellHit) -> Option<InventoryTarget> {
+        let target = gesture_target(hit)?;
+        let ledger = self.inventory_ledger();
+        let held = ledger.cursor_stack()?;
+        (protocol::item_bundle_id(&held.extra_data).is_none()
+            && ledger.bundle_id_at(target).is_some())
+        .then_some(target)
     }
 
     fn quick_move_hit(&mut self, hit: InventoryCellHit) -> Outcome {

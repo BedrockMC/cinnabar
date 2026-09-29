@@ -623,6 +623,18 @@ pub(crate) fn refresh_hud_frame(
                 identifier.as_deref(),
                 name.as_deref(),
             );
+            if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
+                .and_then(|id| runtime.inventory_ledger().bundle_contents(id))
+            {
+                for held in contents.iter().filter(|held| !held.is_empty()).take(8) {
+                    let item_name = resolve_identifier(held)
+                        .map_or_else(|| "?".to_owned(), |id| runtime.localized_item_name(&id));
+                    window_text.tooltip.push(super::hud_layout::TooltipLine {
+                        text: format!("{}x {item_name}", held.count),
+                        color: [200, 200, 200, 255],
+                    });
+                }
+            }
         }
     }
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {

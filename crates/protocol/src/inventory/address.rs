@@ -46,6 +46,9 @@ pub const CONTAINER_NAME_OFFHAND: u8 = 34;
 /// `EnumsContainerEnumName::CursorContainer`.
 pub const CONTAINER_NAME_CURSOR: u8 = 59;
 
+/// `EnumsContainerEnumName::DynamicContainer`, a bundle's contents keyed by dynamic id.
+pub const CONTAINER_NAME_DYNAMIC: u8 = 63;
+
 /// The combined player-inventory window id (`CONTAINER_ID_INVENTORY`).
 pub const PLAYER_INVENTORY_WINDOW_ID: i32 = 0;
 /// The legacy offhand window id (`CONTAINER_ID_OFFHAND`), which servers send
