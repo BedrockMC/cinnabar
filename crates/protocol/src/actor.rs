@@ -8,8 +8,8 @@ use valentine::{
         DataItemEntryPayload, EnumsActorLinkType as VendorActorLinkType,
         EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobEffectPacket,
         MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
-        PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket,
-        SetActorDataPacket, SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
+        PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket, SetActorDataPacket,
+        SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
         UpdateAttributesPacket,
     },
     protocol::wire,
@@ -19,8 +19,8 @@ use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
 mod skin;
 mod status;
-pub use skin::{CapeImage, PlayerSkin, PlayerSkinUnavailable, StandardSkin};
 use skin::normalize_player_skin;
+pub use skin::{CapeImage, PlayerSkin, PlayerSkinUnavailable, StandardSkin};
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{
     normalize_actor_event, normalize_add_item_actor, normalize_take_item_actor,

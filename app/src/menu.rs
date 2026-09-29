@@ -280,6 +280,10 @@ impl MenuRuntime {
         self.visible
     }
 
+    pub(crate) fn screen(&self) -> MenuScreen {
+        self.screen
+    }
+
     pub(crate) fn is_launcher(&self) -> bool {
         self.launcher
     }

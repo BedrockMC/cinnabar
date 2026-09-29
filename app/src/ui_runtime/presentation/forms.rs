@@ -7,6 +7,7 @@ mod fallback;
 mod menu_screens;
 mod menus;
 mod model;
+mod npc;
 mod pages;
 mod server_pack;
 #[cfg(test)]
@@ -170,7 +171,12 @@ impl UiPresentationRuntime {
             menu_keys,
             ..FormPresentation::default()
         };
-        if self.menu_view.is_some() {
+        // Server settings draw over the settings menu; other forms wait it out.
+        let settings_form = runtime
+            .server_forms()
+            .active()
+            .is_some_and(|entry| entry.kind == protocol::FormKind::ServerSettings);
+        if self.menu_view.is_some() && !settings_form {
             return Ok(());
         }
         self.append_engine_container(
@@ -185,6 +191,20 @@ impl UiPresentationRuntime {
         let Some(entry) = runtime.server_forms().active() else {
             return Ok(());
         };
+        if let protocol::ServerFormModel::NpcDialogue(npc) = &entry.model
+            && self.append_npc_dialogue(
+                runtime,
+                npc,
+                entry.identity,
+                nodes,
+                next,
+                metrics,
+                width,
+                height,
+            )?
+        {
+            return Ok(());
+        }
         if let Some(renderer) = self.form_presentation.engine.as_deref() {
             let translate = |key: &str| runtime.translation(key);
             let state = runtime.server_forms().engine();

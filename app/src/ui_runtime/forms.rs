@@ -10,9 +10,9 @@ use super::UiRuntime;
 pub(crate) use interaction::drive_server_form_input;
 pub(crate) use network::flush_server_form_network;
 use protocol::{
-    CustomFormValue, FormKind, FormRequestEvent, ModalFormResponseSelection, Packet,
-    ServerFormModel, custom_form_submit_response, modal_form_busy_response,
-    modal_form_cancel_response, modal_form_submit_response,
+    CustomFormValue, FormKind, FormRequestEvent, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID,
+    NpcRequestKind, Packet, ServerFormModel, custom_form_submit_response, modal_form_busy_response,
+    modal_form_cancel_response, modal_form_submit_response, npc_request_packet,
 };
 use std::{collections::VecDeque, sync::Arc};
 pub(crate) use values::{EngineFrame, FormEngineState, FormValue};
@@ -44,6 +44,7 @@ impl ServerFormEntry {
             ServerFormModel::TextMenu(menu) => menu.buttons.len(),
             ServerFormModel::ElementMenu(menu) => menu.button_count(),
             ServerFormModel::Modal(_) => 2,
+            ServerFormModel::NpcDialogue(npc) => npc.buttons.len(),
             _ => 0,
         }
     }
@@ -67,6 +68,11 @@ enum RetainedAnswer {
     ButtonIndex(u32),
     Modal(bool),
     Custom(Arc<[CustomFormValue]>),
+    Npc {
+        npc_runtime_id: u64,
+        scene_name: Arc<str>,
+        request: NpcRequestKind,
+    },
     Dismissed,
     Busy,
 }
@@ -95,6 +101,8 @@ pub struct ServerFormStore {
     focus: usize,
     scroll: usize,
     engine: FormEngineState,
+    /// The settings screen already asked the server for its settings form.
+    settings_requested: bool,
 }
 impl ServerFormStore {
     pub fn admit(
@@ -128,7 +136,17 @@ impl ServerFormStore {
             self.pending = None;
             self.replaced_by_reissue = self.replaced_by_reissue.saturating_add(1);
         }
+        // The server closing an NPC dialogue only takes it down.
+        if matches!(&event.model, ServerFormModel::NpcDialogue(npc) if !npc.open) {
+            return;
+        }
+        // Server settings answer the settings screen the player has open.
+        let other_ui = other_ui && event.kind != FormKind::ServerSettings;
         if other_ui || self.active.is_some() || self.pending.is_some() {
+            // An NPC dialogue has no busy answer; it is simply not shown.
+            if event.form_id == NPC_DIALOGUE_FORM_ID {
+                return;
+            }
             if self.busy.len() < MAX_RETAINED_SERVER_FORMS {
                 self.busy.push_back(PendingFormResponse {
                     identity,
@@ -161,6 +179,12 @@ impl ServerFormStore {
         self.active
             .as_ref()
             .filter(|entry| entry.form_id == form_id)
+    }
+    /// A server settings form is up; it draws and takes input over the menu.
+    pub fn settings_form_active(&self) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|entry| entry.kind == FormKind::ServerSettings)
     }
     pub fn owns_input(&self) -> bool {
         self.active.is_some() || self.pending.is_some()
@@ -221,25 +245,40 @@ impl ServerFormStore {
                 ServerFormModel::Custom(_) => RetainedAnswer::Custom(self.engine.submission()),
                 _ => return Err(FormRespondError::CustomElementsUnsupported),
             },
-            LocalFormAction::Dismiss => RetainedAnswer::Dismissed,
-            LocalFormAction::SubmitButton(index) => {
-                if !matches!(
-                    entry.model,
-                    ServerFormModel::TextMenu(_)
-                        | ServerFormModel::ElementMenu(_)
-                        | ServerFormModel::Modal(_)
-                ) {
-                    return Err(FormRespondError::UnsupportedControls);
+            LocalFormAction::Dismiss => match &entry.model {
+                ServerFormModel::NpcDialogue(npc) => RetainedAnswer::Npc {
+                    npc_runtime_id: npc.npc_runtime_id,
+                    scene_name: Arc::clone(&npc.scene_name),
+                    request: NpcRequestKind::ExecuteClosingCommands,
+                },
+                _ => RetainedAnswer::Dismissed,
+            },
+            LocalFormAction::SubmitButton(index) => match &entry.model {
+                ServerFormModel::NpcDialogue(npc) => {
+                    let button = npc
+                        .buttons
+                        .get(index as usize)
+                        .ok_or(FormRespondError::InvalidButton)?;
+                    RetainedAnswer::Npc {
+                        npc_runtime_id: npc.npc_runtime_id,
+                        scene_name: Arc::clone(&npc.scene_name),
+                        request: NpcRequestKind::ExecuteAction(button.action_index),
+                    }
                 }
-                if index as usize >= entry.button_count() {
-                    return Err(FormRespondError::InvalidButton);
+                ServerFormModel::TextMenu(_)
+                | ServerFormModel::ElementMenu(_)
+                | ServerFormModel::Modal(_) => {
+                    if index as usize >= entry.button_count() {
+                        return Err(FormRespondError::InvalidButton);
+                    }
+                    match entry.model {
+                        // button1 answers true, button2 false.
+                        ServerFormModel::Modal(_) => RetainedAnswer::Modal(index == 0),
+                        _ => RetainedAnswer::ButtonIndex(index),
+                    }
                 }
-                match entry.model {
-                    // button1 answers true, button2 false.
-                    ServerFormModel::Modal(_) => RetainedAnswer::Modal(index == 0),
-                    _ => RetainedAnswer::ButtonIndex(index),
-                }
-            }
+                _ => return Err(FormRespondError::UnsupportedControls),
+            },
         };
         self.pending = Some(PendingFormResponse { identity, answer });
         self.active = None;
@@ -292,6 +331,11 @@ fn pending_packet(pending: &PendingFormResponse) -> Packet {
             pending.identity.form_id,
             ModalFormResponseSelection::ModalButton(*choice),
         ),
+        RetainedAnswer::Npc {
+            npc_runtime_id,
+            scene_name,
+            request,
+        } => npc_request_packet(*npc_runtime_id, scene_name, *request),
         RetainedAnswer::Custom(values) => {
             custom_form_submit_response(pending.identity.form_id, values)
         }

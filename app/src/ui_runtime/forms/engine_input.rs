@@ -257,6 +257,9 @@ fn mapped_action(
             Some(LocalFormAction::SubmitButton(ordinal as u32))
         }
         "button.submit_custom_form" => Some(LocalFormAction::CustomElements),
+        // NPC dialogue: a student button answers its action, exiting closes.
+        "button.student_button" => Some(LocalFormAction::SubmitButton(index? as u32)),
+        "button.exit_student" => Some(LocalFormAction::Dismiss),
         "popup_dialog.left_button" => Some(LocalFormAction::SubmitButton(0)),
         "popup_dialog.rightcancel_button" => Some(LocalFormAction::SubmitButton(1)),
         "button.menu_exit" | "popup_dialog.escape" => Some(LocalFormAction::Dismiss),
