@@ -1,5 +1,5 @@
-//! Walk view-bob and first-person hand sway, expressed as view-space effects.
-//! Amplitudes are provisional and need native measurement.
+//! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
+//! 26.30 reference's bobView and hand spring.
 
 use std::f32::consts::PI;
 
@@ -8,11 +8,9 @@ use bevy::prelude::{Mat4, Resource, Vec3};
 const WALK_DISTANCE_PER_BLOCK: f32 = 0.6;
 const BOB_TARGET_CAP_PER_TICK: f32 = 0.1;
 const BOB_KEEP_PER_TICK: f32 = 0.6;
-const SWAY_KEEP_PER_TICK: f32 = 0.5;
-const SWAY_GAIN: f32 = 0.1;
 const TICKS_PER_SECOND: f32 = 20.0;
 const TELEPORT_BLOCKS: f32 = 8.0;
-const TRANSLATION_GAIN_X: f32 = 0.5;
+const TRANSLATION_GAIN_X: f32 = 0.65;
 const ROLL_DEGREES: f32 = 3.0;
 const PITCH_DEGREES: f32 = 5.0;
 const PITCH_PHASE: f32 = 0.2;
@@ -47,7 +45,8 @@ pub fn walk_bob_effect(walk_distance: f32, bob: f32) -> ViewEffect {
     if !walk_distance.is_finite() || !bob.is_finite() {
         return ViewEffect::NONE;
     }
-    let phase = (walk_distance as f64 * f64::from(PI)).rem_euclid(f64::from(2.0 * PI)) as f32;
+    // The cycle runs backwards: the phase is the negated walk distance.
+    let phase = (-(walk_distance as f64) * f64::from(PI)).rem_euclid(f64::from(2.0 * PI)) as f32;
     ViewEffect {
         translation: Vec3::new(
             phase.sin() * bob * TRANSLATION_GAIN_X,
@@ -111,41 +110,76 @@ impl WalkBobState {
     }
 }
 
-/// Hand lag behind view rotation: the smoothed pitch/yaw trail the live view.
+/// First-person hand sway: a damped spring driven by the smoothed view turn rate, per the 26.30
+/// reference (turn rates in Minecraft degrees, spring offsets in degrees).
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct HandSwayState {
-    smoothed: Option<(f32, f32)>,
-    sway: (f32, f32),
+    last: Option<(f32, f32)>,
+    rate: (f32, f32),
+    offset: (f32, f32),
+    velocity: (f32, f32),
 }
 
+const SWAY_RATE_KEEP: f32 = 0.8;
+const SWAY_RATE_LIMIT: f32 = 50.0;
+const SWAY_STIFFNESS: f32 = 900.0;
+const SWAY_DAMPING: f32 = 42.0;
+const SWAY_DRIVE: f32 = 90.0;
+const SWAY_MAX_STEP: f32 = 1.0 / 120.0;
+const SWAY_MAX_DELTA: f32 = 0.2;
+const SWAY_VELOCITY_RESET: f32 = 1000.0;
+
 impl HandSwayState {
-    /// Extra `(pitch, yaw)` hand rotation in radians.
+    /// Extra `(pitch, yaw)` hand rotation in radians, about the view X then Y axes.
     #[must_use]
-    pub const fn sway_radians(&self) -> (f32, f32) {
-        self.sway
+    pub fn sway_radians(&self) -> (f32, f32) {
+        (self.offset.0.to_radians(), self.offset.1.to_radians())
     }
 
+    /// Advances by one frame from the view's pitch (up positive) and yaw in radians.
     pub fn advance(&mut self, pitch: f32, yaw: f32, delta_seconds: f32) {
         if !(pitch.is_finite() && yaw.is_finite()) {
             return;
         }
-        let (mut smooth_pitch, mut smooth_yaw) = self.smoothed.unwrap_or((pitch, yaw));
-        if delta_seconds.is_finite() && delta_seconds > 0.0 {
-            let blend =
-                1.0 - SWAY_KEEP_PER_TICK.powf((delta_seconds * TICKS_PER_SECOND).min(1000.0));
-            smooth_pitch += (pitch - smooth_pitch) * blend;
-            smooth_yaw += shortest_angle(yaw - smooth_yaw) * blend;
+        // Minecraft pitch grows looking down and yaw grows turning right.
+        let view = (-pitch.to_degrees(), -yaw.to_degrees());
+        let (last_pitch, last_yaw) = self.last.replace(view).unwrap_or(view);
+        let dt = if delta_seconds.is_finite() && delta_seconds >= 0.0 {
+            delta_seconds.min(SWAY_MAX_DELTA)
+        } else {
+            SWAY_MAX_DELTA
+        };
+        if dt == 0.0 {
+            return;
         }
-        self.smoothed = Some((smooth_pitch, smooth_yaw));
-        self.sway = (
-            (pitch - smooth_pitch) * SWAY_GAIN,
-            shortest_angle(yaw - smooth_yaw) * SWAY_GAIN,
+        let turn = (
+            (view.0 - last_pitch) / dt,
+            shortest_degrees(view.1 - last_yaw) / dt,
         );
+        let smooth = |old: f32, rate: f32| {
+            (old * SWAY_RATE_KEEP + rate * (1.0 - SWAY_RATE_KEEP))
+                .clamp(-SWAY_RATE_LIMIT, SWAY_RATE_LIMIT)
+        };
+        self.rate = (smooth(self.rate.0, turn.0), smooth(self.rate.1, turn.1));
+        let steps = (dt / SWAY_MAX_STEP).ceil().max(1.0);
+        let h = dt / steps;
+        for _ in 0..steps as u32 {
+            for (x, v, rate) in [
+                (&mut self.offset.0, &mut self.velocity.0, self.rate.0),
+                (&mut self.offset.1, &mut self.velocity.1, self.rate.1),
+            ] {
+                *v += (-SWAY_STIFFNESS * *x - SWAY_DAMPING * *v + SWAY_DRIVE * rate) * h;
+                *x += h * *v;
+                if v.abs() >= SWAY_VELOCITY_RESET {
+                    *v = 0.0;
+                }
+            }
+        }
     }
 }
 
-fn shortest_angle(delta: f32) -> f32 {
-    (delta + PI).rem_euclid(2.0 * PI) - PI
+fn shortest_degrees(delta: f32) -> f32 {
+    (delta + 180.0).rem_euclid(360.0) - 180.0
 }
 
 #[cfg(test)]
@@ -193,23 +227,36 @@ mod tests {
         assert_eq!(state.bob(), 0.0);
     }
 
+    // Looking up swings the hand down (it trails the view), then the spring settles.
     #[test]
     fn sway_trails_rotation_and_decays_when_still() {
         let mut sway = HandSwayState::default();
         sway.advance(0.0, 0.0, 0.05);
         sway.advance(0.5, 0.0, 0.05);
-        assert!(sway.sway_radians().0 > 0.0);
+        assert!(sway.sway_radians().0 < 0.0);
         for _ in 0..200 {
             sway.advance(0.5, 0.0, 0.05);
         }
         assert!(sway.sway_radians().0.abs() < 1e-4);
     }
 
+    // A sustained turn settles at a tenth of the (capped) turn rate: at most five degrees.
+    #[test]
+    fn sustained_turn_settles_at_the_capped_offset() {
+        let mut sway = HandSwayState::default();
+        for frame in 0..400 {
+            sway.advance(0.0, -(frame as f32) * 0.1, 0.01);
+        }
+        assert!((sway.sway_radians().1 - 5.0_f32.to_radians()).abs() < 1e-3);
+    }
+
     #[test]
     fn sway_takes_the_short_way_around_the_yaw_seam() {
-        let mut sway = HandSwayState::default();
-        sway.advance(0.0, PI - 0.01, 0.05);
-        sway.advance(0.0, -PI + 0.01, 0.05);
-        assert!(sway.sway_radians().1.abs() < 0.01);
+        let (mut seam, mut plain) = (HandSwayState::default(), HandSwayState::default());
+        seam.advance(0.0, PI - 0.01, 0.05);
+        seam.advance(0.0, -PI + 0.01, 0.05);
+        plain.advance(0.0, 0.0, 0.05);
+        plain.advance(0.0, 0.02, 0.05);
+        assert!((seam.sway_radians().1 - plain.sway_radians().1).abs() < 1e-4);
     }
 }

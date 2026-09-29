@@ -29,7 +29,7 @@ fn player_list_marker_refreshes_tab_rows_without_a_ui_event() {
                     unique_id: 7,
                     username: Arc::from("Alex"),
                     verified: true,
-                    skin: PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona),
+                    skin: PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions),
                 }]),
             })),
         )
