@@ -8,6 +8,9 @@ mod grid;
 mod icons;
 mod inbox;
 mod paint;
+mod play;
+mod play_realms;
+mod play_servers;
 mod profile;
 mod theme;
 mod widgets;
@@ -83,7 +86,13 @@ impl UiPresentationRuntime {
         if covered
             || !matches!(
                 screen,
-                MenuScreen::Death | MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends
+                MenuScreen::Death
+                    | MenuScreen::Profile
+                    | MenuScreen::Inbox
+                    | MenuScreen::Friends
+                    | MenuScreen::Play
+                    | MenuScreen::Social
+                    | MenuScreen::Servers
             )
         {
             return Ok(None);
@@ -106,6 +115,9 @@ impl UiPresentationRuntime {
             MenuScreen::Death => death::draw(&mut canvas, view, size)?,
             MenuScreen::Profile => profile::draw(&mut canvas, view, size, portrait)?,
             MenuScreen::Inbox => inbox::draw(&mut canvas, view, size)?,
+            MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
+                play::draw(&mut canvas, view, size, &self.menu_artwork.refs)?
+            }
             _ => friends::draw(&mut canvas, view, size)?,
         }
         Ok(Some(canvas.hits))
