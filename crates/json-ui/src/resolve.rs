@@ -62,13 +62,8 @@ impl<'a> Resolver<'a> {
         if self.root.is_none() {
             self.root = Some(root_env.clone());
         }
-        let (control, provenance) = flatten_def(
-            self.catalog,
-            namespace,
-            name,
-            &mut Vec::new(),
-            &mut self.diagnostics,
-        )?;
+        let (control, provenance) =
+            flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
         let env = self.build_env(root_env, &control.props);
         Some(self.resolve_with_env(&control, provenance, None, &env, 0))
     }
@@ -245,12 +240,10 @@ impl<'a> Resolver<'a> {
             None => base.clone(),
         };
         let base_ref = ControlRef::parse(&reference, &child.owner_ns);
-        let mut visited = Vec::new();
         match flatten_def(
             self.catalog,
             &base_ref.namespace,
             &base_ref.name,
-            &mut visited,
             &mut self.diagnostics,
         ) {
             Some((base_control, _)) => {
