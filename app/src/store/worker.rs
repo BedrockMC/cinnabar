@@ -53,6 +53,13 @@ pub(crate) enum StoreRequest {
     Balance,
     Entitlements {
         offset: u32,
+        /// Ask the service to refresh the inventory first (the first window only).
+        refresh: bool,
+    },
+    /// More offers for page row `row`, from its continuation token.
+    RowMore {
+        row: usize,
+        continuation: String,
     },
     Purchase(ConfirmedPurchase),
     Image(String),
@@ -62,7 +69,7 @@ pub(crate) enum StoreRequest {
 pub(crate) enum StoreEvent {
     Page(Result<StorePage, StoreError>),
     Search(Result<StoreSearchResults, StoreError>),
-    Offer(Result<StoreOfferDetail, StoreError>),
+    Offer(Result<Box<StoreOfferDetail>, StoreError>),
     Balance(Result<Vec<StoreBalance>, StoreError>),
     Entitlements {
         offset: u32,
@@ -154,9 +161,9 @@ async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEve
         StoreRequest::Search(search) => StoreEvent::Search(reduce(
             store_control::store_search(socket_dir, &search).await,
         )),
-        StoreRequest::Offer(id) => {
-            StoreEvent::Offer(reduce(store_control::store_offer(socket_dir, &id).await))
-        }
+        StoreRequest::Offer(id) => StoreEvent::Offer(
+            reduce(store_control::store_offer(socket_dir, &id).await).map(Box::new),
+        ),
         StoreRequest::Balance => {
             StoreEvent::Balance(reduce(store_control::store_balance(socket_dir).await))
         }
