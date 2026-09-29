@@ -721,15 +721,15 @@ impl LocalPhysicsController {
     }
 
     #[must_use]
-    pub fn latest_horizontal_collision(&self) -> bool {
-        self.sample_history
-            .back()
-            .is_some_and(|sample| sample.horizontal_collision)
-    }
-
-    #[must_use]
     pub const fn mode(&self) -> sim::MovementMode {
         self.modes.mode()
+    }
+
+    /// The retained completed-tick sample for `tick`, for diagnostics.
+    pub(crate) fn sample_at(&self, tick: u64) -> Option<&PhysicsMovementSample> {
+        self.sample_history
+            .iter()
+            .find(|sample| sample.tick == tick)
     }
 
     #[must_use]

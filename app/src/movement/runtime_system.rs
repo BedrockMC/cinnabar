@@ -97,7 +97,6 @@ pub(crate) fn advance_local_physics(
         toggle_sprint: gameplay.toggle_sprint,
         toggle_sneak: gameplay.toggle_sneak,
         sprint_blocked: facts.sprint_blocked,
-        horizontal_collision: physics.latest_horizontal_collision(),
         flying: physics.mode() == sim::MovementMode::Flying,
     });
     let mut input = physics_movement_input(

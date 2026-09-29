@@ -108,7 +108,17 @@ pub(crate) fn reconcile_committed_correction(
     on_ground: bool,
     world: &impl CollisionWorld,
 ) -> Result<Option<PhysicsCorrectionOutcome>, PhysicsAuthorityFault> {
-    let mode = match physics.correction_shape(network_position, correction_tick, on_ground) {
+    let shape = physics.correction_shape(network_position, correction_tick, on_ground);
+    if shape != CorrectionShape::Confirmed {
+        super::diagnostics::note_correction(
+            super::diagnostics::CorrectionKind::Correct,
+            correction_tick,
+            network_position,
+            on_ground,
+            physics.sample_at(correction_tick),
+        );
+    }
+    let mode = match shape {
         CorrectionShape::Confirmed => return Ok(None),
         CorrectionShape::Replay => PhysicsCorrectionMode::ReplayIfRetained,
         CorrectionShape::TeleportSnap => PhysicsCorrectionMode::Snap,

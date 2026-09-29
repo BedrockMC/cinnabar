@@ -1,6 +1,6 @@
 //! The local player's own skin, loaded once at startup from `<assets>/skin/player.png`.
 //!
-//! Cosmetic and non-fatal: any load failure logs once and falls back to the generated default
+//! Cosmetic and non-fatal: any load failure logs once and falls back to the vanilla default
 //! skin (see `render::default_actor_skin_rgba8`). The same bytes back both the ClientData login
 //! upload and the local body / HUD paperdoll render.
 
@@ -28,7 +28,7 @@ pub(crate) struct LocalPlayerSkin {
 
 impl LocalPlayerSkin {
     /// Loads the skin PNG resolved from `layout`, normalizing to 64x64; on any failure logs once
-    /// at warn and falls back to the generated default skin.
+    /// at warn and falls back to the vanilla default skin.
     #[must_use]
     pub fn load(layout: &InstallLayout, display_name: &str) -> Self {
         let path = layout.player_skin_asset();
@@ -38,7 +38,7 @@ impl LocalPlayerSkin {
                 bevy::log::warn!(
                     path = %path.display(),
                     reason = %reason,
-                    "local player skin unavailable; using the generated default skin"
+                    "local player skin unavailable; using the default skin"
                 );
                 render::default_actor_skin_rgba8()
             }
@@ -68,6 +68,7 @@ impl LocalPlayerSkin {
     #[must_use]
     pub fn player_skin(&self) -> protocol::PlayerSkin {
         protocol::PlayerSkin::Standard(protocol::StandardSkin {
+            geometry: None,
             cape: None,
             width: self.width,
             height: self.height,

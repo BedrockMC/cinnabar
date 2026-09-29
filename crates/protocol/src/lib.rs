@@ -34,8 +34,9 @@ pub use actor::{
     MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_LINKS_PER_SPAWN,
     MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES,
     MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS,
-    MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent,
-    PlayerSkin, PlayerSkinUnavailable, StandardSkin,
+    MAX_PLAYER_LIST_SKIN_BYTES, MAX_SKIN_GEOMETRY_SOURCE_BYTES, MAX_STANDARD_SKIN_SIDE,
+    PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, SkinGeometrySource,
+    StandardSkin,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,

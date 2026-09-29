@@ -10,6 +10,10 @@ use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player
 pub(super) const SESSION_ICON_PAGE: usize = 9;
 /// Dynamic pages after the general ten, holding the session's glyph-sheet atlas.
 pub(super) const GLYPH_PAGES: usize = 8;
+/// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
+pub(super) const SERVER_UI_PAGE: usize = 10 + GLYPH_PAGES;
+/// Dynamic pages reserved for server resource-pack UI textures.
+pub(super) const SERVER_UI_PAGES: usize = render::MAX_UI_DYNAMIC_PAGES - SERVER_UI_PAGE;
 
 pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
     let changed = runtime
@@ -209,6 +213,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
     let glyph_pages = &runtime.session_glyphs.pages;
     dynamic.extend((0..GLYPH_PAGES).map(|offset| {
         glyph_pages
+            .get(offset)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
+    let server_pages = runtime.server_ui_pages();
+    dynamic.extend((0..SERVER_UI_PAGES).map(|offset| {
+        server_pages
             .get(offset)
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())

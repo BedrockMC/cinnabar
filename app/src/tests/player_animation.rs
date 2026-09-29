@@ -6,7 +6,7 @@ use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorKind, ActorMetadata,
     ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, CapeImage, ItemActorEvent,
     MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-    StandardSkin, WorldBootstrap, WorldEvent,
+    SkinGeometrySource, StandardSkin, WorldBootstrap, WorldEvent,
 };
 use render::{
     ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute, STANDARD_SKIN_BYTES,
@@ -339,6 +339,10 @@ fn rig_frame_front_faces_the_yaw_and_its_right_side_faces_the_models_right() {
 }
 
 fn skinned_player_list(skin: u8, cape: u8) -> WorldEvent {
+    player_list_with(skin, Some(cape), None)
+}
+
+fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) -> WorldEvent {
     WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
         entries: Arc::from([PlayerListEntry::Add {
             uuid: [7; 16],
@@ -346,7 +350,13 @@ fn skinned_player_list(skin: u8, cape: u8) -> WorldEvent {
             username: "remote".into(),
             verified: true,
             skin: PlayerSkin::Standard(StandardSkin {
-                cape: Some(CapeImage {
+                geometry: geometry.map(|(resource_patch, geometry_data)| {
+                    Arc::new(SkinGeometrySource {
+                        resource_patch: resource_patch.into(),
+                        geometry_data: geometry_data.into(),
+                    })
+                }),
+                cape: cape.map(|cape| CapeImage {
                     width: 64,
                     height: 32,
                     rgba8: vec![cape; 64 * 32 * 4].into(),
@@ -452,4 +462,88 @@ fn first_person_pose_ignores_the_view_and_dips_the_arm_while_an_item_equips() {
         "{swap:?}"
     );
     assert_eq!(swap.last(), Some(&rest), "{swap:?}");
+}
+
+const NPC_PATCH: &str = r#"{"geometry":{"default":"geometry.npc"}}"#;
+const NPC_GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[{
+ "description":{"identifier":"geometry.npc","texture_width":128,"texture_height":128},
+ "bones":[
+  {"name":"root","pivot":[0,0,0]},
+  {"name":"body","parent":"root","pivot":[0,24,0],"cubes":[{"origin":[-6,10,-3],"size":[12,14,6],"uv":[0,0]}]},
+  {"name":"head","parent":"body","pivot":[0,24,0],"cubes":[{"origin":[-5,24,-5],"size":[10,10,10],"uv":[0,40]}]},
+  {"name":"tail","parent":"body","pivot":[0,12,3],"META_BoneType":"base","cubes":[{"origin":[-1,10,3],"size":[2,2,8],"uv":{"north":{"uv":[64,0],"uv_size":[2,2]}}}]}]}]}"#;
+
+// A skin carrying its own model is drawn with it: the player's animations drive its bones by
+// name and the skin's own rig geometry reaches the frame.
+#[test]
+fn skin_geometry_replaces_the_default_model_and_keeps_the_player_animations() {
+    use crate::presentation::{actors, skin_rig::SkinRigCache};
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    world
+        .submit(
+            1,
+            player_list_with(200, None, Some((NPC_PATCH, NPC_GEOMETRY))),
+        )
+        .unwrap();
+    world.submit(2, spawn_player()).unwrap();
+    world.submit(3, move_player(0.0, 0.0, 30.0, 1)).unwrap();
+    world.advance_actor_interpolation_ticks(4);
+    let rig = world.actor_rig(42).unwrap();
+    let geometry = rig.skin_geometry.expect("the skin model resolves").clone();
+    assert_eq!(
+        rig.bone_names,
+        ["root", "body", "head", "tail"].map(Box::<str>::from)
+    );
+    assert_eq!(rig.current.len(), 4);
+    assert!(
+        turned(rig.current[2]),
+        "the look animation turns the skin's head"
+    );
+    assert!(
+        !turned(rig.current[3]),
+        "a bone the player rig lacks stays at rest"
+    );
+    let mut presentation = actors::actor_rig_presentation(
+        &rig,
+        world.actor(42).unwrap(),
+        world.actor_player_profile(42),
+        0.5,
+    )
+    .unwrap();
+    let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
+    let mut cache = SkinRigCache::default();
+    cache.begin_frame();
+    let id = cache
+        .rig(&geometry, |built| scene.insert_geometry(built).unwrap())
+        .unwrap();
+    assert_eq!(
+        cache.rig(&geometry, |_| panic!("the model is cached")),
+        Some(id)
+    );
+    presentation.submission.input.rig = id;
+    let batch = actors::select_actor_presentations(1, false, None, [presentation]);
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
+    assert_eq!(frame.rig.rejects, ActorRigRejects::default());
+    assert_eq!(frame.rig.manifest[0].rig, id);
+    assert_eq!(frame.rig.manifest[0].bone_count, 4);
+}
+
+// An unusable skin model falls back to the default geometry instead of hiding the player.
+#[test]
+fn malformed_skin_geometry_falls_back_to_the_default_model() {
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    world
+        .submit(
+            1,
+            player_list_with(200, None, Some((NPC_PATCH, "{not json"))),
+        )
+        .unwrap();
+    world.submit(2, spawn_player()).unwrap();
+    world.advance_actor_interpolation_ticks(2);
+    let rig = world.actor_rig(42).unwrap();
+    assert!(rig.skin_geometry.is_none());
+    assert_eq!(rig.bone_names.len(), 7);
+    assert_eq!(world.actor_animation_stats().invalid_skin_geometries, 1);
 }

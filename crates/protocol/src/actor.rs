@@ -20,7 +20,10 @@ use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 mod skin;
 mod status;
 use skin::normalize_player_skin;
-pub use skin::{CapeImage, PlayerSkin, PlayerSkinUnavailable, StandardSkin};
+pub use skin::{
+    CapeImage, MAX_SKIN_GEOMETRY_SOURCE_BYTES, PlayerSkin, PlayerSkinUnavailable,
+    SkinGeometrySource, StandardSkin,
+};
 pub use status::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 pub(crate) use status::{
     normalize_actor_event, normalize_add_item_actor, normalize_take_item_actor,
