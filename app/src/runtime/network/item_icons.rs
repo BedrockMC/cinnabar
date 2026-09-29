@@ -9,8 +9,8 @@ use crate::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, Sessio
 
 const MAX_SESSION_ICONS: usize = 512;
 
-/// Resolves each `(identifier, icon key)` through the merged item texture
-/// catalog; keys without a readable image are skipped.
+/// Resolves each `(identifier, icon key)` through the item texture catalog merged across the
+/// whole stack, then `textures/items/<key>`; misses are recorded with their reason.
 pub(super) fn compile_session_icons(
     view: &LayeredPackView,
     icon_keys: &[(Arc<str>, Arc<str>)],
@@ -29,16 +29,51 @@ pub(super) fn compile_session_icons(
     let (guessed, explicit): (Vec<_>, Vec<_>) = icon_keys
         .iter()
         .partition(|(identifier, key)| key.as_ref() == short_name(identifier));
-    let icons = explicit
-        .into_iter()
-        .chain(guessed)
-        .filter_map(|(identifier, key)| {
-            let texture = decode_pack_texture(view, paths.get(key.as_ref())?)?;
-            Some(icon(Arc::clone(identifier), first_frame(texture)))
-        })
-        .take(MAX_SESSION_ICONS)
-        .collect::<Vec<_>>();
-    (!icons.is_empty()).then(|| Arc::new(SessionIcons { icons }))
+    let mut icons = Vec::new();
+    let mut misses = std::collections::HashMap::new();
+    for (identifier, key) in explicit.into_iter().chain(guessed) {
+        if icons.len() >= MAX_SESSION_ICONS {
+            break;
+        }
+        match resolve_key(view, &paths, key) {
+            Ok(texture) => icons.push(icon(Arc::clone(identifier), first_frame(texture))),
+            Err(reason) => {
+                // A short-name guess that misses is the normal vanilla-item case.
+                if key.as_ref() != short_name(identifier) && misses.len() < MAX_SESSION_ICONS {
+                    misses.insert(Arc::clone(identifier), reason.into_boxed_str());
+                }
+            }
+        }
+    }
+    (!icons.is_empty() || !misses.is_empty()).then(|| Arc::new(SessionIcons { icons, misses }))
+}
+
+/// The image for icon `key`: the catalog's path, else `textures/items/<key>`.
+fn resolve_key(
+    view: &LayeredPackView,
+    paths: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> Result<DecodedTexture, String> {
+    let mut tried = Vec::new();
+    if let Some(path) = paths.get(key) {
+        if let Some(texture) = decode_pack_texture(view, path) {
+            return Ok(texture);
+        }
+        tried.push(format!("catalog path {path} has no readable image"));
+    } else {
+        tried.push(format!("key '{key}' not in the merged item_texture.json"));
+    }
+    let bare = key.rsplit_once(':').map_or(key, |(_, name)| name);
+    for path in [
+        format!("textures/items/{key}"),
+        format!("textures/items/{bare}"),
+    ] {
+        if let Some(texture) = decode_pack_texture(view, &path) {
+            return Ok(texture);
+        }
+    }
+    tried.push(format!("no textures/items/{bare}"));
+    Err(tried.join("; "))
 }
 
 /// Vertical strips animate in vanilla; the static icon is their first frame.

@@ -231,9 +231,21 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             *page = old.clone();
         }
     }
-    if let Ok(textures) = runtime.textures.replace_dynamic(dynamic) {
-        runtime.textures = Arc::new(textures);
-        // Pixels live solely in the current catalog, not a second cache owner.
-        runtime.menu_artwork.pages.clear();
+    match runtime.textures.replace_dynamic(dynamic) {
+        Ok(textures) => {
+            runtime.textures = Arc::new(textures);
+            // Pixels live solely in the current catalog, not a second cache owner.
+            runtime.menu_artwork.pages.clear();
+        }
+        Err(reason) => warn_rebuild_failed(&reason),
+    }
+}
+
+/// Warns on the first failure and then each power-of-two repeat.
+fn warn_rebuild_failed(reason: &render::UiRenderRejectReason) {
+    static FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let count = FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if count.is_power_of_two() {
+        bevy::log::warn!(count, ?reason, "dynamic UI texture pages were not replaced");
     }
 }
