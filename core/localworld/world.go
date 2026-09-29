@@ -16,6 +16,9 @@ var (
 	ErrBusy     = errors.New("another world is starting, running or stopping")
 	ErrInUse    = errors.New("world is open")
 	ErrNotOpen  = errors.New("no world is open")
+
+	ErrEULARequired       = errors.New("the Minecraft EULA must be accepted before the server is downloaded")
+	ErrBackendUnavailable = errors.New("world backend is not available on this platform")
 )
 
 const (
@@ -27,6 +30,9 @@ const (
 
 	GeneratorNormal = "normal"
 	GeneratorFlat   = "flat"
+
+	BackendBDS       = "bds"       // Bedrock Dedicated Server: vanilla worldgen and mobs
+	BackendDragonfly = "dragonfly" // fallback where BDS does not run
 
 	DifficultyPeaceful = "peaceful"
 	DifficultyEasy     = "easy"
@@ -41,6 +47,7 @@ type World struct {
 	GameMode       string `json:"game_mode"`
 	Generator      string `json:"generator"`
 	Difficulty     string `json:"difficulty"`
+	Backend        string `json:"backend"`
 	Seed           int64  `json:"seed"`
 	CreatedUnix    int64  `json:"created_unix"`
 	LastPlayedUnix int64  `json:"last_played_unix"`
@@ -52,6 +59,7 @@ type Spec struct {
 	GameMode   string `json:"game_mode,omitempty"`
 	Generator  string `json:"generator,omitempty"`
 	Difficulty string `json:"difficulty,omitempty"`
+	Backend    string `json:"backend,omitempty"` // empty takes the store default
 	Seed       *int64 `json:"seed,omitempty"`
 }
 
@@ -99,5 +107,13 @@ func (spec Spec) normalize() (Spec, error) {
 	if spec.Difficulty, err = oneOf(spec.Difficulty, DifficultyNormal, DifficultyPeaceful, DifficultyEasy, DifficultyNormal, DifficultyHard); err != nil {
 		return Spec{}, err
 	}
+	if spec.Backend, err = oneOf(spec.Backend, "", BackendBDS, BackendDragonfly); err != nil {
+		return Spec{}, err
+	}
 	return spec, nil
+}
+
+// OpenOptions are per-open client settings; zero values take the backend default.
+type OpenOptions struct {
+	ViewDistance int // chunks
 }

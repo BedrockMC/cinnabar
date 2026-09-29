@@ -41,6 +41,17 @@ pub enum Difficulty {
     Hard,
 }
 
+/// Server backend a world runs on; fixed when the world is created.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Backend {
+    /// Bedrock Dedicated Server: vanilla terrain and mobs.
+    Bds,
+    /// Dragonfly: simpler terrain and no vanilla mob behavior.
+    #[default]
+    Dragonfly,
+}
+
 /// One saved local world as listed by the core.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct World {
@@ -49,6 +60,8 @@ pub struct World {
     pub game_mode: GameMode,
     pub generator: Generator,
     pub difficulty: Difficulty,
+    #[serde(default)]
+    pub backend: Backend,
     pub seed: i64,
     pub created_unix: i64,
     pub last_played_unix: i64,
@@ -61,6 +74,9 @@ pub struct NewWorld {
     pub game_mode: GameMode,
     pub generator: Generator,
     pub difficulty: Difficulty,
+    /// `None` takes the core's default for this machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<Backend>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
 }
@@ -76,16 +92,86 @@ pub enum WorldState {
     Failed,
 }
 
+/// Why the dedicated-server backend cannot run.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum UnavailableReason {
+    DockerMissing,
+    DockerNotRunning,
+    #[serde(other)]
+    Other,
+}
+
+/// Dedicated-server acquisition progress.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SetupState {
+    Unsupported,
+    EulaRequired,
+    NotInstalled,
+    Downloading,
+    Unpacking,
+    Ready,
+    Failed,
+}
+
+/// Dedicated-server setup as reported in [`WorldStatus`].
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct Setup {
+    pub state: SetupState,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub bytes_done: u64,
+    #[serde(default)]
+    pub bytes_total: u64,
+    #[serde(default)]
+    pub eula_accepted: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+    /// `native`, `container` or `none`.
+    #[serde(default)]
+    pub runtime: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// Status of the open local world; `error` is a short reason with no local paths.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct WorldStatus {
     pub state: WorldState,
     #[serde(default)]
     pub world_id: Option<String>,
+    /// Backend of the open world.
+    #[serde(default)]
+    pub backend: Option<Backend>,
     #[serde(default)]
     pub paused: bool,
+    /// False when the open world's server cannot pause (BDS).
+    #[serde(default)]
+    pub pause_supported: bool,
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub setup: Option<Setup>,
+    #[serde(default)]
+    pub backend_unavailable_reason: Option<UnavailableReason>,
+}
+
+/// Local-world preferences kept by the core.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Prefs {
+    #[serde(default)]
+    pub docker_prompt_dismissed: bool,
+}
+
+/// Changes to [`Prefs`]; `redetect` re-probes for Docker before the core replies.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct PrefsUpdate {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docker_prompt_dismissed: Option<bool>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub redetect: bool,
 }
 
 #[derive(Serialize)]
@@ -116,6 +202,8 @@ struct WorldResult {
     world: Option<World>,
     #[serde(default)]
     status: Option<WorldStatus>,
+    #[serde(default)]
+    prefs: Option<Prefs>,
 }
 
 #[derive(Serialize)]
@@ -127,6 +215,18 @@ struct IdParams<'a> {
 struct RenameParams<'a> {
     id: &'a str,
     name: &'a str,
+}
+
+#[derive(Serialize)]
+struct OpenParams<'a> {
+    id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view_distance: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct EulaParams {
+    accepted: bool,
 }
 
 #[derive(Serialize)]
@@ -218,7 +318,40 @@ pub async fn delete_world(socket_dir: &Path, id: &str) -> Result<(), BridgeError
 
 /// Starts opening a world; poll [`world_status`] until it is running, then connect the game socket.
 pub async fn open_world(socket_dir: &Path, id: &str) -> Result<WorldStatus, BridgeError> {
-    require_status(call(socket_dir, "world_open.v1", Some(IdParams { id })).await?)
+    open_world_with(socket_dir, id, None).await
+}
+
+/// [`open_world`] with the client's view distance in chunks. An RPC error with code
+/// [`CODE_EULA_REQUIRED`] means the user must accept the Minecraft EULA first.
+pub async fn open_world_with(
+    socket_dir: &Path,
+    id: &str,
+    view_distance: Option<u32>,
+) -> Result<WorldStatus, BridgeError> {
+    let params = OpenParams { id, view_distance };
+    require_status(call(socket_dir, "world_open.v1", Some(params)).await?)
+}
+
+/// RPC error code of an open that needs the EULA accepted first.
+pub const CODE_EULA_REQUIRED: i64 = -32012;
+
+/// Records the user's explicit acceptance of the Minecraft EULA for the dedicated server download.
+pub async fn accept_bds_eula(socket_dir: &Path) -> Result<WorldStatus, BridgeError> {
+    let params = EulaParams { accepted: true };
+    require_status(call(socket_dir, "bds_accept_eula.v1", Some(params)).await?)
+}
+
+/// Reads or updates local-world preferences and returns them with the current status.
+pub async fn local_worlds_prefs(
+    socket_dir: &Path,
+    update: &PrefsUpdate,
+) -> Result<(Prefs, WorldStatus), BridgeError> {
+    let params = (*update != PrefsUpdate::default()).then_some(update);
+    let result = call(socket_dir, "local_worlds_prefs.v1", params).await?;
+    let prefs = result
+        .prefs
+        .map_or_else(|| invalid("response is missing the preferences"), Ok)?;
+    Ok((prefs, require_status(result)?))
 }
 
 /// Saves and stops the open world, or clears a failed open.
@@ -297,6 +430,60 @@ mod tests {
         let status = require_status(parse_world_response(status).expect("status")).expect("status");
         assert_eq!(status.state, WorldState::Starting);
         assert_eq!(status.world_id.as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn parses_backend_setup_and_unavailable_reason() {
+        let raw = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"prefs":{"docker_prompt_dismissed":true},
+            "status":{"state":"idle","pause_supported":true,"backend_unavailable_reason":"docker_missing",
+            "setup":{"state":"unsupported","runtime":"none","reason":"no docker"}}}}"#;
+        let result = parse_world_response(raw).expect("status");
+        assert_eq!(
+            result.prefs,
+            Some(Prefs {
+                docker_prompt_dismissed: true
+            })
+        );
+        let status = require_status(result).expect("status");
+        assert_eq!(
+            status.backend_unavailable_reason,
+            Some(UnavailableReason::DockerMissing)
+        );
+        assert_eq!(status.setup.expect("setup").state, SetupState::Unsupported);
+        let unknown = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "status":{"state":"idle","backend_unavailable_reason":"something_new"}}}"#;
+        let status = require_status(parse_world_response(unknown).expect("ok")).expect("status");
+        assert_eq!(
+            status.backend_unavailable_reason,
+            Some(UnavailableReason::Other)
+        );
+    }
+
+    #[test]
+    fn worlds_without_backend_default_to_dragonfly_and_requests_encode() {
+        let list = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"worlds":[
+            {"id":"a","name":"n","game_mode":"survival","generator":"normal","difficulty":"normal",
+             "seed":1,"created_unix":0,"last_played_unix":0}]}}"#;
+        assert_eq!(
+            parse_world_response(list).expect("list").worlds[0].backend,
+            Backend::Dragonfly
+        );
+        let open = serde_json::to_string(&OpenParams {
+            id: "a",
+            view_distance: Some(12),
+        })
+        .expect("encode");
+        assert_eq!(open, r#"{"id":"a","view_distance":12}"#);
+        let prefs = serde_json::to_string(&PrefsUpdate {
+            docker_prompt_dismissed: Some(true),
+            redetect: true,
+        })
+        .expect("encode");
+        assert_eq!(prefs, r#"{"docker_prompt_dismissed":true,"redetect":true}"#);
+        let empty = serde_json::to_string(&PrefsUpdate::default()).expect("encode");
+        assert_eq!(empty, "{}");
+        let eula = serde_json::to_string(&EulaParams { accepted: true }).expect("encode");
+        assert_eq!(eula, r#"{"accepted":true}"#);
     }
 
     #[test]

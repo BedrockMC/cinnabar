@@ -54,6 +54,25 @@ func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, err
 		"-seed", strconv.FormatInt(spec.World.Seed, 10),
 	)
 	cmd.Env = append(os.Environ(), r.Env...)
+	return launch(ctx, launchSpec{
+		cmd: cmd, address: address, log: log.With("component", "local-server", "world", spec.World.ID),
+		timeout: timeout, canPause: true,
+		ready: func(line string) bool { return strings.TrimSpace(line) == "ready" },
+	})
+}
+
+// launchSpec describes a child that speaks the stdin "stop" protocol and announces readiness on stdout.
+type launchSpec struct {
+	cmd      *exec.Cmd
+	address  string
+	log      *slog.Logger
+	timeout  time.Duration
+	canPause bool // false when the server has no faithful pause; SetPaused is then a no-op
+	ready    func(stdoutLine string) bool
+}
+
+func launch(ctx context.Context, ls launchSpec) (Instance, error) {
+	cmd := ls.cmd
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -69,7 +88,7 @@ func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, err
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("localworld: start local server: %w", err)
 	}
-	proc := &process{cmd: cmd, stdin: stdin, address: address, done: make(chan struct{})}
+	proc := &process{cmd: cmd, stdin: stdin, address: ls.address, canPause: ls.canPause, done: make(chan struct{})}
 	ready := make(chan struct{})
 	var readers sync.WaitGroup
 	readers.Add(2)
@@ -78,14 +97,15 @@ func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, err
 		var once sync.Once
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			if strings.TrimSpace(scanner.Text()) == "ready" {
+			ls.log.Debug(scanner.Text())
+			if ls.ready(scanner.Text()) {
 				once.Do(func() { close(ready) })
 			}
 		}
 	}()
 	go func() {
 		defer readers.Done()
-		logLines(stderr, log.With("component", "local-server", "world", spec.World.ID))
+		logLines(stderr, ls.log)
 	}()
 	go func() {
 		readers.Wait()
@@ -93,7 +113,7 @@ func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, err
 		close(proc.done)
 	}()
 
-	timer := time.NewTimer(timeout)
+	timer := time.NewTimer(ls.timeout)
 	defer timer.Stop()
 	var startErr error
 	select {
@@ -128,12 +148,13 @@ func logLines(reader io.Reader, log *slog.Logger) {
 }
 
 type process struct {
-	cmd     *exec.Cmd
-	address string
-	done    chan struct{}
-	waitErr error
-	mu      sync.Mutex // serialises stdin writes
-	stdin   io.WriteCloser
+	cmd      *exec.Cmd
+	address  string
+	canPause bool
+	done     chan struct{}
+	waitErr  error
+	mu       sync.Mutex // serialises stdin writes
+	stdin    io.WriteCloser
 }
 
 func (p *process) Address() string       { return p.address }
@@ -146,7 +167,13 @@ func (p *process) send(line string) error {
 	return err
 }
 
+// CanPause reports whether SetPaused has any effect.
+func (p *process) CanPause() bool { return p.canPause }
+
 func (p *process) SetPaused(paused bool) error {
+	if !p.canPause {
+		return nil
+	}
 	if paused {
 		return p.send("pause")
 	}

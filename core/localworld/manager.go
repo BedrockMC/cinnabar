@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,20 +21,27 @@ const (
 	StateFailed   State = "failed" // stays until Close so a failed open never falls through to another target
 )
 
-const defaultStopTimeout = 15 * time.Second
+const defaultStopTimeout = 30 * time.Second // BDS saves the world before exiting
 
 // Status is the secret-safe view of the open world; Error never carries paths.
 type Status struct {
 	State   State  `json:"state"`
 	WorldID string `json:"world_id,omitempty"`
+	Backend string `json:"backend,omitempty"` // of the open world
 	Paused  bool   `json:"paused"`
-	Error   string `json:"error,omitempty"`
+	// PauseSupported is false when the open world's server cannot pause (BDS).
+	PauseSupported bool         `json:"pause_supported"`
+	Error          string       `json:"error,omitempty"`
+	Setup          *SetupStatus `json:"setup,omitempty"` // dedicated-server acquisition, when configured
+	// BackendUnavailableReason mirrors Setup's docker_missing / docker_not_running.
+	BackendUnavailableReason string `json:"backend_unavailable_reason,omitempty"`
 }
 
 // StartSpec identifies the world a Runner must host.
 type StartSpec struct {
-	World World
-	Dir   string
+	World   World
+	Dir     string
+	Options OpenOptions
 }
 
 // Instance is one running local server.
@@ -54,6 +62,8 @@ type Runner interface {
 
 // Manager owns the store and at most one running local world.
 type Manager struct {
+	setup       Setup // nil when no dedicated-server backend is configured
+	autoBackend bool  // Prefs re-probes may change the default backend
 	store       *Store
 	runner      Runner
 	log         *slog.Logger
@@ -88,9 +98,55 @@ func (m *Manager) idleLocked() {
 	m.setState(StateIdle)
 }
 
+// SetSetup attaches the dedicated-server installer whose status is reported and whose EULA gates BDS worlds.
+func (m *Manager) SetSetup(setup Setup) { m.setup = setup }
+
+// SetAutoBackend lets a Docker re-probe change the default backend (false when the operator forced one).
+func (m *Manager) SetAutoBackend(auto bool) { m.autoBackend = auto }
+
+// AcceptEULA records EULA acceptance so BDS worlds may download and start the server.
+func (m *Manager) AcceptEULA() error {
+	if m.setup == nil {
+		return ErrBackendUnavailable
+	}
+	return m.setup.AcceptEULA()
+}
+
+// Prefs applies update (re-probing Docker first when asked) and returns the saved preferences.
+// A re-probe only changes the default backend of worlds created afterwards; saved worlds keep theirs.
+func (m *Manager) Prefs(ctx context.Context, update PrefsUpdate) (Prefs, error) {
+	if update.Redetect && m.setup != nil {
+		info := m.setup.Redetect(ctx)
+		if m.autoBackend {
+			m.store.SetDefaultBackend(DefaultBackend(info))
+		}
+	}
+	if update.DockerPromptDismissed == nil {
+		return m.store.Prefs(), nil
+	}
+	return m.store.UpdatePrefs(update)
+}
+
+// Runners routes a world to the runner of its backend.
+type Runners map[string]Runner
+
+func (r Runners) Start(ctx context.Context, spec StartSpec) (Instance, error) {
+	runner, ok := r[spec.World.Backend]
+	if !ok || runner == nil {
+		return nil, ErrBackendUnavailable
+	}
+	return runner.Start(ctx, spec)
+}
+
 func (m *Manager) List() ([]World, error) { return m.store.List() }
 
-func (m *Manager) Create(spec Spec) (World, error) { return m.store.Create(spec) }
+// Create saves a new world; an explicit BDS backend is refused where the platform cannot run it.
+func (m *Manager) Create(spec Spec) (World, error) {
+	if strings.EqualFold(strings.TrimSpace(spec.Backend), BackendBDS) && m.setup != nil && m.setup.Status().State == SetupUnsupported {
+		return World{}, ErrBackendUnavailable
+	}
+	return m.store.Create(spec)
+}
 
 func (m *Manager) Rename(id, name string) (World, error) { return m.store.Rename(id, name) }
 
@@ -107,13 +163,38 @@ func (m *Manager) Delete(id string) error {
 // Status reports the open world's lifecycle.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	return Status{State: m.state, WorldID: m.world.ID, Paused: m.paused, Error: m.failure}
+	status := Status{State: m.state, WorldID: m.world.ID, Backend: m.world.Backend, Paused: m.paused, Error: m.failure}
+	status.PauseSupported = m.inst == nil || canPause(m.inst)
+	m.mu.Unlock()
+	if m.setup != nil {
+		setup := m.setup.Status()
+		status.Setup = &setup
+		status.BackendUnavailableReason = setup.UnavailableReason
+	}
+	return status
+}
+
+func failureText(err error) string {
+	for _, known := range []error{ErrEULARequired, ErrBackendUnavailable} {
+		if errors.Is(err, known) {
+			return known.Error()
+		}
+	}
+	return "local world server failed to start"
+}
+
+func canPause(inst Instance) bool {
+	c, ok := inst.(interface{ CanPause() bool })
+	return !ok || c.CanPause()
 }
 
 // Open begins starting a world and returns immediately; poll Status for readiness.
 // Reopening the world that is already starting or running is a no-op.
-func (m *Manager) Open(id string) error {
+func (m *Manager) Open(id string, opts ...OpenOptions) error {
+	var options OpenOptions
+	if len(opts) > 0 {
+		options = opts[0]
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch m.state {
@@ -133,11 +214,22 @@ func (m *Manager) Open(id string) error {
 	if err != nil {
 		return err
 	}
+	if world.Backend == BackendBDS {
+		if m.setup == nil {
+			return ErrBackendUnavailable
+		}
+		switch setup := m.setup.Status(); {
+		case setup.State == SetupUnsupported:
+			return ErrBackendUnavailable
+		case !setup.EULAAccepted:
+			return ErrEULARequired
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.world, m.failure, m.paused, m.cancelStart = world, "", false, cancel
 	m.setState(StateStarting)
 	m.bg.Add(1)
-	go m.start(ctx, StartSpec{World: world, Dir: dir})
+	go m.start(ctx, StartSpec{World: world, Dir: dir, Options: options})
 	return nil
 }
 
@@ -157,13 +249,14 @@ func (m *Manager) start(ctx context.Context, spec StartSpec) {
 	}
 	if err != nil {
 		m.log.Error("local world server failed to start", "world", spec.World.ID, "error", err)
-		m.failure = "local world server failed to start"
+		m.failure = failureText(err)
 		m.setState(StateFailed)
 		m.mu.Unlock()
 		return
 	}
 	m.inst = inst
-	paused := m.paused
+	paused := m.paused && canPause(inst)
+	m.paused = paused
 	m.setState(StateRunning)
 	m.mu.Unlock()
 	if err := m.store.Touch(spec.World.ID); err != nil {
@@ -238,8 +331,12 @@ func (m *Manager) SetPaused(paused bool) error {
 		m.mu.Unlock()
 		return nil
 	case StateRunning:
-		m.paused = paused
 		inst := m.inst
+		if !canPause(inst) {
+			m.mu.Unlock()
+			return nil
+		}
+		m.paused = paused
 		m.mu.Unlock()
 		return inst.SetPaused(paused)
 	}
