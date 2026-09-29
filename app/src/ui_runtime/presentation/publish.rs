@@ -170,7 +170,9 @@ pub(crate) fn publish_ui_runtime(
         now_millis,
     );
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
-    // static empty-hand scene and its CPU fallback quad are retired so nothing double-draws.
+    // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
+    // double-draws.
+    presentation.hud_frame.hand_rig_active = hand_rig.is_active();
     if hand_rig.is_active() {
         hand.use_animated_rig();
     } else {
@@ -295,6 +297,7 @@ pub(crate) fn refresh_hud_frame(
     let mut hotbar_durability = [None; 9];
     let mut hotbar_icons = [None; 9];
     let mut hotbar_stacks: [Option<protocol::NetworkItemStack>; 9] = Default::default();
+    let mut logged_hotbar: [Option<(Arc<str>, bool)>; 9] = Default::default();
     let mut inventory_icons = super::hud_layout::InventoryIcons::default();
     for (slot, icon) in inventory_icons.0.iter_mut().enumerate() {
         if let Some(stack) = runtime.inventory_ledger().displayed_stack(slot as u8) {
@@ -736,8 +739,14 @@ pub(crate) fn refresh_hud_frame(
                 .as_deref()
                 .and_then(|id| presentation.item_icon(id, stack.metadata));
             hotbar_stacks[usize::from(slot)] = Some(stack.clone());
+            logged_hotbar[usize::from(slot)] = Some((
+                identifier
+                    .unwrap_or_else(|| Arc::from(format!("<network id {}>", stack.network_id))),
+                hotbar_icons[usize::from(slot)].is_some(),
+            ));
         }
     }
+    presentation.note_hotbar(logged_hotbar);
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let identifier = resolve_identifier(stack);
         item_facts::durability_fraction(stack, identifier.as_deref())
