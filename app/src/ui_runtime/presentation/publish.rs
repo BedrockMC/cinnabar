@@ -462,6 +462,56 @@ pub(crate) fn refresh_hud_frame(
                 window_icons.creative_tabs[tab] = presentation.item_icon(id, 0);
             }
         }
+        if runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Beacon) {
+            let level = runtime
+                .inventory_ledger()
+                .window_position()
+                .and_then(|position| stream?.block_entity_compound(position))
+                .and_then(|nbt| nbt.integer("Levels"))
+                .and_then(|levels| u8::try_from(levels).ok());
+            runtime.screen_state_mut().beacon_level = level;
+        }
+        if let Some(kind) = runtime.inventory_ledger().window_kind() {
+            let output_stack = |output: protocol::RecipeOutput| protocol::NetworkItemStack {
+                network_id: output.network_id,
+                metadata: u32::from(output.aux),
+                count: u16::from(output.count),
+                block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                ..protocol::NetworkItemStack::empty()
+            };
+            if kind == protocol::WindowKind::Stonecutter {
+                let outputs: Vec<_> = runtime
+                    .stonecutter_options()
+                    .iter()
+                    .take(super::screens::STONECUTTER_CELLS)
+                    .map(|recipe| recipe.output)
+                    .collect();
+                for (cell, output) in outputs.into_iter().enumerate() {
+                    if let Some(output) = output {
+                        let stack = output_stack(output);
+                        window_icons.recipe[cell] = resolve_identifier(&stack)
+                            .as_deref()
+                            .and_then(|id| presentation.item_icon(id, stack.metadata));
+                    }
+                }
+            }
+            if matches!(
+                kind,
+                protocol::WindowKind::Stonecutter
+                    | protocol::WindowKind::Smithing
+                    | protocol::WindowKind::Cartography
+            ) && runtime.inventory_ledger().created_output_stack().is_none()
+                && let Some(output) = runtime
+                    .active_screen_recipe()
+                    .and_then(|recipe| recipe.output)
+            {
+                let stack = output_stack(output);
+                let icon = resolve_identifier(&stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata));
+                window_icons.recipe_output = Some((icon, stack));
+            }
+        }
         // The tooltip follows the hovered cell's stack.
         let hovered = runtime.screen_state().hover.and_then(|hit| {
             use super::inventory_pointer::InventoryCellHit as Hit;

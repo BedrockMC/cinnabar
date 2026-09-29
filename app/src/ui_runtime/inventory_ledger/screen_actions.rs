@@ -5,9 +5,10 @@
 
 use std::sync::Arc;
 
-use protocol::{CraftResult, StackRequestAction, WindowKind};
+use protocol::{CraftResult, RecipeOutput, StackRequestAction, WindowKind};
+use sha2::{Digest, Sha256};
 
-use super::cells::Cell;
+use super::cells::{Cell, Held};
 use super::gesture::Submission;
 use super::helpers::request_slot;
 use super::overlay::DeltaGroup;
@@ -37,9 +38,9 @@ impl ScreenCraft {
     const fn kinds(&self) -> &'static [WindowKind] {
         match self {
             Self::Anvil { .. } => &[WindowKind::Anvil],
-            Self::Grindstone => &[WindowKind::Grindstone],
+            Self::Grindstone { .. } => &[WindowKind::Grindstone],
             Self::Loom { .. } => &[WindowKind::Loom],
-            Self::Recipe { .. } => &[
+            Self::Recipe { .. } | Self::Predicted { .. } => &[
                 WindowKind::Stonecutter,
                 WindowKind::Smithing,
                 WindowKind::Cartography,
@@ -158,14 +159,71 @@ impl PlayerInventoryLedger {
         if self.view().get(Cell::Cursor).is_some() {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        let preview = self
-            .view()
-            .get(Cell::CreatedOutput)
-            .cloned()
-            .ok_or(InventoryGestureError::EmptyGesture)?;
-        if preview.stack.stack_network_id <= 0 {
-            return Err(InventoryGestureError::AwaitingIdentity);
-        }
+        let request_id = self.peek_request_id()?;
+        let predicted_distinct = matches!(
+            craft,
+            ScreenCraft::Predicted { .. } | ScreenCraft::Loom { .. }
+        );
+        let (preview, predicted_set) = match craft {
+            ScreenCraft::Predicted { output, .. } => {
+                if self.negotiated_item_entry(output.network_id).is_none() {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+                let user_data: Arc<[u8]> = if output.empty_envelope {
+                    Arc::from([0; 10])
+                } else {
+                    Arc::from([])
+                };
+                let stack = protocol::NetworkItemStack {
+                    network_id: output.network_id,
+                    metadata: u32::from(output.aux),
+                    stack_network_id: request_id,
+                    count: u16::from(output.count),
+                    nbt_digest: Sha256::digest(&user_data).into(),
+                    block_runtime_id: i32::try_from(output.block_runtime_id)
+                        .map_err(|_| InventoryGestureError::InvalidRequest)?,
+                    extra_data: user_data,
+                };
+                let held = Held {
+                    stack,
+                    overlay: None,
+                };
+                (held.clone(), Some(held))
+            }
+            // The loom's patterned banner has no client-side form; the copy
+            // stands in until the server restates the cursor.
+            ScreenCraft::Loom { .. } => {
+                let banner = self
+                    .view()
+                    .get(Cell::Craft(9))
+                    .cloned()
+                    .ok_or(InventoryGestureError::EmptyGesture)?;
+                if banner.stack.stack_network_id <= 0 {
+                    return Err(InventoryGestureError::AwaitingIdentity);
+                }
+                let mut stack = banner.stack;
+                stack.count = 1;
+                stack.stack_network_id = request_id;
+                stack.extra_data = Arc::from([]);
+                stack.nbt_digest = Sha256::digest([]).into();
+                let held = Held {
+                    stack,
+                    overlay: None,
+                };
+                (held.clone(), Some(held))
+            }
+            _ => {
+                let preview = self
+                    .view()
+                    .get(Cell::CreatedOutput)
+                    .cloned()
+                    .ok_or(InventoryGestureError::EmptyGesture)?;
+                if preview.stack.stack_network_id <= 0 {
+                    return Err(InventoryGestureError::AwaitingIdentity);
+                }
+                (preview, None)
+            }
+        };
         let entry = self
             .negotiated_item_entry(preview.stack.network_id)
             .ok_or(InventoryGestureError::InvalidRequest)?;
@@ -177,9 +235,12 @@ impl PlayerInventoryLedger {
             user_data: Arc::clone(&preview.stack.extra_data),
         }]);
         let (first, filter_strings) = match craft {
-            ScreenCraft::Anvil { rename } => (
+            ScreenCraft::Anvil {
+                rename,
+                multi_recipe_id,
+            } => (
                 StackRequestAction::CraftRecipeOptional {
-                    recipe_network_id: 0,
+                    recipe_network_id: *multi_recipe_id,
                     filtered_string_index: if rename.is_some() { 0 } else { -1 },
                 },
                 rename
@@ -187,11 +248,14 @@ impl PlayerInventoryLedger {
                     .map(|name| name.to_string())
                     .collect::<Vec<String>>(),
             ),
-            ScreenCraft::Grindstone => (
+            ScreenCraft::Grindstone {
+                recipe_network_id,
+                repair_cost,
+            } => (
                 StackRequestAction::Grindstone {
-                    recipe_network_id: 0,
+                    recipe_network_id: *recipe_network_id,
                     crafts: 1,
-                    repair_cost: 0,
+                    repair_cost: *repair_cost,
                 },
                 Vec::new(),
             ),
@@ -202,7 +266,10 @@ impl PlayerInventoryLedger {
                 },
                 Vec::new(),
             ),
-            ScreenCraft::Recipe { recipe_network_id } => (
+            ScreenCraft::Recipe { recipe_network_id }
+            | ScreenCraft::Predicted {
+                recipe_network_id, ..
+            } => (
                 StackRequestAction::CraftRecipe {
                     recipe_network_id: *recipe_network_id,
                     crafts: 1,
@@ -245,6 +312,12 @@ impl PlayerInventoryLedger {
             source: request_slot(Cell::CreatedOutput, preview.stack.stack_network_id, None)?,
             destination: request_slot(Cell::Cursor, 0, None)?,
         });
+        if let Some(held) = predicted_set {
+            groups.push(DeltaGroup::Set {
+                cell: Cell::CreatedOutput,
+                held,
+            });
+        }
         groups.push(DeltaGroup::Transfer {
             source: Cell::CreatedOutput,
             destination: Cell::Cursor,
@@ -258,7 +331,7 @@ impl PlayerInventoryLedger {
                 actions,
                 groups,
                 personal_generation,
-                requires_distinct_stack_ids: false,
+                requires_distinct_stack_ids: predicted_distinct,
                 registry_bound_merge: false,
             },
             filter_strings,

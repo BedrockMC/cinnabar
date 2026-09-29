@@ -9,6 +9,8 @@ use super::presentation::screens::{GRID_CELLS, GRID_COLUMNS, SEARCH_TAB};
 
 /// Longest creative search text.
 const MAX_SEARCH_CHARS: usize = 32;
+/// Longest item name an anvil accepts.
+const MAX_ANVIL_NAME_CHARS: usize = 50;
 
 #[derive(Debug, Default)]
 pub(crate) struct ScreenState {
@@ -21,6 +23,15 @@ pub(crate) struct ScreenState {
     pub(crate) creative_row: usize,
     pub(crate) search: String,
     pub(crate) search_focused: bool,
+    /// The stonecutter recipe the player picked.
+    pub(crate) recipe_choice: Option<u32>,
+    pub(crate) loom_pattern: Option<std::sync::Arc<str>>,
+    /// First visible row of the loom pattern grid.
+    pub(crate) loom_row: usize,
+    pub(crate) anvil_name: String,
+    pub(crate) anvil_focused: bool,
+    /// The beacon's pyramid level, from its block entity.
+    pub(crate) beacon_level: Option<u8>,
     window: Option<u64>,
 }
 
@@ -32,6 +43,12 @@ impl ScreenState {
             self.pointer.reset();
             self.beacon = (0, 0);
             self.search_focused = false;
+            self.recipe_choice = None;
+            self.loom_pattern = None;
+            self.loom_row = 0;
+            self.anvil_name.clear();
+            self.anvil_focused = false;
+            self.beacon_level = None;
         }
     }
 
@@ -41,19 +58,44 @@ impl ScreenState {
         self.creative_row = 0;
     }
 
-    /// Appends typed text to the search field, dropping control characters.
-    pub(crate) fn type_search(&mut self, text: &str) {
+    /// Whether a text field owns the keyboard.
+    pub(crate) const fn text_focused(&self) -> bool {
+        self.search_focused || self.anvil_focused
+    }
+
+    /// Appends typed text to the focused field, dropping control characters.
+    pub(crate) fn type_text(&mut self, text: &str) {
+        let (field, limit) = if self.anvil_focused {
+            (&mut self.anvil_name, MAX_ANVIL_NAME_CHARS)
+        } else {
+            (&mut self.search, MAX_SEARCH_CHARS)
+        };
         for ch in text.chars().filter(|ch| !ch.is_control()) {
-            if self.search.chars().count() < MAX_SEARCH_CHARS {
-                self.search.push(ch);
+            if field.chars().count() < limit {
+                field.push(ch);
             }
         }
         self.creative_row = 0;
     }
 
-    pub(crate) fn backspace_search(&mut self) {
-        self.search.pop();
-        self.creative_row = 0;
+    pub(crate) fn backspace_text(&mut self) {
+        if self.anvil_focused {
+            self.anvil_name.pop();
+        } else {
+            self.search.pop();
+            self.creative_row = 0;
+        }
+    }
+
+    /// Scrolls the loom pattern grid by whole rows.
+    pub(crate) fn scroll_loom(&mut self, rows: isize, total: usize) {
+        let max_row = total
+            .div_ceil(super::presentation::screens::LOOM_COLUMNS)
+            .saturating_sub(
+                super::presentation::screens::LOOM_CELLS
+                    / super::presentation::screens::LOOM_COLUMNS,
+            );
+        self.loom_row = self.loom_row.saturating_add_signed(rows).min(max_row);
     }
 
     /// Scrolls the creative grid by whole rows, keeping the last page reachable.

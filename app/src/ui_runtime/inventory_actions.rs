@@ -10,7 +10,10 @@ use super::inventory_ledger::{
     InventoryTarget, PlayerInventoryLedger, ScreenCraft,
 };
 use super::presentation::inventory_pointer::InventoryCellHit;
-use super::presentation::screens::{GRID_CELLS, GRID_COLUMNS, Widget};
+use super::presentation::screens::{
+    BEACON_LEVEL_FOR, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, Widget,
+};
+use super::screen_recipes::LOOM_PATTERNS;
 use super::screen_state::{ScreenState, creative_entries};
 
 type Outcome = Result<i32, InventoryGestureError>;
@@ -69,6 +72,9 @@ impl UiRuntime {
     }
 
     fn click_hit(&mut self, hit: InventoryCellHit) -> Outcome {
+        if hit != InventoryCellHit::Widget(Widget::AnvilName) {
+            self.screen_state_mut().anvil_focused = false;
+        }
         match hit {
             InventoryCellHit::Widget(widget) => self.activate_widget(widget),
             InventoryCellHit::CreativeTab(tab) => {
@@ -117,7 +123,7 @@ impl UiRuntime {
     }
 
     /// Takes a result: the grid's recipe on the personal and crafting-table
-    /// screens, the previewed output on the others.
+    /// screens, the derived or previewed output on the others.
     fn output_click(&mut self, all: bool) -> Outcome {
         match self.inventory_ledger().window_kind() {
             None | Some(WindowKind::Workbench) => {
@@ -127,14 +133,46 @@ impl UiRuntime {
                     self.begin_crafting()
                 }
             }
-            Some(WindowKind::Anvil) => self
-                .inventory_ledger_mut()
-                .begin_screen_output(&ScreenCraft::Anvil { rename: None }),
-            Some(WindowKind::Grindstone) => self
-                .inventory_ledger_mut()
-                .begin_screen_output(&ScreenCraft::Grindstone),
-            // Recipe-selected screens need the recipe catalog's block-specific
-            // entries, which are not decoded yet.
+            Some(WindowKind::Anvil) => {
+                let multi_recipe_id = self
+                    .screen_catalog()
+                    .and_then(|catalog| catalog.repair_multi_recipe_id())
+                    .unwrap_or(0);
+                let name = self.screen_state().anvil_name.trim();
+                let rename = (!name.is_empty()).then(|| std::sync::Arc::from(name));
+                self.inventory_ledger_mut()
+                    .begin_screen_output(&ScreenCraft::Anvil {
+                        rename,
+                        multi_recipe_id,
+                    })
+            }
+            Some(WindowKind::Grindstone) => {
+                self.inventory_ledger_mut()
+                    .begin_screen_output(&ScreenCraft::Grindstone {
+                        recipe_network_id: 0,
+                        repair_cost: 0,
+                    })
+            }
+            Some(WindowKind::Loom) => {
+                let pattern = self
+                    .screen_state()
+                    .loom_pattern
+                    .clone()
+                    .ok_or(InventoryGestureError::InvalidRequest)?;
+                self.inventory_ledger_mut()
+                    .begin_screen_output(&ScreenCraft::Loom { pattern })
+            }
+            Some(WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography) => {
+                let (recipe_network_id, output) = self
+                    .active_screen_recipe()
+                    .and_then(|recipe| Some((recipe.id, recipe.output?)))
+                    .ok_or(InventoryGestureError::InvalidRequest)?;
+                self.inventory_ledger_mut()
+                    .begin_screen_output(&ScreenCraft::Predicted {
+                        recipe_network_id,
+                        output,
+                    })
+            }
             Some(_) => Err(InventoryGestureError::InvalidRequest),
         }
     }
@@ -152,11 +190,28 @@ impl UiRuntime {
             }
             Widget::BeaconEffect { id, secondary } => {
                 let state = self.screen_state_mut();
+                let unlocked = BEACON_LEVEL_FOR
+                    .iter()
+                    .find(|(effect, _)| *effect == id)
+                    .is_some_and(|(_, needed)| {
+                        state.beacon_level.is_none_or(|level| level >= *needed)
+                    });
+                if !unlocked {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
                 if secondary {
                     state.beacon.1 = id;
                 } else {
                     state.beacon.0 = id;
                 }
+                Ok(0)
+            }
+            Widget::BeaconUpgrade => {
+                let state = self.screen_state_mut();
+                if state.beacon.0 == 0 || state.beacon_level.is_some_and(|level| level < 4) {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+                state.beacon.1 = state.beacon.0;
                 Ok(0)
             }
             Widget::BeaconConfirm => {
@@ -166,6 +221,27 @@ impl UiRuntime {
                 }
                 self.inventory_ledger_mut()
                     .begin_beacon_payment(primary, secondary)
+            }
+            Widget::StonecutterRecipe(index) => {
+                let id = self
+                    .stonecutter_options()
+                    .get(usize::from(index))
+                    .map(|recipe| recipe.id)
+                    .ok_or(InventoryGestureError::InvalidRequest)?;
+                self.screen_state_mut().recipe_choice = Some(id);
+                Ok(0)
+            }
+            Widget::LoomPattern(index) => {
+                let position = self.screen_state().loom_row * LOOM_COLUMNS + usize::from(index);
+                let pattern = LOOM_PATTERNS
+                    .get(position)
+                    .ok_or(InventoryGestureError::InvalidRequest)?;
+                self.screen_state_mut().loom_pattern = Some(std::sync::Arc::from(*pattern));
+                Ok(0)
+            }
+            Widget::AnvilName => {
+                self.screen_state_mut().anvil_focused = true;
+                Ok(0)
             }
         }
     }

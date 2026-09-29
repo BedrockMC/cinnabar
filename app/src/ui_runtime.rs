@@ -22,6 +22,7 @@ pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
+mod screen_recipes;
 mod screen_state;
 mod use_on_identity_evidence;
 
