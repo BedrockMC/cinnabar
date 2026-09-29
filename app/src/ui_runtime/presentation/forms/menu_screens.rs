@@ -75,6 +75,7 @@ fn start_screen_vars(context: Context) -> Context {
         .with_flag("use_single_column_for_buttons", false)
         .with_flag("can_swap_vr_mode", false)
         .with_flag("showing_new_player_flow_buttons", false)
+        .with_flag("supports_launching_legacy_version", false)
 }
 
 fn unlock_text(context: Context) -> Context {
@@ -235,9 +236,14 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     data.set_global("#version", text("v1.26.30"));
     data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
     data.set_global("#edu_demo_only_ui_visible", Scalar::Bool(false));
+    // The controller hardwires these: realms promo and upper online padding
+    // off, so Settings sits in the plain settings row.
     flags(
         data,
-        &["#online_stack_visible", "#upper_online_buttons_visible"],
+        &[
+            "#online_stack_visible",
+            "#not_realms_promo_visible_and_supports_launching_legacy_version",
+        ],
     );
     match &view.auth_state {
         AuthState::SignedOut | AuthState::Failed(_) => flags(data, &["#sign_in_visible"]),
