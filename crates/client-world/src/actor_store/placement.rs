@@ -299,8 +299,51 @@ impl ActorStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{RideSeat, SeatDefaults, SeatRequirement, seat_world_offset};
+    use std::collections::HashMap;
 
+    use protocol::ActorMetadataValue;
+
+    use super::{FLAG_SADDLED, RideSeat, SeatDefaults, SeatRequirement, seat_world_offset};
+    use crate::{ActorPose, ActorSnapshot};
+    use protocol::ActorKind;
+
+    fn mount(flags: u64) -> ActorSnapshot {
+        let pose = ActorPose {
+            position: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+        };
+        ActorSnapshot {
+            unique_id: -1,
+            runtime_id: 1,
+            spawn_revision: 1,
+            movement_revision: 0,
+            kind: ActorKind::Entity {
+                identifier: "minecraft:test".into(),
+            },
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            previous_pose: pose,
+            received_pose: pose,
+            interpolation_ticks_remaining: 0,
+            body_yaw: 0.0,
+            on_ground: Some(false),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            metadata: HashMap::from([(0, ActorMetadataValue::Flags(flags))]),
+            attributes: HashMap::new(),
+            int_properties: HashMap::new(),
+            float_properties: HashMap::new(),
+            status: Default::default(),
+        }
+    }
+
+    // Seats follow rider count and index; the layout with the most satisfied requirements wins.
     #[test]
     fn default_seats_follow_rider_count_and_index() {
         let mut defaults = SeatDefaults::default();
@@ -308,17 +351,30 @@ mod tests {
             position: [0.0, 1.0, z],
             min_riders: min,
             max_riders: max,
+            rotate_by: None,
+            lock_degrees: None,
         };
-        defaults.insert("minecraft:camel", vec![seat(0.5, 0, 2), seat(-0.5, 1, 2)]);
-        assert_eq!(
-            defaults.seat("minecraft:camel", 1, 0),
-            Some([0.0, 1.0, 0.5])
+        defaults.insert(
+            "minecraft:camel",
+            Vec::new(),
+            vec![seat(0.5, 0, 2), seat(-0.5, 1, 2)],
         );
-        assert_eq!(
-            defaults.seat("minecraft:camel", 2, 1),
-            Some([0.0, 1.0, -0.5])
+        defaults.insert(
+            "minecraft:camel",
+            vec![SeatRequirement::Saddled(true)],
+            vec![seat(2.0, 0, 2)],
         );
-        assert_eq!(defaults.seat("minecraft:pig", 1, 0), None);
+        let plain = mount(0);
+        let saddled = mount(1 << FLAG_SADDLED);
+        let at = |actor, riders, index| {
+            defaults
+                .seat(actor, "minecraft:camel", riders, index)
+                .map(|seat| seat.position)
+        };
+        assert_eq!(at(&plain, 1, 0), Some([0.0, 1.0, 0.5]));
+        assert_eq!(at(&plain, 2, 1), Some([0.0, 1.0, -0.5]));
+        assert_eq!(at(&saddled, 1, 0), Some([0.0, 1.0, 2.0]));
+        assert_eq!(defaults.seat(&plain, "minecraft:pig", 1, 0), None);
     }
 
     #[test]

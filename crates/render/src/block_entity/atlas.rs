@@ -306,7 +306,7 @@ impl DynamicCells {
 
     /// The text slot holding `key`; see [`CellPool::slot`].
     pub fn text_slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
-        self.text.text_slot(key, make)
+        self.text.slot(key, make)
     }
 
     /// The map slot holding `key`; see [`CellPool::slot`].

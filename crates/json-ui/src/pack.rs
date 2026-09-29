@@ -75,11 +75,11 @@ impl Catalog {
             }
         }
         for path in order {
-            self.overlay_text(path, &String::from_utf8_lossy(files[path]));
+            self.merge_overlay_file(path, &String::from_utf8_lossy(files[path]));
         }
     }
 
-    fn overlay_text(&mut self, entry: &str, text: &str) {
+    pub(crate) fn merge_overlay_file(&mut self, entry: &str, text: &str) {
         let object = match json5::parse(text) {
             Ok(Value::Object(object)) => object,
             Ok(_) => return self.note(format!("pack {entry}: top level is not an object")),

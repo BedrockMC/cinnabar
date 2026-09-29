@@ -790,7 +790,7 @@ fn parse_curve(name: &str, value: &Value, it: &mut Interner) -> Option<Curve> {
         Value::Object(map) => {
             for (time, node) in map {
                 chain.push((
-                    time.parse().ok()?,
+                    time.parse::<f32>().ok()?,
                     number(node.get("value"), 0.0),
                     number(node.get("slope"), 0.0),
                 ));
