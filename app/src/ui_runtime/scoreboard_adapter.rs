@@ -47,6 +47,7 @@ pub(super) fn score(event: ScoreEvent) -> ScoreboardEvent {
                 action: match entry.action {
                     ProtocolScoreAction::Change => ScoreAction::Change,
                     ProtocolScoreAction::Remove => ScoreAction::Remove,
+                    ProtocolScoreAction::RemoveFromAll => ScoreAction::RemoveFromAll,
                 },
                 scoreboard_id: entry.scoreboard_id,
                 objective_name: entry.objective_name.clone(),

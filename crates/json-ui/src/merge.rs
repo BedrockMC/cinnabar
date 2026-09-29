@@ -5,52 +5,63 @@
 //! by-name rule matches vanilla templates such as `inactive_button@beacon.base_button`,
 //! which overrides `default`/`hover` yet keeps the base's `pressed`.
 
+use std::collections::HashSet;
+
 use serde_json::{Map, Value};
 
 use crate::catalog::{Catalog, RawControl};
 use crate::tree::ControlRef;
 
+/// Longest `@base` chain flattened; a longer server-supplied chain rejects the control.
+const MAX_CHAIN: usize = 256;
+
 /// Flatten `(ns, name)` along its literal `@base` chain into one control, with the
-/// immediate base recorded for provenance. Returns `None` if the control is absent.
-/// A base that is a `$var` is left for the caller to resolve against an env.
+/// immediate base recorded for provenance. Returns `None` if the control is absent
+/// or its chain exceeds [`MAX_CHAIN`]. A `$var` base is left for the caller.
 pub fn flatten_def(
     catalog: &Catalog,
     namespace: &str,
     name: &str,
-    visited: &mut Vec<(String, String)>,
     diagnostics: &mut Vec<String>,
 ) -> Option<(RawControl, Option<ControlRef>)> {
-    let control = catalog.lookup(namespace, name)?;
-    let Some(base) = &control.base else {
-        return Some((clear_base(control.clone()), None));
-    };
-    if base.starts_with('$') {
-        return Some((clear_base(control.clone()), None));
-    }
-    let base_ref = ControlRef::parse(base, &control.owner_ns);
-    let key = (base_ref.namespace.clone(), base_ref.name.clone());
-    if visited.contains(&key) {
-        diagnostics.push(format!(
-            "{namespace}.{name}: inheritance cycle through {base_ref}"
-        ));
-        return Some((clear_base(control.clone()), Some(base_ref)));
-    }
-    visited.push(key);
-    let flattened = match flatten_def(
-        catalog,
-        &base_ref.namespace,
-        &base_ref.name,
-        visited,
-        diagnostics,
-    ) {
-        Some((base_control, _)) => deep_merge_control(&base_control, control),
-        None => {
-            diagnostics.push(format!("{namespace}.{name}: base {base_ref} not found"));
-            control.clone()
+    let top = catalog.lookup(namespace, name)?;
+    let provenance = literal_base(top);
+    let mut seen = HashSet::from([(namespace.to_owned(), name.to_owned())]);
+    let mut chain = vec![top];
+    while let Some(current) = chain.last().copied()
+        && let Some(base_ref) = literal_base(current)
+    {
+        let label = format!("{}.{}", current.owner_ns, current.name);
+        if !seen.insert((base_ref.namespace.clone(), base_ref.name.clone())) {
+            diagnostics.push(format!("{label}: inheritance cycle through {base_ref}"));
+            break;
         }
-    };
-    visited.pop();
-    Some((clear_base(flattened), Some(base_ref)))
+        let Some(base) = catalog.lookup(&base_ref.namespace, &base_ref.name) else {
+            diagnostics.push(format!("{label}: base {base_ref} not found"));
+            break;
+        };
+        if chain.len() >= MAX_CHAIN {
+            diagnostics.push(format!(
+                "{namespace}.{name}: inheritance chain longer than {MAX_CHAIN}; dropped"
+            ));
+            return None;
+        }
+        chain.push(base);
+    }
+    let mut chain = chain.into_iter().rev();
+    let mut flattened = clear_base(chain.next()?.clone());
+    for child in chain {
+        flattened = clear_base(deep_merge_control(&flattened, child));
+    }
+    Some((flattened, provenance))
+}
+
+fn literal_base(control: &RawControl) -> Option<ControlRef> {
+    let base = control
+        .base
+        .as_deref()
+        .filter(|base| !base.starts_with('$'))?;
+    Some(ControlRef::parse(base, &control.owner_ns))
 }
 
 /// Merge `child` onto `base`, producing a control that keeps `child`'s identity.
@@ -103,9 +114,59 @@ fn merge_children(base: &[RawControl], child: &[RawControl]) -> Vec<RawControl> 
 
 #[cfg(test)]
 mod tests {
-    use super::deep_merge_control;
-    use crate::catalog::RawControl;
+    use super::{deep_merge_control, flatten_def};
+    use crate::catalog::{Catalog, RawControl};
     use serde_json::{Value, json};
+
+    /// `c0@ns.c1`, `c1@ns.c2`, ...; the last one points back at `c0` when `cyclic`.
+    fn chain(len: usize, cyclic: bool) -> Catalog {
+        let mut text = String::from(r#"{"namespace":"ns""#);
+        for index in 0..len {
+            let base = match (index + 1 < len, cyclic) {
+                (true, _) => format!("@ns.c{}", index + 1),
+                (false, true) => "@ns.c0".to_owned(),
+                (false, false) => String::new(),
+            };
+            text.push_str(&format!(r#","c{index}{base}":{{"p{index}":{index}}}"#));
+        }
+        text.push('}');
+        let mut catalog = Catalog::default();
+        catalog.load_text("chain.json", &text);
+        catalog
+    }
+
+    // A long server-supplied chain must be rejected, not overflow the stack.
+    #[test]
+    fn long_acyclic_inheritance_chain_is_rejected_with_a_diagnostic() {
+        let mut diagnostics = Vec::new();
+        let flattened = flatten_def(&chain(10_000, false), "ns", "c0", &mut diagnostics);
+        assert!(flattened.is_none());
+        assert!(
+            diagnostics
+                .iter()
+                .any(|message| message.contains("inheritance chain"))
+        );
+    }
+
+    #[test]
+    fn bounded_chains_flatten_and_cycles_stop_at_the_repeat() {
+        let mut diagnostics = Vec::new();
+        let (control, base) =
+            flatten_def(&chain(100, false), "ns", "c0", &mut diagnostics).expect("bounded chain");
+        assert_eq!(control.props.len(), 100);
+        assert_eq!(control.props.get("p99"), Some(&json!(99)));
+        assert_eq!(base.map(|base| base.name), Some("c1".to_owned()));
+        assert!(control.base.is_none() && diagnostics.is_empty());
+
+        let (control, _) = flatten_def(&chain(3, true), "ns", "c0", &mut diagnostics)
+            .expect("cyclic chain keeps the control");
+        assert_eq!(control.props.len(), 3);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|message| message.contains("inheritance cycle"))
+        );
+    }
 
     fn control(
         name: &str,
