@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +13,14 @@ import (
 )
 
 type stubWorlds struct {
-	worlds []localworld.World
-	status localworld.Status
-	opened string
-	paused *bool
-	err    error
+	worlds              []localworld.World
+	status              localworld.Status
+	opened              string
+	paused              *bool
+	eula                bool
+	redetect, dismissed bool
+	view                int
+	err                 error
 }
 
 func (s *stubWorlds) List() ([]localworld.World, error) { return s.worlds, s.err }
@@ -30,8 +34,19 @@ func (s *stubWorlds) Rename(id, name string) (localworld.World, error) {
 	return localworld.World{ID: id, Name: name}, s.err
 }
 func (s *stubWorlds) Delete(string) error { return s.err }
-func (s *stubWorlds) Open(id string) error {
+func (s *stubWorlds) Prefs(_ context.Context, u localworld.PrefsUpdate) (localworld.Prefs, error) {
+	s.redetect = u.Redetect
+	if u.DockerPromptDismissed != nil {
+		s.dismissed = *u.DockerPromptDismissed
+	}
+	return localworld.Prefs{DockerPromptDismissed: s.dismissed}, s.err
+}
+func (s *stubWorlds) AcceptEULA() error { s.eula = true; return s.err }
+func (s *stubWorlds) Open(id string, opts ...localworld.OpenOptions) error {
 	s.opened = id
+	if len(opts) > 0 {
+		s.view = opts[0].ViewDistance
+	}
 	s.status = localworld.Status{State: localworld.StateStarting, WorldID: id}
 	return s.err
 }
@@ -106,6 +121,24 @@ func TestWorldOpenPauseCloseReturnStatus(t *testing.T) {
 	}
 }
 
+func TestOpenForwardsViewDistanceAndEULAAcceptanceIsExplicit(t *testing.T) {
+	stub := &stubWorlds{}
+	dir := startWorlds(t, stub)
+	call(t, dir, methodWorldOpen, `{"id":"0123456789abcdef","view_distance":12}`)
+	if stub.view != 12 {
+		t.Fatalf("view distance = %d", stub.view)
+	}
+	assertRPCError(t, call(t, dir, methodWorldOpen, `{"id":"0123456789abcdef","view_distance":-1}`), -32602)
+	assertRPCError(t, call(t, dir, methodBDSEULA, `{"accepted":false}`), -32602)
+	assertRPCError(t, call(t, dir, methodBDSEULA, ""), -32602)
+	if stub.eula {
+		t.Fatal("EULA recorded without acceptance")
+	}
+	if payload := call(t, dir, methodBDSEULA, `{"accepted":true}`); !stub.eula || !strings.Contains(string(payload), `"status"`) {
+		t.Fatalf("accept = %s", payload)
+	}
+}
+
 func TestWorldParamValidation(t *testing.T) {
 	dir := startWorlds(t, &stubWorlds{})
 	for _, tc := range []struct{ method, params string }{
@@ -126,6 +159,8 @@ func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
 		{localworld.ErrNotFound, codeWorldNotFound, "world not found"},
 		{fmt.Errorf("%w: x", localworld.ErrBusy), codeWorldBusy, "another world"},
 		{localworld.ErrInUse, codeWorldBusy, "world is open"},
+		{localworld.ErrEULARequired, codeEULARequired, "EULA"},
+		{localworld.ErrBackendUnavailable, codeBackendAbsent, "not available"},
 		{fmt.Errorf("%w: unknown value", localworld.ErrInvalid), -32602, "unknown value"},
 		{errors.New("open /Users/secret/worlds: denied"), codeWorldFailed, "world operation failed"},
 	} {
@@ -168,4 +203,17 @@ func TestClearTransferWithdrawsPendingTransfer(t *testing.T) {
 	if store.Status().Transfer != nil {
 		t.Fatal("transfer still pending after ClearTransfer")
 	}
+}
+
+func TestPrefsMethodReadsUpdatesAndRedetects(t *testing.T) {
+	stub := &stubWorlds{}
+	dir := startWorlds(t, stub)
+	if payload := call(t, dir, methodPrefs, ""); !strings.Contains(string(payload), `"docker_prompt_dismissed":false`) {
+		t.Fatalf("read = %s", payload)
+	}
+	payload := call(t, dir, methodPrefs, `{"docker_prompt_dismissed":true,"redetect":true}`)
+	if !stub.dismissed || !stub.redetect || !strings.Contains(string(payload), `"docker_prompt_dismissed":true`) || !strings.Contains(string(payload), `"status"`) {
+		t.Fatalf("update = %s", payload)
+	}
+	assertRPCError(t, call(t, dir, methodPrefs, `{"bogus":1}`), -32602)
 }

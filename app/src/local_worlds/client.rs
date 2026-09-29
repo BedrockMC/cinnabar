@@ -60,6 +60,12 @@ fn failed(error: BridgeError) -> Event {
     Event::Failed(describe(&error))
 }
 
+async fn prefs_event(update: control::PrefsUpdate, dir: &std::path::Path) -> Event {
+    control::local_worlds_prefs(dir, &update)
+        .await
+        .map_or_else(failed, |(prefs, status)| Event::Prefs(prefs, status))
+}
+
 async fn execute(dir: &std::path::Path, effect: Effect) -> Option<Event> {
     match effect {
         Effect::List => Some(
@@ -81,11 +87,30 @@ async fn execute(dir: &std::path::Path, effect: Effect) -> Option<Event> {
                 .await
                 .map_or_else(failed, Event::Renamed),
         ),
-        Effect::Open(id) => Some(
-            control::open_world(dir, &id)
+        Effect::Open(id) => Some(match control::open_world(dir, &id).await {
+            Ok(status) => Event::Status(status),
+            Err(BridgeError::ControlRpc { code, .. }) if code == control::CODE_EULA_REQUIRED => {
+                Event::EulaRequired
+            }
+            Err(error) => failed(error),
+        }),
+        Effect::LoadPrefs => Some(prefs_event(control::PrefsUpdate::default(), dir).await),
+        Effect::SetPrefs {
+            dismiss_docker_prompt,
+            redetect,
+        } => {
+            let update = control::PrefsUpdate {
+                docker_prompt_dismissed: dismiss_docker_prompt.then_some(true),
+                redetect,
+            };
+            Some(prefs_event(update, dir).await)
+        }
+        Effect::AcceptEula => Some(
+            control::accept_bds_eula(dir)
                 .await
-                .map_or_else(failed, Event::Status),
+                .map_or_else(failed, |_| Event::EulaAccepted),
         ),
+        Effect::OpenUrl(_) => None,
         Effect::PollStatus => Some(
             control::world_status(dir)
                 .await

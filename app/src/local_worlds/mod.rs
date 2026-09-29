@@ -7,6 +7,7 @@ mod client;
 mod form;
 mod launch;
 mod model;
+mod prompt;
 
 use std::{io, path::PathBuf};
 
@@ -18,6 +19,7 @@ use bevy::{
 pub(crate) use form::{difficulty_label, game_mode_label, generator_label};
 pub(crate) use launch::spawn_core_for_local_worlds;
 pub(crate) use model::{Effect, Event, Input, Screen, WorldsMenu};
+pub(crate) use prompt::{PromptButton, PromptKind};
 
 use client::WorldsClient;
 
@@ -36,6 +38,7 @@ impl LocalWorlds {
         self.playing = false;
         self.menu = WorldsMenu::default();
         self.input(Input::Refresh);
+        self.dispatch(vec![Effect::LoadPrefs]);
         Ok(())
     }
 
@@ -87,12 +90,33 @@ impl LocalWorlds {
     }
 
     fn dispatch(&self, effects: Vec<Effect>) {
-        if let Some(client) = &self.client {
-            for effect in effects {
+        for effect in effects {
+            if let Effect::OpenUrl(url) = effect {
+                open_url(url);
+            } else if let Some(client) = &self.client {
                 client.send(effect);
             }
         }
     }
+}
+
+/// Opens a fixed https URL in the system browser; failures are ignored.
+fn open_url(url: &str) {
+    let mut command = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(target_os = "windows") {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    let _ = command
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 fn pump_local_worlds(mut worlds: ResMut<LocalWorlds>) {
