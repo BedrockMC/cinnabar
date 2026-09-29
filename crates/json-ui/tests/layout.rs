@@ -28,6 +28,68 @@ impl TextMeasure for MonoText {
     }
 }
 
+/// Counts natural-size requests separately for unwrapped and each wrapped width.
+#[derive(Default)]
+struct CountingText(std::cell::RefCell<BTreeMap<Option<u64>, usize>>);
+
+impl TextMeasure for CountingText {
+    /// Measure one unwrapped line and count the request.
+    fn extent(&self, text: &str) -> [f64; 2] {
+        *self.0.borrow_mut().entry(None).or_default() += 1;
+        [text.chars().count() as f64 * 6.0, 10.0]
+    }
+
+    /// Measure the same line at a known width and count that exact width.
+    fn wrapped(&self, text: &str, width: f64) -> [f64; 2] {
+        *self
+            .0
+            .borrow_mut()
+            .entry(Some(width.to_bits()))
+            .or_default() += 1;
+        [(text.chars().count() as f64 * 6.0).min(width), 10.0]
+    }
+}
+
+#[test]
+fn natural_measurements_run_once_per_width_and_reset_for_each_layout() {
+    let mut label = ctrl(
+        "label",
+        Some("label"),
+        json!({"text": "hello", "size": ["100%", "default"]}),
+        vec![],
+    );
+    let text = CountingText::default();
+    let env = LayoutEnv {
+        text: &text,
+        textures: &NoTextures,
+    };
+    {
+        let laid = layout(&label, [120.0, 80.0], &env);
+        assert_eq!(laid.rect.w, 120.0);
+        assert_eq!(laid.rect.h, 10.0);
+    }
+    let first = text.0.borrow().clone();
+    assert!(!first.is_empty());
+    assert!(first.values().all(|count| *count == 1), "{first:?}");
+    label
+        .properties
+        .insert("text".into(), json!("changed text"));
+    {
+        let laid = layout(&label, [180.0, 80.0], &env);
+        assert_eq!(laid.rect.w, 180.0);
+        assert_eq!(laid.rect.h, 10.0);
+    }
+    assert_eq!(text.0.borrow().get(&None), Some(&2));
+    assert_eq!(text.0.borrow().get(&Some(180.0_f64.to_bits())), Some(&1));
+    let scaled = CountingText::default();
+    let new_env = LayoutEnv {
+        text: &scaled,
+        textures: &NoTextures,
+    };
+    layout(&label, [180.0, 80.0], &new_env);
+    assert!(scaled.0.borrow().values().all(|count| *count == 1));
+}
+
 struct NoTextures;
 impl TextureSource for NoTextures {
     fn texture(&self, _path: &str) -> Option<TextureMeta> {
