@@ -14,6 +14,8 @@ use super::{
 /// Concurrent voice ceiling; needs native measurement.
 pub(super) const MAX_VOICES: usize = 48;
 const MAX_QUEUED: usize = 256;
+/// Starts waiting on a decode, across frames.
+const MAX_PENDING: usize = 64;
 const MAX_SAME_SOUND: usize = 6;
 /// Audible radius of a positional sound without an explicit `max_distance`.
 const DEFAULT_MAX_DISTANCE: f32 = 16.0;
@@ -91,6 +93,7 @@ pub(crate) struct EngineStats {
     pub no_listener: u64,
     pub voice_limit: u64,
     pub queue_overflow: u64,
+    pub decode_backlog: u64,
     pub stale: u64,
     pub unrouted: u64,
     pub backend_failed: u64,
@@ -229,6 +232,16 @@ impl AudioEngine {
             .iter()
             .any(|voice| voice.category == category && !voice.shared.finished())
             || self.pending.iter().any(|start| start.category == category)
+    }
+
+    /// Whether `name` is queued, waiting on a decode, or playing.
+    pub(crate) fn is_active(&self, name: &str) -> bool {
+        self.queue.iter().any(|request| &*request.name == name)
+            || self
+                .pending
+                .iter()
+                .any(|start| &*start.request.name == name)
+            || (self.voices.iter()).any(|voice| &*voice.name == name && !voice.shared.finished())
     }
 
     /// Cancels every voice playing `name`.
@@ -454,16 +467,17 @@ impl AudioEngine {
             .iter()
             .filter(|alt| !(settings.low_memory && alt.load_on_low_memory == Some(false)))
             .collect();
-        let total: u32 = alternatives.iter().map(|alt| u32::from(alt.weight)).sum();
+        // u64: server alternatives are unbounded in count before admission caps them.
+        let total: u64 = alternatives.iter().map(|alt| u64::from(alt.weight)).sum();
         if total == 0 {
             self.stats.no_definition += 1;
             return None;
         }
-        let mut pick = (roll[0] * total as f32) as u32;
+        let mut pick = ((f64::from(roll[0]) * total as f64) as u64).min(total - 1);
         let chosen = alternatives
             .iter()
             .find(|alt| {
-                let weight = u32::from(alt.weight);
+                let weight = u64::from(alt.weight);
                 if pick < weight {
                     true
                 } else {
@@ -508,6 +522,18 @@ impl AudioEngine {
         let pcm = match self.bank.as_mut()?.lookup(&path, stream) {
             PcmLookup::Ready(pcm) => pcm,
             PcmLookup::Pending => {
+                // Unmanaged starts beyond the same-sound cap would be refused once ready.
+                let waiting = (self.pending.iter())
+                    .filter(|start| start.managed.is_none() && start.path == path)
+                    .count();
+                if managed.is_none() && waiting >= MAX_SAME_SOUND {
+                    self.stats.voice_limit += 1;
+                    return None;
+                }
+                if self.pending.len() >= MAX_PENDING {
+                    self.stats.queue_overflow += 1;
+                    return None;
+                }
                 self.pending.push(PendingStart {
                     request: request.clone(),
                     managed,
@@ -517,6 +543,10 @@ impl AudioEngine {
                     patient: managed.is_some() || stream,
                     queued_at: self.clock,
                 });
+                return None;
+            }
+            PcmLookup::Busy => {
+                self.stats.decode_backlog += 1;
                 return None;
             }
             PcmLookup::Failed => {
@@ -704,6 +734,20 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    // A burst of starts for one still-decoding sound must not queue without bound.
+    #[test]
+    fn pending_starts_are_coalesced_and_bounded() {
+        let (mut engine, path) = engine_with_encoded("random.burst", "player");
+        let settings = AudioSettings::default();
+        for _ in 0..MAX_QUEUED {
+            engine.enqueue(SoundRequest::new("random.burst"));
+        }
+        engine.pump(None, 0.0, &settings);
+        assert!(engine.pending.len() <= MAX_SAME_SOUND);
+        assert!(engine.stats.voice_limit > 0);
+        let _ = std::fs::remove_file(path);
+    }
+
     /// A loop waiting on its decode is not requested again every pump.
     #[test]
     fn pending_loops_are_not_duplicated() {
@@ -813,6 +857,31 @@ mod tests {
         assert!(!engine.was_recent("hurt", [0.0; 3], 1.0, 2.0));
         engine.pump(None, 2.0, &AudioSettings::default());
         assert!(!engine.was_recent("break", [0.0; 3], 1.0, 2.0));
+    }
+
+    // Admitted server alternatives can sum past u32; the pick must neither panic nor wrap.
+    #[test]
+    fn huge_aggregate_weights_pick_without_overflow() {
+        let mut engine = engine(&[]);
+        let alternative = AudioAlternative {
+            weight: u16::MAX,
+            ..definition("x", "ui").alternatives[0].clone()
+        };
+        let mut heavy = definition("heavy", "ui");
+        heavy.alternatives = vec![alternative; 65_538].into();
+        engine.install_server(Some(Arc::new(crate::audio::server::ServerSoundPack {
+            definitions: [(Box::from("heavy"), heavy)].into(),
+            tables: None,
+            files: HashMap::new(),
+        })));
+        let request = SoundRequest::new("heavy");
+        let settings = AudioSettings::default();
+        assert!(
+            engine
+                .start_rolled(&request, None, &settings, None, [0.999_999, 0.0, 0.0])
+                .is_none()
+        );
+        assert_eq!(engine.stats.no_pcm, 1, "the pick reached PCM lookup");
     }
 
     #[test]
