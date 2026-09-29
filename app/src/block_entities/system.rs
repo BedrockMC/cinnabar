@@ -433,7 +433,7 @@ pub(crate) fn request_missing_maps(
     if runtime.map_requests.len() > 256 {
         runtime
             .map_requests
-            .retain(|_, last| now - last < MAP_REQUEST_RETRY_SECONDS);
+            .retain(|_, last| now - *last < MAP_REQUEST_RETRY_SECONDS);
     }
 }
 

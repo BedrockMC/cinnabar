@@ -34,7 +34,7 @@ pub(super) fn attach(
     channels: BoneChannels,
 ) -> Option<RenderBoneTransform> {
     let [rx, ry, rz, rw] = hand.rotation;
-    let hand_rotation = Quat::from_xyzw(rx, ry, rz, rw).try_normalize()?;
+    let hand_rotation = Quat::from_vec4(bevy::math::Vec4::new(rx, ry, rz, rw).try_normalize()?);
     let hand_scale = hand.translation_scale[3] * hand.axis_scale[0];
     let [x, y, z] = channels.translation;
     let offset = Vec3::new(-x, y, z) / 16.0;

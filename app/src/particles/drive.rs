@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use assets::{NetworkIdMode, RuntimeIconCatalog};
 use bevy::camera::Projection;
-use bevy::prelude::{App, Local, Query, Res, ResMut, Resource, Time, Transform, Update, With};
+use bevy::prelude::{
+    App, IntoScheduleConfigs, Local, Query, Res, ResMut, Resource, Time, Transform, Update, With,
+};
 use client_world::{ActorStatusNotice, CommittedParticleEvent, WorldStream};
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{

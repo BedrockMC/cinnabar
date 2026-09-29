@@ -180,7 +180,7 @@ impl LocalPhysicsController {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
             let (initiated, arc_active) = jump_fold.step(frame_input, result.on_ground);
-            retained.processed.direction_flags = Some(super::encoding::direction_flags([
+            retained.processed.direction_flags = Some(super::super::encoding::direction_flags([
                 -frame_input.strafe as f32,
                 frame_input.forward as f32,
             ]));

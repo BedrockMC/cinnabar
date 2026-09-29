@@ -9,7 +9,7 @@ use std::{
 };
 
 use bevy::prelude::{
-    App, Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Update, Vec3,
+    App, IntoScheduleConfigs, Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Update, Vec3,
 };
 use render::{ParticleSystem, PrecipitationMix};
 use sim::PaletteWorld;
@@ -512,7 +512,7 @@ pub(super) fn drive_weather_and_particles(
         .map(|inbox| inbox.take_level_audio())
         .unwrap_or_default();
     let lookup = block_lookup(collisions.as_deref(), stream.network_id_mode());
-    let mut requests: Vec<(Option<[f32; 3]>, SoundRequest)> = Vec::new();
+    let mut requests: Vec<SoundRequest> = Vec::new();
     if let Some(bank) = engine.bank() {
         let tables = bank.tables();
         for sound in &sounds {
@@ -522,7 +522,7 @@ pub(super) fn drive_weather_and_particles(
                 }
                 None => SoundRequest::new(&*sound.name),
             };
-            requests.push((None, request.at(sound.position)));
+            requests.push(request.at(sound.position));
         }
         for (id, position, data) in destroyed {
             requests.extend(route::destroy_block_request(

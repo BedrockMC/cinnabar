@@ -505,6 +505,7 @@ impl AudioEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::voice::Pcm;
     use assets::{
         AudioAlternative, AudioDefinition, RuntimeAudioCatalog, SoundBankIndex, SoundEventTables,
     };
