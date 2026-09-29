@@ -353,6 +353,12 @@ pub(super) fn project_below_name_scores(
     })
 }
 
+/// HUD elements a server resource pack hides; everything else keeps the Java styling.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SessionHudOverrides {
+    pub(crate) hide_sidebar_scores: bool,
+}
+
 struct PreparedScoreboardRow {
     label: Arc<ui::TextLayout>,
     label_width: f32,
@@ -360,6 +366,8 @@ struct PreparedScoreboardRow {
 }
 
 enum PreparedScoreCell {
+    /// The server pack hides the score column.
+    Hidden,
     Text {
         layout: Arc<ui::TextLayout>,
         width: f32,
@@ -374,6 +382,7 @@ enum PreparedScoreCell {
 impl PreparedScoreCell {
     fn width(&self) -> f32 {
         match self {
+            Self::Hidden => 0.0,
             Self::Text { width, .. } | Self::Hearts { width, .. } => *width,
         }
     }
@@ -622,6 +631,7 @@ pub(super) fn append_scoreboard_nodes(
     scoreboard: &PresentedScoreboard,
     opacity: ScoreboardOpacityAuthority,
     hud_textures: Option<&HudTexturePages>,
+    hide_scores: bool,
 ) -> Result<(), UiPresentationError> {
     let title = layouts
         .layout(metrics.request(
@@ -641,7 +651,11 @@ pub(super) fn append_scoreboard_nodes(
                 font,
             ))
             .map_err(UiPresentationError::Text)?;
-        let cell = prepare_score_cell(layouts, font, metrics, &row.value, hud_textures)?;
+        let cell = if hide_scores {
+            PreparedScoreCell::Hidden
+        } else {
+            prepare_score_cell(layouts, font, metrics, &row.value, hud_textures)?
+        };
         let label_width = label.size_64()[0] as f32 / 64.0;
         content_width =
             content_width.max(label_width + SCOREBOARD_HORIZONTAL_PADDING + cell.width());
@@ -704,6 +718,7 @@ pub(super) fn append_scoreboard_nodes(
             metrics.shadow(),
         )?;
         match row.cell {
+            PreparedScoreCell::Hidden => {}
             PreparedScoreCell::Text { layout, width } => {
                 append_clipped_text_node(
                     nodes,

@@ -74,10 +74,10 @@ fn the_last_applied_pack_wins_per_sheet() {
     assert_eq!(by_byte(0xe1).width, 128);
 }
 
-// Local-only: set CINNABAR_GLYPH_PACK to a cached server `.mcpack` to check its sheets decode and pack.
+// Local-only: set CINNABAR_SERVER_PACK to a cached server `.mcpack` to check its sheets decode and pack.
 #[test]
 fn a_real_server_pack_decodes_and_packs() {
-    let Some(path) = std::env::var_os("CINNABAR_GLYPH_PACK") else {
+    let Some(path) = std::env::var_os("CINNABAR_SERVER_PACK") else {
         return;
     };
     let bytes = std::fs::read(path).unwrap();
