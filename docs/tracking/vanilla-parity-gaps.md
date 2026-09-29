@@ -127,15 +127,23 @@ animated rig remotes use. All three below flow from that.
   inventory/menu paperdoll.
 
 ## Inventory / containers (Java target)
-- Missing screens (force-closed at admission): furnace/blast/smoker, anvil, enchanting,
-  grindstone, loom, smithing, cartography, stonecutter, brewing, beacon, hopper,
-  dispenser/dropper, **creative**, recipe book. Only chest(0)/workbench(1) admitted.
-- Interactions missing/partial: hover highlight (hit already computed, unused), tooltips,
-  click-drag distribute, double-click gather, whole-stack shift-click (moves one dest only),
-  craft-all / number-key over output, creative pick (backend exists, no caller/screen).
-- Polish: empty-slot ghost icons, inventory durability bars, real arrow/enlarged output cell,
-  drop the non-vanilla "Crafting" title, use server container titles.
-- Panel palette/slot geometry already correct.
+- Landed uncompiled and unverified: the ledger admits furnace/blast/smoker, brewing, hopper, dispenser/dropper,
+  horse, crafter, anvil, enchanting, grindstone, loom, smithing, cartography, stonecutter, beacon and the
+  chest family (barrel/shulker names too); named cells address requests by vanilla container name, screen
+  inputs by UI slot; `ContainerSetData` drives furnace flame/arrow and brewing bubbles/fuel; enchant options
+  (`PlayerEnchantOptions`) select via CraftRecipe. Java-styled screens for each (`presentation/screens`,
+  `hud_layout/windows.rs`), creative catalog screen (tabs, search, scroll, take/delete), hover highlight,
+  tooltips (name, enchantments, lore), durability bars, server block-entity titles, whole-stack shift-click,
+  drag-distribute, double-click gather, craft-all, number-key craft into hotbar, in-world Q drop.
+- Provisional *(measure)*: every screen offset, widget shape/colour, shift-click destination order and item
+  role tables (`item_roles.rs`), horse/crafter/cartography/smithing-template wire slots, cook totals (200/100)
+  and brew total (400), anvil/grindstone/loom/smithing consume amounts and craft-action mix (`screen_actions.rs`).
+- Missing: stonecutter/loom/smithing/cartography result take (needs block-specific recipe records from
+  CraftingData, which the catalog rejects today); anvil rename text field and multi-recipe id; grindstone
+  repair cost; loom pattern picker; beacon level gating and effect icons; ghost icons for empty
+  armor/offhand slots; enlarged personal/workbench output cell; recipe book; bundles (storage-item tooltip
+  and insert/extract); writable-book screen (`book_edit_packet` exists); survival middle-click pick
+  (`block_pick_request_packet` exists, no caller); creative pick-block key.
 
 ## World rendering / atmosphere (Bedrock target)
 - Weather precipitation: procedural rain/snow sheets, biome/height classification and per-column surface limits landed uncompiled; optional `make weather-assets` carrier supplies the vanilla rain band and End sky (procedural when absent); biome samples are averaged on a provisional 27-point lattice; additive bolt renderer and flash trigger from `lightning_bolt` actors landed; splash and rain-sound consumers (`RainSplashQueue`, `PrecipitationMix`) are unwired *(measure)*.

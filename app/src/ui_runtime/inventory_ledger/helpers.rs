@@ -36,25 +36,38 @@ pub(super) fn bare_storage_window_matches(
         && storage.is_some_and(|storage| storage_slot_identity_matches(storage, *identity))
 }
 
+/// How the open window's own cells are named in a request.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) struct WindowAddress {
+    pub(super) identity: ContainerIdentity,
+    pub(super) kind: protocol::WindowKind,
+}
+
 pub(super) fn request_slot(
     cell: Cell,
     stack_network_id: i32,
-    storage_identity: Option<ContainerIdentity>,
+    window: Option<WindowAddress>,
 ) -> Result<StackRequestSlot, InventoryGestureError> {
     let (container, slot) = match cell {
         Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, slot),
         Cell::Cursor => (StackRequestContainer::Cursor, 0),
-        Cell::Storage(slot) => (
-            StackRequestContainer::LevelEntity {
-                dynamic_id: storage_identity
-                    .ok_or(InventoryGestureError::InvalidRequest)?
-                    .dynamic_id,
-            },
-            slot,
-        ),
+        Cell::Storage(slot) => {
+            let window = window.ok_or(InventoryGestureError::InvalidRequest)?;
+            protocol::open_cell_request(
+                window.kind,
+                slot,
+                window.identity.dynamic_id,
+                window.identity.slot_type,
+            )
+            .ok_or(InventoryGestureError::InvalidRequest)?
+        }
         Cell::Armor(slot) => (StackRequestContainer::Armor, slot),
         Cell::Offhand => (StackRequestContainer::Offhand, 1),
-        Cell::Craft(slot) => (StackRequestContainer::CraftingInput, slot),
+        Cell::Craft(slot) => (
+            protocol::ui_slot_request_container(slot)
+                .ok_or(InventoryGestureError::InvalidRequest)?,
+            slot,
+        ),
         Cell::CreatedOutput => (
             StackRequestContainer::CreatedOutput,
             protocol::CREATED_OUTPUT_SLOT,

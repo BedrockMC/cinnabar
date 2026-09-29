@@ -1,6 +1,9 @@
 
 use super::ContainerIdentity;
 use super::container_policy::{CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR};
+use super::windows::{
+    is_chest_like_name, is_open_window_name, is_result_preview_name, ui_slot_for_name,
+};
 
 /// `EnumsContainerEnumName::ArmorContainer`, the player armor surface.
 pub const CONTAINER_NAME_ARMOR: u8 = 6;
@@ -56,6 +59,11 @@ pub enum CanonicalCell {
     /// One screen-specific generic storage cell identified by its open
     /// container's dynamic id.
     GenericStorage { dynamic_id: Option<u32>, slot: u16 },
+    /// A screen input at a fixed UI inventory slot (anvil, loom, beacon, ...).
+    UiSlot(u8),
+    /// A cell of a named open window (furnace, brewing stand, horse, crafter),
+    /// addressed by container name and window index.
+    WindowSlot { name: u8, slot: u16 },
 }
 
 impl CanonicalCell {
@@ -115,9 +123,21 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         {
             player_inventory_cell(slot)
         }
-        // Every other decoded name — furnaces, trades, unreviewed codes, and a
-        // player name on a foreign window — has no canonical mapping here.
-        Some(_) => None,
+        // Every screen's result preview mirrors the single output cell.
+        Some(name) if is_result_preview_name(name) => {
+            (slot == 50).then_some(CanonicalCell::CreatedOutput)
+        }
+        // Barrels and shulker boxes are chest-like windows under their own name.
+        Some(name) if is_chest_like_name(name) => Some(CanonicalCell::GenericStorage {
+            dynamic_id: identity.dynamic_id,
+            slot,
+        }),
+        Some(name) if is_open_window_name(name) => Some(CanonicalCell::WindowSlot { name, slot }),
+        // Screen inputs at fixed UI slots; a name that disagrees with its slot
+        // stays unrouted.
+        Some(name) => ui_slot_for_name(name, slot).map(CanonicalCell::UiSlot),
+        // Trades, unreviewed codes, and a player name on a foreign window have
+        // no canonical mapping here.
         None => match identity.window_id {
             Some(PLAYER_INVENTORY_WINDOW_ID) => player_inventory_cell(slot),
             Some(OFFHAND_WINDOW_ID) if slot == 0 => Some(CanonicalCell::Offhand),

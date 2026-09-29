@@ -48,6 +48,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 drive_inventory_ui_actions,
                 drive_menu_connection,
                 synchronize_semantic_input_authority,
+                drive_world_inventory_keys,
             )
                 .chain()
                 .in_set(ClientFrameSet::UiAuthority),

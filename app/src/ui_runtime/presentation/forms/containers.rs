@@ -40,12 +40,14 @@ pub(super) enum ScreenLayout {
 impl ScreenLayout {
     fn of(runtime: &UiRuntime) -> Option<Self> {
         let ledger = runtime.inventory_ledger();
-        Some(match InventoryScreen::of(ledger) {
+        Some(match InventoryScreen::of_runtime(runtime) {
             InventoryScreen::Personal => Self::Personal,
             InventoryScreen::Workbench => Self::Workbench,
             InventoryScreen::Storage(slots) => {
                 Self::Storage(container_kind(ledger.storage_window_type()?, slots)?)
             }
+            // Other windows and the creative catalog keep the Java-styled screens.
+            InventoryScreen::Window(..) | InventoryScreen::Creative => return None,
         })
     }
 

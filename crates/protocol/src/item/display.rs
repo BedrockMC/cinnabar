@@ -1,0 +1,180 @@
+//! The player-visible strings and enchantments an item's user data carries.
+
+use std::sync::Arc;
+
+use super::{decode_extra_nbt, read_i32_le, read_u8, read_u16_le, root_tag, skip_le_payload};
+
+/// Bounds keep a hostile stack from growing tooltip work without limit.
+const MAX_LORE_LINES: usize = 32;
+const MAX_ENCHANTMENTS: usize = 32;
+const MAX_TEXT_BYTES: usize = 1024;
+
+const TAG_SHORT: u8 = 2;
+const TAG_STRING: u8 = 8;
+const TAG_LIST: u8 = 9;
+const TAG_COMPOUND: u8 = 10;
+
+/// What a tooltip reads from a stack's user data.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemDisplay {
+    /// The `display.Name` an anvil or command set.
+    pub name: Option<Arc<str>>,
+    pub lore: Vec<Arc<str>>,
+    /// `(enchantment id, level)` from the root `ench` list.
+    pub enchantments: Vec<(i16, u8)>,
+}
+
+/// Reads a stack's custom name, lore and enchantments; malformed data reads as absent.
+#[must_use]
+pub fn item_display(extra_data: &[u8]) -> ItemDisplay {
+    let mut display = ItemDisplay::default();
+    let Some(nbt) = decode_extra_nbt(extra_data) else {
+        return display;
+    };
+    let mut cursor = &nbt[..];
+    if let Some(payload) = root_tag(&mut cursor, TAG_COMPOUND, b"display") {
+        read_display(payload, &mut display);
+    }
+    let mut cursor = &nbt[..];
+    if let Some(payload) = root_tag(&mut cursor, TAG_LIST, b"ench") {
+        read_enchantments(payload, &mut display);
+    }
+    display
+}
+
+fn read_text(cursor: &mut &[u8]) -> Option<Arc<str>> {
+    let length = usize::from(read_u16_le(cursor)?);
+    let bytes = cursor.get(..length)?;
+    *cursor = cursor.get(length..)?;
+    let bytes = &bytes[..bytes.len().min(MAX_TEXT_BYTES)];
+    Some(Arc::from(String::from_utf8_lossy(bytes).as_ref()))
+}
+
+fn read_display(mut payload: &[u8], display: &mut ItemDisplay) {
+    let _ = (|| -> Option<()> {
+        loop {
+            let tag = read_u8(&mut payload)?;
+            if tag == 0 {
+                return Some(());
+            }
+            let name_len = usize::from(read_u16_le(&mut payload)?);
+            let name = payload.get(..name_len)?;
+            payload = payload.get(name_len..)?;
+            match (tag, name) {
+                (TAG_STRING, b"Name") => display.name = Some(read_text(&mut payload)?),
+                (TAG_LIST, b"Lore") => {
+                    if read_u8(&mut payload)? != TAG_STRING {
+                        return None;
+                    }
+                    let count = usize::try_from(read_i32_le(&mut payload)?).ok()?;
+                    for _ in 0..count {
+                        let line = read_text(&mut payload)?;
+                        if display.lore.len() < MAX_LORE_LINES {
+                            display.lore.push(line);
+                        }
+                    }
+                }
+                _ => skip_le_payload(&mut payload, tag, 1)?,
+            }
+        }
+    })();
+}
+
+fn read_enchantments(mut list: &[u8], display: &mut ItemDisplay) {
+    let _ = (|| -> Option<()> {
+        if read_u8(&mut list)? != TAG_COMPOUND {
+            return None;
+        }
+        let count = usize::try_from(read_i32_le(&mut list)?).ok()?;
+        for _ in 0..count {
+            let (mut id, mut level) = (None, None);
+            loop {
+                let tag = read_u8(&mut list)?;
+                if tag == 0 {
+                    break;
+                }
+                let name_len = usize::from(read_u16_le(&mut list)?);
+                let name = list.get(..name_len)?;
+                list = list.get(name_len..)?;
+                if tag == TAG_SHORT && (name == b"id" || name == b"lvl") {
+                    let value = i16::from_le_bytes(list.get(..2)?.try_into().ok()?);
+                    *if name == b"id" { &mut id } else { &mut level } = Some(value);
+                }
+                skip_le_payload(&mut list, tag, 1)?;
+            }
+            if let (Some(id), Some(level)) = (id, level)
+                && display.enchantments.len() < MAX_ENCHANTMENTS
+            {
+                display
+                    .enchantments
+                    .push((id, u8::try_from(level).unwrap_or(u8::MAX)));
+            }
+        }
+        Some(())
+    })();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn string_tag(out: &mut Vec<u8>, name: &str, value: &str) {
+        out.push(TAG_STRING);
+        out.extend((name.len() as u16).to_le_bytes());
+        out.extend(name.as_bytes());
+        out.extend((value.len() as u16).to_le_bytes());
+        out.extend(value.as_bytes());
+    }
+
+    fn extra(build: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+        let mut nbt = vec![TAG_COMPOUND, 0, 0];
+        build(&mut nbt);
+        nbt.push(0);
+        let mut extra = (-1_i16).to_le_bytes().to_vec();
+        extra.push(1);
+        extra.extend(nbt);
+        extra
+    }
+
+    #[test]
+    fn reads_name_lore_and_enchantments() {
+        let data = extra(|nbt| {
+            nbt.push(TAG_COMPOUND);
+            nbt.extend(7_u16.to_le_bytes());
+            nbt.extend(b"display");
+            string_tag(nbt, "Name", "Blade");
+            nbt.push(TAG_LIST);
+            nbt.extend(4_u16.to_le_bytes());
+            nbt.extend(b"Lore");
+            nbt.push(TAG_STRING);
+            nbt.extend(2_i32.to_le_bytes());
+            for line in ["one", "two"] {
+                nbt.extend((line.len() as u16).to_le_bytes());
+                nbt.extend(line.as_bytes());
+            }
+            nbt.push(0);
+            nbt.push(TAG_LIST);
+            nbt.extend(4_u16.to_le_bytes());
+            nbt.extend(b"ench");
+            nbt.push(TAG_COMPOUND);
+            nbt.extend(1_i32.to_le_bytes());
+            for (key, value) in [("id", 9_i16), ("lvl", 3)] {
+                nbt.push(TAG_SHORT);
+                nbt.extend((key.len() as u16).to_le_bytes());
+                nbt.extend(key.as_bytes());
+                nbt.extend(value.to_le_bytes());
+            }
+            nbt.push(0);
+        });
+        let display = item_display(&data);
+        assert_eq!(display.name.as_deref(), Some("Blade"));
+        assert_eq!(display.lore.len(), 2);
+        assert_eq!(display.enchantments, vec![(9, 3)]);
+    }
+
+    #[test]
+    fn malformed_data_reads_as_absent() {
+        assert_eq!(item_display(&[1, 2, 3]), ItemDisplay::default());
+        assert_eq!(item_display(&[]), ItemDisplay::default());
+    }
+}
