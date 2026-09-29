@@ -29,7 +29,9 @@ const BLOCKS_PER_FONT_PIXEL: f32 = 1.6 / 60.0;
 /// Font atlas texels per font design pixel.
 const TEXELS_PER_FONT_PIXEL: f32 = 2.0;
 const SCALE_STEPS_PER_UNIT: f32 = 16.0;
-const BOX_PADDING: f32 = 2.0;
+/// Plate height in font pixels per text line (`-1..9` around the 8 px glyph line).
+const PLATE_LINE_PX: f32 = 10.0;
+/// Plate colour is black at alpha 0.25.
 const BOX_ALPHA: u8 = 64;
 const SNEAK_TEXT_ALPHA: u8 = 128;
 const ACTOR_FLAG_SNEAKING: u32 = 1;
@@ -158,12 +160,21 @@ pub(super) fn append_nametag_nodes(
             })
             .map_err(UiPresentationError::Text)?;
         let [width, height] = layout.size_64().map(|value| value as f32 / 64.0);
+        // The text hangs below the anchor; the plate is one font pixel wider on each side and
+        // spans one pixel above to one below the 8 px glyph line.
+        let font_px = TEXELS_PER_FONT_PIXEL * text_scale(anchor.pixels_per_block).get();
         let left = anchor.x - width / 2.0;
-        let top = anchor.y - height;
-        if left + width + BOX_PADDING < 0.0
-            || left - BOX_PADDING > content_size[0]
-            || top + height + BOX_PADDING < 0.0
-            || top - BOX_PADDING > content_size[1]
+        let top = anchor.y;
+        let plate = [
+            left - font_px,
+            top - font_px,
+            left + width + font_px,
+            top + PLATE_LINE_PX * font_px - font_px,
+        ];
+        if plate[2] < 0.0
+            || plate[0] > content_size[0]
+            || plate[3] < 0.0
+            || plate[1] > content_size[1]
         {
             continue;
         }
@@ -172,20 +183,12 @@ pub(super) fn append_nametag_nodes(
         let id = UiNodeId::new(*next_id);
         *next_id = next_id.saturating_add(1);
         nodes.push(
-            UiNode::new(
-                id,
-                None,
-                rect(
-                    left - BOX_PADDING,
-                    top - BOX_PADDING,
-                    left + width + BOX_PADDING,
-                    top + height + BOX_PADDING,
-                )?,
-            )
-            .with_visual(UiVisual::Solid {
-                texture_page: solid_texture_page,
-                color: [0, 0, 0, box_alpha],
-            }),
+            UiNode::new(id, None, rect(plate[0], plate[1], plate[2], plate[3])?).with_visual(
+                UiVisual::Solid {
+                    texture_page: solid_texture_page,
+                    color: [0, 0, 0, box_alpha],
+                },
+            ),
         );
         let id = UiNodeId::new(*next_id);
         *next_id = next_id.saturating_add(1);
@@ -201,11 +204,7 @@ pub(super) fn append_nametag_nodes(
                 UiVisual::Text {
                     layout,
                     color: [255, 255, 255, alpha],
-                    shadow: if faint {
-                        TextShadow::None
-                    } else {
-                        metrics.shadow()
-                    },
+                    shadow: TextShadow::None,
                 },
             ),
         );
@@ -225,5 +224,55 @@ mod tests {
         assert!((UiScale::MIN..=UiScale::MAX).contains(&near));
         assert_eq!(text_scale(1.0).get(), UiScale::MIN);
         assert_eq!(text_scale(10_000.0).get(), UiScale::MAX);
+    }
+
+    // Plain text on a 0.25-alpha black plate that is one font pixel wider per side and
+    // spans one pixel above to one below the 8 px line, hanging below the anchor.
+    #[test]
+    fn tag_is_unshadowed_text_on_a_padded_plate_below_the_anchor() {
+        let font = super::super::tests::fixture_font();
+        let metrics = TextMetrics::for_viewport([800, 600], ui::DpiScale::new(1.0).unwrap(), None);
+        let anchor = NametagAnchor {
+            x: 400.0,
+            y: 300.0,
+            name: "AB".into(),
+            sneaking: false,
+            occluded: false,
+            pixels_per_block: 150.0,
+            distance: 5.0,
+        };
+        let mut nodes = Vec::new();
+        let mut next = 1;
+        let mut layouts = TextLayoutCache::new(8, 1 << 20);
+        append_nametag_nodes(
+            &mut nodes,
+            &mut next,
+            &mut layouts,
+            &font,
+            metrics,
+            0,
+            &[anchor],
+            [800.0, 600.0],
+        )
+        .unwrap();
+        assert_eq!(nodes.len(), 2);
+        let font_px = TEXELS_PER_FONT_PIXEL * text_scale(150.0).get();
+        let (plate, text) = (nodes[0].bounds(), nodes[1].bounds());
+        assert!(
+            matches!(nodes[0].visual(), UiVisual::Solid { color, .. } if *color == [0, 0, 0, 64])
+        );
+        assert!(matches!(
+            nodes[1].visual(),
+            UiVisual::Text {
+                shadow: TextShadow::None,
+                ..
+            }
+        ));
+        let close = |a: f32, b: f32| (a - b).abs() < 0.01;
+        assert!(close(text.min().y(), 300.0));
+        assert!(close(plate.min().x(), text.min().x() - font_px));
+        assert!(close(plate.max().x(), text.max().x() + font_px));
+        assert!(close(plate.min().y(), 300.0 - font_px));
+        assert!(close(plate.max().y(), 300.0 + 9.0 * font_px));
     }
 }
