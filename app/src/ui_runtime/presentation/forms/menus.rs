@@ -65,6 +65,10 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
+        // Without the UI carrier the programmatic launcher draws every screen.
+        if self.form_presentation.engine.is_none() {
+            return Ok(None);
+        }
         // Screens 26.30 draws with OreUI by default draw natively.
         let portrait = [
             &view.feeds.profile.picture_path,
