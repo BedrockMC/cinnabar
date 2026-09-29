@@ -169,6 +169,8 @@ pub struct UiPresentationRuntime {
     session_glyphs: session_glyphs::SessionGlyphPages,
     /// Identifiers already logged as iconless.
     missing_icons: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// The hotbar last logged: each slot's identifier and whether it had an icon.
+    logged_hotbar: [Option<(Arc<str>, bool)>; 9],
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
@@ -261,6 +263,7 @@ impl UiPresentationRuntime {
             session_icons: session_icons::SessionIconPage::default(),
             session_glyphs: session_glyphs::SessionGlyphPages::default(),
             missing_icons: Default::default(),
+            logged_hotbar: Default::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),

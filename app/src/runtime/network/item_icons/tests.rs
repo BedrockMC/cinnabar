@@ -143,3 +143,25 @@ fn custom_item_icons_merge_across_packs_and_explain_misses() {
     assert!(icons.misses["t:dead"].contains("no readable image"));
     assert!(icons.misses["t:absent"].contains("not in the merged item_texture.json"));
 }
+
+// A catalog path that already names its image resolves, as on the retail client.
+#[test]
+fn catalog_paths_with_an_image_extension_resolve() {
+    let catalog = br#"{"texture_data":{"zeqa.training":{"textures":"textures/items/zeqa/hub/main/training.png"},"upper":{"textures":"textures/items/upper.PNG"}}}"#.to_vec();
+    let view = stack(&[&[
+        ("textures/item_texture.json", catalog),
+        ("textures/items/zeqa/hub/main/training.png", png(16, 16)),
+        ("textures/items/upper.PNG", png(16, 16)),
+    ]]);
+    let key = |identifier: &str, key: &str| (Arc::<str>::from(identifier), Arc::<str>::from(key));
+    let icons = compile_session_icons(
+        &view,
+        &[
+            key("zeqa:item.training", "zeqa.training"),
+            key("t:upper", "upper"),
+        ],
+    )
+    .expect("icons");
+    assert!(icons.misses.is_empty(), "{:?}", icons.misses);
+    assert_eq!(icons.icons.len(), 2);
+}

@@ -29,7 +29,8 @@ pub use block_entity_visuals::{
 };
 pub use item::{
     ActorArmorPiece, ActorArmorSnapshot, ActorEquipmentSnapshot, CanonicalItemRegistryRecord,
-    CanonicalItemStack, MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS,
+    CanonicalItemStack, EquipmentNotice, EquipmentOutcome, MAX_EQUIPMENT_NOTICES,
+    MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS,
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 pub use stream::{

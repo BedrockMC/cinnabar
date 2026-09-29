@@ -3197,6 +3197,12 @@ The same native run also exposed a separate sprite crosswalk gap: the modern
 water-bucket identifier has no alias to its existing water sprite. A verified
 modern-name-to-atlas mapping, compiler/resolver/icon tests, and native icon
 acceptance remain open; this does not require a block-thumbnail renderer.
+The crosswalk is now `crates/assets/data/legacy-icon-routes-26.30.tsv`: every
+`setIconIfLegacy` call in the 26.30 client's `VanillaItems::initClientData`, plus
+potion icons by aux, each row citing its call site. Still open: cooked foods and
+other 1.10 JSON items (icon from resource-pack data), spawn eggs (per-entity
+map), bow/crossbow draw frames, animated compass/clock frames, trimmed armor and
+broken elytra overrides, and native icon acceptance.
 Initial negotiated item-registry binding for world item visuals is also separate
 from the inventory-ledger bootstrap fix. The visual resolver still starts from
 built-in mappings and only replaces them on a later registry event. Preserve

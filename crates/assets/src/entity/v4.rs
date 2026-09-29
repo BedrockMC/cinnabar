@@ -443,12 +443,19 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
     let reviewed_bindings: DefaultSpriteBindings = serde_json::from_slice(DEFAULT_SPRITE_BINDINGS)
         .map_err(|_| invalid("embedded default sprite bindings are invalid"))?;
     let binding_hash: [u8; 32] = Sha256::digest(DEFAULT_SPRITE_BINDINGS).into();
+    let legacy_hash: [u8; 32] = Sha256::digest(LEGACY_ICON_ROUTES).into();
     for source in &compiled.sources {
         if source.path.as_ref() == DEFAULT_SPRITE_BINDINGS_PATH
             && (source.source_bytes as usize != DEFAULT_SPRITE_BINDINGS.len()
                 || source.source_sha256 != binding_hash)
         {
             return Err(invalid("default sprite defining source identity mismatch"));
+        }
+        if source.path.as_ref() == LEGACY_ICON_ROUTES_PATH
+            && (source.source_bytes as usize != LEGACY_ICON_ROUTES.len()
+                || source.source_sha256 != legacy_hash)
+        {
+            return Err(invalid("legacy icon defining source identity mismatch"));
         }
     }
     for visual in &compiled.item_visuals {
@@ -471,6 +478,17 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
                     "item visual is outside reviewed default sprite bindings",
                 ));
             }
+        } else if defining_path.as_ref() == LEGACY_ICON_ROUTES_PATH {
+            if !legacy_icon_route_listed(&visual.key.identifier, visual.key.metadata)
+                || !matches!(
+                    visual.route,
+                    ItemVisualDefinitionRoute::Missing | ItemVisualDefinitionRoute::Sprite { .. }
+                )
+            {
+                return Err(invalid(
+                    "item visual is outside reviewed legacy icon routes",
+                ));
+            }
         } else if !valid_item_definition_source(defining_path) {
             return Err(invalid("item visual defining source is not reviewed"));
         }
@@ -482,6 +500,21 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
         }
     }
     Ok(())
+}
+
+const LEGACY_ICON_ROUTES_PATH: &str = "registry/legacy-icon-routes-26.30.tsv";
+const LEGACY_ICON_ROUTES: &[u8] = include_bytes!("../../data/legacy-icon-routes-26.30.tsv");
+
+/// Whether the embedded legacy table lists `(identifier, metadata)`.
+fn legacy_icon_route_listed(identifier: &str, metadata: u32) -> bool {
+    std::str::from_utf8(LEGACY_ICON_ROUTES)
+        .into_iter()
+        .flat_map(str::lines)
+        .filter_map(|line| {
+            let mut columns = line.split('\t');
+            Some((columns.next()?, columns.next()?.parse::<u32>().ok()?))
+        })
+        .any(|row| row == (identifier, metadata))
 }
 
 const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.40.json";

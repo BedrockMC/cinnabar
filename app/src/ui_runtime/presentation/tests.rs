@@ -21,6 +21,7 @@ mod forms_tests;
 mod hud_matrix_tests;
 mod hud_server_pack_tests;
 mod inventory_count_tests;
+mod item_pipeline_tests;
 mod menu_status_tests;
 mod retained_hud_tests;
 mod safe_area_tests;

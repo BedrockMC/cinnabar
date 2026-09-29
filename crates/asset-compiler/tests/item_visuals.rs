@@ -308,3 +308,57 @@ fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes()
             )
     );
 }
+
+// Legacy retail icon routes key identifiers onto atlas variants; absent atlas keys add nothing.
+#[test]
+fn legacy_icon_routes_bind_identifiers_to_their_atlas_variants() {
+    let pack = tempfile::tempdir().unwrap();
+    let swords = (0..7)
+        .map(|index| format!("\"textures/items/sword_{index}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let atlas = format!(
+        r#"{{"texture_data":{{"sword":{{"textures":[{swords}]}},"compass_item":{{"textures":"textures/items/compass_item"}}}}}}"#
+    );
+    for (path, bytes) in [
+        ("entity/item.entity.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:item","geometry":{"default":"geometry.item"},"render_controllers":["controller.render.item"]}}}"#.to_vec()),
+        ("models/entity/item.geo.json", br#"{"format_version":"1.21.0","minecraft:geometry":[{"description":{"identifier":"geometry.item"},"bones":[{"name":"root"}]}]}"#.to_vec()),
+        ("animations/empty.json", br#"{"format_version":"1.8.0","animations":{}}"#.to_vec()),
+        ("animation_controllers/empty.json", br#"{"format_version":"1.10.0","animation_controllers":{}}"#.to_vec()),
+        ("render_controllers/item.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.item":{"geometry":"Geometry.default"}}}"#.to_vec()),
+        ("textures/entity/item.png", b"entity-raster".to_vec()),
+        ("textures/item_texture.json", atlas.into_bytes()),
+        ("textures/items/compass_item.png", b"compass-raster".to_vec()),
+    ] {
+        write(pack.path(), path, &bytes);
+    }
+    for index in 0..7 {
+        write(
+            pack.path(),
+            &format!("textures/items/sword_{index}.png"),
+            format!("sword-{index}").as_bytes(),
+        );
+    }
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let sprite = |identifier: &str| match visual(&compiled.item_visuals, identifier, 0).route {
+        ItemVisualDefinitionRoute::Sprite { texture } => {
+            compiled.sources[texture.source as usize].path.to_string()
+        }
+        route => panic!("{identifier} routed to {route:?}"),
+    };
+    assert_eq!(
+        sprite("minecraft:diamond_sword"),
+        "textures/items/sword_4.png"
+    );
+    assert_eq!(
+        sprite("minecraft:compass"),
+        "textures/items/compass_item.png"
+    );
+    assert!(
+        !compiled
+            .item_visuals
+            .iter()
+            .any(|visual| visual.key.identifier.as_ref() == "minecraft:bow")
+    );
+    assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+}

@@ -77,7 +77,7 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
     let first = compile_entity_assets(pack.path(), MANIFEST).expect("compile entity catalog");
     let second = compile_entity_assets(pack.path(), MANIFEST).expect("compile twice");
     assert_eq!(first, second);
-    assert_eq!(first.sources.len(), 9);
+    assert_eq!(first.sources.len(), 10);
     assert!(
         first
             .sources
@@ -730,7 +730,7 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     assert_eq!(fs::read(&report).unwrap(), first_report);
 
     let decoded = assets::RuntimeEntityAssets::decode(&first_blob).unwrap();
-    assert_eq!(decoded.sources().len(), 9);
+    assert_eq!(decoded.sources().len(), 10);
     let binding_source = decoded
         .sources()
         .iter()

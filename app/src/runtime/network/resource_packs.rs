@@ -60,6 +60,7 @@ pub(super) fn prepare_pack_application(
 ) -> PackApplication {
     if handoff.is_empty() {
         crate::audio::publish_server_sounds(None);
+        super::item_diagnostics::session_icons(icon_keys.len(), None);
         return PackApplication::default();
     }
     let stack = resource_pack::validate_handoff(handoff);
@@ -86,9 +87,11 @@ pub(super) fn prepare_pack_application(
     {
         bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
     }
+    let item_icons = compile_session_icons(&view, icon_keys);
+    super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     PackApplication {
         server_lang: merged_server_lang(&view),
-        item_icons: compile_session_icons(&view, icon_keys),
+        item_icons,
         glyph_sheets: compile_session_glyphs(&view),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
@@ -305,6 +308,20 @@ pub(super) fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<
 }
 
 fn decode_image_file(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
+    // Vanilla's loader also tries the literal path, so a pack path that already
+    // names its image (`textures/items/gem.png`) resolves.
+    let named = path.rsplit_once('.').and_then(|(_, extension)| {
+        IMAGE_EXTENSIONS
+            .into_iter()
+            .find(|(known, _)| extension.eq_ignore_ascii_case(known))
+    });
+    if let Some((_, format)) = named
+        && let Some(texture) = view
+            .read_capped(path, MAX_TEXTURE_SOURCE_BYTES as u64)
+            .and_then(|bytes| decode_image(&bytes, format))
+    {
+        return Some(texture);
+    }
     IMAGE_EXTENSIONS
         .into_iter()
         .find_map(|(extension, format)| {
