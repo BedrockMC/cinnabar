@@ -12,12 +12,16 @@ mod npc;
 #[cfg(test)]
 pub(crate) mod pack_harness;
 mod pages;
+mod remote_images;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]
+mod snapshot;
+#[cfg(test)]
 pub(crate) mod tests;
+mod textures;
 
-use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
+use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
 pub(crate) use containers::engine_panel_contains;
@@ -67,49 +71,83 @@ impl UiPresentationRuntime {
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
-        self.form_presentation.engine = Some(Box::new(engine::FormEngine::new(
-            assets, catalog, first_page,
-        )));
+        let mut engine = engine::FormEngine::new(assets, catalog, first_page);
+        engine.textures.server_page =
+            (self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE) as u16;
+        self.form_presentation.engine = Some(Box::new(engine));
         Ok(())
     }
 
     /// Overlay a joined server's resource-pack UI: its `ui/*.json` merge over the
     /// vanilla catalog layer by layer and its `textures/**` images shadow the
-    /// carrier's. An empty pack restores vanilla.
+    /// carrier's from reserved dynamic pages, so the static texture identity the
+    /// renderer pins never changes. An empty pack restores vanilla.
     pub(crate) fn set_server_ui_pack(&mut self, pack: &ServerUiPack) {
+        let first = self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE;
         let Some(engine) = self.form_presentation.engine.as_mut() else {
             return;
         };
         engine.set_server_pack(&pack.ui_layers);
-        let packed = server_pack::pack(&pack.textures, engine.page_side());
-        let start = engine.server_page_start();
-        let old = engine.server_pages();
-        let dynamic_start = self.textures.dynamic_start();
-        let mut pages = self.textures.pages()[..start].to_vec();
-        let added = packed.pages.len();
-        pages.extend(packed.pages);
-        pages.extend_from_slice(&self.textures.pages()[start + old..]);
-        let Ok(textures) = render::UiRenderTextureArray::with_source_identity(
-            pages,
-            dynamic_start - old + added,
-            server_pack_identity(self.textures.static_identity(), pack),
-        ) else {
-            engine.set_server_textures(Default::default(), old);
-            return;
-        };
+        let atlas =
+            server_pack::ServerAtlas::new(&pack.textures, dynamic_textures::SERVER_UI_PAGES);
         bevy::log::info!(
             layers = pack.ui_layers.len(),
             ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),
-            textures = packed.textures.len(),
-            pages = added,
+            textures = pack.textures.len(),
             "server resource-pack UI applied to the form engine"
         );
-        engine.set_server_textures(packed.textures, added);
-        self.textures = Arc::new(textures);
-        // Dynamic pages moved; their references rebuild from the new start.
-        self.preview_dirty = true;
-        self.menu_artwork_dirty = true;
-        self.rebuild_dynamic_textures();
+        engine.set_server_atlas(atlas, first as u16);
+        self.sync_server_ui_pages();
+    }
+
+    /// Hands changed server atlas pages to the dynamic texture pages; runs
+    /// after the frame's screens drew, before the frame publishes.
+    pub(super) fn sync_server_ui_pages(&mut self) {
+        let changed = self
+            .form_presentation
+            .engine
+            .as_mut()
+            .is_some_and(|engine| engine.take_server_pages().is_some());
+        if changed {
+            self.rebuild_dynamic_textures();
+        }
+    }
+
+    /// Let forms draw vanilla images the UI carrier lacks: item textures from
+    /// the item icon atlas already on the UI texture array, anything else read
+    /// on demand from the local vanilla pack at `vanilla`.
+    pub(crate) fn set_form_texture_fallbacks(
+        &mut self,
+        entities: &assets::RuntimeEntityAssets,
+        vanilla: std::path::PathBuf,
+    ) {
+        let mut icons = std::collections::HashMap::new();
+        for visual in entities.item_visuals() {
+            let assets::ItemVisualDefinitionRoute::Sprite { texture } = visual.route else {
+                continue;
+            };
+            let Some(source) = entities.sources().get(texture.source as usize) else {
+                continue;
+            };
+            let path = source
+                .path
+                .rsplit_once('.')
+                .map_or(&*source.path, |(stem, _)| stem);
+            if let Some(icon) = self.item_icon(&visual.key.identifier, visual.key.metadata) {
+                icons.entry(path.to_owned()).or_insert(icon);
+            }
+        }
+        if let Some(engine) = self.form_presentation.engine.as_mut() {
+            engine.textures.set_fallbacks(icons, vanilla);
+        }
+    }
+
+    /// The dynamic pages holding the server pack's UI textures.
+    pub(super) fn server_ui_pages(&self) -> &[render::UiTexturePage] {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map_or(&[], |engine| &engine.server_pages)
     }
 
     /// Applies the runtime's server UI pack when it changes identity.
@@ -241,7 +279,9 @@ impl UiPresentationRuntime {
             Some(renderer) => {
                 let translate = |key: &str| runtime.translation(key);
                 let state = runtime.server_forms().engine();
-                match model::engine_model(&entry.model, state, &translate) {
+                let remote = renderer.textures.remote.clone();
+                let images = |url: &str| remote.state(url);
+                match model::engine_model(&entry.model, state, &translate, &images) {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {
                         let rollback = (nodes.len(), *next);
@@ -309,16 +349,4 @@ fn log_path(
         *logged = Some(identity);
         bevy::log::info!(?identity, path, reason, "server form render path");
     }
-}
-
-fn server_pack_identity(base: [u8; 32], pack: &ServerUiPack) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(b"ui-server-pack-v1");
-    digest.update(base);
-    for (path, bytes) in &pack.textures {
-        digest.update(path.as_bytes());
-        digest.update(Sha256::digest(bytes));
-    }
-    digest.finalize().into()
 }

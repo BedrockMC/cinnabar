@@ -163,7 +163,13 @@ fn collect(
 
 /// The primitives a single control contributes at `rect`.
 fn draws_for(control: &ResolvedControl, rect: Rect, env: &LayoutEnv) -> Vec<(Rect, Draw)> {
-    if let Some(path) = control.properties.get("texture").and_then(Value::as_str) {
+    // An empty texture (an unset binding) draws nothing, as in vanilla.
+    if let Some(path) = control
+        .properties
+        .get("texture")
+        .and_then(Value::as_str)
+        .filter(|path| !path.is_empty())
+    {
         return sprite_draws(control, rect, path, env);
     }
     match control.control_type.as_deref() {

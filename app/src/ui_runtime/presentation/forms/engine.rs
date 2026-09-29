@@ -7,15 +7,13 @@
 use std::{
     borrow::{Borrow, Cow},
     cell::RefCell,
-    collections::BTreeMap,
     sync::Arc,
 };
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
-    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, NineSlice,
-    RectOut, ResolvedControl, TextAlign, TextMeasure, TextureMeta, TextureSource, ViewState,
-    bind_form, render_bound, render_screen,
+    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
+    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound, render_screen,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
@@ -24,7 +22,8 @@ use ui::{
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
 pub(crate) mod hud_renderers;
-use super::server_pack::{ServerTexture, ServerUiPack};
+use super::server_pack::{ServerAtlas, ServerUiPack};
+use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
@@ -44,13 +43,11 @@ pub(crate) struct FormEngine {
     /// Vanilla under the built-in Java HUD pack: the catalog with no server pack.
     base: Arc<Catalog>,
     catalog: Arc<Catalog>,
-    /// Texture page of carrier atlas page 0.
-    first_page: u16,
     context: Context,
-    /// Server-pack textures shadowing the carrier's, and how many pages follow
-    /// the carrier pages for them.
-    server: BTreeMap<String, ServerTexture>,
-    server_pages: usize,
+    /// Where texture paths draw from, including the on-demand server atlas.
+    pub(super) textures: TextureSet,
+    /// The atlas page images last handed to the dynamic pages.
+    pub(super) server_pages: Vec<render::UiTexturePage>,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
     /// The last form's bound tree and laid-out output, reused while unchanged.
@@ -77,9 +74,7 @@ struct LaidForm {
 #[derive(Clone, Copy)]
 struct Art<'a> {
     assets: &'a RuntimeUiAssets,
-    server: &'a BTreeMap<String, ServerTexture>,
-    first_page: u16,
-    server_page: u16,
+    set: &'a TextureSet,
 }
 
 /// Everything a render borrows from the presentation runtime for one frame.
@@ -98,14 +93,13 @@ impl FormEngine {
         let vanilla = Arc::new(catalog);
         let base = Arc::new(with_java_hud(&vanilla, &Default::default()));
         Self {
+            textures: TextureSet::new(&assets, first_page),
             assets,
             catalog: Arc::clone(&base),
             vanilla,
             base,
-            first_page,
             context: Context::desktop(),
-            server: BTreeMap::new(),
-            server_pages: 0,
+            server_pages: Vec::new(),
             server_source: None,
             cache: None,
             passes: [0; 2],
@@ -115,9 +109,7 @@ impl FormEngine {
     fn art(&self) -> Art<'_> {
         Art {
             assets: &self.assets,
-            server: &self.server,
-            first_page: self.first_page,
-            server_page: self.server_page_start() as u16,
+            set: &self.textures,
         }
     }
 
@@ -146,29 +138,48 @@ impl FormEngine {
         }
     }
 
-    /// Texture page of the first server-pack page (right after the carrier's).
-    pub(super) fn server_page_start(&self) -> usize {
-        usize::from(self.first_page) + self.assets.atlas_pages().len()
+    /// Install a server texture atlas whose pages start at texture page `first`.
+    pub(super) fn set_server_atlas(&mut self, atlas: ServerAtlas, first: u16) {
+        self.textures.set_atlas(atlas, first);
     }
 
-    pub(super) fn server_pages(&self) -> usize {
-        self.server_pages
+    /// The atlas page images when they changed since the last call.
+    pub(super) fn take_server_pages(&mut self) -> Option<&[render::UiTexturePage]> {
+        let atlas = self.textures.atlas_mut();
+        if !atlas.take_dirty() {
+            return None;
+        }
+        self.server_pages = atlas.images().to_vec();
+        Some(&self.server_pages)
     }
 
-    /// The carrier page size server textures pack into.
-    pub(super) fn page_side(&self) -> [u32; 2] {
-        self.assets.atlas_pages().iter().fold([1, 1], |acc, page| {
-            [acc[0].max(page.width), acc[1].max(page.height)]
-        })
-    }
-
-    pub(super) fn set_server_textures(
-        &mut self,
-        textures: BTreeMap<String, ServerTexture>,
-        pages: usize,
-    ) {
-        self.server = textures;
-        self.server_pages = pages;
+    /// The last form's sprite textures, and those resolving to no source.
+    #[cfg(test)]
+    pub(super) fn drawn_sprites(&self) -> (Vec<String>, Vec<String>) {
+        let atlas = self.textures.lock();
+        let view = Textures {
+            assets: &self.assets,
+            set: &self.textures,
+            atlas: &atlas,
+        };
+        let mut drawn: Vec<String> = self
+            .cache
+            .iter()
+            .flat_map(|cache| cache.laid.iter())
+            .flat_map(|laid| laid.render.nodes.iter())
+            .filter_map(|node| match &node.draw {
+                Draw::Sprite { texture, .. } => Some(view.canonical(texture).into_owned()),
+                _ => None,
+            })
+            .collect();
+        drawn.sort();
+        drawn.dedup();
+        let missing = drawn
+            .iter()
+            .filter(|key| view.sprite(key).is_none())
+            .cloned()
+            .collect();
+        (drawn, missing)
     }
 
     /// Re-apply a server resource pack's ui files over the vanilla catalog and
@@ -233,9 +244,7 @@ impl FormEngine {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let art = Art {
             assets: &self.assets,
-            server: &self.server,
-            first_page: self.first_page,
-            server_page: (usize::from(self.first_page) + self.assets.atlas_pages().len()) as u16,
+            set: &self.textures,
         };
         let screen_cancel = json_ui::form_screen_cancel(&self.catalog);
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
@@ -337,6 +346,12 @@ fn render_with<R: Borrow<FormRender>>(
     ];
     let cache = RefCell::new(inputs.layouts);
     let render = {
+        let atlas = textures.set.lock();
+        let view = Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+        };
         let measure = Measure {
             layouts: &cache,
             font: inputs.font,
@@ -344,13 +359,9 @@ fn render_with<R: Borrow<FormRender>>(
             px,
             translate: inputs.translate,
         };
-        let sidecars = Sidecars {
-            assets: textures.assets,
-            server: textures.server,
-        };
         let env = LayoutEnv {
             text: &measure,
-            textures: &sidecars,
+            textures: &view,
         };
         draw(&env, root)
     };
@@ -359,11 +370,27 @@ fn render_with<R: Borrow<FormRender>>(
     };
     let render = render.borrow();
     let layouts = cache.into_inner();
+    let mut atlas = textures.set.lock();
+    // Only what this screen draws needs to be resident.
+    let drawn =
+        Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+        }
+        .atlas_keys(render.nodes.iter().chain(out.overlay).filter_map(|node| {
+            match &node.draw {
+                Draw::Sprite { texture, .. } => Some(texture.as_str()),
+                _ => None,
+            }
+        }));
+    atlas.require(drawn.iter().map(String::as_str));
     let mut painter = Painter {
-        assets: textures.assets,
-        server: textures.server,
-        server_page: textures.server_page,
-        first_page: textures.first_page,
+        textures: Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+        },
         solid_page: inputs.solid_page,
         art,
         screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
@@ -485,60 +512,10 @@ impl TextMeasure for Measure<'_, '_> {
     }
 }
 
-/// Sidecar metadata keyed like the ui json references it; a sidecar-less texture
-/// reports its packed pixel size with no nine-slice.
-struct Sidecars<'a> {
-    assets: &'a RuntimeUiAssets,
-    server: &'a BTreeMap<String, ServerTexture>,
-}
-
-impl TextureSource for Sidecars<'_> {
-    fn texture(&self, path: &str) -> Option<TextureMeta> {
-        let key = texture_key(path);
-        if let Some(texture) = self.server.get(key) {
-            return Some(texture.meta.unwrap_or(TextureMeta {
-                base_size: [f64::from(texture.rect[2]), f64::from(texture.rect[3])],
-                nineslice: None,
-            }));
-        }
-        if let Some(sidecar) = self.assets.sidecar(key) {
-            return Some(TextureMeta {
-                base_size: sidecar.base_size.map(f64::from),
-                nineslice: sidecar.nineslice.map(|inset| NineSlice {
-                    left: f64::from(inset.left),
-                    top: f64::from(inset.top),
-                    right: f64::from(inset.right),
-                    bottom: f64::from(inset.bottom),
-                }),
-            });
-        }
-        let placement = self.assets.texture(key)?;
-        Some(TextureMeta {
-            base_size: [f64::from(placement.width), f64::from(placement.height)],
-            nineslice: None,
-        })
-    }
-}
-
-/// Ui json sometimes spells a texture with its file extension; the carrier keys
-/// drop it.
-fn texture_key(path: &str) -> &str {
-    for extension in [".png", ".jpg", ".jpeg", ".tga"] {
-        if let Some(stem) = path.strip_suffix(extension) {
-            return stem;
-        }
-    }
-    path
-}
-
 /// Turns engine draw nodes into retained UI nodes, opening a clip group whenever
 /// the clip rect changes so draw order is preserved.
 struct Painter<'a> {
-    assets: &'a RuntimeUiAssets,
-    server: &'a BTreeMap<String, ServerTexture>,
-    /// Texture page of server page 0.
-    server_page: u16,
-    first_page: u16,
+    textures: Textures<'a>,
     solid_page: u16,
     art: ScreenArt<'a>,
     /// The whole content area, the clip for unclipped tooltips.
@@ -782,20 +759,7 @@ impl Painter<'_> {
     /// A sprite of the texture at `path` (server pack first, then the carrier),
     /// sampling the normalised `uv`; `None` when neither holds it.
     fn sprite(&self, path: &str, uv: json_ui::UvRect, color: [u8; 4]) -> Option<UiVisual> {
-        let key = texture_key(path);
-        let (page, [x, y, w, h]) = match self.server.get(key) {
-            Some(server) => (
-                self.server_page.saturating_add(server.page),
-                server.rect.map(f32::from),
-            ),
-            None => {
-                let placement = self.assets.texture(key)?;
-                (
-                    self.first_page.saturating_add(placement.page),
-                    [placement.x, placement.y, placement.width, placement.height].map(f32::from),
-                )
-            }
-        };
+        let (page, [x, y, w, h]) = self.textures.sprite(path)?;
         let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
         Some(UiVisual::Sprite {
             texture_page: page,

@@ -583,6 +583,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation
         .enable_json_ui(ui_assets)
         .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
+    ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
     ui_presentation.set_engine_containers(args.json_ui_containers);
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
