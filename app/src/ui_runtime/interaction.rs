@@ -464,6 +464,14 @@ pub(crate) fn dispatch_inventory_key(
         runtime.screen_state_mut().scroll_creative(rows, total);
         return None;
     }
+    if let Some(rows) = scroll
+        && runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Loom)
+    {
+        runtime
+            .screen_state_mut()
+            .scroll_loom(rows, super::screen_recipes::LOOM_PATTERNS.len());
+        return None;
+    }
     let target = super::inventory_actions::gesture_target(hit?)?;
     let ledger = runtime.inventory_ledger_mut();
     match (hotbar, key) {
@@ -600,14 +608,14 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         if runtime.inventory_open() {
             consumed_gameplay = true;
-            if runtime.screen_state().search_focused {
-                // The creative search field owns typed text, including `e`.
+            if runtime.screen_state().text_focused() {
+                // A text field owns typed text, including `e`.
                 match input.key_code {
                     KeyCode::Escape => {
                         runtime.close_inventory();
                         inventory_ownership_changed = true;
                     }
-                    KeyCode::Backspace => runtime.screen_state_mut().backspace_search(),
+                    KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     _ => {
                         let modified = keys.pressed(KeyCode::ControlLeft)
                             || keys.pressed(KeyCode::ControlRight)
@@ -616,7 +624,7 @@ pub(crate) fn drive_chat_keyboard_input(
                             || keys.pressed(KeyCode::SuperLeft)
                             || keys.pressed(KeyCode::SuperRight);
                         if !modified && let Some(text) = input.text.as_deref() {
-                            runtime.screen_state_mut().type_search(text);
+                            runtime.screen_state_mut().type_text(text);
                         }
                     }
                 }

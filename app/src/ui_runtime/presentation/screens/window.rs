@@ -20,9 +20,27 @@ pub(crate) struct WindowLayout {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum Widget {
     EnchantOption(u8),
-    BeaconEffect { id: i32, secondary: bool },
+    BeaconEffect {
+        id: i32,
+        secondary: bool,
+    },
+    /// The secondary effect that upgrades the chosen primary one.
+    BeaconUpgrade,
     BeaconConfirm,
+    /// One stonecutter recipe cell by position on the visible page.
+    StonecutterRecipe(u8),
+    /// One loom pattern cell by position on the visible page.
+    LoomPattern(u8),
+    AnvilName,
 }
+
+pub(crate) const STONECUTTER_COLUMNS: usize = 4;
+pub(crate) const STONECUTTER_CELLS: usize = 12;
+pub(crate) const LOOM_COLUMNS: usize = 4;
+pub(crate) const LOOM_CELLS: usize = 16;
+/// The beacon level each selectable effect needs.
+pub(crate) const BEACON_LEVEL_FOR: [(i32, u8); 6] =
+    [(1, 1), (3, 1), (11, 2), (8, 2), (5, 3), (10, 4)];
 
 const EFFECT_SIZE: f32 = 22.0;
 /// Beacon effect buttons by tier: `(effect id, panel-relative position)`.
@@ -34,6 +52,7 @@ const BEACON_PRIMARY: [(i32, [f32; 2]); 5] = [
     (5, [89.0, 72.0]),
 ];
 const BEACON_SECONDARY: (i32, [f32; 2]) = (10, [147.0, 72.0]);
+const BEACON_UPGRADE: [f32; 2] = [171.0, 72.0];
 const BEACON_CONFIRM: [f32; 2] = [164.0, 107.0];
 
 fn slot(hit: InventoryCellHit, x: f32, y: f32) -> PlacedSlot {
@@ -214,9 +233,35 @@ pub(crate) fn widget_rects(kind: WindowKind) -> Vec<(Widget, [f32; 2], [f32; 2])
                 BEACON_SECONDARY.1,
                 [EFFECT_SIZE; 2],
             ));
+            widgets.push((Widget::BeaconUpgrade, BEACON_UPGRADE, [EFFECT_SIZE; 2]));
             widgets.push((Widget::BeaconConfirm, BEACON_CONFIRM, [EFFECT_SIZE; 2]));
             widgets
         }
+        WindowKind::Stonecutter => (0..STONECUTTER_CELLS)
+            .map(|index| {
+                (
+                    Widget::StonecutterRecipe(index as u8),
+                    [
+                        52.0 + (index % STONECUTTER_COLUMNS) as f32 * 16.0,
+                        14.0 + (index / STONECUTTER_COLUMNS) as f32 * 18.0,
+                    ],
+                    [16.0, 18.0],
+                )
+            })
+            .collect(),
+        WindowKind::Loom => (0..LOOM_CELLS)
+            .map(|index| {
+                (
+                    Widget::LoomPattern(index as u8),
+                    [
+                        60.0 + (index % LOOM_COLUMNS) as f32 * 14.0,
+                        13.0 + (index / LOOM_COLUMNS) as f32 * 14.0,
+                    ],
+                    [14.0, 14.0],
+                )
+            })
+            .collect(),
+        WindowKind::Anvil => vec![(Widget::AnvilName, [62.0, 24.0], [103.0, 12.0])],
         _ => Vec::new(),
     }
 }
