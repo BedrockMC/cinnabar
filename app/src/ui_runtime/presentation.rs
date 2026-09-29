@@ -34,7 +34,7 @@ use crate::{
 mod chat;
 mod debug_overlay;
 mod dynamic_textures;
-mod forms;
+pub(crate) mod forms;
 mod hud_extras;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
@@ -50,6 +50,7 @@ mod publish;
 mod retained_hud;
 pub(crate) mod screens;
 mod session_icons;
+pub(crate) use forms::ServerUiPack;
 pub(crate) use hud_extras::load_optional as load_optional_hud_extras;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
@@ -405,6 +406,7 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
+        self.observe_server_ui(runtime.server_ui());
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =

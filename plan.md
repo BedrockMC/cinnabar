@@ -3207,6 +3207,11 @@ gates.
 - [ ] **5.6 Server forms.** `P5.6-FORMS` Implement modal/menu/custom JSON forms, validation, cancellation,
   keyboard/controller/touch navigation, and response routing. This is the prerequisite for
   Lunar ClickUI compatibility.
+  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer `ui/*.json`
+  merge, `$screen_content` routing, expression, view-binding, and factory rules taken from the
+  26.30 reconstruction), with a resolve/layout cache and raw-edge pointer input. Checked only in
+  tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
+  constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
 - [ ] **5.7 UI parity and performance acceptance.** `P5.7-PARITY-PERF` Compare matching vanilla reference views at
   supported scales/aspect ratios, test keyboard/mouse/controller/touch focus transitions, and
   prove bounded retained memory plus stable frame time with chat, scoreboard, boss bars,

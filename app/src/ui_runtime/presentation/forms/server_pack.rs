@@ -4,7 +4,10 @@
 //! textures of the same path. Oversized or undecodable images are skipped, as
 //! the carrier compiler skips them.
 
-use std::{collections::BTreeMap, io::Cursor};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Cursor,
+};
 
 use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
@@ -15,6 +18,44 @@ const MAX_SERVER_TEXTURE_SIDE: u32 = 256;
 /// Bound on packed server pages, so a hostile pack cannot exhaust texture memory.
 const MAX_SERVER_PAGES: usize = 2;
 const GUTTER: u32 = 1;
+
+/// A session's server resource-pack UI: each pack's `ui/**/*.json`, lowest
+/// precedence first (each layer merges over the ones below), and the winning
+/// `textures/**` images and sidecars the pack ui references.
+#[derive(Debug, Default)]
+pub(crate) struct ServerUiPack {
+    pub(crate) ui_layers: Vec<Vec<(String, Vec<u8>)>>,
+    pub(crate) textures: Vec<(String, Vec<u8>)>,
+}
+
+impl ServerUiPack {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.ui_layers.iter().all(Vec::is_empty)
+    }
+
+    /// Whether a pack texture file is worth packing: a png or sidecar in a
+    /// directory the ui references (always `textures/ui/`).
+    pub(crate) fn wants_texture(dirs: &BTreeSet<String>, path: &str) -> bool {
+        (path.ends_with(".png") || path.ends_with(".json"))
+            && (path.starts_with("textures/ui/") || dirs.iter().any(|dir| path.starts_with(dir)))
+    }
+
+    /// Directories of every `textures/...` string literal in the ui json.
+    pub(crate) fn referenced_texture_dirs(layers: &[Vec<(String, Vec<u8>)>]) -> BTreeSet<String> {
+        let mut dirs = BTreeSet::new();
+        for (_, bytes) in layers.iter().flatten() {
+            let text = String::from_utf8_lossy(bytes);
+            for (at, _) in text.match_indices("\"textures/") {
+                let literal = &text[at + 1..];
+                let end = literal.find('"').unwrap_or(literal.len());
+                if let Some((dir, _)) = literal[..end].rsplit_once('/') {
+                    dirs.insert(format!("{dir}/"));
+                }
+            }
+        }
+        dirs
+    }
+}
 
 /// One packed server texture: its page (relative to the first server page), its
 /// pixel rect, and its sidecar metadata.

@@ -523,6 +523,12 @@ pub(crate) fn receive_network_events(
                     packs.item_icons,
                     client_world.fatal_error.is_none(),
                 );
+                resource_packs::install_server_ui(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.server_ui,
+                    client_world.fatal_error.is_none(),
+                );
                 ui_runtime.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,

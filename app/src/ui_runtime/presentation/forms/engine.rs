@@ -4,20 +4,25 @@
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
 //! (needs native measurement against Bedrock's own scale-index rule).
 
-use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, sync::Arc};
+use std::{
+    borrow::{Borrow, Cow},
+    cell::RefCell,
+    collections::BTreeMap,
+    sync::Arc,
+};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, NineSlice,
-    RectOut, TextAlign, TextMeasure, TextureMeta, TextureSource, ViewState, render_form_with,
-    render_screen,
+    RectOut, ResolvedControl, TextAlign, TextMeasure, TextureMeta, TextureSource, ViewState,
+    bind_form, render_bound, render_screen,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
 };
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
-use super::server_pack::ServerTexture;
+use super::server_pack::{ServerTexture, ServerUiPack};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
@@ -41,6 +46,35 @@ pub(crate) struct FormEngine {
     /// the carrier pages for them.
     server: BTreeMap<String, ServerTexture>,
     server_pages: usize,
+    /// The runtime pack last applied, compared by identity.
+    server_source: Option<Arc<ServerUiPack>>,
+    /// The last form's bound tree and laid-out output, reused while unchanged.
+    pub(super) cache: Option<FormCache>,
+    /// Resolve+bind and layout passes run, for cache tests and profiling.
+    pub(super) passes: [usize; 2],
+}
+
+pub(super) struct FormCache {
+    model: FormModel,
+    catalog: Arc<Catalog>,
+    bound: ResolvedControl,
+    laid: Option<LaidForm>,
+}
+
+struct LaidForm {
+    view: ViewState,
+    root: [f64; 2],
+    px: f32,
+    render: FormRender,
+}
+
+/// Borrowed texture sources a paint reads.
+#[derive(Clone, Copy)]
+struct Art<'a> {
+    assets: &'a RuntimeUiAssets,
+    server: &'a BTreeMap<String, ServerTexture>,
+    first_page: u16,
+    server_page: u16,
 }
 
 /// Everything a render borrows from the presentation runtime for one frame.
@@ -65,6 +99,39 @@ impl FormEngine {
             context: Context::desktop(),
             server: BTreeMap::new(),
             server_pages: 0,
+            server_source: None,
+            cache: None,
+            passes: [0; 2],
+        }
+    }
+
+    fn art(&self) -> Art<'_> {
+        Art {
+            assets: &self.assets,
+            server: &self.server,
+            first_page: self.first_page,
+            server_page: self.server_page_start() as u16,
+        }
+    }
+
+    /// Records `pack` as the applied source; `true` when it differs from the last.
+    pub(super) fn take_server_source(&mut self, pack: Option<&Arc<ServerUiPack>>) -> bool {
+        let same = match (&self.server_source, pack) {
+            (Some(current), Some(next)) => Arc::ptr_eq(current, next),
+            (None, None) => true,
+            _ => false,
+        };
+        self.server_source = pack.cloned();
+        !same
+    }
+
+    /// Which catalog forms resolve against, for the render-path log.
+    pub(super) fn catalog_label(&self) -> String {
+        if Arc::ptr_eq(&self.catalog, &self.base) {
+            "vanilla catalog".to_owned()
+        } else {
+            let notes = self.catalog.diagnostics().len() - self.base.diagnostics().len();
+            format!("server pack overlay, {notes} pack diagnostics")
         }
     }
 
@@ -95,37 +162,87 @@ impl FormEngine {
 
     /// Re-apply a server resource pack's ui files over the vanilla catalog;
     /// an empty set restores the vanilla catalog.
-    pub(super) fn set_server_pack(&mut self, files: &[(String, Vec<u8>)]) {
-        if files.is_empty() {
+    pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
+        if layers.iter().all(Vec::is_empty) {
             self.catalog = Arc::clone(&self.base);
             return;
         }
         let mut catalog = (*self.base).clone();
-        catalog.apply_pack(
-            files
-                .iter()
-                .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
-        );
+        for files in layers {
+            catalog.apply_pack(
+                files
+                    .iter()
+                    .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+            );
+        }
+        for note in &catalog.diagnostics()[self.base.diagnostics().len()..] {
+            bevy::log::debug!(note, "server ui pack");
+        }
         self.catalog = Arc::new(catalog);
     }
 
     /// Render `model` into `nodes`; `Ok(None)` when its template is missing, so the
-    /// caller can fall back to the programmatic dialog.
+    /// caller can fall back to the programmatic dialog. The bound tree is reused
+    /// until the model or catalog changes and the layout until the view state,
+    /// viewport, or scale does, so a static form only repaints each frame.
     pub(super) fn render(
-        &self,
+        &mut self,
         model: &FormModel,
         view: &ViewState,
         identity: ServerFormIdentity,
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
-        self.render_with(
+        let current = self.cache.as_ref().is_some_and(|cache| {
+            cache.model == *model && Arc::ptr_eq(&cache.catalog, &self.catalog)
+        });
+        if !current {
+            self.passes[0] += 1;
+            self.cache = bind_form(model, &self.catalog, &self.context).map(|bound| FormCache {
+                model: model.clone(),
+                catalog: Arc::clone(&self.catalog),
+                bound,
+                laid: None,
+            });
+        }
+        let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let art = Art {
+            assets: &self.assets,
+            server: &self.server,
+            first_page: self.first_page,
+            server_page: (usize::from(self.first_page) + self.assets.atlas_pages().len()) as u16,
+        };
+        let screen_cancel = json_ui::form_screen_cancel(&self.catalog);
+        let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
+        let frame = render_with(
+            art,
             inputs,
             out,
             ScreenArt::default(),
             Some(identity),
-            |env, root| render_form_with(model, &self.catalog, &self.context, root, env, view),
-        )
+            move |env, root| {
+                let cache = cache.as_mut()?;
+                let fresh = cache
+                    .laid
+                    .as_ref()
+                    .is_some_and(|laid| laid.view == *view && laid.root == root && laid.px == px);
+                if !fresh {
+                    *passes += 1;
+                    let render = render_bound(cache.bound.clone(), root, env, view);
+                    cache.laid = Some(LaidForm {
+                        view: view.clone(),
+                        root,
+                        px,
+                        render,
+                    });
+                }
+                cache.laid.as_ref().map(|laid| &laid.render)
+            },
+        )?;
+        Ok(frame.map(|mut frame| {
+            frame.cancel_target = frame.cancel_target.or(screen_cancel);
+            frame
+        }))
     }
 
     /// Render an allow-listed screen against `data`; `art` backs its custom
@@ -141,79 +258,80 @@ impl FormEngine {
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
-        self.render_with(inputs, out, art, None, |env, root| {
+        render_with(self.art(), inputs, out, art, None, |env, root| {
             render_screen(reference, &self.catalog, context, data, root, env, view)
         })
     }
+}
 
-    fn render_with(
-        &self,
-        inputs: EngineInputs<'_>,
-        out: EngineOutput<'_>,
-        art: ScreenArt<'_>,
-        identity: Option<ServerFormIdentity>,
-        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<FormRender>,
-    ) -> Result<Option<EngineFrame>, UiPresentationError> {
-        let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let root = [
-            f64::from(inputs.content[0] / px),
-            f64::from(inputs.content[1] / px),
-        ];
-        let cache = RefCell::new(inputs.layouts);
-        let render = {
-            let measure = Measure {
-                layouts: &cache,
-                font: inputs.font,
-                metrics: inputs.metrics,
-                px,
-                translate: inputs.translate,
-            };
-            let textures = Sidecars {
-                assets: &self.assets,
-                server: &self.server,
-            };
-            let env = LayoutEnv {
-                text: &measure,
-                textures: &textures,
-            };
-            draw(&env, root)
-        };
-        let Some(render) = render else {
-            return Ok(None);
-        };
-        let layouts = cache.into_inner();
-        let mut painter = Painter {
-            assets: &self.assets,
-            server: &self.server,
-            server_page: self.server_page_start() as u16,
-            first_page: self.first_page,
-            solid_page: inputs.solid_page,
-            art,
-            screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
-            layouts,
+fn render_with<R: Borrow<FormRender>>(
+    textures: Art<'_>,
+    inputs: EngineInputs<'_>,
+    out: EngineOutput<'_>,
+    art: ScreenArt<'_>,
+    identity: Option<ServerFormIdentity>,
+    draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+) -> Result<Option<EngineFrame>, UiPresentationError> {
+    let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+    let root = [
+        f64::from(inputs.content[0] / px),
+        f64::from(inputs.content[1] / px),
+    ];
+    let cache = RefCell::new(inputs.layouts);
+    let render = {
+        let measure = Measure {
+            layouts: &cache,
             font: inputs.font,
             metrics: inputs.metrics,
             px,
             translate: inputs.translate,
-            nodes: out.nodes,
-            next: out.next,
-            clip: None,
         };
-        for node in render.nodes.iter().chain(out.overlay) {
-            painter.paint(node)?;
-        }
-        Ok(Some(EngineFrame {
-            identity,
-            hits: render.hits,
-            report: render.report,
-            cancel_target: render.cancel_target,
-            origin: [inputs.safe_area.left(), inputs.safe_area.top()],
-            scale: px,
-            panel: render
-                .root_panel
-                .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
-        }))
+        let sidecars = Sidecars {
+            assets: textures.assets,
+            server: textures.server,
+        };
+        let env = LayoutEnv {
+            text: &measure,
+            textures: &sidecars,
+        };
+        draw(&env, root)
+    };
+    let Some(render) = render else {
+        return Ok(None);
+    };
+    let render = render.borrow();
+    let layouts = cache.into_inner();
+    let mut painter = Painter {
+        assets: textures.assets,
+        server: textures.server,
+        server_page: textures.server_page,
+        first_page: textures.first_page,
+        solid_page: inputs.solid_page,
+        art,
+        screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
+        layouts,
+        font: inputs.font,
+        metrics: inputs.metrics,
+        px,
+        translate: inputs.translate,
+        nodes: out.nodes,
+        next: out.next,
+        clip: None,
+    };
+    for node in render.nodes.iter().chain(out.overlay) {
+        painter.paint(node)?;
     }
+    Ok(Some(EngineFrame {
+        identity,
+        hits: render.hits.clone(),
+        report: render.report.clone(),
+        cancel_target: render.cancel_target.clone(),
+        origin: [inputs.safe_area.left(), inputs.safe_area.top()],
+        scale: px,
+        panel: render
+            .root_panel
+            .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
+    }))
 }
 
 /// Caller art the custom renderers draw: the icon table `#item_renderer_data`
@@ -234,15 +352,22 @@ pub(super) struct EngineOutput<'a> {
 }
 
 /// A label's text after localization: an exact language key resolves, anything
-/// else draws verbatim (vanilla labels localize by default).
+/// else draws verbatim (vanilla labels localize by default). Empty lines drop,
+/// as the vanilla label splits on newlines and discards empty ones.
 fn localized<'a>(text: &'a str, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Cow<'a, str> {
-    if text.is_empty() || text.contains(char::is_whitespace) {
-        return Cow::Borrowed(text);
+    let text = if text.is_empty() || text.contains(char::is_whitespace) {
+        Cow::Borrowed(text)
+    } else {
+        match translate(text) {
+            Some(value) => Cow::Owned(value.to_string()),
+            None => Cow::Borrowed(text),
+        }
+    };
+    if text.contains("\n\n") || text.starts_with('\n') || text.ends_with('\n') {
+        let lines: Vec<&str> = text.split('\n').filter(|line| !line.is_empty()).collect();
+        return Cow::Owned(lines.join("\n"));
     }
-    match translate(text) {
-        Some(value) => Cow::Owned(value.to_string()),
-        None => Cow::Borrowed(text),
-    }
+    text
 }
 
 fn scaled_request<'a>(
@@ -513,6 +638,78 @@ impl Painter<'_> {
         )))
     }
 
+    /// A label's text, one node per source line so each aligns on its own. Only
+    /// whole lines that fit the label's height draw (the first always does), as
+    /// the vanilla label drops lines past its height.
+    fn text(
+        &mut self,
+        text: &str,
+        dest: [f32; 4],
+        clip: [f32; 4],
+        style: TextPaint,
+    ) -> Result<(), UiPresentationError> {
+        let text = localized(text, self.translate);
+        let mut top = dest[1];
+        let mut carry = String::new();
+        for (index, line) in text.split('\n').enumerate() {
+            let source = format!("{carry}{line}");
+            carry = active_codes(&source);
+            if line.is_empty() {
+                continue;
+            }
+            let request = scaled_request(
+                &self.metrics,
+                &source,
+                width_64(f64::from(dest[2] - dest[0])),
+                self.font,
+                style.scale,
+            );
+            let Ok(layout) = self.layouts.layout(request) else {
+                continue;
+            };
+            let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
+            let pitch = height / f32::from(layout.line_count().max(1));
+            let room = ((dest[3] - top) / pitch + 0.01).floor().max(0.0);
+            if index > 0 && room < 1.0 {
+                break;
+            }
+            let shown = room.clamp(1.0, f32::from(layout.line_count().max(1)));
+            let bottom = (top + shown * pitch).min(clip[3]);
+            let line_clip = [clip[0], clip[1], clip[2], bottom];
+            if line_clip[3] <= line_clip[1] {
+                break;
+            }
+            let slack = (dest[2] - dest[0] - width).max(0.0);
+            let shift = match style.align {
+                TextAlign::Left => 0.0,
+                TextAlign::Center => slack * 0.5,
+                TextAlign::Right => slack,
+            };
+            let parent = self.group(line_clip)?;
+            let id = self.id();
+            let x = dest[0] + shift;
+            self.nodes.push(
+                UiNode::new(
+                    id,
+                    Some(parent),
+                    rect(
+                        x - line_clip[0],
+                        top - line_clip[1],
+                        x + width.max(1.0) - line_clip[0],
+                        top + height - line_clip[1],
+                    )?,
+                )
+                .with_visual(UiVisual::Text {
+                    layout,
+                    color: style.color,
+                    shadow: style.shadow,
+                }),
+            );
+            top += height;
+        }
+        Ok(())
+    }
+
     /// A solid rect in the current clip group.
     fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]) -> Result<(), UiPresentationError> {
         let Some((clip, parent)) = self.clip else {
@@ -558,6 +755,26 @@ impl Painter<'_> {
             Draw::Custom { renderer, .. } if renderer == "hover_text_renderer" => self.screen,
             _ => clip,
         };
+        if let Draw::Text {
+            text,
+            color,
+            shadow,
+            align,
+            scale,
+        } = &node.draw
+        {
+            let style = TextPaint {
+                color: alpha(*color),
+                shadow: if *shadow {
+                    self.metrics.shadow()
+                } else {
+                    TextShadow::None
+                },
+                align: *align,
+                scale: *scale,
+            };
+            return self.text(text, dest, clip, style);
+        }
         let parent = self.group(clip)?;
         let (visual, bounds) = match &node.draw {
             Draw::Solid { color } => (
@@ -600,47 +817,8 @@ impl Painter<'_> {
                     dest,
                 )
             }
-            Draw::Text {
-                text,
-                color,
-                shadow,
-                align,
-                scale,
-            } => {
-                if text.is_empty() {
-                    return Ok(());
-                }
-                let text = localized(text, self.translate);
-                let request = scaled_request(
-                    &self.metrics,
-                    &text,
-                    width_64(f64::from(dest[2] - dest[0])),
-                    self.font,
-                    *scale,
-                );
-                let Ok(layout) = self.layouts.layout(request) else {
-                    return Ok(());
-                };
-                let width = layout.size_64()[0] as f32 / 64.0;
-                let slack = (dest[2] - dest[0] - width).max(0.0);
-                let shift = match align {
-                    TextAlign::Left => 0.0,
-                    TextAlign::Center => slack * 0.5,
-                    TextAlign::Right => slack,
-                };
-                (
-                    UiVisual::Text {
-                        layout,
-                        color: alpha(*color),
-                        shadow: if *shadow {
-                            self.metrics.shadow()
-                        } else {
-                            TextShadow::None
-                        },
-                    },
-                    [dest[0] + shift, dest[1], dest[2] + shift, dest[3]],
-                )
-            }
+            // Drawn above, one node per line.
+            Draw::Text { .. } => return Ok(()),
             Draw::Custom { renderer, data } => match self.custom(renderer, data, dest, alpha) {
                 Some(visual) => visual,
                 None => return Ok(()),
@@ -662,6 +840,34 @@ impl Painter<'_> {
         );
         Ok(())
     }
+}
+
+#[derive(Clone, Copy)]
+struct TextPaint {
+    color: [u8; 4],
+    shadow: TextShadow,
+    align: TextAlign,
+    scale: f32,
+}
+
+/// The format codes in force at the end of `text`, to open the next line with.
+pub(super) fn active_codes(text: &str) -> String {
+    let mut codes = String::new();
+    let mut characters = text.chars();
+    while let Some(character) = characters.next() {
+        if character != '§' {
+            continue;
+        }
+        match characters.next() {
+            Some('r') => codes.clear(),
+            Some(code @ ('0'..='9' | 'a'..='w')) => {
+                codes.push('§');
+                codes.push(code);
+            }
+            _ => {}
+        }
+    }
+    codes
 }
 
 /// Durability colour: hue from green (full) to red (worn); needs native measurement.

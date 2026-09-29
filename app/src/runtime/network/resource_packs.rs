@@ -9,7 +9,7 @@ use super::{
     block_overlay::{CompiledBlockOverlay, compile_block_overlay},
     item_icons::compile_session_icons,
 };
-use crate::ui_runtime::presentation::SessionIcons;
+use crate::ui_runtime::presentation::{ServerUiPack, SessionIcons};
 
 /// Everything the session applies from its server pack stack.
 #[derive(Debug)]
@@ -20,6 +20,7 @@ pub struct PackApplication {
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
+    pub(crate) server_ui: Option<Arc<ServerUiPack>>,
 }
 
 impl Default for PackApplication {
@@ -31,6 +32,7 @@ impl Default for PackApplication {
             item_icons: None,
             entities: None,
             property_defaults: Vec::new(),
+            server_ui: None,
         }
     }
 }
@@ -86,8 +88,66 @@ pub(super) fn prepare_pack_application(
         item_icons: compile_session_icons(&view, icon_keys),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
+        server_ui: collect_server_ui(&view),
         admission: PackAdmission::Validated(stack),
         block_overlay,
+    }
+}
+
+/// Bounds on the pack UI handed to the form engine.
+const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SERVER_UI_TEXTURES: usize = 4096;
+
+/// Each pack's `ui/**/*.json` (lowest precedence first) and the winning texture
+/// files that ui references; `None` when no pack carries ui.
+fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
+    let mut total = 0usize;
+    let mut pack = ServerUiPack::default();
+    for layer in view.layers() {
+        let mut files = Vec::new();
+        for path in layer
+            .files_under("ui/")
+            .iter()
+            .filter(|path| path.ends_with(".json"))
+        {
+            let Some(bytes) = layer.read_file(path).ok().flatten() else {
+                continue;
+            };
+            total = total.saturating_add(bytes.len());
+            if total > MAX_SERVER_UI_BYTES {
+                break;
+            }
+            files.push(((*path).to_owned(), bytes.into_vec()));
+        }
+        pack.ui_layers.push(files);
+    }
+    if pack.is_empty() {
+        return None;
+    }
+    let dirs = ServerUiPack::referenced_texture_dirs(&pack.ui_layers);
+    for path in view.list("textures/") {
+        if pack.textures.len() >= MAX_SERVER_UI_TEXTURES || total > MAX_SERVER_UI_BYTES {
+            break;
+        }
+        if !ServerUiPack::wants_texture(&dirs, path) {
+            continue;
+        }
+        if let Some(bytes) = view.read_capped(path, MAX_TEXTURE_SOURCE_BYTES as u64) {
+            total = total.saturating_add(bytes.len());
+            pack.textures.push((path.to_owned(), bytes.into_vec()));
+        }
+    }
+    Some(Arc::new(pack))
+}
+
+pub(super) fn install_server_ui(
+    runtime: &mut crate::ui_runtime::UiRuntime,
+    generation: u64,
+    pack: Option<Arc<ServerUiPack>>,
+    setup_succeeded: bool,
+) {
+    if runtime.session_id() == generation {
+        runtime.set_server_ui(pack.filter(|_| setup_succeeded));
     }
 }
 
