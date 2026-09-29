@@ -217,10 +217,10 @@ fn unique_entities(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
             let Ok(Some(bytes)) = layer.read_file(path) else {
                 continue;
             };
-            if let Some(identifier) = super::entity_identifier(&bytes) {
-                if let Some(canonical) = canonical_json(&bytes) {
-                    owners.insert(identifier, (path.into(), canonical));
-                }
+            if let Some(identifier) = super::entity_identifier(&bytes)
+                && let Some(canonical) = canonical_json(&bytes)
+            {
+                owners.insert(identifier, (path.into(), canonical));
             }
         }
     }
