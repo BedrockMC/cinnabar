@@ -41,6 +41,12 @@ impl ActorRigState {
         }
     }
 
+    /// Bones the rig poses: the skin's when it has a model.
+    pub(super) fn posed_bones(&self) -> &[RuntimeBone] {
+        self.skin_skeleton()
+            .map_or(&self.bones, |skeleton| &skeleton.bones)
+    }
+
     /// Names of the bones the rig poses: the skin's when it has a model.
     pub(super) fn posed_bone_names(&self) -> &[Box<str>] {
         self.skin_skeleton()

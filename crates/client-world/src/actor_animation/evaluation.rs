@@ -248,6 +248,9 @@ pub(super) struct Evaluator<'a> {
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
+    /// The posed skeleton's bones and lowercase names, for bone queries.
+    pub(super) bones: &'a [RuntimeBone],
+    pub(super) bone_names: &'a [Box<str>],
 }
 
 impl Evaluator<'_> {
@@ -463,6 +466,8 @@ impl Evaluator<'_> {
             anim_tick: self.anim_tick,
             life_tick: self.life_tick,
             finished: self.finished,
+            bones: self.bones,
+            bone_names: self.bone_names,
         };
         query::query(&inputs, &symbol.identifier, arguments)
     }

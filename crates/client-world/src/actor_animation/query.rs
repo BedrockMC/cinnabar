@@ -129,6 +129,8 @@ pub(super) struct QueryInputs<'a> {
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
+    pub(super) bones: &'a [RuntimeBone],
+    pub(super) bone_names: &'a [Box<str>],
 }
 
 /// Reads one query from retained actor state; a listed query the client has no data for
@@ -150,6 +152,7 @@ pub(super) fn query(
         }),
         "owner_identifier" => text(None),
         "property" => property(evaluator, arguments.first()),
+        "get_default_bone_pivot" => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
     }
 }
@@ -195,6 +198,29 @@ fn property(evaluator: &QueryInputs<'_>, name: Option<&MolangValue>) -> MolangVa
             MolangValue::Number(default)
         }
         PropertyKind::Number => MolangValue::Number(value as f32),
+    }
+}
+
+/// A bone's rest pivot on one axis in authored pixels; 0 for an unknown bone or axis.
+fn default_bone_pivot(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) -> f32 {
+    let (Some(MolangValue::String(name)), Some(axis)) = (arguments.first(), arguments.get(1))
+    else {
+        return 0.0;
+    };
+    let Some(bone) = evaluator
+        .bone_names
+        .iter()
+        .position(|candidate| candidate.eq_ignore_ascii_case(name))
+        .and_then(|index| evaluator.bones.get(index))
+    else {
+        return 0.0;
+    };
+    // Rig pivots mirror authored X.
+    match axis.number() as i32 {
+        0 => -bone.pivot[0],
+        1 => bone.pivot[1],
+        2 => bone.pivot[2],
+        _ => 0.0,
     }
 }
 

@@ -175,6 +175,8 @@ pub(super) fn evaluate_state(
         anim_tick,
         life_tick,
         finished: (false, false),
+        bones: state.posed_bones(),
+        bone_names: state.posed_bone_names(),
     };
     let rig = assets
         .rig_bindings()
