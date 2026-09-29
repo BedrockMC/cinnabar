@@ -52,8 +52,11 @@ fn derive_base_frame(
     medium: CameraMedium,
     context: &EnvironmentContext,
 ) -> AtmosphereFrame {
+    let cloud_fade = context.render_distance_blocks.unwrap_or(0.0)
+        * f32::from(render::CloudRenderConfig::default().distance_scale());
     let frame = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium)
-        .with_sky_kind(SkyKind::from_dimension(context.dimension));
+        .with_sky_kind(SkyKind::from_dimension(context.dimension))
+        .with_cloud_fade_distance(cloud_fade);
     match context.camera_biome_temperature {
         Some(temperature) => frame.with_biome_temperature(temperature),
         None => frame,
