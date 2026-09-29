@@ -5,7 +5,8 @@ use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BedrockSession, BlockUsePacketError,
     BlockUseRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack, SwingSource,
     VerifiedNetworkItemStack, click_block_packet, click_block_transaction_packet, decode_batch,
-    destroy_block_packet, encode, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    destroy_block_packet, encode, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
+    use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_44::{
@@ -14,7 +15,7 @@ use valentine::bedrock::version::v1_26_44::{
     EnumsItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType, EnumsPlayerActionType,
-    InventoryTransactionPacketTransaction, McpePacketData, McpePacketName,
+    EnumsPlayerRespawnState, InventoryTransactionPacketTransaction, McpePacketData, McpePacketName,
 };
 
 const CLICK_BLOCK: &[u8] = include_bytes!("../fixtures/inventory_transaction_click_block.bin");
@@ -594,6 +595,18 @@ fn stop_sleeping_packet_is_a_player_action_for_the_local_runtime_id() {
     };
     assert_eq!(action.action, EnumsPlayerActionType::StopSleeping);
     assert_eq!(action.player_runtime_id.actor_runtime_id, 7);
+}
+
+#[test]
+fn respawn_request_is_client_ready_with_the_local_runtime_id() {
+    let bytes = encode(&respawn_request_packet(7), &session()).unwrap();
+    let decoded = decode_batch(bytes, &session()).unwrap().remove(0);
+    let McpePacketData::RespawnPacket(respawn) = decoded.data else {
+        panic!("respawn packet");
+    };
+    assert_eq!(respawn.state, EnumsPlayerRespawnState::ClientReadyToSpawn);
+    assert_eq!(respawn.player_runtime_id.actor_runtime_id, 7);
+    assert_eq!(respawn.position.y, 0.0);
 }
 
 #[test]
