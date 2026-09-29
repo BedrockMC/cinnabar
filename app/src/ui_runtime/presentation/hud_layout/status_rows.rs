@@ -1,263 +1,320 @@
-//! Health, armor, hunger, mount-health and air rows.
+//! What the HUD's native renderers draw each frame: health, armor, hunger,
+//! mount-health and air rows, status effects, the mount jump bar, and the
+//! crosshair, laid out relative to each renderer's control with the Java
+//! Edition rules (row stacking, jitter, regeneration wave, damage blink).
 
 use assets::HudTextureRole;
 
-use ui::{UiNode, UiNodeId, UiVisual};
-
 use super::{
-    HudFrame, HudLayout, UiPresentationError, UiRuntime,
-    pinned::{HOTBAR_WIDTH, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, damage_flash_phase, heart_role},
-    rect,
+    HudFrame, HudTexturePages, UiRuntime,
+    pinned::{
+        HARMFUL_EFFECT_IDS, MAX_HEART_ROWS, MAX_MOUNT_HEARTS, damage_flash_phase,
+        effect_blink_alpha, effect_icon_role, heart_role,
+    },
     status_motion::{heart_lift, hunger_shake_offset, hunger_shakes},
 };
+use crate::ui_runtime::presentation::forms::hud_renderers::{Cell, HudPaint, SheetSprite};
 
-impl HudLayout<'_> {
-    pub(super) fn health_rows(
-        &mut self,
-        runtime: &UiRuntime,
-        frame: &HudFrame,
-        now_tick: Option<u64>,
-    ) -> Result<(), UiPresentationError> {
-        let Some(health) = runtime.hud().health() else {
-            return Ok(());
-        };
-        let scale = u32::from(health.scale());
-        // Half-heart units on the reference 20-point scale.
-        let current = u32::from(health.current()).div_ceil(scale.max(1));
-        let maximum = u32::from(health.maximum()) / scale.max(1);
-        let absorption = runtime
-            .hud()
-            .absorption()
-            .map(|stat| u32::from(stat.current()).div_ceil(u32::from(stat.scale()).max(1)))
-            .unwrap_or(0);
-        let health_hearts = maximum.div_ceil(2).min(u32::from(MAX_HEART_ROWS) * 10);
-        let absorption_hearts = absorption.div_ceil(2).min(20);
-        let total_hearts = (health_hearts + absorption_hearts).max(1);
-        let rows = total_hearts.div_ceil(10).max(1) as u16;
-        let row_height = (10 - (rows.saturating_sub(2))).max(3) as f32;
+/// The `textures/ui` path a HUD role was compiled from.
+fn path(role: HudTextureRole) -> &'static str {
+    let source = role.source_path();
+    source.strip_suffix(".png").unwrap_or(source)
+}
 
-        let variant = runtime.gameplay_hud().heart_variant(now_tick);
-        let flash = damage_flash_phase(runtime.last_health_drop_millis(), frame.now_millis);
-        let g = self.geometry;
-        let base = [(g.gui_width - HOTBAR_WIDTH) / 2.0, g.gui_height - 39.0];
-        let tick = now_tick.unwrap_or(frame.now_millis / 50);
-        let regenerating = runtime.gameplay_hud().regeneration_active(now_tick);
-        let low_health_halves = current + absorption;
-        for index in 0..total_hearts {
-            let row = index / 10;
-            let column = index % 10;
-            let lift = heart_lift(index, health_hearts, low_health_halves, regenerating, tick);
-            let position = [
-                base[0] + column as f32 * 8.0,
-                base[1] - row as f32 * row_height - lift,
-            ];
-            self.sprite_gui(HudTextureRole::HeartBackground, position, [255; 4])?;
-            let foreground = if index < health_hearts {
-                let filled = current.saturating_sub(index * 2);
-                heart_role(variant, flash, filled)
-            } else {
-                let filled = absorption.saturating_sub((index - health_hearts) * 2);
-                match filled {
-                    0 => None,
-                    1 => Some(HudTextureRole::AbsorptionHeartHalf),
-                    _ => Some(HudTextureRole::AbsorptionHeartFull),
-                }
-            };
-            if let Some(role) = foreground {
-                let hardcore = frame
-                    .hardcore_hearts
-                    .filter(|_| runtime.gameplay_hud().hardcore())
-                    .and_then(|hearts| hearts.sprite(role));
-                match hardcore {
-                    Some((page, uv)) => self.extra_sprite_gui(page, uv, position)?,
-                    None => self.sprite_gui(role, position, [255; 4])?,
-                }
+/// The hardcore variant of a heart foreground, which lives in `textures/ui/hardcore/`.
+fn hardcore_path(role: HudTextureRole) -> Option<&'static str> {
+    Some(match role {
+        HudTextureRole::HeartFull => "textures/ui/hardcore/heart",
+        HudTextureRole::HeartHalf => "textures/ui/hardcore/heart_half",
+        HudTextureRole::HeartFlashFull => "textures/ui/hardcore/heart_flash",
+        HudTextureRole::HeartFlashHalf => "textures/ui/hardcore/heart_flash_half",
+        HudTextureRole::AbsorptionHeartFull => "textures/ui/hardcore/absorption_heart",
+        HudTextureRole::AbsorptionHeartHalf => "textures/ui/hardcore/absorption_heart_half",
+        HudTextureRole::FreezeHeartFull => "textures/ui/hardcore/freeze_heart",
+        HudTextureRole::FreezeHeartHalf => "textures/ui/hardcore/freeze_heart_half",
+        HudTextureRole::FreezeHeartFlashFull => "textures/ui/hardcore/freeze_heart_flash",
+        HudTextureRole::FreezeHeartFlashHalf => "textures/ui/hardcore/freeze_heart_flash_half",
+        _ => return None,
+    })
+}
+
+/// Health plus absorption in hearts, and the row pitch the stacked rows use.
+struct HeartRows {
+    current: u32,
+    absorption: u32,
+    health_hearts: u32,
+    total: u32,
+    rows: u32,
+    pitch: f32,
+}
+
+fn heart_rows(runtime: &UiRuntime) -> Option<HeartRows> {
+    let health = runtime.hud().health()?;
+    let scale = u32::from(health.scale()).max(1);
+    // Half-heart units on the reference 20-point scale.
+    let current = u32::from(health.current()).div_ceil(scale);
+    let maximum = u32::from(health.maximum()) / scale;
+    let absorption = runtime
+        .hud()
+        .absorption()
+        .map(|stat| u32::from(stat.current()).div_ceil(u32::from(stat.scale()).max(1)))
+        .unwrap_or(0);
+    let health_hearts = maximum.div_ceil(2).min(u32::from(MAX_HEART_ROWS) * 10);
+    let total = (health_hearts + absorption.div_ceil(2).min(20)).max(1);
+    let rows = total.div_ceil(10).max(1);
+    let pitch = (10 - rows.saturating_sub(2)).max(3) as f32;
+    Some(HeartRows {
+        current,
+        absorption,
+        health_hearts,
+        total,
+        rows,
+        pitch,
+    })
+}
+
+/// Capture the frame's native HUD art.
+pub(in super::super) fn capture(
+    runtime: &UiRuntime,
+    frame: &HudFrame,
+    sheet: Option<&HudTexturePages>,
+) -> HudPaint {
+    let now_tick = runtime.estimated_server_tick(frame.now_millis);
+    let mode_allows_hotbar = runtime
+        .player_game_mode()
+        .is_none_or(|mode| mode.shows_hotbar());
+    let mut paint = HudPaint {
+        effects: effects(runtime, now_tick),
+        // First person only, and never in spectator (no interaction targeting).
+        crosshair: sheet
+            .filter(|_| frame.first_person && mode_allows_hotbar)
+            .map(|sheet| sheet_sprite(sheet, HudTextureRole::Crosshair)),
+        ..HudPaint::default()
+    };
+    if !runtime.survival_stats_visible() {
+        return paint;
+    }
+    if let Some(rows) = heart_rows(runtime) {
+        paint.hearts = hearts(runtime, frame, &rows, now_tick);
+        paint.armor = armor(runtime, &rows);
+    }
+    match frame.mount_health {
+        Some(health) => paint.mount_hearts = mount_hearts(health),
+        None => paint.hunger = hunger(runtime, now_tick),
+    }
+    paint.bubbles = bubbles(runtime);
+    if let (Some(charge), Some(sheet)) = (frame.mount_jump, sheet) {
+        let filled = (charge.clamp(0.0, 1.0) * 183.0).floor().clamp(0.0, 182.0);
+        paint.mount_jump = Some((
+            sheet_sprite(sheet, HudTextureRole::MountJumpBackground),
+            sheet_sprite(sheet, HudTextureRole::MountJumpProgress),
+            filled,
+        ));
+    }
+    paint
+}
+
+fn sheet_sprite(sheet: &HudTexturePages, role: HudTextureRole) -> SheetSprite {
+    SheetSprite {
+        page: sheet.page,
+        uv: sheet.sprite(role).uv,
+    }
+}
+
+fn hearts(
+    runtime: &UiRuntime,
+    frame: &HudFrame,
+    rows: &HeartRows,
+    now_tick: Option<u64>,
+) -> Vec<Cell> {
+    let variant = runtime.gameplay_hud().heart_variant(now_tick);
+    let flash = damage_flash_phase(runtime.last_health_drop_millis(), frame.now_millis);
+    let tick = now_tick.unwrap_or(frame.now_millis / 50);
+    let regenerating = runtime.gameplay_hud().regeneration_active(now_tick);
+    let hardcore = runtime.gameplay_hud().hardcore();
+    let mut cells = Vec::new();
+    for index in 0..rows.total {
+        let lift = heart_lift(
+            index,
+            rows.health_hearts,
+            rows.current + rows.absorption,
+            regenerating,
+            tick,
+        );
+        let at = [
+            (index % 10) as f32 * 8.0,
+            -((index / 10) as f32) * rows.pitch - lift,
+        ];
+        cells.push(Cell::icon(at, path(HudTextureRole::HeartBackground)));
+        let foreground = if index < rows.health_hearts {
+            heart_role(variant, flash, rows.current.saturating_sub(index * 2))
+        } else {
+            match rows
+                .absorption
+                .saturating_sub((index - rows.health_hearts) * 2)
+            {
+                0 => None,
+                1 => Some(HudTextureRole::AbsorptionHeartHalf),
+                _ => Some(HudTextureRole::AbsorptionHeartFull),
             }
-        }
-        Ok(())
-    }
-
-    /// A 9x9 GUI px sprite from the extras page.
-    fn extra_sprite_gui(
-        &mut self,
-        page: u16,
-        uv: [u16; 4],
-        gui: [f32; 2],
-    ) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let [x, y] = g.logical(gui);
-        let node = UiNode::new(
-            UiNodeId::new(*self.next_id),
-            None,
-            rect(x, y, x + 9.0 * g.scale, y + 9.0 * g.scale)?,
-        )
-        .with_visual(UiVisual::Sprite {
-            texture_page: page,
-            uv,
-            color: [255; 4],
-        });
-        self.nodes.push(node);
-        *self.next_id = self.next_id.saturating_add(1);
-        Ok(())
-    }
-
-    /// Armor sits one row above the highest heart row and appears only while
-    /// the authoritative equipped armor total is nonzero.
-    pub(super) fn armor_row(&mut self, runtime: &UiRuntime) -> Result<(), UiPresentationError> {
-        let Some(armor) = runtime.hud().armor() else {
-            return Ok(());
         };
-        let points = u32::from(armor.current()).div_ceil(u32::from(armor.scale()).max(1));
-        if points == 0 {
-            return Ok(());
+        if let Some(role) = foreground {
+            let mut cell = Cell::icon(at, path(role));
+            cell.preferred = hardcore.then(|| hardcore_path(role)).flatten();
+            cells.push(cell);
         }
-        let Some(health) = runtime.hud().health() else {
-            return Ok(());
-        };
-        let scale = u32::from(health.scale()).max(1);
-        let maximum = u32::from(health.maximum()) / scale;
-        let absorption = runtime
-            .hud()
-            .absorption()
-            .map(|stat| u32::from(stat.current()).div_ceil(u32::from(stat.scale()).max(1)))
-            .unwrap_or(0);
-        let hearts = (maximum.div_ceil(2).min(u32::from(MAX_HEART_ROWS) * 10)
-            + absorption.div_ceil(2).min(20))
-        .max(1);
-        let rows = hearts.div_ceil(10).max(1) as u16;
-        let row_height = (10 - (rows.saturating_sub(2))).max(3) as f32;
-        let g = self.geometry;
-        let y = g.gui_height - 39.0 - (rows.saturating_sub(1)) as f32 * row_height - 10.0;
-        let x = (g.gui_width - HOTBAR_WIDTH) / 2.0;
-        for index in 0..10u32 {
-            let position = [x + index as f32 * 8.0, y];
-            let remaining = points.saturating_sub(index * 2);
-            let role = match remaining {
+    }
+    cells
+}
+
+/// Armor sits one row above the highest heart row, only while armor is worn.
+fn armor(runtime: &UiRuntime, rows: &HeartRows) -> Vec<Cell> {
+    let Some(armor) = runtime.hud().armor() else {
+        return Vec::new();
+    };
+    let points = u32::from(armor.current()).div_ceil(u32::from(armor.scale()).max(1));
+    if points == 0 {
+        return Vec::new();
+    }
+    let y = -((rows.rows - 1) as f32) * rows.pitch - 10.0;
+    (0..10u32)
+        .map(|index| {
+            let role = match points.saturating_sub(index * 2) {
                 0 => HudTextureRole::ArmorEmpty,
                 1 => HudTextureRole::ArmorHalf,
                 _ => HudTextureRole::ArmorFull,
             };
-            self.sprite_gui(role, position, [255; 4])?;
-        }
-        Ok(())
-    }
+            Cell::icon([index as f32 * 8.0, y], path(role))
+        })
+        .collect()
+}
 
-    pub(super) fn hunger_row(
-        &mut self,
-        runtime: &UiRuntime,
-        now_tick: Option<u64>,
-    ) -> Result<(), UiPresentationError> {
-        let Some(hunger) = runtime.hud().hunger() else {
-            return Ok(());
-        };
-        let scale = u32::from(hunger.scale()).max(1);
-        let current = u32::from(hunger.current()).div_ceil(scale);
-        let effect = runtime.gameplay_hud().hunger_effect_active(now_tick);
-        let (background, full, half) = if effect {
-            (
-                HudTextureRole::HungerEffectBackground,
-                HudTextureRole::HungerEffectFull,
-                HudTextureRole::HungerEffectHalf,
-            )
+/// Right-to-left from the control's position, shaking on empty saturation.
+fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
+    let Some(hunger) = runtime.hud().hunger() else {
+        return Vec::new();
+    };
+    let current = u32::from(hunger.current()).div_ceil(u32::from(hunger.scale()).max(1));
+    let (background, full, half) = if runtime.gameplay_hud().hunger_effect_active(now_tick) {
+        (
+            HudTextureRole::HungerEffectBackground,
+            HudTextureRole::HungerEffectFull,
+            HudTextureRole::HungerEffectHalf,
+        )
+    } else {
+        (
+            HudTextureRole::HungerBackground,
+            HudTextureRole::HungerFull,
+            HudTextureRole::HungerHalf,
+        )
+    };
+    let tick = now_tick.unwrap_or(0);
+    // Without a server clock there is no tick to pulse on, so no shake.
+    let shaking = now_tick.is_some()
+        && hunger_shakes(runtime.gameplay_hud().saturation_empty(), current, tick);
+    let mut cells = Vec::new();
+    for index in 0..10u32 {
+        let shake = if shaking {
+            hunger_shake_offset(index, tick)
         } else {
-            (
-                HudTextureRole::HungerBackground,
-                HudTextureRole::HungerFull,
-                HudTextureRole::HungerHalf,
-            )
+            0.0
         };
-        let g = self.geometry;
-        let right = (g.gui_width + HOTBAR_WIDTH) / 2.0;
-        let tick = now_tick.unwrap_or(0);
-        // Without a server clock there is no tick to pulse on, so no shake.
-        let shaking = now_tick.is_some()
-            && hunger_shakes(runtime.gameplay_hud().saturation_empty(), current, tick);
-        for index in 0..10u32 {
-            let shake = if shaking {
-                hunger_shake_offset(index, tick)
-            } else {
-                0.0
-            };
-            let position = [
-                right - index as f32 * 8.0 - 9.0,
-                g.gui_height - 39.0 + shake,
-            ];
-            self.sprite_gui(background, position, [255; 4])?;
-            let remaining = current.saturating_sub(index * 2);
-            let role = match remaining {
-                0 => None,
-                1 => Some(half),
-                _ => Some(full),
-            };
-            if let Some(role) = role {
-                self.sprite_gui(role, position, [255; 4])?;
-            }
+        let at = [-8.0 - index as f32 * 8.0, shake];
+        cells.push(Cell::icon(at, path(background)));
+        let role = match current.saturating_sub(index * 2) {
+            0 => None,
+            1 => Some(half),
+            _ => Some(full),
+        };
+        if let Some(role) = role {
+            cells.push(Cell::icon(at, path(role)));
         }
-        Ok(())
     }
+    cells
+}
 
-    /// Mount hearts replace the hunger row while riding, right-aligned like
-    /// the reference, capped at 30 hearts across up to three rows.
-    pub(super) fn mount_health_rows(
-        &mut self,
-        frame: &HudFrame,
-    ) -> Result<(), UiPresentationError> {
-        let Some((current, maximum)) = frame.mount_health else {
-            return Ok(());
+/// Mount hearts replace the hunger row while riding, capped at 30 over three rows.
+fn mount_hearts((current, maximum): (f32, f32)) -> Vec<Cell> {
+    let hearts = (((maximum + 0.5) / 2.0) as u16).clamp(1, MAX_MOUNT_HEARTS);
+    let filled = current.clamp(0.0, maximum).ceil() as u32;
+    let mut cells = Vec::new();
+    for index in 0..u32::from(hearts) {
+        let at = [
+            -8.0 - (index % 10) as f32 * 8.0,
+            -((index / 10) as f32) * 10.0,
+        ];
+        cells.push(Cell::icon(at, path(HudTextureRole::HeartBackground)));
+        let role = match filled.saturating_sub(index * 2) {
+            0 => None,
+            1 => Some(HudTextureRole::MountHeartHalf),
+            _ => Some(HudTextureRole::MountHeartFull),
         };
-        let hearts = ((maximum + 0.5) / 2.0) as u16;
-        let hearts = hearts.clamp(1, MAX_MOUNT_HEARTS);
-        let filled_halves = current.clamp(0.0, maximum).ceil() as u32;
-        let g = self.geometry;
-        let right = (g.gui_width + HOTBAR_WIDTH) / 2.0;
-        for index in 0..u32::from(hearts) {
-            let row = index / 10;
-            let column = index % 10;
-            let position = [
-                right - (column as f32 % 10.0) * 8.0 - 9.0,
-                g.gui_height - 39.0 - row as f32 * 10.0,
-            ];
-            self.sprite_gui(HudTextureRole::HeartBackground, position, [255; 4])?;
-            let remaining = filled_halves.saturating_sub(index * 2);
-            let role = match remaining {
-                0 => None,
-                1 => Some(HudTextureRole::MountHeartHalf),
-                _ => Some(HudTextureRole::MountHeartFull),
-            };
-            if let Some(role) = role {
-                self.sprite_gui(role, position, [255; 4])?;
-            }
+        if let Some(role) = role {
+            cells.push(Cell::icon(at, path(role)));
         }
-        Ok(())
     }
+    cells
+}
 
-    /// Air bubbles above the hunger column, visible only while submerged
-    /// (air below its maximum), with the reference's popping tail.
-    pub(super) fn air_row(&mut self, runtime: &UiRuntime) -> Result<(), UiPresentationError> {
-        let Some(air) = runtime.hud().air() else {
-            return Ok(());
-        };
-        let current = u32::from(air.current());
-        let maximum = u32::from(air.maximum()).max(1);
-        if current >= maximum {
-            return Ok(());
-        }
-        let full = (current.saturating_sub(2) * 10).div_ceil(maximum);
-        let popping = (current * 10).div_ceil(maximum).saturating_sub(full);
-        let g = self.geometry;
-        let right = (g.gui_width + HOTBAR_WIDTH) / 2.0;
-        for index in 0..(full + popping).min(10) {
+/// Air bubbles while submerged (air below its maximum), with the popping tail.
+fn bubbles(runtime: &UiRuntime) -> Vec<Cell> {
+    let Some(air) = runtime.hud().air() else {
+        return Vec::new();
+    };
+    let current = u32::from(air.current());
+    let maximum = u32::from(air.maximum()).max(1);
+    if current >= maximum {
+        return Vec::new();
+    }
+    let full = (current.saturating_sub(2) * 10).div_ceil(maximum);
+    let popping = (current * 10).div_ceil(maximum).saturating_sub(full);
+    (0..(full + popping).min(10))
+        .map(|index| {
             let role = if index < full {
                 HudTextureRole::BubbleFull
             } else {
                 HudTextureRole::BubblePop
             };
-            self.sprite_gui(
-                role,
-                [right - index as f32 * 8.0 - 9.0, g.gui_height - 49.0],
-                [255; 4],
-            )?;
+            Cell::icon([-8.0 - index as f32 * 8.0, 0.0], path(role))
+        })
+        .collect()
+}
+
+/// Beneficial row, then harmful, leftward from the control's top-right corner,
+/// each a 24x24 background under an 18x18 icon, blinking before expiry.
+fn effects(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
+    let mut rows: [Vec<_>; 2] = [Vec::new(), Vec::new()];
+    for effect in runtime.gameplay_hud().effects() {
+        if !effect.visible_at_tick(now_tick) || effect_icon_role(effect.effect_id).is_none() {
+            continue;
         }
-        Ok(())
+        rows[usize::from(HARMFUL_EFFECT_IDS.contains(&effect.effect_id))].push(effect);
     }
+    let mut cells = Vec::new();
+    for (row, effects) in rows.iter_mut().enumerate() {
+        effects.sort_by_key(|effect| effect.effect_id);
+        let y = 1.0 + row as f32 * 25.0;
+        for (column, effect) in effects.iter().enumerate() {
+            let x = -25.0 * (column as f32 + 1.0);
+            let alpha = effect_blink_alpha(effect, now_tick);
+            let background = if effect.ambient {
+                HudTextureRole::EffectBackgroundAmbient
+            } else {
+                HudTextureRole::EffectBackground
+            };
+            cells.push(Cell {
+                size: [24.0, 24.0],
+                alpha,
+                ..Cell::icon([x, y], path(background))
+            });
+            if let Some(icon) = effect_icon_role(effect.effect_id) {
+                cells.push(Cell {
+                    size: [18.0, 18.0],
+                    alpha,
+                    ..Cell::icon([x + 3.0, y + 3.0], path(icon))
+                });
+            }
+        }
+    }
+    cells
 }

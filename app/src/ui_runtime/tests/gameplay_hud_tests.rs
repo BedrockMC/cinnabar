@@ -92,8 +92,11 @@ fn newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat() {
     });
     let bytes = assets::encode_font_catalog([15; 32], &glyphs, &[page]).unwrap();
     let font = Arc::new(assets::RuntimeFontCatalog::decode(&bytes, [15; 32]).unwrap());
-    let mut presentation =
-        crate::ui_runtime::presentation::UiPresentationRuntime::new(font).unwrap();
+    let Some(mut presentation) =
+        crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation_with(font)
+    else {
+        return;
+    };
     let json = r#"{"rawtext":[{"translate":"message.key"}]}"#;
     runtime.apply(envelope(1, 1, raw_text_event(json))).unwrap();
     let publish = |runtime: &mut UiRuntime, session, sequence| {

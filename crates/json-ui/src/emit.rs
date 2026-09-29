@@ -510,11 +510,13 @@ pub fn nine_slice(dest: Rect, meta: &TextureMeta) -> Vec<SpriteQuad> {
         for col in 0..3 {
             let (dx0, dx1) = (dst_x[col], dst_x[col + 1]);
             let (dy0, dy1) = (dst_y[row], dst_y[row + 1]);
-            let (sx0, sx1) = (src_x[col], src_x[col + 1]);
-            let (sy0, sy1) = (src_y[row], src_y[row + 1]);
-            if dx1 - dx0 <= 0.0 || dy1 - dy0 <= 0.0 || sx1 - sx0 <= 0.0 || sy1 - sy0 <= 0.0 {
+            if dx1 - dx0 <= 0.0 || dy1 - dy0 <= 0.0 {
                 continue;
             }
+            // Insets meeting in the middle (a 2x2 texture sliced at 1) leave no
+            // source span; the stretched region samples the texel line there.
+            let (sx0, sx1) = texel_span(src_x[col], src_x[col + 1], bw);
+            let (sy0, sy1) = texel_span(src_y[row], src_y[row + 1], bh);
             quads.push(SpriteQuad {
                 dest: RectOut {
                     x: dx0,
@@ -532,6 +534,15 @@ pub fn nine_slice(dest: Rect, meta: &TextureMeta) -> Vec<SpriteQuad> {
         }
     }
     quads
+}
+
+/// A source span, widened to the one texel at its position when empty.
+fn texel_span(start: f64, end: f64, size: f64) -> (f64, f64) {
+    if end > start {
+        return (start, end);
+    }
+    let low = (start - 0.5).clamp(0.0, (size - 1.0).max(0.0));
+    (low, (low + 1.0).min(size))
 }
 
 fn full_quad(dest: Rect) -> SpriteQuad {
@@ -585,6 +596,25 @@ mod tests {
         // The middle row starts at the top edge (y = 0) since the top inset is gone.
         assert!(quads.iter().all(|q| q.dest.y >= 0.0));
         assert_eq!(quads[0].dest.y, 0.0);
+    }
+
+    // A 2x2 texture sliced at 1 still fills its centre.
+    #[test]
+    fn meeting_insets_stretch_the_middle_texel() {
+        let meta = TextureMeta {
+            base_size: [2.0, 2.0],
+            nineslice: Some(NineSlice {
+                left: 1.0,
+                top: 1.0,
+                right: 1.0,
+                bottom: 1.0,
+            }),
+        };
+        let quads = nine_slice(Rect::new(0.0, 0.0, 30.0, 9.0), &meta);
+        assert_eq!(quads.len(), 9);
+        let centre = quads[4];
+        assert_eq!([centre.dest.w, centre.dest.h], [28.0, 7.0]);
+        assert_eq!([centre.uv.u0, centre.uv.u1], [0.25, 0.75]);
     }
 
     #[test]

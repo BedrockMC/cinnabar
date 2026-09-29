@@ -16,8 +16,7 @@ use ui::{
     UiVisual,
 };
 
-use super::{HudSprite, HudTexturePages, IconRef, UiPresentationError, UiRuntime, rect};
-use crate::ui_runtime::gameplay_hud::HudEffect;
+use super::{HudTexturePages, IconRef, UiPresentationError, UiRuntime, rect};
 
 mod inventory;
 mod pinned;
@@ -27,17 +26,13 @@ mod recipe_book;
 mod sleep;
 mod status_motion;
 mod status_rows;
-mod titles;
+pub(super) use status_rows::capture as capture_hud_paint;
 mod toasts;
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
-use pinned::{
-    BOSS_TINTS, BOTTOM_STACK_HEIGHT, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH,
-    LABEL_FADE_MILLIS, LABEL_WINDOW_MILLIS, MAX_PRESENTED_BOSS_BARS, XP_LEVEL_COLOR,
-    effect_blink_alpha, hotbar_slot_role, hsv_to_rgb,
-};
-pub(crate) use pinned::{effect_icon_role, java_gui_scale};
+pub(crate) use pinned::{BOSS_TINTS, effect_icon_role, java_gui_scale};
+use pinned::{BOTTOM_STACK_HEIGHT, HOTBAR_WIDTH, hsv_to_rgb};
 pub(crate) use sleep::SleepTimeline;
 pub(super) use sleep::leave_bed_bounds;
 pub(super) use windows::{Durability, TooltipLine, WindowIcons, WindowText, title_key};
@@ -106,8 +101,6 @@ pub(crate) struct HudFrame {
     pub attack_indicator_charge: Option<f32>,
     /// Whether the held player-list action keeps the tab overlay open.
     pub tab_list_open: bool,
-    /// Hardcore heart sprites, present only when the optional extras carrier is loaded.
-    pub hardcore_hearts: Option<super::hud_extras::HardcoreHearts>,
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
@@ -218,6 +211,8 @@ impl<'a> HudLayout<'a> {
         })
     }
 
+    /// The Java-styled surfaces outside the engine HUD: inventory screens, the
+    /// sleep overlay, the first-person hands, and toasts.
     pub(super) fn append(
         &mut self,
         runtime: &UiRuntime,
@@ -228,101 +223,13 @@ impl<'a> HudLayout<'a> {
             return Ok(());
         }
         self.sleep_overlay(frame)?;
-        // Visibility gates on the authoritative game mode directly, never on
-        // inferred slot retention: a live switch to spectator with a retained
-        // local slot must still drop the hotbar and crosshair.
-        let mode = runtime.player_game_mode();
-        let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
-        let shows_hotbar = mode_allows_hotbar && runtime.selected_hotbar_slot().is_some();
-        let survival_stats = runtime.survival_stats_visible();
-
+        let mode_allows_hotbar = runtime
+            .player_game_mode()
+            .is_none_or(|mode| mode.shows_hotbar());
         if frame.first_person && mode_allows_hotbar {
             self.held_items(frame)?;
-            self.crosshair()?;
-            self.attack_indicator(frame)?;
         }
-        if shows_hotbar {
-            self.hotbar(runtime, frame)?;
-        }
-        // The estimated session clock drives expiry-sensitive surfaces, so
-        // finite effects keep counting down between packets.
-        let now_tick = runtime.estimated_server_tick(frame.now_millis);
-        if survival_stats {
-            self.health_rows(runtime, frame, now_tick)?;
-            self.armor_row(runtime)?;
-            if frame.mount_health.is_some() {
-                self.mount_health_rows(frame)?;
-            } else {
-                self.hunger_row(runtime, now_tick)?;
-            }
-            self.air_row(runtime)?;
-            self.experience_bar(runtime, frame)?;
-        }
-        self.effects(runtime, now_tick)?;
-        self.boss_bars(runtime)?;
-        self.titles(runtime, frame.now_millis)?;
         self.toasts(runtime, frame.now_millis)?;
-        Ok(())
-    }
-
-    fn hotbar(&mut self, runtime: &UiRuntime, frame: &HudFrame) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let left = (g.gui_width - HOTBAR_WIDTH) / 2.0;
-        let top = g.gui_height - 22.0;
-        self.sprite_gui(
-            HudTextureRole::HotbarStartCap,
-            [left, top],
-            [255, 255, 255, HOTBAR_CAP_ALPHA],
-        )?;
-        for slot in 0..9u8 {
-            self.sprite_gui(
-                hotbar_slot_role(slot),
-                [left + 1.0 + f32::from(slot) * 20.0, top],
-                [255; 4],
-            )?;
-        }
-        self.sprite_gui(
-            HudTextureRole::HotbarEndCap,
-            [left + HOTBAR_WIDTH - 1.0, top],
-            [255, 255, 255, HOTBAR_CAP_ALPHA],
-        )?;
-        // The 24x24 selection frame centers on the selected 20x22 slot.
-        if let Some(selected) = runtime.selected_hotbar_slot() {
-            self.sprite_gui(
-                HudTextureRole::SelectedHotbarSlot,
-                [left + f32::from(selected) * 20.0 - 1.0, top - 1.0],
-                [255; 4],
-            )?;
-        }
-        // Offhand: the reference draws a lone slot left of the hotbar only
-        // while the offhand holds an item. The official sample pack carries no
-        // dedicated offhand frame, so the closest official slot art is reused.
-        let offhand = runtime.gameplay_hud().offhand_stack().cloned();
-        if offhand.is_some() {
-            self.sprite_gui(HudTextureRole::Hotbar0, [left - 29.0, top], [255; 4])?;
-        }
-        // Stack counts and durability bars over each occupied slot.
-        for slot in 0..9u8 {
-            let Some(stack) = frame.hotbar_stacks[usize::from(slot)].as_ref() else {
-                continue;
-            };
-            let cell = [left + 3.0 + f32::from(slot) * 20.0, g.gui_height - 19.0];
-            if let Some(icon) = frame.hotbar_icons[usize::from(slot)] {
-                self.icon_gui(icon, cell)?;
-            }
-            self.stack_decorations(stack, cell, frame.hotbar_durability[usize::from(slot)])?;
-        }
-        if let Some(stack) = offhand {
-            if let Some(icon) = frame.offhand_icon {
-                self.icon_gui(icon, [left - 29.0 + 3.0, g.gui_height - 19.0])?;
-            }
-            self.stack_decorations(
-                &stack,
-                [left - 29.0 + 3.0, g.gui_height - 19.0],
-                frame.offhand_durability,
-            )?;
-        }
-        self.selected_item_label(runtime, frame)?;
         Ok(())
     }
 
@@ -390,252 +297,6 @@ impl<'a> HudLayout<'a> {
         Ok(())
     }
 
-    fn selected_item_label(
-        &mut self,
-        runtime: &UiRuntime,
-        frame: &HudFrame,
-    ) -> Result<(), UiPresentationError> {
-        let Some(changed) = runtime.selected_item_changed_millis() else {
-            return Ok(());
-        };
-        let elapsed = frame.now_millis.saturating_sub(changed);
-        if elapsed >= LABEL_WINDOW_MILLIS {
-            return Ok(());
-        }
-        let Some(name) = frame.selected_item_name.clone() else {
-            return Ok(());
-        };
-        let remaining = LABEL_WINDOW_MILLIS - elapsed;
-        let alpha = if remaining >= LABEL_FADE_MILLIS {
-            255.0
-        } else {
-            255.0 * remaining as f32 / LABEL_FADE_MILLIS as f32
-        } as u8;
-        if alpha == 0 {
-            return Ok(());
-        }
-        let g = self.geometry;
-        let scale = self.text_scale(9.0);
-        let layout = self
-            .layouts
-            .layout(TextLayoutRequest {
-                text: super::bounded_visible_text(&name),
-                style: TextStyle::default(),
-                width_64: (g.gui_width.max(1.0) * g.scale * 64.0) as u32,
-                line_height_64: super::TEXT_LINE_HEIGHT_64,
-                baseline_64: super::TEXT_BASELINE_64,
-                scale,
-                font: self.font,
-            })
-            .map_err(UiPresentationError::Text)?;
-        let width = layout.size_64()[0] as f32 / 64.0 / g.scale;
-        // Centered above the hotbar; without survival stats the row drops by
-        // 14 GUI px exactly like the reference.
-        let y = if runtime.survival_stats_visible() {
-            g.gui_height - 59.0
-        } else {
-            g.gui_height - 45.0
-        };
-        self.text_gui_shadowed(
-            layout,
-            [(g.gui_width - width) / 2.0, y],
-            [255, 255, 255, alpha],
-        )?;
-        Ok(())
-    }
-
-    /// The 182x5 classic experience bar with its clipped progress strip and
-    /// the outlined green level number.
-    fn experience_bar(
-        &mut self,
-        runtime: &UiRuntime,
-        frame: &HudFrame,
-    ) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let left = (g.gui_width - HOTBAR_WIDTH) / 2.0;
-        let top = g.gui_height - 29.0;
-        // While riding a jump-capable mount the jump bar replaces the
-        // experience bar and its level text for the ride's duration.
-        if let Some(charge) = frame.mount_jump {
-            self.sprite_gui(HudTextureRole::MountJumpBackground, [left, top], [255; 4])?;
-            let charge = charge.clamp(0.0, 1.0);
-            let filled = (charge * 183.0).floor().clamp(0.0, 182.0);
-            if filled >= 1.0 {
-                self.clipped_strip_gui(HudTextureRole::MountJumpProgress, [left, top], filled)?;
-            }
-            return Ok(());
-        }
-        let Some(xp) = runtime.hud().experience() else {
-            return Ok(());
-        };
-        self.sprite_gui(
-            HudTextureRole::ExperienceBarBackground182,
-            [left, top],
-            [255; 4],
-        )?;
-        let progress = xp.progress.clamp(0.0, 1.0);
-        let filled = (progress * 183.0).floor().clamp(0.0, 182.0);
-        if filled >= 1.0 {
-            self.clipped_strip_gui(
-                HudTextureRole::ExperienceBarProgress182,
-                [left, top],
-                filled,
-            )?;
-        }
-        if xp.level > 0 {
-            let text = xp.level.to_string();
-            let scale = self.text_scale(9.0);
-            let layout = self
-                .layouts
-                .layout(TextLayoutRequest {
-                    text: &text,
-                    style: TextStyle::default(),
-                    width_64: (64.0 * 64.0) as u32,
-                    line_height_64: super::TEXT_LINE_HEIGHT_64,
-                    baseline_64: super::TEXT_BASELINE_64,
-                    scale,
-                    font: self.font,
-                })
-                .map_err(UiPresentationError::Text)?;
-            let size = [
-                layout.size_64()[0] as f32 / 64.0 / g.scale,
-                layout.size_64()[1] as f32 / 64.0 / g.scale,
-            ];
-            let center = [
-                (g.gui_width - size[0]) / 2.0,
-                g.gui_height - 31.0 - size[1] / 2.0 - 2.0,
-            ];
-            // Reference level number: black outline in the four cardinal
-            // directions under the green center.
-            for offset in [[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0]] {
-                self.text_gui(
-                    Arc::clone(&layout),
-                    [center[0] + offset[0], center[1] + offset[1]],
-                    [0, 0, 0, 255],
-                )?;
-            }
-            self.text_gui(layout, center, XP_LEVEL_COLOR)?;
-        }
-        Ok(())
-    }
-
-    /// Status effects in the top-right corner: beneficial row first, harmful
-    /// row below, each entry a 24x24 background with an 18x18 icon, blinking
-    /// through the final seconds before expiry.
-    fn effects(
-        &mut self,
-        runtime: &UiRuntime,
-        now_tick: Option<u64>,
-    ) -> Result<(), UiPresentationError> {
-        let mut beneficial: Vec<&HudEffect> = Vec::new();
-        let mut harmful: Vec<&HudEffect> = Vec::new();
-        for effect in runtime.gameplay_hud().effects() {
-            if !effect.visible_at_tick(now_tick) || effect_icon_role(effect.effect_id).is_none() {
-                continue;
-            }
-            if HARMFUL_EFFECT_IDS.contains(&effect.effect_id) {
-                harmful.push(effect);
-            } else {
-                beneficial.push(effect);
-            }
-        }
-        beneficial.sort_by_key(|effect| effect.effect_id);
-        harmful.sort_by_key(|effect| effect.effect_id);
-        for (row, effects) in [(0u32, beneficial), (1u32, harmful)] {
-            let y = 1.0 + row as f32 * 25.0;
-            for (column, effect) in effects.into_iter().enumerate() {
-                let x = self.geometry.gui_width - 25.0 * (column as f32 + 1.0);
-                if x < 0.0 {
-                    break;
-                }
-                let background = if effect.ambient {
-                    HudTextureRole::EffectBackgroundAmbient
-                } else {
-                    HudTextureRole::EffectBackground
-                };
-                let alpha = effect_blink_alpha(effect, now_tick);
-                self.sprite_gui(background, [x, y], [255, 255, 255, alpha])?;
-                if let Some(icon) = effect_icon_role(effect.effect_id) {
-                    self.sprite_gui(icon, [x + 3.0, y + 3.0], [255, 255, 255, alpha])?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Stacked boss bars top-center: title text above each 182x5 track, the
-    /// filled strip clipped by authoritative health and tinted by the
-    /// authoritative color.
-    fn boss_bars(&mut self, runtime: &UiRuntime) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let mut y = 12.0f32;
-        for bar in runtime
-            .boss_bars()
-            .stacked_iter()
-            .take(MAX_PRESENTED_BOSS_BARS)
-        {
-            if y + 19.0 > g.gui_height / 3.0 + 19.0 {
-                break;
-            }
-            let title = super::bounded_visible_text(&bar.title);
-            if !title.is_empty() {
-                let scale = self.text_scale(9.0);
-                let layout = self
-                    .layouts
-                    .layout(TextLayoutRequest {
-                        text: title,
-                        style: TextStyle::default(),
-                        width_64: (g.gui_width.max(1.0) * g.scale * 64.0) as u32,
-                        line_height_64: super::TEXT_LINE_HEIGHT_64,
-                        baseline_64: super::TEXT_BASELINE_64,
-                        scale,
-                        font: self.font,
-                    })
-                    .map_err(UiPresentationError::Text)?;
-                let width = layout.size_64()[0] as f32 / 64.0 / g.scale;
-                self.text_gui_shadowed(layout, [(g.gui_width - width) / 2.0, y - 9.0], [255; 4])?;
-            }
-            let left = (g.gui_width - HOTBAR_WIDTH) / 2.0;
-            self.stretched_sprite_gui(
-                HudTextureRole::BossProgressEmpty,
-                [left, y],
-                [HOTBAR_WIDTH, 5.0],
-                [255; 4],
-                1.0,
-            )?;
-            let health = bar.health.clamp(0.0, 1.0);
-            if health > 0.0 {
-                let tint = BOSS_TINTS
-                    .iter()
-                    .find(|(color, _)| *color == bar.style.color)
-                    .map(|(_, tint)| *tint)
-                    .unwrap_or([255; 4]);
-                self.stretched_sprite_gui(
-                    HudTextureRole::BossProgressFilled,
-                    [left, y],
-                    [HOTBAR_WIDTH * health, 5.0],
-                    tint,
-                    health,
-                )?;
-            }
-            // Notched overlays divide the bar into equal segments with dark
-            // 1 GUI px separators over both halves, per the reference.
-            let notches: u32 = match bar.style.overlay {
-                ui::BossOverlay::Progress => 0,
-                ui::BossOverlay::Notched6 => 6,
-                ui::BossOverlay::Notched10 => 10,
-                ui::BossOverlay::Notched12 => 12,
-                ui::BossOverlay::Notched20 => 20,
-            };
-            for notch in 1..notches {
-                let x = left + HOTBAR_WIDTH * notch as f32 / notches as f32;
-                self.solid_gui([x, y], [1.0, 5.0], [0, 0, 0, 255])?;
-            }
-            y += 19.0;
-        }
-        Ok(())
-    }
-
     fn text_scale(&self, gui_px: f32) -> UiScale {
         let target_logical = gui_px * self.geometry.scale;
         let ratio = (target_logical / self.text_line_logical).clamp(0.5, 4.0);
@@ -665,79 +326,6 @@ impl<'a> HudLayout<'a> {
             texture_page: self.textures.page,
             uv: sprite.uv,
             color,
-        });
-        self.nodes.push(node);
-        *self.next_id = self.next_id.saturating_add(1);
-        Ok(())
-    }
-
-    /// A sprite stretched to an explicit GUI-px size; `uv_fraction` clips the
-    /// source horizontally for partially filled tracks.
-    fn stretched_sprite_gui(
-        &mut self,
-        role: HudTextureRole,
-        gui: [f32; 2],
-        size: [f32; 2],
-        color: [u8; 4],
-        uv_fraction: f32,
-    ) -> Result<(), UiPresentationError> {
-        if size[0] <= 0.0 || size[1] <= 0.0 {
-            return Ok(());
-        }
-        let sprite: HudSprite = self.textures.sprite(role);
-        let uv_width = u32::from(sprite.uv[2] - sprite.uv[0]);
-        let clipped = ((uv_fraction.clamp(0.0, 1.0)) * uv_width as f32).round() as u32;
-        let uv = [
-            sprite.uv[0],
-            sprite.uv[1],
-            sprite.uv[0] + clipped.clamp(1, uv_width) as u16,
-            sprite.uv[3],
-        ];
-        let g = self.geometry;
-        let [x, y] = g.logical(gui);
-        let node = UiNode::new(
-            UiNodeId::new(*self.next_id),
-            None,
-            rect(x, y, x + size[0] * g.scale, y + size[1] * g.scale)?,
-        )
-        .with_visual(UiVisual::Sprite {
-            texture_page: self.textures.page,
-            uv,
-            color,
-        });
-        self.nodes.push(node);
-        *self.next_id = self.next_id.saturating_add(1);
-        Ok(())
-    }
-
-    /// Left-anchored horizontal clip of a classic 182x5 strip: the sprite's
-    /// UV range and quad both cut at `filled` GUI px.
-    fn clipped_strip_gui(
-        &mut self,
-        role: HudTextureRole,
-        gui: [f32; 2],
-        filled: f32,
-    ) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let sprite = self.textures.sprite(role);
-        let uv_width = u32::from(sprite.uv[2] - sprite.uv[0]);
-        let clipped = ((filled / 182.0) * uv_width as f32).round() as u32;
-        let uv = [
-            sprite.uv[0],
-            sprite.uv[1],
-            sprite.uv[0] + clipped.min(uv_width) as u16,
-            sprite.uv[3],
-        ];
-        let [x, y] = g.logical(gui);
-        let node = UiNode::new(
-            UiNodeId::new(*self.next_id),
-            None,
-            rect(x, y, x + filled * g.scale, y + 5.0 * g.scale)?,
-        )
-        .with_visual(UiVisual::Sprite {
-            texture_page: self.textures.page,
-            uv,
-            color: [255; 4],
         });
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);

@@ -16,8 +16,8 @@ use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
 use ui::{
-    DpiScale, HudViewRole, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache, TextShadow,
-    UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    DpiScale, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache, UiNode, UiNodeId, UiPoint,
+    UiRect, UiScale, UiTree, UiVisual,
 };
 
 use super::{UiRuntime, render_adapter::UiRenderViewport};
@@ -35,7 +35,6 @@ mod chat;
 mod debug_overlay;
 mod dynamic_textures;
 pub(crate) mod forms;
-mod hud_extras;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod inventory_tooltip;
@@ -52,8 +51,6 @@ pub(crate) mod screens;
 mod session_glyphs;
 mod session_icons;
 pub(crate) use forms::ServerUiPack;
-pub(crate) use hud_extras::load_optional as load_optional_hud_extras;
-pub(crate) use retained_hud::SessionHudOverrides;
 pub(crate) use session_glyphs::SessionGlyphSheets;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
@@ -73,14 +70,11 @@ use chat::visible_suggestion_range;
 pub(crate) use debug_overlay::DebugLines;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
-use primitives::{bounded_visible_text, hud_position, rect, resolve_chat_line};
+use primitives::{bounded_visible_text, rect, resolve_chat_line};
 #[cfg(test)]
 pub(crate) use publish::refresh_hud_frame;
 pub(crate) use publish::{observe_mount_jump_input, platform_safe_area_insets, publish_ui_runtime};
-use retained_hud::{
-    BelowNameAnchor, PresentedScoreboardCache, ScoreboardOpacityAuthority,
-    ScoreboardOwnerNameAuthority,
-};
+use retained_hud::{BelowNameAnchor, PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::{StartupPresentationState, StartupReadinessInput};
 use text_metrics::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TEXT_SHADOW_OFFSET_64,
@@ -88,7 +82,7 @@ use text_metrics::{
 };
 pub(crate) use texture_atlas::IconRef;
 use texture_atlas::{
-    HudSprite, HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
+    HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
 };
 
@@ -96,22 +90,12 @@ const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PRESENTED_CHAT_ROWS: usize = 8;
 const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
-const MAX_PRESENTED_TOAST_ROWS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
-// Java-style chat presentation (Hybrid HUD): unfocused chat lines get an always-on translucent
-// black backdrop, matching Java Edition's per-line chat background (drawn at textBackgroundOpacity,
-// default 0.5 -> byte alpha 128). Recorded as a Hybrid deviation in plan.md.
-const CHAT_LINE_BACKDROP_COLOR: [u8; 4] = [0, 0, 0, 128];
-const CHAT_LINE_BACKDROP_PAD: f32 = 2.0;
 // Java's default chat text begins four GUI pixels from the safe content edge.
 // Keep the text anchor independent of the bottom HUD width so chat remains a
 // true left-edge surface on ultrawide and resized windows.
 const CHAT_LEFT_INSET: f32 = 4.0;
 const CHAT_PANEL_PAD: f32 = 4.0;
-// Java chat fade: rows show for 200 ticks then fade over the final 20
-// (10 s + 1 s), pinned here in milliseconds.
-const CHAT_VISIBLE_MILLIS: u64 = 10_000;
-const CHAT_FADE_MILLIS: u64 = 1_000;
 #[derive(Debug)]
 pub enum UiPresentationError {
     InvalidFontTexture,
@@ -148,7 +132,6 @@ pub struct UiPresentationRuntime {
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
-    scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
     leave_bed_hit: Option<UiRect>,
@@ -166,8 +149,6 @@ pub struct UiPresentationRuntime {
     below_name_anchors: Vec<BelowNameAnchor>,
     /// World-projected nametags for players without a below-name score.
     nametag_anchors: Vec<nametags::NametagAnchor>,
-    /// Hardcore heart sprites when the optional extras carrier is installed.
-    hardcore_hearts: Option<hud_extras::HardcoreHearts>,
     /// Stable reserved logical page for the optional preview raster.
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
@@ -250,7 +231,6 @@ impl UiPresentationRuntime {
             last_input: None,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
-            scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
             leave_bed_hit: None,
@@ -261,7 +241,6 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             below_name_anchors: Vec::new(),
             nametag_anchors: Vec::new(),
-            hardcore_hearts: None,
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
@@ -446,16 +425,12 @@ impl UiPresentationRuntime {
         let mut next_id = 1u32;
         self.leave_bed_hit = None;
         let menu_visible = self.menu_view.is_some();
-        // Titles, the action bar and toasts lay out in the Java-parity HUD when it renders.
-        let hud_lays_out_overlays = hud_geometry.is_some() && self.hud_textures.is_some();
-
         if !menu_visible
             && let Some(hud_textures) = self.hud_textures.as_ref()
             && let Some(geometry) = hud_geometry
         {
             let mut frame = self.hud_frame.clone();
             frame.now_millis = now_millis;
-            frame.hardcore_hearts = self.hardcore_hearts;
             let mut layout = HudLayout::new(
                 &mut nodes,
                 &mut next_id,
@@ -474,110 +449,14 @@ impl UiPresentationRuntime {
         }
 
         let inventory_open = runtime.inventory_open();
-        let hud_nodes = runtime.hud().view_nodes(now_millis);
-        let mut toast_rows = 0usize;
-        for node in hud_nodes.iter() {
-            if inventory_open || menu_visible {
-                break;
-            }
-            if matches!(
-                node.role,
-                HudViewRole::Health | HudViewRole::Hunger | HudViewRole::Armor | HudViewRole::Air
-            ) {
-                continue;
-            }
-            if hud_lays_out_overlays
-                && matches!(
-                    node.role,
-                    HudViewRole::Title
-                        | HudViewRole::Subtitle
-                        | HudViewRole::ActionBar
-                        | HudViewRole::ToastTitle
-                        | HudViewRole::ToastMessage
-                )
-            {
-                continue;
-            }
-            let is_toast = matches!(
-                node.role,
-                HudViewRole::ToastTitle | HudViewRole::ToastMessage
-            );
-            let ordinal = if is_toast {
-                if toast_rows >= MAX_PRESENTED_TOAST_ROWS {
-                    continue;
-                }
-                let ordinal = toast_rows;
-                toast_rows += 1;
-                ordinal
-            } else {
-                nodes.len()
-            };
-            let [x, y] = hud_position(node.role, ordinal, content_width, content_height);
-            if is_toast && y >= content_height {
-                continue;
-            }
-            let text = bounded_visible_text(&node.text);
-            let layout = self
-                .layouts
-                .layout(metrics.request(text, wrap_width, &self.font))
-                .map_err(UiPresentationError::Text)?;
-            if is_toast {
-                let shadow = match metrics.shadow() {
-                    TextShadow::None => 0.0,
-                    TextShadow::Offset64(offset) => {
-                        f32::from(layout.key().scale_1024) / 1_024.0 * offset as f32 / 64.0
-                    }
-                };
-                if layout
-                    .glyphs()
-                    .iter()
-                    .any(|glyph| y + glyph.bounds_64[3] as f32 / 64.0 + shadow > content_height)
-                {
-                    continue;
-                }
-            }
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(
-                        x,
-                        y,
-                        (x + content_width * 0.45).min(content_width),
-                        content_height,
-                    )?,
-                )
-                .with_visual(UiVisual::Text {
-                    layout,
-                    color: [255; 4],
-                    shadow: metrics.shadow(),
-                }),
-            );
-            next_id = next_id.saturating_add(1);
-        }
-
-        if !inventory_open
-            && !menu_visible
-            && let Some(opacity) = self.scoreboard_opacity
-            && let Some(scoreboard) = self
-                .scoreboard
-                .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
-        {
-            retained_hud::append_scoreboard_nodes(
+        if !inventory_open && !menu_visible {
+            self.append_engine_hud(
+                runtime,
                 &mut nodes,
                 &mut next_id,
-                &mut self.layouts,
-                &self.font,
                 metrics,
-                self.solid_texture_page,
-                content_width,
-                content_height,
-                scoreboard,
-                opacity,
-                self.hud_textures.as_ref(),
-                runtime
-                    .hud_overrides()
-                    .is_some_and(|o| o.hide_sidebar_scores),
+                [content_width, content_height],
+                now_millis,
             )?;
         }
 
@@ -696,39 +575,17 @@ impl UiPresentationRuntime {
             positioned_suggestions.push((index, layout, y, suggestion_cursor, color, selected));
             suggestion_cursor = (y - 2.0).max(chat_region_top);
         }
+        // Unfocused chat is the engine HUD's; the open chat keeps its history here.
         let chat = runtime.chat().messages();
-        let first = if inventory_open || menu_visible {
-            chat.len()
-        } else {
+        let first = if chat_focused {
             chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS)
-        };
-        let chat_bottom = if chat_focused {
-            suggestion_cursor
         } else {
-            (content_height - 72.0).max(chat_region_top)
+            chat.len()
         };
-        let mut chat_cursor = chat_bottom;
+        let mut chat_cursor = suggestion_cursor;
         let mut visible_chat = Vec::new();
         for node in chat.iter().skip(first).rev() {
-            // Java chat fade: an unfocused row shows for ten seconds, then
-            // fades over one second (200 + 20 ticks in the reference). Rows
-            // stamped ahead of the local clock stay fresh rather than hiding.
-            let alpha = if chat_focused {
-                255u8
-            } else {
-                let age = now_millis.saturating_sub(node.received_millis);
-                if age <= CHAT_VISIBLE_MILLIS {
-                    255
-                } else if age >= CHAT_VISIBLE_MILLIS + CHAT_FADE_MILLIS {
-                    continue;
-                } else {
-                    let remaining = (CHAT_VISIBLE_MILLIS + CHAT_FADE_MILLIS - age) as f32;
-                    (255.0 * remaining / CHAT_FADE_MILLIS as f32) as u8
-                }
-            };
-            if alpha == 0 {
-                continue;
-            }
+            let alpha = 255u8;
             let resolved = resolve_chat_line(node, |key| runtime.translation(key));
             let text = bounded_visible_text(resolved.as_ref());
             let layout = self
@@ -797,41 +654,6 @@ impl UiPresentationRuntime {
                 }),
             );
             next_id = next_id.saturating_add(1);
-        }
-        // Java-style unfocused chat: each line carries its own translucent
-        // backdrop so the row's fade dims the background with the text. The
-        // rects extend across the inter-line spacing to the row above, keeping
-        // the block visually contiguous like the reference. When focused, the
-        // unified chat panel above already provides the background. Backdrops
-        // precede the text nodes so they render underneath.
-        if !chat_focused && !visible_chat.is_empty() {
-            let backdrop_left = (chat_left - CHAT_LINE_BACKDROP_PAD).max(0.0);
-            for (index, (_, top, bottom, alpha)) in visible_chat.iter().enumerate() {
-                // The next entry (pushed after this one) sits above; stretch
-                // this row's backdrop up to it so no stripe shows through.
-                let covered_top = visible_chat
-                    .get(index + 1)
-                    .map_or(*top, |(_, _, above_bottom, _)| top.min(*above_bottom));
-                let backdrop_alpha =
-                    (u16::from(CHAT_LINE_BACKDROP_COLOR[3]) * u16::from(*alpha) / 255) as u8;
-                nodes.push(
-                    UiNode::new(
-                        UiNodeId::new(next_id),
-                        None,
-                        rect(backdrop_left, covered_top, chat_right, *bottom)?,
-                    )
-                    .with_visual(UiVisual::Solid {
-                        texture_page: self.solid_texture_page,
-                        color: [
-                            CHAT_LINE_BACKDROP_COLOR[0],
-                            CHAT_LINE_BACKDROP_COLOR[1],
-                            CHAT_LINE_BACKDROP_COLOR[2],
-                            backdrop_alpha,
-                        ],
-                    }),
-                );
-                next_id = next_id.saturating_add(1);
-            }
         }
         for (layout, y, bottom, alpha) in visible_chat.into_iter().rev() {
             nodes.push(

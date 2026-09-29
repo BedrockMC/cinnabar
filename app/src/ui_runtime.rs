@@ -226,7 +226,6 @@ pub struct UiRuntime {
     session_icons: Option<Arc<presentation::SessionIcons>>,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
     session_glyphs: Option<Arc<presentation::SessionGlyphSheets>>,
-    hud_overrides: Option<Arc<presentation::SessionHudOverrides>>,
     /// Authoritative display names of real player/entity score owners,
     /// refreshed from the world stream before committed events apply.
     score_owner_names: std::collections::BTreeMap<i64, Arc<str>>,
@@ -309,7 +308,6 @@ impl UiRuntime {
             session_icons: None,
             server_ui: None,
             session_glyphs: None,
-            hud_overrides: None,
         }
     }
 
@@ -599,7 +597,6 @@ impl UiRuntime {
         self.session_icons = None;
         self.server_ui = None;
         self.session_glyphs = None;
-        self.hud_overrides = None;
         self.last_fifo_sequence = None;
         self.last_block_crack_sequence = None;
         self.last_local_millis = None;

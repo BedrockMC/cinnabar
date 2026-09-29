@@ -1,0 +1,371 @@
+//! The gameplay HUD through the JSON-UI engine: the frame's state becomes a
+//! [`HudModel`] bound to `hud.hud_screen` and the crosshair overlay over the
+//! session's pack stack (the built-in Java HUD pack at the bottom). The bound
+//! and laid-out screen is reused until the model, catalog, viewport, or scale
+//! changes; each frame only repaints it, evaluating fades and the native
+//! renderers against the live state.
+
+use std::sync::Arc;
+
+use json_ui::{
+    BossBar, CROSSHAIR_SCREEN, Catalog, CatalogLibrary, Context, DataSource, FormRender,
+    HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolvedControl, Sidebar, Timed, ViewState, bind,
+    hud_context, hud_data_source, render_bound, resolve,
+};
+use ui::{TimedText, UiNode};
+
+use super::super::{
+    FONT_DESIGN_PIXEL_TEXELS, HudFrame, IconRef, TextMetrics, UiPresentationError,
+    UiPresentationRuntime, bounded_visible_text, hud_layout, resolve_chat_line,
+};
+use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use crate::ui_runtime::UiRuntime;
+
+/// The built-in Java-styled HUD pack: `(pack path, namespace, bytes)`, layered
+/// under every server pack.
+pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 2] = [
+    (
+        "ui/hud_screen.json",
+        "hud",
+        include_bytes!("../../../../../assets/java-hud/ui/hud_screen.json"),
+    ),
+    (
+        "ui/scoreboards.json",
+        "scoreboard",
+        include_bytes!("../../../../../assets/java-hud/ui/scoreboards.json"),
+    ),
+];
+
+/// Chat lines stay this long before their one-second fade (Java: 200 ticks).
+const CHAT_LIFETIME_SECONDS: f64 = 10.0;
+/// Java's per-line chat background opacity.
+const CHAT_BACKGROUND_OPACITY: f64 = 0.5;
+/// Newest chat lines the controller keeps alive.
+const MAX_CHAT_LINES: usize = 50;
+/// Java sidebar background opacities (`getBackgroundColor(0.3)` / `(0.4)`).
+const SIDEBAR_OPACITY: f64 = 0.3;
+const SIDEBAR_TITLE_OPACITY: f64 = 0.4;
+/// The selected-item label shows for two seconds after the selection changes.
+const ITEM_NAME_MILLIS: u64 = 2_000;
+/// Display cap for stacked boss bars; the retained store holds more.
+const MAX_BOSS_BARS: usize = 8;
+
+/// One screen's resolved tree per catalog and its last layout per model.
+#[derive(Default)]
+pub(super) struct CachedScreen {
+    resolved: Option<(Arc<Catalog>, Option<ResolvedControl>)>,
+    laid: Option<Laid>,
+    /// Bind+layout passes run, for cache tests and profiling.
+    pub(super) passes: usize,
+}
+
+struct Laid {
+    catalog: Arc<Catalog>,
+    data: DataSource,
+    root: [f64; 2],
+    px: f32,
+    render: FormRender,
+}
+
+impl CachedScreen {
+    /// The laid-out screen for `data`, rebinding only when an input changed.
+    fn render(
+        &mut self,
+        reference: &str,
+        catalog: &Arc<Catalog>,
+        context: &Context,
+        data: DataSource,
+        (root, px): ([f64; 2], f32),
+        env: &json_ui::LayoutEnv,
+    ) -> Option<&FormRender> {
+        let fresh = self.laid.as_ref().is_some_and(|laid| {
+            Arc::ptr_eq(&laid.catalog, catalog)
+                && laid.root == root
+                && laid.px == px
+                && laid.data == data
+        });
+        if !fresh {
+            let current = self
+                .resolved
+                .as_ref()
+                .is_some_and(|(resolved_for, _)| Arc::ptr_eq(resolved_for, catalog));
+            if !current {
+                let tree = resolve(catalog, reference, context).control;
+                self.resolved = Some((Arc::clone(catalog), tree));
+            }
+            let tree = self.resolved.as_ref()?.1.as_ref()?;
+            let library = CatalogLibrary { catalog, context };
+            let bound = bind(tree, &data, &library);
+            self.passes += 1;
+            self.laid = Some(Laid {
+                catalog: Arc::clone(catalog),
+                render: render_bound(bound, root, env, &ViewState::default()),
+                data,
+                root,
+                px,
+            });
+        }
+        self.laid.as_ref().map(|laid| &laid.render)
+    }
+}
+
+/// The HUD and crosshair screens, carried across frames.
+#[derive(Default)]
+pub(super) struct HudScreens {
+    pub(super) hud: CachedScreen,
+    crosshair: CachedScreen,
+}
+
+impl UiPresentationRuntime {
+    /// Draw the gameplay HUD through the engine; `Ok(false)` when the engine is
+    /// not loaded.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn append_engine_hud(
+        &mut self,
+        runtime: &UiRuntime,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        content: [f32; 2],
+        now_millis: u64,
+    ) -> Result<bool, UiPresentationError> {
+        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+            return Ok(false);
+        };
+        let mut frame = self.hud_frame.clone();
+        frame.now_millis = now_millis;
+        let mut icons = Vec::new();
+        let sidebar = self
+            .scoreboard
+            .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
+            .map(sidebar_model);
+        let model = hud_model(runtime, &frame, sidebar, &mut icons);
+        let paint = hud_layout::capture_hud_paint(runtime, &frame, self.hud_textures.as_ref());
+        let context = hud_context(renderer.context());
+        let catalog = Arc::clone(renderer.catalog());
+        let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let art = ScreenArt {
+            icons: &icons,
+            now: now_millis as f64 / 1_000.0,
+            hud: Some(&paint),
+            ..ScreenArt::default()
+        };
+        let translate = |key: &str| runtime.translation(key);
+        let screens = &mut self.form_presentation.hud;
+        for (reference, data, screen) in [
+            (HUD_SCREEN, hud_data_source(&model), &mut screens.hud),
+            (CROSSHAIR_SCREEN, DataSource::new(), &mut screens.crosshair),
+        ] {
+            let inputs = EngineInputs {
+                layouts: &mut self.layouts,
+                font: &self.font,
+                metrics,
+                solid_page: self.solid_texture_page,
+                safe_area: self.safe_area,
+                content,
+                translate: &translate,
+            };
+            let out = EngineOutput {
+                nodes: &mut *nodes,
+                next: &mut *next,
+                overlay: &[],
+            };
+            renderer.draw(art, inputs, out, |env, root| {
+                screen.render(reference, &catalog, &context, data, (root, px), env)
+            })?;
+        }
+        Ok(true)
+    }
+}
+
+/// What the player sees, as the HUD templates bind it.
+fn hud_model(
+    runtime: &UiRuntime,
+    frame: &HudFrame,
+    sidebar: Option<Sidebar>,
+    icons: &mut Vec<IconRef>,
+) -> HudModel {
+    let seconds = |millis: u64| millis as f64 / 1_000.0;
+    let now = frame.now_millis;
+    let mode = runtime.player_game_mode();
+    let mode_allows_hotbar = mode.is_none_or(|mode| mode.shows_hotbar());
+    let selected = runtime.selected_hotbar_slot();
+    let survival = runtime.survival_stats_visible();
+    let mut slot = |stack: Option<&protocol::NetworkItemStack>,
+                    icon: Option<IconRef>,
+                    durability: Option<f32>,
+                    selected: bool| {
+        let icon = stack.and(icon).map(|icon| {
+            icons.push(icon);
+            icons.len() - 1
+        });
+        HudSlot {
+            icon,
+            count: stack.map_or(0, |stack| u32::from(stack.count)),
+            selected,
+            durability: stack.and(durability).map(f64::from),
+        }
+    };
+    let hotbar = (0..9)
+        .map(|index| {
+            slot(
+                frame.hotbar_stacks[index].as_ref(),
+                frame.hotbar_icons[index],
+                frame.hotbar_durability[index],
+                selected == Some(index as u8),
+            )
+        })
+        .collect();
+    let offhand = runtime.gameplay_hud().offhand_stack().map(|stack| {
+        slot(
+            Some(stack),
+            frame.offhand_icon,
+            frame.offhand_durability,
+            false,
+        )
+    });
+    let experience = runtime.hud().experience();
+    let title = visible(runtime.hud().title(), now).map(|title| {
+        let fade_in = title.fade_in_millis;
+        let fade_out = title.fade_out_millis;
+        let total = title.expires_millis.saturating_sub(title.started_millis);
+        HudTitle {
+            title: bounded_visible_text(&title.text).to_owned(),
+            subtitle: visible(runtime.hud().subtitle(), now)
+                .map(|subtitle| bounded_visible_text(&subtitle.text).to_owned())
+                .unwrap_or_default(),
+            fade_in: seconds(fade_in),
+            stay: seconds(total.saturating_sub(fade_in + fade_out)),
+            fade_out: seconds(fade_out),
+            background_alpha: 0.0,
+            born: seconds(title.started_millis),
+        }
+    });
+    let timed = |text: &TimedText| Timed {
+        text: bounded_visible_text(&text.text).to_owned(),
+        born: seconds(text.started_millis),
+    };
+    let item_name = runtime
+        .selected_item_changed_millis()
+        .filter(|changed| now.saturating_sub(*changed) < ITEM_NAME_MILLIS)
+        .zip(frame.selected_item_name.as_ref())
+        .filter(|_| mode_allows_hotbar && selected.is_some())
+        .map(|(changed, name)| Timed {
+            text: bounded_visible_text(name).to_owned(),
+            born: seconds(changed),
+        });
+    let chat_visible = !runtime.chat_focused() && !runtime.inventory_open();
+    let horizon = seconds(now) - CHAT_LIFETIME_SECONDS - 1.0;
+    let messages = runtime.chat().messages();
+    let chat = messages
+        .iter()
+        .skip(messages.len().saturating_sub(MAX_CHAT_LINES))
+        .filter(|line| seconds(line.received_millis) > horizon)
+        .map(|line| {
+            let text = resolve_chat_line(line, |key| runtime.translation(key));
+            Timed {
+                text: bounded_visible_text(text.as_ref()).to_owned(),
+                // Rows stamped ahead of the local clock stay fresh.
+                born: seconds(line.received_millis.min(now)),
+            }
+        })
+        .collect();
+    let now_tick = runtime.estimated_server_tick(now);
+    HudModel {
+        survival_ui: survival,
+        armor_visible: runtime
+            .hud()
+            .armor()
+            .is_some_and(|armor| armor.current() > 0),
+        hotbar_visible: mode_allows_hotbar && selected.is_some(),
+        xp_bar: survival && experience.is_some() && frame.mount_jump.is_none(),
+        exp_progress: experience.map_or(0.0, |xp| f64::from(xp.progress)),
+        level: experience.map_or(0, |xp| xp.level),
+        hotbar,
+        offhand,
+        riding_hearts: survival && frame.mount_health.is_some(),
+        bubbles_visible: survival
+            && runtime
+                .hud()
+                .air()
+                .is_some_and(|air| air.current() < air.maximum()),
+        paper_doll: false,
+        effects_visible: runtime
+            .gameplay_hud()
+            .effects()
+            .iter()
+            .any(|effect| effect.visible_at_tick(now_tick)),
+        spectator: !mode_allows_hotbar,
+        title,
+        actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        item_name,
+        chat,
+        chat_visible,
+        chat_lifetime: CHAT_LIFETIME_SECONDS,
+        chat_background_opacity: CHAT_BACKGROUND_OPACITY,
+        sidebar,
+        boss_bars: runtime
+            .boss_bars()
+            .stacked_iter()
+            .take(MAX_BOSS_BARS)
+            .map(|bar| BossBar {
+                name: bounded_visible_text(&bar.title).to_owned(),
+                progress: f64::from(bar.health),
+                color: boss_tint(bar.style.color),
+            })
+            .collect(),
+    }
+}
+
+fn visible(text: Option<&TimedText>, now: u64) -> Option<&TimedText> {
+    text.filter(|text| text.visible_at(now))
+}
+
+fn sidebar_model(scoreboard: &super::super::retained_hud::PresentedScoreboard) -> Sidebar {
+    use super::super::retained_hud::PresentedScoreValue;
+    Sidebar {
+        title: bounded_visible_text(&scoreboard.title).to_owned(),
+        rows: scoreboard
+            .rows
+            .iter()
+            .map(|row| {
+                let score = match &row.value {
+                    PresentedScoreValue::Text(text) => bounded_visible_text(text).to_owned(),
+                    PresentedScoreValue::Hearts {
+                        full_hearts,
+                        half_heart,
+                    } => (u32::from(*full_hearts) * 2 + u32::from(*half_heart)).to_string(),
+                };
+                (bounded_visible_text(&row.label).to_owned(), score)
+            })
+            .collect(),
+        background_opacity: SIDEBAR_OPACITY,
+        title_background_opacity: SIDEBAR_TITLE_OPACITY,
+    }
+}
+
+fn boss_tint(color: ui::BossColor) -> String {
+    let [r, g, b, _] = hud_layout::BOSS_TINTS
+        .iter()
+        .find(|(tint, _)| *tint == color)
+        .map_or([255; 4], |(_, rgba)| *rgba);
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+#[cfg(test)]
+impl UiPresentationRuntime {
+    /// The engine HUD's last laid-out draw nodes, in GUI px.
+    pub(crate) fn hud_draw_nodes(&self) -> &[json_ui::DrawNode] {
+        self.form_presentation
+            .hud
+            .hud
+            .laid
+            .as_ref()
+            .map_or(&[], |laid| laid.render.nodes.as_slice())
+    }
+
+    /// Bind+layout passes the engine HUD ran.
+    pub(crate) fn hud_passes(&self) -> usize {
+        self.form_presentation.hud.hud.passes
+    }
+}

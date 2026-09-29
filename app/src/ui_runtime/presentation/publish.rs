@@ -222,10 +222,8 @@ pub(crate) fn publish_ui_runtime(
         view
     });
     presentation.set_menu_view(menu_view);
-    if presentation.scoreboard_opacity.is_some() {
-        presentation
-            .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
-    }
+    presentation
+        .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
     let input = match presentation.build(&runtime, now_millis, physical_size, dpi_scale) {
         Ok(input) => input,
         Err(error) => {

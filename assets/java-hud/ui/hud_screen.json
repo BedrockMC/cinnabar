@@ -1,0 +1,486 @@
+// Cinnabar's built-in Java-styled HUD: the bottom layer of the pack stack.
+// Positions and timings follow Java Edition's Gui (hotbar, status rows, XP
+// bar, chat, titles, action bar, boss bars, effects); art stays vanilla
+// Bedrock. Withdrawn wherever a server pack ships its own hud_screen.json.
+{
+  "namespace": "hud",
+
+  "centered_gui_elements_at_bottom_middle": {
+    "type": "panel",
+    "anchor_from": "bottom_middle",
+    "anchor_to": "bottom_middle",
+    "size": [ 182, 22 ],
+    "controls": [
+      {
+        "heart_rend@hud.heart_renderer": {
+          "anchor_from": "bottom_left",
+          "anchor_to": "top_left",
+          "offset": [ 0, -39 ]
+        }
+      },
+      {
+        "armor_rend@hud.armor_renderer": {
+          "anchor_from": "bottom_left",
+          "anchor_to": "top_left",
+          "offset": [ 0, -39 ]
+        }
+      },
+      {
+        "hunger_rend@hud.hunger_renderer": {
+          "anchor_from": "bottom_right",
+          "anchor_to": "top_left",
+          "offset": [ -1, -39 ]
+        }
+      },
+      {
+        "horse_heart_rend@hud.horse_heart_renderer": {
+          "anchor_from": "bottom_right",
+          "anchor_to": "top_left",
+          "offset": [ -1, -39 ],
+          "bindings": [
+            {
+              "binding_name": "#survival_horse_hearts",
+              "binding_name_override": "#visible"
+            }
+          ]
+        }
+      },
+      {
+        "bubbles_rend@hud.bubbles_renderer": {
+          "anchor_from": "bottom_right",
+          "anchor_to": "top_left",
+          "offset": [ -1, -49 ]
+        }
+      },
+      { "java_exp_bar@hud.java_exp_bar": {} },
+      {
+        "horse_jump_rend@hud.horse_jump_renderer": {
+          "size": [ 182, 5 ],
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": [ 0, -24 ],
+          "layer": 7
+        }
+      },
+      { "java_level@hud.java_level_number": {} },
+      { "java_hotbar@hud.java_hotbar": {} },
+      { "java_offhand@hud.java_offhand_slot": {} },
+      {
+        "item_text_factory": {
+          "type": "factory",
+          "size": [ "100%", 0 ],
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": [ 0, -36 ],
+          "control_ids": {
+            "item_text": "@hud.item_name_text_root",
+            "jukebox_text": "@hud.jukebox_popup_text"
+          }
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#hud_visible_centered",
+        "binding_name_override": "#visible",
+        "binding_type": "global"
+      }
+    ]
+  },
+
+  // The 182x5 bar sits 29 GUI px above the bottom edge.
+  "java_exp_bar": {
+    "type": "panel",
+    "size": [ 182, 5 ],
+    "anchor_from": "bottom_middle",
+    "anchor_to": "bottom_middle",
+    "offset": [ 0, -24 ],
+    "controls": [
+      {
+        "empty_progress_bar@hud.empty_progress_bar": {
+          "size": [ "100%", "100%" ],
+          "layer": 1
+        }
+      },
+      {
+        "full_progress_bar@hud.full_progress_bar": {
+          "size": [ "100%", "100%" ],
+          "layer": 2
+        }
+      },
+      {
+        "progress_bar_nub@hud.progress_bar_nub": {
+          "size": [ "100% - 10px", "100%" ],
+          "layer": 3
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#hotbar_with_xp_bar",
+        "binding_name_override": "#visible"
+      }
+    ]
+  },
+
+  // Green level number outlined in black, its top 35 GUI px above the bottom.
+  "java_level_number": {
+    "type": "panel",
+    "size": [ "100%c", "100%c" ],
+    "anchor_from": "bottom_middle",
+    "anchor_to": "top_middle",
+    "offset": [ 0, -35 ],
+    "layer": 7,
+    "controls": [
+      { "outline_left@hud.java_level_label": { "offset": [ -1, 0 ], "color": [ 0.0, 0.0, 0.0 ] } },
+      { "outline_right@hud.java_level_label": { "offset": [ 1, 0 ], "color": [ 0.0, 0.0, 0.0 ] } },
+      { "outline_up@hud.java_level_label": { "offset": [ 0, -1 ], "color": [ 0.0, 0.0, 0.0 ] } },
+      { "outline_down@hud.java_level_label": { "offset": [ 0, 1 ], "color": [ 0.0, 0.0, 0.0 ] } },
+      { "level@hud.java_level_label": { "layer": 1 } }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#level_number_visible",
+        "binding_type": "global",
+        "binding_name_override": "#visible"
+      }
+    ]
+  },
+
+  "java_level_label": {
+    "type": "label",
+    "text": "#level_number",
+    "color": [ 0.502, 1.0, 0.125 ],
+    "shadow": false,
+    "localize": false,
+    "bindings": [
+      {
+        "binding_name": "#level_number",
+        "binding_type": "global"
+      }
+    ]
+  },
+
+  // 182x22 at the bottom edge: start cap, nine 20x22 cells, end cap.
+  "java_hotbar": {
+    "type": "stack_panel",
+    "orientation": "horizontal",
+    "size": [ 182, 22 ],
+    "anchor_from": "bottom_middle",
+    "anchor_to": "bottom_middle",
+    "$hotbar_collection_name": "hotbar_items",
+    "controls": [
+      { "hotbar_start_cap@hud.hotbar_start_cap": {} },
+      {
+        "hotbar_grid@hud.hotbar_grid": {
+          "size": [ 180, 22 ]
+        }
+      },
+      { "hotbar_end_cap@hud.hotbar_end_cap": {} }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#hotbar_visible",
+        "binding_name_override": "#visible"
+      }
+    ]
+  },
+
+  // The offhand item gets a lone slot 29 GUI px left of the hotbar.
+  "java_offhand_slot": {
+    "type": "panel",
+    "size": [ 20, 22 ],
+    "anchor_from": "bottom_left",
+    "anchor_to": "bottom_left",
+    "offset": [ -29, 0 ],
+    "collection_name": "offhand_items",
+    "$hotbar_collection_name": "offhand_items",
+    "$stack_count_required": true,
+    "$durability_bar_required": true,
+    "$storage_bar_required": false,
+    "controls": [
+      {
+        "slot": {
+          "type": "image",
+          "texture": "textures/ui/hotbar_0",
+          "size": [ 20, 22 ],
+          "layer": 1
+        }
+      },
+      {
+        "item": {
+          "type": "panel",
+          "size": [ 18, 18 ],
+          "collection_index": 0,
+          "controls": [
+            {
+              "item_icon@hud.hotbar_hud_item_icon": {
+                "layer": 3,
+                "size": [ 16, 16 ]
+              }
+            },
+            {
+              "item_count@common.stack_count_label": {
+                "layer": 4,
+                "$item_collection_name": "offhand_items",
+                "$stack_count_collection_name": "offhand_items"
+              }
+            },
+            {
+              "item_dura@hud.item_durability": {
+                "layer": 5
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#offhand_visible",
+        "binding_name_override": "#visible"
+      }
+    ]
+  },
+
+  // Java's 13x2 durability bar two GUI px in from the icon's lower edge.
+  "item_durability@common.durability_bar": {
+    "$durability_bar_required": true,
+    "$item_collection_name": "$hotbar_collection_name",
+    "$durability_bar_size": [ 13, 1 ],
+    "$durability_bar_offset": [ 0.5, 5.5 ]
+  },
+
+  // The selected-item name clears the status rows by 14 GUI px in survival.
+  "item_name_text_root/item_text_aligner/survival_buffer": {
+    "size": [ "100%sm", 14 ]
+  },
+
+  // Java shows the item name for 1.5 s, then fades it over 0.5 s.
+  "anim_item_name_text_alpha_stay": {
+    "anim_type": "wait",
+    "duration": 1.5,
+    "next": "@hud.anim_item_name_text_alpha_out"
+  },
+
+  "anim_item_name_text_alpha_out": {
+    "anim_type": "alpha",
+    "easing": "linear",
+    "destroy_at_end": "$destroy_id",
+    "duration": 0.5,
+    "from": 1.0,
+    "to": 0
+  },
+
+  // Status effects hang from the screen's top-right corner.
+  "root_panel/mob_effects_renderer": {
+    "size": [ "100%", "100%" ],
+    "offset": [ 0, 0 ],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left"
+  },
+
+  // Chat: ten 9-px lines upward from 40 GUI px above the bottom, 320 wide.
+  "root_panel/chat_stack": {
+    "type": "panel",
+    "size": [ 330, 90 ],
+    "anchor_from": "bottom_left",
+    "anchor_to": "bottom_left",
+    "offset": [ 0, -40 ],
+    "controls": [
+      { "chat_panel@hud.chat_panel": {} }
+    ]
+  },
+
+  "chat_panel": {
+    "type": "panel",
+    "anchor_from": "bottom_left",
+    "anchor_to": "bottom_left",
+    "size": [ "100%", "100%c" ],
+    "controls": [
+      {
+        "stack_panel": {
+          "type": "stack_panel",
+          "size": [ "100%", "100%c" ],
+          "anchor_from": "bottom_left",
+          "anchor_to": "bottom_left",
+          "factory": {
+            "name": "chat_item_factory",
+            "max_children_size": 10,
+            "control_ids": {
+              "chat_item": "chat_item@hud.chat_grid_item"
+            }
+          }
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#chat_visible",
+        "binding_name_override": "#visible"
+      }
+    ]
+  },
+
+  "chat_grid_item": {
+    "type": "panel",
+    "layer": 1,
+    "size": [ "100%", "100%c" ],
+    "controls": [
+      {
+        "chat_background": {
+          "type": "image",
+          "texture": "textures/ui/Black",
+          "alpha": "$chat_background_opacity",
+          "size": [ "100%", "100%c" ],
+          "anims": [ "@hud.anim_chat_bg_wait" ],
+          "controls": [
+            {
+              "chat_text@hud.chat_label": {
+                "anchor_from": "top_left",
+                "anchor_to": "top_left",
+                "offset": [ 4, 0 ],
+                "size": [ "100% - 8px", "default" ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+
+  // Titles: 4x centred 40 GUI px above the middle, subtitle 2x 10 below it,
+  // no background, sharing the title's fade.
+  "root_panel/hud_title_text_area": {
+    "size": [ "100%", "100%" ],
+    "factory": {
+      "name": "hud_title_text_factory",
+      "control_ids": {
+        "hud_title_text": "hud_title_text@hud.java_title_text"
+      }
+    }
+  },
+
+  "java_title_text": {
+    "type": "panel",
+    "size": [ "100%", "100%" ],
+    "layer": 1,
+    "alpha": "@hud.anim_title_text_alpha_in",
+    "propagate_alpha": true,
+    "controls": [
+      {
+        "title": {
+          "type": "label",
+          "anchor_from": "center",
+          "anchor_to": "top_middle",
+          "offset": [ 0, -40 ],
+          "text": "#text",
+          "color": "$title_command_text_color",
+          "font_scale_factor": 4.0,
+          "shadow": true,
+          "localize": false,
+          "layer": 31,
+          "text_alignment": "center",
+          "bindings": [
+            {
+              "binding_name": "#hud_title_text_string",
+              "binding_name_override": "#text",
+              "binding_type": "global"
+            }
+          ]
+        }
+      },
+      {
+        "subtitle": {
+          "type": "label",
+          "anchor_from": "center",
+          "anchor_to": "top_middle",
+          "offset": [ 0, 10 ],
+          "text": "#text",
+          "color": "$title_command_text_color",
+          "font_scale_factor": 2.0,
+          "shadow": true,
+          "localize": false,
+          "layer": 31,
+          "text_alignment": "center",
+          "bindings": [
+            {
+              "binding_name": "#hud_subtitle_text_string",
+              "binding_name_override": "#text",
+              "binding_type": "global"
+            }
+          ]
+        }
+      }
+    ]
+  },
+
+  // Action bar: centred, its top 72 GUI px above the bottom, fading over its
+  // final second.
+  "root_panel/hud_actionbar_text_area": {
+    "size": [ "100%", "100%" ],
+    "factory": {
+      "name": "hud_actionbar_text_factory",
+      "control_ids": {
+        "hud_actionbar_text": "hud_actionbar_text@hud.java_actionbar_text"
+      }
+    }
+  },
+
+  "java_actionbar_text": {
+    "type": "label",
+    "anchor_from": "bottom_middle",
+    "anchor_to": "top_middle",
+    "offset": [ 0, -72 ],
+    "text": "$actionbar_text",
+    "color": "$tool_tip_text",
+    "shadow": true,
+    "localize": false,
+    "layer": 31,
+    "alpha": "@hud.java_anim_actionbar_wait"
+  },
+
+  "java_anim_actionbar_wait": {
+    "anim_type": "wait",
+    "duration": 2,
+    "next": "@hud.java_anim_actionbar_out"
+  },
+
+  "java_anim_actionbar_out": {
+    "anim_type": "alpha",
+    "easing": "linear",
+    "duration": 1,
+    "from": 1.0,
+    "to": 0,
+    "destroy_at_end": "hud_actionbar_text"
+  },
+
+  // Boss bars: names 3 GUI px from the top, bars from y = 12, 19 px apart.
+  "boss_health_panel": {
+    "type": "panel",
+    "size": [ 182, 19 ],
+    "anchor_from": "top_middle",
+    "anchor_to": "top_middle",
+    "$progress_bar_collection": "boss_bars",
+    "controls": [
+      { "boss_name@boss_name_panel": {} },
+      {
+        "progress_bar_for_collections@common.progress_bar_for_collections": {
+          "offset": [ 0, 9 ]
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "binding_name": "#bar_visible",
+        "binding_type": "collection",
+        "binding_collection_name": "boss_bars",
+        "binding_name_override": "#visible"
+      }
+    ]
+  },
+
+  "root_panel/boss_health_panel/boss_hud_panel/boss_health_grid": {
+    "offset": [ 0, 3 ]
+  }
+}
