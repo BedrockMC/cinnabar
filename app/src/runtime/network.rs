@@ -335,6 +335,7 @@ pub(crate) fn receive_network_events(
                 ui_runtime.begin_session(session_generation);
                 movement_effects.begin_session(session_generation);
                 movement_speed.begin_session(session_generation, bootstrap.dimension);
+                item_diagnostics::session_registry(item_registry.as_ref());
                 let world_item_registry = item_registry.clone();
                 if !publish_bootstrap_inventory(&mut ui_runtime, item_registry, inventory) {
                     record_fatal_error(
@@ -891,6 +892,9 @@ pub(crate) fn receive_network_events(
             client_world.fatal_error = Some(format!("world FIFO rejected data: {error}"));
         }
     }
+    if let Some(stream) = client_world.stream.as_mut() {
+        item_diagnostics::equipment(stream.take_equipment_notices());
+    }
 }
 
 #[cfg(test)]
@@ -969,6 +973,7 @@ mod dropped_items;
 pub(crate) mod entity_pack;
 mod glyph_sheets;
 mod inventory;
+mod item_diagnostics;
 mod item_icons;
 #[cfg(test)]
 mod local_pack;

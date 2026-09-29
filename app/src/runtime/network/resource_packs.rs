@@ -60,6 +60,7 @@ pub(super) fn prepare_pack_application(
 ) -> PackApplication {
     if handoff.is_empty() {
         crate::audio::publish_server_sounds(None);
+        super::item_diagnostics::session_icons(icon_keys.len(), None);
         return PackApplication::default();
     }
     let stack = resource_pack::validate_handoff(handoff);
@@ -86,9 +87,11 @@ pub(super) fn prepare_pack_application(
     {
         bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
     }
+    let item_icons = compile_session_icons(&view, icon_keys);
+    super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     PackApplication {
         server_lang: merged_server_lang(&view),
-        item_icons: compile_session_icons(&view, icon_keys),
+        item_icons,
         glyph_sheets: compile_session_glyphs(&view),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),

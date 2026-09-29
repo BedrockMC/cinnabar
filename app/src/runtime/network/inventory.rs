@@ -32,6 +32,7 @@ pub(crate) fn route_inventory_ingress(
     else {
         unreachable!("inventory routing accepts only inventory world events")
     };
+    super::item_diagnostics::inventory(&event);
     runtime.enqueue_inventory_event(session_generation, sequence, event)?;
     Ok(sequence)
 }

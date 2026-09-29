@@ -15,6 +15,7 @@ use render::{
     skull_geometry, textured_cube_vertices,
 };
 
+mod diagnostics;
 mod pack;
 mod push;
 mod types;
@@ -108,6 +109,8 @@ pub(crate) struct EquipmentRuntime {
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     /// The session's server-pack attachables, consulted before `catalog`.
     pack: Option<PackEquipment>,
+    /// `(identifier, reason)` pairs already logged as drawing no layer.
+    logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
 }
 
 impl EquipmentRuntime {
@@ -219,6 +222,7 @@ impl EquipmentRuntime {
             pending,
             skulls,
             pack: None,
+            logged_misses: Default::default(),
         };
         (runtime, artwork, geometries)
     }
@@ -256,11 +260,16 @@ impl EquipmentRuntime {
         {
             return layers;
         }
-        if let Some(item) = &input.main {
-            self.push_held(body, item, LAYER_MAIN_HAND, bones.right_item, &mut layers);
-        }
-        if let Some(item) = &input.off {
-            self.push_held(body, item, LAYER_OFF_HAND, bones.left_item, &mut layers);
+        for (item, layer, bone) in [
+            (&input.main, LAYER_MAIN_HAND, bones.right_item),
+            (&input.off, LAYER_OFF_HAND, bones.left_item),
+        ] {
+            let Some(item) = item else { continue };
+            let before = layers.len();
+            self.push_held(body, item, layer, bone, &mut layers);
+            if layers.len() == before {
+                self.note_missing_layer(item, None, bone);
+            }
         }
         let slots = [
             (ArmorSlot::Helmet, LAYER_HELMET),
@@ -295,6 +304,7 @@ impl EquipmentRuntime {
                     sneaking: input.sneaking,
                     sleeping: input.sleeping,
                 };
+                let before = layers.len();
                 self.push_armor(
                     body,
                     &bones,
@@ -303,6 +313,9 @@ impl EquipmentRuntime {
                     item,
                     &mut layers,
                 );
+                if layers.len() == before {
+                    self.note_missing_layer(item, Some(slot), bones.head);
+                }
             }
         }
         layers
