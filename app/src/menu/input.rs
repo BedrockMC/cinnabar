@@ -507,8 +507,12 @@ pub(crate) fn drive_menu_connection(
     mut menu: ResMut<MenuRuntime>,
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
     mut session: MenuSessionState,
+    launcher_account: Option<ResMut<super::launcher_account::LauncherAccount>>,
 ) {
     menu.poll_catalog();
+    if let Some(mut account) = launcher_account {
+        menu.sync_account_control(&mut *account);
+    }
     if menu.is_connecting() && session.client_world.stream.is_some() {
         menu.mark_connected();
     }

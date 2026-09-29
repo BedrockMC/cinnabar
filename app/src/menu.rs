@@ -13,6 +13,7 @@ pub(crate) mod core_process;
 #[cfg(test)]
 mod flow_tests;
 mod input;
+pub(crate) mod launcher_account;
 pub(crate) mod servers;
 mod view;
 
