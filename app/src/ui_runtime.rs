@@ -224,6 +224,7 @@ pub struct UiRuntime {
     lang_catalog: Option<Arc<assets::RuntimeLangCatalog>>,
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     session_icons: Option<Arc<presentation::SessionIcons>>,
+    session_glyphs: Option<Arc<presentation::SessionGlyphSheets>>,
     /// Authoritative display names of real player/entity score owners,
     /// refreshed from the world stream before committed events apply.
     score_owner_names: std::collections::BTreeMap<i64, Arc<str>>,
@@ -304,6 +305,7 @@ impl UiRuntime {
             lang_catalog: None,
             server_lang: None,
             session_icons: None,
+            session_glyphs: None,
         }
     }
 
@@ -591,6 +593,7 @@ impl UiRuntime {
         self.clear_local_abilities();
         self.server_lang = None;
         self.session_icons = None;
+        self.session_glyphs = None;
         self.last_fifo_sequence = None;
         self.last_block_crack_sequence = None;
         self.last_local_millis = None;

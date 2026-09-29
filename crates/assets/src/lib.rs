@@ -14,6 +14,7 @@ mod equipment;
 mod error;
 mod font;
 mod fsb;
+mod glyph_sheet;
 mod hud;
 mod hud_extras;
 mod icon;
@@ -135,6 +136,10 @@ pub use font::{
     encode_font_catalog,
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
+pub use glyph_sheet::{
+    GlyphAtlas, GlyphSheet, SHEET_GRID, SheetGlyph, advance_64, opaque_columns, pack_glyph_sheets,
+    texel_size_64,
+};
 pub use hud::{
     HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_SOURCE_MANIFEST_SHA256, HudCatalogError,
     HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,

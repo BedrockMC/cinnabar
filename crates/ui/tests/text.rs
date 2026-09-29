@@ -601,3 +601,31 @@ fn a_baseline_below_the_line_box_fails_closed() {
         Err(TextError::BaselineOutsideLine { .. })
     ));
 }
+
+#[test]
+fn private_use_codepoints_hit_the_replacement_until_a_sheet_supplies_them() {
+    let base = font([0x11; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let bare = layout(&mut cache, &base, "A\u{e001}", 1.0, 4096);
+    assert_eq!(bare.glyphs()[1].resolved_codepoint, '\u{fffd}');
+
+    let sheet = assets::GlyphSheet {
+        high_byte: 0xe0,
+        width: 32,
+        height: 32,
+        rgba8: vec![255; 32 * 32 * 4].into(),
+    };
+    let atlas = assets::pack_glyph_sheets(&[sheet], 5, 256, 1);
+    let with_sheet = base.with_glyphs(&atlas.glyphs, |c| ('\u{e000}'..='\u{f8ff}').contains(&c));
+    assert_ne!(
+        with_sheet.identity().carrier_sha256,
+        base.identity().carrier_sha256
+    );
+    let drawn = layout(&mut cache, &with_sheet, "A\u{e001}", 2.0, 4096);
+    let glyph = drawn.glyphs()[1];
+    assert_eq!(glyph.resolved_codepoint, '\u{e001}');
+    assert_eq!(glyph.page, 5);
+    // A 2px-wide private-use cell at UI scale 2 spans 4px.
+    assert_eq!(glyph.bounds_64[2] - glyph.bounds_64[0], 2 * 2 * 64);
+    assert_eq!(base.glyph('\u{e001}'), None);
+}
