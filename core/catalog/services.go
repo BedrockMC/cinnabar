@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/df-mc/go-xsapi/v2"
 	"golang.org/x/oauth2"
 )
 
@@ -39,4 +40,12 @@ func Gamertag(ctx context.Context, src oauth2.TokenSource) (string, error) {
 	}
 	defer xbl.Close()
 	return xbl.UserInfo().GamerTag, nil
+}
+
+// XboxClient signs in to Xbox Live with the account; the caller closes it.
+func XboxClient(ctx context.Context, src oauth2.TokenSource) (*xsapi.Client, error) {
+	if src == nil {
+		return nil, errors.New("catalog authentication token source is nil")
+	}
+	return newXSAPIClient(ctx, src)
 }
