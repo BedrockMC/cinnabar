@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     SourcePayloads, attachable::ItemTransforms, invalid, item_bindings, json::parse_semantic_json,
+    legacy_icons,
 };
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
@@ -188,6 +189,36 @@ pub(super) fn compile(
                 ));
             }
             definitions.insert(key, (binding_source, route));
+        }
+        let legacy_source = *source_indices
+            .get(legacy_icons::SOURCE_PATH)
+            .ok_or_else(|| invalid("legacy icon route source is absent"))?;
+        for legacy in legacy_icons::reviewed()? {
+            let key = ItemVisualKey {
+                identifier: legacy.identifier.into(),
+                metadata: legacy.metadata,
+            };
+            // Block routes and exact atlas keys stay authoritative.
+            if routes.routes.contains_key(&key) || definitions.contains_key(&key) {
+                continue;
+            }
+            let Some(definition) = texture_data.get(legacy.atlas_key) else {
+                continue;
+            };
+            let variants = parse_texture_variants(definition)?;
+            let Some(variant) = variants.get(legacy.variant) else {
+                continue;
+            };
+            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+                ItemVisualDefinitionRoute::Missing,
+                |source| ItemVisualDefinitionRoute::Sprite {
+                    texture: ItemTextureReference {
+                        source: *source,
+                        variant: variant.variant,
+                    },
+                },
+            );
+            definitions.insert(key, (legacy_source, route));
         }
     }
     let visuals = definitions
