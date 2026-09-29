@@ -82,9 +82,10 @@ use crate::runtime::{
     },
     visibility::{CaveVisibilityCache, apply_added_chunk_visibility, remove_chunk_visibility},
     world::{
-        ShutdownWatchdog, apply_committed_control, arm_shutdown_watchdog, flush_sub_chunk_requests,
-        model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
-        startup_biome_tints, synchronize_biome_tints, world_stream_fatal_message,
+        ShutdownWatchdog, TeardownWatchdog, apply_committed_control, arm_shutdown_watchdog,
+        flush_sub_chunk_requests, model_gallery_camera_committed_marker,
+        refresh_mutation_anchor_from_committed_control, startup_biome_tints,
+        synchronize_biome_tints, world_stream_fatal_message,
     },
 };
 use client_world::{

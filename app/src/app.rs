@@ -85,8 +85,8 @@ use crate::{
             refresh_cave_visibility, remove_chunk_visibility,
         },
         world::{
-            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, WorldStreamFramePoll,
-            app_exit_code, arm_shutdown_watchdog, drive_world_stream,
+            ClientWorld, SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog,
+            WorldStreamFramePoll, app_exit_code, arm_shutdown_watchdog, drive_world_stream,
             reconcile_world_stream_before_physics, startup_biome_tints, update_camera_medium,
         },
     },
@@ -747,6 +747,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.insert_resource(frame_limited_winit_settings(args.frame_cap))
         .insert_resource(ClearColor(clear_color))
         .insert_resource(shutdown_watchdog.clone())
+        .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
         .insert_resource(present_mode_runtime)
         .insert_resource(core_process)
         .insert_resource(client_blob_cache)
