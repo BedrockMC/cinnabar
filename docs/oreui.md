@@ -2,10 +2,10 @@
 
 26.30 draws some screens with OreUI (a web UI bundle, `data/gui/dist/hbui`) instead of JSON-UI.
 Cinnabar matches the screens 26.30 uses **by default** and keeps JSON-UI where OreUI is opt-in
-or flag-gated. OreUI is drawn entirely in our own code: colours, borders, spacing, type sizes,
-states and icons are re-created from reference facts. Nothing from a Minecraft install (images,
-fonts, CSS, JS) is loaded, packed, bundled or committed; the open font stands in for the
-Minecraft fonts (accepted deviation).
+or flag-gated. OreUI is drawn in our own code: colours, borders, spacing, type sizes, states and
+icons are re-created from reference facts. Nothing from a Minecraft install (images, fonts, CSS,
+JS) is packed, bundled or committed; the open font stands in for the Minecraft fonts (accepted
+deviation). A dev-only mode can load the install's originals for comparison (below).
 
 ## Which screens are OreUI by default (26.30)
 
@@ -32,6 +32,31 @@ names them, so they default off. Evidence: the 26.30 reconstruction
 
 The local install used as a visual reference is 1.26.50 (its `Info.plist`), one version newer than
 the target; layout facts taken from it need a 26.30 screenshot check.
+
+## Two looks
+
+- **Drawn (default, and anything shipped):** every OreUI surface is our code — the theme's role
+  fills per state, one-texel borders, speculars and bevels, the elevated solid buttons that drop
+  0.4rem when pressed, the 12/8-column grid, and our own pixel-art icons at the originals' texel
+  sizes. One rem is five GUI pixels; one texel is 0.2rem.
+- **Local originals (dev only):** with `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its
+  data/gui/dist/hbui>`, the app reads the install's sprite atlases at runtime and draws their icons
+  where the drawn look approximates them. `CINNABAR_OREUI_LOOK=drawn` keeps the drawn look while
+  the originals are loaded, so two runs compare side by side. Nothing is copied or packed.
+
+Code: `app/src/ui_runtime/presentation/forms/oreui/` (theme, paint, grid, icons, widgets, one file
+per screen) and `app/src/ui_runtime/oreui_assets.rs` (the dev-mode loader).
+
+## Screenshot checks still needed
+
+- Death: the radial vignette (drawn as nested bands), title and button placement, the missing
+  death message and hardcore variant.
+- Profile: player-card banner and gamerpic sizes, the Overview rows (the original shows friend,
+  achievement and screenshot summaries), the Stats tab (not built).
+- Inbox: category menu, card layout, the Recent/History split.
+- Friends drawer: search field (not interactive), tab icons, the People list (only friends
+  currently in worlds are known).
+- Every screen: text sizes, since the open font replaces the Minecraft fonts.
 
 ## Reference screenshots
 
