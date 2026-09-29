@@ -86,6 +86,14 @@ pub(crate) fn env_pack() -> Option<ServerUiPack> {
 }
 
 pub(crate) fn action_form(title: &str, buttons: &[&str]) -> UiRuntime {
+    image_form(title, buttons, Vec::new())
+}
+
+pub(crate) fn image_form(
+    title: &str,
+    buttons: &[&str],
+    images: Vec<Option<protocol::FormButtonImage>>,
+) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -102,7 +110,7 @@ pub(crate) fn action_form(title: &str, buttons: &[&str]) -> UiRuntime {
                     title: Arc::from(title),
                     content: Arc::from(""),
                     buttons: buttons.iter().map(|text| Arc::from(*text)).collect(),
-                    button_images: [].into(),
+                    button_images: images.into(),
                     omitted_images: 0,
                 }),
             }),
@@ -150,6 +158,9 @@ pub(crate) fn engine_presentation() -> Option<UiPresentationRuntime> {
     let carrier = carrier()?;
     let mut presentation = UiPresentationRuntime::new(font()).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
+    let vanilla = local(crate::install_layout::VANILLA_PACK_DIR);
+    let engine = presentation.form_presentation.engine.as_mut().unwrap();
+    engine.textures.set_fallbacks(Default::default(), vanilla);
     Some(presentation)
 }
 
@@ -216,19 +227,17 @@ fn server_pack_form_renders_its_text_through_the_engine() {
         .unwrap()
         .drawn_sprites();
     eprintln!(
-        "server pages: {}, sprite textures drawn: {}, unresolved: {missing:?}",
+        "server pages: {}, sprite textures drawn: {}, outside textures/ui: {:?}, unresolved: {missing:?}",
         presentation.server_ui_pages().len(),
-        drawn.len()
+        drawn.len(),
+        drawn
+            .iter()
+            .filter(|key| !key.starts_with("textures/ui/"))
+            .collect::<Vec<_>>()
     );
-    // The UI carrier holds only vanilla `textures/ui`; other vanilla textures a
-    // pack names (item art) are a known carrier gap, not an atlas miss.
-    let misses: Vec<_> = missing
-        .iter()
-        .filter(|key| key.starts_with("textures/ui/") || pack.is_none())
-        .collect();
     assert!(
-        misses.is_empty(),
-        "every drawn pack or UI image resolves: {misses:?}"
+        missing.is_empty(),
+        "every drawn image resolves: {missing:?}"
     );
     // Without a pack the vanilla template shows the labels verbatim.
     if pack.is_none() {
@@ -333,4 +342,48 @@ fn form_frame_cost_with_and_without_the_render_cache() {
     let cached = average(&mut presentation, false);
     eprintln!("form frame: re-resolving {uncached:?}, cached {cached:?}");
     assert!(cached < uncached);
+}
+
+// The vanilla template draws path and URL button images once they resolve.
+#[test]
+fn vanilla_form_button_images_resolve() {
+    use protocol::FormButtonImage::{Path as ImagePath, Url};
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let url = format!("{}/icon.png", super::remote_images::tests::serve(png));
+    let runtime = image_form(
+        "Shop",
+        &["Diamond", "Stone", "Remote"],
+        vec![
+            Some(ImagePath("textures/items/diamond".into())),
+            Some(ImagePath("textures/blocks/stone".into())),
+            Some(Url(url.as_str().into())),
+        ],
+    );
+    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    let remote = engine.textures.remote.clone();
+    render(&mut presentation, &runtime, [1280, 720], 1.0);
+    super::remote_images::tests::settle(&remote, &url);
+    render(&mut presentation, &runtime, [1280, 720], 1.0);
+    let (drawn, missing) = presentation
+        .form_presentation
+        .engine
+        .as_ref()
+        .unwrap()
+        .drawn_sprites();
+    eprintln!("drawn {drawn:?}, unresolved {missing:?}");
+    for image in [
+        "textures/items/diamond",
+        "textures/blocks/stone",
+        url.as_str(),
+    ] {
+        assert!(drawn.iter().any(|key| key == image), "{image} drawn");
+    }
+    assert!(missing.is_empty());
 }

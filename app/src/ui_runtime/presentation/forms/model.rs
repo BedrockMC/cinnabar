@@ -10,6 +10,7 @@ use json_ui::{
 };
 use protocol::{CustomFormElement, FormButtonImage, MenuElement, ServerFormModel};
 
+use super::remote_images::RemoteState;
 use crate::ui_runtime::forms::{FormEngineState, FormValue};
 
 /// Shown while an input element is receiving typed text.
@@ -20,6 +21,7 @@ pub(super) fn engine_model(
     model: &ServerFormModel,
     state: &FormEngineState,
     translate: &dyn Fn(&str) -> Option<Arc<str>>,
+    remote: &dyn Fn(&str) -> RemoteState,
 ) -> Option<FormModel> {
     Some(match model {
         ServerFormModel::TextMenu(menu) => FormModel::Action(ActionForm {
@@ -32,12 +34,22 @@ pub(super) fn engine_model(
                 .map(|(index, text)| {
                     ActionElement::Button(FormButton {
                         text: text.to_string(),
-                        image: menu.button_images.get(index).and_then(Option::as_ref).map(
-                            |image| match image {
-                                FormButtonImage::Path(path) => ButtonImage::Path(path.to_string()),
-                                FormButtonImage::Url(url) => ButtonImage::Url(url.to_string()),
-                            },
-                        ),
+                        image: menu
+                            .button_images
+                            .get(index)
+                            .and_then(Option::as_ref)
+                            .and_then(|image| match image {
+                                FormButtonImage::Path(path) => {
+                                    Some(ButtonImage::Path(path.to_string()))
+                                }
+                                FormButtonImage::Url(url) => match remote(url) {
+                                    RemoteState::Ready(_) => {
+                                        Some(ButtonImage::Url(url.to_string()))
+                                    }
+                                    RemoteState::Loading => Some(ButtonImage::Loading),
+                                    RemoteState::Failed => None,
+                                },
+                            }),
                     })
                 })
                 .collect(),

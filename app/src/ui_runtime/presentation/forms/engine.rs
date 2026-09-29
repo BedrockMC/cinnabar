@@ -12,9 +12,8 @@ use std::{
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
-    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, NineSlice,
-    RectOut, ResolvedControl, TextAlign, TextMeasure, TextureMeta, TextureSource, ViewState,
-    bind_form, render_bound, render_screen,
+    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
+    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound, render_screen,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
@@ -22,6 +21,7 @@ use ui::{
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 use super::server_pack::{ServerAtlas, ServerUiPack};
+use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
@@ -38,18 +38,11 @@ pub(crate) struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
     base: Arc<Catalog>,
     catalog: Arc<Catalog>,
-    /// Texture page of carrier atlas page 0.
-    first_page: u16,
     context: Context,
-    /// Server-pack textures shadowing the carrier's, packed as screens draw
-    /// them; a lock only because renders borrow the engine shared.
-    server: std::sync::Mutex<ServerAtlas>,
+    /// Where texture paths draw from, including the on-demand server atlas.
+    pub(super) textures: TextureSet,
     /// The atlas page images last handed to the dynamic pages.
     pub(super) server_pages: Vec<render::UiTexturePage>,
-    /// Texture page of the first reserved server page.
-    server_page: u16,
-    /// Carrier texture keys by lowercase spelling; pack paths match any case.
-    carrier_names: CarrierNames,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
     /// The last form's bound tree and laid-out output, reused while unchanged.
@@ -76,10 +69,7 @@ struct LaidForm {
 #[derive(Clone, Copy)]
 struct Art<'a> {
     assets: &'a RuntimeUiAssets,
-    server: &'a std::sync::Mutex<ServerAtlas>,
-    names: &'a CarrierNames,
-    first_page: u16,
-    server_page: u16,
+    set: &'a TextureSet,
 }
 
 /// Everything a render borrows from the presentation runtime for one frame.
@@ -96,21 +86,13 @@ pub(super) struct EngineInputs<'a> {
 impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, catalog: Catalog, first_page: u16) -> Self {
         let base = Arc::new(catalog);
-        let carrier_names = assets
-            .textures()
-            .iter()
-            .map(|texture| (texture.path.to_ascii_lowercase(), texture.path.to_string()))
-            .collect();
         Self {
+            textures: TextureSet::new(&assets, first_page),
             assets,
             catalog: Arc::clone(&base),
             base,
-            first_page,
             context: Context::desktop(),
-            server: Default::default(),
             server_pages: Vec::new(),
-            carrier_names,
-            server_page: 0,
             server_source: None,
             cache: None,
             passes: [0; 2],
@@ -120,10 +102,7 @@ impl FormEngine {
     fn art(&self) -> Art<'_> {
         Art {
             assets: &self.assets,
-            server: &self.server,
-            names: &self.carrier_names,
-            first_page: self.first_page,
-            server_page: self.server_page,
+            set: &self.textures,
         }
     }
 
@@ -150,16 +129,12 @@ impl FormEngine {
 
     /// Install a server texture atlas whose pages start at texture page `first`.
     pub(super) fn set_server_atlas(&mut self, atlas: ServerAtlas, first: u16) {
-        self.server = std::sync::Mutex::new(atlas);
-        self.server_page = first;
+        self.textures.set_atlas(atlas, first);
     }
 
     /// The atlas page images when they changed since the last call.
     pub(super) fn take_server_pages(&mut self) -> Option<&[render::UiTexturePage]> {
-        let atlas = self
-            .server
-            .get_mut()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let atlas = self.textures.atlas_mut();
         if !atlas.take_dirty() {
             return None;
         }
@@ -167,26 +142,22 @@ impl FormEngine {
         Some(&self.server_pages)
     }
 
-    /// The last form's sprite textures, and those resolving to neither the
-    /// server atlas nor the carrier.
+    /// The last form's sprite textures, and those resolving to no source.
     #[cfg(test)]
     pub(super) fn drawn_sprites(&self) -> (Vec<String>, Vec<String>) {
-        let atlas = lock(&self.server);
+        let atlas = self.textures.lock();
+        let view = Textures {
+            assets: &self.assets,
+            set: &self.textures,
+            atlas: &atlas,
+        };
         let mut drawn: Vec<String> = self
             .cache
             .iter()
             .flat_map(|cache| cache.laid.iter())
             .flat_map(|laid| laid.render.nodes.iter())
             .filter_map(|node| match &node.draw {
-                Draw::Sprite { texture, .. } => Some(
-                    canonical(
-                        texture_key(texture),
-                        &atlas,
-                        &self.carrier_names,
-                        &self.assets,
-                    )
-                    .into_owned(),
-                ),
+                Draw::Sprite { texture, .. } => Some(view.canonical(texture).into_owned()),
                 _ => None,
             })
             .collect();
@@ -194,7 +165,7 @@ impl FormEngine {
         drawn.dedup();
         let missing = drawn
             .iter()
-            .filter(|key| atlas.placement(key).is_none() && self.assets.texture(key).is_none())
+            .filter(|key| view.sprite(key).is_none())
             .cloned()
             .collect();
         (drawn, missing)
@@ -248,10 +219,7 @@ impl FormEngine {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let art = Art {
             assets: &self.assets,
-            server: &self.server,
-            names: &self.carrier_names,
-            first_page: self.first_page,
-            server_page: self.server_page,
+            set: &self.textures,
         };
         let screen_cancel = json_ui::form_screen_cancel(&self.catalog);
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
@@ -320,7 +288,12 @@ fn render_with<R: Borrow<FormRender>>(
     ];
     let cache = RefCell::new(inputs.layouts);
     let render = {
-        let atlas = lock(textures.server);
+        let atlas = textures.set.lock();
+        let view = Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+        };
         let measure = Measure {
             layouts: &cache,
             font: inputs.font,
@@ -328,14 +301,9 @@ fn render_with<R: Borrow<FormRender>>(
             px,
             translate: inputs.translate,
         };
-        let sidecars = Sidecars {
-            assets: textures.assets,
-            server: &atlas,
-            names: textures.names,
-        };
         let env = LayoutEnv {
             text: &measure,
-            textures: &sidecars,
+            textures: &view,
         };
         draw(&env, root)
     };
@@ -344,25 +312,27 @@ fn render_with<R: Borrow<FormRender>>(
     };
     let render = render.borrow();
     let layouts = cache.into_inner();
-    let mut atlas = lock(textures.server);
+    let mut atlas = textures.set.lock();
     // Only what this screen draws needs to be resident.
-    let drawn: Vec<String> = render
-        .nodes
-        .iter()
-        .chain(out.overlay)
-        .filter_map(|node| match &node.draw {
-            Draw::Sprite { texture, .. } => Some(texture_key(texture)),
-            _ => None,
-        })
-        .map(|key| canonical(key, &atlas, textures.names, textures.assets).into_owned())
-        .collect();
+    let drawn =
+        Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+        }
+        .atlas_keys(render.nodes.iter().chain(out.overlay).filter_map(|node| {
+            match &node.draw {
+                Draw::Sprite { texture, .. } => Some(texture.as_str()),
+                _ => None,
+            }
+        }));
     atlas.require(drawn.iter().map(String::as_str));
     let mut painter = Painter {
-        assets: textures.assets,
-        server: &atlas,
-        names: textures.names,
-        server_page: textures.server_page,
-        first_page: textures.first_page,
+        textures: Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+        },
         solid_page: inputs.solid_page,
         art,
         screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
@@ -479,87 +449,10 @@ impl TextMeasure for Measure<'_, '_> {
     }
 }
 
-fn lock(atlas: &std::sync::Mutex<ServerAtlas>) -> std::sync::MutexGuard<'_, ServerAtlas> {
-    atlas.lock().unwrap_or_else(|poison| poison.into_inner())
-}
-
-/// Sidecar metadata keyed like the ui json references it; a sidecar-less texture
-/// reports its packed pixel size with no nine-slice.
-struct Sidecars<'a> {
-    assets: &'a RuntimeUiAssets,
-    server: &'a ServerAtlas,
-    names: &'a CarrierNames,
-}
-
-impl TextureSource for Sidecars<'_> {
-    fn texture(&self, path: &str) -> Option<TextureMeta> {
-        let key = canonical(texture_key(path), self.server, self.names, self.assets);
-        let key = key.as_ref();
-        if let Some(meta) = self.server.meta(key) {
-            return Some(meta);
-        }
-        if let Some(sidecar) = self.assets.sidecar(key) {
-            return Some(TextureMeta {
-                base_size: sidecar.base_size.map(f64::from),
-                nineslice: sidecar.nineslice.map(|inset| NineSlice {
-                    left: f64::from(inset.left),
-                    top: f64::from(inset.top),
-                    right: f64::from(inset.right),
-                    bottom: f64::from(inset.bottom),
-                }),
-            });
-        }
-        let placement = self.assets.texture(key)?;
-        Some(TextureMeta {
-            base_size: [f64::from(placement.width), f64::from(placement.height)],
-            nineslice: None,
-        })
-    }
-}
-
-type CarrierNames = std::collections::HashMap<String, String>;
-
-/// A texture path as a pack or the carrier spells it: resource paths match
-/// regardless of case, and a server pack texture wins over the carrier's.
-fn canonical<'a>(
-    key: &'a str,
-    atlas: &ServerAtlas,
-    names: &CarrierNames,
-    assets: &RuntimeUiAssets,
-) -> Cow<'a, str> {
-    if atlas.meta(key).is_some() || assets.texture(key).is_some() {
-        return Cow::Borrowed(key);
-    }
-    let folded = key.to_ascii_lowercase();
-    match atlas
-        .folded(&folded)
-        .or_else(|| names.get(&folded).map(String::as_str))
-    {
-        Some(found) => Cow::Owned(found.to_owned()),
-        None => Cow::Borrowed(key),
-    }
-}
-
-/// Ui json sometimes spells a texture with its file extension; the carrier keys
-/// drop it.
-fn texture_key(path: &str) -> &str {
-    for extension in [".png", ".jpg", ".jpeg", ".tga"] {
-        if let Some(stem) = path.strip_suffix(extension) {
-            return stem;
-        }
-    }
-    path
-}
-
 /// Turns engine draw nodes into retained UI nodes, opening a clip group whenever
 /// the clip rect changes so draw order is preserved.
 struct Painter<'a> {
-    assets: &'a RuntimeUiAssets,
-    server: &'a ServerAtlas,
-    names: &'a CarrierNames,
-    /// Texture page of server page 0.
-    server_page: u16,
-    first_page: u16,
+    textures: Textures<'a>,
     solid_page: u16,
     art: ScreenArt<'a>,
     /// The whole content area, the clip for unclipped tooltips.
@@ -869,23 +762,8 @@ impl Painter<'_> {
                 dest,
             ),
             Draw::Sprite { texture, uv, color } => {
-                let key = canonical(texture_key(texture), self.server, self.names, self.assets);
-                let key = key.as_ref();
-                let (page, [x, y, w, h]) = match self.server.placement(key) {
-                    Some(server) => (
-                        self.server_page.saturating_add(server.page),
-                        server.rect.map(f32::from),
-                    ),
-                    None => {
-                        let Some(placement) = self.assets.texture(key) else {
-                            return Ok(());
-                        };
-                        (
-                            self.first_page.saturating_add(placement.page),
-                            [placement.x, placement.y, placement.width, placement.height]
-                                .map(f32::from),
-                        )
-                    }
+                let Some((page, [x, y, w, h])) = self.textures.sprite(texture) else {
+                    return Ok(());
                 };
                 let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
                 (
