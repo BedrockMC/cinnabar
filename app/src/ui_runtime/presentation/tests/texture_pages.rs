@@ -78,11 +78,13 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
     .unwrap();
     assert_eq!(presentation.textures.plan().bytes(), 56 * 1024 * 1024);
     assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 735);
-    assert!(
+    // The largest icon carrier still fits beside the CJK font; the planner refuses whole
+    // catalogs past the byte budget (see render's `planner_checks_entire_catalog_and_all_limits`).
+    let large =
         UiPresentationRuntime::with_hud_and_icons(font, fixture_hud(), independent_icons(900, 64))
-            .is_err(),
-        "whole valid large icon catalog must refuse, not truncate to fit"
-    );
+            .unwrap();
+    assert_eq!(large.icon_refs.as_ref().unwrap().len(), 900);
+    assert!(large.textures.plan().bytes() <= render::MAX_UI_TEXTURE_BYTES);
 }
 
 #[test]
@@ -99,11 +101,11 @@ fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
     .unwrap();
     assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 1024);
     assert!(presentation.textures.dynamic_start() < presentation.textures.pages().len());
-    assert!(presentation.textures.plan().bytes() <= 64 * 1024 * 1024);
+    assert!(presentation.textures.plan().bytes() <= render::MAX_UI_TEXTURE_BYTES);
     assert!(
         UiPresentationRuntime::with_hud_and_icons(font, fixture_hud(), independent_icons(900, 64))
-            .is_err(),
-        "an oversized merged catalog must refuse as a whole"
+            .is_ok(),
+        "the merged font, HUD and icon catalog fits the shared budget whole"
     );
 }
 
