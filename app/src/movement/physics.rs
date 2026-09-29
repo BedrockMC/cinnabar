@@ -721,13 +721,6 @@ impl LocalPhysicsController {
     }
 
     #[must_use]
-    pub fn latest_horizontal_collision(&self) -> bool {
-        self.sample_history
-            .back()
-            .is_some_and(|sample| sample.horizontal_collision)
-    }
-
-    #[must_use]
     pub const fn mode(&self) -> sim::MovementMode {
         self.modes.mode()
     }
