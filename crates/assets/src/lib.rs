@@ -34,6 +34,7 @@ mod sound_bank;
 mod sound_events;
 mod texture;
 mod ui;
+mod vanilla_refs;
 mod weather_textures;
 
 pub use hud_extras::{
@@ -209,6 +210,7 @@ pub use ui::{
     UI_CARRIER_VERSION, UiAtlasPage, UiFile, UiNineSlice, UiSidecar, UiSidecarEntry,
     UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };
+pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
 pub use weather_textures::{
     END_SKY_SIDE, MAX_WEATHER_TEXTURES_BYTES, WEATHER_SHEET_SIDE, WEATHER_TEXTURES_MAGIC,
     WEATHER_TEXTURES_VERSION, WeatherImage, WeatherTextures, WeatherTexturesError,

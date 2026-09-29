@@ -66,7 +66,7 @@ pub fn compile_actor_assets(
         bindings,
         fallbacks,
         pixel_bytes,
-    } = build_artwork(&entities, &runtime_entities, &mut read)?;
+    } = build_artwork(&entities, &runtime_entities, &mut read, false)?;
     let bytes = encode_actor_catalog(&entity_bytes, &textures, &bindings)?;
     let report = ActorCompileReport {
         source_manifest_sha256: entities.source_manifest_sha256,
@@ -111,7 +111,7 @@ struct DecodedRaster {
     pixels: Vec<u8>,
 }
 
-fn decode_raster(path: &str, bytes: &[u8]) -> Option<DecodedRaster> {
+fn decode_raster(path: &str, bytes: &[u8], binary_alpha: bool) -> Option<DecodedRaster> {
     let format = if path.ends_with(".png") {
         ImageFormat::Png
     } else {
@@ -129,21 +129,24 @@ fn decode_raster(path: &str, bytes: &[u8]) -> Option<DecodedRaster> {
         u16::try_from(image.height()).ok()?,
     );
     let pixels = image.into_rgba8().into_raw();
-    // The actor pipeline discards on alpha, so only binary alpha reproduces the raster.
-    pixels
-        .chunks_exact(4)
-        .all(|pixel| matches!(pixel[3], 0 | 255))
-        .then_some(DecodedRaster {
-            width,
-            height,
-            pixels,
-        })
+    // The actor pipeline discards on alpha, so only binary alpha reproduces the raster;
+    // a lenient (server pack) build keeps partial alpha and lets the discard threshold decide.
+    (!binary_alpha
+        || pixels
+            .chunks_exact(4)
+            .all(|pixel| matches!(pixel[3], 0 | 255)))
+    .then_some(DecodedRaster {
+        width,
+        height,
+        pixels,
+    })
 }
 
 fn build_artwork(
     entities: &CompiledEntityAssets,
     _runtime_entities: &assets::RuntimeEntityAssets,
     read: &mut dyn FnMut(u32) -> Result<Vec<u8>, AssetError>,
+    lenient: bool,
 ) -> Result<ArtworkBuild, AssetError> {
     let mut textures = Vec::<ActorTexture>::new();
     let mut bindings = Vec::new();
@@ -185,31 +188,38 @@ fn build_artwork(
             let candidate_index = rig.first_geometry as usize + offset;
             let candidate = entities.rig_geometries[candidate_index];
             let geometry = &entities.geometries[candidate.geometry as usize];
-            if !neutral_actor_geometry_uvs_are_supported(
-                &entities.geometries,
-                candidate.geometry as usize,
-            ) {
+            // Out-of-range UVs sample the clamped edge, so a lenient build still draws them.
+            if !lenient
+                && !neutral_actor_geometry_uvs_are_supported(
+                    &entities.geometries,
+                    candidate.geometry as usize,
+                )
+            {
                 reject(&mut fallbacks, "uv_extents_or_inheritance");
                 continue;
             }
             let mut default_texture = None;
             for &source in &sources {
                 // The actor carrier admits only entity textures.
-                if !entities.sources[source as usize]
-                    .path
-                    .starts_with("textures/entity/")
+                if !lenient
+                    && !entities.sources[source as usize]
+                        .path
+                        .starts_with("textures/entity/")
                 {
                     continue;
                 }
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                     let path = entities.sources[source as usize].path.as_ref();
-                    slot.insert(decode_raster(path, &read(source)?));
+                    slot.insert(decode_raster(path, &read(source)?, !lenient));
                 }
                 let Some(raster) = decoded[&source].as_ref() else {
                     continue;
                 };
-                if raster.width != geometry.texture_width
-                    || raster.height != geometry.texture_height
+                // UVs are normalised by the geometry's declared size, so a lenient build
+                // accepts a raster of another resolution.
+                if !lenient
+                    && (raster.width != geometry.texture_width
+                        || raster.height != geometry.texture_height)
                 {
                     continue;
                 }

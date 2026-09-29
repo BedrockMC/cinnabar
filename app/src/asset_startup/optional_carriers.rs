@@ -26,6 +26,29 @@ pub(super) fn load_material_keys(
     keys
 }
 
+/// Reads the vanilla entity-definition sidecar beside the entity carrier; absence only limits
+/// server-pack entities that reference vanilla render controllers, animations or geometry.
+pub(super) fn load_vanilla_entity_refs(
+    world_asset_path: &Path,
+) -> Option<assets::VanillaEntityRefs> {
+    let path = entity_asset_path(world_asset_path).with_extension("vanillarefs.json");
+    let file = File::open(&path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(assets::MAX_VANILLA_REFS_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > assets::MAX_VANILLA_REFS_BYTES {
+        return None;
+    }
+    let refs = assets::VanillaEntityRefs::from_json(&bytes);
+    if refs.is_none() {
+        bevy::log::warn!(
+            "vanilla entity refs sidecar is malformed; rebuild with make entity-assets"
+        );
+    }
+    refs
+}
+
 pub(super) fn load_entity_assets(
     world_asset_path: &Path,
 ) -> Result<LoadedEntityAssets, AssetStartupError> {

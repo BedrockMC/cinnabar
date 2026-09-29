@@ -6,8 +6,11 @@ use resource_pack::LayeredPackView;
 
 /// The pack at `$var` (a `.zip`/`.mcpack`), or `None` when the variable is unset.
 pub(super) fn local_pack_view(var: &str) -> Option<LayeredPackView> {
-    let path = std::env::var_os(var)?;
-    let path = Path::new(&path);
+    local_pack_view_at(Path::new(&std::env::var_os(var)?))
+}
+
+/// The cached pack archive at `path`, with its `.key` beside it when present.
+pub(super) fn local_pack_view_at(path: &Path) -> Option<LayeredPackView> {
     let key = std::fs::read(path.with_extension("key")).unwrap_or_default();
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
     let (id, version) = stem.split_once('_').expect("<uuid>_<version> file name");

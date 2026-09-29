@@ -21,6 +21,7 @@ mod optional_carriers;
 pub(crate) use optional_carriers::shell_quote_path;
 use optional_carriers::{
     load_atmosphere_assets, load_entity_assets, load_font_assets, load_material_keys,
+    load_vanilla_entity_refs,
 };
 mod world_provenance;
 pub use world_provenance::pinned_world_provenance;
@@ -705,6 +706,9 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
         );
     if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
         crate::runtime::network::set_base_material_keys(keys);
+    }
+    if let Some(refs) = load_vanilla_entity_refs(&selection.path) {
+        crate::runtime::network::entity_pack::set_vanilla_refs(refs);
     }
     world_provenance::verify_world_carrier(&selection.path, &runtime)?;
     let metrics = runtime_metrics(&runtime, source, blob_sha256);

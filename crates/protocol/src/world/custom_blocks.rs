@@ -72,6 +72,8 @@ pub struct CustomMaterialInstance {
     pub name: Arc<str>,
     pub texture: Arc<str>,
     pub render_method: Option<Arc<str>>,
+    /// `tint_method`: `default_foliage`, `birch_foliage`, `evergreen_foliage`, `dry_foliage`, `grass`, `water`, or `none`.
+    pub tint_method: Option<Arc<str>>,
 }
 
 /// Rotation in quarter turns about each axis, then scale and translation.
@@ -431,10 +433,15 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                         Some(Nbt::String(method)) => Some(method.as_str().into()),
                         _ => None,
                     };
+                    let tint_method = match material.field("tint_method") {
+                        Some(Nbt::String(method)) => Some(method.as_str().into()),
+                        _ => None,
+                    };
                     Some(CustomMaterialInstance {
                         name: name.as_str().into(),
                         texture: texture.as_str().into(),
                         render_method,
+                        tint_method,
                     })
                 })
                 .collect()

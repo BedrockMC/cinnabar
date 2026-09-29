@@ -6,6 +6,9 @@ use std::{collections::HashMap, sync::Arc};
 use assets::{ActorArtworkBinding, ActorTexture, RuntimeEntityAssets, RuntimeEquipmentCatalog};
 use resource_pack::LayeredPackView;
 
+mod collect;
+use collect::collect_files;
+
 use super::resource_packs::{StackFingerprint, parse_pack_json, stack_fingerprint};
 
 /// The pack's entity catalog with the artwork of its eligible rigs.
@@ -18,14 +21,13 @@ pub(crate) struct SessionEntityPack {
     pub(crate) equipment: Option<Arc<assets::RuntimeEquipmentCatalog>>,
 }
 
-const FAMILIES: [(&str, &[&str]); 6] = [
-    ("entity/", &["json"]),
-    ("models/entity/", &["json"]),
-    ("animations/", &["json"]),
-    ("animation_controllers/", &["json"]),
-    ("render_controllers/", &["json"]),
-    ("textures/entity/", &["json", "png", "tga"]),
-];
+/// Vanilla definitions server-pack entities may reference, set once at startup when the
+/// sidecar loads.
+static VANILLA_REFS: std::sync::OnceLock<assets::VanillaEntityRefs> = std::sync::OnceLock::new();
+
+pub(crate) fn set_vanilla_refs(refs: assets::VanillaEntityRefs) {
+    let _ = VANILLA_REFS.set(refs);
+}
 
 type CachedEntities = (StackFingerprint, Option<Arc<SessionEntityPack>>);
 
@@ -52,17 +54,7 @@ pub(super) fn compile_session_entities(
 }
 
 fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
-    let mut files: Vec<(Box<str>, Vec<u8>)> = Vec::new();
-    for (prefix, extensions) in FAMILIES {
-        for extension in extensions {
-            files.extend(
-                view.winning_files(prefix, extension)
-                    .into_iter()
-                    .map(|(path, bytes)| (path.into_boxed_str(), bytes.into_vec())),
-            );
-        }
-    }
-    drop_shadowed_entities(view, &mut files);
+    let files = collect_files(view, VANILLA_REFS.get());
     let compiled = match asset_compiler::compile_actor_pack(files) {
         Ok(Some(compiled)) => compiled,
         Ok(None) => return None,
@@ -110,31 +102,6 @@ fn compile(view: &LayeredPackView) -> Option<Arc<SessionEntityPack>> {
         bindings: compiled.bindings.into(),
         equipment,
     }))
-}
-
-/// Keeps only the highest layer's `entity/` file for each client entity identifier.
-fn drop_shadowed_entities(view: &LayeredPackView, files: &mut Vec<(Box<str>, Vec<u8>)>) {
-    let mut owners: HashMap<String, Box<str>> = HashMap::new();
-    for layer in view.layers() {
-        for path in layer.files_under("entity/") {
-            if !path.ends_with(".json") {
-                continue;
-            }
-            let Ok(Some(bytes)) = layer.read_file(path) else {
-                continue;
-            };
-            if let Some(identifier) = entity_identifier(&bytes) {
-                owners.insert(identifier, path.into());
-            }
-        }
-    }
-    files.retain(|(path, bytes)| {
-        if !path.starts_with("entity/") || !path.ends_with(".json") {
-            return true;
-        }
-        entity_identifier(bytes)
-            .is_none_or(|identifier| owners.get(&identifier).is_none_or(|owner| owner == path))
-    });
 }
 
 /// Property defaults of each `entities/*.json` behavior definition the stack carries, keyed by
@@ -193,7 +160,7 @@ fn property_default(
     })
 }
 
-fn entity_identifier(bytes: &[u8]) -> Option<String> {
+pub(super) fn entity_identifier(bytes: &[u8]) -> Option<String> {
     parse_pack_json(bytes)?["minecraft:client_entity"]["description"]["identifier"]
         .as_str()
         .map(str::to_owned)
@@ -226,4 +193,126 @@ mod tests {
         assert_eq!(entity_identifier(json).as_deref(), Some("a:b"));
         assert_eq!(entity_identifier(b"{}"), None);
     }
+}
+
+/// Env-gated: `CINNABAR_PACKCACHE_DIR` names a directory of cached `<uuid>_<version>.zip`
+/// packs; prints which pack entities compile to artwork and why the rest fall back.
+#[test]
+fn report_local_pack_entities() {
+    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        return;
+    };
+    let mut zips = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|entry| Some(entry.ok()?.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "zip"))
+        .collect::<Vec<_>>();
+    zips.sort();
+    let refs = std::fs::read("../.local/assets/compiled/vanilla-v1.vanillarefs.json")
+        .ok()
+        .and_then(|bytes| assets::VanillaEntityRefs::from_json(&bytes));
+    eprintln!("vanilla refs loaded: {}", refs.is_some());
+    for path in zips {
+        let Some(view) = super::local_pack::local_pack_view_at(&path) else {
+            continue;
+        };
+        let files = collect_files(&view, refs.as_ref());
+        let entity_files = files
+            .iter()
+            .filter(|(p, _)| p.starts_with("entity/"))
+            .count();
+        if entity_files == 0 {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        diagnose_references(&name, &files);
+        match asset_compiler::compile_actor_pack(files) {
+            Ok(Some(c)) => {
+                let mut reasons = std::collections::BTreeMap::<String, Vec<String>>::new();
+                for fallback in &c.fallbacks {
+                    let rig = &c.entities.rig_bindings[fallback.rig as usize];
+                    let id = &c.entities.symbols[rig.entity_symbol as usize].identifier;
+                    reasons
+                        .entry(fallback.reason.to_string())
+                        .or_default()
+                        .push(id.to_string());
+                }
+                let rigs = c.entities.rig_bindings.len();
+                eprintln!(
+                    "PACK {name}: entity_files={entity_files} rigs={rigs} artwork={} skipped={:?}",
+                    c.bindings.len(),
+                    c.skipped
+                );
+                for (reason, ids) in reasons {
+                    eprintln!(
+                        "  {reason}: {} e.g. {:?}",
+                        ids.len(),
+                        &ids[..ids.len().min(3)]
+                    );
+                }
+            }
+            Ok(None) => eprintln!("PACK {name}: entity_files={entity_files} compiled to nothing"),
+            Err(error) => eprintln!("PACK {name}: entity_files={entity_files} ERROR {error}"),
+        }
+    }
+}
+
+/// Counts entity references the pack's own files cannot satisfy (vanilla-defined or missing).
+fn diagnose_references(name: &str, files: &[(Box<str>, Vec<u8>)]) {
+    use std::collections::{BTreeMap, BTreeSet};
+    let json = |bytes: &[u8]| parse_pack_json(bytes);
+    let mut defined = BTreeSet::new();
+    let paths = files
+        .iter()
+        .map(|(p, _)| p.as_ref())
+        .collect::<BTreeSet<_>>();
+    for (path, bytes) in files {
+        if path.starts_with("render_controllers/")
+            && let Some(root) = json(bytes)
+            && let Some(map) = root["render_controllers"].as_object()
+        {
+            defined.extend(map.keys().cloned());
+        }
+    }
+    let mut missing_controllers = BTreeMap::<String, u32>::new();
+    let mut missing_textures = BTreeMap::<String, u32>::new();
+    for (path, bytes) in files {
+        if !path.starts_with("entity/") {
+            continue;
+        }
+        let Some(root) = json(bytes) else { continue };
+        let description = &root["minecraft:client_entity"]["description"];
+        for entry in description["render_controllers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let key = entry
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| entry.as_object()?.keys().next().cloned());
+            if let Some(key) = key
+                && !defined.contains(&key)
+            {
+                *missing_controllers.entry(key).or_default() += 1;
+            }
+        }
+        for texture in description["textures"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(_, v)| v.as_str())
+        {
+            let present = [".png", ".tga"]
+                .iter()
+                .any(|ext| paths.contains(format!("{texture}{ext}").as_str()));
+            if !present {
+                let dir = texture.rsplit_once('/').map_or("", |(d, _)| d);
+                *missing_textures.entry(dir.to_owned()).or_default() += 1;
+            }
+        }
+    }
+    eprintln!(
+        "  refs {name}: undefined_controllers={missing_controllers:?} textures_not_collected_by_dir={missing_textures:?}"
+    );
 }

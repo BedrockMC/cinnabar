@@ -7,7 +7,7 @@ use std::{
 use asset_compiler::{
     AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
     compile_atmosphere_assets_with_options, compile_entity_assets_with_report, compile_fonts,
-    compile_pack_with_material_keys, inspect_animation_inventory,
+    compile_pack_with_material_keys, compile_vanilla_entity_refs, inspect_animation_inventory,
 };
 use assets::{
     AssetError, AtmosphereRole, BlobProvenance, EntityAssetSource, EntityAssetSymbol,
@@ -650,6 +650,9 @@ fn compile_entity_assets_command(
     validate_output_bundle(out, report)?;
     write_blob_atomic(out, &blob)?;
     write_blob_atomic(report, &report_bytes)?;
+    // Sidecar for session-time server-pack entities that reference vanilla definitions.
+    let refs = compile_vanilla_entity_refs(pack)?;
+    write_blob_atomic(&out.with_extension("vanillarefs.json"), &refs.to_json())?;
     println!(
         "compiled {} entity authority sources, {} symbols, {} dependencies, {} geometries, {} bones, and {} cubes to {} and {}",
         report_data.counts.sources,

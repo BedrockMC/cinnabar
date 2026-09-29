@@ -25,6 +25,8 @@ mod json;
 mod molang;
 mod pack;
 mod source;
+mod vanilla_refs;
+pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub use pack::{
     EntityPackCompilation, EntityPackSkips, MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES,
@@ -464,9 +466,7 @@ fn parse_source(
         attachable::validate_source(&value)?;
         return Ok(());
     }
-    if relative_path.starts_with("textures/entity/")
-        || relative_path.starts_with("textures/models/armor/")
-    {
+    if relative_path.starts_with("textures/") {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
             let identifier = relative_path
                 .strip_suffix(".png")
