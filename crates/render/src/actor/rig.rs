@@ -4,6 +4,10 @@ use assets::RuntimeEntityAssets;
 use bevy::math::{Vec3, Vec4};
 use bytemuck::{Pod, Zeroable};
 
+#[path = "rig/bone_arena.rs"]
+mod bone_arena;
+use bone_arena::append_pose_matrices;
+
 use super::{
     ActorCullView, MAX_RENDERED_PLAYERS,
     asset_geometry::{geometry_from_geometry_index, geometry_from_runtime_assets},
@@ -693,45 +697,31 @@ impl ActorRigFrameBuilder {
             }
             let previous_bone_base = previous_bones.len() as u32;
             let current_bone_base = current_bones.len() as u32;
-            let previous_matrices = previous
-                .iter()
-                .enumerate()
-                .map(|(index, transform)| {
-                    affine_matrix(
-                        *transform,
-                        geometry.bone_pivots.get(index).copied().unwrap_or([0.0; 3]),
-                    )
-                })
-                .collect::<Option<Vec<_>>>();
-            let current_matrices = current
-                .iter()
-                .enumerate()
-                .map(|(index, transform)| {
-                    affine_matrix(
-                        *transform,
-                        geometry.bone_pivots.get(index).copied().unwrap_or([0.0; 3]),
-                    )
-                })
-                .collect::<Option<Vec<_>>>();
-            let (Some(previous_matrices), Some(current_matrices)) =
-                (previous_matrices, current_matrices)
-            else {
+            let previous_valid =
+                append_pose_matrices(&mut previous_bones, previous, &geometry.bone_pivots);
+            let current_valid =
+                append_pose_matrices(&mut current_bones, current, &geometry.bone_pivots);
+            if !previous_valid || !current_valid {
+                previous_bones.truncate(previous_bone_base as usize);
+                current_bones.truncate(current_bone_base as usize);
                 rejects.non_finite_pose = rejects.non_finite_pose.saturating_add(1);
                 continue;
-            };
+            }
             let Some(&geometry_index) = self.geometry_indices.get(&geometry_id) else {
+                previous_bones.truncate(previous_bone_base as usize);
+                current_bones.truncate(current_bone_base as usize);
                 rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
                 continue;
             };
             let span = self.geometry_spans[geometry_index as usize];
             maximum_vertex_count = maximum_vertex_count.max(span.vertex_count);
             let Ok(reset_generation) = u32::try_from(submission.input.reset_generation) else {
+                previous_bones.truncate(previous_bone_base as usize);
+                current_bones.truncate(current_bone_base as usize);
                 rejects.invalid_identity = rejects.invalid_identity.saturating_add(1);
                 continue;
             };
             let instance_index = instances.len() as u32;
-            previous_bones.extend(previous_matrices);
-            current_bones.extend(current_matrices);
             instances.push(ActorGpuInstance {
                 world_from_actor: submission.world_from_actor,
                 previous_bone_base,

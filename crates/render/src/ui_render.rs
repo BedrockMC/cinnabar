@@ -34,6 +34,8 @@ pub(crate) use textures::DeviceObservation;
 use textures::UiGpuTextures;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
+#[path = "ui_render/uploads.rs"]
+mod uploads;
 use overlay::queue_ui_overlay;
 pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, install_overlay_graph};
 
@@ -119,6 +121,7 @@ pub(crate) struct UiGpu {
     last_admitted_revision: Option<u64>,
     last_admitted_publication: Weak<UiRenderInput>,
     index_count: usize,
+    uploads: uploads::BufferUploads,
     view_pipelines:
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
 }
@@ -160,6 +163,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         last_admitted_revision: None,
         last_admitted_publication: Weak::new(),
         index_count: 0,
+        uploads: uploads::BufferUploads::default(),
         view_pipelines: std::collections::BTreeMap::new(),
     });
 }
@@ -252,7 +256,9 @@ pub(crate) fn prepare_ui_resources(
         return;
     }
 
-    if gpu.vertex_capacity < input.vertices.len() {
+    let fresh_vertices = gpu.vertex_capacity < input.vertices.len();
+    let fresh_indices = gpu.index_capacity < input.indices.len();
+    if fresh_vertices {
         let capacity = arena_capacity(input.vertices.len(), MAX_UI_VERTICES);
         gpu.vertex_buffer = Some(render_device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI vertex arena"),
@@ -263,7 +269,7 @@ pub(crate) fn prepare_ui_resources(
         gpu.vertex_capacity = capacity;
         gpu.vertex_arena_id = gpu.vertex_arena_id.saturating_add(1);
     }
-    if gpu.index_capacity < input.indices.len() {
+    if fresh_indices {
         let capacity = arena_capacity(input.indices.len(), MAX_UI_INDICES);
         gpu.index_buffer = Some(render_device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI index arena"),
@@ -274,21 +280,32 @@ pub(crate) fn prepare_ui_resources(
         gpu.index_capacity = capacity;
         gpu.index_arena_id = gpu.index_arena_id.saturating_add(1);
     }
+    let upload = gpu.uploads.plan(input, fresh_vertices, fresh_indices);
     if let Some(buffer) = gpu.vertex_buffer.as_ref()
-        && !input.vertices.is_empty()
+        && !upload.vertices.is_empty()
     {
-        render_queue.write_buffer(buffer, 0, bytemuck::cast_slice(&input.vertices));
+        render_queue.write_buffer(
+            buffer,
+            (upload.vertices.start * size_of::<UiRenderVertex>()) as u64,
+            bytemuck::cast_slice(&input.vertices[upload.vertices.clone()]),
+        );
     }
     if let Some(buffer) = gpu.index_buffer.as_ref()
-        && !input.indices.is_empty()
+        && !upload.indices.is_empty()
     {
-        render_queue.write_buffer(buffer, 0, bytemuck::cast_slice(&input.indices));
+        render_queue.write_buffer(
+            buffer,
+            (upload.indices.start * size_of::<u32>()) as u64,
+            bytemuck::cast_slice(&input.indices[upload.indices.clone()]),
+        );
     }
     let viewport = UiViewportUniform {
         viewport_size: [input.viewport_size[0] as f32, input.viewport_size[1] as f32],
         _padding: [0.0; 2],
     };
-    render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+    if gpu.viewport_size != input.viewport_size {
+        render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
+    }
     gpu.viewport_size = input.viewport_size;
 
     gpu.batches = Arc::clone(&input.batches);
@@ -298,8 +315,8 @@ pub(crate) fn prepare_ui_resources(
     gpu.last_admitted_publication = Arc::downgrade(input);
     stats.update(|stats| {
         stats.accepted_revision = Some(input.revision);
-        stats.uploaded_vertices = input.vertices.len() as u32;
-        stats.uploaded_indices = input.indices.len() as u32;
+        stats.uploaded_vertices = upload.vertices.len() as u32;
+        stats.uploaded_indices = upload.indices.len() as u32;
         stats.draw_calls = input.batches.len() as u32;
         stats.vertex_arena_capacity = gpu.vertex_capacity as u32;
         stats.index_arena_capacity = gpu.index_capacity as u32;
@@ -690,6 +707,56 @@ mod ordered_command_tests {
                 .bind_group
                 .is_some()
         );
+    }
+
+    #[test]
+    fn actual_preparation_uploads_changed_spans_and_refills_reallocated_arenas() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = binding_world();
+        let vertex = UiRenderVertex {
+            position: [0.0; 2],
+            uv: [0; 2],
+            color: [255; 4],
+            style_flags: 0,
+        };
+        let mut input = UiRenderInput {
+            revision: 1,
+            viewport_size: [64; 2],
+            safe_area: [0; 4],
+            vertices: Arc::from([vertex; 4]),
+            indices: Arc::from([0, 1, 2, 0, 2, 3]),
+            batches: Arc::from([UiRenderBatch::new(0, UiScissor::new(0, 0, 64, 64), 0, 6, 0)]),
+            textures: Arc::new(
+                crate::UiTextureCatalog::new(
+                    vec![crate::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
+                    1,
+                )
+                .unwrap(),
+            ),
+        };
+        let mut scene = UiRenderScene::default();
+        for revision in 1..=4 {
+            input.revision = revision;
+            match revision {
+                2 => Arc::make_mut(&mut input.vertices)[1].position[0] = 1.0,
+                3 => input.viewport_size = [128; 2],
+                4 => input.vertices = vec![vertex; 4_000].into(),
+                _ => {}
+            }
+            scene
+                .publish(input.clone(), world.resource::<UiRenderStats>())
+                .unwrap();
+            world.insert_resource(scene.clone());
+            world.run_system_once(prepare_ui_resources).unwrap();
+            let stats = world.resource::<UiRenderStats>().snapshot();
+            assert_eq!(stats.accepted_revision, Some(revision));
+            assert_eq!(
+                stats.uploaded_vertices,
+                [4, 1, 0, 4_000][revision as usize - 1]
+            );
+            assert_eq!(stats.uploaded_indices, if revision == 1 { 6 } else { 0 });
+            assert_eq!(world.resource::<UiGpu>().viewport_size, input.viewport_size);
+        }
     }
 
     #[test]
