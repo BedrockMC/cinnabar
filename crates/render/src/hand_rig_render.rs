@@ -25,8 +25,8 @@ mod node;
 mod tests;
 
 const HAND_RIG_SHADER: Handle<Shader> = uuid_handle!("6f2b1c74-4a2e-49d8-9c1a-2f7b0d5e3a61");
-/// Near plane for the first-person arm; small so the close hand is never clipped.
-const HAND_RIG_NEAR_PLANE: f32 = 0.05;
+/// Near plane of vanilla's first-person projection.
+const HAND_RIG_NEAR_PLANE: f32 = 0.025;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 struct HandRigLabel;
