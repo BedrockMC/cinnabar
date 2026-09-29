@@ -67,14 +67,17 @@ granularity needs measurement; text-to-speech disabled), pause, death, connectin
 section) draw from their vanilla screens, as do launcher dialogs (vanilla two-button popup);
 profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it completes before the
 window opens) stay programmatic, and the programmatic launcher remains only for a missing
-carrier or a failed render. Launcher screens sit on the vanilla panorama, approximated as
-perspective-correct texel strips of 512 px faces (FOV, turn speed and pitch need measurement).
+carrier or a failed render. Launcher screens sit on the vanilla panorama, a render pass that ray-casts the
+carrier's full-resolution cube faces (FOV 85°, 2°/s turn, 25±5° tilt follow the title-screen
+cube; the reconstruction keeps the real values as unnamed data, so they need measurement).
 The Servers tab lists featured servers then gatherings with the vanilla info panel (description,
-news, screenshots, games; artwork is 96 px menu thumbnails, the read-more toggle is not wired,
-player counts/ping need a RakNet ping); Realms split owned/member with players and expiry; the
-start screen shows the profile gamertag and gamerpic. Not served (no open endpoint, see
-`docs/menus-services.md`): announcements/inbox/tile art, store offers, persona, Realms invite
-counts, live-event gatherings. A launcher run keeps one `-control-status` core (restarted
+news, screenshots, games; artwork up to 512 px, read-more toggles, selected-row highlight,
+RakNet player counts and ping icons with provisional 150/300 ms thresholds); Realms split
+owned/member with players and expiry; the start screen shows the profile gamertag and gamerpic
+(else the persona head), messaging tile art (first GIF frame), inbox badge, Realms invite
+count and the live-event button. The profile screen is drawn natively in the OreUI route's
+layout (needs a screenshot check); the OreUI play/settings routes are not reproduced. Not
+served: persona appearance pieces for the paper doll, gathering venues, store layouts. A launcher run keeps one `-control-status` core (restarted
 on sign-in/sign-out) that feeds account, realms, friends and local worlds; joins select their
 target over `connect.v1` and fall back to a per-session core; opened local worlds are joined and
 closed with their session; respawn sends the client-ready respawn request only (no player

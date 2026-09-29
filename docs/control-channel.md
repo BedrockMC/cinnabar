@@ -18,7 +18,10 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `events.v1` | none | `auth`, `disconnect?`, `transfer?` |
 | `featured_servers.v1` | none | `servers: [{name, address, caption, description?, news_title?, news?, logo, screenshots, games}]` |
 | `gatherings.v1` | none | `gatherings: [{id, name, caption, description?, creator?, address?, image, start_unix?, end_unix?}]` |
-| `profile.v1` | none | `profile: {gamertag, xuid, gamerpic}` |
+| `profile.v1` | none | `profile: {gamertag, xuid, gamerpic, real_name?, presence_text?, gamerscore, friends, followers}` |
+| `home.v1` | none | `home: {messages, inbox, treatments, realm_invites, live_events, persona_head}` |
+| `message_event.v1` | `event_type`, `instance_id?`, `report_id?`, `button_id?` | empty |
+| `ping.v1` | `addresses` (at most 64) | `servers: [{address, online, players, max_players, ping_ms, motd?}]` |
 
 Artwork fields are `{url, path?}`: an HTTPS URL plus the core's bounded cached copy. Realms also
 carry `owner`, `motd`, `world_type`, `online_players`, `max_players`, `days_left`, `expired`, `member`.
