@@ -7,6 +7,7 @@ mod fallback;
 mod model;
 mod pages;
 mod server_pack;
+mod sign_editor;
 #[cfg(test)]
 mod tests;
 

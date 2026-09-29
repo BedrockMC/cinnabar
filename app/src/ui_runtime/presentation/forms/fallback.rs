@@ -278,7 +278,7 @@ impl UiPresentationRuntime {
     }
 }
 
-fn fit_line(
+pub(super) fn fit_line(
     presentation: &mut UiPresentationRuntime,
     metrics: TextMetrics,
     value: &str,
@@ -325,7 +325,13 @@ fn fit_line(
     }
     Ok(best)
 }
-fn solid(nodes: &mut Vec<UiNode>, next: &mut u32, page: u16, bounds: UiRect, color: [u8; 4]) {
+pub(super) fn solid(
+    nodes: &mut Vec<UiNode>,
+    next: &mut u32,
+    page: u16,
+    bounds: UiRect,
+    color: [u8; 4],
+) {
     nodes.push(
         UiNode::new(UiNodeId::new(*next), None, bounds).with_visual(UiVisual::Solid {
             texture_page: page,
@@ -334,13 +340,13 @@ fn solid(nodes: &mut Vec<UiNode>, next: &mut u32, page: u16, bounds: UiRect, col
     );
     *next = next.saturating_add(1);
 }
-fn clip(nodes: &mut Vec<UiNode>, next: &mut u32, bounds: UiRect) -> UiNodeId {
+pub(super) fn clip(nodes: &mut Vec<UiNode>, next: &mut u32, bounds: UiRect) -> UiNodeId {
     let id = UiNodeId::new(*next);
     nodes.push(UiNode::new(id, None, bounds).with_clip_children(true));
     *next = next.saturating_add(1);
     id
 }
-fn text(
+pub(super) fn text(
     nodes: &mut Vec<UiNode>,
     next: &mut u32,
     parent: UiNodeId,
@@ -358,7 +364,7 @@ fn text(
     );
     *next = next.saturating_add(1);
 }
-fn window_rect(bounds: UiRect, safe: SafeArea) -> Result<UiRect, UiPresentationError> {
+pub(super) fn window_rect(bounds: UiRect, safe: SafeArea) -> Result<UiRect, UiPresentationError> {
     rect(
         bounds.min().x() + safe.left(),
         bounds.min().y() + safe.top(),
