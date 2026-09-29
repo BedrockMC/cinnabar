@@ -343,15 +343,11 @@ fn spawn_mining_cracks(
 
 /// Moves actor-bound emitters with their actors; an emitter whose actor vanished stops.
 fn follow_bound_emitters(system: &mut ParticleSystem, stream: &WorldStream) {
-    for (id, runtime_id, offset) in system.bound_emitters() {
-        match stream.actor(runtime_id) {
-            Some(actor) => {
-                let position = std::array::from_fn(|i| actor.position[i] + offset[i]);
-                system.set_transform(id, position, IDENTITY_BASIS);
-            }
-            None => system.stop(id),
-        }
-    }
+    system.update_bound_emitters(|runtime_id, offset| {
+        let actor = stream.actor(runtime_id)?;
+        let position = std::array::from_fn(|i| actor.position[i] + offset[i]);
+        Some((position, IDENTITY_BASIS))
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
