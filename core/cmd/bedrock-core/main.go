@@ -249,6 +249,7 @@ func runWithResourcePackCacheFactory(
 			Store: statusStore, Selector: selector, Transfers: transfers,
 		})
 		controlServer.SetServices(service)
+		controlServer.SetMarketplace(service.Marketplace(nil))
 		if tokenSource != nil {
 			go service.PublishSignedIn(ctx)
 		}
