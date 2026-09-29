@@ -286,7 +286,6 @@ impl FormEngine {
         }))
     }
 
-    #[cfg(test)]
     pub(super) fn assets(&self) -> &RuntimeUiAssets {
         &self.assets
     }
