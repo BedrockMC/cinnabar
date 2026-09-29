@@ -81,7 +81,7 @@ func TestServerContinuesAfterMalformedAndUnknownClients(t *testing.T) {
 
 	malformed := exchange(t, dir, []byte("{"))
 	assertRPCError(t, malformed, -32700)
-	unknown := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":7,"method":"events.v1"}`))
+	unknown := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":7,"method":"unknown_method.v1"}`))
 	assertRPCError(t, unknown, -32601)
 	missingID := exchange(t, dir, []byte(`{"jsonrpc":"2.0","method":"status.v1"}`))
 	assertRPCError(t, missingID, -32600)
