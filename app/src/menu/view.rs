@@ -100,6 +100,41 @@ pub(crate) struct MenuFeeds {
     /// The info panel's description and news are expanded past "read more".
     pub(crate) description_expanded: bool,
     pub(crate) news_expanded: bool,
+    pub(crate) home: MenuHome,
+}
+
+/// The start screen's service data: messaging tile art, inbox and invite
+/// counts, the live event button and the rendered persona head.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuHome {
+    pub(crate) play_art: Option<ButtonArt>,
+    pub(crate) store_art: Option<ButtonArt>,
+    pub(crate) inbox_unread: u32,
+    pub(crate) realm_invites: u32,
+    pub(crate) live_event: Option<LiveEventCard>,
+    pub(crate) persona_head: String,
+}
+
+/// A main button's messaging art: local image paths per layer and its banner.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ButtonArt {
+    pub(crate) default_background: String,
+    pub(crate) hover_background: String,
+    pub(crate) default_foreground: String,
+    pub(crate) hover_foreground: String,
+    pub(crate) banner: String,
+}
+
+/// The live gathering the start screen's event button leads to.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LiveEventCard {
+    pub(crate) button_text: String,
+    pub(crate) caption: String,
+    pub(crate) countdown: bool,
+    pub(crate) start_unix: i64,
+    pub(crate) badge_path: String,
+    pub(crate) address: String,
+    pub(crate) route_to_servers: bool,
 }
 
 impl MenuFeeds {

@@ -168,6 +168,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
         Scalar::Bool(!profile.picture_path.is_empty()),
     );
     flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
+    super::start_feed::bind(view, data);
     data.set_global("#version", text("v1.26.30"));
     flags(
         data,
@@ -325,6 +326,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.menu_settings" => MenuAction::Navigate(MenuScreen::Settings),
         "button.menu_quit" | "button.main_menu_button" => MenuAction::PauseDisconnect,
         "button.respawn_button" => MenuAction::Respawn,
+        "button.gathering" => MenuAction::OpenLiveEvent,
         "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,

@@ -13,6 +13,7 @@ mod panorama;
 mod play_screen;
 mod server_pack;
 mod sign_editor;
+mod start_feed;
 #[cfg(test)]
 mod tests;
 
