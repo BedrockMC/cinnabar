@@ -249,8 +249,10 @@ func runWithResourcePackCacheFactory(
 			TokenSource: tokenSource, AuthCache: opts.authCache,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: filepath.Join(opts.socketDir, "artwork"),
+			StoreImageDir: storeImageDir(opts.authCache),
 		})
 		controlServer.SetServices(service)
+		controlServer.SetMarketplace(service.Marketplace(nil))
 		if tokenSource != nil {
 			go service.PublishSignedIn(ctx)
 		}
@@ -314,4 +316,12 @@ func contextWithStdinEOF(parent context.Context, stdin io.Reader) (context.Conte
 		cancel()
 	}()
 	return ctx, cancel
+}
+
+// storeImageDir places the Marketplace image cache beside the auth cache; empty without one.
+func storeImageDir(authCache string) string {
+	if authCache == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(authCache), "store-images")
 }

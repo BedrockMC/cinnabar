@@ -226,6 +226,8 @@ pub(crate) struct MenuView {
     pub(crate) local_worlds: Vec<LocalWorldCard>,
     pub(crate) volumes: super::settings_values::Volumes,
     pub(crate) feeds: MenuFeeds,
+    /// The Marketplace's state while its screen is up.
+    pub(crate) store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

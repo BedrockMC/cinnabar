@@ -41,6 +41,7 @@ use serde_json::Value;
 pub use anim::{Chain, Fade, Step, StepKind, fade_factor, fade_factor_at};
 pub use bind::{
     CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_shared,
+    scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};

@@ -32,6 +32,8 @@ pub mod semantic_controls;
 pub mod server_camera;
 pub mod session_audio;
 mod session_cleanup;
+#[allow(dead_code, unused_imports, reason = "consumed by the store screens as they land")]
+mod store;
 pub mod settings_runtime;
 mod survival_mining;
 pub mod ui_runtime;

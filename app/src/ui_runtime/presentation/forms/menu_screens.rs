@@ -52,6 +52,8 @@ pub(super) struct MenuScreenData {
     pub(super) reference: &'static str,
     pub(super) context: Context,
     pub(super) data: DataSource,
+    /// A screen drawn over this one, which then takes all input (a Marketplace popup).
+    pub(super) overlay: Option<Box<MenuScreenData>>,
 }
 
 type Translate<'a> = &'a dyn Fn(&str) -> Option<Arc<str>>;
@@ -142,8 +144,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                     reference: "settings.screen_controls_and_settings",
                     context: settings_context(context),
                     data,
+                    overlay: None,
                 });
             }
+            MenuScreen::Store => return store_screen(view, &context, translate),
             MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
         }
     };
@@ -151,7 +155,28 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         reference,
         context,
         data,
+        overlay: None,
     })
+}
+
+/// The Marketplace screen (and popup) for the published store state.
+fn store_screen(
+    view: &MenuView,
+    context: &Context,
+    translate: Translate<'_>,
+) -> Option<MenuScreenData> {
+    let snapshot = view.store.as_deref()?;
+    let tr = |key: &str| translated(translate, key, key);
+    let screens = crate::store::screens(snapshot, context, &tr);
+    let convert = |spec: crate::store::ScreenSpec| MenuScreenData {
+        reference: spec.reference,
+        context: spec.context,
+        data: spec.data,
+        overlay: None,
+    };
+    let mut base = convert(screens.base);
+    base.overlay = screens.overlay.map(|spec| Box::new(convert(spec)));
+    Some(base)
 }
 
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
@@ -302,6 +327,9 @@ fn settings_context(context: Context) -> Context {
 
 /// The menu action a pressed region means on `view`'s screen.
 pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
+    if view.screen == MenuScreen::Store {
+        return crate::store::action(view.store.as_deref(), region).map(MenuAction::Store);
+    }
     let index = region.collection_index;
     let collection = region.collection.as_deref();
     if region.kind == HitKind::Toggle {
@@ -329,6 +357,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.friends_drawer" | "button.menu_friends" => {
             MenuAction::Navigate(MenuScreen::Friends)
         }
+        "button.menu_store" => MenuAction::Store(crate::store::OPEN),
         "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,
@@ -530,6 +559,29 @@ mod tests {
         assert_eq!(
             action_for(&view(MenuScreen::Servers), &edit),
             Some(MenuAction::EditSaved(3))
+        );
+    }
+
+    #[test]
+    fn the_start_screen_marketplace_button_opens_the_store_and_its_presses_route_to_it() {
+        let home = view(MenuScreen::Home);
+        assert_eq!(
+            action_for(&home, &region(HitKind::Button, Some("button.menu_store"))),
+            Some(MenuAction::Store(crate::store::StoreAction::Open))
+        );
+        let mut store = view(MenuScreen::Store);
+        assert!(
+            reference(&store).is_none(),
+            "no engine screen until the store publishes"
+        );
+        store.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot::empty()));
+        assert_eq!(
+            reference(&store),
+            Some("store_layout.store_data_driven_screen")
+        );
+        assert_eq!(
+            action_for(&store, &region(HitKind::Button, Some("button.menu_exit"))),
+            Some(MenuAction::Store(crate::store::StoreAction::Back))
         );
     }
 

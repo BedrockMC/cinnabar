@@ -115,7 +115,11 @@ impl Textures<'_> {
     }
 
     fn image(&self, path: &str) -> Option<IconRef> {
-        self.images?.get(path).copied()
+        let images = self.images?;
+        images
+            .get(path)
+            .or_else(|| images.get(texture_key(path)))
+            .copied()
     }
 
     /// The drawn paths the server atlas must hold: pack textures, and what

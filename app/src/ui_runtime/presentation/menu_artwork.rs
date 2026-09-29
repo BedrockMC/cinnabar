@@ -177,6 +177,12 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<String> {
                 .cloned()
                 .chain(details.games.iter().map(|game| game.image_path.clone()))
         }))
+        .chain(
+            view.store
+                .as_deref()
+                .map(crate::store::StoreSnapshot::image_paths)
+                .unwrap_or_default(),
+        )
         .filter(|path| !path.is_empty())
         .collect()
 }
