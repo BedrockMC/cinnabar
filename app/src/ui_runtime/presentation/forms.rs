@@ -11,10 +11,12 @@ mod npc;
 #[cfg(test)]
 pub(crate) mod pack_harness;
 mod pages;
+mod remote_images;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]
 pub(crate) mod tests;
+mod textures;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
@@ -63,9 +65,10 @@ impl UiPresentationRuntime {
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
-        self.form_presentation.engine = Some(Box::new(engine::FormEngine::new(
-            assets, catalog, first_page,
-        )));
+        let mut engine = engine::FormEngine::new(assets, catalog, first_page);
+        engine.textures.server_page =
+            (self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE) as u16;
+        self.form_presentation.engine = Some(Box::new(engine));
         Ok(())
     }
 
@@ -101,6 +104,35 @@ impl UiPresentationRuntime {
             .is_some_and(|engine| engine.take_server_pages().is_some());
         if changed {
             self.rebuild_dynamic_textures();
+        }
+    }
+
+    /// Let forms draw vanilla images the UI carrier lacks: item textures from
+    /// the item icon atlas already on the UI texture array, anything else read
+    /// on demand from the local vanilla pack at `vanilla`.
+    pub(crate) fn set_form_texture_fallbacks(
+        &mut self,
+        entities: &assets::RuntimeEntityAssets,
+        vanilla: std::path::PathBuf,
+    ) {
+        let mut icons = std::collections::HashMap::new();
+        for visual in entities.item_visuals() {
+            let assets::ItemVisualDefinitionRoute::Sprite { texture } = visual.route else {
+                continue;
+            };
+            let Some(source) = entities.sources().get(texture.source as usize) else {
+                continue;
+            };
+            let path = source
+                .path
+                .rsplit_once('.')
+                .map_or(&*source.path, |(stem, _)| stem);
+            if let Some(icon) = self.item_icon(&visual.key.identifier, visual.key.metadata) {
+                icons.entry(path.to_owned()).or_insert(icon);
+            }
+        }
+        if let Some(engine) = self.form_presentation.engine.as_mut() {
+            engine.textures.set_fallbacks(icons, vanilla);
         }
     }
 
@@ -239,7 +271,9 @@ impl UiPresentationRuntime {
             Some(renderer) => {
                 let translate = |key: &str| runtime.translation(key);
                 let state = runtime.server_forms().engine();
-                match model::engine_model(&entry.model, state, &translate) {
+                let remote = renderer.textures.remote.clone();
+                let images = |url: &str| remote.state(url);
+                match model::engine_model(&entry.model, state, &translate, &images) {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {
                         let rollback = (nodes.len(), *next);

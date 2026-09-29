@@ -31,6 +31,7 @@ resource-pack = { path = "../crates/resource-pack" }
 rayon.workspace = true
 rodio = { version = "=0.20.1", default-features = false }
 render = { path = "../crates/render" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 semantic-input = { path = "../crates/input" }
 sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }

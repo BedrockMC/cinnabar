@@ -5,13 +5,17 @@
 //! Undecodable images are skipped.
 
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     io::Cursor,
+    path::PathBuf,
 };
 
 use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
 use render::UiTexturePage;
+
+use super::remote_images::{RemoteImages, RemoteState, is_remote};
 
 /// Image extensions a texture path may resolve to, in lookup order.
 const IMAGE_EXTENSIONS: [&str; 4] = [".png", ".tga", ".jpg", ".jpeg"];
@@ -71,8 +75,9 @@ pub(super) struct ServerTexture {
 
 /// A pack texture known by its header, decoded only when a screen draws it.
 /// One larger than a page packs downscaled to fit; UVs stay normalized.
+#[derive(Clone)]
 struct Source {
-    bytes: Vec<u8>,
+    bytes: std::sync::Arc<[u8]>,
     size: [u32; 2],
     packed: [u32; 2],
     meta: Option<TextureMeta>,
@@ -122,6 +127,11 @@ pub(super) struct ServerAtlas {
     sources: BTreeMap<String, Source>,
     /// Source keys by lowercase spelling.
     folded: BTreeMap<String, String>,
+    /// Vanilla images and downloaded URLs, found on first use; `None` when absent.
+    extra: RefCell<BTreeMap<String, Option<Source>>>,
+    /// The local vanilla resource pack vanilla image paths read from.
+    vanilla: Option<PathBuf>,
+    remote: Option<RemoteImages>,
     resident: BTreeMap<String, ServerTexture>,
     pages: Vec<Page>,
     images: Vec<UiTexturePage>,
@@ -152,14 +162,8 @@ impl ServerAtlas {
         let sources = ranked
             .filter_map(|(stem, bytes)| {
                 stem.starts_with("textures/").then_some(())?;
-                let size = dimensions(bytes)?;
-                let source = Source {
-                    bytes: bytes.clone(),
-                    size,
-                    packed: fitted(size),
-                    meta: sidecars.get(stem).copied(),
-                };
-                Some((stem.to_owned(), source))
+                let found = source(bytes.as_slice().into(), sidecars.get(stem).copied())?;
+                Some((stem.to_owned(), found))
             })
             .collect::<BTreeMap<_, _>>();
         let folded = sources
@@ -175,13 +179,56 @@ impl ServerAtlas {
         }
     }
 
+    /// Also read vanilla images from `vanilla` and download remote ones.
+    pub(super) fn with_fallbacks(
+        mut self,
+        vanilla: Option<PathBuf>,
+        remote: Option<RemoteImages>,
+    ) -> Self {
+        self.vanilla = vanilla;
+        self.remote = remote;
+        self
+    }
+
     /// Layout metadata for a pack texture, resident or not.
     pub(super) fn meta(&self, key: &str) -> Option<TextureMeta> {
-        let source = self.sources.get(key)?;
-        Some(source.meta.unwrap_or(TextureMeta {
-            base_size: source.size.map(f64::from),
-            nineslice: None,
-        }))
+        self.sources.get(key).map(Source::meta)
+    }
+
+    /// Layout metadata for a vanilla image or a downloaded URL, reading or
+    /// requesting it on first use.
+    pub(super) fn fallback_meta(&self, key: &str) -> Option<TextureMeta> {
+        self.fallback(key).as_ref().map(Source::meta)
+    }
+
+    /// The vanilla image or downloaded URL behind `key`. A vanilla miss is
+    /// remembered; a URL still loading is asked again next time.
+    fn fallback(&self, key: &str) -> Option<Source> {
+        if let Some(found) = self.extra.borrow().get(key) {
+            return found.clone();
+        }
+        let (found, settled) = if is_remote(key) {
+            match self.remote.as_ref()?.state(key) {
+                RemoteState::Ready(bytes) => (source(bytes, None), true),
+                RemoteState::Failed => (None, true),
+                RemoteState::Loading => (None, false),
+            }
+        } else {
+            let root = self.vanilla.as_ref()?;
+            let found = key.starts_with("textures/").then(|| {
+                IMAGE_EXTENSIONS.iter().find_map(|extension| {
+                    let bytes = std::fs::read(root.join(format!("{key}{extension}"))).ok()?;
+                    source(bytes.into(), None)
+                })
+            });
+            (found.flatten(), true)
+        };
+        if settled {
+            self.extra
+                .borrow_mut()
+                .insert(key.to_owned(), found.clone());
+        }
+        found
     }
 
     /// The source key spelled `folded` in lowercase.
@@ -203,7 +250,8 @@ impl ServerAtlas {
         std::mem::take(&mut self.dirty)
     }
 
-    /// Make every pack texture in `keys` resident for this frame. A texture
+    /// Make every texture in `keys` resident for this frame: pack textures, then
+    /// vanilla images and downloaded URLs. A texture
     /// that fits nowhere without evicting one drawn this frame is left out.
     pub(super) fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
@@ -213,8 +261,7 @@ impl ServerAtlas {
         for key in keys {
             match self.resident.get(key) {
                 Some(texture) => self.pages[usize::from(texture.page)].used = self.clock,
-                None if self.sources.contains_key(key) => missing.push(key),
-                None => {}
+                None => missing.push(key),
             }
         }
         let mut changed = Vec::new();
@@ -247,9 +294,13 @@ impl ServerAtlas {
 
     /// Decode and pack `key`, returning the page it landed on.
     fn place(&mut self, key: &str) -> Option<usize> {
-        let size = self.sources[key].packed;
+        let source = match self.sources.get(key) {
+            Some(source) => source.clone(),
+            None => self.fallback(key)?,
+        };
+        let size = source.packed;
         let (index, origin) = self.slot(size)?;
-        let rgba = decode(&self.sources[key].bytes, size)?;
+        let rgba = decode(&source.bytes, size)?;
         let page = &mut self.pages[index];
         let row_bytes = PAGE_SIDE as usize * 4;
         let width = size[0] as usize * 4;
@@ -299,6 +350,26 @@ impl ServerAtlas {
         page.cursor = [0; 3];
         Some((index, page.allocate(size)?))
     }
+}
+
+impl Source {
+    fn meta(&self) -> TextureMeta {
+        self.meta.unwrap_or(TextureMeta {
+            base_size: self.size.map(f64::from),
+            nineslice: None,
+        })
+    }
+}
+
+/// A decodable image as a source, with an optional sidecar.
+fn source(bytes: std::sync::Arc<[u8]>, meta: Option<TextureMeta>) -> Option<Source> {
+    let size = dimensions(&bytes)?;
+    Some(Source {
+        bytes,
+        size,
+        packed: fitted(size),
+        meta,
+    })
 }
 
 /// Largest source side decoded; bigger images are skipped.
