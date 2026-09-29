@@ -56,6 +56,8 @@ pub(super) struct EngineSlots {
     pub(super) player_x_rotation: Option<usize>,
     /// View-bobbing gate the first-person walk/breathing animations weigh against.
     pub(super) bob_animation: Option<usize>,
+    /// Equip progress that lowers the first-person arm while the held item swaps.
+    pub(super) player_arm_height: Option<usize>,
     pub(super) swim_amount: Option<usize>,
     pub(super) left_arm_swim_amount: Option<usize>,
     pub(super) right_arm_swim_amount: Option<usize>,
@@ -65,7 +67,7 @@ pub(super) struct EngineSlots {
 // Client-owned variables seeded on construction, observed in a client reconstruction and
 // needing independent measurement; remote third-person actors keep these values because
 // only first-person, HUD, and paper-doll renderers change them.
-const SEEDED_VARIABLES: [(&str, f32); 21] = [
+const SEEDED_VARIABLES: [(&str, f32); 20] = [
     ("variable.animation_frames_128x128", 1.0),
     ("variable.animation_frames_32x32", 1.0),
     ("variable.animation_frames_face", 1.0),
@@ -80,7 +82,6 @@ const SEEDED_VARIABLES: [(&str, f32); 21] = [
     ("variable.is_vertical_splitscreen", 0.0),
     ("variable.left_arm_swim_amount", 0.0),
     ("variable.map_face_icon", 0.0),
-    ("variable.player_arm_height", 0.0),
     ("variable.player_x_rotation", 0.0),
     ("variable.right_arm_swim_amount", 0.0),
     ("variable.short_arm_offset_left", 0.0),
@@ -124,6 +125,7 @@ impl VariableLayout {
                 is_first_person: slot("variable.is_first_person"),
                 player_x_rotation: slot("variable.player_x_rotation"),
                 bob_animation: slot("variable.bob_animation"),
+                player_arm_height: slot("variable.player_arm_height"),
                 swim_amount: slot("variable.swim_amount"),
                 left_arm_swim_amount: slot("variable.left_arm_swim_amount"),
                 right_arm_swim_amount: slot("variable.right_arm_swim_amount"),
