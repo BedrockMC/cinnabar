@@ -10,6 +10,7 @@ mod model;
 mod npc;
 mod pages;
 mod panorama;
+mod play_screen;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]
