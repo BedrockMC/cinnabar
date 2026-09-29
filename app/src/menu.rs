@@ -34,8 +34,8 @@ pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{load_servers, save_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 pub(crate) use view::{
-    ButtonArt, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard, MenuView,
-    PingInfo, SavedServer,
+    ButtonArt, InboxItem, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard,
+    MenuView, PingInfo, SavedServer,
 };
 use view::{CatalogFile, MenuFeeds};
 
@@ -84,6 +84,9 @@ pub(crate) enum MenuScreen {
     AddServer,
     Pause,
     Death,
+    /// OreUI-only screens.
+    Inbox,
+    Friends,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -584,6 +584,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     {
         ui_presentation.install_hud_extras(&extras, identity);
     }
+    // Dev-only: CINNABAR_OREUI_LOCAL_ASSETS compares OreUI against the install's originals.
+    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
+        && let Err(reason) = ui_presentation.enable_oreui_originals(images)
+    {
+        eprintln!("OreUI originals disabled ({reason})");
+    }
     // Optional: without the JSON-UI carrier, server forms keep the fallback dialog.
     if let Some(ui_assets) =
         crate::ui_runtime::json_ui_assets::load_optional_ui_assets(&loaded_assets.selected_path)

@@ -149,6 +149,7 @@ impl MenuRuntime {
                 MenuAction::PauseDisconnect,
             ],
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::PauseDisconnect],
+            MenuScreen::Inbox | MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
         }
     }
 }

@@ -144,7 +144,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                     data,
                 });
             }
-            MenuScreen::Profile => return None,
+            MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
         }
     };
     Some(MenuScreenData {
@@ -325,6 +325,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.menu_quit" | "button.main_menu_button" => MenuAction::PauseDisconnect,
         "button.respawn_button" => MenuAction::Respawn,
         "button.gathering" => MenuAction::OpenLiveEvent,
+        "button.menu_inbox" => MenuAction::Navigate(MenuScreen::Inbox),
+        "button.friends_drawer" | "button.menu_friends" => MenuAction::Navigate(MenuScreen::Friends),
         "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,

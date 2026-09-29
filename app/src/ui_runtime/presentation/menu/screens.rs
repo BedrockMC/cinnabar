@@ -33,7 +33,7 @@ pub(super) fn append(
         MenuScreen::Play => play(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
-        MenuScreen::Social => social(
+        MenuScreen::Social | MenuScreen::Friends | MenuScreen::Inbox => social(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Servers => servers::append(
