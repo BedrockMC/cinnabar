@@ -54,11 +54,8 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "disconnect.disconnect_screen",
     "xbl_console_signin.xbl_console_signin",
     "store_layout.store_data_driven_screen",
-    "store_search.store_search_screen",
     "store_inventory.store_inventory_screen",
     "store_progress.store_progress_screen",
-    "bundle_purchase_warning.bundle_purchase_warning_screen",
-    "csb_purchase_error.csb_purchase_error_screen",
 ];
 
 pub fn is_engine_screen(reference: &str) -> bool {

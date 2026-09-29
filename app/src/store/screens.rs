@@ -26,6 +26,7 @@ pub(crate) const PROGRESS_SCREEN: &str = "store_progress.store_progress_screen";
 /// The name of the collection holding the header bar item and every row.
 const FACTORY: &str = "factory_collection";
 const OFFERS: &str = "offer_collection";
+const GRID_FACTORY: &str = "offer_grid_factory";
 const INFO_ROWS_NAME: &str = "offer_info_row_factory";
 const INFO_COLUMNS_NAME: &str = "offer_info_column_factory";
 
@@ -223,6 +224,10 @@ fn layout_data(snapshot: &StoreSnapshot, tr: Translate<'_>) -> ScreenData {
                     !snapshot.loading && snapshot.rows.iter().all(|row| row.offers.is_empty()),
                 );
                 data.global("#tts_filters_appliedCount_text", text(""));
+                let more = snapshot.rows.iter().any(|row| row.continuation.is_some());
+                data.flag("#pagination_visible", more);
+                data.flag("#next_enabled", more);
+                data.global("#page_number_text", text(""));
             }
             for row in &snapshot.rows {
                 let index = items.len();
@@ -247,7 +252,8 @@ fn search_bar_item(snapshot: &StoreSnapshot, tr: Translate<'_>) -> CollectionIte
 }
 
 fn row_item(row: &DisplayRow) -> CollectionItem {
-    let count = row.offers.len() + usize::from(row.continuation.is_some());
+    let grid = matches!(row.role, "GridList" | "VerticalGridList");
+    let count = row.offers.len() + usize::from(row.continuation.is_some() && !grid);
     CollectionItem::new(row.role)
         .with("#offer_collection_visible", Scalar::Bool(true))
         .with("#offer_collection_ready", Scalar::Bool(true))
@@ -264,6 +270,7 @@ fn row_item(row: &DisplayRow) -> CollectionItem {
         .with("#show_row_background", Scalar::Bool(false))
         .with("#show_row_outline", Scalar::Bool(false))
         .with("#store_offer_row_content", Scalar::Num(count as f64))
+        .with("#offer_grid_type", Scalar::Num(1.0))
         .with("#indent", Scalar::Num(0.0))
 }
 
@@ -283,26 +290,28 @@ fn offer_lists(
         .iter()
         .map(|offer| offer_item("Generic", offer, &path, tr))
         .collect();
-    if row.continuation.is_some() {
+    if row.continuation.is_some() && !is_grid {
         items.push(show_more_item(tr));
     }
-    let names: &[&str] = if is_grid {
-        &[OFFERS, "list_collection"]
-    } else {
-        &[OFFERS]
-    };
-    for name in names {
-        info_lists(
-            data,
-            &scoped_key(FACTORY, factory_index, name),
-            row.offers.len(),
-        );
+    if is_grid {
+        // A grid row is one `Generic` grid item that owns the offer list.
+        let grid_key = scoped_key(FACTORY, factory_index, GRID_FACTORY);
         data.scoped.push((
             FACTORY.to_owned(),
             factory_index,
-            (*name).to_owned(),
-            items.clone(),
+            GRID_FACTORY.to_owned(),
+            vec![CollectionItem::new("Generic")],
         ));
+        info_lists(data, &scoped_key(&grid_key, 0, OFFERS), row.offers.len());
+        data.scoped.push((grid_key, 0, OFFERS.to_owned(), items));
+    } else {
+        info_lists(
+            data,
+            &scoped_key(FACTORY, factory_index, OFFERS),
+            row.offers.len(),
+        );
+        data.scoped
+            .push((FACTORY.to_owned(), factory_index, OFFERS.to_owned(), items));
     }
 }
 
@@ -623,6 +632,22 @@ mod tests {
             offers[0].values["#thumbnail_texture_path"],
             text("/c/a.png")
         );
+    }
+
+    #[test]
+    fn a_grid_row_nests_its_offers_under_one_grid_item() {
+        let mut snap = snapshot(StoreView::Home);
+        snap.rows[0].role = "GridList";
+        let data = layout_data(&snap, &tr);
+        assert_eq!(scoped(&data, FACTORY, 1, GRID_FACTORY).len(), 1);
+        let grid_key = scoped_key(FACTORY, 1, GRID_FACTORY);
+        assert_eq!(
+            scoped(&data, &grid_key, 0, OFFERS).len(),
+            2,
+            "a grid pages by scrolling, not by a trailing button"
+        );
+        let list = scoped_key(&grid_key, 0, OFFERS);
+        assert_eq!(scoped(&data, &list, 0, INFO_ROWS_NAME).len(), 3);
     }
 
     #[test]
