@@ -350,6 +350,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,
+        "button.sign_out" => MenuAction::SignOut,
         "button.menu_profile" | "button.to_profile_screen" | "button.manage_account" => {
             MenuAction::Navigate(MenuScreen::Profile)
         }
