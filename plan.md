@@ -3048,8 +3048,8 @@ controls. Still on the old path: inventory/container screens, the first-person
 hands, the sleep overlay, toasts, the tab list, the open chat (editor and
 history), nametags, and the debug overlay. Incomplete: no live rendered-frame
 pass yet; `font_size` steps and the text-background option default are
-unmeasured; a re-bind costs about 4 ms in the dev profile (steady frames about
-0.2 ms), unmeasured in release; boss-bar progress and XP changes re-bind.
+unmeasured; a re-bind costs about 1.6 ms in the dev profile (steady frames about
+0.3 ms), unmeasured in release; boss-bar progress and XP changes re-bind.
 
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
