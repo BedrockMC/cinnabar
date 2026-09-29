@@ -102,6 +102,29 @@ pub fn hud_context(base: &Context) -> Context {
         .with_flag("compress_hud_width", false)
 }
 
+const TITLE_CLOCK: &str = "hud_title_text";
+const ACTIONBAR_CLOCK: &str = "hud_actionbar_text";
+const ITEM_NAME_CLOCK: &str = "item_name_text";
+
+/// When the title, action bar, and item name were last set, the clocks their
+/// fades read at paint time (so a re-send does not re-bind the screen).
+pub fn hud_clocks(model: &HudModel) -> std::collections::BTreeMap<String, f64> {
+    [
+        (TITLE_CLOCK, model.title.as_ref().map(|title| title.born)),
+        (
+            ACTIONBAR_CLOCK,
+            model.actionbar.as_ref().map(|bar| bar.born),
+        ),
+        (
+            ITEM_NAME_CLOCK,
+            model.item_name.as_ref().map(|item| item.born),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(clock, born)| Some((clock.to_owned(), born?)))
+    .collect()
+}
+
 /// Map `model` onto the HUD templates' bindings.
 pub fn hud_data_source(model: &HudModel) -> DataSource {
     let mut data = DataSource::new();
@@ -164,7 +187,8 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
         data.set_factory(
             "item_text_factory",
             vec![
-                FactoryItem::new("item_text", item.born)
+                FactoryItem::new("item_text", 0.0)
+                    .clocked(ITEM_NAME_CLOCK)
                     .named("item_name_text")
                     .var("show_survival_padding", Value::Bool(model.survival_ui))
                     .var("show_text_background", Value::Bool(false))
@@ -173,12 +197,24 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
         );
     }
     if model.chat_visible {
+        data.set_collection(
+            "chat_text_grid",
+            model
+                .chat
+                .iter()
+                .map(|line| {
+                    CollectionItem::default().with("#chat_text", Scalar::Text(line.text.clone()))
+                })
+                .collect(),
+        );
         let chat = model
             .chat
             .iter()
-            .map(|line| {
+            .enumerate()
+            .map(|(index, line)| {
                 FactoryItem::new("chat_item", line.born)
                     .named("chat_grid_item")
+                    .at("chat_text_grid", index)
                     .value("#text", Scalar::Text(line.text.clone()))
                     .var("chat_item_lifetime", Value::from(model.chat_lifetime))
                     .var(
@@ -235,7 +271,8 @@ fn titles(data: &mut DataSource, model: &HudModel) {
         data.set_factory(
             "hud_title_text_factory",
             vec![
-                FactoryItem::new("hud_title_text", title.born)
+                FactoryItem::new("hud_title_text", 0.0)
+                    .clocked(TITLE_CLOCK)
                     .named("hud_title_text")
                     .var("title_fade_in_time", Value::from(title.fade_in))
                     .var("title_stay_time", Value::from(title.stay))
@@ -256,7 +293,8 @@ fn titles(data: &mut DataSource, model: &HudModel) {
         data.set_factory(
             "hud_actionbar_text_factory",
             vec![
-                FactoryItem::new("hud_actionbar_text", bar.born)
+                FactoryItem::new("hud_actionbar_text", 0.0)
+                    .clocked(ACTIONBAR_CLOCK)
                     .named("hud_actionbar_text")
                     .var("actionbar_text", Value::from(bar.text.clone()))
                     .var(

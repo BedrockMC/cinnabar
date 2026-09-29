@@ -32,10 +32,28 @@ impl TextMeasure for FixedText {
     }
 }
 
-/// Texture sizes read from the pack's png headers and json sidecars.
-struct PackTextures(PathBuf);
+/// Texture sizes read from the pack's png headers and json sidecars, cached.
+struct PackTextures(
+    PathBuf,
+    std::cell::RefCell<std::collections::HashMap<String, Option<TextureMeta>>>,
+);
 impl TextureSource for PackTextures {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
+        if let Some(meta) = self.1.borrow().get(path) {
+            return *meta;
+        }
+        let meta = self.read(path);
+        self.1.borrow_mut().insert(path.to_owned(), meta);
+        meta
+    }
+}
+
+impl PackTextures {
+    fn new(dir: PathBuf) -> Self {
+        Self(dir, Default::default())
+    }
+
+    fn read(&self, path: &str) -> Option<TextureMeta> {
         let stem = path.trim_end_matches(".png");
         if let Ok(text) = std::fs::read_to_string(self.0.join(format!("{stem}.json")))
             && let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
@@ -139,7 +157,7 @@ fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
         let notes = &catalog.diagnostics()[before..];
         assert!(notes.is_empty(), "java pack diagnostics: {notes:?}");
     }
-    let textures = PackTextures(dir);
+    let textures = PackTextures::new(dir);
     let env = LayoutEnv {
         text: &FixedText,
         textures: &textures,
@@ -331,4 +349,88 @@ fn java_pack_places_the_hud_where_java_does() {
         text_node(&nodes, "Alex").dest.x,
         text_node(&nodes, "Steve").dest.x
     );
+}
+
+// Phase costs of one HUD frame, printed for profiling (HUD_TIMING=1).
+#[test]
+fn hud_phase_timing() {
+    if std::env::var_os("HUD_TIMING").is_none() {
+        return;
+    }
+    let Some(dir) = pack() else {
+        return;
+    };
+    let mut catalog = Catalog::load_dir(&dir.join("ui")).expect("vanilla ui loads");
+    let files = java_pack();
+    catalog.apply_pack(
+        files
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+    );
+    let textures = PackTextures::new(dir);
+    let env = LayoutEnv {
+        text: &FixedText,
+        textures: &textures,
+    };
+    let context = hud_context(&Context::desktop());
+    let model = model();
+    let data = hud_data_source(&model);
+    let cache = json_ui::ResolveCache::default();
+    for round in 0..3 {
+        let started = std::time::Instant::now();
+        let root = json_ui::resolve(&catalog, HUD_SCREEN, &context)
+            .control
+            .unwrap();
+        let resolved = started.elapsed();
+        fn count(control: &json_ui::ResolvedControl) -> (usize, usize, usize) {
+            let scope = control
+                .properties
+                .get("factory_scope")
+                .map_or(0, |scope| scope.to_string().len());
+            control.children.iter().map(count).fold(
+                (
+                    1,
+                    serde_json::to_string(&control.properties).map_or(0, |text| text.len()),
+                    scope,
+                ),
+                |acc, (nodes, bytes, scope)| (acc.0 + nodes, acc.1 + bytes, acc.2 + scope),
+            )
+        }
+        if round == 0 {
+            eprintln!(
+                "resolved tree: {:?} (nodes, property bytes, scope bytes)",
+                count(&root)
+            );
+        }
+        let library = json_ui::CachedLibrary {
+            library: json_ui::CatalogLibrary {
+                catalog: &catalog,
+                context: &context,
+            },
+            cache: &cache,
+        };
+        let started = std::time::Instant::now();
+        let loops: usize = std::env::var("HUD_LOOP")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(1);
+        let root = std::sync::Arc::new(root);
+        let mut bound = json_ui::bind_shared(&root, &data, &library);
+        for _ in 1..loops {
+            bound = json_ui::bind_shared(&root, &data, &library);
+        }
+        let bound_in = started.elapsed() / loops as u32;
+        let started = std::time::Instant::now();
+        let mut render =
+            json_ui::render_bound(bound.clone(), [480.0, 270.0], &env, &ViewState::default());
+        for _ in 1..loops {
+            render =
+                json_ui::render_bound(bound.clone(), [480.0, 270.0], &env, &ViewState::default());
+        }
+        let laid = started.elapsed() / loops as u32;
+        eprintln!(
+            "round {round}: resolve {resolved:?} bind {bound_in:?} layout+emit {laid:?} ({} nodes)",
+            render.nodes.len()
+        );
+    }
 }

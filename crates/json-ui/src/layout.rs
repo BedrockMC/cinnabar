@@ -111,6 +111,7 @@ pub fn layout_with<'a>(
     state: &ViewState,
 ) -> (LaidOut<'a>, LayoutReport) {
     INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
+    LENGTH_MEMO.with(|memo| memo.borrow_mut().clear());
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = resolve_size(root, screen, intrinsic(root, env, None), env);
     let rect = place_by_anchor(root, screen, own, env);
@@ -171,19 +172,31 @@ struct Inherited {
     alpha: Option<f32>,
     fades: Vec<Fade>,
     born: f64,
+    clock: Option<String>,
 }
 
 impl Inherited {
     /// This control's alpha and fades, and what its children inherit.
     fn apply(&self, control: &ResolvedControl) -> (f32, Vec<Fade>, Inherited) {
         let born = widgets::bound_number(control, anim::BORN_KEY).unwrap_or(self.born);
+        let clock = control
+            .properties
+            .get(anim::CLOCK_KEY)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| self.clock.clone());
         let rest = alpha(control);
         let mut fades = self.fades.clone();
         if let Some(Value::Array(chains)) = control.properties.get(anim::CHAINS_KEY) {
             fades.extend(chains.iter().filter_map(|chain| {
                 serde_json::from_value::<Chain>(chain.clone())
                     .ok()
-                    .map(|chain| Fade { chain, rest, born })
+                    .map(|chain| Fade {
+                        chain,
+                        rest,
+                        born,
+                        clock: clock.clone(),
+                    })
             }));
         }
         let own = rest * self.alpha.unwrap_or(1.0);
@@ -199,6 +212,7 @@ impl Inherited {
                 self.fades.clone()
             },
             born,
+            clock,
         };
         (own, fades, children)
     }
@@ -429,7 +443,7 @@ fn stack_children<'a>(
             nat,
             cross,
         );
-        let cross_size = pixels_or(length(child, cross).eval(&cross_ctx), parent_cross);
+        let cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
         // A vertical stack knows each child's width before its height, so wrapped
         // text and `%c` content measure at that width.
         let known_width = (main == Axis::Y).then_some(cross_size);
@@ -444,7 +458,7 @@ fn stack_children<'a>(
         );
         // An invisible stack child collapses instead of holding its slot.
         let resolved = if visible(child) {
-            length(child, main).eval(&main_ctx)
+            eval_length(child, main, &main_ctx)
         } else {
             Resolved::Pixels(0.0)
         };
@@ -524,7 +538,7 @@ fn resolve_size(
         natural(control, env, None),
         Axis::X,
     );
-    let width = pixels_or(length(control, Axis::X).eval(&width_ctx), parent_rect.w);
+    let width = pixels_or(eval_length(control, Axis::X, &width_ctx), parent_rect.w);
     let content = content_extent(control, env, Some(width));
     let nat = natural(control, env, Some(width));
     let height_ctx = axis_context(
@@ -536,7 +550,7 @@ fn resolve_size(
         nat,
         Axis::Y,
     );
-    let height = pixels_or(length(control, Axis::Y).eval(&height_ctx), parent_rect.h);
+    let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), parent_rect.h);
     let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, env);
     for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
         .into_iter()
@@ -561,11 +575,11 @@ fn clamp_bounds(
     for (index, axis) in [Axis::X, Axis::Y].into_iter().enumerate() {
         let parent = axis_of(parent_rect, axis);
         let ctx = axis_context(parent, None, content, content, content, nat, axis);
-        if let Some(max) = bound_length(control, "max_size", index) {
-            out[index] = out[index].min(max.eval_pixels(&ctx));
+        if let Some(max) = eval_bound(control, "max_size", index, &ctx) {
+            out[index] = out[index].min(max);
         }
-        if let Some(min) = bound_length(control, "min_size", index) {
-            out[index] = out[index].max(min.eval_pixels(&ctx));
+        if let Some(min) = eval_bound(control, "min_size", index, &ctx) {
+            out[index] = out[index].max(min);
         }
     }
     out
@@ -579,6 +593,51 @@ std::thread_local! {
     /// one `layout` call; `layout` clears the memo first.
     static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u64), [f64; 2]>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+std::thread_local! {
+    /// Per-`layout` memo of parsed `size`/`min_size`/`max_size` lengths, keyed by
+    /// control address and slot, so each is read and parsed once per layout.
+    static LENGTH_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u8), Option<Length>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn memo_length<R>(
+    control: &ResolvedControl,
+    slot: u8,
+    read: impl FnOnce() -> Option<Length>,
+    eval: impl FnOnce(Option<&Length>) -> R,
+) -> R {
+    let key = (control as *const ResolvedControl as usize, slot);
+    LENGTH_MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let length = memo.entry(key).or_insert_with(read);
+        eval(length.as_ref())
+    })
+}
+
+fn eval_length(control: &ResolvedControl, axis: Axis, ctx: &AxisContext) -> Resolved {
+    memo_length(
+        control,
+        axis_index(axis) as u8,
+        || Some(length(control, axis)),
+        |length| length.map_or(Resolved::Pixels(0.0), |length| length.eval(ctx)),
+    )
+}
+
+fn eval_bound(
+    control: &ResolvedControl,
+    key: &str,
+    index: usize,
+    ctx: &AxisContext,
+) -> Option<f64> {
+    let slot = if key == "max_size" { 2 } else { 4 } + index as u8;
+    memo_length(
+        control,
+        slot,
+        || bound_length(control, key, index),
+        |length| length.map(|length| length.eval_pixels(ctx)),
+    )
 }
 
 /// Intrinsic size used when a parent aggregates this child for its own `%c`/`%cm`.
@@ -612,7 +671,7 @@ fn intrinsic_uncached(
         natural(control, env, None),
         Axis::X,
     );
-    let width = pixels_or(length(control, Axis::X).eval(&width_ctx), parent);
+    let width = pixels_or(eval_length(control, Axis::X, &width_ctx), parent);
     let known = parent_width.map(|_| width);
     let height_ctx = axis_context(
         0.0,
@@ -623,7 +682,7 @@ fn intrinsic_uncached(
         natural(control, env, known),
         Axis::Y,
     );
-    let height = pixels_or(length(control, Axis::Y).eval(&height_ctx), 0.0);
+    let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), 0.0);
     // A parent aggregating this child sees it after its own min/max clamp.
     let content = content_extent(control, env, known);
     let parent_rect = Rect::new(0.0, 0.0, parent, 0.0);
