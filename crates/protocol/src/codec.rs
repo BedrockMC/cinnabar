@@ -224,9 +224,9 @@ fn validate_raw_soft_enum_packet(mut payload: Bytes) -> Result<(), ProtocolError
 ///
 /// 1.26.40 moved the action from the packet header onto each entry, so a single
 /// packet may mix removals with changes. The layout below is gophertunnel's
-/// `ScoreboardEntry.Marshal` (`minecraft/protocol/scoreboard.go`): a varuint32
-/// variant, the lowercase variant name, a varint64 entry ID, and then a
-/// variant-specific body. This still runs before `SetScorePacket::decode`, which
+/// 1.26.44 entry (`marshalScoreboardEntry12644` in `minecraft/legacy.go`): a
+/// varuint32 variant, the lowercase variant name, a varint64 entry ID, and then
+/// a variant-specific body. This still runs before `SetScorePacket::decode`, which
 /// reserves capacity from the entry count without an upper bound of its own.
 fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
     const REMOVE: i64 = 0;
@@ -264,8 +264,9 @@ fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
         let _action = take_raw_ui_text(&mut payload, "score.action")?;
         let _scoreboard_id = ZigZag64::decode(&mut payload, ())?;
         if variant == REMOVE {
-            // A removal carries only an optional objective name.
-            if bool::decode(&mut payload, ())? {
+            // 1.26.44 nests the optional objective name in a second presence
+            // marker (gophertunnel `marshalScoreboardEntry12644`).
+            if bool::decode(&mut payload, ())? && bool::decode(&mut payload, ())? {
                 let _objective_name = take_raw_ui_text(&mut payload, "score.objective_name")?;
             }
             continue;

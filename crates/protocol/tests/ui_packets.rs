@@ -265,6 +265,45 @@ fn remove_score_preserves_both_1_26_44_optional_markers() {
     }
 }
 
+// The core's pinned `Protocol12644` writes removals through
+// `marshalScoreboardEntry12644` (gophertunnel `minecraft/legacy.go`): two
+// presence bytes before a removal's objective name. The raw pre-validator must
+// walk the same shape or the next entry misaligns.
+#[test]
+fn gophertunnel_1_26_44_named_removal_is_followed_by_the_next_entry() {
+    fn text(out: &mut Vec<u8>, value: &str) {
+        out.push(value.len() as u8);
+        out.extend_from_slice(value.as_bytes());
+    }
+    let mut payload = vec![2];
+    payload.push(0);
+    text(&mut payload, "remove");
+    payload.extend([14, 1, 1]);
+    text(&mut payload, "kills");
+    payload.push(3);
+    text(&mut payload, "changefakeplayer");
+    payload.push(16);
+    text(&mut payload, "kills");
+    payload.extend(12_i32.to_le_bytes());
+    text(&mut payload, "Server");
+    let mut batch = vec![
+        0xfe,
+        payload.len() as u8 + 1,
+        McpePacketName::SetScorePacket as u8,
+    ];
+    batch.extend(payload);
+
+    let mut packets = decode_batch(batch.into(), &BedrockSession { shield_item_id: 0 })
+        .expect("1.26.44 SetScore enters the play receive path");
+    let Ok(Some(WorldEvent::Ui(UiEvent::Score(score)))) = into_world_event(packets.remove(0), 0)
+    else {
+        panic!("expected a score event")
+    };
+    assert_eq!(score.entries.len(), 2);
+    assert_eq!(score.entries[0].objective_name.as_ref(), "kills");
+    assert_eq!(score.entries[1].scoreboard_id, 8);
+}
+
 #[test]
 fn oversized_text_scores_and_form_json_fail_closed() {
     let text = raw_text_packet("x".repeat(MAX_UI_TEXT_BYTES + 1));
