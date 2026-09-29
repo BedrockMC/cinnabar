@@ -103,3 +103,34 @@ fn a_clearing_update_replaces_screen_recipes() {
     );
     assert!(catalog.screen_recipe(5).is_none());
 }
+
+/// Crafting recipes expose their ingredients to the recipe book in wire order.
+#[test]
+fn crafting_recipes_expose_ingredient_views() {
+    let mut recipe = ShapedRecipePayload {
+        recipe_id: "test:planks".into(),
+        width: 1,
+        height: 1,
+        ingredients: vec![ingredient("name", "minecraft:oak_log")],
+        results: vec![result(7, 4)],
+        tag: "crafting_table".into(),
+        net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: 3 },
+        ..Default::default()
+    };
+    recipe.ingredients[0].stack_size = 1;
+    let update = update(CraftingDataPacket {
+        shaped_recipes: vec![recipe],
+        clear_recipes: true,
+        ..Default::default()
+    });
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update));
+    let handles = catalog.crafting_handles();
+    assert_eq!(handles.len(), 1);
+    let views = handles[0].ingredient_views();
+    assert_eq!(views.len(), 1);
+    let log = views[0].as_ref().unwrap();
+    assert!(log.accepts("minecraft:oak_log", 0, &[]));
+    assert!(!log.accepts("minecraft:stone", 0, &[]));
+}
