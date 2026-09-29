@@ -11,6 +11,12 @@ use serde_json::Value;
 
 use crate::env::Env;
 
+/// Bounds on a server-supplied expression; beyond any of them it is undecidable.
+/// Nesting (parentheses plus `not`) is what the recursive parser's stack depends on.
+pub(crate) const MAX_BYTES: usize = 16 * 1024;
+const MAX_TOKENS: usize = 4096;
+pub(crate) const MAX_NESTING: usize = 64;
+
 /// A resolved binding scalar: the value a `#name` lookup yields and the value a
 /// `view` expression produces.
 #[derive(Clone, Debug, PartialEq)]
@@ -64,10 +70,14 @@ pub fn eval_bool(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option
 /// Evaluate a `view` expression to its scalar result (a bool for `#visible`, text
 /// for a concatenated `#texture`), or `None` when undecidable.
 pub fn eval_scalar(expression: &str, env: &Env, bindings: &dyn Bindings) -> Option<Scalar> {
+    if expression.len() > MAX_BYTES {
+        return None;
+    }
     let tokens = tokenize(expression)?;
     let mut parser = Parser {
         tokens: &tokens,
         pos: 0,
+        depth: 0,
         env,
         bindings,
     };
@@ -158,6 +168,9 @@ fn tokenize(expression: &str) -> Option<Vec<Token>> {
     let mut tokens = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
+        if tokens.len() >= MAX_TOKENS {
+            return None;
+        }
         let single = match bytes[i] {
             b'(' => Some(Token::Open),
             b')' => Some(Token::Close),
@@ -317,6 +330,8 @@ fn truthy(operand: &Operand) -> bool {
 struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
+    /// Open parentheses and `not`s enclosing the current position.
+    depth: usize,
     env: &'a Env,
     bindings: &'a dyn Bindings,
 }
@@ -324,6 +339,17 @@ struct Parser<'a> {
 impl Parser<'_> {
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
+    }
+
+    /// Runs one nested parse, undecidable once nesting reaches [`MAX_NESTING`].
+    fn nested(&mut self, parse: fn(&mut Self) -> Option<Operand>) -> Option<Operand> {
+        if self.depth >= MAX_NESTING {
+            return None;
+        }
+        self.depth += 1;
+        let value = parse(self);
+        self.depth -= 1;
+        value
     }
 
     fn parse_or(&mut self) -> Option<Operand> {
@@ -348,7 +374,7 @@ impl Parser<'_> {
     fn parse_not(&mut self) -> Option<Operand> {
         if self.peek() == Some(&Token::Not) {
             self.pos += 1;
-            let inner = self.parse_not()?;
+            let inner = self.nested(Self::parse_not)?;
             return Some(Operand::Bool(!inner.as_bool()?));
         }
         self.parse_comparison()
@@ -434,7 +460,7 @@ impl Parser<'_> {
         match self.tokens.get(self.pos)?.clone() {
             Token::Open => {
                 self.pos += 1;
-                let inner = self.parse_or()?;
+                let inner = self.nested(Self::parse_or)?;
                 if self.peek() != Some(&Token::Close) {
                     return None;
                 }
@@ -481,7 +507,7 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Bindings, Scalar, eval, eval_bool, eval_scalar};
+    use super::{Bindings, MAX_BYTES, MAX_NESTING, Scalar, eval, eval_bool, eval_scalar};
     use crate::env::Env;
     use serde_json::json;
 
@@ -631,5 +657,27 @@ mod tests {
         let scope = bindings(&[("#index", Scalar::Num(2.0))]);
         assert_eq!(eval_bool("(#index = '2')", &env(), &scope), Some(true));
         assert_eq!(eval_bool("(#index = '3')", &env(), &scope), Some(false));
+    }
+
+    // Server-supplied nesting must not overflow the stack.
+    #[test]
+    fn deep_parentheses_and_not_chains_are_undecidable() {
+        let parens = format!("{}true{}", "(".repeat(20_000), ")".repeat(20_000));
+        assert_eq!(eval(&parens, &env()), None);
+        let nots = format!("{}true", "not ".repeat(20_000));
+        assert_eq!(eval(&nots, &env()), None);
+        let mixed = "(not ".repeat(20_000) + "true" + &")".repeat(20_000);
+        assert_eq!(eval(&mixed, &env()), None);
+    }
+
+    #[test]
+    fn nesting_and_length_within_the_bounds_still_evaluate() {
+        let depth = MAX_NESTING - 1;
+        let parens = format!("{}true{}", "(".repeat(depth), ")".repeat(depth));
+        assert_eq!(eval(&parens, &env()), Some(true));
+        let nots = format!("{}true", "not ".repeat(depth));
+        assert_eq!(eval(&nots, &env()), Some(false));
+        let long = format!("'{}' = ''", "x".repeat(MAX_BYTES + 1));
+        assert_eq!(eval(&long, &env()), None);
     }
 }
