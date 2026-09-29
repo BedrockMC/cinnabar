@@ -1,7 +1,7 @@
-//! Optional OreUI images from a local Minecraft install's `data/gui/dist/hbui`
-//! bundle: its sprite atlases (button, border and icon images) are packed into
-//! one UI page. The bundle is never copied into the repository; its absence
-//! logs once and the OreUI screens fall back to the existing launcher drawing.
+//! Optional OreUI icons read at runtime from the user's own Minecraft install
+//! (`data/gui/dist/hbui`): its sprite atlases are packed into one UI page. The
+//! images are Mojang's and are never copied, bundled or shipped; without an
+//! install the OreUI screens draw their own approximate icons.
 
 use std::{
     collections::HashMap,
@@ -43,18 +43,46 @@ struct AtlasRect {
     height: u32,
 }
 
-/// Candidate bundle directories: `CINNABAR_OREUI_DIR`, a local copy under
-/// `.local/assets/oreui/hbui`, then a macOS PlayCover install.
+/// Candidate bundle directories in the user's own install: `CINNABAR_OREUI_DIR`,
+/// then the platform's default install locations. Nothing is ever copied.
 fn candidates() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(dir) = std::env::var_os("CINNABAR_OREUI_DIR") {
         paths.push(PathBuf::from(dir));
     }
-    paths.push(PathBuf::from(".local/assets/oreui/hbui"));
-    if let Some(home) = std::env::var_os("HOME") {
-        paths.push(PathBuf::from(home).join(
-            "Library/Containers/io.playcover.PlayCover/Applications/com.mojang.minecraftpe.app/data/gui/dist/hbui",
-        ));
+    const BUNDLE: &str = "data/gui/dist/hbui";
+    if cfg!(target_os = "macos")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        paths.push(
+            PathBuf::from(home)
+                .join("Library/Containers/io.playcover.PlayCover/Applications/com.mojang.minecraftpe.app")
+                .join(BUNDLE),
+        );
+    }
+    if cfg!(windows) {
+        // GDK installs under XboxGames on any drive; UWP packages under WindowsApps.
+        for drive in ["C", "D", "E"] {
+            paths.push(
+                PathBuf::from(format!(
+                    "{drive}:\\XboxGames\\Minecraft for Windows\\Content"
+                ))
+                .join(BUNDLE),
+            );
+        }
+        if let Ok(entries) = std::fs::read_dir("C:\\Program Files\\WindowsApps") {
+            paths.extend(
+                entries
+                    .flatten()
+                    .filter(|entry| {
+                        entry
+                            .file_name()
+                            .to_string_lossy()
+                            .starts_with("Microsoft.MinecraftUWP_")
+                    })
+                    .map(|entry| entry.path().join(BUNDLE)),
+            );
+        }
     }
     paths
 }
@@ -66,7 +94,7 @@ pub(crate) fn load_optional_oreui_images() -> Option<OreUiImages> {
         .find(|dir| dir.join("atlas.json").is_file())
     else {
         eprintln!(
-            "OreUI bundle not found (set CINNABAR_OREUI_DIR to a Minecraft install's data/gui/dist/hbui); OreUI screens use the launcher fallback"
+            "no local Minecraft install with an OreUI bundle found (CINNABAR_OREUI_DIR can point at its data/gui/dist/hbui); OreUI screens draw their own icons"
         );
         return None;
     };
@@ -81,7 +109,7 @@ pub(crate) fn load_optional_oreui_images() -> Option<OreUiImages> {
         }
         Err(reason) => {
             eprintln!(
-                "OreUI bundle at {} unusable ({reason}); OreUI screens use the launcher fallback",
+                "OreUI bundle at {} unusable ({reason}); OreUI screens draw their own icons",
                 dir.display()
             );
             None
