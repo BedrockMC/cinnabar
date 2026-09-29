@@ -73,6 +73,7 @@ mod requests;
 mod residency;
 mod retries;
 mod sequencing;
+mod sign_edit;
 
 use decode::{DecodeIds, dimension_slots};
 use helpers::*;
@@ -228,6 +229,7 @@ pub use model::{
     PublisherViewGeometry, ViewCohort, ViewCohortStatus, WorldMeshChange, WorldStreamError,
     WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
 };
+pub use sign_edit::SignEditRequest;
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
 pub struct WorldStream {
@@ -235,6 +237,7 @@ pub struct WorldStream {
     block_cracks: block_cracks::BlockCracks,
     block_events: block_events::BlockEvents,
     map_images: map_data::MapImages,
+    pending_sign_edit: Option<SignEditRequest>,
     block_entity_visuals: BlockEntityVisualDiagnostics,
     actors: ActorStore,
     actor_session_id: u64,

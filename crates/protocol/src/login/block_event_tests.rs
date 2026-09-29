@@ -4,11 +4,11 @@ use bytes::Buf;
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_44::{
-    ActorUniqueId, BlockEventPacket, BlockPos, ClientboundMapItemDataPacket,
+    ActorUniqueId, BlockEventPacket, BlockPos, ClientboundMapItemDataPacket, OpenSignPacket,
 };
 
 use super::*;
-use crate::{BlockEventEvent, MapDataEvent, WorldEvent};
+use crate::{BlockEventEvent, MapDataEvent, OpenSignEvent, WorldEvent};
 
 #[test]
 fn block_event_packets_normalize_with_the_current_dimension() {
@@ -77,4 +77,32 @@ fn map_pixel_updates_normalize_and_out_of_range_rectangles_are_skipped() {
     // Past the 128-pixel edge, and a pixel count that does not match the rectangle.
     assert_eq!(decode_map(map_packet(2, 127, vec![1, 2, 3, 4])), None);
     assert_eq!(decode_map(map_packet(2, 0, vec![1, 2, 3])), None);
+}
+
+#[test]
+fn open_sign_packets_normalize_with_position_side_and_dimension() {
+    let session = BedrockSession { shield_item_id: 0 };
+    let packet: Packet = OpenSignPacket {
+        pos: BlockPos {
+            x: -5,
+            y: 64,
+            z: 12,
+        },
+        is_front_side: false,
+    }
+    .into();
+    let mut batch = crate::encode(&packet, &session).expect("encode open sign");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw open sign");
+    let event = decode_world_raw_with(raw, 2, |raw| raw.decode(&session))
+        .expect("decode open sign")
+        .expect("world event");
+    assert_eq!(
+        event,
+        WorldEvent::OpenSign(OpenSignEvent {
+            dimension: 2,
+            position: [-5, 64, 12],
+            front: false,
+        })
+    );
 }

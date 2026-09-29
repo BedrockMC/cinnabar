@@ -20,6 +20,7 @@ pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
+mod sign_editor;
 mod use_on_identity_evidence;
 
 pub use forms::{
@@ -27,6 +28,7 @@ pub use forms::{
     ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
 };
 pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
+pub(crate) use sign_editor::drive_sign_editor;
 
 pub(crate) use gameplay_authority::drain_inventory_authority;
 pub use interaction::FastTransferAction;
@@ -194,6 +196,7 @@ pub struct UiRuntime {
     inventory_ledger: PlayerInventoryLedger,
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
+    sign_editor: sign_editor::SignEditor,
     inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
     last_health_drop_millis: Option<u64>,
@@ -271,6 +274,7 @@ impl UiRuntime {
             use_on_identity_evidence:
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
+            sign_editor: sign_editor::SignEditor::default(),
             inventory_pointer_gui: None,
             inventory_keys: interaction::InventoryKeys::default(),
             last_health_drop_millis: None,
@@ -380,6 +384,14 @@ impl UiRuntime {
         &self.inventory_ledger
     }
 
+    pub(crate) const fn sign_editor(&self) -> &sign_editor::SignEditor {
+        &self.sign_editor
+    }
+
+    pub(crate) fn sign_editor_mut(&mut self) -> &mut sign_editor::SignEditor {
+        &mut self.sign_editor
+    }
+
     pub const fn server_forms(&self) -> &ServerFormStore {
         &self.forms
     }
@@ -429,7 +441,10 @@ impl UiRuntime {
     }
 
     pub fn ui_focused(&self) -> bool {
-        self.chat_focused || self.inventory_open || self.forms.owns_input()
+        self.chat_focused
+            || self.inventory_open
+            || self.forms.owns_input()
+            || self.sign_editor.is_open()
     }
 
     pub const fn chat_editor(&self) -> &ChatEditor {
@@ -702,6 +717,7 @@ impl UiRuntime {
             .dropped_unsent_chat_messages
             .saturating_add(dropped as u64);
         self.block_cracks = crate::block_cracks::BlockCracks::default();
+        self.sign_editor = sign_editor::SignEditor::default();
         self.inventory_authority = None;
         self.player_game_mode = None;
         self.server_authoritative_block_breaking = None;

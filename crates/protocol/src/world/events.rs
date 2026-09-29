@@ -161,6 +161,15 @@ pub struct MapDataEvent {
     pub pixels: Arc<[u32]>,
 }
 
+/// The server opening the sign editor for one face of the sign at `position`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenSignEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+    pub front: bool,
+}
+
 /// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockEventEvent {
@@ -400,6 +409,7 @@ pub enum WorldEvent {
     BlockEntityUpdate(BlockEntityUpdateEvent),
     BlockEvent(BlockEventEvent),
     MapData(MapDataEvent),
+    OpenSign(OpenSignEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),

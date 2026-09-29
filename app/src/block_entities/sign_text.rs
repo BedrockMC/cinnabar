@@ -14,6 +14,8 @@ const LINE_PITCH_PIXELS: i32 = 10;
 /// Widest line before the text stops fitting the board.
 const MAX_LINE_PIXELS: u32 = 90;
 const TEXELS_PER_PIXEL: u32 = 2;
+/// Wrap width wide enough that a measured line never wraps.
+const WIDTH_PROBE_PIXELS: u32 = 4_096;
 const ASCENT_TEXELS: u32 = 14;
 const LINE_HEIGHT_TEXELS: u32 = 18;
 const BLACK_OUTLINE_RGB: [u8; 3] = [0xF0, 0xEB, 0xCC];
@@ -92,6 +94,26 @@ fn style_rgb(color: BedrockColor) -> Option<[u8; 3]> {
         BedrockColor::MaterialAmethyst => [154, 92, 198],
         BedrockColor::MaterialResin => [237, 105, 52],
     })
+}
+
+/// Width of `text` in design pixels as one unwrapped line, or `None` if the font cannot lay it out.
+pub(crate) fn line_width_design_pixels(
+    text: &str,
+    font: &CompiledFontCatalog,
+    layouts: &mut TextLayoutCache,
+) -> Option<f32> {
+    let layout = layouts
+        .layout(TextLayoutRequest {
+            text,
+            style: TextStyle::default(),
+            width_64: WIDTH_PROBE_PIXELS * TEXELS_PER_PIXEL * 64,
+            line_height_64: LINE_HEIGHT_TEXELS * 64,
+            baseline_64: ASCENT_TEXELS * 64,
+            scale: UiScale::default(),
+            font,
+        })
+        .ok()?;
+    Some(layout.size_64()[0] as f32 / (TEXELS_PER_PIXEL * 64) as f32)
 }
 
 struct Placed {
