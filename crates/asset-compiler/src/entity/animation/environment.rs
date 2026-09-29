@@ -171,9 +171,9 @@ pub(super) fn compile_geometry_selections(
                     .values()
                     .any(|members| members.len() > MAX_MOLANG_COLLECTION_ITEMS)
                 {
-                    return Err(invalid(
-                        "render geometry collection member count exceeds bound",
-                    ));
+                    // Too many members to select between: keep the default geometry.
+                    selections.insert(key, GeometrySelection::Unsupported);
+                    continue;
                 }
                 let resolve = |alias: &str| {
                     let identifier = environment

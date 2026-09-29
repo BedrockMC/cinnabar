@@ -241,7 +241,7 @@ impl WorldStream {
     /// win by identifier for actors spawned afterwards.
     pub fn set_pack_entities(
         &mut self,
-        assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+        assets: Option<(std::sync::Arc<assets::RuntimeEntityAssets>, Vec<u32>)>,
     ) {
         self.actors.set_pack_entities(assets);
     }

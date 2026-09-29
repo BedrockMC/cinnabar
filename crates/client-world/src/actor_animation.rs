@@ -93,6 +93,8 @@ pub(crate) struct ActorAnimationStore {
 
 #[derive(Debug)]
 struct PackCatalog {
+    /// Rig geometry bindings with artwork; a pack entity without any draws as vanilla does.
+    artwork: std::collections::BTreeSet<u32>,
     assets: Arc<RuntimeEntityAssets>,
     layout: Arc<VariableLayout>,
 }
@@ -250,9 +252,10 @@ impl ActorAnimationStore {
     }
 
     /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
-    pub(crate) fn set_pack(&mut self, assets: Option<Arc<RuntimeEntityAssets>>) {
-        self.pack = assets.map(|assets| PackCatalog {
+    pub(crate) fn set_pack(&mut self, assets: Option<(Arc<RuntimeEntityAssets>, Vec<u32>)>) {
+        self.pack = assets.map(|(assets, artwork)| PackCatalog {
             layout: Arc::new(VariableLayout::new(&assets)),
+            artwork: artwork.into_iter().collect(),
             assets,
         });
     }
@@ -283,6 +286,9 @@ impl ActorAnimationStore {
         };
         let from_pack = self.pack.as_ref().and_then(|pack| {
             let mut state = resolve_rig(&pack.assets, &pack.layout, actor, self.completed_tick)?;
+            if !pack.artwork.contains(&state.rig.0) {
+                return None;
+            }
             state.pack = true;
             state.rig = EntityRigId(assets::PACK_RIG_ID_BASE.checked_add(state.rig.0)?);
             Some(state)

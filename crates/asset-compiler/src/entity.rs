@@ -24,6 +24,7 @@ mod item_bindings;
 mod json;
 mod molang;
 mod pack;
+mod sanitize;
 mod source;
 mod vanilla_refs;
 pub use vanilla_refs::compile_vanilla_entity_refs;
@@ -318,7 +319,8 @@ fn assemble(
     )?;
     validate_reference_coverage(&symbols, &animation)?;
     let molang = molang_compiler.finish()?;
-    let equipment_bindings = attachable::compile_bindings(source_payloads, &symbols, &sources)?;
+    let equipment_bindings =
+        attachable::compile_bindings(source_payloads, &symbols, &sources, !include_items)?;
     let items = if include_items {
         let item_transforms = attachable::transform_lookup(&equipment_bindings);
         item::compile(root, source_payloads, &sources, &item_transforms)?
