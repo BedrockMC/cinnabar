@@ -4,10 +4,11 @@ use crate::{
     ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
 };
 use bevy::{
+    ecs::message::{MessageCursor, Messages},
     input::{
         ButtonState,
         keyboard::KeyboardInput,
-        mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel},
+        mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::{
         ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
@@ -23,12 +24,39 @@ pub(crate) fn drive_server_form_input(
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mut keyboard: MessageReader<KeyboardInput>,
+    button_messages: Option<Res<Messages<MouseButtonInput>>>,
+    mut button_cursor: Local<MessageCursor<MouseButtonInput>>,
+    mut held: Local<bool>,
     menu: Option<Res<MenuRuntime>>,
     presentation: Res<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
     mut owned_last_frame: Local<bool>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    // Buttons are reset every owned frame, so a physical release never surfaces
+    // as `just_released`; raw messages carry the edges instead.
+    let mut pointer = engine_input::PointerButtons {
+        pressed: mouse.just_pressed(MouseButton::Left),
+        released: mouse.just_released(MouseButton::Left),
+        held: false,
+    };
+    if let Some(messages) = button_messages.as_deref() {
+        for input in button_cursor.read(messages) {
+            if input.button == MouseButton::Left {
+                match input.state {
+                    ButtonState::Pressed => pointer.pressed = true,
+                    ButtonState::Released => pointer.released = true,
+                }
+            }
+        }
+    }
+    if pointer.pressed {
+        *held = true;
+    }
+    pointer.held = *held || mouse.pressed(MouseButton::Left);
+    if pointer.released {
+        *held = false;
+    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         && !runtime.server_forms().settings_form_active()
     {
@@ -66,7 +94,7 @@ pub(crate) fn drive_server_form_input(
                 .cursor_position()
                 .and_then(|point| ui::UiPoint::new(point.x, point.y).ok()),
             keys: &keys,
-            mouse: &mouse,
+            pointer,
             wheel: wheel.read().map(|event| (event.y, event.unit)).collect(),
             typed: keyboard
                 .read()
@@ -132,7 +160,7 @@ pub(crate) fn drive_server_form_input(
                     },
                 ))
             })
-        } else if mouse.just_pressed(MouseButton::Left) {
+        } else if pointer.pressed {
             window
                 .cursor_position()
                 .and_then(|point| ui::UiPoint::new(point.x, point.y).ok())
