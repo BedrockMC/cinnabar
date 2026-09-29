@@ -21,7 +21,8 @@ use protocol::launcher_control::{
 
 use super::account_control::{AccountControl, AccountEvent};
 use super::view::{
-    ButtonArt, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo, ServerDetails,
+    ButtonArt, InboxItem, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
+    ServerDetails,
 };
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
@@ -230,6 +231,17 @@ fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         realm_invites: home.realm_invites,
         live_event,
         persona_head: home.persona_head.path.clone(),
+        inbox: home
+            .messages
+            .iter()
+            .filter(|message| message.surface == "InboxMessage")
+            .map(|message| InboxItem {
+                header: message.header.clone(),
+                body: message.body.clone(),
+                category: message.category.clone(),
+                unread: !message.status.eq_ignore_ascii_case("read"),
+            })
+            .collect(),
     }
 }
 

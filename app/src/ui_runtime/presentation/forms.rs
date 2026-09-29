@@ -8,7 +8,7 @@ mod menu_screens;
 mod menus;
 mod model;
 mod npc;
-mod oreui_profile;
+mod oreui;
 mod pages;
 mod panorama;
 mod play_screen;
@@ -44,6 +44,9 @@ pub(super) struct FormPresentation {
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
+    /// Dev-mode OreUI originals and the look OreUI screens draw with.
+    oreui_originals: Option<Arc<oreui::Originals>>,
+    oreui_look: oreui::Look,
 }
 
 impl UiPresentationRuntime {
@@ -176,6 +179,8 @@ impl UiPresentationRuntime {
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
+            oreui_originals: self.form_presentation.oreui_originals.take(),
+            oreui_look: self.form_presentation.oreui_look,
             ..FormPresentation::default()
         };
         // Server settings draw over the settings menu; other forms wait it out.

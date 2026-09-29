@@ -118,6 +118,17 @@ pub(crate) struct MenuHome {
     pub(crate) realm_invites: u32,
     pub(crate) live_event: Option<LiveEventCard>,
     pub(crate) persona_head: String,
+    /// Inbox messages, newest first as the service lists them.
+    pub(crate) inbox: Vec<InboxItem>,
+}
+
+/// One inbox message.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct InboxItem {
+    pub(crate) header: String,
+    pub(crate) body: String,
+    pub(crate) category: String,
+    pub(crate) unread: bool,
 }
 
 /// A main button's messaging art: local image paths per layer and its banner.
