@@ -13,10 +13,23 @@ pub struct RenderTextureLayer {
     pub hidden_bones: Arc<[u32]>,
 }
 
+/// `pattern` is lowercase with an optional leading and/or trailing `*`; bone names match
+/// ignoring ASCII case.
 fn pattern_matches(pattern: &str, name: &str) -> bool {
-    match pattern.strip_suffix('*') {
-        Some(prefix) => name.starts_with(prefix),
-        None => pattern == name,
+    let name = name.to_ascii_lowercase();
+    let (leading, rest) = match pattern.strip_prefix('*') {
+        Some(rest) => (true, rest),
+        None => (false, pattern),
+    };
+    let (trailing, core) = match rest.strip_suffix('*') {
+        Some(core) => (true, core),
+        None => (false, rest),
+    };
+    match (leading, trailing) {
+        (true, true) => name.contains(core),
+        (true, false) => name.ends_with(core),
+        (false, true) => name.starts_with(core),
+        (false, false) => name == core,
     }
 }
 
@@ -133,5 +146,8 @@ mod tests {
         assert!(pattern_matches("head", "head"));
         assert!(!pattern_matches("head", "headwear"));
         assert!(!pattern_matches("leg*", "arm"));
+        assert!(pattern_matches("*saddle*", "leftSaddleStrap"));
+        assert!(pattern_matches("*ear", "MuleEar"));
+        assert!(!pattern_matches("*saddle*", "body"));
     }
 }
