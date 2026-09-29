@@ -4,7 +4,7 @@ Consolidated 2026-09-28 from a read-only audit against the 26.30 client (Lens +
 mcsrc-1.26.50 reconstruction + pinned bedrock-samples). Target: version-matched
 vanilla Bedrock, except the in-game HUD, which targets Java Edition by owner
 decision — chat and scoreboard styling there are intentional and not gaps.
-Values only resolvable from decompiled source are marked *(measure)*.
+Values marked *(measure)* may now be taken directly from the client references (owner decision).
 
 ## Fixed
 - Block breaking / interaction: `verified_selection` refused an `Unknown` selected
