@@ -64,9 +64,17 @@ relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent p
 settings (sections, GUI scale, sound sliders bound to `AudioSettings` at 5% snaps whose
 granularity needs measurement; text-to-speech disabled), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue
 (student view) and server settings (a form over the settings menu, not yet a settings
-section) draw from their vanilla screens; profile and first-run progress (it completes
-before the window opens) stay programmatic. Launcher screens sit on an opaque backdrop
-until the panorama is packed; a launcher run keeps one `-control-status` core (restarted
+section) draw from their vanilla screens, as do launcher dialogs (vanilla two-button popup);
+profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it completes before the
+window opens) stay programmatic, and the programmatic launcher remains only for a missing
+carrier or a failed render. Launcher screens sit on the vanilla panorama, approximated as
+perspective-correct texel strips of 512 px faces (FOV, turn speed and pitch need measurement).
+The Servers tab lists featured servers then gatherings with the vanilla info panel (description,
+news, screenshots, games; artwork is 96 px menu thumbnails, the read-more toggle is not wired,
+player counts/ping need a RakNet ping); Realms split owned/member with players and expiry; the
+start screen shows the profile gamertag and gamerpic. Not served (no open endpoint, see
+`docs/menus-services.md`): announcements/inbox/tile art, store offers, persona, Realms invite
+counts, live-event gatherings. A launcher run keeps one `-control-status` core (restarted
 on sign-in/sign-out) that feeds account, realms, friends and local worlds; joins select their
 target over `connect.v1` and fall back to a per-session core; opened local worlds are joined and
 closed with their session; respawn sends the client-ready respawn request only (no player
