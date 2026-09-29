@@ -10,6 +10,7 @@ use super::{IconRef, UiPresentationRuntime, dynamic_textures};
 pub(crate) const MAX_SESSION_ICON_SIDE: u32 = 64;
 const PAGE_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
+const MAX_LOGGED_MISSES: usize = 512;
 
 /// One server item icon in straight-alpha RGBA8.
 #[derive(Debug)]
@@ -24,6 +25,8 @@ pub(crate) struct SessionIcon {
 #[derive(Debug, Default)]
 pub(crate) struct SessionIcons {
     pub(crate) icons: Vec<SessionIcon>,
+    /// Why an item's icon key did not resolve to an image, for diagnostics.
+    pub(crate) misses: HashMap<Arc<str>, Box<str>>,
 }
 
 /// The packed page and lookups for the icons last seen on the UI runtime.
@@ -41,11 +44,45 @@ impl UiPresentationRuntime {
         if let Some(icon) = self.session_icons.refs.get(identifier) {
             return Some(*icon);
         }
-        let sprite = self
+        let vanilla = self
             .icon_catalog
-            .as_ref()?
-            .lookup_index(identifier, metadata)?;
-        self.icon_refs.as_deref()?.get(sprite).copied()
+            .as_ref()
+            .and_then(|catalog| catalog.lookup_index(identifier, metadata))
+            .and_then(|sprite| self.icon_refs.as_deref()?.get(sprite).copied());
+        if vanilla.is_none() {
+            self.note_missing_icon(identifier, metadata);
+        }
+        vanilla
+    }
+
+    /// Logs once per identifier why no icon resolved: the session, pack and vanilla lookups.
+    fn note_missing_icon(&self, identifier: &str, metadata: u32) {
+        let Ok(mut seen) = self.missing_icons.lock() else {
+            return;
+        };
+        if seen.len() >= MAX_LOGGED_MISSES || !seen.insert(identifier.to_owned()) {
+            return;
+        }
+        let session = self.session_icons.source.as_ref().map_or_else(
+            || "no session icons (no server pack icons)".to_owned(),
+            |icons| {
+                icons.misses.get(identifier).map_or_else(
+                    || "not among the pack stack's item icon keys".to_owned(),
+                    |reason| reason.to_string(),
+                )
+            },
+        );
+        let vanilla = if self.icon_catalog.is_none() {
+            "vanilla icon carrier not loaded"
+        } else {
+            "not in the vanilla icon catalog"
+        };
+        bevy::log::info!(
+            identifier,
+            metadata,
+            custom = !identifier.starts_with("minecraft:"),
+            "no icon for item: session/pack: {session}; vanilla: {vanilla}"
+        );
     }
 }
 

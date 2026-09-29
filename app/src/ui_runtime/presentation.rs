@@ -186,6 +186,8 @@ pub struct UiPresentationRuntime {
     menu_artwork_dirty: bool,
     session_icons: session_icons::SessionIconPage,
     session_glyphs: session_glyphs::SessionGlyphPages,
+    /// Identifiers already logged as iconless.
+    missing_icons: std::sync::Mutex<std::collections::HashSet<String>>,
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
@@ -279,6 +281,7 @@ impl UiPresentationRuntime {
             menu_artwork_dirty: false,
             session_icons: session_icons::SessionIconPage::default(),
             session_glyphs: session_glyphs::SessionGlyphPages::default(),
+            missing_icons: Default::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),

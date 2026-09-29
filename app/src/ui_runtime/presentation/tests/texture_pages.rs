@@ -403,6 +403,7 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
                 rgba8: vec![0; 3].into(),
             },
         ],
+        ..Default::default()
     });
     session_icons::observe(&mut presentation, Some(&icons));
     let icon = presentation.item_icon("test:gem", 0).expect("session icon");
@@ -502,6 +503,7 @@ fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
             height: 4,
             rgba8: vec![255; 64].into(),
         }],
+        ..Default::default()
     });
     session_icons::observe(&mut presentation, Some(&icons));
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
