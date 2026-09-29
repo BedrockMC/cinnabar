@@ -9,6 +9,7 @@ mod menus;
 mod model;
 mod npc;
 mod pages;
+mod panorama;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]

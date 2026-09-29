@@ -7,11 +7,11 @@ use json_ui::{HitRegion, ViewState};
 use ui::{UiNode, UiNodeId, UiRect, UiVisual};
 
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
-use super::{engine, menu_screens};
+use super::{engine, menu_screens, panorama};
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 use crate::ui_runtime::UiRuntime;
 
-/// Backdrop behind launcher screens (needs the vanilla panorama).
+/// Backdrop behind launcher screens when the carrier lacks the panorama.
 const LAUNCHER_BACKDROP: [u8; 4] = [8, 10, 14, 255];
 
 impl UiPresentationRuntime {
@@ -92,9 +92,10 @@ impl UiPresentationRuntime {
             ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
-        // The vanilla panorama is not packed (its art exceeds the UI atlas
-        // bound), so launcher screens sit on an opaque backdrop instead.
-        if !matches!(view.screen, MenuScreen::Pause | MenuScreen::Death) {
+        // Launcher screens sit on the vanilla panorama; in-game ones over the world.
+        if !matches!(view.screen, MenuScreen::Pause | MenuScreen::Death)
+            && !panorama::append_panorama(renderer, nodes, next, [width, height])?
+        {
             nodes.push(
                 UiNode::new(UiNodeId::new(*next), None, rect(0.0, 0.0, width, height)?)
                     .with_visual(UiVisual::Solid {
