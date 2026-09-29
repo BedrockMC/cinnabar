@@ -30,7 +30,10 @@ func (m *stubMarket) Offer(context.Context, string) (store.OfferDetail, error) {
 	return store.OfferDetail{}, m.err
 }
 func (m *stubMarket) Balances(context.Context) ([]store.Balance, error) { return nil, m.err }
-func (m *stubMarket) Entitlements(context.Context, int, int) (store.Entitlements, error) {
+func (m *stubMarket) MoreOffers(context.Context, string) (store.RowMore, error) {
+	return store.RowMore{}, m.err
+}
+func (m *stubMarket) Entitlements(context.Context, int, int, bool) (store.Entitlements, error) {
 	return store.Entitlements{Owned: []string{"a"}, Total: 1}, m.err
 }
 func (m *stubMarket) Image(context.Context, string) (store.Image, error) {

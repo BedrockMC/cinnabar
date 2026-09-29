@@ -83,15 +83,15 @@ func TestEntitlementsAreLenientAndPaged(t *testing.T) {
 		w.Header().Set("InventoryETag", "etag-1")
 		_, _ = io.WriteString(w, inventoryFixture)
 	}, nil)
-	all, err := client.Entitlements(context.Background(), 0, 0)
+	all, err := client.Entitlements(context.Background(), 0, 0, false)
 	if err != nil || all.Total != 3 || len(all.Owned) != 3 || all.InventoryVersion != "etag-1" || all.Owned[0] != "aaaaaaaa-0000-0000-0000-000000000001" {
 		t.Fatalf("entitlements = %+v err=%v", all, err)
 	}
-	window, err := client.Entitlements(context.Background(), 2, 5)
+	window, err := client.Entitlements(context.Background(), 2, 5, false)
 	if err != nil || len(window.Owned) != 1 || window.Offset != 2 {
 		t.Fatalf("window = %+v err=%v", window, err)
 	}
-	if _, err := client.Entitlements(context.Background(), -1, 0); !errors.Is(err, ErrInvalidRequest) {
+	if _, err := client.Entitlements(context.Background(), -1, 0, false); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("negative offset err = %v", err)
 	}
 }
@@ -210,17 +210,23 @@ func TestSearchMapsCatalogItemsAndMarksOwned(t *testing.T) {
 }
 
 type purchaseServer struct {
-	calls  atomic.Int32
-	bodies []purchaseBody
-	mu     sync.Mutex
-	status int
-	header map[string]string
-	body   string
-	gate   chan struct{}
+	calls     atomic.Int32
+	refreshes atomic.Int32
+	bodies    []purchaseBody
+	mu        sync.Mutex
+	status    int
+	header    map[string]string
+	body      string
+	gate      chan struct{}
 }
 
 func (s *purchaseServer) handler(t *testing.T) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathRefresh {
+			s.refreshes.Add(1)
+			_, _ = io.WriteString(w, `{"result":{"version":"v2"}}`)
+			return
+		}
 		if r.URL.Path != pathTransaction || r.Method != http.MethodPost {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -392,5 +398,72 @@ func TestBaseURLOnlyTrustsMojangServiceHosts(t *testing.T) {
 	}
 	if got := baseURL(nil); got.String() != defaultBaseURI {
 		t.Fatalf("nil discovery = %v", got)
+	}
+}
+
+func TestASuccessfulPurchaseRefreshesTheInventoryOnce(t *testing.T) {
+	server := &purchaseServer{status: 200, body: `{"result":{}}`}
+	client := newTestClient(t, server.handler(t), nil)
+	if _, err := client.Purchase(context.Background(), request("purchase-0000000010", "offer-10")); err != nil {
+		t.Fatal(err)
+	}
+	if server.refreshes.Load() != 1 {
+		t.Fatalf("refreshes = %d", server.refreshes.Load())
+	}
+	refused := &purchaseServer{status: 422, body: `{}`}
+	other := newTestClient(t, refused.handler(t), nil)
+	if _, err := other.Purchase(context.Background(), request("purchase-0000000011", "offer-11")); err != nil || refused.refreshes.Load() != 0 {
+		t.Fatalf("refused purchase refreshed %d times, err=%v", refused.refreshes.Load(), err)
+	}
+}
+
+func TestMoreOffersPostsTheTokenAndMarksOwnership(t *testing.T) {
+	var body layoutMoreBody
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathRowItems:
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || r.Method != http.MethodPost {
+				t.Errorf("row request: %v %s", err, r.Method)
+			}
+			_, _ = io.WriteString(w, `{"result":{"continuationToken":"t2","items":[{"id":"AAAAAAAA-0000-0000-0000-000000000001","title":"Alpha"},{"id":"zzz","title":"Zed"}]}}`)
+		default:
+			w.Header().Set("InventoryETag", "etag-5")
+			_, _ = io.WriteString(w, inventoryFixture)
+		}
+	}, nil)
+	more, err := client.MoreOffers(context.Background(), "t1")
+	if err != nil || body.ContinuationToken != "t1" || body.InventoryVersion != "etag-5" {
+		t.Fatalf("body = %+v err=%v", body, err)
+	}
+	if len(more.Offers) != 2 || !more.Offers[0].Owned || more.Offers[1].Owned || more.Continuation != "t2" {
+		t.Fatalf("more = %+v", more)
+	}
+	if _, err := client.MoreOffers(context.Background(), ""); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("empty token err = %v", err)
+	}
+}
+
+func TestRowsCarryTheirContinuationToken(t *testing.T) {
+	page := parsePage("store", json.RawMessage(`{"rows":[{"title":"R","continuationToken":"next-1","offers":[{"id":"a","title":"A"}]},{"title":"S","offers":[{"id":"b","title":"B"}]}]}`))
+	if len(page.Rows) != 2 || page.Rows[0].Continuation != "next-1" || page.Rows[1].Continuation != "" {
+		t.Fatalf("rows = %+v", page.Rows)
+	}
+}
+
+func TestEntitlementsRefreshAsksTheServiceFirst(t *testing.T) {
+	var refreshes atomic.Int32
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathRefresh {
+			refreshes.Add(1)
+			_, _ = io.WriteString(w, `{"result":{"version":"v2"}}`)
+			return
+		}
+		_, _ = io.WriteString(w, inventoryFixture)
+	}, nil)
+	if _, err := client.Entitlements(context.Background(), 0, 0, true); err != nil || refreshes.Load() != 1 {
+		t.Fatalf("refreshes = %d err=%v", refreshes.Load(), err)
+	}
+	if _, err := client.Entitlements(context.Background(), 0, 0, false); err != nil || refreshes.Load() != 1 {
+		t.Fatalf("a cached read refreshed: %d err=%v", refreshes.Load(), err)
 	}
 }

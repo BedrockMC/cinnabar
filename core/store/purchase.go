@@ -188,6 +188,9 @@ func (c *Client) sendPurchase(ctx context.Context, r PurchaseRequest) (PurchaseR
 	}
 	if res.Status == PurchaseOK || res.Status == PurchaseStaleState {
 		c.invalidateInventory()
+		if res.Status == PurchaseOK {
+			c.RefreshInventory(ctx)
+		}
 	}
 	return res, nil
 }

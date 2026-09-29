@@ -53,10 +53,17 @@ type OfferDetail struct {
 
 // Row is one titled strip of offers on a store page.
 type Row struct {
-	ID     string  `json:"id,omitempty"`
-	Title  string  `json:"title,omitempty"`
-	Kind   string  `json:"kind,omitempty"`
-	Offers []Offer `json:"offers"`
+	ID           string  `json:"id,omitempty"`
+	Title        string  `json:"title,omitempty"`
+	Kind         string  `json:"kind,omitempty"`
+	Offers       []Offer `json:"offers"`
+	Continuation string  `json:"continuation,omitempty"` // token for row_more, when the row has more offers
+}
+
+// RowMore is the next slice of a row's offers.
+type RowMore struct {
+	Offers       []Offer `json:"offers"`
+	Continuation string  `json:"continuation,omitempty"`
 }
 
 // Page is a server-driven store page reduced to the rows the client draws.
@@ -158,6 +165,9 @@ func (q SearchQuery) Validate() error {
 	}
 	return nil
 }
+
+// ValidContinuation reports whether token is a usable continuation token.
+func ValidContinuation(token string) bool { return token != "" && len(token) <= 2048 }
 
 // ValidOfferID reports whether id is a well-formed offer identifier.
 func ValidOfferID(id string) bool { return idPattern.MatchString(id) }
