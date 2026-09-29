@@ -53,8 +53,8 @@ type openHookWorlds struct {
 	onOpen func()
 }
 
-func (w openHookWorlds) Open(id string) error {
-	err := w.Worlds.Open(id)
+func (w openHookWorlds) Open(id string, opts ...localworld.OpenOptions) error {
+	err := w.Worlds.Open(id, opts...)
 	if err == nil {
 		w.onOpen()
 	}
