@@ -20,7 +20,8 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `store_search.v1` | `term`, `filter`, `order_by`, `count` (<=50), `continuation` | `offers`, `continuation?`, `truncated?` |
 | `store_offer.v1` | `offer_id` | `offer`: offer plus `description`, `screenshot_urls`, `platforms` |
 | `store_balance.v1` | none | `balances: [{currency, amount}]` |
-| `store_entitlements.v1` | `offset?`, `limit?` (<=800) | `owned` ids, `total`, `offset`; advance `offset` by `len(owned)` |
+| `store_entitlements.v1` | `offset?`, `limit?` (<=800), `refresh?` (first window: ask the service to refresh the inventory) | `owned` ids, `total`, `offset`; advance `offset` by `len(owned)` |
+| `store_row_more.v1` | `continuation` (a row's `continuation`) | `offers`, `continuation?` |
 | `store_image.v1` | `url` (https) | `image: {path, content_type}`; the core caches PNG/JPEG/GIF/BMP under `store-images/` beside the auth cache (bounded, public addresses only) |
 | `store_purchase.v1` | `purchase_id`, `offer_id`, `store_id?`, `currency`, `amount`, `unit_duration_seconds?`, `confirmed` | `status`, `http_status`, `marketplace_error_code`, `correlation_id`, `replayed?` |
 
