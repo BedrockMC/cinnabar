@@ -49,8 +49,9 @@ type responseError struct {
 type Server struct {
 	listener         net.Listener
 	store            *Store
-	worlds           Worlds   // nil disables the world_* methods; guarded by mu
-	services         Services // nil disables the launcher methods; guarded by mu
+	worlds           Worlds      // nil disables the world_* methods; guarded by mu
+	services         Services    // nil disables the launcher methods; guarded by mu
+	marketplace      Marketplace // nil disables the store_* methods; guarded by mu
 	done             chan struct{}
 	once             sync.Once
 	mu               sync.Mutex
@@ -187,6 +188,9 @@ func (server *Server) serveOne(conn net.Conn) error {
 	}
 	if isServiceMethod(call.Method) {
 		return server.serveService(conn, id, call.Method, call.Params)
+	}
+	if isStoreMethod(call.Method) {
+		return server.serveStore(conn, id, call.Method, call.Params)
 	}
 	if server.worldService() != nil && isWorldMethod(call.Method) {
 		return server.serveWorld(conn, id, call.Method, call.Params)

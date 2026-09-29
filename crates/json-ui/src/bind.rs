@@ -118,9 +118,32 @@ impl DataSource {
         self.grid_dimensions.insert(name.into(), dimensions);
     }
 
+    /// Replace the list a collection named `name` reads while inside item `index` of the enclosing
+    /// list stored at `parent_key` (a plain name, or another scoped key).
+    pub fn set_scoped_collection(
+        &mut self,
+        parent_key: &str,
+        index: usize,
+        name: &str,
+        items: Vec<CollectionItem>,
+    ) {
+        self.collections
+            .insert(scoped_key(parent_key, index, name), items);
+    }
+
     fn collection_len(&self, name: &str) -> usize {
         self.collections.get(name).map_or(0, Vec::len)
     }
+}
+
+/// The data key of collection `name` inside item `index` of the list at `parent_key`.
+pub fn scoped_key(parent_key: &str, index: usize, name: &str) -> String {
+    format!("{parent_key}[{index}].{name}")
+}
+
+/// The data key of collection `name` inside item `index` of the list at `parent_key`.
+pub fn scoped_key(parent_key: &str, index: usize, name: &str) -> String {
+    format!("{parent_key}[{index}].{name}")
 }
 
 /// Resolves a factory `control_ids`/`control_name` reference to a fresh control
@@ -208,6 +231,21 @@ struct Scope {
     panel: Option<String>,
     /// A factory item's property bag, the base every control under it binds on.
     values: std::sync::Arc<BTreeMap<String, Scalar>>,
+    /// The data key each active cursor's collection resolved to.
+    keys: BTreeMap<String, String>,
+    /// Entered collections, outermost first: `(data key, index)`.
+    path: Vec<(String, usize)>,
+}
+
+impl Scope {
+    /// The scope inside item `index` of `name`, whose list lives at `key`.
+    fn enter(&self, name: &str, key: String, index: usize) -> Scope {
+        let mut inner = self.clone();
+        inner.indices.insert(name.to_owned(), index);
+        inner.keys.insert(name.to_owned(), key.clone());
+        inner.path.push((key, index));
+        inner
+    }
 }
 
 /// A control plus the own values gathered for it (pass one), before `view`
@@ -360,7 +398,8 @@ impl<'a> Binder<'a> {
                         .and_then(Value::as_str)
                         .and_then(|collection| {
                             let index = *scope.indices.get(collection)?;
-                            self.data.collections.get(collection)?.get(index)
+                            let key = scope.keys.get(collection).map_or(collection, String::as_str);
+                            self.data.collections.get(key)?.get(index)
                         });
                     let value = item.and_then(|item| {
                         lookup(source, &item.values, &own, self.data.strict, &self.env)
@@ -475,7 +514,8 @@ impl<'a> Binder<'a> {
         else {
             return Vec::new();
         };
-        let roles: Vec<Option<String>> = match self.data.collections.get(collection) {
+        let key = self.collection_key(collection, scope);
+        let roles: Vec<Option<String>> = match self.data.collections.get(&key) {
             Some(items) => items.iter().map(|item| item.role.clone()).collect(),
             None => unsupplied_roles(control, factory, own),
         };
@@ -497,11 +537,22 @@ impl<'a> Binder<'a> {
                 ));
                 continue;
             };
-            let mut child_scope = scope.clone();
-            child_scope.indices.insert(collection.to_owned(), index);
+            let child_scope = scope.enter(collection, key.clone(), index);
             nodes.push(self.build(with_index(Src::root(resolved), index), &child_scope));
         }
         nodes
+    }
+
+    /// The data key for `name` in `scope`: a list registered for the innermost enclosing item wins
+    /// over the shared plain-named list.
+    fn collection_key(&self, name: &str, scope: &Scope) -> String {
+        if let Some((parent, index)) = scope.path.last() {
+            let scoped = scoped_key(parent, *index, name);
+            if self.data.collections.contains_key(&scoped) {
+                return scoped;
+            }
+        }
+        name.to_owned()
     }
 
     /// One `grid_item_template` instance per collection item, capped by
@@ -527,11 +578,9 @@ impl<'a> Binder<'a> {
             .map_or(usize::MAX, |cap| cap as usize);
         // A fixed grid always has `columns * rows` cells; a rescaling one follows
         // its collection.
+        let key = self.collection_key(collection, scope);
         let count = cells
-            .map_or_else(
-                || self.data.collection_len(collection),
-                |cells| cells as usize,
-            )
+            .map_or_else(|| self.data.collection_len(&key), |cells| cells as usize)
             .min(cap);
         let Some(resolved) = self.resolve_scoped(template, control, &BTreeMap::new()) else {
             self.diagnostics.push(format!(
@@ -542,8 +591,7 @@ impl<'a> Binder<'a> {
         };
         (0..count)
             .map(|index| {
-                let mut child_scope = scope.clone();
-                child_scope.indices.insert(collection.to_owned(), index);
+                let child_scope = scope.enter(collection, key.clone(), index);
                 let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
                     patch.properties.insert(
                         "collection_scope".to_owned(),

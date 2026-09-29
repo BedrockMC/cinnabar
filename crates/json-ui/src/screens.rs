@@ -53,6 +53,9 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "progress.progress_screen",
     "disconnect.disconnect_screen",
     "xbl_console_signin.xbl_console_signin",
+    "store_layout.store_data_driven_screen",
+    "store_inventory.store_inventory_screen",
+    "store_progress.store_progress_screen",
 ];
 
 pub fn is_engine_screen(reference: &str) -> bool {

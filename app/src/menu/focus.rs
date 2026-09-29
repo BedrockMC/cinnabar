@@ -150,6 +150,7 @@ impl MenuRuntime {
             ],
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::Navigate(MenuScreen::Pause)],
             MenuScreen::Inbox | MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
+            MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
         }
     }
 }

@@ -20,6 +20,7 @@ mod particle;
 mod permissions;
 mod raw_text;
 mod socket_transport;
+pub mod store_control;
 mod transfer;
 mod ui;
 mod world;

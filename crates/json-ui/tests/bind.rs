@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use json_ui::{
     CollectionItem, ControlLibrary, ControlRef, DataSource, EmptyLibrary, ResolvedControl, Scalar,
-    bind,
+    bind, scoped_key,
 };
 use serde_json::{Value, json};
 
@@ -413,4 +413,54 @@ fn a_bound_forced_index_selects_one_collection_row() {
     data.select_radio("server_navigation_toggle", 0);
     let bound = bind(&row, &data, &EmptyLibrary);
     assert_eq!(prop(&bound, "#toggle_state"), &json!(false));
+}
+
+#[test]
+fn a_scoped_collection_gives_each_enclosing_item_its_own_list() {
+    let offer = ctrl(
+        "offer",
+        Some("label"),
+        json!({
+            "text": "#title",
+            "bindings": [
+                { "binding_type": "collection", "binding_collection_name": "offers", "binding_name": "#title" }
+            ],
+        }),
+    );
+    let inner = factory_panel(
+        "offer_list",
+        "offers",
+        &[("o", ControlRef::new("ns", "offer"))],
+    );
+    let row = ctrl_children("row", Some("panel"), json!({}), vec![inner]);
+    let lib = StubLibrary(
+        [("ns.offer".to_owned(), offer), ("ns.row".to_owned(), row)]
+            .into_iter()
+            .collect(),
+    );
+    let panel = factory_panel("rows", "rows", &[("r", ControlRef::new("ns", "row"))]);
+
+    let title = |text: &str| CollectionItem::new("o").with("#title", Scalar::Text(text.into()));
+    let mut data = DataSource::new();
+    data.set_collection(
+        "rows",
+        vec![CollectionItem::new("r"), CollectionItem::new("r")],
+    );
+    data.set_scoped_collection("rows", 0, "offers", vec![title("A"), title("B")]);
+    data.set_scoped_collection("rows", 1, "offers", vec![title("C")]);
+    assert_eq!(scoped_key("rows", 1, "offers"), "rows[1].offers");
+
+    let bound = bind(&panel, &data, &lib);
+    let texts: Vec<Vec<&Value>> = bound
+        .children
+        .iter()
+        .map(|row| {
+            row.children[0]
+                .children
+                .iter()
+                .map(|o| prop(o, "text"))
+                .collect()
+        })
+        .collect();
+    assert_eq!(texts, [vec![&json!("A"), &json!("B")], vec![&json!("C")]]);
 }

@@ -29,6 +29,8 @@ type Config struct {
 	Selector    *proxy.UpstreamSelector
 	Transfers   *proxy.TransferState
 	ArtworkDir  string // bounded cache for screen artwork; empty skips caching
+	// StoreImageDir holds cached Marketplace images; empty disables them.
+	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
 	Realms   func(context.Context, oauth2.TokenSource) ([]catalog.Realm, error)
