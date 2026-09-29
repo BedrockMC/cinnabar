@@ -15,7 +15,7 @@ const GAIN_SLEW: f32 = 0.002;
 
 /// Decoded PCM16 shared between the cache and every voice playing it.
 #[derive(Debug)]
-pub(super) struct Pcm {
+pub(crate) struct Pcm {
     pub channels: u8,
     pub rate: u32,
     pub samples: Arc<[i16]>,
@@ -29,7 +29,7 @@ impl Pcm {
 
 /// Engine-to-mixer control block for one voice.
 #[derive(Debug)]
-pub(super) struct VoiceShared {
+pub(crate) struct VoiceShared {
     cancel: AtomicBool,
     done: AtomicBool,
     gain: AtomicU32,
@@ -66,7 +66,7 @@ fn load(cell: &AtomicU32) -> f32 {
     f32::from_bits(cell.load(Ordering::Relaxed))
 }
 
-pub(super) struct VoiceSource {
+pub(crate) struct VoiceSource {
     pcm: Arc<Pcm>,
     shared: Arc<VoiceShared>,
     position: f64,

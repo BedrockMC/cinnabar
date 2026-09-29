@@ -3,8 +3,6 @@
 //! Offsets are GUI pixels from the panel's top-left corner. Layout values come
 //! from remembered public GUI texture layouts and need screenshot measurement.
 
-use protocol::WindowKind;
-
 use super::inventory_pointer::{InventoryCellHit, InventoryScreen};
 
 mod book;
@@ -170,21 +168,10 @@ pub(crate) fn slot_at(slots: &[PlacedSlot], point: [f32; 2]) -> Option<PlacedSlo
     })
 }
 
-/// Whether the screen shows a crafting-style output cell.
-pub(crate) const fn has_output(kind: WindowKind) -> bool {
-    matches!(
-        kind,
-        WindowKind::Anvil
-            | WindowKind::Grindstone
-            | WindowKind::Loom
-            | WindowKind::Smithing
-            | WindowKind::Cartography
-            | WindowKind::Stonecutter
-    )
-}
-
 #[cfg(test)]
 mod tests {
+    use protocol::WindowKind;
+
     use super::*;
 
     const KINDS: [WindowKind; 17] = [

@@ -79,7 +79,7 @@ pub(super) struct BodyBones {
     pub(super) head: Option<usize>,
 }
 
-pub(super) struct ArmorGeometry {
+pub(in crate::presentation::equipment) struct ArmorGeometry {
     pub(super) rig: EntityRigId,
     pub(super) names: Vec<Box<str>>,
     pub(super) pivots: Vec<[f32; 3]>,

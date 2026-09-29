@@ -159,6 +159,7 @@ fn biome_climate(
 }
 
 /// Rebuilds the precipitation scene around the camera and queues rain splashes for the particle system.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_precipitation_scene(
     frame: Res<AtmosphereFrame>,
     client_world: Res<ClientWorld>,

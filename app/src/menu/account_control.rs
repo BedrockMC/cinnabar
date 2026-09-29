@@ -18,10 +18,7 @@ pub(crate) mod method {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AccountEvent {
     /// The sign-in state changed (device code shown, signed in, signed out).
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "auth changes arrive as polled status")
-    )]
+    #[allow(dead_code, reason = "auth changes arrive as polled status")]
     Auth(AuthState),
     /// The live session ended; the reason shows on the disconnect screen.
     Disconnected { reason: String },

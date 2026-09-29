@@ -111,8 +111,7 @@ impl ModeTracker {
             && intent.ride.is_none()
             && match self.mode {
                 MovementMode::Flying => {
-                    !fly_toggle
-                        && (intent.server_flying || !(observed.on_ground && !observed.jumping))
+                    !fly_toggle && (intent.server_flying || !observed.on_ground || observed.jumping)
                 }
                 _ => fly_toggle || server_rise,
             };
