@@ -78,8 +78,9 @@ impl SignEdit {
     }
 
     /// The edited text as the sign stores it, lines joined by newlines.
+    /// The lines joined by newlines, without the empty trailing lines the editor pads with.
     pub(crate) fn text(&self) -> String {
-        self.lines.join("\n")
+        self.lines.join("\n").trim_end_matches('\n').to_owned()
     }
 
     pub(crate) fn changed(&self) -> bool {

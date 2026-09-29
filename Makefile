@@ -91,6 +91,8 @@ ACTOR_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ac
 EQUIPMENT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- equipment-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(EQUIPMENT_ASSET_BLOB)" --report "$(EQUIPMENT_ASSET_REPORT)" $(if $(wildcard $(BEHAVIOR_PACK_DIR)/items),--behavior-pack "$(BEHAVIOR_PACK_DIR)")
 BLOCK_ENTITY_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- block-entity-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(BLOCK_ENTITY_ASSET_BLOB)" --report "$(BLOCK_ENTITY_ASSET_REPORT)"
 UI_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- ui-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(UI_ASSET_BLOB)" --report "$(UI_ASSET_REPORT)"
+WEATHER_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- weather-assets --pack "$(PACK_DIR)" --out "$(WEATHER_ASSET_BLOB)"
+HUD_EXTRAS_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-extras-assets --pack "$(PACK_DIR)" --out "$(HUD_EXTRAS_ASSET_BLOB)"
 PARTICLE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- particle-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(PARTICLE_ASSET_BLOB)" --report "$(PARTICLE_ASSET_REPORT)"
 CLIENT_RUN = RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- --socket-dir "$(SOCKET_DIR)" $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
@@ -162,11 +164,11 @@ assets: $(BLOCK_ENTITY_ASSET_BLOB) $(BLOCK_ENTITY_ASSET_REPORT)
 .PHONY: weather-assets
 weather-assets: $(WEATHER_ASSET_BLOB)
 $(WEATHER_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)
-	$(CARGO) run --locked -p asset-compiler --bin assetc -- weather-assets --pack "$(PACK_DIR)" --out "$(WEATHER_ASSET_BLOB)"
+	$(WEATHER_ASSET_COMPILE)
 .PHONY: hud-extras-assets
 hud-extras-assets: $(HUD_EXTRAS_ASSET_BLOB)
 $(HUD_EXTRAS_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)
-	$(CARGO) run --locked -p asset-compiler --bin assetc -- hud-extras-assets --pack "$(PACK_DIR)" --out "$(HUD_EXTRAS_ASSET_BLOB)"
+	$(HUD_EXTRAS_ASSET_COMPILE)
 .PHONY: actor-assets
 actor-assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 $(ACTOR_ASSET_BLOB): $(ENTITY_ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST) crates/assets/data/neutral-actor-materials-v1.json
