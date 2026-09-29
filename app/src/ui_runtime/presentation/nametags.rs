@@ -24,6 +24,8 @@ const LINE_WORLD_HEIGHT: f32 = 0.225;
 /// Logical px of a text line at `UiScale` 1.0 (18 font texels).
 const LINE_LOGICAL_AT_UNIT_SCALE: f32 = 18.0;
 const SCALE_STEPS_PER_UNIT: f32 = 16.0;
+/// A tag never grows past this multiple of the HUD text scale, however close the player is.
+const MAX_SCALE_OVER_HUD: f32 = 2.0;
 const BOX_PADDING: f32 = 2.0;
 const BOX_ALPHA: u8 = 64;
 const SNEAK_TEXT_ALPHA: u8 = 128;
@@ -118,12 +120,12 @@ pub(super) fn project_nametag(
     })
 }
 
-/// Text scale that makes a line span `LINE_WORLD_HEIGHT` blocks, quantized so the layout cache
-/// sees a bounded set of sizes.
-fn text_scale(pixels_per_block: f32) -> UiScale {
+/// Text scale that makes a line span `LINE_WORLD_HEIGHT` blocks, at most `cap`, quantized so the
+/// layout cache sees a bounded set of sizes.
+fn text_scale(pixels_per_block: f32, cap: f32) -> UiScale {
     let ratio = LINE_WORLD_HEIGHT * pixels_per_block / LINE_LOGICAL_AT_UNIT_SCALE;
     let stepped = (ratio * SCALE_STEPS_PER_UNIT).round() / SCALE_STEPS_PER_UNIT;
-    UiScale::new(stepped.clamp(UiScale::MIN, UiScale::MAX)).unwrap_or_default()
+    UiScale::new(stepped.min(cap).clamp(UiScale::MIN, UiScale::MAX)).unwrap_or_default()
 }
 
 /// Appends nametags farthest first so nearer tags draw over farther ones.
@@ -147,7 +149,10 @@ pub(super) fn append_nametag_nodes(
                 width_64: 512 * 64,
                 line_height_64: metrics.line_height_64,
                 baseline_64: metrics.baseline_64,
-                scale: text_scale(anchor.pixels_per_block),
+                scale: text_scale(
+                    anchor.pixels_per_block,
+                    metrics.scale.get() * MAX_SCALE_OVER_HUD,
+                ),
                 font,
             })
             .map_err(UiPresentationError::Text)?;
@@ -206,11 +211,11 @@ mod tests {
 
     #[test]
     fn text_scale_grows_with_proximity_and_stays_bounded() {
-        let near = text_scale(400.0).get();
-        let far = text_scale(20.0).get();
+        let near = text_scale(400.0, 8.0).get();
+        let far = text_scale(20.0, 8.0).get();
         assert!(near > far);
         assert!((UiScale::MIN..=UiScale::MAX).contains(&near));
-        assert_eq!(text_scale(1.0).get(), UiScale::MIN);
-        assert_eq!(text_scale(10_000.0).get(), UiScale::MAX);
+        assert_eq!(text_scale(1.0, 8.0).get(), UiScale::MIN);
+        assert_eq!(text_scale(10_000.0, 2.0).get(), 2.0);
     }
 }
