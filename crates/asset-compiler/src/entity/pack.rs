@@ -204,7 +204,10 @@ fn compile_selected(
         });
         payloads.insert(path, bytes.into());
     }
-    if symbols.is_empty() {
+    if !symbols
+        .keys()
+        .any(|(kind, ..)| *kind == EntityAssetKind::Entity)
+    {
         return Ok(None);
     }
     let mut identity = Sha256::new();

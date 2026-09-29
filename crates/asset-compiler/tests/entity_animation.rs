@@ -274,11 +274,20 @@ fn compiles_clips_controllers_molang_and_collection_selection_deterministically(
 }
 
 #[test]
-fn geometry_collection_rejects_more_than_thirty_two_members() {
+fn geometry_collection_over_thirty_two_members_keeps_the_default_geometry() {
     let members = vec!["Geometry.default"; 33];
     let pack = selectable_geometry_pack("query.modified_move_speed", &members);
-    let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
-    assert!(error.to_string().contains("collection member count"));
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert!(
+        compiled
+            .rig_geometries
+            .iter()
+            .all(|candidate| candidate.condition.is_none())
+    );
+    assert_eq!(
+        compiled.rig_bindings[0].fallback,
+        assets::EntityRigFallback::GeometryOnly
+    );
 }
 
 #[test]
