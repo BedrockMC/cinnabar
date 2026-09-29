@@ -116,6 +116,16 @@ pub struct Profile {
     pub xuid: String,
     #[serde(default)]
     pub gamerpic: Artwork,
+    #[serde(default)]
+    pub real_name: String,
+    #[serde(default)]
+    pub presence_text: String,
+    #[serde(default)]
+    pub gamerscore: i64,
+    #[serde(default)]
+    pub friends: u32,
+    #[serde(default)]
+    pub followers: u32,
 }
 
 /// The start screen's service data: messaging surfaces, inbox counts,
