@@ -2,7 +2,8 @@
 //! sign-in screens never see the transport. Without a launcher core the
 //! account catalog and the auth supervisor keep feeding the menu.
 
-use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime};
+use super::view::{MenuHome, MenuProfile, PingInfo, ServerDetails};
+use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
 
 /// Control method names the implementation calls.
 #[allow(dead_code, reason = "named for the core-relay control clients")]
@@ -36,6 +37,28 @@ pub(crate) trait AccountControl {
     fn sign_out(&mut self) -> bool;
     /// The next pending account event, if any.
     fn poll_event(&mut self) -> Option<AccountEvent>;
+    /// `featured_servers.v1`: cards plus their info-panel details, when fetched.
+    fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+        None
+    }
+    /// `gatherings.v1`: joinable gatherings with their details, when fetched.
+    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+        None
+    }
+    /// `profile.v1`: the signed-in profile, when fetched.
+    fn profile(&mut self) -> Option<MenuProfile> {
+        None
+    }
+    /// `home.v1`: the start screen's service data, when fetched.
+    fn home(&mut self) -> Option<MenuHome> {
+        None
+    }
+    /// The server rows `ping.v1` keeps fresh while the launcher shows them.
+    fn set_ping_targets(&mut self, _targets: Vec<String>) {}
+    /// Pongs from the latest ping round, keyed by address.
+    fn pings(&mut self) -> Option<Vec<(String, PingInfo)>> {
+        None
+    }
 }
 
 impl MenuRuntime {
@@ -48,6 +71,49 @@ impl MenuRuntime {
         }
         if let Some(friends) = control.friends() {
             self.friends = friends;
+        }
+        if let Some(featured) = control.featured() {
+            self.feeds.details.extend(
+                featured
+                    .iter()
+                    .map(|(card, details)| (card.address.clone(), details.clone())),
+            );
+            self.featured = featured.into_iter().map(|(card, _)| card).collect();
+            if self
+                .feeds
+                .selected_featured
+                .is_some_and(|index| index >= self.featured.len())
+            {
+                self.feeds.selected_featured = None;
+            }
+        }
+        if let Some(gatherings) = control.gatherings() {
+            self.feeds.details.extend(
+                gatherings
+                    .iter()
+                    .map(|(card, details)| (card.address.clone(), details.clone())),
+            );
+            self.gatherings = gatherings.into_iter().map(|(card, _)| card).collect();
+        }
+        if let Some(profile) = control.profile() {
+            self.feeds.profile = profile;
+        }
+        if let Some(home) = control.home() {
+            self.feeds.home = home;
+        }
+        let targets = if self.visible && !self.connecting {
+            self.featured
+                .iter()
+                .chain(self.gatherings.iter())
+                .map(|server| server.address.clone())
+                .chain(self.servers.iter().map(|server| server.address.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        control.set_ping_targets(targets);
+        if let Some(pings) = control.pings() {
+            self.feeds.pings = pings.into_iter().collect();
         }
         if let Some(status) = control.account_status() {
             self.control_auth = Some(status);
@@ -85,6 +151,8 @@ impl MenuRuntime {
         self.catalog_started = false;
         self.realms.clear();
         self.friends.clear();
+        self.feeds.profile = MenuProfile::default();
+        self.feeds.home = MenuHome::default();
         self.catalog_message = None;
         self.enter(super::MenuScreen::Profile);
     }

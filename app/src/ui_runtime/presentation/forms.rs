@@ -11,15 +11,21 @@ mod model;
 mod npc;
 #[cfg(test)]
 pub(crate) mod pack_harness;
+mod oreui;
 mod pages;
+mod panorama;
+mod play_screen;
 mod remote_images;
 mod server_pack;
 mod sign_editor;
+mod start_feed;
 #[cfg(test)]
 mod snapshot;
 #[cfg(test)]
 pub(crate) mod tests;
 mod textures;
+
+pub(crate) use panorama::drive_menu_panorama;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
@@ -51,6 +57,9 @@ pub(super) struct FormPresentation {
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
+    /// Dev-mode OreUI originals and the look OreUI screens draw with.
+    oreui_originals: Option<Arc<oreui::Originals>>,
+    oreui_look: oreui::Look,
 }
 
 impl UiPresentationRuntime {
@@ -238,6 +247,8 @@ impl UiPresentationRuntime {
             menu_keys,
             logged,
             hud,
+            oreui_originals: self.form_presentation.oreui_originals.take(),
+            oreui_look: self.form_presentation.oreui_look,
             ..FormPresentation::default()
         };
         // Server settings draw over the settings menu; other forms wait it out.

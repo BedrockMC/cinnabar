@@ -8,6 +8,7 @@ require (
 	github.com/df-mc/go-playfab/v2 v2.0.2
 	github.com/df-mc/go-xsapi/v2 v2.0.3
 	github.com/google/uuid v1.6.0
+	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6
 	github.com/sandertv/gophertunnel v1.57.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.46.0
@@ -38,7 +39,6 @@ require (
 	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/pion/turn/v5 v5.0.10 // indirect
 	github.com/pion/webrtc/v4 v4.2.16-0.20260627075746-7a223a6f4d4f // indirect
-	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect

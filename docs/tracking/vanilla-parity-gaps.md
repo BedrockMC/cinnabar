@@ -59,9 +59,22 @@ relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent p
 settings (sections, GUI scale, sound sliders bound to `AudioSettings` at 5% snaps whose
 granularity needs measurement; text-to-speech disabled), pause, death, connecting, disconnect reason, device-code sign-in, NPC dialogue
 (student view) and server settings (a form over the settings menu, not yet a settings
-section) draw from their vanilla screens; profile and first-run progress (it completes
-before the window opens) stay programmatic. Launcher screens sit on an opaque backdrop
-until the panorama is packed; a launcher run keeps one `-control-status` core (restarted
+section) draw from their vanilla screens, as do launcher dialogs (vanilla two-button popup);
+profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it completes before the
+window opens) stay programmatic, and the programmatic launcher remains only for a missing
+carrier or a failed render. Launcher screens sit on the vanilla panorama, a render pass that ray-casts the
+carrier's full-resolution cube faces (FOV 85°, 2°/s turn, 25±5° tilt follow the title-screen
+cube; the reconstruction keeps the real values as unnamed data, so they need measurement).
+The Servers tab lists featured servers then gatherings with the vanilla info panel (description,
+news, screenshots, games; artwork up to 512 px, read-more toggles, selected-row highlight,
+RakNet player counts and ping icons with provisional 150/300 ms thresholds); Realms split
+owned/member with players and expiry; the start screen shows the profile gamertag and gamerpic
+(else the persona head), messaging tile art (first GIF frame), inbox badge, Realms invite
+count and the live-event button. OreUI screens that 26.30 shows by default are drawn with our code-drawn OreUI design system
+(`docs/oreui.md`): play (Worlds/Realms/Servers), death, profile, inbox and the friends drawer;
+settings, disconnect and the main menu stay JSON-UI as in 26.30's defaults. Bed and
+create/edit-world OreUI screens are not built. All need screenshot checks. Not
+served: persona appearance pieces for the paper doll, gathering venues, store layouts. A launcher run keeps one `-control-status` core (restarted
 on sign-in/sign-out) that feeds account, realms, friends and local worlds; joins select their
 target over `connect.v1` and fall back to a per-session core; opened local worlds are joined and
 closed with their session; respawn sends the client-ready respawn request only (no player

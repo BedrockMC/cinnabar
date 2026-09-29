@@ -393,3 +393,24 @@ fn radio_selection_and_distant_view_sources_drive_tab_content() {
         .unwrap();
     assert_eq!(prop(content, "visible"), &json!(true));
 }
+
+#[test]
+fn a_bound_forced_index_selects_one_collection_row() {
+    let row = ctrl(
+        "server",
+        Some("toggle"),
+        json!({
+            "radio_toggle_group": true, "toggle_name": "server_navigation_toggle",
+            "toggle_group_forced_index": "#row_index",
+            "bindings": [ { "binding_type": "global", "binding_name": "#row_index" } ]
+        }),
+    );
+    let mut data = DataSource::new();
+    data.set_global("#row_index", Scalar::Num(1.0));
+    data.select_radio("server_navigation_toggle", 1);
+    let bound = bind(&row, &data, &EmptyLibrary);
+    assert_eq!(prop(&bound, "#toggle_state"), &json!(true));
+    data.select_radio("server_navigation_toggle", 0);
+    let bound = bind(&row, &data, &EmptyLibrary);
+    assert_eq!(prop(&bound, "#toggle_state"), &json!(false));
+}

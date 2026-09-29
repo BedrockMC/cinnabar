@@ -351,6 +351,13 @@ pub(super) fn font_texture_array_with_hud_and_icons(
     let blank = UiTexturePage::owned([width, height], vec![0; layer_bytes].into())
         .map_err(|_| UiPresentationError::InvalidFontTexture)?;
     pages.extend(std::iter::repeat_n(blank, render::MAX_UI_DYNAMIC_PAGES));
+    let art_side = render::UI_ART_PAGE_SIDE;
+    let blank_art = UiTexturePage::owned(
+        [art_side, art_side],
+        vec![0; art_side as usize * art_side as usize * 4].into(),
+    )
+    .map_err(|_| UiPresentationError::InvalidFontTexture)?;
+    pages.extend(std::iter::repeat_n(blank_art, render::MAX_UI_ART_PAGES));
     let mut source = Sha256::new();
     source.update(b"ui-source-catalog-v1");
     source.update(font.identity().carrier_sha256);

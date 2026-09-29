@@ -88,6 +88,8 @@ pub(super) struct Textures<'a> {
     pub(super) assets: &'a RuntimeUiAssets,
     pub(super) set: &'a TextureSet,
     pub(super) atlas: &'a ServerAtlas,
+    /// Downloaded menu artwork by local path, drawn ahead of every other source.
+    pub(super) images: Option<&'a HashMap<String, IconRef>>,
 }
 
 impl Textures<'_> {
@@ -112,10 +114,15 @@ impl Textures<'_> {
         self.set.icons.get(&key.to_ascii_lowercase()).copied()
     }
 
+    fn image(&self, path: &str) -> Option<IconRef> {
+        self.images?.get(path).copied()
+    }
+
     /// The drawn paths the server atlas must hold: pack textures, and what
     /// neither the carrier nor the icon atlas already has.
     pub(super) fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<String> {
         paths
+            .filter(|path| self.image(path).is_none())
             .map(|path| self.canonical(path))
             .filter(|key| {
                 self.atlas.meta(key).is_some()
@@ -127,6 +134,10 @@ impl Textures<'_> {
 
     /// The texture page and pixel rect `path` draws from.
     pub(super) fn sprite(&self, path: &str) -> Option<(u16, [f32; 4])> {
+        if let Some(image) = self.image(path) {
+            let [u0, v0, u1, v1] = image.uv.map(f32::from);
+            return Some((image.page, [u0, v0, u1 - u0, v1 - v0]));
+        }
         let key = self.canonical(path);
         if let Some(server) = self.atlas.placement(&key) {
             return Some((
@@ -148,6 +159,13 @@ impl Textures<'_> {
 
 impl TextureSource for Textures<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
+        if let Some(image) = self.image(path) {
+            let [u0, v0, u1, v1] = image.uv.map(f64::from);
+            return Some(TextureMeta {
+                base_size: [u1 - u0, v1 - v0],
+                nineslice: None,
+            });
+        }
         let key = self.canonical(path);
         let key = key.as_ref();
         if let Some(meta) = self.atlas.meta(key) {

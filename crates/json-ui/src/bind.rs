@@ -430,20 +430,27 @@ impl<'a> Binder<'a> {
         own
     }
 
-    /// A radio-group toggle is checked when the screen selected its index.
+    /// A radio-group toggle is checked when the screen selected its index; a
+    /// `#name` forced index reads the toggle's own bound value (collection rows).
     fn radio_state(&self, control: &ResolvedControl, own: &mut BTreeMap<String, Scalar>) {
         if control.properties.get("radio_toggle_group") != Some(&Value::Bool(true)) {
             return;
         }
+        let forced = control.properties.get("toggle_group_forced_index");
+        let index = forced.and_then(Value::as_f64).or_else(|| {
+            let name = forced.and_then(Value::as_str)?;
+            match own.get(name)? {
+                Scalar::Num(number) => Some(*number),
+                Scalar::Text(text) => text.parse().ok(),
+                Scalar::Bool(_) => None,
+            }
+        });
         let (Some(name), Some(index)) = (
             control
                 .properties
                 .get("toggle_name")
                 .and_then(Value::as_str),
-            control
-                .properties
-                .get("toggle_group_forced_index")
-                .and_then(Value::as_f64),
+            index,
         ) else {
             return;
         };

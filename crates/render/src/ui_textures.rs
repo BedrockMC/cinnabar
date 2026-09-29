@@ -13,6 +13,9 @@ pub const MAX_UI_TEXTURE_BUCKETS: usize = 8;
 /// Replaceable 256x256 pages after the static UI pages: ten general, the session
 /// glyph atlas, then server resource-pack UI textures.
 pub const MAX_UI_DYNAMIC_PAGES: usize = 34;
+/// Replaceable full-resolution pages after the small ones, for menu artwork.
+pub const MAX_UI_ART_PAGES: usize = 2;
+pub const UI_ART_PAGE_SIDE: u32 = 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Pixels {
@@ -221,10 +224,21 @@ impl UiTextureCatalog {
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
-        if pages.len() - dynamic_start > MAX_UI_DYNAMIC_PAGES
-            || pages[dynamic_start..].iter().any(|page| {
-                page.dimensions != [256, 256] || matches!(&page.pixels, Pixels::Font { .. })
-            })
+        let dynamic = &pages[dynamic_start..];
+        let small = dynamic
+            .iter()
+            .filter(|page| page.dimensions == [256, 256])
+            .count();
+        let art = dynamic
+            .iter()
+            .filter(|page| page.dimensions == [UI_ART_PAGE_SIDE; 2])
+            .count();
+        if small > MAX_UI_DYNAMIC_PAGES
+            || art > MAX_UI_ART_PAGES
+            || small + art != dynamic.len()
+            || dynamic
+                .iter()
+                .any(|page| matches!(&page.pixels, Pixels::Font { .. }))
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }

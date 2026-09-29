@@ -51,6 +51,15 @@ type Realm struct {
 	State   string `json:"state"`
 	Target  string `json:"target"`
 	Address string `json:"address,omitempty"`
+	// Details the realms grid binds; all optional.
+	Owner         string `json:"owner,omitempty"`
+	MOTD          string `json:"motd,omitempty"`
+	WorldType     string `json:"world_type,omitempty"`
+	OnlinePlayers int    `json:"online_players"`
+	MaxPlayers    int    `json:"max_players,omitempty"`
+	DaysLeft      int    `json:"days_left,omitempty"`
+	Expired       bool   `json:"expired,omitempty"`
+	Member        bool   `json:"member,omitempty"` // joined, not owned
 }
 
 type Friend struct {
@@ -333,9 +342,21 @@ func fetchRealms(ctx context.Context, src oauth2.TokenSource) ([]Realm, error) {
 	result := make([]Realm, 0, len(values))
 	for _, realm := range values {
 		entry := Realm{
-			Name:   displayName(realm.Name, "", "Realm"),
-			State:  realm.State,
-			Target: fmt.Sprintf("realm_id/%d", realm.ID),
+			Name:       displayName(realm.Name, "", "Realm"),
+			State:      realm.State,
+			Target:     fmt.Sprintf("realm_id/%d", realm.ID),
+			Owner:      strings.TrimSpace(realm.Owner),
+			MOTD:       strings.TrimSpace(realm.MOTD),
+			WorldType:  realm.WorldType,
+			MaxPlayers: realm.MaxPlayers,
+			DaysLeft:   realm.DaysLeft,
+			Expired:    realm.Expired,
+			Member:     realm.Member,
+		}
+		for _, player := range realm.Players {
+			if player.Online {
+				entry.OnlinePlayers++
+			}
 		}
 		joinContext, cancel := context.WithTimeout(ctx, 4*time.Second)
 		address, addressErr := realm.Address(joinContext)

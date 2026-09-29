@@ -102,7 +102,10 @@ use crate::{
         drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
         flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
-        presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
+        presentation::{
+            UiPresentationRuntime, drive_menu_panorama, observe_mount_jump_input,
+            publish_ui_runtime,
+        },
     },
 };
 
@@ -242,7 +245,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (observe_mount_jump_input, publish_ui_runtime)
+            (observe_mount_jump_input, publish_ui_runtime, drive_menu_panorama)
                 .chain()
                 .in_set(ClientFrameSet::UiPublication),
         )
@@ -584,6 +587,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .enable_json_ui(ui_assets)
         .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
+    // Dev-only: CINNABAR_OREUI_LOCAL_ASSETS compares OreUI against the install's originals.
+    if let Some(images) = crate::ui_runtime::oreui_assets::load_optional_oreui_images()
+        && let Err(reason) = ui_presentation.enable_oreui_originals(images)
+    {
+        eprintln!("OreUI originals disabled ({reason})");
+    }
     ui_presentation.set_engine_containers(args.json_ui_containers);
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
@@ -866,6 +875,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
     ));
+    app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
         app.insert_resource(render::ParticleSystem::from_assets(particle_assets));
     }

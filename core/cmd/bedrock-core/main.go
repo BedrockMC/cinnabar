@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -247,6 +248,7 @@ func runWithResourcePackCacheFactory(
 		service := launcher.New(launcher.Config{
 			TokenSource: tokenSource, AuthCache: opts.authCache,
 			Store: statusStore, Selector: selector, Transfers: transfers,
+			ArtworkDir: filepath.Join(opts.socketDir, "artwork"),
 		})
 		controlServer.SetServices(service)
 		if tokenSource != nil {

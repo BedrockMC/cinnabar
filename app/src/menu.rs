@@ -13,6 +13,7 @@ mod connection;
 pub(crate) mod core_process;
 #[cfg(test)]
 mod flow_tests;
+mod focus;
 mod input;
 pub(crate) mod launcher_account;
 mod launcher_core;
@@ -32,10 +33,11 @@ pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{load_servers, save_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
-use view::CatalogFile;
 pub(crate) use view::{
-    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+    ButtonArt, InboxItem, LocalWorldCard, MenuFriendCard, MenuHome, MenuRealmCard, MenuServerCard,
+    MenuView, PingInfo, SavedServer,
 };
+use view::{CatalogFile, MenuFeeds};
 
 use std::{
     fs,
@@ -82,6 +84,9 @@ pub(crate) enum MenuScreen {
     AddServer,
     Pause,
     Death,
+    /// OreUI-only screens.
+    Inbox,
+    Friends,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,6 +146,12 @@ pub(crate) enum MenuAction {
     SignOut,
     /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
     SettingsVolume(u8, u8),
+    /// Show a featured server in the Servers tab's info panel.
+    SelectFeatured(usize),
+    /// Flip the info panel's description (0) or news (1) past "read more".
+    ToggleReadMore(u8),
+    /// The start screen's live-event button.
+    OpenLiveEvent,
 }
 
 #[derive(Debug, Resource)]
@@ -201,6 +212,7 @@ pub(crate) struct MenuRuntime {
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
+    feeds: MenuFeeds,
     /// Identity-checked owner of this session's runtime directory; bound
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
@@ -293,6 +305,7 @@ impl MenuRuntime {
             volume_change: None,
             local_world_joined: false,
             local_world_active: false,
+            feeds: MenuFeeds::default(),
         }
     }
 
@@ -371,6 +384,7 @@ impl MenuRuntime {
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
             volumes: self.volumes,
+            feeds: self.feeds.clone(),
         }
     }
 
@@ -639,6 +653,8 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::SettingsScale(scale) => self.gui_scale = scale.clamp(1, 4),
+            // The game menu opened from the death screen returns to it.
+            MenuAction::PauseResume if self.death_shown => self.enter(MenuScreen::Death),
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
                 self.disconnect_requested = true;
@@ -664,158 +680,14 @@ impl MenuRuntime {
             }
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
+            MenuAction::SelectFeatured(index) => self.feeds.select(index),
+            MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
+            MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);
                 }
             }
-        }
-    }
-
-    pub(crate) fn move_focus(&mut self, direction: i32) {
-        let actions = self.focus_actions();
-        if actions.is_empty() {
-            self.focused = 0;
-            return;
-        }
-        let length = actions.len() as i32;
-        self.focused = (self.focused as i32 + direction).rem_euclid(length) as usize;
-        match actions[self.focused] {
-            MenuAction::AddName => self.focus_field(MenuField::Name),
-            MenuAction::AddAddress => self.focus_field(MenuField::Address),
-            _ => {
-                self.field = None;
-                self.text_selected = false;
-            }
-        }
-    }
-
-    pub(crate) fn activate_focused(&mut self) {
-        let Some(action) = self.focus_actions().get(self.focused).copied() else {
-            return;
-        };
-        self.activate(action);
-    }
-
-    fn focus_actions(&self) -> Vec<MenuAction> {
-        if let Some(dialog) = self.dialog {
-            return match dialog {
-                MenuDialog::Exit => vec![MenuAction::ConfirmExit, MenuAction::DismissDialog],
-                MenuDialog::RemoveSaved(index) => vec![
-                    MenuAction::ConfirmRemoveSaved(index),
-                    MenuAction::DismissDialog,
-                ],
-            };
-        }
-        let nav = || {
-            vec![
-                MenuAction::Navigate(MenuScreen::Home),
-                MenuAction::Navigate(MenuScreen::Play),
-                MenuAction::Navigate(MenuScreen::Social),
-                MenuAction::Navigate(MenuScreen::Servers),
-                MenuAction::Navigate(MenuScreen::Profile),
-                MenuAction::Navigate(MenuScreen::Settings),
-                MenuAction::OpenExitDialog,
-            ]
-        };
-        match self.screen {
-            MenuScreen::Home => {
-                let mut actions = nav();
-                actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
-                actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
-                actions.extend((0..self.featured.len().min(2)).map(MenuAction::PlayFeatured));
-                actions
-            }
-            MenuScreen::Play => {
-                let mut actions = nav();
-                actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
-                actions.extend((0..self.realms.len()).map(MenuAction::PlayRealm));
-                actions.extend(
-                    self.servers
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, server)| server.last_joined_unix > 0)
-                        .map(|(index, _)| MenuAction::PlaySaved(index)),
-                );
-                actions
-            }
-            MenuScreen::Social => {
-                let mut actions = nav();
-                actions.push(MenuAction::RefreshCatalog);
-                actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
-                actions
-            }
-            MenuScreen::Servers => {
-                let mut actions = nav();
-                actions.extend([
-                    MenuAction::SelectServerTab(MenuServerTab::Featured),
-                    MenuAction::SelectServerTab(MenuServerTab::Favorites),
-                    MenuAction::SelectServerTab(MenuServerTab::Recent),
-                    MenuAction::SelectServerTab(MenuServerTab::Saved),
-                    MenuAction::PlayAddServer,
-                ]);
-                match self.server_tab {
-                    MenuServerTab::Featured => {
-                        actions.extend((0..self.featured.len()).map(MenuAction::PlayFeatured));
-                        actions.extend((0..self.gatherings.len()).map(MenuAction::PlayGathering));
-                    }
-                    MenuServerTab::Favorites => actions.extend(
-                        self.servers
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, server)| server.favorite)
-                            .map(|(index, _)| MenuAction::PlaySaved(index)),
-                    ),
-                    MenuServerTab::Recent => actions.extend(
-                        self.servers
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, server)| server.last_joined_unix > 0)
-                            .map(|(index, _)| MenuAction::PlaySaved(index)),
-                    ),
-                    MenuServerTab::Saved => {
-                        actions.extend((0..self.servers.len()).map(MenuAction::PlaySaved));
-                    }
-                }
-                actions
-            }
-            MenuScreen::Profile => {
-                let mut actions = nav();
-                actions.push(
-                    if matches!(
-                        self.auth_process.as_ref().map(AuthSupervisor::state),
-                        Some(AuthState::Checking | AuthState::AwaitingCode { .. })
-                    ) {
-                        MenuAction::CancelSignIn
-                    } else {
-                        MenuAction::StartSignIn
-                    },
-                );
-                actions
-            }
-            MenuScreen::Settings => {
-                let mut actions = nav();
-                actions.extend([
-                    MenuAction::SettingsScale(1),
-                    MenuAction::SettingsScale(2),
-                    MenuAction::SettingsScale(3),
-                    MenuAction::SettingsScale(4),
-                ]);
-                actions
-            }
-            MenuScreen::AddServer => vec![
-                MenuAction::AddName,
-                MenuAction::AddAddress,
-                MenuAction::AddSave,
-                MenuAction::AddSaveConnect,
-                MenuAction::AddBack,
-            ],
-            MenuScreen::Pause => vec![
-                MenuAction::PauseResume,
-                MenuAction::PauseSettings,
-                MenuAction::PauseDisconnect,
-            ],
-            MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::PauseDisconnect],
         }
     }
 
@@ -837,6 +709,7 @@ impl MenuRuntime {
         match self.screen {
             // Death has no way back; only respawn or leaving ends it.
             MenuScreen::Home | MenuScreen::Death => {}
+            MenuScreen::Pause if self.death_shown => self.enter(MenuScreen::Death),
             MenuScreen::Pause => self.set_visible(false),
             MenuScreen::Settings if self.settings_return_to_pause => {
                 self.settings_return_to_pause = false;
@@ -889,6 +762,18 @@ impl MenuRuntime {
             return false;
         }
         true
+    }
+
+    /// Joins the live event's venue, or opens the Servers tab when it routes there.
+    fn open_live_event(&mut self) {
+        let Some(event) = self.feeds.home.live_event.clone() else {
+            return;
+        };
+        if event.route_to_servers || event.address.is_empty() {
+            self.enter(MenuScreen::Servers);
+        } else {
+            self.request_connect(event.address);
+        }
     }
 
     fn request_connect(&mut self, address: String) {

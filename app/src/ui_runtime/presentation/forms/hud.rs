@@ -399,6 +399,7 @@ impl UiPresentationRuntime {
             assets: engine.assets(),
             set: &engine.textures,
             atlas: &atlas,
+            images: None,
         };
         let mut missing: Vec<String> = self
             .hud_draw_nodes()

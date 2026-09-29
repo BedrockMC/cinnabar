@@ -68,6 +68,7 @@ mod viewmodel_bob;
 use crate::menu::{MenuAction, MenuView};
 use chat::visible_suggestion_range;
 pub(crate) use debug_overlay::DebugLines;
+pub(crate) use forms::drive_menu_panorama;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};

@@ -163,6 +163,7 @@ impl FormEngine {
             assets: &self.assets,
             set: &self.textures,
             atlas: &atlas,
+            images: None,
         };
         let mut drawn: Vec<String> = self
             .cache
@@ -362,6 +363,7 @@ fn render_with<R: Borrow<FormRender>>(
             assets: textures.assets,
             set: textures.set,
             atlas: &atlas,
+            images: art.images,
         };
         let measure = Measure {
             layouts: &cache,
@@ -387,6 +389,7 @@ fn render_with<R: Borrow<FormRender>>(
         assets: textures.assets,
         set: textures.set,
         atlas: &atlas,
+        images: art.images,
     }
     .atlas_keys(
         render
@@ -409,6 +412,7 @@ fn render_with<R: Borrow<FormRender>>(
             assets: textures.assets,
             set: textures.set,
             atlas: &atlas,
+            images: art.images,
         },
         solid_page: inputs.solid_page,
         art,
@@ -441,6 +445,8 @@ fn render_with<R: Borrow<FormRender>>(
 /// Caller art the custom renderers draw: the icon table `#item_renderer_data`
 /// indexes, the player preview, the pointer (virtual px) tooltips follow, the
 /// animation clock (seconds) fades evaluate at, and the HUD's native state.
+/// `images` backs image controls bound to a downloaded artwork's local path;
+/// `portrait` is the signed-in gamerpic.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
@@ -450,6 +456,8 @@ pub(super) struct ScreenArt<'a> {
     /// Creation times that fades naming a clock read instead of their own.
     pub(super) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
+    pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
+    pub(super) portrait: Option<IconRef>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -630,6 +638,32 @@ impl Painter<'_> {
                         color: alpha(durability_color(fraction)),
                     },
                     fill,
+                ))
+            }
+            // Messaging art is drawn as its first frame.
+            "animated_gif_renderer" => {
+                let path = data.get("#gif_path")?.as_str()?;
+                let image = self.art.images?.get(path)?;
+                let opacity = number("#alpha").unwrap_or(1.0).clamp(0.0, 1.0);
+                let tint = alpha([255, 255, 255, (255.0 * opacity) as u8]);
+                Some((
+                    UiVisual::Sprite {
+                        texture_page: image.page,
+                        uv: image.uv,
+                        color: tint,
+                    },
+                    dest,
+                ))
+            }
+            "profile_image_renderer" => {
+                let portrait = self.art.portrait?;
+                Some((
+                    UiVisual::Sprite {
+                        texture_page: portrait.page,
+                        uv: portrait.uv,
+                        color: alpha([255; 4]),
+                    },
+                    dest,
                 ))
             }
             // The live model is approximated by the cached preview raster, kept at
