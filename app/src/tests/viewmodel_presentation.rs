@@ -555,6 +555,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     compiled.rig_geometries = Box::new([]);
     compiled.rig_animations = Box::new([]);
     compiled.rig_controllers = Box::new([]);
+    compiled.render = Default::default();
     let entities = Arc::new(
         assets::RuntimeEntityAssets::decode(&assets::encode_entity_blob(&compiled).unwrap())
             .unwrap(),

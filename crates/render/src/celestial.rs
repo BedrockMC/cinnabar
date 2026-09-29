@@ -257,9 +257,11 @@ mod tests {
     fn sunrise_band_exists_only_near_the_horizon() {
         assert_eq!(sunrise_band(celestial_angle(6_000.0), 0.0)[3], 0.0);
         assert_eq!(sunrise_band(celestial_angle(18_000.0), 0.0)[3], 0.0);
-        let sunrise = sunrise_band(celestial_angle(0.0), 0.0);
+        // The band peaks with the sun on the horizon (angle 0.75), not at tick 0.
+        let sunrise = sunrise_band(0.75, 0.0);
         assert!(sunrise[3] > 0.9 && sunrise[0] > sunrise[1] && sunrise[1] > sunrise[2]);
-        assert_eq!(sunrise_band(celestial_angle(0.0), 1.0)[3], 0.0);
+        assert!(sunrise_band(celestial_angle(0.0), 0.0)[3] > 0.0);
+        assert_eq!(sunrise_band(0.75, 1.0)[3], 0.0);
     }
 
     #[test]

@@ -789,6 +789,15 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
         .press(MouseButton::Left);
 
     app.update();
+    // The same-frame cursor stack is already held, so the press arms a drag that acts on release.
+    {
+        let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        // The inventory resets button state, so re-arm the held state first.
+        buttons.press(MouseButton::Left);
+        buttons.clear();
+        buttons.release(MouseButton::Left);
+    }
+    app.update();
 
     assert!(app.world().resource::<AdmissionObserved>().0);
     let ledger = app.world().resource::<UiRuntime>().inventory_ledger();

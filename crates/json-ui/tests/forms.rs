@@ -147,7 +147,10 @@ fn modal_form_renders_through_the_two_button_popup() {
 
     let drawn = texts(&render.nodes);
     for text in ["Confirm", "Delete the world?", "Yes", "No"] {
-        assert!(drawn.iter().any(|t| t == text), "missing {text}");
+        assert!(
+            drawn.iter().any(|t| t == text),
+            "missing {text} in {drawn:?}"
+        );
     }
     // button1 routes to the left button, button2 to the right/cancel button.
     let pressed: Vec<&str> = render

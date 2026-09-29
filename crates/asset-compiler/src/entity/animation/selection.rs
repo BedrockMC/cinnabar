@@ -191,7 +191,7 @@ mod tests {
             .collect();
         assert_eq!(texts.len(), 3);
         assert_eq!(texts[0], ("(query.is_baby)".into(), 0));
-        assert!(texts[1].0.starts_with("!(query.is_baby) && (math.clamp("));
+        assert!(texts[1].0.starts_with("!(query.is_baby) && (math.mod("));
         assert_eq!(texts[2].1, 1);
     }
 

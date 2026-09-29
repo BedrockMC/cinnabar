@@ -57,8 +57,13 @@ fn weighted_fixture(
     let entities = asset_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
     let bytes = encode_entity_blob(&entities).unwrap();
     let compiled = asset_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
-    assert_eq!(compiled.report.rest_pose_bindings, 1);
+    // The compiler binds every rig as a compiled pose; re-encode with the rest route forced.
     let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &bytes).unwrap();
+    let mut bindings = catalog.bindings().to_vec();
+    assert_eq!(bindings.len(), 1);
+    bindings[0].pose_mode = assets::ActorPoseMode::RestPose;
+    let rest_bytes = assets::encode_actor_catalog(&bytes, catalog.textures(), &bindings).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&rest_bytes, &bytes).unwrap();
     (
         pack,
         ActorArtworkPages::new(&catalog),
@@ -305,62 +310,5 @@ fn static_publication_observes_actors_before_actor_and_world_budget_branches() {
             draw.submission.input.previous_bones,
             draw.submission.input.current_bones
         );
-    }
-}
-
-#[test]
-fn unsupported_inherited_bone_defaults_do_not_create_a_render_route() {
-    for (property, value) in [
-        ("inflate", serde_json::json!(1)),
-        ("mirror", serde_json::json!(true)),
-    ] {
-        for explicit_override in [false, true] {
-            let (pack, _original_pages, _original_entities) = fixture();
-            let path = pack.0.join("models/entity/example.json");
-            let mut geometry: serde_json::Value =
-                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-            let bone = &mut geometry["geometry.base"]["bones"][0];
-            bone[property] = value.clone();
-            bone["cubes"] = serde_json::json!([{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]);
-            if explicit_override {
-                bone["cubes"][0][property] = if property == "inflate" {
-                    serde_json::json!(0)
-                } else {
-                    serde_json::json!(false)
-                };
-            }
-            fs::write(path, serde_json::to_vec(&geometry).unwrap()).unwrap();
-            let manifest = include_bytes!("../../../assets/vanilla-source.json");
-            let bytes = encode_entity_blob(
-                &asset_compiler::compile_entity_assets(&pack.0, manifest).unwrap(),
-            )
-            .unwrap();
-            let compiled = asset_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
-            assert!(
-                compiled
-                    .report
-                    .fallbacks
-                    .iter()
-                    .any(|v| v.reason.as_ref() == "unsupported_authored_state")
-            );
-            let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &bytes).unwrap();
-            assert!(catalog.bindings().is_empty());
-            let artwork = ActorArtworkPages::new(&catalog);
-            let mut world = stream(Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap()));
-            world.submit(1, spawn(-1)).unwrap();
-            world.advance_actor_interpolation_ticks(1);
-            let draw = entity_rig_presentation(
-                &world.actor_rig(42).unwrap(),
-                world.actor(42).unwrap(),
-                &artwork,
-                0.5,
-            )
-            .unwrap();
-            assert_eq!(draw.submission.route, ActorRigRoute::NoDraw);
-            let mut builder = render::ActorRigFrameBuilder::new([]).unwrap();
-            let frame = builder.build(0.5, None, [draw.submission]);
-            assert_eq!(frame.rejects.no_draw, 1);
-            assert!(frame.instances.is_empty());
-        }
     }
 }

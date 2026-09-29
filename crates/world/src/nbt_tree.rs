@@ -342,9 +342,11 @@ mod tests {
         bytes.push(8);
         string(&mut bytes, "id");
         string(&mut bytes, "Sign");
-        bytes.push(3);
-        string(&mut bytes, "x");
-        bytes.push(20); // zigzag(10)
+        for axis in ["x", "y", "z"] {
+            bytes.push(3);
+            string(&mut bytes, axis);
+            bytes.push(20); // zigzag(10)
+        }
         bytes.push(1);
         string(&mut bytes, "IsWaxed");
         bytes.push(1);
@@ -376,6 +378,8 @@ mod tests {
         let mut root = NbtCompound::default();
         root.insert("id", NbtValue::String("Sign".into()));
         root.insert("x", NbtValue::Int(-70_000));
+        root.insert("y", NbtValue::Int(64));
+        root.insert("z", NbtValue::Int(5));
         root.insert("big", NbtValue::Long(-5_000_000_000));
         root.insert("flag", NbtValue::Byte(1));
         root.insert("ratio", NbtValue::Float(0.5));

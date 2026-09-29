@@ -14,10 +14,10 @@ use bevy::{
     },
 };
 use render::{
-    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH,
-    PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS, PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS,
-    cloud_directional_illuminance, cloud_fog_factor, cloud_texture_offset, cloud_weather_colour,
-    moon_phase_tile,
+    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, NIGHT_SKY_TRANSFER,
+    PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH, PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS,
+    PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, cloud_directional_illuminance, cloud_fog_factor,
+    cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
 };
 
 fn test_view_uniform() -> ViewUniform {
@@ -316,11 +316,13 @@ fn cloud_directional_illuminance_tracks_face_normal_sun_and_daylight() {
     );
     assert_eq!(
         cloud_directional_illuminance([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], 0.0),
-        0.2,
+        NIGHT_SKY_TRANSFER,
         "night clouds retain the same provisional sky-transfer floor as terrain"
     );
     assert!(
-        (cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 0.0,) - 0.11).abs()
+        (cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 0.0,)
+            - NIGHT_SKY_TRANSFER * 0.55)
+            .abs()
             < 1.0e-6,
         "night underside keeps bounded directional ambient instead of black"
     );

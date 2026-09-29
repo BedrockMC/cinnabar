@@ -776,12 +776,23 @@ fn compiler_emits_exact_checked_stained_glass_cube_models() {
             );
         }
     }
-    assert!(
-        compiled.visuals[ORDINARY_STAINED_GLASS_NAMES.len()..records.len()]
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic
-                && visual.faces == [DIAGNOSTIC_MATERIAL; 6])
-    );
+    for (record, visual) in records[ORDINARY_STAINED_GLASS_NAMES.len()..]
+        .iter()
+        .zip(&compiled.visuals[ORDINARY_STAINED_GLASS_NAMES.len()..records.len()])
+    {
+        // Invisible bedrock is a known no-draw block, not a diagnostic.
+        if record.name.as_ref() == "minecraft:invisible_bedrock" {
+            assert_eq!(visual.kind, VisualKind::Invisible);
+            continue;
+        }
+        assert!(
+            visual.kind == VisualKind::Diagnostic && visual.faces == [DIAGNOSTIC_MATERIAL; 6],
+            "{} {:?} {:?}",
+            record.name,
+            record.model_family,
+            visual.kind
+        );
+    }
 
     let baseline = encode_blob(&compiled).expect("encode stained-glass cubes");
     records.reverse();
@@ -991,12 +1002,23 @@ fn compiler_emits_exact_checked_copper_grate_models() {
         };
         assert_eq!(faces(unwaxed), faces(waxed), "alias pair {unwaxed}/{waxed}");
     }
-    assert!(
-        compiled.visuals[admitted_count..records.len()]
-            .iter()
-            .all(|visual| visual.kind == VisualKind::Diagnostic
-                && visual.faces == [DIAGNOSTIC_MATERIAL; 6])
-    );
+    for (record, visual) in records[admitted_count..]
+        .iter()
+        .zip(&compiled.visuals[admitted_count..records.len()])
+    {
+        // Invisible bedrock is a known no-draw block, not a diagnostic.
+        if record.name.as_ref() == "minecraft:invisible_bedrock" {
+            assert_eq!(visual.kind, VisualKind::Invisible);
+            continue;
+        }
+        assert!(
+            visual.kind == VisualKind::Diagnostic && visual.faces == [DIAGNOSTIC_MATERIAL; 6],
+            "{} {:?} {:?}",
+            record.name,
+            record.model_family,
+            visual.kind
+        );
+    }
 
     let baseline = encode_blob(&compiled).expect("encode copper grates");
     records.reverse();

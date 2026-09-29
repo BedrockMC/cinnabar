@@ -1068,11 +1068,20 @@ fn normalizes_weather_level_events_to_explicit_channel_targets() {
 
 #[test]
 fn ignores_level_events_without_normalized_world_state() {
+    // Sleeping-players count: no sound, particle, crack or weather mapping.
     let packet = LevelEventPacket {
-        event_id: LEVEL_EVENT_SOUND_CLICK,
+        event_id: 9_801,
         ..Default::default()
     };
     assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
+    let click = LevelEventPacket {
+        event_id: LEVEL_EVENT_SOUND_CLICK,
+        ..Default::default()
+    };
+    assert!(matches!(
+        into_world_event(click.into(), 0).unwrap(),
+        Some(WorldEvent::Audio(_))
+    ));
 }
 
 #[test]
