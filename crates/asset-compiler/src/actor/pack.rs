@@ -36,7 +36,7 @@ pub fn compile_actor_pack(
             .map(|bytes| bytes.to_vec())
             .ok_or_else(|| invalid("pack entity source payload is absent"))
     };
-    let build = build_artwork(&pack.assets, &runtime, &mut read)?;
+    let build = build_artwork(&pack.assets, &runtime, &mut read, true)?;
     let equipment_textures = crate::entity::compile_equipment_textures_with(
         &pack.assets.sources,
         &pack.equipment_bindings,

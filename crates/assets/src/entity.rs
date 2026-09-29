@@ -884,8 +884,7 @@ fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), Asset
             path.starts_with("render_controllers/") && path.ends_with(".json")
         }
         EntityAssetKind::Texture => {
-            (path.starts_with("textures/entity/") || path.starts_with("textures/models/armor/"))
-                && (path.ends_with(".png") || path.ends_with(".tga"))
+            path.starts_with("textures/") && (path.ends_with(".png") || path.ends_with(".tga"))
         }
     };
     if matches {

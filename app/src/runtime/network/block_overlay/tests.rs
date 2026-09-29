@@ -80,6 +80,7 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
         name: "*".into(),
         texture: texture.into(),
         render_method: None,
+        tint_method: None,
     }]))
 }
 
@@ -180,10 +181,9 @@ fn full_block_is_a_page_one_cube_and_missing_texture_is_diagnostic() {
         compiled.gaps,
         OverlayGaps {
             missing_textures: 1,
-            skipped_cubes: 3,
             ..OverlayGaps::default()
         },
-        "the rotated cube is skipped once per distinct generator visual"
+        "rotated cubes are rendered, not skipped"
     );
     let texture = overlay.texture.as_ref().expect("page");
     assert_eq!(

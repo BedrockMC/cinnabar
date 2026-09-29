@@ -9,18 +9,6 @@ pub const MAX_PACK_ENTITY_SOURCES: usize = 4_096;
 /// Total source bytes one pack may contribute before the rest are ignored.
 pub const MAX_PACK_ENTITY_BYTES: usize = 128 * 1024 * 1024;
 
-/// Directories whose files feed the entity catalog, with their extensions.
-const FAMILIES: [(&str, &[&str]); 8] = [
-    ("entity/", &["json"]),
-    ("models/entity/", &["json"]),
-    ("animations/", &["json"]),
-    ("animation_controllers/", &["json"]),
-    ("render_controllers/", &["json"]),
-    ("textures/entity/", &["json", "png", "tga"]),
-    ("attachables/", &["json"]),
-    ("textures/models/armor/", &["json", "png", "tga"]),
-];
-
 /// Counted reasons pack sources were left out of the catalog.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct EntityPackSkips {
@@ -46,13 +34,34 @@ pub struct EntityPackCompilation {
     pub payloads: BTreeMap<Box<str>, Box<[u8]>>,
 }
 
+/// Whether a pack file feeds the entity catalog: definition JSON, geometry anywhere under
+/// `models/`, and rasters anywhere under `textures/`.
 fn in_families(path: &str) -> bool {
-    FAMILIES.iter().any(|(prefix, extensions)| {
-        path.starts_with(prefix)
-            && path
-                .rsplit_once('.')
-                .is_some_and(|(_, extension)| extensions.contains(&extension))
-    })
+    let extension = path.rsplit_once('.').map(|(_, extension)| extension);
+    let json = extension == Some("json");
+    let raster = matches!(extension, Some("png" | "tga"));
+    (json
+        && [
+            "entity/",
+            "models/",
+            "animations/",
+            "animation_controllers/",
+            "render_controllers/",
+            "attachables/",
+        ]
+        .iter()
+        .any(|prefix| path.starts_with(prefix)))
+        || (path.starts_with("textures/") && (raster || (json && path.contains("/entity/"))))
+}
+
+/// Geometry is keyed by identifier, so a file outside `models/entity/` is filed under it.
+fn canonical_path(path: Box<str>) -> Box<str> {
+    match path.strip_prefix("models/") {
+        Some(rest) if !path.starts_with("models/entity/") => {
+            format!("models/entity/_pack/{rest}").into()
+        }
+        _ => path,
+    }
 }
 
 /// Most recompiles spent isolating one structurally invalid file.
@@ -68,6 +77,7 @@ pub fn compile_entity_pack(
     let mut selected = files
         .into_iter()
         .filter(|(path, _)| in_families(path))
+        .map(|(path, bytes)| (canonical_path(path), bytes))
         .collect::<Vec<_>>();
     selected.sort_by(|left, right| left.0.cmp(&right.0));
     selected.dedup_by(|later, earlier| later.0 == earlier.0);
@@ -204,7 +214,13 @@ mod tests {
     fn family_filter_matches_directory_and_extension() {
         assert!(in_families("entity/a.json"));
         assert!(in_families("textures/entity/a/b.png"));
+        assert!(in_families("textures/cc/buddy/a.buddy.png"));
+        assert!(in_families("models/mobs/a.geo.json"));
         assert!(!in_families("entity/a.png"));
-        assert!(!in_families("textures/blocks/a.png"));
+        assert!(!in_families("ui/a.json"));
+        assert_eq!(
+            canonical_path("models/mobs/a.geo.json".into()).as_ref(),
+            "models/entity/_pack/mobs/a.geo.json"
+        );
     }
 }

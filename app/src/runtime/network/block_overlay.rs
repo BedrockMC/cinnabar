@@ -10,7 +10,9 @@ use std::collections::{HashMap, HashSet};
 
 use assets::{
     Animation, BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties,
-    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_TWO_SIDED, Material,
+    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
+    MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_WATER_TINT, MODEL_QUAD_FLAG_TWO_SIDED, Material,
     MaterialKeys, MaterialOverride, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
     TextureArray, TextureMip, TextureRef, VisualKind, VisualSupport,
 };
@@ -303,7 +305,7 @@ impl Builder<'_> {
             )
         );
         let mut flags = match chosen.render_method.as_deref() {
-            None | Some("opaque") => 0,
+            None | Some("opaque" | "double_sided") => 0,
             Some("blend") | Some("blend_to_opaque") => MATERIAL_FLAG_ALPHA_BLEND,
             Some(_) => MATERIAL_FLAG_ALPHA_CUTOUT,
         };
@@ -313,9 +315,11 @@ impl Builder<'_> {
             self.gaps.approximated_materials += 1;
             flags = MATERIAL_FLAG_ALPHA_CUTOUT;
         }
+        let alpha_flags = flags;
+        flags |= tint_flags(chosen.tint_method.as_deref());
         let texture = chosen.texture.to_string();
         if let Some(&material) = self.materials.get(&(texture.clone(), flags)) {
-            return (material, flags, two_sided);
+            return (material, alpha_flags, two_sided);
         }
         let Some(slot) = self.texture_slot(&texture) else {
             return (DIAGNOSTIC_MATERIAL, 0, false);
@@ -327,7 +331,7 @@ impl Builder<'_> {
             animation: slot.animation,
         });
         self.materials.insert((texture, flags), material);
-        (material, flags, two_sided)
+        (material, alpha_flags, two_sided)
     }
 
     fn texture_slot(&mut self, key: &str) -> Option<TextureSlot> {
@@ -437,6 +441,19 @@ impl Builder<'_> {
     }
 }
 
+/// Biome tint of a material instance's `tint_method`; unknown methods do not tint.
+fn tint_flags(method: Option<&str>) -> u32 {
+    match method {
+        Some("default_foliage") => MATERIAL_FLAG_FOLIAGE_TINT,
+        Some("birch_foliage") => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_BIRCH_FOLIAGE,
+        Some("evergreen_foliage") => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+        Some("dry_foliage") => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_DRY_FOLIAGE,
+        Some("grass") => MATERIAL_FLAG_GRASS_TINT,
+        Some("water") => MATERIAL_FLAG_WATER_TINT,
+        _ => 0,
+    }
+}
+
 /// Custom blocks default to full dampening and no emission, matching vanilla and
 /// the public block-component defaults; explicit components override either.
 fn state_light(components: &CustomVisualComponents) -> LightProperties {
@@ -543,6 +560,18 @@ fn quantize(
             slot[axis] = fixed.clamp(0.0, f32::from(u16::MAX)) as u16;
         }
     }
+    if quad.rotated {
+        return Some(ModelQuad {
+            positions,
+            uvs,
+            material,
+            flags: if two_sided {
+                MODEL_QUAD_FLAG_TWO_SIDED
+            } else {
+                0
+            },
+        });
+    }
     let face = rotate_face(
         quad.face,
         transform.map_or([0; 3], |transform| transform.rotation),
@@ -572,5 +601,7 @@ fn quantize(
 /// Model quad face codes (`1..=6` = down/up/west/east/north/south) by face index.
 const MODEL_FACE_FLAGS: [u32; 6] = [3, 4, 1, 2, 5, 6];
 
+#[cfg(test)]
+mod pack_report;
 #[cfg(test)]
 mod tests;

@@ -30,13 +30,16 @@ pub(super) struct Cube {
     pub(super) min: [f32; 3],
     pub(super) max: [f32; 3],
     pub(super) faces: [Option<FaceUv>; 6],
+    /// Rotations to apply in order (cube, then each ancestor bone), in block-local pixels:
+    /// a pivot and X/Y/Z angles in the world frame's authored convention.
+    pub(super) rotations: Vec<([f32; 3], [f32; 3])>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Geometry {
     pub(super) texture_size: [f32; 2],
     pub(super) cubes: Vec<Cube>,
-    /// Rotated bones or cubes, which are not rendered yet.
+    /// Cubes dropped for non-finite or malformed values.
     pub(super) skipped_cubes: u32,
 }
 
@@ -46,6 +49,8 @@ pub(super) struct FaceQuad {
     pub(super) face: usize,
     pub(super) positions: [[f32; 3]; 4],
     pub(super) uvs: [[f32; 2]; 4],
+    /// Turned off the block axes, so it has no cull face.
+    pub(super) rotated: bool,
 }
 
 /// Finds the wanted identifiers under `models/`; a higher pack replaces one.
@@ -149,6 +154,16 @@ fn is_rotated(value: &Value) -> bool {
     vector(value).is_some_and(|rotation| rotation.iter().any(|angle| angle.abs() > f32::EPSILON))
 }
 
+/// A geometry-frame pivot in block-local world pixels (X mirrored, Z shifted).
+fn world_pivot(pivot: [f32; 3]) -> [f32; 3] {
+    [8.0 - pivot[0], pivot[1], pivot[2] + 8.0]
+}
+
+/// Authored X/Y/Z rotation as the angles applied in the world frame, X then Y then Z.
+fn world_angles(rotation: [f32; 3]) -> [f32; 3] {
+    [-rotation[0], rotation[1], -rotation[2]]
+}
+
 fn parse_bones(bones: &Value, texture_size: [f32; 2]) -> Geometry {
     let mut geometry = Geometry {
         texture_size,
@@ -158,55 +173,65 @@ fn parse_bones(bones: &Value, texture_size: [f32; 2]) -> Geometry {
         return geometry;
     };
     let bones = &bones[..bones.len().min(MAX_BONES)];
-    let rotated_bones = rotated_bone_names(bones);
+    let by_name = bones
+        .iter()
+        .filter_map(|bone| Some((bone["name"].as_str()?, bone)))
+        .collect::<HashMap<_, _>>();
     for bone in bones {
-        let bone_rotated = bone["name"]
-            .as_str()
-            .is_some_and(|name| rotated_bones.contains(name));
+        // Rotations from the bone up through its ancestors, in application order.
+        let mut chain = Vec::new();
+        let mut current = Some(bone);
+        for _ in 0..=by_name.len() {
+            let Some(bone) = current else { break };
+            if is_rotated(&bone["rotation"]) {
+                let pivot = vector(&bone["pivot"]).unwrap_or([0.0; 3]);
+                if let Some(rotation) = vector(&bone["rotation"]) {
+                    chain.push((world_pivot(pivot), world_angles(rotation)));
+                }
+            }
+            current = bone["parent"]
+                .as_str()
+                .and_then(|name| by_name.get(name).copied());
+        }
         for cube in bone["cubes"].as_array().map_or(&[][..], Vec::as_slice) {
             if geometry.cubes.len() >= MAX_CUBES {
                 return geometry;
             }
-            if bone_rotated || is_rotated(&cube["rotation"]) {
-                geometry.skipped_cubes += 1;
+            let Some(mut parsed) = parse_cube(cube) else {
                 continue;
+            };
+            if is_rotated(&cube["rotation"])
+                && let Some(rotation) = vector(&cube["rotation"])
+            {
+                let pivot = vector(&cube["pivot"])
+                    .or_else(|| vector(&bone["pivot"]))
+                    .unwrap_or([0.0; 3]);
+                parsed
+                    .rotations
+                    .push((world_pivot(pivot), world_angles(rotation)));
             }
-            if let Some(parsed) = parse_cube(cube) {
-                geometry.cubes.push(parsed);
-            }
+            parsed.rotations.extend(chain.iter().copied());
+            geometry.cubes.push(parsed);
         }
     }
     geometry
 }
 
-/// Bones rotated themselves or through any ancestor.
-fn rotated_bone_names(bones: &[Value]) -> HashSet<&str> {
-    let parents = bones
-        .iter()
-        .filter_map(|bone| Some((bone["name"].as_str()?, bone["parent"].as_str())))
-        .collect::<HashMap<_, _>>();
-    let direct = bones
-        .iter()
-        .filter(|bone| is_rotated(&bone["rotation"]))
-        .filter_map(|bone| bone["name"].as_str())
-        .collect::<HashSet<_>>();
-    parents
-        .keys()
-        .copied()
-        .filter(|&name| {
-            let mut current = Some(name);
-            for _ in 0..=parents.len() {
-                let Some(bone) = current else {
-                    return false;
-                };
-                if direct.contains(bone) {
-                    return true;
-                }
-                current = parents.get(bone).copied().flatten();
-            }
-            false
-        })
-        .collect()
+/// Turns `point` by `degrees` about `pivot`: X, then Y, then Z.
+fn rotate_around(point: [f32; 3], pivot: [f32; 3], degrees: [f32; 3]) -> [f32; 3] {
+    let [x, y, z] = degrees.map(f32::to_radians);
+    let (sx, cx) = x.sin_cos();
+    let (sy, cy) = y.sin_cos();
+    let (sz, cz) = z.sin_cos();
+    let v = [
+        point[0] - pivot[0],
+        point[1] - pivot[1],
+        point[2] - pivot[2],
+    ];
+    let v = [v[0], v[1] * cx - v[2] * sx, v[1] * sx + v[2] * cx];
+    let v = [v[0] * cy + v[2] * sy, v[1], -v[0] * sy + v[2] * cy];
+    let v = [v[0] * cz - v[1] * sz, v[0] * sz + v[1] * cz, v[2]];
+    [v[0] + pivot[0], v[1] + pivot[1], v[2] + pivot[2]]
 }
 
 fn parse_cube(cube: &Value) -> Option<Cube> {
@@ -246,7 +271,12 @@ fn parse_cube(cube: &Value) -> Option<Cube> {
         Value::Array(offset) => box_uv([number(offset.first()?)?, number(offset.get(1)?)?], size),
         _ => return None,
     };
-    Some(Cube { min, max, faces })
+    Some(Cube {
+        min,
+        max,
+        faces,
+        rotations: Vec::new(),
+    })
 }
 
 /// The conventional box layout: a cross of faces starting at `offset`.
@@ -279,7 +309,7 @@ impl Cube {
             let Some(uv) = uv else {
                 continue;
             };
-            let positions = match face {
+            let mut positions = match face {
                 0 => [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
                 1 => [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
                 2 => [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
@@ -294,6 +324,11 @@ impl Cube {
             };
             if degenerate {
                 continue;
+            }
+            for &(pivot, angles) in &self.rotations {
+                for corner in &mut positions {
+                    *corner = rotate_around(*corner, pivot, angles);
+                }
             }
             let (u0, v0) = (uv.uv[0], uv.uv[1]);
             let (u1, v1) = (u0 + uv.size[0], v0 + uv.size[1]);
@@ -311,6 +346,7 @@ impl Cube {
                     face,
                     positions,
                     uvs,
+                    rotated: !self.rotations.is_empty(),
                 },
                 uv.material_instance.as_deref(),
             ));
