@@ -19,12 +19,17 @@ use render::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaScene, PanoramaView}
 use super::super::UiPresentationRuntime;
 use crate::menu::{MenuRuntime, MenuScreen};
 
+// The reconstruction keeps these tuning values as unnamed data; they follow the
+// title-screen cube convention and need native measurement.
 /// Vertical field of view of the panorama camera.
 const VERTICAL_FOV: f32 = 85.0 * PI / 180.0;
-/// Seconds per full turn.
-const TURN_SECONDS: f32 = 360.0;
-/// Constant downward tilt of the camera.
-const PITCH: f32 = 0.0;
+/// Turn rate: 0.1 degrees per 20 Hz tick, turning left.
+const TURN_DEGREES_PER_SECOND: f32 = -2.0;
+/// Downward tilt, swaying slowly by a few degrees.
+const PITCH_DEGREES: f32 = 25.0;
+const PITCH_SWAY_DEGREES: f32 = 5.0;
+/// Sway phase (radians) per degree turned.
+const SWAY_RATE: f32 = 0.001;
 
 /// Whether the carrier holds the panorama, so the launcher leaves its backdrop clear.
 pub(super) fn carried(assets: &RuntimeUiAssets) -> bool {
@@ -63,10 +68,13 @@ pub(crate) fn drive_menu_panorama(
     let Some((epoch, tint)) = *state else {
         return;
     };
-    let turned = (epoch.elapsed().as_secs_f32() / TURN_SECONDS).fract() * TAU;
+    let turned = epoch.elapsed().as_secs_f32() * TURN_DEGREES_PER_SECOND;
+    let yaw = turned.to_radians().rem_euclid(TAU);
+    let pitch = PITCH_DEGREES + PITCH_SWAY_DEGREES * (turned.abs() * SWAY_RATE).sin();
     scene.show((shown && scene.has_faces()).then_some(PanoramaView {
-        yaw_radians: turned,
-        pitch_radians: PITCH,
+        yaw_radians: yaw,
+        // The pass tilts up for positive pitch; this camera looks down.
+        pitch_radians: -pitch.to_radians(),
         vertical_fov_radians: VERTICAL_FOV,
         aspect,
         tint,
