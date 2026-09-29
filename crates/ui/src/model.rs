@@ -133,6 +133,18 @@ impl UiNode {
     pub const fn id(&self) -> UiNodeId {
         self.id
     }
+
+    pub const fn parent(&self) -> Option<UiNodeId> {
+        self.parent
+    }
+
+    pub const fn bounds(&self) -> UiRect {
+        self.bounds
+    }
+
+    pub const fn visual(&self) -> &UiVisual {
+        &self.visual
+    }
 }
 
 #[derive(Clone, Debug, Default)]

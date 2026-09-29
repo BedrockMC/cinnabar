@@ -32,9 +32,9 @@ pub(super) fn parse_bedrock_text_with_style(
             buffer.push(character);
             continue;
         };
+        // Vanilla consumes `§` plus any following character (a newline too); an
+        // unknown code draws nothing, which servers use for hidden markers.
         let Some(change) = formatting_change(code) else {
-            buffer.push(character);
-            buffer.push(code);
             characters.next();
             continue;
         };
@@ -122,10 +122,11 @@ enum FormattingChange {
     Reset,
 }
 
+/// Codes are case-sensitive; an unlisted digit or `a`-`w` falls back to white.
 fn formatting_change(code: char) -> Option<FormattingChange> {
     use BedrockColor as Color;
     use FormattingChange as Change;
-    Some(match code.to_ascii_lowercase() {
+    Some(match code {
         '0' => Change::Color(Color::Black),
         '1' => Change::Color(Color::DarkBlue),
         '2' => Change::Color(Color::DarkGreen),
@@ -158,6 +159,7 @@ fn formatting_change(code: char) -> Option<FormattingChange> {
         'l' => Change::Bold,
         'o' => Change::Italic,
         'r' => Change::Reset,
+        'w' => Change::Color(Color::White),
         _ => return None,
     })
 }
