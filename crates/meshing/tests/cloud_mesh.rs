@@ -2,8 +2,9 @@ use std::mem::size_of;
 
 use assets::{AtmosphereRole, AtmosphereTexture};
 use meshing::{
-    CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CloudFace, CloudMeshError, MAX_CLOUD_BYTES,
-    MAX_CLOUD_QUADS, PackedCloudQuad, cloud_instance_origins, mesh_cloud_texture,
+    CLOUD_CELL_BLOCKS, CLOUD_MASK_SIZE, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD,
+    CloudFace, CloudMeshError, MAX_CLOUD_BYTES, MAX_CLOUD_QUADS, PackedCloudQuad,
+    cloud_instance_origins, mesh_cloud_texture,
 };
 
 const BORDER_QUADS_PER_FACE: usize = (CLOUD_MASK_SIZE * CLOUD_MASK_SIZE / 2) as usize;
@@ -98,9 +99,9 @@ fn alpha_255_emits_all_six_fixed_height_faces() {
             quad(11, 8, 1, 4, CloudFace::East),
         ]
     );
-    assert_eq!(CLOUD_UNDERSIDE_Y, 128.0);
-    assert_eq!(CLOUD_TOP_Y, 132.0);
+    assert_eq!(CLOUD_UNDERSIDE_Y, 192.33);
     assert_eq!(CLOUD_TOP_Y - CLOUD_UNDERSIDE_Y, 4.0);
+    assert_eq!((CLOUD_CELL_BLOCKS, CLOUD_WORLD_PERIOD), (16.0, 4096.0));
 }
 
 #[test]
@@ -179,38 +180,38 @@ fn cloud_instance_origins_are_canonical_row_major_and_snap_at_period_boundaries(
     assert_eq!(
         cloud_instance_origins([0.0, 0.0], 0.0),
         [
-            [-256.0, -256.0],
-            [0.0, -256.0],
-            [256.0, -256.0],
-            [-256.0, 0.0],
+            [-4096.0, -4096.0],
+            [0.0, -4096.0],
+            [4096.0, -4096.0],
+            [-4096.0, 0.0],
             [0.0, 0.0],
-            [256.0, 0.0],
-            [-256.0, 256.0],
-            [0.0, 256.0],
-            [256.0, 256.0],
+            [4096.0, 0.0],
+            [-4096.0, 4096.0],
+            [0.0, 4096.0],
+            [4096.0, 4096.0],
         ]
     );
     assert_eq!(
-        cloud_instance_origins([255.999, 255.999], 0.0),
+        cloud_instance_origins([4095.999, 4095.999], 0.0),
         cloud_instance_origins([0.0, 0.0], 0.0)
     );
     assert_eq!(
-        cloud_instance_origins([256.0, 256.0], 0.0),
-        cloud_instance_origins([0.0, 0.0], 0.0).map(|[x, z]| [x + 256.0, z + 256.0])
+        cloud_instance_origins([4096.0, 4096.0], 0.0),
+        cloud_instance_origins([0.0, 0.0], 0.0).map(|[x, z]| [x + 4096.0, z + 4096.0])
     );
     assert_eq!(cloud_instance_origins([0.0, 0.0], 0.0)[4], [0.0, 0.0]);
     assert_eq!(
         cloud_instance_origins([-0.001, -0.001], 0.0)[4],
-        [-256.0, -256.0]
+        [-4096.0, -4096.0]
     );
 }
 
 #[test]
 fn cloud_instance_origins_preserve_wrapped_fractional_motion_without_non_finite_values() {
-    assert_eq!(cloud_instance_origins([1.25, 0.0], 257.25)[4], [1.25, 0.0]);
+    assert_eq!(cloud_instance_origins([1.25, 0.0], 4097.25)[4], [1.25, 0.0]);
     assert_eq!(
-        cloud_instance_origins([1.249, 0.0], 257.25)[4],
-        [-254.75, 0.0]
+        cloud_instance_origins([1.249, 0.0], 4097.25)[4],
+        [-4094.75, 0.0]
     );
 
     for input in [

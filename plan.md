@@ -2528,6 +2528,14 @@ store it only under the user's temporary directory, inspect that file, and never
     The opaque/depth-writing/material mismatch is resolved through `87e856f`;
     native mesh size, quality/distance controls, density, scale, thickness,
     silhouette, and live gallery acceptance remain open.
+  - [ ] Apply the 26.30/1.26.50 `Clouds` material and cloud renderer values: one
+    `clouds.png` texel per 16x16 blocks (4,096-block period), a 4-block slab at
+    192.33, baked face shade (top 1, bottom 0.75, x sides 0.925), the
+    `getCloudColor` day/weather/sunrise colour with alpha 0.7, drift 0.02
+    blocks/tick toward -X, and the 0.9D-1.9D distance fade with no fog. Landed
+    provisionally: the pre-Caves-and-Cliffs 128 height, thunder mixing, the
+    sunrise darkening term, above/below face flags and the quality/weather lerp
+    of the fade distance are unverified, and no native gallery was taken.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player `P3-MOVEMENT`

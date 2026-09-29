@@ -20,25 +20,25 @@ struct PackedCloudQuad {
 @group(0) @binding(1) var<uniform> atmosphere: AtmosphereUniform;
 @group(0) @binding(2) var<storage, read> cloud_records: array<PackedCloudQuad>;
 
-const CLOUD_UNDERSIDE_Y: f32 = 128.0;
-const CLOUD_TOP_Y: f32 = 132.0;
-const CLOUD_TEXTURE_WORLD_PERIOD: f32 = 256.0;
+// Vanilla 26.30 cloud layer: one `clouds.png` texel spans 16x16 blocks, the slab is four
+// blocks thick at 192.33, faces carry the tessellator's baked shade, and alpha fades by
+// distance. There is no fog and no directional light.
+const CLOUD_UNDERSIDE_Y: f32 = 192.33;
+const CLOUD_TOP_Y: f32 = 196.33;
+const CLOUD_CELL_BLOCKS: f32 = 16.0;
+const CLOUD_TEXTURE_WORLD_PERIOD: f32 = 4096.0;
 const FACE_DOWN: u32 = 0u;
 const FACE_UP: u32 = 1u;
 const FACE_NORTH: u32 = 2u;
 const FACE_SOUTH: u32 = 3u;
 const FACE_WEST: u32 = 4u;
-const CLOUD_DIRECTIONAL_AMBIENT: f32 = 0.55;
-const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.083333336;
 const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);
 const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
-// Native clients do not present the finite cloud mesh as an opaque wall when
-// the eye crosses its four-block volume. Fade the complete layer out near the
-// band instead of cutting a visible radial hole through it. The layer is fully
-// restored four blocks above or below the slab.
-const CLOUD_CAMERA_FADE_START: f32 = 0.5;
-const CLOUD_CAMERA_FADE_END: f32 = 4.0;
+const CLOUD_ALPHA: f32 = 0.7;
+const CLOUD_FADE_START: f32 = 0.9;
+const CLOUD_SUNRISE_WEIGHT: f32 = 0.35;
+const TAU: f32 = 6.2831855;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -65,28 +65,40 @@ fn face_normal(face: u32) -> vec3<f32> {
     return vec3(1.0, 0.0, 0.0);
 }
 
-fn invalid_cloud_fog_input(value: f32) -> bool {
-    return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;
-}
-
-fn bounded_cloud_fog(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
-    if (invalid_cloud_fog_input(world_distance)
-        || invalid_cloud_fog_input(fog_start)
-        || invalid_cloud_fog_input(fog_end)) {
-        return 1.0;
-    }
-    let bounded_distance = max(world_distance, 0.0);
-    let bounded_start = clamp(fog_start, 0.0, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
-    let bounded_end = clamp(fog_end, 0.0, CLOUD_TEXTURE_WORLD_PERIOD - 1.0);
-    if (bounded_end <= bounded_start) {
-        return select(0.0, 1.0, bounded_distance >= bounded_end);
-    }
-    let amount = clamp(
-        (bounded_distance - bounded_start) / (bounded_end - bounded_start),
+// Mirrors `atmosphere::cloud_face_shade`.
+fn face_shade(normal: vec3<f32>) -> f32 {
+    return clamp(
+        0.55 * 0.5 * (normal.y + 1.0) - 0.1 * normal.x * normal.x + 0.1 * normal.z * normal.z + 0.75,
         0.0,
         1.0,
     );
-    return amount;
+}
+
+// Mirrors `atmosphere::cloud_colour`.
+fn cloud_colour() -> vec3<f32> {
+    let rain_colour = mix(
+        vec3(1.0),
+        RAIN_CLOUD_COLOUR,
+        clamp(atmosphere.sky_zenith_rain.w, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
+    );
+    let weather_colour = mix(
+        rain_colour,
+        THUNDER_CLOUD_COLOUR,
+        clamp(atmosphere.sky_horizon_thunder.w, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
+    );
+    let brightness = clamp(2.0 * cos(TAU * atmosphere.sky_extra.y) + 0.5, 0.0, 1.0);
+    let base = weather_colour * vec3(0.9 * brightness + 0.1, 0.9 * brightness + 0.1, 0.85 * brightness + 0.15);
+    let weight = clamp(atmosphere.sunrise_band.w, 0.0, 1.0) * CLOUD_SUNRISE_WEIGHT;
+    return max(atmosphere.sunrise_band.rgb * weight + base * (1.0 - weight), vec3(0.0));
+}
+
+// Mirrors `atmosphere::cloud_distance_fade`.
+fn distance_fade(world_distance: f32) -> f32 {
+    let fade_distance = atmosphere.fog_end_time.w;
+    if (fade_distance <= 0.0) {
+        return 1.0;
+    }
+    return clamp(1.0 - max(world_distance / fade_distance - CLOUD_FADE_START, 0.0), 0.0, 1.0);
 }
 
 fn corner_uv(corner_index: u32) -> vec2<f32> {
@@ -151,7 +163,11 @@ fn cloud_vertex(
         center_x + f32(instance_column) * CLOUD_TEXTURE_WORLD_PERIOD,
         center_z + f32(instance_row) * CLOUD_TEXTURE_WORLD_PERIOD,
     );
-    let world_position = local_position + vec3(instance_origin.x, 0.0, instance_origin.y);
+    let world_position = vec3(
+        local_position.x * CLOUD_CELL_BLOCKS + instance_origin.x,
+        local_position.y,
+        local_position.z * CLOUD_CELL_BLOCKS + instance_origin.y,
+    );
 
     var out: VertexOutput;
     out.position = view.clip_from_world * vec4(world_position, 1.0);
@@ -162,43 +178,7 @@ fn cloud_vertex(
 
 @fragment
 fn cloud_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let rain = atmosphere.sky_zenith_rain.w;
-    let thunder = atmosphere.sky_horizon_thunder.w;
-    let rain_colour = mix(
-        vec3(1.0),
-        RAIN_CLOUD_COLOUR,
-        clamp(rain, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
-    );
-    let weather_colour = mix(
-        rain_colour,
-        THUNDER_CLOUD_COLOUR,
-        clamp(thunder, 0.0, 1.0) * WEATHER_COLOUR_CONTRIBUTION,
-    );
-    let sun_direction = normalize(atmosphere.sun_direction_daylight.xyz);
-    let directional = max(dot(in.normal, sun_direction), 0.0);
-    let illuminance = max(
-        clamp(atmosphere.sun_direction_daylight.w, 0.0, 1.0),
-        PROVISIONAL_CLOUD_NIGHT_FLOOR,
-    )
-        * mix(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional);
-    let cloud_colour = weather_colour * illuminance;
-
-    let world_distance = distance(in.world_position, view.world_position);
-    let fog = bounded_cloud_fog(
-        world_distance,
-        atmosphere.fog_color_start.w,
-        atmosphere.fog_end_time.x,
-    );
-    let fogged_colour = mix(cloud_colour, atmosphere.fog_color_start.rgb, fog);
-    let camera_distance_from_cloud_band = max(
-        max(CLOUD_UNDERSIDE_Y - view.world_position.y, view.world_position.y - CLOUD_TOP_Y),
-        0.0,
-    );
-    let camera_band_visibility = smoothstep(
-        CLOUD_CAMERA_FADE_START,
-        CLOUD_CAMERA_FADE_END,
-        camera_distance_from_cloud_band,
-    );
-    let cloud_alpha = clamp((1.0 - fog) * camera_band_visibility, 0.0, 1.0);
-    return vec4(fogged_colour, cloud_alpha);
+    let colour = cloud_colour() * face_shade(in.normal);
+    let alpha = CLOUD_ALPHA * distance_fade(distance(in.world_position, view.world_position));
+    return vec4(colour, alpha);
 }
