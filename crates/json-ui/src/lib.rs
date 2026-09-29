@@ -36,7 +36,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-pub use bind::{CollectionItem, ControlLibrary, DataSource, EmptyLibrary, bind};
+pub use bind::{CollectionItem, ControlLibrary, DataSource, EmptyLibrary, bind, scoped_key};
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};
 pub use env::Env;
