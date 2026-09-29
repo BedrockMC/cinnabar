@@ -62,7 +62,7 @@ pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
-    destroy_block_packet, swing_arm_packet, use_actor_packet,
+    destroy_block_packet, respawn_request_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeOutput,
