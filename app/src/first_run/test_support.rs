@@ -4,9 +4,14 @@ use std::path::{Path, PathBuf};
 pub(super) struct Dir(PathBuf);
 
 impl Dir {
+    /// A fresh directory; a per-process counter keeps parallel tests with one label apart.
     pub(super) fn new(label: &str) -> Self {
-        let path =
-            std::env::temp_dir().join(format!("cinnabar-first-run-{}-{label}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-first-run-{}-{serial}-{label}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
