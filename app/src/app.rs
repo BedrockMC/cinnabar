@@ -245,7 +245,11 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (observe_mount_jump_input, publish_ui_runtime, drive_menu_panorama)
+            (
+                observe_mount_jump_input,
+                publish_ui_runtime,
+                drive_menu_panorama,
+            )
                 .chain()
                 .in_set(ClientFrameSet::UiPublication),
         )

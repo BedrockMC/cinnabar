@@ -9,18 +9,18 @@ mod menu_screens;
 mod menus;
 mod model;
 mod npc;
+mod oreui;
 #[cfg(test)]
 pub(crate) mod pack_harness;
-mod oreui;
 mod pages;
 mod panorama;
 mod play_screen;
 mod remote_images;
 mod server_pack;
 mod sign_editor;
-mod start_feed;
 #[cfg(test)]
 mod snapshot;
+mod start_feed;
 #[cfg(test)]
 pub(crate) mod tests;
 mod textures;
