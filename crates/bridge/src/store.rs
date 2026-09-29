@@ -171,7 +171,7 @@ impl PendingPurchase {
 }
 
 /// A purchase the player confirmed; sent by [`store_purchase`].
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ConfirmedPurchase {
     purchase_id: String,
     offer_id: String,
