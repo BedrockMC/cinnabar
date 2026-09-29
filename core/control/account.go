@@ -116,7 +116,7 @@ func isServiceMethod(method string) bool {
 	case methodRealmsList, methodFriendsList, methodConnect, methodAccountStatus, methodSignOut, methodEvents:
 		return true
 	}
-	return false
+	return isScreenMethod(method)
 }
 
 // SetAuth publishes the sign-in state.
@@ -242,6 +242,20 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			return failService(err)
 		}
 		return ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
+	}
+	if isScreenMethod(method) {
+		if len(raw) != 0 {
+			return fail(-32602, "Invalid params")
+		}
+		screens, supported := services.(ScreenServices)
+		if !supported {
+			return fail(codeServicesDisabled, "Launcher services unavailable")
+		}
+		result, err := screenResult(ctx, screens, method)
+		if err != nil {
+			return failService(err)
+		}
+		return ok(result)
 	}
 	return fail(-32601, "Method not found")
 }
