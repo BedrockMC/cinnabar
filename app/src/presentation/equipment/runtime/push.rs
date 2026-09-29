@@ -124,7 +124,11 @@ impl EquipmentRuntime {
                 let Some(index) = self.icons.lookup_index(&item.identifier, item.metadata) else {
                     return;
                 };
-                (index, MeshKey::Sprite(index), held_sprite_display())
+                (
+                    index,
+                    MeshKey::Sprite(index),
+                    held_sprite_display(is_hand_equipped(&item.identifier)),
+                )
             }
             HeldKind::Block(visual) => {
                 let Some(index) = self.block_sheets.get(&visual).copied() else {

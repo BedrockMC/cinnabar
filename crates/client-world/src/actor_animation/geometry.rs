@@ -35,6 +35,8 @@ pub(super) fn reselect_geometry(
         anim_tick: 0,
         life_tick: 0,
         finished: (false, false),
+        bones: &state.bones,
+        bone_names: &state.bone_names,
     };
     let mut variables = state.variables.clone();
     let mut selected = first;
