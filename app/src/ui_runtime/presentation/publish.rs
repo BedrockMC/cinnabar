@@ -202,12 +202,25 @@ pub(crate) fn publish_ui_runtime(
     presentation.set_nametag_anchors(nametags);
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
+        let selected = view
+            .feeds
+            .selected_featured
+            .and_then(|index| view.featured.get(index))
+            .and_then(|server| view.feeds.details.get(&server.address));
         let artwork_paths = view
             .featured
             .iter()
             .chain(view.gatherings.iter())
-            .filter(|server| !server.image_path.is_empty())
             .map(|server| server.image_path.clone())
+            .chain(std::iter::once(view.feeds.profile.picture_path.clone()))
+            .chain(selected.into_iter().flat_map(|details| {
+                details
+                    .screenshots
+                    .iter()
+                    .cloned()
+                    .chain(details.games.iter().map(|game| game.image_path.clone()))
+            }))
+            .filter(|path| !path.is_empty())
             .collect();
         presentation.sync_menu_artwork(artwork_paths);
         for server in view.featured.iter_mut().chain(view.gatherings.iter_mut()) {

@@ -32,7 +32,7 @@ pub(crate) use input::{MenuClipboard, drive_menu_input};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{load_servers, save_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
-use view::CatalogFile;
+use view::{CatalogFile, MenuFeeds};
 pub(crate) use view::{
     LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
 };
@@ -141,6 +141,8 @@ pub(crate) enum MenuAction {
     SignOut,
     /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
     SettingsVolume(u8, u8),
+    /// Show a featured server in the Servers tab's info panel.
+    SelectFeatured(usize),
 }
 
 #[derive(Debug, Resource)]
@@ -201,6 +203,7 @@ pub(crate) struct MenuRuntime {
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
+    feeds: MenuFeeds,
     /// Identity-checked owner of this session's runtime directory; bound
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
@@ -293,6 +296,7 @@ impl MenuRuntime {
             volume_change: None,
             local_world_joined: false,
             local_world_active: false,
+            feeds: MenuFeeds::default(),
         }
     }
 
@@ -371,6 +375,7 @@ impl MenuRuntime {
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
             volumes: self.volumes,
+            feeds: self.feeds.clone(),
         }
     }
 
@@ -664,6 +669,7 @@ impl MenuRuntime {
             }
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
+            MenuAction::SelectFeatured(index) => self.feeds.selected_featured = Some(index),
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);
