@@ -194,6 +194,13 @@ fn build_artwork(
             }
             let mut default_texture = None;
             for &source in &sources {
+                // The actor carrier admits only entity textures.
+                if !entities.sources[source as usize]
+                    .path
+                    .starts_with("textures/entity/")
+                {
+                    continue;
+                }
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                     let path = entities.sources[source as usize].path.as_ref();
                     slot.insert(decode_raster(path, &read(source)?));
