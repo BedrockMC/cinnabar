@@ -28,8 +28,8 @@ pub(crate) use creative::{
 };
 
 pub(crate) use window::{
-    BEACON_LEVEL_FOR, LOOM_CELLS, LOOM_COLUMNS, STONECUTTER_CELLS, Widget, WindowLayout,
-    widget_rects, window_layout,
+    BEACON_LEVEL_FOR, LOOM_CELLS, LOOM_COLUMNS, STONECUTTER_CELLS, Widget, widget_rects,
+    window_layout,
 };
 
 pub(crate) const SLOT_SIZE: f32 = 18.0;

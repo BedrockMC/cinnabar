@@ -222,8 +222,10 @@ impl Emitter {
                     self.accum = self.accum.min(1.0);
                 }
             }
-            Rate::Manual { .. } => {
-                to_spawn = self.manual_pending as f32;
+            Rate::Manual { max } => {
+                let max = self.eval(max).clamp(0.0, MAX_PARTICLES_PER_BURST);
+                let room = (max - self.particles.len() as f32).max(0.0);
+                to_spawn = (self.manual_pending as f32).min(room);
                 self.manual_pending = 0;
                 // Manual emitters emit their requested burst, then only age out their particles.
                 self.done = true;

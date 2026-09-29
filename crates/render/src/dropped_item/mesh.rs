@@ -116,7 +116,7 @@ mod tests {
             12
         );
         assert!(extruded_sprite_mesh(2, 2, &[0; 4], 32, 0).is_none());
-        assert!(extruded_sprite_mesh(33, 1, &vec![0; 33 * 4], 32, 0).is_none());
+        assert!(extruded_sprite_mesh(33, 1, &[0; 33 * 4], 32, 0).is_none());
         assert!(extruded_sprite_mesh(0, 1, &[], 32, 0).is_none());
     }
 

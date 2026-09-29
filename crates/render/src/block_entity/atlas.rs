@@ -19,7 +19,6 @@ const TEXT_STRIP_HEIGHT: u32 = TEXT_CELL[1] * TEXT_ROWS;
 /// Height of the dynamic strips appended below the static atlas: text, then maps.
 pub const DYNAMIC_STRIP_HEIGHT: u32 = TEXT_STRIP_HEIGHT + MAP_CELL[1] * MAP_ROWS;
 pub const TEXT_SLOT_COUNT: usize = (TEXT_COLUMNS * TEXT_ROWS) as usize;
-pub const MAP_SLOT_COUNT: usize = (MAP_COLUMNS * MAP_ROWS) as usize;
 
 /// A pixel rect in the full atlas.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

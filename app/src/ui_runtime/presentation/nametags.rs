@@ -107,7 +107,7 @@ pub(super) fn project_nametag(
         && pixels_per_block > 0.0
         && (0.0..=content_size[0]).contains(&x)
         && (0.0..=content_size[1]).contains(&y))
-    .then(|| NametagAnchor {
+    .then_some(NametagAnchor {
         x,
         y,
         name,

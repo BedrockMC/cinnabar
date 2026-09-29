@@ -40,9 +40,7 @@ use pinned::{
 pub(crate) use pinned::{effect_icon_role, java_gui_scale};
 pub(crate) use sleep::SleepTimeline;
 pub(super) use sleep::leave_bed_bounds;
-pub(super) use windows::{
-    Durability, TooltipLine, WindowIcons, WindowText, default_title, title_key,
-};
+pub(super) use windows::{Durability, TooltipLine, WindowIcons, WindowText, title_key};
 
 #[derive(Clone, Debug)]
 pub(crate) struct InventoryIcons(pub(crate) [Option<IconRef>; 36]);

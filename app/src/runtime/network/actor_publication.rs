@@ -268,7 +268,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                         crate::presentation::actors::entity_rig_presentation(
                             &rig,
                             actor,
-                            &artwork,
+                            artwork,
                             step.partial_tick,
                         )
                     };
@@ -385,7 +385,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         crate::presentation::entity_layers::apply_render_layers(
             &mut batch,
             |runtime_id| stream.actor_rig(runtime_id),
-            &artwork,
+            artwork,
         );
     }
     if let (Some(stream), Some(cape)) = (

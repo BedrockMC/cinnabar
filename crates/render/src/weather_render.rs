@@ -392,7 +392,7 @@ fn queue_weather(
             draw_function,
             distance: view
                 .rangefinder3d()
-                .distance(&Vec3::from(view.world_from_view.translation())),
+                .distance(&view.world_from_view.translation()),
             batch_range: 0..1,
             extra_index: PhaseItemExtraIndex::None,
             indexed: false,

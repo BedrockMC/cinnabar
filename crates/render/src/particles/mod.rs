@@ -13,14 +13,13 @@ mod system;
 mod triggers;
 mod world;
 
-pub use atlas::{ATLAS_SIDE, ParticleAtlas, Placement};
-pub use draw::{DrawLists, MAX_DRAW_DISTANCE, ParticleInstance, ParticleView};
+pub use atlas::ATLAS_SIDE;
+pub use draw::{DrawLists, ParticleInstance, ParticleView};
 pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
 pub use render::{ParticleGpuFrame, ParticleRenderPlugin, particle_view, update_particle_frame};
-pub use system::{MAX_EMITTERS, MAX_LIVE_PARTICLES, MAX_SPAWN_DISTANCE, ParticleSystem};
+pub use system::{MAX_LIVE_PARTICLES, ParticleSystem};
 pub use triggers::{
-    BLOCK_BREAK_PARTICLES, BLOCK_CRACK_PARTICLES, LEVEL_EVENT_PARTICLE_FLAG, LevelParticle,
-    block_break_request, block_crack_request, classify_level_event, is_particle_level_event,
-    item_icon_request, legacy_particle_effect, named_request, parse_molang_variables,
+    LevelParticle, block_break_request, block_crack_request, classify_level_event,
+    is_particle_level_event, item_icon_request, named_request, parse_molang_variables,
 };
 pub use world::{EmptyWorld, Fluid, ParticleWorld};

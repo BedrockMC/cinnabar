@@ -18,8 +18,7 @@ impl MusicScheduler {
         dt: f32,
         mut unit: impl FnMut() -> f32,
     ) -> bool {
-        let mut roll =
-            |unit: &mut dyn FnMut() -> f32| delay.0 + (delay.1 - delay.0).max(0.0) * unit();
+        let roll = |unit: &mut dyn FnMut() -> f32| delay.0 + (delay.1 - delay.0).max(0.0) * unit();
         if self.key.as_deref() != Some(key) {
             self.key = Some(key.into());
             self.remaining = roll(&mut unit);
