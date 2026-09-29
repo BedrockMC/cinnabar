@@ -55,6 +55,23 @@ impl UiPresentationRuntime {
         vanilla
     }
 
+    /// Logs the hotbar's identifiers and icon presence whenever they change.
+    pub(crate) fn note_hotbar(&mut self, slots: [Option<(Arc<str>, bool)>; 9]) {
+        if slots == self.logged_hotbar {
+            return;
+        }
+        let shown = slots
+            .iter()
+            .map(|slot| match slot {
+                Some((identifier, true)) => identifier.to_string(),
+                Some((identifier, false)) => format!("{identifier} (no icon)"),
+                None => "-".to_owned(),
+            })
+            .collect::<Vec<_>>();
+        bevy::log::info!(slots = ?shown, "hotbar changed");
+        self.logged_hotbar = slots;
+    }
+
     /// Logs once per identifier why no icon resolved: the session, pack and vanilla lookups.
     fn note_missing_icon(&self, identifier: &str, metadata: u32) {
         let Ok(mut seen) = self.missing_icons.lock() else {

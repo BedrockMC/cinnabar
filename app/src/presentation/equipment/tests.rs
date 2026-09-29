@@ -313,3 +313,114 @@ fn attachable_bone_sits_at_its_pivot_plus_the_mirrored_literal_offset() {
     broken.rotation = [0.0; 4];
     assert!(attach(broken, [0.0; 3], channels).is_none());
 }
+
+fn local_carrier(name: &str) -> Option<Vec<u8>> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../.local/assets/compiled")
+            .join(name),
+    )
+    .ok()
+}
+
+// Local-only: which held items and armor pieces the real carriers can draw on a player body.
+#[test]
+fn real_carriers_draw_armor_and_report_each_held_item() {
+    use super::runtime::{ActorEquipmentInput, EquipmentRuntime, HeldKind, WornItem};
+    let (Some(entities), Some(icons), Some(equipment)) = (
+        local_carrier("vanilla-v1.mcbeent"),
+        local_carrier("vanilla-v1.mcbeico"),
+        local_carrier("vanilla-v1.mcbeeqp"),
+    ) else {
+        return;
+    };
+    let entities = Arc::new(assets::RuntimeEntityAssets::decode(&entities).unwrap());
+    let icons = Arc::new(assets::RuntimeIconCatalog::decode(&icons).unwrap());
+    let catalog = Arc::new(assets::RuntimeEquipmentCatalog::decode(&equipment).unwrap());
+    let (mut runtime, _, _) = EquipmentRuntime::build(
+        entities,
+        Some(catalog),
+        icons,
+        None,
+        None,
+        ActorArtworkPages::default(),
+    );
+    let names = [
+        "root",
+        "body",
+        "waist",
+        "head",
+        "hat",
+        "rightArm",
+        "leftArm",
+        "rightLeg",
+        "leftLeg",
+        "rightItem",
+        "leftItem",
+    ]
+    .map(Box::<str>::from)
+    .to_vec();
+    let rig = EntityRigId(0x7000_0000);
+    runtime.register_skin_rig(rig, names.clone());
+    let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
+    let body = ActorRigSubmission {
+        input: ActorRigRenderInput {
+            identity: ActorRenderIdentity {
+                session_id: 1,
+                dimension: 0,
+                runtime_id: 2,
+                spawn_revision: 1,
+                ingress_sequence: 1,
+                source_tick: None,
+                movement_revision: 0,
+                pose_generation: 0,
+                layer: ACTOR_LAYER_BODY,
+            },
+            rig,
+            previous_bones: Arc::clone(&pose),
+            current_bones: pose,
+            completed_tick: 0,
+            reset_generation: 0,
+        },
+        world_from_actor: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+        texture_layer: 0,
+        route: ActorRigRoute::Compiled,
+        tint: 0,
+        overlay_rgba8: 0,
+    };
+    let worn = |identifier: &str| WornItem {
+        identifier: Arc::from(identifier),
+        metadata: 0,
+        kind: HeldKind::Sprite,
+        dye_rgb: None,
+    };
+    let armor = ActorEquipmentInput {
+        armor: [
+            "minecraft:diamond_helmet",
+            "minecraft:diamond_chestplate",
+            "minecraft:diamond_leggings",
+            "minecraft:diamond_boots",
+        ]
+        .map(|identifier| Some(worn(identifier))),
+        ..ActorEquipmentInput::default()
+    };
+    assert_eq!(runtime.layers_for(&body, &armor).len(), 4);
+    let held = [
+        "minecraft:ender_pearl",
+        "minecraft:diamond_sword",
+        "minecraft:golden_apple",
+    ]
+    .map(|identifier| {
+        let input = ActorEquipmentInput {
+            main: Some(worn(identifier)),
+            ..ActorEquipmentInput::default()
+        };
+        (identifier, runtime.layers_for(&body, &input).len())
+    });
+    eprintln!("{held:?}");
+    assert_eq!(held[0].1, 1);
+}

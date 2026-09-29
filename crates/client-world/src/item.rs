@@ -17,6 +17,8 @@ use crate::{ActorEventIdentity, ActorLifetimeId, ActorSourceTick};
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = 16_384;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
+/// Equipment notices kept between drains; later ones are dropped.
+pub const MAX_EQUIPMENT_NOTICES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemStack {
@@ -69,6 +71,29 @@ pub struct ActorArmorSnapshot {
     pub body: ActorArmorPiece,
 }
 
+/// Where one MobEquipment or MobArmorEquipment landed, for diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EquipmentNotice {
+    pub runtime_id: u64,
+    pub armor: bool,
+    pub outcome: EquipmentOutcome,
+    /// Identifiers of the event's non-empty stacks; `None` where the registry has no entry.
+    pub items: Box<[Option<Arc<str>>]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EquipmentOutcome {
+    Applied,
+    /// No live actor has the runtime id.
+    UnknownActor,
+    /// The local player's held stacks come from the client-owned inventory instead.
+    LocalPlayer,
+    /// A stack's NBT digest did not match its payload, or it named network id 0.
+    RejectedStack,
+    /// Older than the latest applied actor event, or from another session.
+    Stale,
+}
+
 type EquipmentKey = (ActorLifetimeId, ActorHandedness);
 
 #[derive(Debug)]
@@ -81,6 +106,7 @@ pub(crate) struct ItemStateStore {
     armor: BTreeMap<u64, ActorArmorSnapshot>,
     persistent_armor_runtime: Option<u64>,
     use_durations: Option<Arc<BTreeMap<Box<str>, u32>>>,
+    notices: Vec<EquipmentNotice>,
 }
 
 impl ItemStateStore {
@@ -101,7 +127,36 @@ impl ItemStateStore {
             armor: BTreeMap::new(),
             persistent_armor_runtime: None,
             use_durations: None,
+            notices: Vec::new(),
         }
+    }
+
+    /// Records where an equipment event landed; the stacks are named through the registry.
+    pub(crate) fn note(
+        &mut self,
+        runtime_id: u64,
+        armor: bool,
+        outcome: EquipmentOutcome,
+        stacks: &[&NetworkItemStack],
+    ) {
+        if self.notices.len() >= MAX_EQUIPMENT_NOTICES {
+            return;
+        }
+        let items = stacks
+            .iter()
+            .filter(|stack| !stack.is_empty())
+            .map(|stack| self.identifier_for_network_id(stack.network_id))
+            .collect();
+        self.notices.push(EquipmentNotice {
+            runtime_id,
+            armor,
+            outcome,
+            items,
+        });
+    }
+
+    pub(crate) fn take_notices(&mut self) -> Vec<EquipmentNotice> {
+        std::mem::take(&mut self.notices)
     }
 
     pub(crate) fn set_use_durations(&mut self, durations: Arc<BTreeMap<Box<str>, u32>>) {

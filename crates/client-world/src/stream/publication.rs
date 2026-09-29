@@ -148,6 +148,10 @@ impl WorldStream {
     pub fn take_actor_status_notices(&mut self) -> Vec<crate::ActorStatusNotice> {
         self.actors.take_status_notices()
     }
+    /// Drains where MobEquipment and MobArmorEquipment events landed, for diagnostics.
+    pub fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
+        self.actors.take_equipment_notices()
+    }
     /// Feet position of every tracked actor, for [`Self::set_actor_fluids`] sampling.
     #[must_use]
     pub fn actor_fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {

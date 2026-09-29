@@ -1,0 +1,122 @@
+//! Bounded INFO diagnostics for where server items land: the session registry and icons,
+//! inventory contents, and remote equipment events.
+
+use std::{collections::HashSet, sync::Mutex};
+
+use bevy::log::info;
+use client_world::{EquipmentNotice, EquipmentOutcome};
+use protocol::{InventoryEvent, ItemRegistryEvent};
+
+use crate::ui_runtime::presentation::SessionIcons;
+
+/// Lines each category may log per session.
+const MAX_LINES: usize = 256;
+
+#[derive(Default)]
+struct State {
+    contents: HashSet<(Option<i32>, Option<u8>, usize, usize)>,
+    equipment: HashSet<(u64, bool, Option<EquipmentOutcome>)>,
+}
+
+static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+fn with_state(apply: impl FnOnce(&mut State)) {
+    if let Ok(mut state) = STATE.lock() {
+        apply(state.get_or_insert_with(State::default));
+    }
+}
+
+/// Logs the StartGame registry's shape and forgets the previous session's lines.
+pub(super) fn session_registry(registry: Option<&ItemRegistryEvent>) {
+    with_state(|state| *state = State::default());
+    let Some(registry) = registry else {
+        info!("StartGame carried no usable item registry; vanilla ids only");
+        return;
+    };
+    let custom = registry
+        .entries
+        .iter()
+        .filter(|entry| !entry.identifier.starts_with("minecraft:"))
+        .count();
+    let component_based = registry
+        .entries
+        .iter()
+        .filter(|entry| entry.component_based)
+        .count();
+    info!(
+        entries = registry.entries.len(),
+        custom, component_based, "session item registry"
+    );
+}
+
+/// Logs how many server item icons the pack stack resolved.
+pub(super) fn session_icons(keys: usize, icons: Option<&SessionIcons>) {
+    info!(
+        registry_icon_keys = keys,
+        resolved = icons.map_or(0, |icons| icons.icons.len()),
+        explicit_misses = icons.map_or(0, |icons| icons.misses.len()),
+        "session item icons compiled from the pack stack"
+    );
+}
+
+/// Logs each distinct inventory content shape: window, slot count, non-empty count.
+pub(super) fn inventory(event: &InventoryEvent) {
+    let InventoryEvent::Content(content) = event else {
+        return;
+    };
+    let filled = content
+        .slots
+        .iter()
+        .filter(|stack| !stack.is_empty())
+        .count();
+    let key = (
+        content.container.window_id,
+        content.container.slot_type,
+        content.slots.len(),
+        filled,
+    );
+    with_state(|state| {
+        if state.contents.len() < MAX_LINES && state.contents.insert(key) {
+            info!(
+                window_id = ?key.0,
+                slot_type = ?key.1,
+                slots = key.2,
+                non_empty = key.3,
+                "inventory content received"
+            );
+        }
+    });
+}
+
+/// Logs each actor's first armor and held-item event, and every distinct refusal.
+pub(super) fn equipment(notices: Vec<EquipmentNotice>) {
+    if notices.is_empty() {
+        return;
+    }
+    with_state(|state| {
+        for notice in notices {
+            let first = state
+                .equipment
+                .insert((notice.runtime_id, notice.armor, None));
+            let refused = notice.outcome != EquipmentOutcome::Applied
+                && state
+                    .equipment
+                    .insert((notice.runtime_id, notice.armor, Some(notice.outcome)));
+            if state.equipment.len() > MAX_LINES * 4 || !(first || refused) {
+                continue;
+            }
+            let items = notice
+                .items
+                .iter()
+                .map(|item| item.as_deref().map_or("<unregistered id>", |id| id))
+                .collect::<Vec<_>>();
+            info!(
+                runtime_id = notice.runtime_id,
+                kind = if notice.armor { "armor" } else { "held" },
+                outcome = ?notice.outcome,
+                items = ?items,
+                "equipment event"
+            );
+        }
+    });
+}
