@@ -754,6 +754,7 @@ fn decode_world_raw_with(
             | McpePacketName::SetScorePacket
             | McpePacketName::ToastRequestPacket
             | McpePacketName::UpdateSoftEnumPacket
+            | McpePacketName::AvailableCommandsPacket
             | McpePacketName::BiomeDefinitionListPacket
             | McpePacketName::AddPlayerPacket
             | McpePacketName::AddActorPacket

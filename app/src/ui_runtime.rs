@@ -1,5 +1,6 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod chat_completion;
 mod crafting_authority;
 pub use crafting_authority::CraftingPreview;
 mod event_apply;
@@ -57,9 +58,9 @@ use semantic_input::InputContext;
 use ui::BoundedStat;
 use ui::{
     BossBarStore, ChatApplyResult, ChatAutocompleteError, ChatAutocompleteRequest,
-    ChatAutocompleteResponse, ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError,
-    ChatHistory, ChatPasteError, ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest,
-    ChatStore, HudStore, MAX_CHAT_INPUT_BYTES, RetainedUiSequenceError, ScoreboardStore, UiAction,
+    ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError, ChatHistory, ChatPasteError,
+    ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest, ChatStore, HudStore,
+    MAX_CHAT_INPUT_BYTES, RetainedUiSequenceError, ScoreboardStore, UiAction,
 };
 
 use self::gameplay_hud::GameplayHudState;
@@ -170,6 +171,8 @@ pub struct UiRuntime {
     chat_input_revision: u64,
     chat_autocomplete: ChatAutocompleteState,
     chat_autocomplete_catalog: ChatAutocompleteCatalog,
+    chat_usage_hint: Option<Arc<str>>,
+    chat_tab_cycling: bool,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
     chat_sends: ChatSendQueue,
     in_flight_chat_send: Option<(u64, u64)>,
@@ -241,6 +244,8 @@ impl UiRuntime {
             chat_input_revision: 0,
             chat_autocomplete: ChatAutocompleteState::default(),
             chat_autocomplete_catalog: ChatAutocompleteCatalog::default(),
+            chat_usage_hint: None,
+            chat_tab_cycling: false,
             pending_chat_autocomplete_request: None,
             chat_sends: ChatSendQueue::new(
                 MAX_PENDING_CHAT_SENDS,
@@ -444,31 +449,12 @@ impl UiRuntime {
         self.chat_autocomplete.selected_index()
     }
 
-    pub fn take_chat_autocomplete_request(&mut self) -> Option<ChatAutocompleteRequest> {
-        self.pending_chat_autocomplete_request.take()
+    pub fn chat_usage_hint(&self) -> Option<&str> {
+        self.chat_usage_hint.as_deref()
     }
 
-    pub fn complete_chat_autocomplete(&mut self, request: ChatAutocompleteRequest) -> bool {
-        // Protocol 1001 UpdateSoftEnum packets are unsolicited catalog deltas and carry no
-        // editor request identifier. Query the immutable catalog snapshot locally, then apply
-        // the result only through the exact session/input/request correlation below.
-        let Ok(completion) = self
-            .chat_autocomplete_catalog
-            .complete(&request.input, usize::from(request.cursor_byte))
-        else {
-            return false;
-        };
-        matches!(
-            self.chat_autocomplete
-                .apply_response(ChatAutocompleteResponse {
-                    session: request.session,
-                    input_revision: request.input_revision,
-                    request_id: request.request_id,
-                    catalog_revision: completion.catalog_revision,
-                    suggestions: completion.suggestions,
-                }),
-            Ok(ui::ChatAutocompleteApply::Applied)
-        )
+    pub fn take_chat_autocomplete_request(&mut self) -> Option<ChatAutocompleteRequest> {
+        self.pending_chat_autocomplete_request.take()
     }
 
     pub fn service_pending_chat_autocomplete(&mut self) -> bool {
@@ -537,39 +523,6 @@ impl UiRuntime {
         };
         self.replace_chat_editor(&entry);
         true
-    }
-
-    pub fn handle_chat_ui_action(&mut self, action: UiAction) -> bool {
-        let Some(suggestion) = self.chat_autocomplete.handle_action(action) else {
-            return false;
-        };
-        self.replace_chat_editor(&suggestion);
-        true
-    }
-
-    pub fn handle_chat_ui_action_with_suggestion_hit(
-        &mut self,
-        action: UiAction,
-        suggestion_hit: Option<usize>,
-    ) -> bool {
-        if let UiAction::PointerPrimary {
-            position: _,
-            phase: ui::PointerPhase::Pressed,
-        } = action
-        {
-            let Some(index) = suggestion_hit else {
-                return false;
-            };
-            if !self.chat_autocomplete.select_index(index) {
-                return false;
-            }
-            let Some(suggestion) = self.chat_autocomplete.selected_suggestion() else {
-                return false;
-            };
-            self.replace_chat_editor(&suggestion);
-            return true;
-        }
-        self.handle_chat_ui_action(action)
     }
 
     pub fn pending_chat_sends(&self) -> &VecDeque<ChatSendRequest> {
@@ -695,6 +648,7 @@ impl UiRuntime {
         self.chat_input_revision = 0;
         self.chat_autocomplete.begin_session(session_id);
         self.chat_autocomplete_catalog = ChatAutocompleteCatalog::default();
+        self.chat_usage_hint = None;
         self.pending_chat_autocomplete_request = None;
         self.in_flight_chat_send = None;
         let dropped = self.chat_sends.begin_session(session_id);
@@ -742,6 +696,7 @@ impl UiRuntime {
         self.chat_editor.clear();
         self.chat_history.clear_navigation();
         self.chat_autocomplete.clear();
+        self.chat_usage_hint = None;
         self.pending_chat_autocomplete_request = None;
         UiAuthorityTransition {
             consumes_text: false,
@@ -846,6 +801,10 @@ impl UiRuntime {
                     .map_err(UiRuntimeError::ChatAutocompleteCatalog)?;
                 UiApplyOutcome::Applied
             }
+            UiEvent::AvailableCommands(event) => {
+                self.chat_autocomplete_catalog.apply_commands(event);
+                UiApplyOutcome::Applied
+            }
             UiEvent::Objective(event) => scoreboard_adapter::apply_outcome(
                 self.scoreboards
                     .apply(envelope.fifo_sequence, scoreboard_adapter::objective(event))
@@ -904,6 +863,8 @@ impl UiRuntime {
     }
 
     fn note_chat_editor_change(&mut self) {
+        self.chat_usage_hint = None;
+        self.chat_tab_cycling = false;
         self.chat_input_revision = self.chat_input_revision.saturating_add(1);
         self.pending_chat_autocomplete_request = self
             .chat_autocomplete
