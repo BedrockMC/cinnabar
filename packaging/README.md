@@ -14,6 +14,10 @@ Status: `logs/first-run-status.json`; details: `logs/first-run.log`.
 
 CI: `.github/workflows/package.yml` (tag `v*`). Version comes from `[workspace.package]`.
 
+Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Gatekeeper then blocks
+it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Applications/Cinnabar.app`
+(or uses System Settings > Privacy & Security > Open Anyway).
+
 ## Sign-in
 The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri, code }` exposes the
 code and URL; no packaging-specific UI exists.

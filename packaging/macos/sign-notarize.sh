@@ -1,10 +1,27 @@
 #!/usr/bin/env bash
 # Signs and notarizes a .app or .dmg. Usage: sign-notarize.sh <path/to/Cinnabar.app|Cinnabar.dmg>
 # Env (never committed): CODESIGN_IDENTITY, and either NOTARY_PROFILE (notarytool keychain profile)
-# or APPLE_ID + APPLE_TEAM_ID + APPLE_APP_PASSWORD.
+# or APPLE_ID + APPLE_TEAM_ID + APPLE_APP_PASSWORD. Without CODESIGN_IDENTITY the app is ad-hoc
+# signed and nothing is notarized, so recipients must clear Gatekeeper themselves.
 set -euo pipefail
 target="${1:?usage: sign-notarize.sh <app-or-dmg>}"
-: "${CODESIGN_IDENTITY:?set CODESIGN_IDENTITY to a Developer ID Application identity}"
+
+if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
+    case "$target" in
+        *.app)
+            # Apple Silicon refuses unsigned Mach-O, so every helper gets an ad-hoc signature too.
+            while IFS= read -r -d '' file; do
+                if file "$file" | grep -q 'Mach-O'; then codesign --force --sign - "$file"; fi
+            done < <(find "$target/Contents" -type f -perm -u+x -print0)
+            codesign --force --deep --sign - "$target"
+            codesign --verify --deep --strict --verbose=2 "$target"
+            echo "ad-hoc signed $target (not notarized)"
+            ;;
+        *.dmg) echo "skipping DMG signing: no CODESIGN_IDENTITY" ;;
+        *) echo "unsupported target: $target" >&2; exit 2 ;;
+    esac
+    exit 0
+fi
 
 notary_args=()
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
