@@ -1,11 +1,15 @@
 //! Independently authored player-shaped pack compiled end to end: rig scripts, a nested
 //! root controller, expression channels, and actor-state queries drive the pose.
 use assets::{EntityRigFallback, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
-use client_world::{BoneTransform, WorldStream};
+use client_world::{BoneTransform, LocalPlayerFeed, WorldStream};
 use protocol::{
     ActorActionEvent, ActorActionKind, ActorEvent, ActorKind, ActorMetadata,
-    ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, ItemActorEvent, MovePlayerEvent,
-    MovePlayerMode, WorldBootstrap, WorldEvent,
+    ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent, CapeImage, ItemActorEvent,
+    MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
+    StandardSkin, WorldBootstrap, WorldEvent,
+};
+use render::{
+    ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute, STANDARD_SKIN_BYTES,
 };
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -13,12 +17,12 @@ const ENTITY: &str = r#"{"format_version":"1.26.0","minecraft:client_entity":{"d
  "identifier":"minecraft:player",
  "materials":{"default":"entity_alphatest"},
  "textures":{"default":"textures/entity/steve"},
- "geometry":{"default":"geometry.humanoid.custom"},
+ "geometry":{"default":"geometry.humanoid.custom","cape":"geometry.cape"},
  "scripts":{"scale":"0.9375",
   "initialize":["variable.is_holding_right = 0.0;"],
   "pre_animation":["variable.tcos0 = (Math.cos(query.modified_distance_moved * 38.17) * query.modified_move_speed / variable.gliding_speed_value) * 57.3;"],
   "animate":["root"]},
- "animations":{"root":"controller.animation.player.root","look":"controller.animation.humanoid.look_at_target","look_default":"animation.humanoid.look_at_target.default","legs":"animation.player.move.legs","attack":"animation.player.attack.rotations","sneak":"animation.player.sneaking","unused":"controller.animation.player.base"},
+ "animations":{"root":"controller.animation.player.root","look":"controller.animation.humanoid.look_at_target","look_default":"animation.humanoid.look_at_target.default","legs":"animation.player.move.legs","attack":"animation.player.attack.rotations","sneak":"animation.player.sneaking","fp_base":"animation.player.first_person.base_pose","fp_swap":"animation.player.first_person.swap_item","unused":"controller.animation.player.base"},
  "render_controllers":[{"controller.render.player.first_person":"variable.is_first_person"},{"controller.render.player.third_person":"!variable.is_first_person"}]}}}"#;
 
 const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.humanoid.custom","texture_width":64,"texture_height":64},"bones":[
@@ -28,17 +32,22 @@ const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[{"des
  {"name":"rightArm","parent":"body","pivot":[-5,22,0],"cubes":[{"origin":[-8,12,-2],"size":[4,12,4],"uv":[40,16]}]},
  {"name":"leftArm","parent":"body","pivot":[5,22,0],"cubes":[{"origin":[4,12,-2],"size":[4,12,4],"uv":[32,48]}]},
  {"name":"rightLeg","parent":"root","pivot":[-1.9,12,0],"cubes":[{"origin":[-3.9,0,-2],"size":[4,12,4],"uv":[0,16]}]},
- {"name":"leftLeg","parent":"root","pivot":[1.9,12,0],"cubes":[{"origin":[-0.1,0,-2],"size":[4,12,4],"uv":[16,48]}]}]}]}"#;
+ {"name":"leftLeg","parent":"root","pivot":[1.9,12,0],"cubes":[{"origin":[-0.1,0,-2],"size":[4,12,4],"uv":[16,48]}]}]},
+ {"description":{"identifier":"geometry.cape","texture_width":64,"texture_height":32},"bones":[
+ {"name":"body","pivot":[0,24,0]},
+ {"name":"cape","parent":"body","pivot":[0,24,3],"rotation":[0,180,0],"cubes":[{"origin":[-5,8,3],"size":[10,16,1],"uv":[0,0]}]}]}]}"#;
 
 const ANIMATIONS: &str = r#"{"format_version":"1.8.0","animations":{
  "animation.humanoid.look_at_target.default":{"loop":true,"bones":{"head":{"relative_to":{"rotation":"entity"},"rotation":["query.target_x_rotation","query.target_y_rotation",0.0]}}},
  "animation.player.move.legs":{"loop":true,"bones":{"leftleg":{"rotation":["variable.tcos0 * -1.4",0.0,0.0]},"rightleg":{"rotation":["variable.tcos0 * 1.4",0.0,0.0]}}},
  "animation.player.attack.rotations":{"loop":true,"bones":{"rightarm":{"rotation":["-math.sin(variable.attack_time * 180) * 30",0.0,0.0]}}},
- "animation.player.sneaking":{"loop":true,"bones":{"root":{"rotation":["28.0 - this",0.0,0.0]}}}}}"#;
+ "animation.player.sneaking":{"loop":true,"bones":{"root":{"rotation":["28.0 - this",0.0,0.0]}}},
+ "animation.player.first_person.base_pose":{"loop":true,"bones":{"body":{"rotation":["query.target_x_rotation","query.target_y_rotation",0.0]}}},
+ "animation.player.first_person.swap_item":{"loop":true,"bones":{"rightarm":{"position":[0.0,"-10.0 * (1.0 - variable.player_arm_height)",0.0]}}}}}"#;
 
 const CONTROLLERS: &str = r#"{"format_version":"1.10.0","animation_controllers":{
  "controller.animation.player.root":{"initial_state":"first_person","states":{
-  "first_person":{"transitions":[{"third_person":"!variable.is_first_person"}]},
+  "first_person":{"animations":["fp_base","fp_swap"],"transitions":[{"third_person":"!variable.is_first_person"}]},
   "third_person":{"animations":[{"look":"!query.is_sleeping && !query.is_emoting"},"legs",{"attack":"variable.attack_time > 0.0"},{"sneak":"query.is_sneaking"},{"missing_clip":"query.get_equipped_item_name == 'bow'"}],
    "transitions":[{"first_person":"variable.is_first_person"}]}}},
  "controller.animation.humanoid.look_at_target":{"initial_state":"default","states":{"default":{"animations":["look_default"]}}}}}"#;
@@ -149,7 +158,16 @@ fn move_player(x: f32, yaw: f32, pitch: f32, tick: u64) -> WorldEvent {
 }
 
 fn bone(world: &WorldStream, entities: &RuntimeEntityAssets, name: &str) -> BoneTransform {
-    let rig = world.actor_rig(42).unwrap();
+    bone_of(world, entities, 42, name)
+}
+
+fn bone_of(
+    world: &WorldStream,
+    entities: &RuntimeEntityAssets,
+    runtime_id: u64,
+    name: &str,
+) -> BoneTransform {
+    let rig = world.actor_rig(runtime_id).unwrap();
     let geometry = entities.rig_geometries()[rig.rig.0 as usize].geometry as usize;
     let index = entities.geometries()[geometry]
         .bones
@@ -318,4 +336,120 @@ fn rig_frame_front_faces_the_yaw_and_its_right_side_faces_the_models_right() {
         close(at(0.0, [0.0, 1.0, 0.0]), [0.0, 2.0, 0.0]),
         "scaled about the feet"
     );
+}
+
+fn skinned_player_list(skin: u8, cape: u8) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::PlayerList(PlayerListUpdateEvent {
+        entries: Arc::from([PlayerListEntry::Add {
+            uuid: [7; 16],
+            unique_id: -42,
+            username: "remote".into(),
+            verified: true,
+            skin: PlayerSkin::Standard(StandardSkin {
+                cape: Some(CapeImage {
+                    width: 64,
+                    height: 32,
+                    rgba8: vec![cape; 64 * 32 * 4].into(),
+                }),
+                width: 64,
+                height: 64,
+                rgba8: vec![skin; STANDARD_SKIN_BYTES].into(),
+            }),
+        }]),
+    }))
+}
+
+// Players draw from their own skin, never pack artwork: the body samples its skin layer and the
+// cape samples the layer appended after it.
+#[test]
+fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
+    use crate::presentation::{actors, cape};
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    world.submit(1, skinned_player_list(200, 90)).unwrap();
+    world.submit(2, spawn_player()).unwrap();
+    world.advance_actor_interpolation_ticks(2);
+    let rig = world.actor_rig(42).unwrap();
+    let body = actors::actor_rig_presentation(
+        &rig,
+        world.actor(42).unwrap(),
+        world.actor_player_profile(42),
+        0.5,
+    )
+    .unwrap();
+    let mut batch = actors::select_actor_presentations(1, false, None, [body]);
+    let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
+    let mut capes = cape::CapeState::default();
+    let cape_rig = capes.rig(Some(&entities)).expect("cape geometry resolves");
+    scene.insert_geometry(cape_rig.geometry.clone()).unwrap();
+    cape::apply_capes(
+        &mut batch,
+        cape_rig,
+        |runtime_id| world.actor_rig(runtime_id),
+        |runtime_id| world.actor_player_profile(runtime_id),
+    );
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
+    assert_eq!(frame.rig.rejects, ActorRigRejects::default());
+    let layers = frame
+        .rig
+        .manifest
+        .iter()
+        .zip(frame.rig.instances.iter())
+        .map(|(entry, instance)| (entry.identity.layer, entry.route, instance.texture_layer))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        layers,
+        [
+            (ACTOR_LAYER_BODY, ActorRigRoute::Compiled, 0),
+            (cape::ACTOR_LAYER_CAPE, ActorRigRoute::Compiled, 1),
+        ]
+    );
+    let (skin, cape) = frame.skins_rgba8.split_at(STANDARD_SKIN_BYTES);
+    assert!(skin.iter().all(|byte| *byte == 200));
+    assert!(cape.len() == STANDARD_SKIN_BYTES && cape.iter().all(|byte| *byte == 90));
+}
+
+fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
+    LocalPlayerFeed {
+        uuid: [5; 16],
+        username: "local".into(),
+        skin: PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
+        position: [0.0, 64.0, 0.0],
+        velocity: [0.0; 3],
+        on_ground: true,
+        yaw: 30.0,
+        head_yaw: 30.0,
+        pitch: 40.0,
+        main_hand: main_hand.map(Arc::from),
+        off_hand: None,
+        teleported: false,
+        first_person: true,
+        sneaking: false,
+        sprinting: false,
+        item_use: Default::default(),
+    }
+}
+
+// First person ignores the view rotation (the camera carries it) and lowers the arm only while
+// a newly selected item equips.
+#[test]
+fn first_person_pose_ignores_the_view_and_dips_the_arm_while_an_item_equips() {
+    let entities = entities();
+    let mut world = stream(Arc::clone(&entities));
+    let step = |main_hand: Option<&str>, world: &mut WorldStream| {
+        world.sync_local_player_pose(&local_feed(main_hand));
+        world.advance_actor_interpolation_ticks(1);
+        bone_of(world, &entities, 1, "rightArm").translation_scale[1]
+    };
+    let rest = (0..3).map(|_| step(None, &mut world)).last().unwrap();
+    assert!(!turned(bone_of(&world, &entities, 1, "body")));
+    assert_eq!(rest, 22.0, "a settled arm keeps its authored height");
+    let swap = (0..8)
+        .map(|_| step(Some("minecraft:stick"), &mut world))
+        .collect::<Vec<_>>();
+    assert!(
+        swap[..3].iter().any(|height| *height < rest - 5.0),
+        "{swap:?}"
+    );
+    assert_eq!(swap.last(), Some(&rest), "{swap:?}");
 }
