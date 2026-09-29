@@ -184,8 +184,8 @@ animated rig remotes use. All three below flow from that.
 - Title/subtitle/action bar centered, magnified, alpha-faded from SetTitle timings; placement constants need measurement (uncompiled).
 - Screen overlays: see the camera section (dedicated overlay pass landed uncompiled; underwater overlay not listed there) (MED). No red damage flash is correct.
 - Boss-bar colors/notches approximate; effect-blink approximate; boss-bar Java sprites (no source pack carries them; notches stay procedural) (LOW). Hardcore hearts ship via the optional `make hud-extras-assets` carrier. Heart jitter/regen wave, hunger shake, boxed sliding toasts, distance-scaled player nametags added uncompiled; nametags (players and flagged mobs) use a collision-ray see-through rule. Offhand handedness has no Bedrock source.
-- Chat/killfeed: unicode and format-code glyphs not rendering (open font / text renderer
-  coverage) — garbled server killfeed text (MED, confirmed live).
+- Chat/killfeed glyphs: ranges widened (IPA/small caps, super/subscripts, number forms) and zero-width/control/variation-selector code points now lay out as nothing; needs `make assets` and live recheck of the garbling (MED).
+- Round 3, all uncompiled: AvailableCommands drives chat suggestions (names, enums, soft enums, targets, usage hint, permission filter, Tab cycling; Enter always sends); F2 screenshot to `screenshots/` with chat confirmation (UTC names); bed screen (sleep tint, Leave Bed, StopSleeping; tint timing/colour and button geometry need measurement); F3 debug overlay (targeted block shows runtime id only; no block-name lookup).
 - Faithful already: hotbar, hearts/armor/absorption, hunger, air, XP, crosshair.
 
 ## Camera / view (Bedrock target)

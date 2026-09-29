@@ -1,0 +1,163 @@
+//! Bedrock `§` formatting-code parser.
+
+use super::{BedrockColor, MAX_TEXT_SPANS, TextError, TextSpan, TextSpans, TextStyle};
+
+pub fn parse_bedrock_text(text: &str, max_bytes: usize) -> Result<TextSpans, TextError> {
+    parse_bedrock_text_with_style(text, max_bytes, TextStyle::default())
+}
+
+pub(super) fn parse_bedrock_text_with_style(
+    text: &str,
+    max_bytes: usize,
+    base_style: TextStyle,
+) -> Result<TextSpans, TextError> {
+    if text.len() > max_bytes {
+        return Err(TextError::TextBytesExceeded {
+            actual: text.len(),
+            limit: max_bytes,
+        });
+    }
+
+    let mut spans = Vec::new();
+    let mut buffer = String::new();
+    let mut style = base_style;
+    let mut characters = NormalizedChars::new(text).peekable();
+    while let Some(character) = characters.next() {
+        if character != '§' {
+            buffer.push(character);
+            continue;
+        }
+
+        let Some(code) = characters.peek().copied() else {
+            buffer.push(character);
+            continue;
+        };
+        let Some(change) = formatting_change(code) else {
+            buffer.push(character);
+            buffer.push(code);
+            characters.next();
+            continue;
+        };
+
+        push_span(&mut spans, &mut buffer, style)?;
+        characters.next();
+        match change {
+            FormattingChange::Color(color) => {
+                style.color = color;
+            }
+            FormattingChange::Obfuscated => style.obfuscated = true,
+            FormattingChange::Bold => style.bold = true,
+            FormattingChange::Italic => style.italic = true,
+            FormattingChange::Reset => style = base_style,
+        }
+    }
+    push_span(&mut spans, &mut buffer, style)?;
+    Ok(TextSpans(spans))
+}
+
+struct NormalizedChars<'a> {
+    characters: std::iter::Peekable<std::str::Chars<'a>>,
+}
+
+impl<'a> NormalizedChars<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            characters: text.chars().peekable(),
+        }
+    }
+}
+
+impl Iterator for NormalizedChars<'_> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let character = self.characters.next()?;
+        if character == '\r' && self.characters.peek() == Some(&'\n') {
+            self.characters.next();
+            return Some('\n');
+        }
+        Some(character)
+    }
+}
+
+fn push_span(
+    spans: &mut Vec<TextSpan>,
+    buffer: &mut String,
+    style: TextStyle,
+) -> Result<(), TextError> {
+    if buffer.is_empty() {
+        return Ok(());
+    }
+    if let Some(previous) = spans.last_mut().filter(|span| span.style == style) {
+        let mut joined = String::with_capacity(previous.text.len() + buffer.len());
+        joined.push_str(&previous.text);
+        joined.push_str(buffer);
+        previous.text = joined.into_boxed_str();
+        buffer.clear();
+        return Ok(());
+    }
+    let actual = spans
+        .len()
+        .checked_add(1)
+        .ok_or(TextError::FixedPointOverflow)?;
+    if actual > MAX_TEXT_SPANS {
+        return Err(TextError::SpanLimitExceeded {
+            actual,
+            limit: MAX_TEXT_SPANS,
+        });
+    }
+    spans.push(TextSpan {
+        text: std::mem::take(buffer).into_boxed_str(),
+        style,
+    });
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum FormattingChange {
+    Color(BedrockColor),
+    Obfuscated,
+    Bold,
+    Italic,
+    Reset,
+}
+
+fn formatting_change(code: char) -> Option<FormattingChange> {
+    use BedrockColor as Color;
+    use FormattingChange as Change;
+    Some(match code.to_ascii_lowercase() {
+        '0' => Change::Color(Color::Black),
+        '1' => Change::Color(Color::DarkBlue),
+        '2' => Change::Color(Color::DarkGreen),
+        '3' => Change::Color(Color::DarkAqua),
+        '4' => Change::Color(Color::DarkRed),
+        '5' => Change::Color(Color::DarkPurple),
+        '6' => Change::Color(Color::Gold),
+        '7' => Change::Color(Color::Gray),
+        '8' => Change::Color(Color::DarkGray),
+        '9' => Change::Color(Color::Blue),
+        'a' => Change::Color(Color::Green),
+        'b' => Change::Color(Color::Aqua),
+        'c' => Change::Color(Color::Red),
+        'd' => Change::Color(Color::LightPurple),
+        'e' => Change::Color(Color::Yellow),
+        'f' => Change::Color(Color::White),
+        'g' => Change::Color(Color::MinecoinGold),
+        'h' => Change::Color(Color::MaterialQuartz),
+        'i' => Change::Color(Color::MaterialIron),
+        'j' => Change::Color(Color::MaterialNetherite),
+        'm' => Change::Color(Color::MaterialRedstone),
+        'n' => Change::Color(Color::MaterialCopper),
+        'p' => Change::Color(Color::MaterialGold),
+        'q' => Change::Color(Color::MaterialEmerald),
+        's' => Change::Color(Color::MaterialDiamond),
+        't' => Change::Color(Color::MaterialLapis),
+        'u' => Change::Color(Color::MaterialAmethyst),
+        'v' => Change::Color(Color::MaterialResin),
+        'k' => Change::Obfuscated,
+        'l' => Change::Bold,
+        'o' => Change::Italic,
+        'r' => Change::Reset,
+        _ => return None,
+    })
+}

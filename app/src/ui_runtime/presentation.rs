@@ -39,7 +39,6 @@ mod hud_extras;
 mod hud_layout;
 pub(crate) mod inventory_pointer;
 mod inventory_tooltip;
-pub(crate) mod screens;
 mod item_sprite;
 mod item_viewmodel;
 mod menu;
@@ -49,6 +48,7 @@ mod player_preview;
 mod primitives;
 mod publish;
 mod retained_hud;
+pub(crate) mod screens;
 mod session_icons;
 pub(crate) use hud_extras::load_optional as load_optional_hud_extras;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
@@ -848,37 +848,13 @@ impl UiPresentationRuntime {
             );
             next_id = next_id.saturating_add(1);
 
-            for (_, layout, y, bottom, color, selected) in &positioned_suggestions {
-                nodes.push(
-                    UiNode::new(
-                        UiNodeId::new(next_id),
-                        None,
-                        rect(chat_left - 2.0, *y, chat_right, *bottom)?,
-                    )
-                    .with_visual(UiVisual::Solid {
-                        texture_page: self.solid_texture_page,
-                        color: if *selected {
-                            [96, 96, 96, 224]
-                        } else {
-                            [0, 0, 0, 192]
-                        },
-                    }),
-                );
-                next_id = next_id.saturating_add(1);
-                nodes.push(
-                    UiNode::new(
-                        UiNodeId::new(next_id),
-                        None,
-                        rect(chat_left, *y, chat_right, *bottom)?,
-                    )
-                    .with_visual(UiVisual::Text {
-                        layout: Arc::clone(layout),
-                        color: *color,
-                        shadow: metrics.shadow(),
-                    }),
-                );
-                next_id = next_id.saturating_add(1);
-            }
+            self.append_suggestion_nodes(
+                &mut nodes,
+                &mut next_id,
+                &positioned_suggestions,
+                [chat_left, chat_right],
+                metrics,
+            )?;
         }
 
         let menu_hit_targets = self.append_menu(
