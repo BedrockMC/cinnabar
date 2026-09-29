@@ -14,9 +14,9 @@ use bevy::{
     },
 };
 use render::{
-    AtmosphereFrame, AtmospherePlugin, ChunkRenderPlugin, NIGHT_SKY_TRANSFER,
+    AtmosphereFrame, AtmospherePlugin, CLOUD_ALPHA, ChunkRenderPlugin,
     PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH, PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS,
-    PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, cloud_directional_illuminance, cloud_fog_factor,
+    PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, cloud_colour, cloud_distance_fade, cloud_face_shade,
     cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
 };
 
@@ -242,7 +242,7 @@ fn moon_phase_tiles_follow_the_authoritative_four_by_two_atlas_order() {
 #[test]
 fn cloud_motion_uses_absolute_ticks_and_wraps_euclidean_at_one_texture_period() {
     assert_eq!(cloud_texture_offset(0.0), [0.0, 0.0]);
-    let one_texture_period_ticks = 256.0 / 0.03;
+    let one_texture_period_ticks = 4096.0 / 0.02;
     let wrapped = cloud_texture_offset(one_texture_period_ticks);
     assert!(
         wrapped[0] < 1.0e-5 || wrapped[0] > 1.0 - 1.0e-5,
@@ -254,27 +254,28 @@ fn cloud_motion_uses_absolute_ticks_and_wraps_euclidean_at_one_texture_period() 
     let before_period_end = cloud_texture_offset(one_texture_period_ticks - 1.0);
     assert!((before_zero[0] - before_period_end[0]).abs() < 1.0e-5);
 
+    // 24,000 ticks drift 480 blocks toward -X.
     let next_day = cloud_texture_offset(24_000.0);
-    assert!((next_day[0] - 0.8125).abs() < 1.0e-6, "{next_day:?}");
+    assert!(
+        (next_day[0] - (1.0 - 480.0 / 4096.0)).abs() < 1.0e-6,
+        "{next_day:?}"
+    );
 }
 
 #[test]
-fn cloud_texture_feature_moves_east_in_world_space_as_ticks_increase() {
+fn clouds_drift_west_two_hundredths_of_a_block_per_tick() {
     fn world_x_for_feature(texture_u: f64, absolute_ticks: f64) -> f64 {
         let offset = f64::from(cloud_texture_offset(absolute_ticks)[0]);
-        (texture_u + offset) * 256.0
+        (texture_u + offset) * 4096.0
     }
 
     let start = world_x_for_feature(0.25, 0.0);
-    let later = world_x_for_feature(0.25, 100.0);
-    assert!((later - start - 3.0).abs() < 1.0e-5, "{start} -> {later}");
+    let later = world_x_for_feature(0.25, 1500.0);
+    let moved = (later - start).rem_euclid(4096.0) - 4096.0;
+    assert!((moved + 30.0).abs() < 1.0e-3, "{start} -> {later}");
 
     let shader = include_str!("../src/cloud.wgsl");
-    assert!(
-        shader.contains("atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"),
-        "the positive normalized texture offset must become a +X world offset"
-    );
-    assert!(!shader.contains("- atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"));
+    assert!(shader.contains("atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"));
 }
 
 #[test]
@@ -297,57 +298,50 @@ fn cloud_weather_colours_use_exact_native_values_and_contributions() {
 }
 
 #[test]
-fn cloud_directional_illuminance_tracks_face_normal_sun_and_daylight() {
-    assert_eq!(
-        cloud_directional_illuminance([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], 1.0),
-        1.0
-    );
-    assert_eq!(
-        cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 1.0),
-        0.55
-    );
-    assert_eq!(
-        cloud_directional_illuminance([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.5),
-        0.5
-    );
-    assert_eq!(
-        cloud_directional_illuminance([-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.5),
-        0.275
-    );
-    assert_eq!(
-        cloud_directional_illuminance([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], 0.0),
-        NIGHT_SKY_TRANSFER,
-        "night clouds retain the same provisional sky-transfer floor as terrain"
-    );
-    assert!(
-        (cloud_directional_illuminance([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 0.0,)
-            - NIGHT_SKY_TRANSFER * 0.55)
-            .abs()
-            < 1.0e-6,
-        "night underside keeps bounded directional ambient instead of black"
-    );
-    assert_eq!(
-        cloud_directional_illuminance([f32::NAN; 3], [f32::INFINITY; 3], f32::NAN),
-        0.0
-    );
+fn cloud_faces_carry_the_vanilla_baked_shade() {
+    assert_eq!(cloud_face_shade([0.0, 1.0, 0.0]), 1.0);
+    assert_eq!(cloud_face_shade([0.0, -1.0, 0.0]), 0.75);
+    assert!((cloud_face_shade([1.0, 0.0, 0.0]) - 0.925).abs() < 1.0e-6);
+    assert!((cloud_face_shade([-1.0, 0.0, 0.0]) - 0.925).abs() < 1.0e-6);
+    assert_eq!(cloud_face_shade([0.0, 0.0, 1.0]), 1.0);
+    assert_eq!(cloud_face_shade([f32::NAN; 3]), 1.0);
 }
 
 #[test]
-fn cloud_fog_factor_is_a_finite_step_for_collapsed_or_reversed_ranges() {
-    assert_eq!(cloud_fog_factor(63.999, 64.0, 64.0), 0.0);
-    assert_eq!(cloud_fog_factor(64.0, 64.0, 64.0), 1.0);
-
-    // The cloud coverage cap can place the effective end below a valid
-    // render-relative start. This becomes an explicit step at the cap.
-    assert_eq!(cloud_fog_factor(254.999, 256.0, 256.0), 0.0);
-    assert_eq!(cloud_fog_factor(255.0, 256.0, 256.0), 1.0);
-    assert_eq!(cloud_fog_factor(0.0, 1.0e30, 255.0), 0.0);
-
-    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        assert_eq!(cloud_fog_factor(invalid, 0.0, 255.0), 1.0);
-        assert_eq!(cloud_fog_factor(0.0, invalid, 255.0), 1.0);
-        assert_eq!(cloud_fog_factor(0.0, 0.0, invalid), 1.0);
+fn cloud_colour_follows_day_brightness_weather_and_fixed_alpha() {
+    assert_eq!(cloud_colour(0.0, 0.0, 0.0, [0.0; 4]), [1.0, 1.0, 1.0, 0.7]);
+    let night = cloud_colour(0.5, 0.0, 0.0, [0.0; 4]);
+    for (channel, expected) in night.into_iter().zip([0.1, 0.1, 0.15, 0.7]) {
+        assert!((channel - expected).abs() < 1.0e-6, "{night:?}");
     }
+    let rain = cloud_colour(0.0, 1.0, 0.0, [0.0; 4]);
+    let tint = 1.0 + (191.0_f32 / 255.0 - 1.0) * 0.95;
+    assert!((rain[0] - tint).abs() < 1.0e-6 && (rain[2] - tint).abs() < 1.0e-6);
+    let dawn = cloud_colour(0.0, 0.0, 0.0, [1.0, 0.0, 0.0, 1.0]);
+    assert!((dawn[1] - 0.65).abs() < 1.0e-6 && (dawn[0] - 1.0).abs() < 1.0e-6);
+    assert_eq!(CLOUD_ALPHA, 0.7);
+}
+
+#[test]
+fn cloud_alpha_fades_from_nine_tenths_to_nineteen_tenths_of_the_distance() {
+    assert_eq!(cloud_distance_fade(0.0, 768.0), 1.0);
+    assert!((cloud_distance_fade(0.9 * 768.0, 768.0) - 1.0).abs() < 1.0e-6);
+    assert!((cloud_distance_fade(1.4 * 768.0, 768.0) - 0.5).abs() < 1.0e-5);
+    assert_eq!(cloud_distance_fade(1.9 * 768.0, 768.0), 0.0);
+    assert_eq!(
+        cloud_distance_fade(5000.0, 0.0),
+        1.0,
+        "unset distance never fades"
+    );
+    assert_eq!(cloud_distance_fade(f32::NAN, 768.0), 0.0);
+    let frame = AtmosphereFrame::default().with_cloud_fade_distance(768.0);
+    assert_eq!(frame.cloud_fade_distance(), 768.0);
+    assert_eq!(
+        frame
+            .with_cloud_fade_distance(f32::NAN)
+            .cloud_fade_distance(),
+        0.0
+    );
 }
 
 #[test]

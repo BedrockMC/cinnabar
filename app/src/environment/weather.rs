@@ -8,17 +8,17 @@ use bevy::{
 use client_world::WorldStream;
 use meshing::CameraMedium;
 use render::{
-    AtmosphereFrame, ColumnSample, ColumnSampler, LightningScene, PRECIPITATION_LEVEL_PER_SECOND,
-    PRECIPITATION_SAMPLE_OFFSETS, PrecipitationMix, PrecipitationScene, RainSplashQueue, SkyKind,
-    approach_level, average_precipitation, build_precipitation_columns, lightning_bolt_segments,
-    lightning_flash_level, pick_rain_splashes, precipitation_clock, push_bolt_records,
+    AtmosphereFrame, ColumnSample, ColumnSampler, LightningScene, OcclusionGrid,
+    PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND,
+    PrecipitationMix, PrecipitationScene, PrecipitationSim, RainSplashQueue, SkyKind,
+    approach_level, average_precipitation, lightning_bolt_segments, lightning_flash_level,
+    pick_rain_splashes, precipitation_forward_offset, push_bolt_records,
 };
 
 use super::WeatherState;
 use crate::{camera::FlyCamera, runtime::world::ClientWorld};
 
 const MAX_FRAME_STEP_SECONDS: f64 = 1.0;
-const REBUILD_INTERVAL_SECONDS: f64 = 0.1;
 const MAX_QUEUED_SPLASHES: usize = 256;
 /// Ticks a bolt stays drawn after it spawns; needs native measurement.
 const BOLT_VISIBLE_TICKS: u32 = 8;
@@ -140,11 +140,28 @@ impl ColumnSampler for StreamColumns<'_> {
     }
 }
 
-#[derive(Default)]
+/// Occlusion columns re-sampled per tick; the whole grid refreshes about every 0.8 s.
+const OCCLUSION_REFRESH_PER_TICK: usize = 256;
+/// Most simulation ticks replayed after a stall.
+const MAX_CATCH_UP_TICKS: u64 = 10;
+const PRECIPITATION_SEED: u64 = 0x5241_494e;
+
 pub(crate) struct PrecipitationCadence {
-    last_rebuild: Option<f64>,
-    last_tick: u64,
-    eased_share: f32,
+    sim: PrecipitationSim,
+    grid: OcclusionGrid,
+    cursor: usize,
+    last_tick: Option<u64>,
+}
+
+impl Default for PrecipitationCadence {
+    fn default() -> Self {
+        Self {
+            sim: PrecipitationSim::new(PRECIPITATION_SEED),
+            grid: OcclusionGrid::default(),
+            cursor: 0,
+            last_tick: None,
+        }
+    }
 }
 
 /// Biome (temperature, downfall) at a block position, when its chunk and biome are known.
@@ -158,7 +175,7 @@ fn biome_climate(
     Some((rule.temperature(), rule.downfall()))
 }
 
-/// Rebuilds the precipitation scene around the camera and queues rain splashes for the particle system.
+/// Ticks the vanilla precipitation layers, refreshes the occlusion grid and queues rain splashes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_precipitation_scene(
     frame: Res<AtmosphereFrame>,
@@ -178,27 +195,27 @@ pub(crate) fn update_precipitation_scene(
         camera,
         level > 0.0 && frame.sky_kind() == SkyKind::Overworld,
     ) else {
-        scene.columns.clear();
-        scene.level = 0.0;
+        scene.layers.clear();
         *mix = PrecipitationMix::default();
-        cadence.eased_share = 0.0;
-        cadence.last_rebuild = None;
+        *cadence = PrecipitationCadence::default();
         return;
     };
     let elapsed = time.elapsed_secs_f64();
-    scene.clock = precipitation_clock(elapsed);
-    if cadence
-        .last_rebuild
-        .is_none_or(|last| elapsed - last >= REBUILD_INTERVAL_SECONDS)
-    {
-        cadence.last_rebuild = Some(elapsed);
-        let rules = &client_world.runtime_assets.biome_assets().rules;
-        let origin = camera.translation.to_array();
+    let ticks = elapsed * PRECIPITATION_TICKS_PER_SECOND;
+    let tick = ticks as u64;
+    let origin = camera.translation.to_array();
+    let rules = &client_world.runtime_assets.biome_assets().rules;
+    let pending = cadence
+        .last_tick
+        .map_or(1, |last| tick.saturating_sub(last).min(MAX_CATCH_UP_TICKS));
+    if pending > 0 {
+        cadence.last_tick = Some(tick);
+        let feet = origin.map(f32::floor);
         let samples = PRECIPITATION_SAMPLE_OFFSETS.map(|offset| {
             let position = [
-                origin[0] + offset[0] as f32,
-                origin[1] + offset[1] as f32,
-                origin[2] + offset[2] as f32,
+                feet[0] + offset[0] as f32,
+                feet[1] + offset[1] as f32,
+                feet[2] + offset[2] as f32,
             ];
             biome_climate(stream, rules, position)
                 .map(|(temperature, downfall)| (temperature, downfall, position[1] as i32))
@@ -208,28 +225,41 @@ pub(crate) fn update_precipitation_scene(
             rain: averaged.rain * level,
             snow: averaged.snow * level,
         };
+        let weights = averaged.lattice_weights(level);
+        for step in 0..pending {
+            let seconds = (tick - (pending - 1 - step)) as f64 / PRECIPITATION_TICKS_PER_SECOND;
+            cadence.sim.tick(weights, seconds as f32);
+        }
+        let PrecipitationCadence { grid, cursor, .. } = &mut *cadence;
         let mut columns = StreamColumns { stream, rules };
-        build_precipitation_columns(
+        let refresh = OCCLUSION_REFRESH_PER_TICK * pending as usize;
+        grid.update(
+            OcclusionGrid::origin_for(origin),
             &mut columns,
-            camera.translation.to_array(),
-            &mut scene.columns,
+            cursor,
+            refresh,
         );
-    }
-    // Ease the sheet opacity so crossing a biome edge fades rather than pops.
-    let share = (mix.rain + mix.snow).min(level);
-    let blend = 1.0 - (-time.delta_secs() * 2.0).exp();
-    cadence.eased_share += (share - cadence.eased_share) * blend;
-    scene.level = cadence.eased_share;
-    let tick = (elapsed * 20.0) as u64;
-    if tick != cadence.last_tick {
-        cadence.last_tick = tick;
+        scene.occlusion = std::sync::Arc::new(grid.clone());
+        scene.occlusion_generation = scene.occlusion_generation.wrapping_add(1);
         if splashes.positions.len() > MAX_QUEUED_SPLASHES {
             splashes.positions.clear();
         }
         let mut picked = Vec::new();
-        pick_rain_splashes(&scene.columns, level, tick, &mut picked);
+        pick_rain_splashes(grid, level, tick, &mut picked);
         splashes.positions.extend(picked);
     }
+    scene.forward_offset = precipitation_forward_offset(camera.forward().as_vec3().to_array());
+    let PrecipitationScene {
+        layers,
+        forward_offset,
+        ..
+    } = &mut *scene;
+    cadence.sim.frame(
+        camera.translation.as_dvec3().to_array(),
+        *forward_offset,
+        ticks.fract() as f32,
+        layers,
+    );
 }
 
 /// Flashes the sky when a lightning-bolt actor first appears and draws live bolts.

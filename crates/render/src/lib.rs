@@ -76,11 +76,11 @@ pub use actor::{
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
-    AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_SCROLL_BLOCKS_PER_TICK,
-    CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile, PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH,
-    PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS, PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, SkyKind,
-    cloud_directional_illuminance, cloud_fog_factor, cloud_texture_offset, cloud_weather_colour,
-    moon_phase_tile,
+    AtmosphereFrame, AtmosphereTextureAssets, BEDROCK_DAY_TICKS, CLOUD_ALPHA,
+    CLOUD_SCROLL_BLOCKS_PER_TICK, CLOUD_TEXTURE_WORLD_PERIOD, MoonPhaseTile,
+    PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH, PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS,
+    PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, SkyKind, cloud_colour, cloud_distance_fade,
+    cloud_face_shade, cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
 };
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{
@@ -172,10 +172,12 @@ pub use visibility_diagnostics::{
     VisibilityDiagnostics, VisibilityDiagnosticsInput, VisibilityKeyDelta, VisibilityKeyDigest,
 };
 pub use weather::{
-    ColumnSample, ColumnSampler, MAX_PRECIPITATION_COLUMNS, PRECIPITATION_ABOVE_CAMERA,
-    PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_RADIUS, PRECIPITATION_SAMPLE_OFFSETS,
-    Precipitation, PrecipitationColumn, PrecipitationMix, PrecipitationScene, RainSplashQueue,
-    WeatherTextureAssets, altitude_adjusted_temperature, approach_level, average_precipitation,
-    build_precipitation_columns, classify_precipitation, pick_rain_splashes, precipitation_clock,
-    precipitation_wind,
+    ColumnSample, ColumnSampler, LAYERS_PER_KIND, MAX_PRECIPITATION_LAYERS, OCCLUSION_BLOCKED,
+    OCCLUSION_OPEN, OCCLUSION_SIDE, OcclusionGrid, PARTICLE_BOX, PARTICLE_MESH_QUADS,
+    PARTICLE_POOL, PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_SAMPLE_OFFSETS,
+    PRECIPITATION_TICKS_PER_SECOND, Precipitation, PrecipitationLayerRecord, PrecipitationMix,
+    PrecipitationParams, PrecipitationScene, PrecipitationSim, RAIN_PARAMS, RainSplashQueue,
+    SNOW_PARAMS, WeatherTextureAssets, altitude_adjusted_temperature, approach_level,
+    average_precipitation, classify_precipitation, column_heights, particle_mesh,
+    particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
 };

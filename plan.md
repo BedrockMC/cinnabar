@@ -2483,6 +2483,15 @@ store it only under the user's temporary directory, inspect that file, and never
   - [ ] Run fresh release/GDI views against the matching native client for sun
     and all moon phases, including horizon and filter-edge cases, before
     closing the visible defect.
+- [ ] Precipitation parity with the 26.30/1.26.50 `WeatherRenderer` and `Weather`
+  material: ten wrapped 30-block particle layers per kind over a 2,500-quad mesh
+  (925-particle pool), velocity-stretched sheet streaks, exact rain/snow params,
+  UV cells, lattice offsets, intensity smoothing and density, and a 64x64 column
+  occlusion grid replace the per-column Java-style sheet. Provisional, not
+  closing the gate: wind uses our own seeded simplex (not the native permutation),
+  the 0.01-scale per-layer turbulence and block-light tint are omitted, the
+  density-halving view flag is assumed unset, and no native side-by-side capture
+  has been taken.
 - [ ] Replace the current infinitely thin cloud plane with a vanilla-parity
   cloud volume/layer that has visible thickness and side faces while retaining
   bounded GPU cost, world anchoring, weather/fog fades, and the existing shared
@@ -2519,6 +2528,14 @@ store it only under the user's temporary directory, inspect that file, and never
     The opaque/depth-writing/material mismatch is resolved through `87e856f`;
     native mesh size, quality/distance controls, density, scale, thickness,
     silhouette, and live gallery acceptance remain open.
+  - [ ] Apply the 26.30/1.26.50 `Clouds` material and cloud renderer values: one
+    `clouds.png` texel per 16x16 blocks (4,096-block period), a 4-block slab at
+    192.33, baked face shade (top 1, bottom 0.75, x sides 0.925), the
+    `getCloudColor` day/weather/sunrise colour with alpha 0.7, drift 0.02
+    blocks/tick toward -X, and the 0.9D-1.9D distance fade with no fog. Landed
+    provisionally: the pre-Caves-and-Cliffs 128 height, thunder mixing, the
+    sunrise darkening term, above/below face flags and the quality/weather lerp
+    of the fade distance are unverified, and no native gallery was taken.
   - [ ] Implement, independently review, and live-verify the finite cloud mesh.
 
 ## Phase 3 — Movement and the local player `P3-MOVEMENT`

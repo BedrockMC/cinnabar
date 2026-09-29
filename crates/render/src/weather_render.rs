@@ -32,21 +32,24 @@ use crate::{
     AtmosphereFrame,
     atmosphere_render::{AtmosphereGpu, upload_rgba},
     weather::{
-        MAX_PRECIPITATION_COLUMNS, PRECIPITATION_ABOVE_CAMERA, PrecipitationColumn,
-        PrecipitationScene, WeatherTextureAssets, precipitation_wind,
+        MAX_PRECIPITATION_LAYERS, OCCLUSION_SIDE, PrecipitationLayerRecord, PrecipitationScene,
+        WeatherTextureAssets, particle_mesh,
     },
 };
 
 const WEATHER_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5b0f2f6e-6c1d-4a58-9f0a-3f1d7a9e2c11");
-const COLUMN_BYTES: usize = std::mem::size_of::<PrecipitationColumn>();
+const LAYER_BYTES: usize = std::mem::size_of::<PrecipitationLayerRecord>();
 const PARAMS_BYTES: usize = std::mem::size_of::<WeatherParamsGpu>();
+const OCCLUSION_BYTES: usize = 2 * (OCCLUSION_SIDE * OCCLUSION_SIDE) as usize * 4;
+/// Fixed seed so the particle mesh is identical across runs.
+const PARTICLE_MESH_SEED: u64 = 0x5745_4154_4845_5231;
 
-/// Uniform read by `weather.wgsl`: `clock` is time, opacity and wind xz; `extent.x` the sheet height.
+/// Uniform read by `weather.wgsl`: box forward offset plus sheet flag, then the grid origin.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct WeatherParamsGpu {
-    clock: [f32; 4],
-    extent: [f32; 4],
+    forward: [f32; 4],
+    grid: [i32; 4],
 }
 
 pub(crate) fn install_weather_render(app: &mut App) {
@@ -74,7 +77,11 @@ pub(crate) fn install_weather_render(app: &mut App) {
 pub(crate) struct WeatherGpu {
     record_buffer: Buffer,
     params_buffer: Buffer,
-    pub(crate) column_count: u32,
+    particle_buffer: Buffer,
+    occlusion_buffer: Buffer,
+    occlusion_generation: Option<u64>,
+    layer_count: u32,
+    max_particles: u32,
     _sheet: Texture,
     sheet_view: TextureView,
     sheet_identity: Option<[u8; 32]>,
@@ -90,8 +97,18 @@ fn init_weather_gpu(
     render_queue: Res<RenderQueue>,
 ) {
     let record_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("precipitation column records"),
-        contents: &vec![0_u8; MAX_PRECIPITATION_COLUMNS * COLUMN_BYTES],
+        label: Some("precipitation layer records"),
+        contents: &vec![0_u8; MAX_PRECIPITATION_LAYERS * LAYER_BYTES],
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+    });
+    let particle_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("precipitation particle mesh"),
+        contents: bytemuck::cast_slice(&particle_mesh(PARTICLE_MESH_SEED)),
+        usage: BufferUsages::STORAGE,
+    });
+    let occlusion_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("precipitation occlusion grid"),
+        contents: &vec![0_u8; OCCLUSION_BYTES],
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
     });
     let params_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -108,9 +125,9 @@ fn init_weather_gpu(
         "absent precipitation sheet fallback",
     );
     let sampler = render_device.create_sampler(&SamplerDescriptor {
-        label: Some("precipitation sheet repeat sampler"),
-        address_mode_u: AddressMode::Repeat,
-        address_mode_v: AddressMode::Repeat,
+        label: Some("precipitation sheet clamp sampler"),
+        address_mode_u: AddressMode::ClampToEdge,
+        address_mode_v: AddressMode::ClampToEdge,
         mag_filter: FilterMode::Nearest,
         min_filter: FilterMode::Nearest,
         ..default()
@@ -118,7 +135,11 @@ fn init_weather_gpu(
     commands.insert_resource(WeatherGpu {
         record_buffer,
         params_buffer,
-        column_count: 0,
+        particle_buffer,
+        occlusion_buffer,
+        occlusion_generation: None,
+        layer_count: 0,
+        max_particles: 0,
         _sheet: sheet,
         sheet_view,
         sheet_identity: None,
@@ -166,20 +187,34 @@ pub(crate) fn prepare_weather_records(
         gpu.bind_group = None;
     }
     let has_sheet = f32::from(u8::from(sheet.is_some()));
-    let count = scene.columns.len().min(MAX_PRECIPITATION_COLUMNS);
-    gpu.column_count = u32::try_from(count).expect("bounded precipitation column count");
+    let count = scene.layers.len().min(MAX_PRECIPITATION_LAYERS);
+    gpu.layer_count = u32::try_from(count).expect("bounded precipitation layer count");
+    gpu.max_particles = scene.layers[..count]
+        .iter()
+        .map(|layer| layer.particle_count)
+        .max()
+        .unwrap_or(0);
     if count == 0 {
         return;
     }
     render_queue.write_buffer(
         &gpu.record_buffer,
         0,
-        bytemuck::cast_slice::<PrecipitationColumn, u8>(&scene.columns[..count]),
+        bytemuck::cast_slice::<PrecipitationLayerRecord, u8>(&scene.layers[..count]),
     );
-    let wind = precipitation_wind(scene.clock);
+    if gpu.occlusion_generation != Some(scene.occlusion_generation) {
+        gpu.occlusion_generation = Some(scene.occlusion_generation);
+        render_queue.write_buffer(
+            &gpu.occlusion_buffer,
+            0,
+            bytemuck::cast_slice::<i32, u8>(&scene.occlusion.heights),
+        );
+    }
+    let [x, y, z] = scene.forward_offset;
+    let [origin_x, origin_z] = scene.occlusion.origin;
     let params = WeatherParamsGpu {
-        clock: [scene.clock, scene.level, wind[0], wind[1]],
-        extent: [PRECIPITATION_ABOVE_CAMERA, has_sheet, 0.0, 0.0],
+        forward: [x, y, z, has_sheet],
+        grid: [origin_x, origin_z, 0, 0],
     };
     render_queue.write_buffer(&gpu.params_buffer, 0, bytemuck::bytes_of(&params));
 }
@@ -204,21 +239,22 @@ impl FromWorld for WeatherPipeline {
             },
             count: None,
         };
+        let storage = |binding: u32, visibility: ShaderStages, size: usize| BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: BufferSize::new(size as u64),
+            },
+            count: None,
+        };
         let bind_group_layout = BindGroupLayoutDescriptor::new(
             "precipitation bind group layout",
             &[
                 uniform(0, ViewUniform::min_size(), true),
                 uniform(1, AtmosphereFrame::min_size(), false),
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: BufferSize::new(COLUMN_BYTES as u64),
-                    },
-                    count: None,
-                },
+                storage(2, ShaderStages::VERTEX, LAYER_BYTES),
                 uniform(
                     3,
                     BufferSize::new(PARAMS_BYTES as u64).expect("non-zero params size"),
@@ -240,6 +276,8 @@ impl FromWorld for WeatherPipeline {
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
+                storage(6, ShaderStages::VERTEX, 16),
+                storage(7, ShaderStages::FRAGMENT, 4),
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -354,6 +392,14 @@ fn prepare_weather_bind_group(
                 binding: 5,
                 resource: BindingResource::Sampler(&gpu.sampler),
             },
+            BindGroupEntry {
+                binding: 6,
+                resource: gpu.particle_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 7,
+                resource: gpu.occlusion_buffer.as_entire_binding(),
+            },
         ],
     ));
     gpu.view_buffer_id = Some(view_buffer.id());
@@ -369,7 +415,7 @@ fn queue_weather(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if gpu.column_count == 0 || scene.level <= 0.0 {
+    if gpu.layer_count == 0 || gpu.max_particles == 0 || scene.layers.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawWeatherCommands>();
@@ -439,18 +485,19 @@ impl<P: PhaseItem> RenderCommand<P> for DrawWeather {
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let gpu = gpu.into_inner();
-        pass.draw(0..gpu.column_count.saturating_mul(6), 0..1);
+        pass.draw(0..gpu.max_particles.saturating_mul(6), 0..gpu.layer_count);
         RenderCommandResult::Success
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{COLUMN_BYTES, PARAMS_BYTES};
+    use super::{LAYER_BYTES, OCCLUSION_BYTES, PARAMS_BYTES};
 
     #[test]
     fn gpu_records_match_the_wgsl_layouts() {
-        assert_eq!(COLUMN_BYTES, 16);
+        assert_eq!(LAYER_BYTES, 80);
         assert_eq!(PARAMS_BYTES, 32);
+        assert_eq!(OCCLUSION_BYTES, 2 * 64 * 64 * 4);
     }
 }
