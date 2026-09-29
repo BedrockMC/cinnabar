@@ -4,6 +4,10 @@ use std::sync::Arc;
 
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
+#[path = "scene/cache.rs"]
+mod cache;
+use cache::CachedSubmission;
+
 use super::{
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
     banner::BannerModel,
@@ -124,6 +128,10 @@ pub struct BlockEntityScene {
     rejected_quads: u64,
     /// Inputs of the current frame when it holds no clock-driven kind; unchanged inputs reuse it.
     reusable: Option<(Vec<CrackInstance>, Vec<BlockEntitySubmission>)>,
+    /// Static geometry in submission order, limited to the vertices accepted by the last frame.
+    cached_submissions: Vec<Option<CachedSubmission>>,
+    #[cfg(test)]
+    static_rebuilds: usize,
 }
 
 impl BlockEntityScene {
@@ -139,12 +147,14 @@ impl BlockEntityScene {
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
         self.reusable = None;
+        self.cached_submissions.clear();
     }
 
     /// Builds dragon and piglin heads from the entity catalog's geometry.
     pub fn install_entity_assets(&mut self, assets: &assets::RuntimeEntityAssets) {
         self.heads = HeadModels::from_assets(assets);
         self.reusable = None;
+        self.cached_submissions.clear();
     }
 
     #[must_use]
@@ -194,6 +204,7 @@ impl BlockEntityScene {
         }));
         self.mobs = mobs;
         self.reusable = None;
+        self.cached_submissions.clear();
     }
 
     pub fn update(
@@ -221,7 +232,19 @@ impl BlockEntityScene {
             .any(|submission| submission.kind.is_clock_driven()))
         .then(|| (cracks.to_vec(), submissions.to_vec()));
         let mut builder = MeshBuilder::new(atlas.size());
-        for submission in submissions {
+        self.cached_submissions
+            .resize_with(submissions.len(), || None);
+        for (submission, cached) in submissions.iter().zip(&mut self.cached_submissions) {
+            let is_static = !submission.kind.is_clock_driven();
+            if is_static
+                && let Some(previous) = cached.as_ref()
+                && previous.matches(submission, &builder)
+            {
+                previous.append_to(&mut builder);
+                continue;
+            }
+            let start = cache::vertex_counts(&builder);
+            let rejected_before = builder.rejected_quads;
             builder.light = submission.light.clamp(0.0, 1.0);
             emit_submission(
                 &mut builder,
@@ -230,6 +253,13 @@ impl BlockEntityScene {
                 submission,
                 clock,
             );
+            *cached = is_static.then(|| {
+                #[cfg(test)]
+                {
+                    self.static_rebuilds += 1;
+                }
+                CachedSubmission::capture(submission, start, rejected_before, &builder)
+            });
         }
         builder.light = 1.0;
         for crack in cracks {
@@ -259,6 +289,10 @@ impl BlockEntityScene {
         &self.frame
     }
 }
+
+#[cfg(test)]
+#[path = "scene/cache_tests.rs"]
+mod cache_tests;
 
 fn emit_submission(
     builder: &mut MeshBuilder,
