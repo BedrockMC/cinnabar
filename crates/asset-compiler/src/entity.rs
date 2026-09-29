@@ -22,6 +22,7 @@ mod geometry;
 mod item;
 mod item_bindings;
 mod json;
+mod legacy_icons;
 mod molang;
 mod pack;
 mod sanitize;
@@ -194,6 +195,20 @@ pub fn compile_entity_assets_with_report(
         path: item_bindings::SOURCE_PATH.into(),
         source_bytes: binding_bytes.len() as u32,
         source_sha256: Sha256::digest(binding_bytes).into(),
+    });
+    let legacy_bytes = legacy_icons::SOURCE_BYTES;
+    total_source_bytes = total_source_bytes
+        .checked_add(legacy_bytes.len())
+        .ok_or_else(|| invalid("entity source-byte total overflow"))?;
+    if total_source_bytes > MAX_ENTITY_TOTAL_SOURCE_BYTES
+        || sources.len() >= MAX_ENTITY_ASSET_SOURCES
+    {
+        return Err(invalid("entity source-byte total or count exceeds bound"));
+    }
+    sources.push(EntityAssetSource {
+        path: legacy_icons::SOURCE_PATH.into(),
+        source_bytes: legacy_bytes.len() as u32,
+        source_sha256: Sha256::digest(legacy_bytes).into(),
     });
     assemble(
         root,
