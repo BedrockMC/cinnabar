@@ -217,15 +217,19 @@ func (c *Client) invalidateInventory() {
 	c.mu.Unlock()
 }
 
-// Entitlements returns a window of the owned content ids, refreshed from the service when stale.
-func (c *Client) Entitlements(ctx context.Context, offset, limit int) (Entitlements, error) {
+// Entitlements returns a window of the owned content ids; refresh re-reads them from the service
+// instead of the short-lived cache.
+func (c *Client) Entitlements(ctx context.Context, offset, limit int, refresh bool) (Entitlements, error) {
 	if offset < 0 || limit < 0 {
 		return Entitlements{}, ErrInvalidRequest
 	}
 	if limit == 0 || limit > maxEntitlementWin {
 		limit = maxEntitlementWin
 	}
-	inv, err := c.loadInventory(ctx, false)
+	if refresh && offset == 0 {
+		c.RefreshInventory(ctx)
+	}
+	inv, err := c.loadInventory(ctx, refresh && offset == 0)
 	if err != nil {
 		return Entitlements{}, err
 	}
@@ -235,6 +239,44 @@ func (c *Client) Entitlements(ctx context.Context, offset, limit int) (Entitleme
 		out.Owned = append(out.Owned, inv.ids[offset:end]...)
 	}
 	return out, nil
+}
+
+// RefreshInventory asks the service to refresh the account's inventory version. It is best effort:
+// a failure leaves the next inventory read to return whatever the service has.
+func (c *Client) RefreshInventory(ctx context.Context) {
+	resp, err := c.do(ctx, "POST", pathRefresh, struct{}{})
+	if err != nil {
+		return
+	}
+	c.remember(resp.header)
+	c.invalidateInventory()
+}
+
+// MoreOffers loads the next slice of a row from a continuation token the page handed out.
+func (c *Client) MoreOffers(ctx context.Context, token string) (RowMore, error) {
+	if !ValidContinuation(token) {
+		return RowMore{}, ErrInvalidRequest
+	}
+	if _, err := c.loadInventory(ctx, false); err != nil {
+		return RowMore{}, err
+	}
+	c.mu.Lock()
+	version := c.etag
+	c.mu.Unlock()
+	resp, err := c.do(ctx, "POST", pathRowItems, layoutMoreBody{ContinuationToken: token, InventoryVersion: version})
+	if err != nil {
+		return RowMore{}, err
+	}
+	c.remember(resp.header)
+	result, err := resp.result()
+	if err != nil {
+		return RowMore{}, err
+	}
+	more := parseRowMore(result)
+	for i := range more.Offers {
+		more.Offers[i].Owned = c.owned(more.Offers[i].ID)
+	}
+	return more, nil
 }
 
 // owned reports whether the offer id is in the cached inventory; false when the inventory is unknown.
@@ -263,6 +305,12 @@ type layoutBody struct {
 	Entitlements     []string `json:"entitlements"`
 	InventoryVersion string   `json:"inventoryVersion"`
 	ListVersion      string   `json:"listVersion"`
+}
+
+// layoutMoreBody is the request body of a row continuation call.
+type layoutMoreBody struct {
+	ContinuationToken string `json:"continuationToken"`
+	InventoryVersion  string `json:"inventoryVersion"`
 }
 
 // Home loads a known store page by its session-config name and reduces it to rows of offers.

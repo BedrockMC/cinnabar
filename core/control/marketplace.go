@@ -17,6 +17,7 @@ const (
 	methodStoreEntitlements = "store_entitlements.v1"
 	methodStorePurchase     = "store_purchase.v1"
 	methodStoreImage        = "store_image.v1"
+	methodStoreRowMore      = "store_row_more.v1"
 
 	codePurchaseBusy   = -32031
 	codePurchaseReused = -32032
@@ -31,14 +32,15 @@ type Marketplace interface {
 	Search(ctx context.Context, q store.SearchQuery) (store.SearchResults, error)
 	Offer(ctx context.Context, id string) (store.OfferDetail, error)
 	Balances(ctx context.Context) ([]store.Balance, error)
-	Entitlements(ctx context.Context, offset, limit int) (store.Entitlements, error)
+	Entitlements(ctx context.Context, offset, limit int, refresh bool) (store.Entitlements, error)
+	MoreOffers(ctx context.Context, token string) (store.RowMore, error)
 	Purchase(ctx context.Context, r store.PurchaseRequest) (store.PurchaseResult, error)
 	Image(ctx context.Context, rawURL string) (store.Image, error)
 }
 
 var storeMethods = map[string]struct{}{
 	methodStoreHome: {}, methodStoreSearch: {}, methodStoreOffer: {},
-	methodStoreBalance: {}, methodStoreEntitlements: {}, methodStorePurchase: {}, methodStoreImage: {},
+	methodStoreBalance: {}, methodStoreEntitlements: {}, methodStorePurchase: {}, methodStoreImage: {}, methodStoreRowMore: {},
 }
 
 func isStoreMethod(method string) bool {
@@ -89,6 +91,11 @@ type storeBalanceResultV1 struct {
 type storeEntitlementsResultV1 struct {
 	SchemaVersion uint32 `json:"schema_version"`
 	store.Entitlements
+}
+
+type storeRowMoreResultV1 struct {
+	SchemaVersion uint32 `json:"schema_version"`
+	store.RowMore
 }
 
 type storeImageResultV1 struct {
@@ -200,18 +207,34 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		return ok(storeBalanceResultV1{SchemaVersion: 1, Balances: balances})
 	case methodStoreEntitlements:
 		var params struct {
-			Offset int `json:"offset"`
-			Limit  int `json:"limit"`
+			Offset  int  `json:"offset"`
+			Limit   int  `json:"limit"`
+			Refresh bool `json:"refresh"`
 		}
 		if len(raw) != 0 && !decodeParams(raw, &params) {
 			return invalid()
 		}
-		result, err := market.Entitlements(ctx, params.Offset, params.Limit)
+		result, err := market.Entitlements(ctx, params.Offset, params.Limit, params.Refresh)
 		if err != nil {
 			return failStore(err)
 		}
 		result.Owned = fitOwned(result.Owned)
 		return ok(storeEntitlementsResultV1{SchemaVersion: 1, Entitlements: result})
+	case methodStoreRowMore:
+		var params struct {
+			Continuation *string `json:"continuation"`
+		}
+		if !decodeParams(raw, &params) || params.Continuation == nil || !store.ValidContinuation(*params.Continuation) {
+			return invalid()
+		}
+		result, err := market.MoreOffers(ctx, *params.Continuation)
+		if err != nil {
+			return failStore(err)
+		}
+		if result.Offers == nil {
+			result.Offers = []store.Offer{}
+		}
+		return ok(storeRowMoreResultV1{SchemaVersion: 1, RowMore: result})
 	case methodStoreImage:
 		var params struct {
 			URL *string `json:"url"`

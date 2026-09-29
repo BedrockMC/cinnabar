@@ -26,6 +26,8 @@ const (
 	pathConfig      = "/api/v1.0/session/config"
 	pathBalances    = "/api/v1.0/currencies/virtual/balances"
 	pathInventory   = "/api/v1.0/player/inventory?includeReceipt=true"
+	pathRefresh     = "/api/v1.0/inventory/refresh"
+	pathRowItems    = "/api/v2.0/layout/items"
 	pathTransaction = "/api/v1.0/transaction/virtual"
 
 	maxResponseBytes = 8 << 20

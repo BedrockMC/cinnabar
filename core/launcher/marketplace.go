@@ -13,7 +13,8 @@ type Storefront interface {
 	Search(ctx context.Context, q store.SearchQuery) (store.SearchResults, error)
 	Offer(ctx context.Context, id string) (store.OfferDetail, error)
 	Balances(ctx context.Context) ([]store.Balance, error)
-	Entitlements(ctx context.Context, offset, limit int) (store.Entitlements, error)
+	Entitlements(ctx context.Context, offset, limit int, refresh bool) (store.Entitlements, error)
+	MoreOffers(ctx context.Context, token string) (store.RowMore, error)
 	Purchase(ctx context.Context, r store.PurchaseRequest) (store.PurchaseResult, error)
 	Image(ctx context.Context, rawURL string) (store.Image, error)
 }
@@ -60,11 +61,18 @@ func (m marketplace) Balances(ctx context.Context) ([]store.Balance, error) {
 	return m.front.Balances(ctx)
 }
 
-func (m marketplace) Entitlements(ctx context.Context, offset, limit int) (store.Entitlements, error) {
+func (m marketplace) Entitlements(ctx context.Context, offset, limit int, refresh bool) (store.Entitlements, error) {
 	if _, err := m.svc.source(); err != nil {
 		return store.Entitlements{}, err
 	}
-	return m.front.Entitlements(ctx, offset, limit)
+	return m.front.Entitlements(ctx, offset, limit, refresh)
+}
+
+func (m marketplace) MoreOffers(ctx context.Context, token string) (store.RowMore, error) {
+	if _, err := m.svc.source(); err != nil {
+		return store.RowMore{}, err
+	}
+	return m.front.MoreOffers(ctx, token)
 }
 
 func (m marketplace) Purchase(ctx context.Context, r store.PurchaseRequest) (store.PurchaseResult, error) {

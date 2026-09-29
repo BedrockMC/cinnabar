@@ -186,12 +186,21 @@ func (s *Session) Balances(ctx context.Context) ([]Balance, error) {
 }
 
 // Entitlements implements the owned-content call.
-func (s *Session) Entitlements(ctx context.Context, offset, limit int) (Entitlements, error) {
+func (s *Session) Entitlements(ctx context.Context, offset, limit int, refresh bool) (Entitlements, error) {
 	c, err := s.get(ctx)
 	if err != nil {
 		return Entitlements{}, err
 	}
-	return c.Entitlements(ctx, offset, limit)
+	return c.Entitlements(ctx, offset, limit, refresh)
+}
+
+// MoreOffers implements the row continuation call.
+func (s *Session) MoreOffers(ctx context.Context, token string) (RowMore, error) {
+	c, err := s.get(ctx)
+	if err != nil {
+		return RowMore{}, err
+	}
+	return c.MoreOffers(ctx, token)
 }
 
 // Purchase implements the Minecoin purchase call.

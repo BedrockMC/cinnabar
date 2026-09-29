@@ -63,6 +63,7 @@ func parsePage(id string, result json.RawMessage) Page {
 			page.Rows = append(page.Rows, Row{
 				ID: firstString(obj, "id", "rowId", "name"), Title: firstText(obj, titleKeys...),
 				Kind: firstString(obj, "type", "kind", "layout"), Offers: offers,
+				Continuation: continuationOf(obj),
 			})
 			return
 		}
@@ -246,4 +247,40 @@ func clip(s string) string {
 		cut--
 	}
 	return s[:cut]
+}
+
+// continuationOf reads a row's continuation token, dropping one too long to send back.
+func continuationOf(obj map[string]any) string {
+	token := firstString(obj, "continuationToken", "continuation")
+	if !ValidContinuation(token) {
+		return ""
+	}
+	return token
+}
+
+// parseRowMore reduces a row-continuation result to its offers and next token; the offers may sit
+// under any row-shaped member of the result.
+func parseRowMore(result json.RawMessage) RowMore {
+	more := RowMore{Offers: []Offer{}}
+	var top any
+	if json.Unmarshal(result, &top) != nil {
+		return more
+	}
+	obj, ok := top.(map[string]any)
+	if !ok {
+		return more
+	}
+	more.Continuation = continuationOf(obj)
+	page := parsePage("", result)
+	for _, row := range page.Rows {
+		for _, offer := range row.Offers {
+			if len(more.Offers) < maxRowOffers {
+				more.Offers = append(more.Offers, offer)
+			}
+		}
+		if more.Continuation == "" {
+			more.Continuation = row.Continuation
+		}
+	}
+	return more
 }
