@@ -1,7 +1,7 @@
 //! NPC dialogue through the vanilla NPC screen's student (player) view: the
 //! NPC's name and dialogue text over one button per button-mode action.
 
-use json_ui::{CollectionItem, Context, DataSource, Scalar, ViewState};
+use json_ui::{CollectionItem, DataSource, Scalar, ViewState};
 use protocol::NpcDialogueForm;
 use ui::UiNode;
 
@@ -50,7 +50,7 @@ impl UiPresentationRuntime {
         match renderer.render_screen(
             NPC_SCREEN,
             &data,
-            &Context::desktop(),
+            &super::menu_screens::retail_context(),
             view,
             art,
             inputs,

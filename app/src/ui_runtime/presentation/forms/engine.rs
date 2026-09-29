@@ -100,7 +100,7 @@ impl FormEngine {
             catalog: Arc::clone(&base),
             vanilla,
             base,
-            context: Context::desktop(),
+            context: super::menu_screens::retail_context(),
             server_pages: Vec::new(),
             server_source: None,
             cache: None,
@@ -467,18 +467,10 @@ pub(super) struct EngineOutput<'a> {
     pub(super) overlay: &'a [DrawNode],
 }
 
-/// A label's text after localization: an exact language key resolves, anything
-/// else draws verbatim (vanilla labels localize by default). Empty lines drop,
-/// as the vanilla label splits on newlines and discards empty ones.
+/// A label's text after the vanilla localization rules. Empty lines drop, as
+/// the vanilla label splits on newlines and discards empty ones.
 fn localized<'a>(text: &'a str, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Cow<'a, str> {
-    let text = if text.is_empty() || text.contains(char::is_whitespace) {
-        Cow::Borrowed(text)
-    } else {
-        match translate(text) {
-            Some(value) => Cow::Owned(value.to_string()),
-            None => Cow::Borrowed(text),
-        }
-    };
+    let text = json_ui::localize_text(text, translate);
     if text.contains("\n\n") || text.starts_with('\n') || text.ends_with('\n') {
         let lines: Vec<&str> = text.split('\n').filter(|line| !line.is_empty()).collect();
         return Cow::Owned(lines.join("\n"));
@@ -523,10 +515,9 @@ impl TextMeasure for Measure<'_, '_> {
         if text.is_empty() {
             return [0.0, 0.0];
         }
-        let text = localized(text, self.translate);
         let request =
             self.metrics
-                .request(&text, width_64(max_width * f64::from(self.px)), self.font);
+                .request(text, width_64(max_width * f64::from(self.px)), self.font);
         match self.layouts.borrow_mut().layout(request) {
             Ok(layout) => {
                 let [w, h] = layout.size_64();
@@ -535,6 +526,10 @@ impl TextMeasure for Measure<'_, '_> {
             }
             Err(_) => [0.0, 0.0],
         }
+    }
+
+    fn localize<'t>(&self, text: &'t str) -> Cow<'t, str> {
+        localized(text, self.translate)
     }
 }
 
@@ -746,7 +741,11 @@ impl Painter<'_> {
         clip: [f32; 4],
         style: TextPaint,
     ) -> Result<(), UiPresentationError> {
-        let text = localized(text, self.translate);
+        let text = if style.localize {
+            localized(text, self.translate)
+        } else {
+            Cow::Borrowed(text)
+        };
         let mut top = dest[1];
         let mut carry = String::new();
         for (index, line) in text.split('\n').enumerate() {
@@ -890,6 +889,7 @@ impl Painter<'_> {
             shadow,
             align,
             scale,
+            localize,
         } = &node.draw
         {
             let style = TextPaint {
@@ -901,6 +901,7 @@ impl Painter<'_> {
                 },
                 align: *align,
                 scale: *scale,
+                localize: *localize,
             };
             return self.text(text, dest, clip, style);
         }
@@ -936,6 +937,7 @@ struct TextPaint {
     shadow: TextShadow,
     align: TextAlign,
     scale: f32,
+    localize: bool,
 }
 
 /// The format codes in force at the end of `text`, to open the next line with.

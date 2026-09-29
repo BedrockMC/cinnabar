@@ -59,6 +59,12 @@ pub trait TextMeasure {
         let _ = max_width;
         self.extent(text)
     }
+
+    /// A localizing label's text as it will draw; measurers without a language
+    /// table measure it as written.
+    fn localize<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
+        std::borrow::Cow::Borrowed(text)
+    }
 }
 
 /// Resolves a `texture` path to its sidecar metadata (base size, nine-slice). The
@@ -684,6 +690,11 @@ fn natural_uncached(
         Some("label") => {
             let scale = font_scale(control);
             let text = label_text(control);
+            let text = if localizes(control) {
+                env.text.localize(&text)
+            } else {
+                std::borrow::Cow::Borrowed(text.as_str())
+            };
             let [w, h] = match width {
                 Some(width) if width > 0.0 => env.text.wrapped(&text, width / scale),
                 _ => env.text.extent(&text),
@@ -888,6 +899,11 @@ fn texture_path(control: &ResolvedControl) -> Option<String> {
         .get("texture")
         .and_then(Value::as_str)
         .map(str::to_owned)
+}
+
+/// A label localizes its text unless `localize` is `false`.
+pub(crate) fn localizes(control: &ResolvedControl) -> bool {
+    control.properties.get("localize") != Some(&Value::Bool(false))
 }
 
 fn label_text(control: &ResolvedControl) -> String {

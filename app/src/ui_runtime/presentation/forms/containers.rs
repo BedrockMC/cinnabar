@@ -6,8 +6,7 @@
 //! index into this frame's icon table, and `#hover_text` feeds the tooltips.
 
 use json_ui::{
-    CollectionItem, Context, DataSource, Draw, DrawNode, RectOut, Scalar, TextAlign, ViewState,
-    hit_test,
+    CollectionItem, DataSource, Draw, DrawNode, RectOut, Scalar, TextAlign, ViewState, hit_test,
 };
 use protocol::NetworkItemStack;
 use serde_json::Value;
@@ -96,7 +95,7 @@ impl UiPresentationRuntime {
         let title = runtime
             .translation(title_key)
             .map_or_else(|| title_key.to_owned(), |title| title.to_string());
-        let context = Context::desktop()
+        let context = super::menu_screens::retail_context()
             .with_var("container_title", Value::String(title.clone()))
             .with_flag("localize_title", false);
         let mut icons = Vec::new();
@@ -424,6 +423,7 @@ fn held_stack(
                 shadow: true,
                 align: TextAlign::Right,
                 scale: 1.0,
+                localize: false,
             },
         ));
     }
