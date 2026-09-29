@@ -44,17 +44,18 @@ impl HandRigBuilder {
     }
 }
 
-// Camera-local placement of the first-person rig. The rig is authored feet-up; it is faced away
-// from the camera (arms reach toward the near plane) and dropped so the eye lands near the camera
-// origin. These are initial estimates: the exact camera-to-rig offset is native-tuning work
-// against the 26.30 client (the vanilla transform composes the camera matrix with data-driven
-// animations rather than a single constant), while scale 0.9375 and the arm rest pose come from
-// the samples and are carried by the evaluated pose itself.
-const HAND_RIG_CAMERA_YAW_DEGREES: f32 = 180.0;
-const HAND_RIG_CAMERA_OFFSET: [f32; 3] = [0.0, -1.5, 0.0];
-
+/// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
+/// below the camera; the pack's first-person arm offsets are authored for that facing.
 fn hand_camera_from_rig(scale: f32) -> [[f32; 4]; 3] {
-    rig_world_from_actor(HAND_RIG_CAMERA_OFFSET, HAND_RIG_CAMERA_YAW_DEGREES, scale)
+    rig_world_from_actor(
+        [
+            0.0,
+            -crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS,
+            0.0,
+        ],
+        0.0,
+        scale,
+    )
 }
 
 /// Rebuilds the scene's pack geometry and artwork for a new session, or restores the
@@ -635,4 +636,22 @@ fn build_local_player_feed(
         sprinting,
         item_use,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    // The pack's first-person arm offset sits behind the model's left side; vanilla's facing puts
+    // that ahead of the view and to its right.
+    #[test]
+    fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
+        let rows = super::hand_camera_from_rig(0.9375);
+        let arm = [-8.5 / 16.0, 12.0 / 16.0, 12.0 / 16.0];
+        let camera: [f32; 3] = std::array::from_fn(|row| {
+            (0..3).map(|axis| rows[row][axis] * arm[axis]).sum::<f32>() + rows[row][3]
+        });
+        assert!(
+            camera[0] > 0.0 && camera[1] < 0.0 && camera[2] < 0.0,
+            "{camera:?}"
+        );
+    }
 }

@@ -308,6 +308,28 @@ fn scoreboard_fails_closed_without_native_alpha_authority_then_uses_exact_dynami
     assert!(bounds_for_color(&visible, [255, 0, 0, 255]).is_some());
 }
 
+// A server pack that hides the score label removes the red column and keeps the rest.
+#[test]
+fn server_pack_hides_the_sidebar_score_column() {
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    presentation.set_native_scoreboard_opacity(77, 88);
+    let mut runtime = UiRuntime::new(1);
+    install_scoreboard(&mut runtime, "W", &[(1, "A", 2)]);
+    let build = |presentation: &mut UiPresentationRuntime, runtime: &UiRuntime| {
+        presentation
+            .build(runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
+            .unwrap()
+    };
+    assert!(bounds_for_color(&build(&mut presentation, &runtime), [255, 0, 0, 255]).is_some());
+
+    runtime.set_hud_overrides(Some(Arc::new(SessionHudOverrides {
+        hide_sidebar_scores: true,
+    })));
+    let hidden = build(&mut presentation, &runtime);
+    assert!(bounds_for_color(&hidden, [255, 0, 0, 255]).is_none());
+    assert!(bounds_for_color(&hidden, [0, 0, 0, 77]).is_some());
+}
+
 #[test]
 fn production_sidebar_resolves_player_entity_and_fake_rows_from_owned_actor_authority() {
     let mut runtime = UiRuntime::new(1);

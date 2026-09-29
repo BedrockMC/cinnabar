@@ -15,7 +15,7 @@ struct VertexInput {
     @location(4) row_1: vec4<f32>,
     @location(5) row_2: vec4<f32>,
     // x = model index, y = block light level, z = sky light level, w = packed RGBA8 overlay.
-    @location(6) meta: vec4<u32>,
+    @location(6) packed: vec4<u32>,
     @location(7) layer: u32,
     @location(8) color: vec4<f32>,
 }
@@ -53,9 +53,9 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
     out.uv = input.uv;
     out.layer = input.layer;
     out.color = input.color;
-    out.overlay = unpack4x8unorm(input.meta.w);
+    out.overlay = unpack4x8unorm(input.packed.w);
     out.shade = SHADE_BASE + SHADE_SLOPE * world_normal.y;
-    out.levels = vec2(input.meta.y, input.meta.z);
+    out.levels = vec2(input.packed.y, input.packed.z);
     return out;
 }
 

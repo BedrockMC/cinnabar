@@ -37,6 +37,11 @@ pub(crate) struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
+// Per-tick equip progress step and the height at which the new item is taken; the reference
+// reconstruction leaves both unresolved, so they need independent measurement.
+const ARM_HEIGHT_STEP: f32 = 0.4;
+const ARM_SWAP_HEIGHT: f32 = 0.1;
+
 // Babies' legs cycle faster by this factor; needs independent measurement.
 const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
 
@@ -90,6 +95,23 @@ pub(super) fn advance_motion(
         let previous = input.swim_amount;
         previous + (swim_target - previous).clamp(-SWIM_AMOUNT_STEP, SWIM_AMOUNT_STEP)
     });
+    // The arm lowers while the held item differs from the equipped one, swaps it low, then rises.
+    let arm_height = match state.history.back() {
+        Some(previous) => {
+            let swapping = state.equipped_main != context.main_hand;
+            let target = if swapping { 0.0 } else { 1.0 };
+            let height = previous.arm_height
+                + (target - previous.arm_height).clamp(-ARM_HEIGHT_STEP, ARM_HEIGHT_STEP);
+            if swapping && height <= ARM_SWAP_HEIGHT {
+                state.equipped_main.clone_from(&context.main_hand);
+            }
+            height
+        }
+        None => {
+            state.equipped_main.clone_from(&context.main_hand);
+            1.0
+        }
+    };
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
     }
@@ -107,6 +129,7 @@ pub(super) fn advance_motion(
         walk_distance: motion.walk_distance(),
         item_use_ticks,
         swim_amount,
+        arm_height,
     };
     state.history.push_back(input);
 }
@@ -127,7 +150,19 @@ pub(super) fn evaluate_state(
         tick.saturating_sub(state.animation_epoch)
     };
     let life_tick = tick.saturating_sub(state.lifetime_epoch);
-    let input = state.history.back().copied().ok_or(EvalError::Invalid)?;
+    let observed = state.history.back().copied().ok_or(EvalError::Invalid)?;
+    // The first-person draw zeroes the actor's rotations, so the view-following target, body
+    // and head rotation queries read 0 there; the camera placement carries the view instead.
+    let input = if context.is_local_first_person {
+        ActorTickInput {
+            body_yaw: 0.0,
+            head_yaw: 0.0,
+            pitch: 0.0,
+            ..observed
+        }
+    } else {
+        observed
+    };
     let motion = state.motion;
     let evaluator = Evaluator {
         assets,
@@ -153,7 +188,7 @@ pub(super) fn evaluate_state(
             evaluator.run(script as usize, &mut variables, 0.0, budget)?;
         }
     }
-    apply_engine_variables(engine, &mut variables, actor, context, &input, &motion);
+    apply_engine_variables(engine, &mut variables, actor, context, &observed, &motion);
     variables.clear_temporaries();
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
@@ -279,6 +314,7 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.has_target, truth(query::has_target(actor)));
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
     variables.set(engine.player_x_rotation, input.pitch);
+    variables.set(engine.player_arm_height, input.arm_height);
     // View bobbing is on by default; the first-person walk/breathing bob weigh against this.
     variables.set(engine.bob_animation, 1.0);
 }

@@ -529,6 +529,18 @@ pub(crate) fn receive_network_events(
                     packs.server_ui,
                     client_world.fatal_error.is_none(),
                 );
+                resource_packs::install_hud_overrides(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.hud_overrides,
+                    client_world.fatal_error.is_none(),
+                );
+                resource_packs::install_session_glyphs(
+                    &mut ui_runtime,
+                    session_generation,
+                    packs.glyph_sheets,
+                    client_world.fatal_error.is_none(),
+                );
                 ui_runtime.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,
@@ -955,8 +967,12 @@ mod block_overlay;
 mod drain;
 mod dropped_items;
 pub(crate) mod entity_pack;
+mod glyph_sheets;
+mod hud_overrides;
 mod inventory;
 mod item_icons;
+#[cfg(test)]
+mod local_pack;
 mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;

@@ -606,6 +606,28 @@ impl UiRuntime {
         self.session_icons = icons;
     }
 
+    pub(crate) fn set_session_glyphs(
+        &mut self,
+        glyphs: Option<Arc<super::presentation::SessionGlyphSheets>>,
+    ) {
+        self.session_glyphs = glyphs;
+    }
+
+    pub(crate) fn set_hud_overrides(
+        &mut self,
+        overrides: Option<Arc<super::presentation::SessionHudOverrides>>,
+    ) {
+        self.hud_overrides = overrides;
+    }
+
+    pub(crate) fn hud_overrides(&self) -> Option<&Arc<super::presentation::SessionHudOverrides>> {
+        self.hud_overrides.as_ref()
+    }
+
+    pub(crate) fn session_glyphs(&self) -> Option<&Arc<super::presentation::SessionGlyphSheets>> {
+        self.session_glyphs.as_ref()
+    }
+
     pub(crate) fn session_icons(&self) -> Option<&Arc<super::presentation::SessionIcons>> {
         self.session_icons.as_ref()
     }

@@ -123,6 +123,8 @@ struct ActorRigState {
     completed_tick: u64,
     fallback: EntityRigFallback,
     history: VecDeque<ActorTickInput>,
+    /// Main-hand item the arm has finished equipping.
+    equipped_main: Option<Arc<str>>,
     variables: MolangVariables,
     initialized: bool,
     motion: MotionState,
@@ -160,6 +162,8 @@ struct ActorTickInput {
     item_use_ticks: u32,
     /// Smoothed 0..1 swimming-posture blend.
     swim_amount: f32,
+    /// 0..1 equip progress; 1 once the held item has settled.
+    arm_height: f32,
 }
 
 struct EvaluatedState {
@@ -646,6 +650,7 @@ fn resolve_rig(
         completed_tick,
         fallback: rig.fallback,
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
+        equipped_main: None,
         variables,
         initialized: false,
         motion: MotionState::spawn(actor.body_yaw, actor.head_yaw),
