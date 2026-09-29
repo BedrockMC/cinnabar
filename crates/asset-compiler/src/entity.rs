@@ -42,6 +42,7 @@ pub(crate) use source::{open_source_handle, read_bounded_source};
 pub use animation::{CompileReferenceOutcome, FallbackReason, RejectReason};
 pub use attachable::{
     compile_item_use as compile_item_use_durations, compile_textures as compile_equipment_textures,
+    compile_textures_with as compile_equipment_textures_with,
 };
 
 /// Deterministic carrier plus the attributed resolution decision for every rig.
@@ -316,20 +317,16 @@ fn assemble(
     )?;
     validate_reference_coverage(&symbols, &animation)?;
     let molang = molang_compiler.finish()?;
-    let (equipment_bindings, items) = if include_items {
-        let equipment_bindings = attachable::compile_bindings(source_payloads, &symbols, &sources)?;
+    let equipment_bindings = attachable::compile_bindings(source_payloads, &symbols, &sources)?;
+    let items = if include_items {
         let item_transforms = attachable::transform_lookup(&equipment_bindings);
-        let items = item::compile(root, source_payloads, &sources, &item_transforms)?;
-        (equipment_bindings, items)
+        item::compile(root, source_payloads, &sources, &item_transforms)?
     } else {
-        (
-            Box::default(),
-            item::ItemPayload {
-                block_visual_count: 0,
-                visuals: Box::default(),
-                aliases: Box::default(),
-            },
-        )
+        item::ItemPayload {
+            block_visual_count: 0,
+            visuals: Box::default(),
+            aliases: Box::default(),
+        }
     };
     let reference_outcomes = animation.outcomes;
     let assets = CompiledEntityAssets {
@@ -356,6 +353,7 @@ fn assemble(
         rig_controllers: animation.rig_controllers,
         item_visuals: items.visuals,
         item_visual_aliases: items.aliases,
+        render: animation.render,
     };
     if include_items {
         assets.validate()?;

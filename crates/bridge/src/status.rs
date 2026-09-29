@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::endpoint::EndpointKind;
 use crate::{BridgeError, FramedStream};
 
-const CONTROL_MAX_FRAME_LEN: usize = 64 * 1024;
+pub(crate) const CONTROL_MAX_FRAME_LEN: usize = 64 * 1024;
 const STATUS_REQUEST_ID: u64 = 1;
 const STATUS_SCHEMA_VERSION: u32 = 1;
 
@@ -136,9 +136,9 @@ struct StatusResponse {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RpcError {
-    code: i64,
-    message: String,
+pub(crate) struct RpcError {
+    pub(crate) code: i64,
+    pub(crate) message: String,
 }
 
 /// Connects to the local read-only control endpoint and reads one Status v1 response.
@@ -206,7 +206,7 @@ fn parse_status_response(payload: &[u8]) -> Result<StatusV1, BridgeError> {
     }
 }
 
-fn invalid<T>(reason: &'static str) -> Result<T, BridgeError> {
+pub(crate) fn invalid<T>(reason: &'static str) -> Result<T, BridgeError> {
     Err(BridgeError::InvalidControlResponse { reason })
 }
 

@@ -32,6 +32,26 @@ const (
 	realmCodePrefix    = "realm/"
 )
 
+// LocalTargetFunc returns the address of a local game server; ok is false when none is selected.
+type LocalTargetFunc func(ctx context.Context) (address string, ok bool, err error)
+
+// withLocalTarget routes to the local server when one is selected, else to the online resolver.
+func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resolvedUpstreamTarget, error)) func(context.Context) (*resolvedUpstreamTarget, error) {
+	if local == nil {
+		return online
+	}
+	return func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		address, ok, err := local(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return online(ctx)
+		}
+		return &resolvedUpstreamTarget{address: address, network: minecraft.RakNet{}}, nil
+	}
+}
+
 type resolvedUpstreamTarget struct {
 	address    string
 	network    minecraft.Network

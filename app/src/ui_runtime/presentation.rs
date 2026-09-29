@@ -173,6 +173,8 @@ pub struct UiPresentationRuntime {
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
+    /// Window-space rect of the sign editor's Done button in the last build.
+    sign_editor_done: Option<UiRect>,
     loading_message: Option<&'static str>,
     startup: StartupPresentationState,
 }
@@ -260,6 +262,7 @@ impl UiPresentationRuntime {
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),
+            sign_editor_done: None,
             loading_message: None,
             startup: StartupPresentationState::default(),
         })
@@ -925,6 +928,14 @@ impl UiPresentationRuntime {
             .collect::<Result<Vec<_>, _>>()?;
 
         self.append_server_form(
+            runtime,
+            &mut nodes,
+            &mut next_id,
+            metrics,
+            content_width,
+            content_height,
+        )?;
+        self.append_sign_editor(
             runtime,
             &mut nodes,
             &mut next_id,

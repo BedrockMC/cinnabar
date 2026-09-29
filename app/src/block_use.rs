@@ -334,10 +334,11 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
+    audio_cues: bevy::prelude::MessageWriter<'w, crate::audio::LocalBlockCue>,
 }
 
 pub(crate) fn produce_block_use(
-    context: BlockUseContext,
+    mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
@@ -408,6 +409,14 @@ pub(crate) fn produce_block_use(
         &surroundings,
     );
     runtime.record(trigger, due, sample.tick, local_use, clock);
+    if local_use == LocalUse::Place {
+        context
+            .audio_cues
+            .write(crate::audio::LocalBlockCue::Place {
+                position: placement_cell(observed.target.position, observed.target.face),
+                block_runtime_id: observed.selection.item.block_runtime_id(),
+            });
+    }
     // Only block items keep using while held.
     if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
     {

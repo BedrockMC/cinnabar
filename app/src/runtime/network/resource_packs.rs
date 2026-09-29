@@ -19,6 +19,7 @@ pub struct PackApplication {
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
+    pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
 }
 
 impl Default for PackApplication {
@@ -29,6 +30,7 @@ impl Default for PackApplication {
             block_overlay: None,
             item_icons: None,
             entities: None,
+            property_defaults: Vec::new(),
         }
     }
 }
@@ -52,6 +54,7 @@ pub(super) fn prepare_pack_application(
     hashed_block_ids: bool,
 ) -> PackApplication {
     if handoff.is_empty() {
+        crate::audio::publish_server_sounds(None);
         return PackApplication::default();
     }
     let stack = resource_pack::validate_handoff(handoff);
@@ -63,6 +66,7 @@ pub(super) fn prepare_pack_application(
         );
     }
     let view = LayeredPackView::new(Arc::clone(&stack));
+    crate::audio::publish_server_sounds(Some(&view));
     let block_overlay = cached_block_overlay(&stack, custom_blocks, hashed_block_ids, || {
         compile_block_overlay(
             &view,
@@ -81,6 +85,7 @@ pub(super) fn prepare_pack_application(
         server_lang: merged_server_lang(&view),
         item_icons: compile_session_icons(&view, icon_keys),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
+        property_defaults: super::entity_pack::pack_property_defaults(&view),
         admission: PackAdmission::Validated(stack),
         block_overlay,
     }

@@ -49,6 +49,13 @@ type Config struct {
 	// Transfers, when set, receives server-directed transfers; the next local client
 	// connection then dials the recorded target instead of Upstream.
 	Transfers *TransferState
+	// Selector, when set, supplies a client-chosen upstream that outranks LocalTarget and Upstream.
+	Selector *UpstreamSelector
+	// OnDisconnect receives the server's disconnect reason, before or during a session.
+	OnDisconnect func(DisconnectInfo)
+	// LocalTarget, when set, is asked per connection for a local server address; ok=false
+	// falls back to Upstream. Upstream may then be empty.
+	LocalTarget LocalTargetFunc
 }
 
 const localRelayBatchPacketLimit = 1600
@@ -74,7 +81,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	if cfg.SocketDir == "" {
 		return errors.New("proxy: socket directory is required")
 	}
-	if cfg.Upstream == "" {
+	if cfg.Upstream == "" && cfg.LocalTarget == nil && cfg.Selector == nil {
 		return errors.New("proxy: upstream address is required")
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
@@ -89,9 +96,14 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	if transfers == nil {
 		transfers = new(TransferState)
 	}
-	prepared.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, transfers.Upstream(cfg.Upstream), cfg.TokenSource, logger)
+	dial := func(ctx context.Context, address string) (*resolvedUpstreamTarget, error) {
+		return resolveUpstreamTarget(ctx, address, cfg.TokenSource, logger)
 	}
+	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		return dial(ctx, cfg.Upstream)
+	}
+	prepared.dialTarget = consumeTransferOnDial(prepared.dialTarget, transfers)
+	prepared.resolveTarget = withPendingTransfer(transfers, dial, withSelectedTarget(cfg.Selector, dial, withLocalTarget(cfg.LocalTarget, online)))
 	listener, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		AcceptedProtocols:      []minecraft.Protocol{minecraft.Protocol12644()},
@@ -106,6 +118,10 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 				return fmt.Errorf("unsupported local protocol %d/%s; want %d/%s", selected.ID(), clientVersion, pinned.ID(), pinned.Ver())
 			}
 			prepareErr := prepared.prepare(ctx, conn)
+			if prepareErr != nil && serveCtx.Err() == nil {
+				relayPreLoginDisconnect(conn, prepareErr)
+				reportDisconnect(cfg.OnDisconnect, prepareErr)
+			}
 			reportPreparationError(sessionErr, prepareErr, serveCtx)
 			return prepareErr
 		},
@@ -154,6 +170,8 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 			if upstream == nil {
 				continue
 			}
+			// Wrapped only now: pack-stack capture needs the concrete upstream Conn.
+			upstream.upstream = observeDisconnects(observeTransfers(upstream.upstream, transfers, logger), cfg.OnDisconnect)
 			sessions.Add(1)
 			go func() {
 				defer sessions.Done()

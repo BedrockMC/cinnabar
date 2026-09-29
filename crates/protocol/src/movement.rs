@@ -7,12 +7,14 @@ use valentine::bedrock::version::v1_26_44::{
 };
 
 mod interactions;
+mod prediction_sync;
 mod trace;
 
 pub use interactions::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
     InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputInteractions,
 };
+pub use prediction_sync::{MovementPredictionSync, client_movement_prediction_sync};
 pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
 
 use crate::Packet;
@@ -23,6 +25,8 @@ pub struct PlayerInputFlags(u64);
 
 impl PlayerInputFlags {
     pub const NONE: Self = Self(0);
+    pub const ASCEND: Self = Self(1 << 0);
+    pub const DESCEND: Self = Self(1 << 1);
     pub const JUMP_DOWN: Self = Self(1 << 3);
     pub const SPRINT_DOWN: Self = Self(1 << 4);
     pub const JUMPING: Self = Self(1 << 6);
@@ -35,11 +39,16 @@ impl PlayerInputFlags {
     pub const UP_LEFT: Self = Self(1 << 14);
     pub const UP_RIGHT: Self = Self(1 << 15);
     pub const SPRINTING: Self = Self(1 << 20);
+    pub const PERSIST_SNEAK: Self = Self(1 << 24);
     pub const START_SPRINTING: Self = Self(1 << 25);
     pub const STOP_SPRINTING: Self = Self(1 << 26);
     pub const START_SNEAKING: Self = Self(1 << 27);
     pub const STOP_SNEAKING: Self = Self(1 << 28);
+    pub const START_SWIMMING: Self = Self(1 << 29);
+    pub const STOP_SWIMMING: Self = Self(1 << 30);
     pub const START_JUMPING: Self = Self(1 << 31);
+    pub const START_GLIDING: Self = Self(1 << 32);
+    pub const STOP_GLIDING: Self = Self(1 << 33);
     /// Wire ordinal 34 (`PerformItemInteraction`): the packet carries an
     /// embedded item-use transaction. Derived from payload presence by the
     /// encoder; callers never assert it directly.
@@ -56,6 +65,12 @@ impl PlayerInputFlags {
     pub const HANDLED_TELEPORT: Self = Self(1 << 37);
     /// Wire ordinal 39: an attack press hit neither an actor nor a block.
     pub const MISSED_SWING: Self = Self(1 << 39);
+    pub const START_CRAWLING: Self = Self(1 << 40);
+    pub const STOP_CRAWLING: Self = Self(1 << 41);
+    pub const START_FLYING: Self = Self(1 << 42);
+    pub const STOP_FLYING: Self = Self(1 << 43);
+    pub const PADDLING_LEFT: Self = Self(1 << 46);
+    pub const PADDLING_RIGHT: Self = Self(1 << 47);
     pub const HORIZONTAL_COLLISION: Self = Self(1 << 49);
     pub const VERTICAL_COLLISION: Self = Self(1 << 50);
     pub const DOWN_LEFT: Self = Self(1 << 51);
@@ -361,5 +376,32 @@ fn vec2(value: [f32; 2]) -> Vec2 {
     Vec2 {
         x: value[0],
         y: value[1],
+    }
+}
+
+#[cfg(test)]
+mod locomotion_flag_tests {
+    use super::*;
+
+    #[test]
+    fn locomotion_constants_sit_on_their_named_table_rows() {
+        for (flag, name) in [
+            (PlayerInputFlags::PERSIST_SNEAK, "PersistSneak"),
+            (PlayerInputFlags::PADDLING_LEFT, "PaddlingLeft"),
+            (PlayerInputFlags::PADDLING_RIGHT, "PaddlingRight"),
+            (PlayerInputFlags::ASCEND, "Ascend"),
+            (PlayerInputFlags::DESCEND, "Descend"),
+            (PlayerInputFlags::START_SWIMMING, "StartSwimming"),
+            (PlayerInputFlags::STOP_SWIMMING, "StopSwimming"),
+            (PlayerInputFlags::START_GLIDING, "StartGliding"),
+            (PlayerInputFlags::STOP_GLIDING, "StopGliding"),
+            (PlayerInputFlags::START_CRAWLING, "StartCrawling"),
+            (PlayerInputFlags::STOP_CRAWLING, "StopCrawling"),
+            (PlayerInputFlags::START_FLYING, "StartFlying"),
+            (PlayerInputFlags::STOP_FLYING, "StopFlying"),
+        ] {
+            let row = flag.bits().trailing_zeros() as usize;
+            assert_eq!(INPUT_FLAG_ITEMS[row].1, name);
+        }
     }
 }

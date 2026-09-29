@@ -76,6 +76,7 @@ fn fixture() -> CompiledEntityAssets {
         rig_controllers: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
+        render: Default::default(),
     }
 }
 
@@ -651,6 +652,31 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             visual: LeafItemVisualId(0),
         }]
         .into_boxed_slice(),
+        render: entity::EntityRenderData {
+            layers: Box::new([entity::EntityRenderLayer {
+                rig: 0,
+                condition: None,
+                first_slot: 0,
+                slot_count: 1,
+                first_visibility: 0,
+                visibility_count: 1,
+                color: None,
+                overlay_color: None,
+                on_fire_color: None,
+            }]),
+            slots: Box::new([entity::EntityRenderSlot {
+                first_candidate: 0,
+                candidate_count: 1,
+            }]),
+            candidates: Box::new([entity::EntityRenderCandidate {
+                condition: None,
+                source: 5,
+            }]),
+            visibility: Box::new([entity::EntityRenderVisibility {
+                pattern: "root".into(),
+                condition: 0,
+            }]),
+        },
     }
 }
 
@@ -1063,4 +1089,23 @@ fn carrier_v4_round_trips_selectable_geometry_metadata_and_texture_variant() {
     ));
     assert_eq!(runtime.item_visual_aliases()[0].key.metadata, u32::MAX);
     assert_eq!(runtime.encode().unwrap().as_ref(), bytes.as_ref());
+}
+
+#[test]
+fn render_layers_round_trip_and_reject_invalid_indices() {
+    let compiled = carrier_v4_fixture();
+    let encoded = entity::encode_entity_blob(&compiled).expect("encode render layers");
+    let runtime = entity::RuntimeEntityAssets::decode(&encoded).expect("decode render layers");
+    assert_eq!(runtime.render_layers(0).len(), 1);
+    assert!(runtime.render_layers(1).is_empty());
+    assert_eq!(runtime.render_data(), &compiled.render);
+    let mut not_a_texture = compiled.clone();
+    not_a_texture.render.candidates[0].source = 0;
+    assert!(entity::encode_entity_blob(&not_a_texture).is_err());
+    let mut bad_rig = compiled.clone();
+    bad_rig.render.layers[0].rig = 99;
+    assert!(entity::encode_entity_blob(&bad_rig).is_err());
+    let mut bad_pattern = compiled;
+    bad_pattern.render.visibility[0].pattern = "Root".into();
+    assert!(entity::encode_entity_blob(&bad_pattern).is_err());
 }

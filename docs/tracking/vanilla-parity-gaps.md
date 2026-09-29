@@ -151,9 +151,12 @@ animated rig remotes use. All three below flow from that.
   light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
   terrain models and exact bell/lectern/pot dimensions remain open (MED-HIGH).
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
-  custom entities apply in the neutral material profile only (no attachables, custom materials, or property defaults); vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; audio consumption of merged sounds remains unapplied (HIGH).
+  custom entities apply in the neutral material profile only (pack attachables apply to held/worn items on player bodies through a per-session equipment layer; no custom materials, cross-catalog vanilla clip references, or conditional/multi-texture render controllers); pack property defaults seed query.property only when a resource pack carries `entities/` behavior definitions; vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; merged pack sounds now feed the audio engine as server overrides (uncompiled) (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
+- Terrain blocks (uncompiled): ice, slime, honey, tinted glass, powder snow, snow layers, named opaque cubes, amethyst
+  and standing coral-fan sprites, redstone bases now compile; lanterns, candles, end/lightning rods, cauldron, hopper,
+  anvils, pistons, scaffolding, dripleaf, campfire and slime/honey inner cubes still diagnostic pending measurement (HIGH).
 
 ## HUD (Java target; chat/scoreboard intentionally Java — not gaps)
 - Title/subtitle/action bar centered, magnified, alpha-faded from SetTitle timings; placement constants need measurement (uncompiled).
@@ -183,10 +186,19 @@ animated rig remotes use. All three below flow from that.
 ## Movement / physics / controls (Bedrock target)
 Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
 - Live movement still `FreeCamera`; validated physics not yet the production source (known).
-- Sprint activation (double-tap / sprint-on-movement) and toggle-sneak/sprint absent (HIGH).
-- Scaffolding empty collision + wrong climb (fall-through); honey block behaviors unconsumed (HIGH).
-- Step height 0.6 vs ~0.5625 *(measure)*; swimming pose/swim-sprint; creative flight prediction;
-  lava strata; depth strider; scroll-notch magnitude; UI key-repeat (MED/LOW).
+- Sprint latch (key, double-tap, toggle option) and toggle-sneak are implemented but provisional
+  (double-tap window unmeasured); item-use sprint stop is not classified yet.
+- Ability flight, pose-swimming, elytra gliding and crawl/forced-sneak are provisional simulator
+  modes (no oracle; coefficients need measurement); firework boost relies on server motion only.
+- Scaffolding is solid only from above and sneak descends (provisional rate). Honey jump/slide,
+  soul speed and depth strider are simulated with provisional coefficients; sweet berry bush
+  slowdown, dolphin's grace and client-predicted vehicles are open.
+- Riding: player physics is suspended while mounted, the rider follows its mount seat, and boat
+  paddle flags are sent; client-predicted vehicles (no vehicle simulator) and
+  the vehicle predicate/coefficients (see plan.md) are open (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
+  registry regeneration described in plan.md.
+- Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
+  scroll-notch magnitude; UI key-repeat (MED/LOW).
 
 ## Audio
 - Not yet audited. Earlier note: no footstep/block-sound lookups by runtime id exist — likely a large gap.
@@ -232,5 +244,21 @@ mount and clamp its head. The offset frame, vertical origin, seat ordering and r
 verification. Invisible bodies draw as NoDraw after equipment layers are built, so armor and held
 items stay.
 
-Open: cape pixels are retained on the decoded skin but no render path draws them yet;
-`armor_material_slot` semantics are unmeasured.
+Open: `armor_material_slot` semantics are unmeasured.
+
+## Entity render controllers (Bedrock target)
+
+Incomplete: the neutral single-texture artwork admission is gone; every rig with a decodable
+texture now gets artwork. The entity carrier holds each rig's render layers (per controller:
+activation, texture candidates, part visibility, colours), evaluated per tick against the actor's
+Molang state, and every texture a candidate can select is built into the actor pages.
+
+| Status | Coverage |
+| --- | --- |
+| Drawn | geometry candidates from ternary and `Array.x[expr]` expressions, re-selected every tick (baby, sheared), texture aliases, `Array.x[expr]` selection, nested ternaries, several `textures` entries per controller (drawn as stacked layers), several controllers per entity that share the rig's geometry, `part_visibility` (bone-name patterns, trailing `*`), `color` as the tint, `overlay_color` |
+| Approximated | materials are all drawn with the neutral binary-alpha material; a controller layer whose `geometry` never selects the rig's default geometry is skipped; hidden bones hide only their own cubes; fractional-alpha and mis-sized variant rasters are omitted |
+| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `is_hurt_color`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape), pack-catalog variants |
+
+Player cape: drawn from the skin's cape raster with the `geometry.cape` mesh posed from the
+player's bones by name; the cape's rest turn, layer resampling and `cape_flap_amount` scale need
+native verification.

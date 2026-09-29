@@ -187,6 +187,14 @@ impl WorldStream {
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
     }
+    /// Unique id of the local player's actor.
+    pub fn local_player_unique_id(&self) -> i64 {
+        self.local_player_unique_id
+    }
+    /// Seat feet position and body yaw of the local player on its mount, when placed.
+    pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
+        self.actors.rider_seat_pose(self.local_player_unique_id)
+    }
     pub fn actor_by_unique_id(&self, unique_id: i64) -> Option<&ActorSnapshot> {
         self.actors.snapshot_by_unique(unique_id)
     }
@@ -236,6 +244,15 @@ impl WorldStream {
         assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
     ) {
         self.actors.set_pack_entities(assets);
+    }
+
+    /// Seeds `query.property` definitions from pack behavior defaults for entity types the
+    /// server has not synced.
+    pub fn seed_property_defaults(
+        &mut self,
+        types: &[(std::sync::Arc<str>, Vec<crate::PropertyDefault>)],
+    ) {
+        self.actors.seed_property_defaults(types);
     }
 
     pub fn set_item_use_durations(

@@ -31,6 +31,16 @@ pub(super) fn geometry_from_runtime_assets(
     )
 }
 
+/// Rig geometry of one catalog geometry under `id`, for equipment layers.
+#[must_use]
+pub fn equipment_geometry(
+    assets: &RuntimeEntityAssets,
+    geometry_index: usize,
+    id: EntityRigId,
+) -> Option<ActorRigGeometry> {
+    geometry_from_geometry_index(assets, geometry_index, id).ok()
+}
+
 /// Rig geometry for every binding of a session pack catalog, under pack rig ids;
 /// an unbuildable binding is omitted so its actors take the missing-rig route.
 pub(super) fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeometry> {
@@ -41,6 +51,15 @@ pub(super) fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeome
             geometry_from_geometry_index(assets, geometry, id).ok()
         })
         .collect()
+}
+
+/// Rig geometry of catalog geometry `geometry_index` under `id`.
+pub fn entity_geometry(
+    assets: &RuntimeEntityAssets,
+    geometry_index: usize,
+    id: EntityRigId,
+) -> Result<ActorRigGeometry, ActorRigGeometryError> {
+    geometry_from_geometry_index(assets, geometry_index, id)
 }
 
 pub(super) fn geometry_from_geometry_index(

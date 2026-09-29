@@ -13,6 +13,7 @@ mod environment_settings;
 mod equipment;
 mod error;
 mod font;
+mod fsb;
 mod hud;
 mod hud_extras;
 mod icon;
@@ -21,12 +22,15 @@ mod lang;
 mod light_registry;
 mod material_keys;
 mod model;
+mod ogg;
 mod particle;
 mod physics_registry;
 mod provenance;
 mod registry;
 mod runtime;
 mod server_lang;
+mod sound_bank;
+mod sound_events;
 mod texture;
 mod ui;
 mod weather_textures;
@@ -83,7 +87,6 @@ pub use compiled::{
     MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
     MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
 };
-pub use entity::PACK_RIG_ID_BASE;
 pub use entity::{
     CompiledEntityAssets, CompiledMolangExpression, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION,
     EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
@@ -93,7 +96,10 @@ pub use entity::{
     EntityControllerState, EntityControllerTransition, EntityDependency, EntityDependencyKind,
     EntityDependencyResolution, EntityGeometry, EntityGeometryBone, EntityGeometryCube,
     EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar,
-    EntityGeometryUv, EntityRigAnimationBinding, EntityRigBinding, EntityRigControllerBinding,
+    EntityGeometryUv, EntityRenderCandidate, EntityRenderData, EntityRenderLayer,
+    EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRigControllerBinding, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
+    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
     EntityRigFallback, EntityRigGeometryBinding, MAX_ENTITY_ANIMATION_CHANNELS,
     MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_ASSET_PATH_BYTES,
     MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES,
@@ -111,6 +117,7 @@ pub use entity::{
     MolangEaseMode, MolangFunction, MolangOp, MolangSymbol, MolangSymbolKind, RuntimeEntityAssets,
     encode_entity_blob, molang_call, molang_program_stack, validate_entity_geometry_inheritance,
 };
+pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, EQUIPMENT_CARRIER_MAGIC,
@@ -127,6 +134,7 @@ pub use font::{
     MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
     encode_font_catalog,
 };
+pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use hud::{
     HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_SOURCE_MANIFEST_SHA256, HudCatalogError,
     HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
@@ -159,6 +167,7 @@ pub use model::{
     MODEL_TEMPLATE_FLAG_WALL, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
     TexturePage, TextureRef, VisualKind, VisualSupport,
 };
+pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
     MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES, MAX_PARTICLE_EFFECTS,
     MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,
@@ -180,6 +189,11 @@ pub use runtime::{
     SequentialIdRemap,
 };
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
+pub use sound_bank::{
+    MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
+    SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,
+};
+pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
     downsample_linear_premultiplied,

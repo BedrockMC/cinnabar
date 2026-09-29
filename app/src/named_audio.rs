@@ -121,7 +121,7 @@ impl NamedAudio {
                     self.stats.unsupported = self.stats.unsupported.saturating_add(1);
                 }
             }
-            protocol::AudioEvent::Level(_) => {
+            protocol::AudioEvent::Level(_) | protocol::AudioEvent::LevelEvent(_) => {
                 self.stats.unsupported = self.stats.unsupported.saturating_add(1)
             }
             protocol::AudioEvent::Play(play) => {

@@ -214,6 +214,11 @@ impl InstallLayout {
     }
 
     #[must_use]
+    pub fn local_worlds_dir(&self) -> PathBuf {
+        self.user_data_root.join("worlds")
+    }
+
+    #[must_use]
     pub fn server_file(&self) -> PathBuf {
         self.user_config_root.join("servers.json")
     }

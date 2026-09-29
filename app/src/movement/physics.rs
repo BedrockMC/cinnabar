@@ -8,7 +8,10 @@ use sim::{
 };
 use thiserror::Error;
 
+mod correction;
+
 use super::anchor_probe::BeforeTick;
+use super::locomotion::{ModeIntent, ModeObservation, ModeTracker};
 use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
@@ -80,6 +83,7 @@ pub fn physics_movement_input(
         item_use_movement_modifier: None,
         movement_speed: None,
         effects: sim::MovementEffects::default(),
+        ..MovementInput::default()
     }
 }
 
@@ -93,6 +97,7 @@ pub struct PhysicsSampleContext {
     pub raw_move_vector: [f32; 2],
     /// Analog-axis sample of the controlling device.
     pub analogue_move_vector: [f32; 2],
+    pub mode_intent: ModeIntent,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +223,11 @@ pub struct LocalPhysicsController {
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
     anchor_state: super::anchor_probe::AnchorProbeState,
+    /// Locomotion mode selector and the previous tick's sampled environment it reads.
+    modes: ModeTracker,
+    last_environment: sim::MovementEnvironment,
+    /// Server corrections applied to this controller; drives the prediction sync.
+    corrections_applied: u64,
 }
 
 impl Default for LocalPhysicsController {
@@ -238,6 +248,9 @@ impl Default for LocalPhysicsController {
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             server_motions: VecDeque::with_capacity(LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY),
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
+            modes: ModeTracker::default(),
+            last_environment: sim::MovementEnvironment::default(),
+            corrections_applied: 0,
         }
     }
 }
@@ -263,6 +276,8 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        self.modes.reset();
+        self.last_environment = sim::MovementEnvironment::default();
         self.anchor_state.reset();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
@@ -346,6 +361,8 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        self.modes.reset();
+        self.last_environment = sim::MovementEnvironment::default();
         // Every hard anchor starts a fresh bounded probe epoch: the new
         // position is probed before its first simulated tick, and any prior
         // failure budget or frozen embedded-anchor hold is replaced.
@@ -432,11 +449,23 @@ impl LocalPhysicsController {
             ..LocalPhysicsFrame::default()
         };
 
+        let sprint_request = input.sprinting;
+        let sneak_request = input.sneaking;
+        let mut fly_toggle = context.mode_intent.fly_toggle;
+        input.pitch_degrees = f64::from(context.pitch);
+        input.fly_speed = context.mode_intent.fly_speed;
+        input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
+        input.creative_flight = context.mode_intent.creative_flight;
+        input.depth_strider = context.mode_intent.depth_strider;
+        input.soul_speed = context.mode_intent.soul_speed;
         for tick_index in 0..allowed {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
             // recovery policy; see `anchor_probe`).
-            if tick_index == 0 {
+            if tick_index == 0 && !self.modes.mode().is_walking() {
+                // The probe only knows the standing box, so a low pose cannot be depenetrated by it.
+                self.anchor_state.reset();
+            } else if tick_index == 0 {
                 match self.anchor_state.before_tick(world, state.position) {
                     BeforeTick::Adjust(clear_feet) => state.position = clear_feet,
                     BeforeTick::Proceed => {}
@@ -462,6 +491,56 @@ impl LocalPhysicsController {
                 && !self.jump_edge_pending;
             input.jump_pressed = self.jump_edge_pending || jump_repeated;
             input.effects = effects.snapshot();
+            input.sprinting = sprint_request;
+            let mut forced_sneak = false;
+            let mut mode_error = None;
+            match self.modes.select(
+                context.mode_intent,
+                std::mem::take(&mut fly_toggle),
+                ModeObservation {
+                    feet: state.position,
+                    on_ground: state.on_ground,
+                    velocity_y: state.velocity.y,
+                    in_water: self.last_environment.in_water,
+                    in_lava: self.last_environment.in_lava,
+                    sprinting: sprint_request,
+                    moving_forward: input.forward > 0.0,
+                    jumping: input.jumping,
+                    jump_edge: self.jump_edge_pending,
+                },
+                world,
+            ) {
+                Ok(choice) => {
+                    input.mode = choice.mode;
+                    input.sneaking = sneak_request || choice.forced_sneak;
+                    forced_sneak = choice.forced_sneak;
+                }
+                Err(error) => mode_error = Some(error),
+            }
+            if matches!(
+                input.mode,
+                sim::MovementMode::Crawling
+                    | sim::MovementMode::Gliding
+                    | sim::MovementMode::Riding
+            ) {
+                input.sprinting = false;
+            }
+            // A rider's position is its seat on the mount, not a simulated result.
+            let mut ride_delta = None;
+            if input.mode == sim::MovementMode::Riding
+                && let Some(seat) = context
+                    .mode_intent
+                    .ride_seat
+                    .filter(|seat| seat.iter().all(|axis| axis.is_finite()))
+            {
+                let seat = Vec3::new(f64::from(seat[0]), f64::from(seat[1]), f64::from(seat[2]));
+                ride_delta = Some([
+                    (seat.x - state.position.x) as f32,
+                    (seat.y - state.position.y) as f32,
+                    (seat.z - state.position.z) as f32,
+                ]);
+                state.position = seat;
+            }
             // A queued server impulse replaces this tick's starting velocity,
             // mirroring how Bedrock applies knockback as an absolute velocity.
             // The overlay is retained after application so a correction
@@ -476,12 +555,18 @@ impl LocalPhysicsController {
                 state.velocity = overlay.velocity;
             }
             let before = state.position;
-            match self
-                .history
-                .predict_with_controls(state, input, &self.simulator, world)
-            {
+            let predicted = match mode_error {
+                Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
+                    error,
+                ))),
+                None => self
+                    .history
+                    .predict_with_controls(state, input, &self.simulator, world),
+            };
+            match predicted {
                 Ok(output) => {
                     let result = output.tick_result;
+                    self.last_environment = result.environment;
                     effects.commit_successful_tick();
                     self.previous_position = before;
                     let world_identity = result.world_identity;
@@ -500,10 +585,18 @@ impl LocalPhysicsController {
                         input.sneaking,
                         input.sprinting,
                     );
+                    processed.mode = input.mode;
+                    processed.ride = context.mode_intent.ride;
+                    processed.forced_sneak = forced_sneak;
                     processed.direction_flags = Some(super::encoding::direction_flags([
                         -input.strafe as f32,
                         input.forward as f32,
                     ]));
+                    if input.mode == sim::MovementMode::Riding {
+                        // The mount owns jumping; only the raw button flags describe it.
+                        processed.jump_initiated = false;
+                        processed.jump_arc_active = false;
+                    }
                     self.processed_jump_arc_active = processed.jump_arc_active;
                     frame.samples.push(PhysicsMovementSample {
                         tick: state.tick,
@@ -544,6 +637,9 @@ impl LocalPhysicsController {
                         processed,
                         world_identity,
                     });
+                    if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
+                        sample.movement = delta;
+                    }
                     if self.sample_history.len() == LOCAL_PHYSICS_HISTORY_CAPACITY {
                         self.sample_history.pop_front();
                     }
@@ -600,241 +696,6 @@ impl LocalPhysicsController {
         frame
     }
 
-    pub(super) fn apply_correction(
-        &mut self,
-        network_position: [f32; 3],
-        tick: u64,
-        on_ground: bool,
-        mode: PhysicsCorrectionMode,
-        confirmation: Option<&PhysicsCorrectionConfirmation>,
-        world: &impl CollisionWorld,
-    ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
-        if !network_position.into_iter().all(f32::is_finite) {
-            return Err(PhysicsCorrectionError::InvalidAnchor);
-        }
-        if matches!(mode, PhysicsCorrectionMode::Snap) {
-            self.reanchor_network_position_before_advance(network_position, tick, on_ground);
-            return Ok(PhysicsCorrectionPlan {
-                outcome: PhysicsCorrectionOutcome::Snapped { tick },
-                corrected_tick: tick,
-                final_tick: tick,
-                final_position: network_position,
-                replayed_samples: Vec::new(),
-            });
-        }
-
-        if self.state.is_none() {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        }
-
-        let current_tick = self
-            .state
-            .as_ref()
-            .expect("active correction checked for local state")
-            .tick;
-        if tick > current_tick {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        }
-        let Some(mut corrected) = self.history.state_at(tick).cloned() else {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        };
-        if !self.sample_history.iter().any(|sample| sample.tick == tick) {
-            return Err(PhysicsCorrectionError::NotRetained { tick });
-        }
-
-        let feet = Vec3::new(
-            f64::from(network_position[0]),
-            f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
-            f64::from(network_position[2]),
-        );
-        // CorrectPlayerMovePrediction replaces the retained position at one
-        // tick, then requires movement after that tick to be replayed from the
-        // corrected anchor. Its wire `pos_delta` record is retained upstream
-        // but deliberately not trusted as a replacement velocity: replay keeps
-        // the simulated dynamic state so a confirmation or small correction
-        // cannot restart acceleration from rest.
-        corrected.position = feet;
-        corrected.on_ground = on_ground;
-        // Axis collisions describe the motion that produced a position, so they
-        // cannot be recomputed from a corrected anchor. They are retained only
-        // when a bounded transport-success record shows that the correction
-        // exactly matches the network position this client sent for that tick,
-        // the retained sample used that same immutable collision identity, and
-        // every chunk in that identity is still loaded at the same revision.
-        // Cinnabar provisionally interprets that combination as confirmation of
-        // the motion behind the position; this is a client replay policy, not
-        // an established vanilla or protocol guarantee. Retaining the flags
-        // avoids stuttering a legitimate wall climb on matching corrections.
-        // Any missing proof or mismatch clears the flags and keeps the discrete
-        // climb branch closed. An upward velocity produced while a stale
-        // horizontal collision was retained is the same unconfirmed ladder
-        // response, so it is cleared with those flags. Identity query failure
-        // is semantic unavailability and does not disconnect. The position
-        // comparison is exact in the sent `f32` network space because that is
-        // the serialized position available to compare. The loss is bounded
-        // to the corrected tick: `Simulator::tick` re-derives collisions.
-        let retained_sample = self
-            .sample_history
-            .iter()
-            .find(|sample| sample.tick == tick)
-            .expect("retained correction sample was checked");
-        let server_confirmed_prediction = confirmation.is_some_and(|confirmation| {
-            confirmation.position == network_position
-                && retained_sample.position == network_position
-                && confirmation.world_identity == retained_sample.world_identity
-                && collision_identity_is_current(world, feet, &confirmation.world_identity)
-                    .unwrap_or(false)
-        });
-        if !server_confirmed_prediction {
-            if (corrected.collisions.x || corrected.collisions.z) && corrected.velocity.y > 0.0 {
-                corrected.velocity.y = 0.0;
-            }
-            corrected.collisions = sim::AxisCollisions::default();
-        }
-        let motion_overlays: Vec<sim::MotionOverlay> =
-            self.server_motions.iter().copied().collect();
-        // The replay starts from this exact anchor state; capture its cooldown
-        // before consumption so the initiation fold seeds identically.
-        let anchor_jump_delay = corrected.jump_delay;
-        let (replay, replayed_ticks) = self
-            .history
-            .rewind_and_replay_with_controls(
-                self.state
-                    .as_mut()
-                    .expect("active correction checked for local state"),
-                corrected,
-                &self.simulator,
-                world,
-                &motion_overlays,
-            )
-            .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
-
-        if replayed_ticks.len() != replay.replayed_ticks {
-            return Err(PhysicsCorrectionError::ReplayFailed);
-        }
-        // Rebuilds the processed jump state across the replayed range exactly
-        // like velocity is rebuilt: initiations are facts of the replayed
-        // timeline (the same retained request edges re-fed from the corrected
-        // anchor), so [`ReplayJumpArcFold`] recomputes them with the
-        // simulator's own consumption rule instead of trusting records a
-        // contradicted prediction may have left stale in either direction.
-        // The entering window follows that anchor: a server-reported ground
-        // contact outranks a retained initiation (the correction just
-        // contradicted this client's takeoff), while an airborne anchor keeps
-        // the recorded arc as the un-replayed continuation of earlier ticks.
-        let mut jump_fold = {
-            let corrected_sample = self
-                .sample_history
-                .iter()
-                .find(|sample| sample.tick == tick)
-                .expect("retained correction sample was checked");
-            ReplayJumpArcFold::seed(
-                on_ground,
-                anchor_jump_delay,
-                corrected_sample.processed.jump_initiated,
-                corrected_sample.processed.jump_arc_active,
-            )
-        };
-        let mut replayed_samples = Vec::with_capacity(replayed_ticks.len());
-        for output in replayed_ticks {
-            let result = output.tick_result;
-            let Some(retained) = self
-                .sample_history
-                .iter_mut()
-                .find(|sample| sample.tick == result.tick)
-            else {
-                return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
-            };
-            if retained.world_identity != result.world_identity {
-                return Err(PhysicsCorrectionError::WorldIdentityMismatch { tick: result.tick });
-            }
-            retained.position = [
-                result.position.x as f32,
-                result.position.y as f32 + PLAYER_NETWORK_OFFSET,
-                result.position.z as f32,
-            ];
-            retained.movement = [
-                result.movement.x as f32,
-                result.movement.y as f32,
-                result.movement.z as f32,
-            ];
-            retained.velocity = [
-                result.velocity.x as f32,
-                result.velocity.y as f32,
-                result.velocity.z as f32,
-            ];
-            retained.move_vector = [
-                -output.controls.move_vector[0] as f32,
-                output.controls.move_vector[1] as f32,
-            ];
-            retained.horizontal_collision = result.collisions.x || result.collisions.z;
-            retained.vertical_collision = result.collisions.y;
-            retained.grounded_after_tick = result.on_ground;
-            // The replay fed this input verbatim, mirroring the simulator's
-            // own per-tick consumption.
-            let Some(frame_input) = self.history.input_at(result.tick) else {
-                return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
-            };
-            let (initiated, arc_active) = jump_fold.step(frame_input, result.on_ground);
-            retained.processed.direction_flags = Some(super::encoding::direction_flags([
-                -frame_input.strafe as f32,
-                frame_input.forward as f32,
-            ]));
-            retained.processed.jump_initiated = initiated;
-            retained.processed.jump_arc_active = arc_active;
-            replayed_samples.push(retained.clone());
-        }
-        self.processed_jump_arc_active = jump_fold.arc_active();
-        let corrected_world_identity = {
-            let corrected_sample = self
-                .sample_history
-                .iter_mut()
-                .find(|sample| sample.tick == tick)
-                .expect("retained correction sample was checked");
-            corrected_sample.position = network_position;
-            corrected_sample.world_identity.clone()
-        };
-
-        let state = self
-            .state
-            .as_ref()
-            .expect("successful replay retains local state");
-        let final_tick = state.tick;
-        let final_position = [
-            state.position.x as f32,
-            state.position.y as f32 + PLAYER_NETWORK_OFFSET,
-            state.position.z as f32,
-        ];
-        self.previous_position = if final_tick == tick {
-            feet
-        } else {
-            self.history
-                .state_at(final_tick.saturating_sub(1))
-                .map_or(feet, |previous| previous.position)
-        };
-        self.accumulated_seconds = 0.0;
-        self.last_world_identity = replayed_samples
-            .last()
-            .map(|sample| sample.world_identity.clone())
-            .or(Some(corrected_world_identity));
-        // A replay re-anchors the corrected tick and rebuilds later ticks from
-        // it; that landing can sit inside solids just like a hard anchor. Re-arm
-        // the depenetration probe so the next tick pushes the anchor out
-        // positionally instead of streaming an embedded pose indefinitely.
-        self.anchor_state.rearm();
-
-        Ok(PhysicsCorrectionPlan {
-            outcome: PhysicsCorrectionOutcome::Replayed {
-                corrected_tick: replay.corrected_tick,
-                replayed_ticks: replay.replayed_ticks,
-            },
-            corrected_tick: tick,
-            final_tick,
-            final_position,
-            replayed_samples,
-        })
-    }
-
     #[must_use]
     pub fn render_eye_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
@@ -857,6 +718,23 @@ impl LocalPhysicsController {
     pub fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
         let sample = self.sample_history.back()?;
         Some((sample.processed.sneaking, sample.processed.sprinting))
+    }
+
+    #[must_use]
+    pub fn latest_horizontal_collision(&self) -> bool {
+        self.sample_history
+            .back()
+            .is_some_and(|sample| sample.horizontal_collision)
+    }
+
+    #[must_use]
+    pub const fn mode(&self) -> sim::MovementMode {
+        self.modes.mode()
+    }
+
+    #[must_use]
+    pub const fn corrections_applied(&self) -> u64 {
+        self.corrections_applied
     }
 
     #[must_use]
@@ -883,44 +761,4 @@ impl LocalPhysicsController {
     pub const fn last_world_identity(&self) -> Option<&WorldCollisionIdentity> {
         self.last_world_identity.as_ref()
     }
-}
-
-fn collision_identity_is_current(
-    world: &impl CollisionWorld,
-    corrected_feet: Vec3,
-    expected: &WorldCollisionIdentity,
-) -> Result<bool, sim::WorldQueryError> {
-    let y = checked_block_coordinate(corrected_feet.y)?;
-    let mut current: Option<WorldCollisionIdentity> = None;
-    if expected.chunks.is_empty() {
-        let block = [
-            checked_block_coordinate(corrected_feet.x)?,
-            y,
-            checked_block_coordinate(corrected_feet.z)?,
-        ];
-        current = Some(world.block_physics(block)?.identity);
-    } else {
-        for revision in &expected.chunks {
-            let Some(x) = revision.chunk.x.checked_mul(16) else {
-                return Err(sim::WorldQueryError::CoordinateOutOfRange);
-            };
-            let Some(z) = revision.chunk.z.checked_mul(16) else {
-                return Err(sim::WorldQueryError::CoordinateOutOfRange);
-            };
-            let identity = world.block_physics([x, y, z])?.identity;
-            current = Some(match current {
-                None => identity,
-                Some(previous) => previous.merge(&identity)?,
-            });
-        }
-    }
-    Ok(current.as_ref() == Some(expected))
-}
-
-fn checked_block_coordinate(value: f64) -> Result<i32, sim::WorldQueryError> {
-    let value = value.floor();
-    if value < f64::from(i32::MIN) || value > f64::from(i32::MAX) {
-        return Err(sim::WorldQueryError::CoordinateOutOfRange);
-    }
-    Ok(value as i32)
 }

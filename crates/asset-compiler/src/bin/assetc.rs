@@ -20,6 +20,8 @@ use sha2::{Digest, Sha256};
 
 #[path = "assetc/actor_command.rs"]
 mod actor_command;
+#[path = "assetc/audio_bank_command.rs"]
+mod audio_bank_command;
 #[path = "assetc/audio_command.rs"]
 mod audio_command;
 #[path = "assetc/audio_pcm_command.rs"]
@@ -47,6 +49,7 @@ mod registry_version;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
 
+use audio_bank_command::compile_audio_bank_command;
 use audio_command::compile_audio_assets_command;
 use audio_pcm_command::compile_audio_pcm_command;
 use cli::{Cli, Command};
@@ -292,6 +295,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_audio_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::AudioBank { pack, out, report } => {
+            compile_audio_bank_command(&pack, &out, &report)?;
         }
         Command::AudioPcmAssets {
             pack,

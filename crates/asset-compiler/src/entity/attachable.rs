@@ -166,6 +166,23 @@ pub fn compile_textures(
     sources: &[EntityAssetSource],
     bindings: &[EquipmentBinding],
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
+    compile_textures_with(sources, bindings, &mut |source| {
+        let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
+        if bytes.len() != source.source_bytes as usize
+            || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
+        {
+            return Err(invalid("equipment raster changed after entity compilation"));
+        }
+        Ok(bytes)
+    })
+}
+
+/// Like [`compile_textures`], reading each raster through `read` (for in-memory packs).
+pub fn compile_textures_with(
+    sources: &[EntityAssetSource],
+    bindings: &[EquipmentBinding],
+    read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
+) -> Result<Vec<EquipmentTexture>, AssetError> {
     let mut identifiers = bindings
         .iter()
         .map(|binding| binding.texture.identifier.as_ref())
@@ -184,12 +201,7 @@ pub fn compile_textures(
             continue;
         };
         let (source, extension) = source;
-        let bytes = read_bounded_source(root, &root.join(source.path.as_ref()))?;
-        if bytes.len() != source.source_bytes as usize
-            || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
-        {
-            return Err(invalid("equipment raster changed after entity compilation"));
-        }
+        let bytes = read(source)?;
         let format = if extension == "png" {
             ImageFormat::Png
         } else {

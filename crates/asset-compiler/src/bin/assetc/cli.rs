@@ -196,6 +196,18 @@ pub(super) enum Command {
         #[arg(long)]
         report: PathBuf,
     },
+    /// Pack sound-event routing JSON and every FSB sound file into a streaming bank.
+    AudioBank {
+        /// Root of the vanilla resource pack.
+        #[arg(long)]
+        pack: PathBuf,
+        /// Ignored/local MCBESND1 output path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Ignored/local deterministic JSON report path.
+        #[arg(long)]
+        report: PathBuf,
+    },
     /// Compile one reviewed sample into finite PCM; does not activate playback.
     AudioPcmAssets {
         #[arg(long)]
