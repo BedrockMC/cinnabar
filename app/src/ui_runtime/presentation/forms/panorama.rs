@@ -71,7 +71,8 @@ pub(crate) fn drive_menu_panorama(
     let turned = epoch.elapsed().as_secs_f32() * TURN_DEGREES_PER_SECOND;
     let yaw = turned.to_radians().rem_euclid(TAU);
     let pitch = PITCH_DEGREES + PITCH_SWAY_DEGREES * (turned.abs() * SWAY_RATE).sin();
-    scene.show((shown && scene.has_faces()).then_some(PanoramaView {
+    let has_faces = scene.has_faces();
+    scene.show((shown && has_faces).then_some(PanoramaView {
         yaw_radians: yaw,
         // The pass tilts up for positive pitch; this camera looks down.
         pitch_radians: -pitch.to_radians(),
