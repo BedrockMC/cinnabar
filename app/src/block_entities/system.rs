@@ -90,6 +90,10 @@ pub(crate) struct BlockEntityRuntime {
     layouts: TextLayoutCache,
     shapes: HashMap<u32, CrackShape>,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
+    /// Framed map ids seen this frame without an image.
+    missing_maps: Vec<i64>,
+    /// When each map id was last requested from the server, in real seconds.
+    map_requests: HashMap<i64, f64>,
 }
 
 impl BlockEntityRuntime {
@@ -102,14 +106,30 @@ impl BlockEntityRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: HashMap::new(),
             bell_rings: HashMap::new(),
+            missing_maps: Vec::new(),
+            map_requests: HashMap::new(),
         }
+    }
+}
+
+impl BlockEntityRuntime {
+    /// Width of one sign line in design pixels; `None` when the font cannot lay it out.
+    pub(crate) fn line_width_design_pixels(
+        &mut self,
+        font: &RuntimeFontCatalog,
+        text: &str,
+    ) -> Option<f32> {
+        sign_text::line_width_design_pixels(text, font, &mut self.layouts)
     }
 }
 
 pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
     app.insert_resource(BlockEntityFont(font))
         .insert_resource(BlockEntityRuntime::new())
-        .add_systems(Update, update_block_entity_scene);
+        .add_systems(
+            Update,
+            (update_block_entity_scene, request_missing_maps).chain(),
+        );
 }
 
 /// Brightness per light level, matching the terrain lighting curve.
@@ -214,6 +234,7 @@ pub(crate) fn update_block_entity_scene(
         return;
     };
     let runtime = &mut *runtime;
+    runtime.missing_maps.clear();
     let dimension = stream.current_dimension();
     let store = stream.collision_store();
     let mode = stream.network_id_mode();
@@ -380,6 +401,42 @@ const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 const FLOWER_SCALE: f32 = 0.5;
 
+/// Seconds before an unanswered map request is repeated.
+const MAP_REQUEST_RETRY_SECONDS: f64 = 5.0;
+
+/// Asks the server for the pixels of framed maps whose images have not arrived.
+pub(crate) fn request_missing_maps(
+    mut runtime: ResMut<BlockEntityRuntime>,
+    network: Option<Res<crate::runtime::network::NetworkHandle>>,
+    time: Res<Time<Real>>,
+) {
+    let Some(network) = network else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    let runtime = &mut *runtime;
+    runtime.missing_maps.sort_unstable();
+    runtime.missing_maps.dedup();
+    for id in std::mem::take(&mut runtime.missing_maps) {
+        let due = runtime
+            .map_requests
+            .get(&id)
+            .is_none_or(|last| now - last >= MAP_REQUEST_RETRY_SECONDS);
+        if due
+            && network
+                .send_inventory_packet(protocol::map_info_request_packet(id))
+                .is_ok()
+        {
+            runtime.map_requests.insert(id, now);
+        }
+    }
+    if runtime.map_requests.len() > 256 {
+        runtime
+            .map_requests
+            .retain(|_, last| now - last < MAP_REQUEST_RETRY_SECONDS);
+    }
+}
+
 /// Cache key for a map image at one revision.
 fn map_cache_key(map_id: i64, revision: u64) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -478,6 +535,11 @@ fn resolve(
             rotation_steps,
             map_id,
         } => {
+            if let Some(id) = map_id
+                && stream.map_image(id).is_none()
+            {
+                runtime.missing_maps.push(id);
+            }
             let map = map_id.and_then(|id| {
                 let image = stream.map_image(id)?;
                 scene.map_rect(map_cache_key(id, image.revision), || {
