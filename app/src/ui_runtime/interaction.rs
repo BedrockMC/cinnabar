@@ -395,6 +395,33 @@ pub(crate) fn drive_inventory_ui_actions(
     }
 }
 
+/// The in-world drop key: Q drops one item from the selected hotbar cell and
+/// Control+Q the whole stack, with no window open.
+pub(crate) fn drive_world_inventory_keys(
+    window: Single<&Window, With<PrimaryWindow>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    menu: Option<Res<crate::menu::MenuRuntime>>,
+    mut runtime: ResMut<UiRuntime>,
+) {
+    if !window.focused
+        || runtime.ui_focused()
+        || menu.as_ref().is_some_and(|menu| menu.is_visible())
+        || !keys.just_pressed(KeyCode::KeyQ)
+        || runtime
+            .player_game_mode()
+            .is_some_and(|mode| !mode.shows_hotbar())
+    {
+        return;
+    }
+    let Some(slot) = runtime.selected_hotbar_slot() else {
+        return;
+    };
+    let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    let _ = runtime
+        .inventory_ledger_mut()
+        .begin_world_drop(slot, (!control).then_some(1));
+}
+
 /// Keyboard gestures over the hovered cell: digits swap with that hotbar
 /// cell (or craft into it over the result), Q drops one item and Control+Q
 /// the whole stack; arrows scroll the creative grid.

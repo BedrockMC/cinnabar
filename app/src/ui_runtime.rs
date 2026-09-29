@@ -43,7 +43,7 @@ use interaction::{
 };
 pub(crate) use interaction::{
     drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
-    flush_chat_network, flush_inventory_network,
+    drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
 };
 pub use inventory_ingress::{InventoryAuthorityEvent, SequencedInventoryEvent};
 
