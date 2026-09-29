@@ -90,7 +90,7 @@ fn definition(name: &str, value: &Value) -> Option<AudioDefinition> {
     })
 }
 
-/// 16-bit PCM RIFF/WAVE, mono or stereo; anything else is skipped.
+/// 16-bit PCM RIFF/WAVE, mono or stereo at a playable rate; anything else is skipped.
 pub(super) fn decode_wav(bytes: &[u8]) -> Option<Pcm> {
     if bytes.get(..4)? != b"RIFF" || bytes.get(8..12)? != b"WAVE" {
         return None;
@@ -111,13 +111,15 @@ pub(super) fn decode_wav(bytes: &[u8]) -> Option<Pcm> {
         }
         at += 8 + size + (size & 1);
     }
-    let ((1, channels @ 1..=2, rate, 16), data) = (format?, data?) else {
+    // The Ogg decoder's rate range; a zero rate would never advance a voice.
+    let ((1, channels @ 1..=2, rate @ 1000..=192_000, 16), data) = (format?, data?) else {
         return None;
     };
+    let whole_frames = data.len() / (2 * usize::from(channels)) * 2 * usize::from(channels);
     Some(Pcm {
         channels: channels as u8,
         rate,
-        samples: data
+        samples: data[..whole_frames]
             .chunks_exact(2)
             .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
             .collect::<Vec<_>>()
@@ -278,6 +280,16 @@ mod tests {
         let mut float = wav(1, 8000, &[1]);
         float[20] = 3;
         assert!(decode_wav(&float).is_none());
+    }
+
+    // A zero rate never advances the voice, so it would play its first sample forever.
+    #[test]
+    fn wav_with_an_unusable_rate_is_skipped_and_partial_frames_dropped() {
+        assert!(decode_wav(&wav(1, 0, &[1000, 1000])).is_none());
+        assert!(decode_wav(&wav(1, 999, &[1000])).is_none());
+        assert!(decode_wav(&wav(1, 192_001, &[1000])).is_none());
+        let stereo = decode_wav(&wav(2, 48_000, &[1, 2, 3])).expect("wav");
+        assert_eq!((stereo.frames(), stereo.samples.len()), (1, 2));
     }
 
     #[test]
