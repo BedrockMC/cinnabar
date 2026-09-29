@@ -11,8 +11,8 @@ pub(crate) use acceptance_helpers::{
 };
 pub(crate) use control_apply::apply_committed_control;
 pub(crate) use shutdown_watchdog::{
-    SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, app_exit_code, arm_shutdown_watchdog,
-    begin_bounded_shutdown,
+    SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
+    arm_shutdown_watchdog, begin_bounded_shutdown,
 };
 
 use std::sync::Arc;

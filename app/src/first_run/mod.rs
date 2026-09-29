@@ -137,7 +137,10 @@ fn prepare(layout: &InstallLayout, mut progress: impl FnMut(usize, usize, &str))
         );
     }
     runner::publish(&staged, &layout.prepared_assets_dir())?;
-    let _ = fs::remove_dir_all(workspace.join(".local/assets/bedrock-samples"));
+    // The extracted pack and its archive are only compile inputs; carriers are all that persist.
+    for scratch in ["bedrock-samples", "downloads"] {
+        let _ = fs::remove_dir_all(workspace.join(".local/assets").join(scratch));
+    }
     Ok(())
 }
 
