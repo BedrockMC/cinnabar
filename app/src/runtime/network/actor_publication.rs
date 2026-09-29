@@ -267,6 +267,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         .ok()
         .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
         .map(|_| HAND_FOV_DEGREES.to_radians());
+    // Registered together below: each registration rebuilds and re-uploads the whole catalog.
+    let mut new_geometries = Vec::new();
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         client_world
             .stream
@@ -298,8 +300,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                                                     .collect(),
                                             );
                                         }
-                                        let _ = hand_builder.0.insert_geometry(built.clone());
-                                        let _ = scene.insert_geometry(built);
+                                        new_geometries.push(built);
                                     }) {
                                         Some(id) => presentation.submission.input.rig = id,
                                         None => {
@@ -489,12 +490,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         }
     }
     if let Some(equipment) = equipment.as_deref_mut() {
-        for geometry in equipment.take_pending_geometries() {
-            // A rejected mesh only leaves that item undrawn.
-            let _ = hand_builder.0.insert_geometry(geometry.clone());
-            let _ = scene.insert_geometry(geometry);
-        }
+        new_geometries.extend(equipment.take_pending_geometries());
     }
+    register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
     *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
@@ -548,6 +546,28 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         hand_light,
         step.partial_tick,
     );
+}
+
+/// Registers new skin models and item meshes in both rig catalogs with one rebuild each; if a
+/// batch is refused, each is tried alone so a rejected mesh only leaves that model undrawn.
+fn register_geometries(
+    hand: &mut ActorRigFrameBuilder,
+    scene: &mut ActorRenderScene,
+    geometries: Vec<render::ActorRigGeometry>,
+) {
+    if geometries.is_empty() {
+        return;
+    }
+    if hand.insert_geometries(geometries.clone()).is_err() {
+        for geometry in geometries.iter().cloned() {
+            let _ = hand.insert_geometry(geometry);
+        }
+    }
+    if scene.insert_geometries(geometries.clone()).is_err() {
+        for geometry in geometries {
+            let _ = scene.insert_geometry(geometry);
+        }
+    }
 }
 
 /// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
