@@ -50,12 +50,56 @@ impl CollectionItem {
     }
 }
 
+/// One control a screen controller asked a named factory to create: the
+/// `control_ids` entry, the instance name, the `$vars` it resolves with, the `#`
+/// values of its property bag, and when it was created (seconds, the caller's
+/// animation clock).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FactoryItem {
+    pub control_id: String,
+    pub name: Option<String>,
+    pub vars: BTreeMap<String, Value>,
+    pub values: BTreeMap<String, Scalar>,
+    pub born: f64,
+}
+
+impl FactoryItem {
+    pub fn new(control_id: impl Into<String>, born: f64) -> Self {
+        Self {
+            control_id: control_id.into(),
+            born,
+            ..Self::default()
+        }
+    }
+
+    pub fn named(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Set a `$var` (keyed without the `$`).
+    pub fn var(mut self, name: impl Into<String>, value: Value) -> Self {
+        self.vars.insert(name.into(), value);
+        self
+    }
+
+    /// Set a `#` property-bag value (keyed with the `#`).
+    pub fn value(mut self, name: impl Into<String>, value: Scalar) -> Self {
+        self.values.insert(name.into(), value);
+        self
+    }
+}
+
 /// The screen data source a form binds against: `global` values and named
 /// collections.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DataSource {
     globals: BTreeMap<String, Scalar>,
     collections: BTreeMap<String, Vec<CollectionItem>>,
+    /// Controls created through named factories (`chat_item_factory`, …).
+    factories: BTreeMap<String, Vec<FactoryItem>>,
+    /// `[columns, rows]` a `grid_dimension_binding` reads.
+    grid_dimensions: BTreeMap<String, [u32; 2]>,
     /// Screen-controller semantics: an unbound `#name` reads as `false` rather
     /// than leaving the template's literal in place.
     strict: bool,
@@ -97,6 +141,16 @@ impl DataSource {
         self.collections.insert(name.into(), items);
     }
 
+    /// The controls the factory named `name` holds, oldest first.
+    pub fn set_factory(&mut self, name: impl Into<String>, items: Vec<FactoryItem>) {
+        self.factories.insert(name.into(), items);
+    }
+
+    /// Answer a `grid_dimension_binding` named `name` (with its `#`).
+    pub fn set_grid_dimensions(&mut self, name: impl Into<String>, dimensions: [u32; 2]) {
+        self.grid_dimensions.insert(name.into(), dimensions);
+    }
+
     fn collection_len(&self, name: &str) -> usize {
         self.collections.get(name).map_or(0, Vec::len)
     }
@@ -106,6 +160,16 @@ impl DataSource {
 /// tree. The renderer backs this with the catalog; tests can stub it.
 pub trait ControlLibrary {
     fn resolve(&self, reference: &ControlRef) -> Option<ResolvedControl>;
+
+    /// Resolve with extra `$vars` in scope, as a factory creates a control.
+    fn resolve_with(
+        &self,
+        reference: &ControlRef,
+        vars: &BTreeMap<String, Value>,
+    ) -> Option<ResolvedControl> {
+        let _ = vars;
+        self.resolve(reference)
+    }
 }
 
 /// A [`ControlLibrary`] with no definitions; binding a tree that needs no factory
@@ -131,6 +195,7 @@ pub fn bind(
         env: Env::new(),
         diagnostics: Vec::new(),
         resolved: BTreeMap::new(),
+        resolved_with: BTreeMap::new(),
     };
     let mut node = binder.build(root, &Scope::default());
     for _ in 0..EXPANSION_ROUNDS {
@@ -161,6 +226,8 @@ struct Scope {
     /// The nearest enclosing `collection_name`, which a child's literal
     /// `collection_index` points into.
     panel: Option<String>,
+    /// A factory item's property bag, the base every control under it binds on.
+    values: std::sync::Arc<BTreeMap<String, Scalar>>,
 }
 
 /// A control plus the own values gathered for it (pass one), before `view`
@@ -180,11 +247,21 @@ struct Binder<'a> {
     diagnostics: Vec<String>,
     /// Library resolutions memoized per reference; instances clone them.
     resolved: BTreeMap<ControlRef, Option<ResolvedControl>>,
+    /// Factory-item resolutions, keyed by reference and serialized `$vars`.
+    resolved_with: BTreeMap<(ControlRef, String), Option<ResolvedControl>>,
 }
 
-impl Binder<'_> {
+impl<'a> Binder<'a> {
     /// Pass one: gather own `global`/`collection` values and expand factories.
     fn build(&mut self, control: &ResolvedControl, scope: &Scope) -> Node {
+        let dimensioned;
+        let control = match self.bound_dimensions(control) {
+            Some(with_dimensions) => {
+                dimensioned = with_dimensions;
+                &dimensioned
+            }
+            None => control,
+        };
         let mut scope = scope.clone();
         if let (Some(panel), Some(index)) = (
             scope.panel.clone(),
@@ -234,6 +311,8 @@ impl Binder<'_> {
             self.resolve(&reference)
                 .map(|resolved| vec![self.build(&resolved, scope)])
                 .unwrap_or_default()
+        } else if let Some(items) = self.feed(control) {
+            self.expand_feed(control, items, scope)
         } else if let Some(template) = grid_template(control) {
             self.expand_grid(control, &template, scope)
         } else {
@@ -251,6 +330,100 @@ impl Binder<'_> {
         }
         let resolved = self.lib.resolve(reference);
         self.resolved.insert(reference.clone(), resolved.clone());
+        resolved
+    }
+
+    /// A grid whose `grid_dimension_binding` the screen answers, with those
+    /// dimensions set; `None` leaves the control as authored.
+    fn bound_dimensions(&self, control: &ResolvedControl) -> Option<ResolvedControl> {
+        let name = control
+            .properties
+            .get("grid_dimension_binding")
+            .and_then(Value::as_str)?;
+        let [columns, rows] = *self.data.grid_dimensions.get(name)?;
+        let mut control = control.clone();
+        control.properties.insert(
+            "grid_dimensions".to_owned(),
+            Value::from(vec![columns, rows]),
+        );
+        Some(control)
+    }
+
+    /// The items a screen fed to this control's named factory.
+    fn feed(&self, control: &ResolvedControl) -> Option<&'a [FactoryItem]> {
+        let name = control.factory.as_ref()?.name.as_deref()?;
+        self.data.factories.get(name).map(Vec::as_slice)
+    }
+
+    /// One control per fed item, newest `max_children_size` kept.
+    fn expand_feed(
+        &mut self,
+        control: &ResolvedControl,
+        items: &[FactoryItem],
+        scope: &Scope,
+    ) -> Vec<Node> {
+        let Some(factory) = control.factory.clone() else {
+            return Vec::new();
+        };
+        let skip = factory
+            .max_children_size
+            .map_or(0, |max| items.len().saturating_sub(max));
+        let mut nodes = Vec::new();
+        for item in &items[skip..] {
+            let Some(reference) = factory
+                .control_ids
+                .get(&item.control_id)
+                .or(factory.control_name.as_ref())
+                .cloned()
+            else {
+                continue;
+            };
+            let mut vars = factory_scope(control);
+            vars.extend(
+                item.vars
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone())),
+            );
+            let Some(mut instance) = self.resolve_with(&reference, &vars) else {
+                continue;
+            };
+            if let Some(name) = &item.name {
+                instance.name = name.clone();
+            }
+            instance
+                .properties
+                .insert(crate::anim::BORN_KEY.to_owned(), Value::from(item.born));
+            // The item's property bag is readable throughout the created subtree.
+            let mut item_scope = scope.clone();
+            let mut values = (*item_scope.values).clone();
+            values.extend(
+                item.values
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone())),
+            );
+            item_scope.values = std::sync::Arc::new(values);
+            nodes.push(self.build(&instance, &item_scope));
+        }
+        nodes
+    }
+
+    fn resolve_with(
+        &mut self,
+        reference: &ControlRef,
+        vars: &BTreeMap<String, Value>,
+    ) -> Option<ResolvedControl> {
+        if vars.is_empty() {
+            return self.resolve(reference);
+        }
+        let key = (
+            reference.clone(),
+            serde_json::to_string(vars).unwrap_or_default(),
+        );
+        if let Some(resolved) = self.resolved_with.get(&key) {
+            return resolved.clone();
+        }
+        let resolved = self.lib.resolve_with(reference, vars);
+        self.resolved_with.insert(key, resolved.clone());
         resolved
     }
 
@@ -284,7 +457,8 @@ impl Binder<'_> {
     }
 
     fn gather_own(&self, control: &ResolvedControl, scope: &Scope) -> BTreeMap<String, Scalar> {
-        let mut own = property_bag(control);
+        let mut own = (*scope.values).clone();
+        own.extend(property_bag(control));
         for binding in bindings_of(control) {
             let Some(binding) = binding.as_object() else {
                 continue;
@@ -414,7 +588,7 @@ impl Binder<'_> {
                 continue;
             };
             let reference = reference.clone();
-            let Some(resolved) = self.resolve(&reference) else {
+            let Some(resolved) = self.resolve_with(&reference, &factory_scope(control)) else {
                 self.diagnostics.push(format!(
                     "{}: factory control {reference} unresolved",
                     control.name
@@ -461,7 +635,7 @@ impl Binder<'_> {
                 |cells| cells as usize,
             )
             .min(cap);
-        let Some(resolved) = self.resolve(template) else {
+        let Some(resolved) = self.resolve_with(template, &factory_scope(control)) else {
             self.diagnostics.push(format!(
                 "{}: grid template {template} unresolved",
                 control.name
@@ -675,6 +849,17 @@ fn unsupplied_roles(
     }
 }
 
+/// The `$vars` a factory or grid's created controls resolve with.
+fn factory_scope(control: &ResolvedControl) -> BTreeMap<String, Value> {
+    match control.properties.get(crate::resolve::FACTORY_SCOPE) {
+        Some(Value::Object(vars)) => vars
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect(),
+        _ => BTreeMap::new(),
+    }
+}
+
 /// Read a control's `bindings` array; a non-array (or absent) yields nothing.
 fn bindings_of(control: &ResolvedControl) -> &[Value] {
     match control.properties.get("bindings") {
@@ -745,6 +930,12 @@ fn bake_properties(
     }
     if let Some(visible) = own.get("#visible").and_then(Scalar::as_bool) {
         out.insert("visible".to_owned(), Value::Bool(visible));
+    }
+    if let Some(alpha) = own.get("#alpha").and_then(scalar_number) {
+        out.insert("alpha".to_owned(), scalar_to_value(&Scalar::Num(alpha)));
+    }
+    if let Some(propagate) = own.get("#propagateAlpha").and_then(Scalar::as_bool) {
+        out.insert("propagate_alpha".to_owned(), Value::Bool(propagate));
     }
     if let Some(ratio) = own.get("#clip_ratio").and_then(scalar_number) {
         out.insert(

@@ -52,6 +52,7 @@ fn factory_panel(
             .map(|(role, reference)| ((*role).to_owned(), reference.clone()))
             .collect(),
         control_name: None,
+        max_children_size: None,
     });
     control
 }

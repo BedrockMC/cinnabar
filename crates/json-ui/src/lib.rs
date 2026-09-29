@@ -13,12 +13,14 @@
 //! overlays server resource-pack ui over the vanilla catalog, and [`form`]
 //! renders a decoded server form through its vanilla template.
 
+mod anim;
 mod bind;
 mod catalog;
 mod emit;
 mod env;
 mod expr;
 mod form;
+mod hud;
 mod input;
 mod json5;
 mod layout;
@@ -36,7 +38,8 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-pub use bind::{CollectionItem, ControlLibrary, DataSource, EmptyLibrary, bind};
+pub use anim::{Chain, Fade, Step, StepKind, fade_factor};
+pub use bind::{CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind};
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};
 pub use env::Env;
@@ -47,6 +50,10 @@ pub use form::{
     ActionElement, ActionForm, ButtonImage, CatalogLibrary, CustomElement, CustomForm, FormButton,
     FormModel, FormRender, ModalForm, bind_form, form_context, form_data_source,
     form_screen_cancel, form_template, render_bound, render_form, render_form_with,
+};
+pub use hud::{
+    BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed,
+    hud_context, hud_data_source,
 };
 pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,

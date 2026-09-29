@@ -129,14 +129,15 @@ fn nine_anchor_points_place_a_child() {
     }
 }
 
-/// `anchor_to` names the parent point, `anchor_from` the child point: a child's
-/// top-left pinned to the parent's bottom-right lands at the far corner.
+/// `anchor_from` names the parent point, `anchor_to` the child point, as the
+/// vanilla stack-progress arrows rely on: a child's top-left pinned to the
+/// parent's bottom-right lands at the far corner.
 #[test]
 fn asymmetric_anchor_splits_parent_and_child_points() {
     let child = ctrl(
         "child",
         Some("panel"),
-        json!({ "size": [10, 10], "anchor_from": "top_left", "anchor_to": "bottom_right" }),
+        json!({ "size": [10, 10], "anchor_from": "bottom_right", "anchor_to": "top_left" }),
         vec![],
     );
     let root = ctrl(
