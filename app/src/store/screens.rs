@@ -209,7 +209,7 @@ fn layout_data(snapshot: &StoreSnapshot, tr: Translate<'_>) -> ScreenData {
         StoreView::Detail => detail_sections(&mut data, &mut items, snapshot, tr),
         _ => {
             if snapshot.view == StoreView::Search {
-                items.push(search_bar_item(snapshot, tr));
+                items.push(search_bar_item(snapshot));
                 data.flags(
                     &[
                         "#search_bar_enabled",
@@ -241,14 +241,10 @@ fn layout_data(snapshot: &StoreSnapshot, tr: Translate<'_>) -> ScreenData {
     data
 }
 
-fn search_bar_item(snapshot: &StoreSnapshot, tr: Translate<'_>) -> CollectionItem {
+fn search_bar_item(snapshot: &StoreSnapshot) -> CollectionItem {
     CollectionItem::new("SearchBar")
         .with("#item_name", text(snapshot.search_term.clone()))
         .with("#enabled", Scalar::Bool(false))
-        .with(
-            "#search_placeholder",
-            text(tr("store.search.placeHolderText")),
-        )
 }
 
 fn row_item(row: &DisplayRow) -> CollectionItem {
