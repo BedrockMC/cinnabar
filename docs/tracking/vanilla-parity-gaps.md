@@ -75,8 +75,10 @@ news, screenshots, games; artwork up to 512 px, read-more toggles, selected-row 
 RakNet player counts and ping icons with provisional 150/300 ms thresholds); Realms split
 owned/member with players and expiry; the start screen shows the profile gamertag and gamerpic
 (else the persona head), messaging tile art (first GIF frame), inbox badge, Realms invite
-count and the live-event button. The profile screen is drawn natively in the OreUI route's
-layout (needs a screenshot check); the OreUI play/settings routes are not reproduced. Not
+count and the live-event button. OreUI screens that 26.30 shows by default are drawn with our code-drawn OreUI design system
+(`docs/oreui.md`): play (Worlds/Realms/Servers), death, profile, inbox and the friends drawer;
+settings, disconnect and the main menu stay JSON-UI as in 26.30's defaults. Bed and
+create/edit-world OreUI screens are not built. All need screenshot checks. Not
 served: persona appearance pieces for the paper doll, gathering venues, store layouts. A launcher run keeps one `-control-status` core (restarted
 on sign-in/sign-out) that feeds account, realms, friends and local worlds; joins select their
 target over `connect.v1` and fall back to a per-session core; opened local worlds are joined and
