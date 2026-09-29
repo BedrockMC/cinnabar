@@ -36,7 +36,9 @@ pub(crate) enum Widget {
     BookToggle,
     /// One recipe cell by position on the visible page.
     BookRecipe(u8),
-    BookPage { next: bool },
+    BookPage {
+        next: bool,
+    },
 }
 
 pub(crate) const STONECUTTER_COLUMNS: usize = 4;
@@ -106,7 +108,7 @@ pub(crate) fn window_layout(kind: WindowKind, cells: usize) -> Option<WindowLayo
             .collect()
     };
     Some(match kind {
-        WindowKind::Storage | WindowKind::Workbench => return None,
+        WindowKind::Storage | WindowKind::Workbench | WindowKind::Lectern => return None,
         WindowKind::Dispenser | WindowKind::Dropper => WindowLayout {
             title_centered: true,
             ..standard(grid(0, 9, 3, 62.0, 17.0))

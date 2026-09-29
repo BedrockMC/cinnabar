@@ -12,9 +12,9 @@ mod creative;
 mod window;
 
 pub(crate) use book::{
-    BOOK_CELLS, BOOK_CELL_SIZE, BOOK_PANEL, book_hit, book_origin, cell_origin as book_cell_origin,
-    page_origin as book_page_origin, page_size as book_page_size, toggle_origin as book_toggle_origin,
-    toggle_size as book_toggle_size,
+    BOOK_CELL_SIZE, BOOK_CELLS, BOOK_PANEL, book_hit, book_origin, cell_origin as book_cell_origin,
+    page_origin as book_page_origin, page_size as book_page_size,
+    toggle_origin as book_toggle_origin, toggle_size as book_toggle_size,
 };
 
 pub(crate) use creative::{

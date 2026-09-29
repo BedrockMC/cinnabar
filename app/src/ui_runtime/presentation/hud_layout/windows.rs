@@ -811,6 +811,7 @@ pub(crate) const fn default_title(kind: WindowKind) -> &'static str {
         WindowKind::Cartography => "Cartography Table",
         WindowKind::Smithing => "Upgrade Gear",
         WindowKind::Crafter => "Crafter",
+        WindowKind::Lectern => "Lectern",
     }
 }
 
@@ -836,5 +837,6 @@ pub(crate) const fn title_key(kind: WindowKind) -> &'static str {
         WindowKind::Cartography => "container.cartography_table",
         WindowKind::Smithing => "container.upgrade",
         WindowKind::Crafter => "container.crafter",
+        WindowKind::Lectern => "container.lectern",
     }
 }

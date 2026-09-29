@@ -153,7 +153,8 @@ impl UiRuntime {
         let protocol::CraftGridMatch::Unique(recipe) = self.crafting_match() else {
             return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
         };
-        self.inventory_ledger_mut().begin_craft_into(&recipe, 1, sink)
+        self.inventory_ledger_mut()
+            .begin_craft_into(&recipe, 1, sink)
     }
 
     /// Crafts the grid's unique recipe as many times as it fits, shift-click style.
