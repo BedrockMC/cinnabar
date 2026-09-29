@@ -52,6 +52,7 @@ pub(super) fn compile_bindings(
     payloads: &SourcePayloads,
     symbols: &[EntityAssetSymbol],
     sources: &[EntityAssetSource],
+    lenient: bool,
 ) -> Result<Box<[EquipmentBinding]>, AttachableError> {
     let animation_sources = animation_source_index(symbols, sources);
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
@@ -61,9 +62,15 @@ pub(super) fn compile_bindings(
         if !path.starts_with("attachables/") {
             continue;
         }
-        let value = parse_unique_json(Path::new(path.as_ref()), bytes)
-            .map_err(|_| AttachableError::Malformed)?;
-        let parsed = parse_attachable(&value, payloads, &animation_sources)?;
+        let parsed = match parse_unique_json(Path::new(path.as_ref()), bytes)
+            .map_err(|_| AttachableError::Malformed)
+            .and_then(|value| parse_attachable(&value, payloads, &animation_sources))
+        {
+            Ok(parsed) => parsed,
+            // A server pack's bad attachable drops only itself.
+            Err(_) if lenient => continue,
+            Err(error) => return Err(error),
+        };
         match chosen.get(&parsed.item_identifier) {
             // The player variant wins so its collected geometry resolves in-catalog.
             Some(existing) if existing.prefer && !parsed.prefer => {}
@@ -73,7 +80,15 @@ pub(super) fn compile_bindings(
         }
     }
     if chosen.len() > MAX_EQUIPMENT_BINDINGS {
-        return Err(AttachableError::TooMany);
+        if !lenient {
+            return Err(AttachableError::TooMany);
+        }
+        let keep = chosen
+            .keys()
+            .take(MAX_EQUIPMENT_BINDINGS)
+            .cloned()
+            .collect::<Vec<_>>();
+        chosen.retain(|identifier, _| keep.contains(identifier));
     }
     let bindings = chosen
         .into_values()
@@ -690,7 +705,7 @@ mod tests {
             ),
         ]);
         let sources = sources(&["animations/trident.animation.json"]);
-        let bindings = compile_bindings(&payloads, &symbols, &sources).unwrap();
+        let bindings = compile_bindings(&payloads, &symbols, &sources, false).unwrap();
         assert_eq!(bindings.len(), 1);
         let trident = &bindings[0];
         assert_eq!(trident.category, EquipmentCategory::Held);
@@ -719,7 +734,7 @@ mod tests {
         ]);
         // Only the player geometry is collected; the mob geometry is external.
         let symbols = symbols(&[(EntityAssetKind::Geometry, "geometry.player.armor.helmet", 0)]);
-        let bindings = compile_bindings(&payloads, &symbols, &[]).unwrap();
+        let bindings = compile_bindings(&payloads, &symbols, &[], false).unwrap();
         assert_eq!(bindings.len(), 1);
         let helmet = &bindings[0];
         assert_eq!(helmet.identifier.as_ref(), "minecraft:diamond_helmet");
@@ -766,7 +781,7 @@ mod tests {
             ),
         ]);
         let sources = sources(&["animations/shield.animation.json"]);
-        let bindings = compile_bindings(&payloads, &symbols, &sources).unwrap();
+        let bindings = compile_bindings(&payloads, &symbols, &sources, false).unwrap();
         assert_eq!(bindings[0].category, EquipmentCategory::Shield);
         assert!(bindings[0].third_person.literal().is_none());
     }
@@ -796,7 +811,7 @@ mod tests {
             (EntityAssetKind::Animation, "animation.elytra.gliding", 0),
         ]);
         let sources = sources(&["animations/elytra.animation.json"]);
-        let bindings = compile_bindings(&payloads, &symbols, &sources).unwrap();
+        let bindings = compile_bindings(&payloads, &symbols, &sources, false).unwrap();
         assert_eq!(bindings[0].category, EquipmentCategory::Elytra);
         let keys = bindings[0]
             .poses
@@ -845,7 +860,7 @@ mod tests {
             ),
         ]);
         let sources = sources(&["animations/shield.animation.json"]);
-        let bindings = compile_bindings(&payloads, &symbols, &sources).unwrap();
+        let bindings = compile_bindings(&payloads, &symbols, &sources, false).unwrap();
         let shield = &bindings[0];
         assert_eq!(shield.category, EquipmentCategory::Shield);
         assert_eq!(shield.poses.len(), 2);

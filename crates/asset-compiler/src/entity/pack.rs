@@ -64,6 +64,29 @@ fn canonical_path(path: Box<str>) -> Box<str> {
     }
 }
 
+fn identifier_is_valid(identifier: &str) -> bool {
+    !identifier.is_empty()
+        && identifier.len() <= assets::MAX_ENTITY_IDENTIFIER_BYTES
+        && !identifier.chars().any(char::is_control)
+}
+
+/// Whether every identifier a parsed file introduces would pass catalog validation.
+fn file_identifiers_are_valid(
+    symbols: &BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
+    geometries: &BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
+) -> bool {
+    symbols.values().all(|symbol| {
+        identifier_is_valid(&symbol.identifier)
+            && symbol
+                .dependencies
+                .iter()
+                .all(|dependency| identifier_is_valid(&dependency.identifier))
+    }) && geometries.values().all(|geometry| {
+        identifier_is_valid(&geometry.identifier)
+            && geometry.inherits.as_deref().is_none_or(identifier_is_valid)
+    })
+}
+
 /// Most recompiles spent isolating one structurally invalid file.
 const MAX_ISOLATION_ATTEMPTS: usize = 64;
 
@@ -123,7 +146,26 @@ fn compile_selected(
         if omit == Some(index) {
             continue;
         }
-        let (path, bytes) = (path.clone(), bytes.as_slice());
+        let path = path.clone();
+        // Geometry is normalised to the accepted schema; a file that leaves nothing is skipped.
+        let normalised;
+        let bytes = if path.starts_with("models/entity/") {
+            let Some(text) = serde_json::from_slice::<serde_json::Value>(bytes)
+                .ok()
+                .filter(|_| true)
+                .and_then(|mut value| {
+                    sanitize::sanitize_geometry(&mut value).then(|| serde_json::to_vec(&value).ok())
+                })
+                .flatten()
+            else {
+                skipped.unparsable += 1;
+                continue;
+            };
+            normalised = text;
+            normalised.as_slice()
+        } else {
+            bytes.as_slice()
+        };
         if bytes.len() > assets::MAX_ENTITY_SOURCE_BYTES {
             skipped.oversized += 1;
             continue;
@@ -145,6 +187,10 @@ fn compile_selected(
         )
         .is_err()
         {
+            skipped.unparsable += 1;
+            continue;
+        }
+        if !file_identifiers_are_valid(&file_symbols, &file_geometries) {
             skipped.unparsable += 1;
             continue;
         }

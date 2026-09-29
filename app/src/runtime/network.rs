@@ -428,9 +428,15 @@ pub(crate) fn receive_network_events(
                 }
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
-                stream.set_pack_entities(
-                    packs.entities.as_ref().map(|pack| Arc::clone(&pack.assets)),
-                );
+                stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
+                    (
+                        Arc::clone(&pack.assets),
+                        pack.bindings
+                            .iter()
+                            .map(|binding| binding.geometry_candidate)
+                            .collect(),
+                    )
+                }));
                 stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
                 if let Some(registry) = world_item_registry

@@ -764,7 +764,7 @@ impl ActorStore {
     /// Layers a session's server-pack entity catalog over the vanilla one.
     pub(crate) fn set_pack_entities(
         &mut self,
-        assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+        assets: Option<(std::sync::Arc<assets::RuntimeEntityAssets>, Vec<u32>)>,
     ) {
         self.animation.set_pack(assets);
     }
