@@ -149,3 +149,36 @@ fn fallback_buttons_show_every_label_line() {
     assert_eq!(rows.len(), 3);
     assert!(rows.windows(2).all(|pair| pair[1] > pair[0]), "{rows:?}");
 }
+
+// Installing and removing a server pack's UI keeps every published frame
+// acceptable to the renderer, which pins the static texture identity and plan.
+#[test]
+fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
+    use render::{UiRenderScene, UiRenderStats};
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 8, image::Rgba([9, 8, 7, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let pack = super::ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/server_form.json".to_owned(),
+            br#"{ "namespace": "server_form", "form_button": { "size": ["100%", 40] } }"#.to_vec(),
+        )]],
+        textures: vec![("textures/ui/pack_button.png".to_owned(), png)],
+    };
+    let mut presentation = mini_engine_presentation();
+    let runtime = super::pack_harness::action_form("Menu", &["A"]);
+    let (mut scene, stats) = (UiRenderScene::default(), UiRenderStats::default());
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    let mut publish = |presentation: &mut UiPresentationRuntime| {
+        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        scene.publish(input, &stats).unwrap();
+    };
+    publish(&mut presentation);
+    presentation.set_server_ui_pack(&pack);
+    assert_eq!(presentation.server_ui_pages().len(), 1);
+    publish(&mut presentation);
+    presentation.set_server_ui_pack(&super::ServerUiPack::default());
+    assert!(presentation.server_ui_pages().is_empty());
+    publish(&mut presentation);
+}
