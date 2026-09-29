@@ -1,5 +1,6 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod chat_send;
 mod crafting_authority;
 pub use crafting_authority::CraftingPreview;
 mod event_apply;
@@ -9,6 +10,8 @@ pub(crate) mod gameplay_hud;
 pub(crate) mod gameplay_touch;
 mod hud_adapter;
 mod interaction;
+mod inventory_actions;
+mod inventory_drag;
 mod inventory_ingress;
 pub mod inventory_ledger;
 pub mod inventory_router;
@@ -20,6 +23,7 @@ pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
+mod screen_state;
 mod sign_editor;
 mod use_on_identity_evidence;
 
@@ -42,7 +46,7 @@ use interaction::{
 };
 pub(crate) use interaction::{
     drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
-    flush_chat_network, flush_inventory_network,
+    drive_world_inventory_keys, flush_chat_network, flush_inventory_network,
 };
 pub use inventory_ingress::{InventoryAuthorityEvent, SequencedInventoryEvent};
 
@@ -51,8 +55,7 @@ use std::{collections::VecDeque, sync::Arc};
 use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
-    ChatPacketError, EquipmentEvent, InventoryAuthority, InventoryEvent, Packet, PlayerGameMode,
-    UiEvent, chat_input_packet,
+    EquipmentEvent, InventoryAuthority, InventoryEvent, PlayerGameMode, UiEvent,
 };
 use semantic_input::InputContext;
 #[cfg(test)]
@@ -60,8 +63,8 @@ use ui::BoundedStat;
 use ui::{
     BossBarStore, ChatApplyResult, ChatAutocompleteError, ChatAutocompleteRequest,
     ChatAutocompleteResponse, ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError,
-    ChatHistory, ChatPasteError, ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest,
-    ChatStore, HudStore, MAX_CHAT_INPUT_BYTES, RetainedUiSequenceError, ScoreboardStore, UiAction,
+    ChatHistory, ChatPasteError, ChatRateLimit, ChatSendQueue, ChatStore, HudStore,
+    MAX_CHAT_INPUT_BYTES, RetainedUiSequenceError, ScoreboardStore, UiAction,
 };
 
 use self::gameplay_hud::GameplayHudState;
@@ -199,6 +202,7 @@ pub struct UiRuntime {
     sign_editor: sign_editor::SignEditor,
     inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
+    screen: screen_state::ScreenState,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -277,6 +281,7 @@ impl UiRuntime {
             sign_editor: sign_editor::SignEditor::default(),
             inventory_pointer_gui: None,
             inventory_keys: interaction::InventoryKeys::default(),
+            screen: screen_state::ScreenState::default(),
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,
@@ -436,6 +441,14 @@ impl UiRuntime {
         self.inventory_pointer_gui
     }
 
+    pub(crate) const fn screen_state(&self) -> &screen_state::ScreenState {
+        &self.screen
+    }
+
+    pub(crate) fn screen_state_mut(&mut self) -> &mut screen_state::ScreenState {
+        &mut self.screen
+    }
+
     pub(crate) fn set_inventory_pointer_gui(&mut self, position: Option<[f32; 2]>) {
         self.inventory_pointer_gui = position;
     }
@@ -585,83 +598,6 @@ impl UiRuntime {
             return true;
         }
         self.handle_chat_ui_action(action)
-    }
-
-    pub fn pending_chat_sends(&self) -> &VecDeque<ChatSendRequest> {
-        self.chat_sends.pending()
-    }
-
-    pub const fn dropped_unsent_chat_messages(&self) -> u64 {
-        self.dropped_unsent_chat_messages
-    }
-
-    pub fn set_chat_identity(&mut self, source_name: Arc<str>, xuid: Arc<str>) {
-        self.chat_source_name = source_name;
-        self.chat_xuid = xuid;
-    }
-
-    pub fn set_chat_source_name(&mut self, source_name: Arc<str>) {
-        self.chat_source_name = source_name;
-    }
-
-    pub fn queue_chat_send(&mut self, now_millis: u64) -> Result<ChatSendRequest, ChatSendError> {
-        let message = self.chat_editor.as_str();
-        let request = self.chat_sends.push(self.session_id, message, now_millis)?;
-        self.chat_history.push(Arc::clone(&request.message));
-        self.chat_editor.clear();
-        self.chat_autocomplete.clear();
-        self.pending_chat_autocomplete_request = None;
-        Ok(request)
-    }
-
-    pub fn front_chat_packet(&self) -> Result<Option<(u64, Packet)>, ChatPacketError> {
-        self.chat_sends
-            .pending()
-            .front()
-            .map(|request| {
-                chat_input_packet(&self.chat_source_name, &self.chat_xuid, &request.message)
-                    .map(|packet| (request.sequence, packet))
-            })
-            .transpose()
-    }
-
-    pub fn confirm_chat_send(&mut self, sequence: u64) -> bool {
-        self.chat_sends.confirm_front(sequence)
-    }
-
-    pub const fn in_flight_chat_send(&self) -> Option<(u64, u64)> {
-        self.in_flight_chat_send
-    }
-
-    pub fn mark_chat_send_enqueued(&mut self, session: u64, sequence: u64) -> bool {
-        if self.in_flight_chat_send.is_some()
-            || session != self.session_id
-            || self
-                .chat_sends
-                .pending()
-                .front()
-                .is_none_or(|request| request.session != session || request.sequence != sequence)
-        {
-            return false;
-        }
-        self.in_flight_chat_send = Some((session, sequence));
-        true
-    }
-
-    pub fn acknowledge_chat_send(&mut self, session: u64, sequence: u64) -> bool {
-        if self.in_flight_chat_send != Some((session, sequence)) {
-            return false;
-        }
-        self.in_flight_chat_send = None;
-        self.confirm_chat_send(sequence)
-    }
-
-    pub fn fail_chat_send(&mut self, session: u64, sequence: u64) -> bool {
-        if self.in_flight_chat_send != Some((session, sequence)) {
-            return false;
-        }
-        self.in_flight_chat_send = None;
-        true
     }
 
     pub(crate) fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {

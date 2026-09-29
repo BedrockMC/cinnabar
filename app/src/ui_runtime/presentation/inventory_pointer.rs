@@ -1,9 +1,8 @@
+use protocol::WindowKind;
 use ui::UiPoint;
 
+use super::screens::{self, Widget};
 use super::{HudGeometry, UiPresentationRuntime};
-
-const PANEL_SIZE: [f32; 2] = [176.0, 166.0];
-const SLOT_SIZE: f32 = 18.0;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum InventoryCellHit {
@@ -11,9 +10,15 @@ pub(crate) enum InventoryCellHit {
     Storage(u8),
     Armor(u8),
     Offhand,
-    /// A crafting cell by UI inventory slot.
+    /// A screen input or crafting cell by UI inventory slot.
     Craft(u8),
+    /// The created-output cell of a crafting-style screen.
     CraftOutput,
+    Widget(Widget),
+    /// A creative catalog grid cell by position on the current page.
+    CreativeGrid(u8),
+    CreativeTab(u8),
+    CreativeSearch,
 }
 
 /// Which inventory screen is drawn.
@@ -22,23 +27,41 @@ pub(crate) enum InventoryScreen {
     Personal,
     Workbench,
     Storage(usize),
+    /// A container window other than chests and the workbench, with its cell count.
+    Window(WindowKind, usize),
+    Creative,
 }
 
 impl InventoryScreen {
     pub(crate) fn of(ledger: &crate::ui_runtime::inventory_ledger::PlayerInventoryLedger) -> Self {
-        use crate::ui_runtime::inventory_ledger::CraftingGrid;
-        match (ledger.storage_slot_count(), ledger.crafting_grid()) {
-            (Some(count @ (27 | 54)), _) => Self::Storage(count),
-            (_, CraftingGrid::Workbench) => Self::Workbench,
-            _ => Self::Personal,
+        let cells = ledger.storage_slot_count();
+        match (ledger.window_kind(), cells) {
+            (Some(WindowKind::Storage), Some(count @ (27 | 54))) => Self::Storage(count),
+            (Some(WindowKind::Workbench), _) => Self::Workbench,
+            (Some(WindowKind::Storage) | None, _) => Self::Personal,
+            (Some(kind), cells) => Self::Window(kind, cells.unwrap_or(0)),
+        }
+    }
+
+    /// The screen for the runtime's state: creative mode swaps the personal
+    /// screen for the creative catalog.
+    pub(crate) fn of_runtime(runtime: &crate::ui_runtime::UiRuntime) -> Self {
+        let screen = Self::of(runtime.inventory_ledger());
+        let creative = runtime
+            .player_game_mode()
+            .is_some_and(|mode| mode == protocol::PlayerGameMode::Creative);
+        if screen == Self::Personal
+            && creative
+            && runtime.inventory_ledger().creative_catalog().is_some()
+        {
+            Self::Creative
+        } else {
+            screen
         }
     }
 }
 
-/// Provisional workbench layout pending independent measurement: grid origin
-/// and output cell relative to the panel.
-pub(crate) const WORKBENCH_GRID: [f32; 2] = [30.0, 17.0];
-pub(crate) const WORKBENCH_OUTPUT: [f32; 2] = [124.0, 35.0];
+pub(crate) use screens::{WORKBENCH_GRID, WORKBENCH_OUTPUT};
 
 impl UiPresentationRuntime {
     pub(crate) fn inventory_gui_point(
@@ -91,18 +114,12 @@ impl UiPresentationRuntime {
         let Some(geometry) = self.inventory_geometry(physical_size, dpi_scale) else {
             return false;
         };
-        let height = match screen {
-            InventoryScreen::Storage(count) => 114.0 + (count / 9) as f32 * SLOT_SIZE,
-            InventoryScreen::Personal | InventoryScreen::Workbench => PANEL_SIZE[1],
-        };
-        let origin = [
-            ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),
-            ((geometry.gui_height - height) * 0.5).floor(),
-        ];
+        let size = screens::panel_size(screen);
+        let origin = screens::panel_origin(screen, [geometry.gui_width, geometry.gui_height]);
         gui[0] >= origin[0]
-            && gui[0] < origin[0] + PANEL_SIZE[0]
+            && gui[0] < origin[0] + size[0]
             && gui[1] >= origin[1]
-            && gui[1] < origin[1] + height
+            && gui[1] < origin[1] + size[1]
     }
 
     fn inventory_geometry(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<HudGeometry> {
@@ -135,124 +152,39 @@ fn cell_hit(
     geometry: HudGeometry,
     screen: InventoryScreen,
 ) -> Option<InventoryCellHit> {
-    if let InventoryScreen::Storage(count) = screen {
-        let rows = count / 9;
-        let panel_height = 114.0 + rows as f32 * SLOT_SIZE;
-        let origin = [
-            ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),
-            ((geometry.gui_height - panel_height) * 0.5).floor(),
-        ];
-        for slot in 0..count {
-            let min = [
-                origin[0] + 8.0 + (slot % 9) as f32 * SLOT_SIZE,
-                origin[1] + 18.0 + (slot / 9) as f32 * SLOT_SIZE,
-            ];
-            if point_in_slot(point, min) {
-                return Some(InventoryCellHit::Storage(slot as u8));
-            }
-        }
-        let player_y = origin[1] + 32.0 + rows as f32 * SLOT_SIZE;
-        for row in 0..3u8 {
-            for column in 0..9u8 {
-                if point_in_slot(
-                    point,
-                    [
-                        origin[0] + 8.0 + f32::from(column) * SLOT_SIZE,
-                        player_y + f32::from(row) * SLOT_SIZE,
-                    ],
-                ) {
-                    return Some(InventoryCellHit::Player(9 + row * 9 + column));
-                }
-            }
-        }
-        for column in 0..9u8 {
-            if point_in_slot(
-                point,
-                [
-                    origin[0] + 8.0 + f32::from(column) * SLOT_SIZE,
-                    player_y + 58.0,
-                ],
-            ) {
-                return Some(InventoryCellHit::Player(column));
-            }
-        }
-        return None;
+    let origin = screens::panel_origin(screen, [geometry.gui_width, geometry.gui_height]);
+    let local = [point[0] - origin[0], point[1] - origin[1]];
+    if let InventoryScreen::Creative = screen
+        && let Some(tab) = screens::tab_at(local)
+    {
+        return Some(if tab == screens::SEARCH_TAB {
+            InventoryCellHit::CreativeSearch
+        } else {
+            InventoryCellHit::CreativeTab(tab)
+        });
     }
-    let origin = [
-        ((geometry.gui_width - PANEL_SIZE[0]) * 0.5).floor(),
-        ((geometry.gui_height - PANEL_SIZE[1]) * 0.5).floor(),
-    ];
-    let at = |offset: [f32; 2]| [origin[0] + offset[0], origin[1] + offset[1]];
-    if let Some(hit) = upper_hit(point, screen, at) {
-        return Some(hit);
+    if let InventoryScreen::Window(kind, _) = screen
+        && let Some((widget, _, _)) =
+            screens::widget_rects(kind)
+                .into_iter()
+                .find(|(_, pos, size)| {
+                    local[0] >= pos[0]
+                        && local[0] < pos[0] + size[0]
+                        && local[1] >= pos[1]
+                        && local[1] < pos[1] + size[1]
+                })
+    {
+        return Some(InventoryCellHit::Widget(widget));
     }
-    for row in 0..3u8 {
-        for column in 0..9u8 {
-            let min = [
-                origin[0] + 8.0 + f32::from(column) * SLOT_SIZE,
-                origin[1] + 84.0 + f32::from(row) * SLOT_SIZE,
-            ];
-            if point_in_slot(point, min) {
-                return Some(InventoryCellHit::Player(9 + row * 9 + column));
-            }
-        }
-    }
-    for column in 0..9u8 {
-        let min = [
-            origin[0] + 8.0 + f32::from(column) * SLOT_SIZE,
-            origin[1] + 142.0,
-        ];
-        if point_in_slot(point, min) {
-            return Some(InventoryCellHit::Player(column));
-        }
-    }
-    None
-}
-
-/// Cells above the player inventory: the grid the screen draws, its output,
-/// and on the personal screen the armor column and offhand.
-fn upper_hit(
-    point: [f32; 2],
-    screen: InventoryScreen,
-    at: impl Fn([f32; 2]) -> [f32; 2],
-) -> Option<InventoryCellHit> {
-    let (grid, width, first_slot, output) = match screen {
-        InventoryScreen::Workbench => (WORKBENCH_GRID, 3u8, 32u8, WORKBENCH_OUTPUT),
-        _ => ([98.0, 18.0], 2, 28, [152.0, 28.0]),
-    };
-    for index in 0..width * width {
-        let cell = [
-            grid[0] + f32::from(index % width) * SLOT_SIZE,
-            grid[1] + f32::from(index / width) * SLOT_SIZE,
-        ];
-        if point_in_slot(point, at(cell)) {
-            return Some(InventoryCellHit::Craft(first_slot + index));
-        }
-    }
-    if point_in_slot(point, at(output)) {
-        return Some(InventoryCellHit::CraftOutput);
-    }
-    if screen != InventoryScreen::Personal {
-        return None;
-    }
-    for row in 0..4u8 {
-        if point_in_slot(point, at([8.0, 8.0 + f32::from(row) * SLOT_SIZE])) {
-            return Some(InventoryCellHit::Armor(row));
-        }
-    }
-    point_in_slot(point, at([77.0, 62.0])).then_some(InventoryCellHit::Offhand)
-}
-
-fn point_in_slot(point: [f32; 2], min: [f32; 2]) -> bool {
-    point[0] >= min[0]
-        && point[0] < min[0] + SLOT_SIZE
-        && point[1] >= min[1]
-        && point[1] < min[1] + SLOT_SIZE
+    screens::slot_at(&screens::screen_slots(screen), local).map(|slot| slot.hit)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::screens::SLOT_SIZE;
     use super::*;
+
+    const PANEL_SIZE: [f32; 2] = [176.0, 166.0];
     use ui::SafeArea;
 
     fn geometry(physical: [u32; 2], dpi: f32, safe: SafeArea) -> HudGeometry {

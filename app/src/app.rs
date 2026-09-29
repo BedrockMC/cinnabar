@@ -98,7 +98,8 @@ use crate::{
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor, flush_chat_network,
+        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
+        drive_world_inventory_keys, flush_chat_network,
         flush_inventory_network, flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},

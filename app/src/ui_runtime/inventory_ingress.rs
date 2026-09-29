@@ -142,9 +142,27 @@ impl UiRuntime {
     pub fn begin_crafting(
         &mut self,
     ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+        self.begin_crafting_into(super::inventory_ledger::CraftSink::Cursor)
+    }
+
+    /// Crafts the grid's unique recipe once into `sink`.
+    pub fn begin_crafting_into(
+        &mut self,
+        sink: super::inventory_ledger::CraftSink,
+    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
         let protocol::CraftGridMatch::Unique(recipe) = self.crafting_match() else {
             return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
         };
-        self.inventory_ledger_mut().begin_craft(&recipe, 1)
+        self.inventory_ledger_mut().begin_craft_into(&recipe, 1, sink)
+    }
+
+    /// Crafts the grid's unique recipe as many times as it fits, shift-click style.
+    pub fn begin_crafting_all(
+        &mut self,
+    ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
+        let protocol::CraftGridMatch::Unique(recipe) = self.crafting_match() else {
+            return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
+        };
+        self.inventory_ledger_mut().begin_craft_all(&recipe)
     }
 }

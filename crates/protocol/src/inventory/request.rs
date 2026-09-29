@@ -40,6 +40,24 @@ pub fn item_stack_request_packet(
     request_id: i32,
     actions: &[StackRequestAction],
 ) -> Result<crate::Packet, InventoryPacketError> {
+    item_stack_request_packet_filtered(request_id, actions, &[])
+}
+
+/// Text an anvil rename carries for server-side filtering.
+pub const MAX_FILTER_STRINGS: usize = 4;
+
+/// Like [`item_stack_request_packet`], with the anvil-text strings a
+/// craft-optional action's filter index points into.
+pub fn item_stack_request_packet_filtered(
+    request_id: i32,
+    actions: &[StackRequestAction],
+    filter_strings: &[String],
+) -> Result<crate::Packet, InventoryPacketError> {
+    if filter_strings.len() > MAX_FILTER_STRINGS {
+        return Err(InventoryPacketError::InvalidStackRequestActionCount(
+            filter_strings.len(),
+        ));
+    }
     if request_id >= -1 || request_id & 1 == 0 {
         return Err(InventoryPacketError::InvalidStackRequestId);
     }
@@ -66,8 +84,12 @@ pub fn item_stack_request_packet(
                 .iter()
                 .map(actions::encode)
                 .collect::<Result<_, _>>()?,
-            strings_to_filter: Vec::new(),
-            strings_to_filter_origin: EnumsTextProcessingEventOrigin::Unknown,
+            strings_to_filter: filter_strings.to_vec(),
+            strings_to_filter_origin: if filter_strings.is_empty() {
+                EnumsTextProcessingEventOrigin::Unknown
+            } else {
+                EnumsTextProcessingEventOrigin::AnvilText
+            },
         }],
     }
     .into())
