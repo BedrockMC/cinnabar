@@ -387,3 +387,61 @@ fn vanilla_form_button_images_resolve() {
     }
     assert!(missing.is_empty());
 }
+
+/// Button text shaped like a server's two-line entries plus a description.
+fn entry(name: &str) -> String {
+    format!("§e{name}\n§7PRACTICE\n§eDESCRIPTION\n§7Practice {name} here")
+}
+
+// Writes PNG snapshots of pack forms for visual inspection (local only).
+#[test]
+fn snapshot_pack_forms() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    if let Some(pack) = env_pack() {
+        presentation.set_server_ui_pack(&pack);
+    }
+    let training: Vec<String> = ["BRIDGING", "CLUTCH", "WALL RUN", "AIMING", "BOT DUEL"]
+        .iter()
+        .map(|name| entry(name))
+        .collect();
+    let ffa: Vec<String> = ["SUMO", "MACE", "BUILD", "SKYWARS"]
+        .iter()
+        .map(|name| entry(name))
+        .collect();
+    let boxes: Vec<String> = (0..90).map(|index| format!("Item {index}")).collect();
+    let forms: [(&str, &str, &[String]); 3] = [
+        ("training", "Training", &training),
+        ("ffa", "Free For All§zfp0;", &ffa),
+        ("boxes", "@mineville/boxes:Spirit Bundle", &boxes),
+    ];
+    for (name, title, buttons) in forms {
+        let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
+        let runtime = action_form(title, &labels);
+        let dpi = DpiScale::new(1.0).unwrap();
+        for _ in 0..2 {
+            presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        }
+        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        super::snapshot::write(&input, name);
+        // The same form with its second button hovered.
+        let identity = runtime.server_forms().active().unwrap().identity;
+        let hovered = presentation.form_engine_frame(identity).and_then(|frame| {
+            let mut buttons = frame
+                .hits
+                .iter()
+                .filter(|hit| hit.kind == json_ui::HitKind::Button);
+            buttons
+                .clone()
+                .nth(1)
+                .or(buttons.next_back())
+                .map(|hit| hit.key.clone())
+        });
+        let mut runtime = runtime;
+        runtime.server_forms_mut().engine_mut().view.hovered = hovered;
+        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        super::snapshot::write(&input, &format!("{name}-hover"));
+    }
+}

@@ -15,6 +15,8 @@ mod remote_images;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]
+mod snapshot;
+#[cfg(test)]
 pub(crate) mod tests;
 mod textures;
 
