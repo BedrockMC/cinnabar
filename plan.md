@@ -55,8 +55,9 @@ short-name key (provisional). Custom-block selection boxes drive the pick ray. S
 index space (pack rig ids from `PACK_RIG_ID_BASE`) and layer over the vanilla catalog: pack
 entities win by identifier, render scene geometry/artwork are rebuilt per session. Provisional,
 labeled incomplete: neutral material profile only (custom materials and conditional/multi-texture
-render controllers fall back), pack attachables/held items and pack entity property defaults
-are not applied, rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
+render controllers fall back), pack attachables (held/worn on player bodies) layer over the equipment runtime per session
+(pack bindings win by item identifier; pack property defaults seed only from `entities/` in
+resource packs), rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
@@ -2822,6 +2823,42 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
 - [ ] **3.4 Semantic controls and camera perspectives.** `P3.4-INPUT-CAMERA`
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
+  **Provisional (incomplete, closes no acceptance gate):** sprint latch/double-tap/toggle
+  options, forced sneak and crawl under low ceilings, ability flight, pose-swimming and elytra
+  gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
+  double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
+  edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
+  against a native client. Flight, swim and glide follow the public movement-physics notes'
+  BedSim candidates (still unvalidated for 1.26.30). Honey jump/slide, soul speed and depth
+  strider coefficients are provisional (honey and soul speed have no public value). Riding
+  suspends player physics and streams steering input with boat paddle flags; rider seat
+  following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire
+  signalling are not implemented. Sweet berry bush slowdown is written in `tools/registrygen`
+  (unverified state count and coefficients) and the sim, but the physics carrier is not
+  regenerated: at reconcile run `go -C tools/registrygen run . -physics-v2168-out
+  crates/assets/data/block-physics-v2168.bin -physics-v2168-sha-out
+  crates/assets/data/block-physics-v2168.sha256 -physics-v2168-breg <v2168 BREG>
+  -physics-v2168-manifest <manifest> -pmmp <pmmp root> -prismarine <prismarine root>` and
+  fix any count or provenance mismatch it reports for `minecraft:sweet_berry_bush`.
+  Client-predicted vehicles, precisely: the 26.30 reconstruction shows vanilla registers
+  boat and horse "client predicted" systems (`SetIsClientPredictedBoatSystem`,
+  `SetIsClientPredictedHorseSystem`) plus boat paddle/move/friction systems, and a boat's
+  friction comes from the block under it. It does NOT contain the predicate that sets the
+  predicted state, the boat paddle/turn/acceleration coefficients (all in unresolved global
+  constants), or the horse travel coefficients, so no vehicle simulator was built and no
+  value guessed. Missing before it can be built: (1) the predicate and the input-to-vehicle
+  mapping, (2) boat and horse constants measured from a native client, (3) vehicle position,
+  delta and rotation carried by `PlayerAuthInputSnapshot` (not yet in the snapshot type).
+  `ClientMovementPredictionSync` is sent (fields from the reconstruction's sender and the
+  pinned gophertunnel) after a server correction is applied, at most once per second, and is
+  skipped (counted, debug-logged) while any of the six attribute-map values is unset;
+  live-test gate item: confirm anti-cheat servers accept the sync; the
+  vanilla timer interval, the attribute names for friction/bounciness/air drag (sent as
+  1.0/0.0/1.0 provisionally) and extended actor-flag word 2 (sent as zero) need measurement.
+  `IsInClientPredictedVehicle` is deliberately never set: the public notes state riding does
+  not imply prediction and no vehicle simulator exists, so all rides send ordinary player
+  input. The horse jump has no dedicated packet in the pinned gophertunnel; it rides the raw
+  jump flags and the mount's jump strength.
 
 ## Phase 4 — Entities and other players
 
@@ -3194,6 +3231,8 @@ as reference); world create/select/delete UI; settings (name, gamemode, seed, fl
 LevelDB world persistence via dragonfly; pause/resume semantics on window focus; same client
 path as online (core points the game socket at the local dragonfly). Documented v1 limits:
 dragonfly's generation and mob AI parity gaps are accepted, not chased.
+
+Status: provisional implementation landed (see `docs/local-worlds.md`); uncompiled and unmeasured, so no acceptance gate is closed.
 
 ## Phase 8 — Audio, polish, packaging
 

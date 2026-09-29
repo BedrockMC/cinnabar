@@ -3,6 +3,7 @@
 mod actor;
 mod audio;
 mod blob_cache;
+mod block_edit;
 mod camera;
 mod codec;
 mod disconnect;
@@ -10,6 +11,7 @@ mod interaction;
 mod inventory;
 mod item;
 mod item_capacity;
+pub mod launcher_control;
 mod login;
 mod movement;
 mod nbt_tree;
@@ -21,6 +23,7 @@ mod socket_transport;
 mod transfer;
 mod ui;
 mod world;
+pub mod world_control;
 
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
@@ -35,7 +38,8 @@ pub use actor::{
     PlayerSkin, PlayerSkinUnavailable, StandardSkin,
 };
 pub use audio::{
-    AudioEvent, LevelAudioEvent, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent, StopAudioEvent,
+    AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
+    StopAudioEvent,
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
@@ -46,6 +50,7 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
+pub use block_edit::{map_info_request_packet, sign_edit_packet};
 pub use camera::{
     CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
     CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
@@ -114,10 +119,11 @@ pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePa
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
-    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, PlayerAuthInputError,
-    PlayerAuthInputInteractions, PlayerAuthInputSnapshot, PlayerAuthInputTraceSample,
-    PlayerInputFlags, PlayerInputMode, player_auth_input, player_auth_input_trace_sample,
-    player_auth_input_with_interactions, player_auth_input_with_mining_request,
+    InteractionEncodeError, MAX_BLOCK_ACTIONS_PER_INPUT, MovementPredictionSync,
+    PlayerAuthInputError, PlayerAuthInputInteractions, PlayerAuthInputSnapshot,
+    PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode, client_movement_prediction_sync,
+    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
+    player_auth_input_with_mining_request,
 };
 pub use packet::Packet;
 pub use particle::{
@@ -162,11 +168,12 @@ pub use world::{
     CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange,
     HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS,
     MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS, MapDataEvent, MovePlayerEvent,
-    MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerGameMode,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
-    WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
-    WorldWireError, air_network_id, block_name_sort_key, into_world_event, is_hardcore,
-    request_sub_chunk_column, server_authoritative_block_breaking, vanilla_dimension_range,
+    MovePlayerMode, MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET,
+    PlayerGameMode, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
+    SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable,
+    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    WorldPacketError, WorldWireError, air_network_id, block_name_sort_key, into_world_event,
+    is_hardcore, request_sub_chunk_column, server_authoritative_block_breaking,
+    vanilla_dimension_range,
 };

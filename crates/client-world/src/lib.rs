@@ -15,13 +15,14 @@ pub use actor_animation::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId,
     MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
+    RenderTextureLayer,
 };
 pub use actor_store::{
     ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityKind,
     BlockEntityView, DEATH_DURATION_TICKS, DroppedItemView, HURT_DURATION_TICKS,
     HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
-    MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS, PlayerProfile, RideSeat, RopeKind, RopeView,
-    SeatDefaults, dropped_item_copy_count, tnt_presentation,
+    MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault, RideSeat, RopeKind,
+    RopeView, SeatDefaults, dropped_item_copy_count, tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual,
@@ -44,10 +45,10 @@ pub use stream::{
     Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
     PublicationStageCounters, PublisherViewGeometry, RequestClass, RequestClassDepth,
-    RequestQueueEvidence, SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters,
-    ViewCohort, ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream,
-    WorldStreamError, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
-    WorldStreamStats,
+    RequestQueueEvidence, SUB_CHUNK_RESPONSE_TIMEOUT, SignEditRequest, StageDurations,
+    SubChunkOutcomeCounters, ViewCohort, ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange,
+    WorldStream, WorldStreamError, WorldStreamFatalError, WorldStreamNormalizationStats,
+    WorldStreamPoll, WorldStreamStats,
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};

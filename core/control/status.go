@@ -39,11 +39,16 @@ type Store struct {
 	applied   uint64 // attempt whose packs the client confirmed applying
 	transfer  *TransferV1
 	transfers uint64
+
+	auth        AuthV1
+	disconnect  *DisconnectV1
+	disconnects uint64
 }
 
 func NewStore() *Store {
 	return &Store{
 		lifecycle: LifecycleStarting,
+		auth:      AuthV1{State: AuthSignedOut},
 		latest: proxy.ResourcePackAdmissionSnapshot{
 			Offer:             proxy.ResourcePackOfferNone,
 			Acquisition:       proxy.ResourcePackAcquisitionNone,
@@ -67,6 +72,7 @@ func (store *Store) Observe(snapshot proxy.ResourcePackAdmissionSnapshot) {
 	if snapshot.AttemptID >= store.latest.AttemptID {
 		if snapshot.AttemptID > store.latest.AttemptID {
 			store.transfer = nil // the client reconnected
+			store.disconnect = nil
 		}
 		store.latest = snapshot
 	}
@@ -78,6 +84,13 @@ func (store *Store) ObserveTransfer(target proxy.TransferTarget) {
 	store.mu.Lock()
 	store.transfers++
 	store.transfer = &TransferV1{Host: target.Host, Port: target.Port, Sequence: store.transfers}
+	store.mu.Unlock()
+}
+
+// ClearTransfer withdraws a pending transfer the client no longer needs to follow.
+func (store *Store) ClearTransfer() {
+	store.mu.Lock()
+	store.transfer = nil
 	store.mu.Unlock()
 }
 

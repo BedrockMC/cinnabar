@@ -17,7 +17,10 @@ use crate::{
         normalize_remove_entity, normalize_set_entity_data, normalize_set_entity_link,
         normalize_update_attributes,
     },
-    audio::{normalize_level_sound, normalize_play_sound, normalize_stop_sound},
+    audio::{
+        normalize_level_event_sound, normalize_level_sound, normalize_play_sound,
+        normalize_stop_sound,
+    },
     inventory::{
         normalize_armor_equipment, normalize_container_close, normalize_container_data,
         normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
@@ -48,7 +51,7 @@ pub use self::events::{
     BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
     ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode,
     MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent, MovePlayerMode,
-    MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
+    MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
     PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
     SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
     SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id,
@@ -745,6 +748,11 @@ pub fn into_world_event(
                 pixels: pixels.into(),
             })
         }
+        McpePacketData::OpenSignPacket(packet) => WorldEvent::OpenSign(OpenSignEvent {
+            dimension: current_dimension,
+            position: [packet.pos.x, packet.pos.y, packet.pos.z],
+            front: packet.is_front_side,
+        }),
         McpePacketData::BlockEventPacket(packet) => WorldEvent::BlockEvent(BlockEventEvent {
             dimension: current_dimension,
             position: [
@@ -876,6 +884,9 @@ pub fn into_world_event(
                     | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
             ) {
                 return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
+            }
+            if let Some(event) = normalize_level_event_sound(&packet) {
+                return Ok(Some(WorldEvent::Audio(event)));
             }
             if let Some(event) = crate::particle::normalize_level_event(&packet) {
                 return Ok(Some(WorldEvent::Particle(event)));

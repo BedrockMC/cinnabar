@@ -39,6 +39,14 @@ pub(super) use preflight::payload_counts;
 #[path = "v4/encode.rs"]
 mod encode;
 pub(super) use encode::{encode_compiled, encode_runtime};
+#[path = "v4/render.rs"]
+mod render;
+use render::validate_render_payload;
+pub use render::{
+    EntityRenderCandidate, EntityRenderData, EntityRenderLayer, EntityRenderSlot,
+    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
+    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+};
 #[path = "v4/rig.rs"]
 mod rig;
 use rig::{validate_controller_nesting, validate_rig_payload};
@@ -361,6 +369,23 @@ impl RuntimeEntityAssets {
     }
 
     #[must_use]
+    pub fn render_data(&self) -> &EntityRenderData {
+        &self.render
+    }
+
+    /// Render layers of one rig binding, in authored controller order.
+    #[must_use]
+    pub fn render_layers(&self, rig_binding: usize) -> &[EntityRenderLayer] {
+        let layers = &self.render.layers;
+        let Ok(rig) = u32::try_from(rig_binding) else {
+            return &[];
+        };
+        let start = layers.partition_point(|layer| layer.rig < rig);
+        let length = layers[start..].partition_point(|layer| layer.rig == rig);
+        &layers[start..start + length]
+    }
+
+    #[must_use]
     pub fn item_visuals(&self) -> &[ItemVisualDefinition] {
         &self.item_visuals
     }
@@ -408,6 +433,7 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
     validate_molang_payload(compiled)?;
     validate_controller_payload(compiled)?;
     validate_rig_payload(compiled)?;
+    validate_render_payload(compiled)?;
     validate_item_visuals(
         &compiled.item_visuals,
         &compiled.item_visual_aliases,

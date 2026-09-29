@@ -36,6 +36,17 @@ pub const fn pack_rig_id(binding_index: u32) -> EntityRigId {
     EntityRigId(assets::PACK_RIG_ID_BASE + binding_index)
 }
 
+/// Equipment rig id of a geometry in the session's server-pack catalog.
+#[must_use]
+pub const fn pack_equipment_rig_id(geometry_index: u32) -> EntityRigId {
+    equipment_rig_id(assets::PACK_EQUIPMENT_INDEX_BASE + geometry_index)
+}
+
+pub(crate) fn is_pack_equipment_rig_id(id: EntityRigId) -> bool {
+    (EQUIPMENT_RIG_ID_BASE + assets::PACK_EQUIPMENT_INDEX_BASE..ITEM_MESH_RIG_ID_BASE)
+        .contains(&id.0)
+}
+
 pub(crate) fn is_pack_rig_id(id: EntityRigId) -> bool {
     (assets::PACK_RIG_ID_BASE..EQUIPMENT_RIG_ID_BASE).contains(&id.0)
 }
@@ -460,11 +471,27 @@ impl ActorRigFrameBuilder {
         &mut self,
         geometries: Vec<ActorRigGeometry>,
     ) -> Result<(), ActorRigGeometryError> {
+        self.replace_range_geometries(is_pack_rig_id, geometries)
+    }
+
+    /// Like [`Self::replace_pack_geometries`] for the pack equipment id range.
+    pub fn replace_pack_equipment_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.replace_range_geometries(is_pack_equipment_rig_id, geometries)
+    }
+
+    fn replace_range_geometries(
+        &mut self,
+        in_range: fn(EntityRigId) -> bool,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
         let old_ids = self
             .geometries
             .keys()
             .copied()
-            .filter(|id| is_pack_rig_id(*id))
+            .filter(|id| in_range(*id))
             .collect::<Vec<_>>();
         let removed = old_ids
             .into_iter()
@@ -472,7 +499,7 @@ impl ActorRigFrameBuilder {
             .collect::<Vec<_>>();
         let mut added = Vec::new();
         for geometry in geometries {
-            if is_pack_rig_id(geometry.id) {
+            if in_range(geometry.id) {
                 added.push(geometry.id);
                 self.geometries.insert(geometry.id, geometry);
             }

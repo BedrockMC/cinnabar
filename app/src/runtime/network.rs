@@ -431,6 +431,7 @@ pub(crate) fn receive_network_events(
                 stream.set_pack_entities(
                     packs.entities.as_ref().map(|pack| Arc::clone(&pack.assets)),
                 );
+                stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)
@@ -953,7 +954,7 @@ mod item_icons;
 mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;
-pub(crate) use actor_publication::{HandRigBuilder, publish_actor_render_frame};
+pub(crate) use actor_publication::{HandRigBuilder, local_item_use, publish_actor_render_frame};
 
 #[cfg(test)]
 pub(crate) use drain::drain_network_ingress;

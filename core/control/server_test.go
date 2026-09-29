@@ -279,7 +279,7 @@ func waitForActiveConnection(t *testing.T, server *Server) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		server.mu.Lock()
-		active := server.active != nil
+		active := len(server.active) != 0
 		server.mu.Unlock()
 		if active {
 			return

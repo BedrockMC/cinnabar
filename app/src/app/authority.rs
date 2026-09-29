@@ -39,6 +39,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                drive_sign_editor,
                 drive_server_form_input,
                 drive_chat_ui_actions,
                 drain_inventory_authority,

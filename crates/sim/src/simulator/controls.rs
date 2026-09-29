@@ -1,4 +1,4 @@
-use super::{MovementInput, TickResult};
+use super::{MovementInput, MovementMode, TickResult};
 
 /// Fixed-tick primary controls, after item/pose slowdown but before the
 /// simulation's movement impulse. Axes are left-positive strafe and forward.
@@ -16,6 +16,7 @@ pub struct ControlledTickResult {
 }
 
 pub(super) fn process(input: MovementInput) -> ProcessedControls {
+    let slowed = input.sneaking || input.mode == MovementMode::Crawling;
     if input.move_vector_is_raw {
         // Primary controls are a wire-f32 contract: round operands and each
         // item/pose multiplication before widening into existing f64 travel.
@@ -28,7 +29,7 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
             |value| value as f32,
         );
         let factor = item
-            * if input.sneaking {
+            * if slowed {
                 super::SNEAK_INPUT_MULTIPLIER as f32
             } else {
                 1.0
@@ -48,7 +49,7 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
             1.0
         });
     let factor = item
-        * if input.sneaking {
+        * if slowed {
             super::SNEAK_INPUT_MULTIPLIER
         } else {
             1.0

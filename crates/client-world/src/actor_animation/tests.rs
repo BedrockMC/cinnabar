@@ -607,14 +607,17 @@ fn property_query_resolves_names_against_synced_definitions() {
             PropertyDefinition {
                 name: "minecraft:angry".into(),
                 kind: PropertyKind::Number,
+                default: 0.0,
             },
             PropertyDefinition {
                 name: "minecraft:variant".into(),
                 kind: PropertyKind::Enum(Arc::from([Arc::from("pale"), Arc::from("ashen")])),
+                default: 0.0,
             },
             PropertyDefinition {
                 name: "minecraft:amount".into(),
                 kind: PropertyKind::Number,
+                default: 0.0,
             },
         ])),
         ..ActorTickContext::default()
@@ -654,4 +657,29 @@ fn has_cape_reads_the_tick_context() {
         read_with(&actor, &input, &context, 0, "query.has_cape", &[]).number(),
         1.0
     );
+}
+
+#[test]
+fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_ground_speed() {
+    let actor = actor_with_metadata(HashMap::new());
+    let mut context = ActorTickContext::default();
+    context.armor[1] = Some(WornArmor {
+        item: "minecraft:elytra".into(),
+        dye_rgb: None,
+    });
+    let input = ActorTickInput {
+        velocity: [0.0, 0.0, 0.1],
+        ..ActorTickInput::default()
+    };
+    let slot = read_with(
+        &actor,
+        &input,
+        &context,
+        0,
+        "query.armor_texture_slot",
+        &[MolangValue::Number(1.0)],
+    );
+    assert_eq!(slot.number(), 5.0);
+    let flap = read_with(&actor, &input, &context, 0, "query.cape_flap_amount", &[]);
+    assert!((flap.number() - 0.4).abs() < 1.0e-6);
 }

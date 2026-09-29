@@ -1,17 +1,28 @@
 //! Local stream bridge between the Rust client and Go core.
 
+mod account;
 mod endpoint;
 mod error;
 mod framed;
 mod status;
+mod worlds;
 
 use std::path::Path;
 
+pub use account::{
+    Account, AuthState, ConnectTarget, Events, Friend, Realm, ServerDisconnect, account_status,
+    connect_target, list_friends, list_realms, poll_events, sign_out,
+};
 pub use error::BridgeError;
 pub use framed::FramedStream;
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
     StatusV1, TransferPending, read_status, report_pack_application,
+};
+pub use worlds::{
+    Difficulty, GameMode, Generator, NewWorld, World, WorldState, WorldStatus, close_world,
+    create_world, delete_world, list_worlds, open_world, rename_world, set_world_paused,
+    world_status,
 };
 
 /// Returns the platform endpoint used for the logical socket directory.

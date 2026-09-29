@@ -506,6 +506,7 @@ pub use hurt::{
 };
 pub use lightning::LightningBoltView;
 pub use placement::{RideSeat, SeatDefaults, SeatRequirement};
+pub use properties::PropertyDefault;
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {

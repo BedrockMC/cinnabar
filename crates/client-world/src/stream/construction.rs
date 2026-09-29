@@ -109,6 +109,7 @@ impl WorldStream {
             block_cracks: block_cracks::BlockCracks::default(),
             block_events: block_events::BlockEvents::default(),
             map_images: map_data::MapImages::default(),
+            pending_sign_edit: None,
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             actors,
             actor_session_id,

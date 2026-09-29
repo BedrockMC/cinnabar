@@ -1,0 +1,171 @@
+package control
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/hashimthearab/rust-mcbe/core/localworld"
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
+)
+
+type stubWorlds struct {
+	worlds []localworld.World
+	status localworld.Status
+	opened string
+	paused *bool
+	err    error
+}
+
+func (s *stubWorlds) List() ([]localworld.World, error) { return s.worlds, s.err }
+func (s *stubWorlds) Create(spec localworld.Spec) (localworld.World, error) {
+	if s.err != nil {
+		return localworld.World{}, s.err
+	}
+	return localworld.World{ID: "0123456789abcdef", Name: spec.Name, GameMode: "survival"}, nil
+}
+func (s *stubWorlds) Rename(id, name string) (localworld.World, error) {
+	return localworld.World{ID: id, Name: name}, s.err
+}
+func (s *stubWorlds) Delete(string) error { return s.err }
+func (s *stubWorlds) Open(id string) error {
+	s.opened = id
+	s.status = localworld.Status{State: localworld.StateStarting, WorldID: id}
+	return s.err
+}
+func (s *stubWorlds) Close() error {
+	s.status = localworld.Status{State: localworld.StateIdle}
+	return s.err
+}
+func (s *stubWorlds) SetPaused(p bool) error {
+	s.paused = &p
+	return s.err
+}
+func (s *stubWorlds) Status() localworld.Status { return s.status }
+
+func startWorlds(t *testing.T, worlds Worlds) string {
+	t.Helper()
+	dir := t.TempDir()
+	server, err := StartWithWorlds(dir, NewStore(), worlds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	return dir
+}
+
+func call(t *testing.T, dir, method, params string) []byte {
+	t.Helper()
+	if params != "" {
+		params = `,"params":` + params
+	}
+	return exchange(t, dir, []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":5,"method":%q%s}`, method, params)))
+}
+
+func TestWorldListCreateRenameDelete(t *testing.T) {
+	stub := &stubWorlds{worlds: []localworld.World{{ID: "0123456789abcdef", Name: "one"}}}
+	dir := startWorlds(t, stub)
+	list := call(t, dir, methodWorldList, "")
+	var decoded struct {
+		Result WorldResultV1 `json:"result"`
+	}
+	if err := json.Unmarshal(list, &decoded); err != nil || len(decoded.Result.Worlds) != 1 || decoded.Result.SchemaVersion != 1 {
+		t.Fatalf("list = %s (%v)", list, err)
+	}
+	created := call(t, dir, methodWorldCreate, `{"name":"fresh","seed":0}`)
+	if !strings.Contains(string(created), `"name":"fresh"`) {
+		t.Fatalf("create = %s", created)
+	}
+	renamed := call(t, dir, methodWorldRename, `{"id":"0123456789abcdef","name":"two"}`)
+	if !strings.Contains(string(renamed), `"name":"two"`) {
+		t.Fatalf("rename = %s", renamed)
+	}
+	if deleted := call(t, dir, methodWorldDelete, `{"id":"0123456789abcdef"}`); !strings.Contains(string(deleted), `"result"`) {
+		t.Fatalf("delete = %s", deleted)
+	}
+}
+
+func TestWorldOpenPauseCloseReturnStatus(t *testing.T) {
+	stub := &stubWorlds{}
+	dir := startWorlds(t, stub)
+	opened := call(t, dir, methodWorldOpen, `{"id":"0123456789abcdef"}`)
+	if stub.opened != "0123456789abcdef" || !strings.Contains(string(opened), `"state":"starting"`) {
+		t.Fatalf("open = %s", opened)
+	}
+	call(t, dir, methodWorldPause, `{"paused":true}`)
+	if stub.paused == nil || !*stub.paused {
+		t.Fatal("pause not forwarded")
+	}
+	if closed := call(t, dir, methodWorldClose, ""); !strings.Contains(string(closed), `"state":"idle"`) {
+		t.Fatalf("close = %s", closed)
+	}
+	if status := call(t, dir, methodWorldStatus, ""); !strings.Contains(string(status), `"status"`) {
+		t.Fatalf("status = %s", status)
+	}
+}
+
+func TestWorldParamValidation(t *testing.T) {
+	dir := startWorlds(t, &stubWorlds{})
+	for _, tc := range []struct{ method, params string }{
+		{methodWorldCreate, ""}, {methodWorldCreate, `{"name":"x","bogus":1}`}, {methodWorldOpen, `{}`},
+		{methodWorldRename, `{"id":"a"}`}, {methodWorldPause, `{"paused":"yes"}`},
+		{methodWorldList, `{}`}, {methodWorldStatus, `{}`}, {methodWorldClose, `{}`},
+	} {
+		assertRPCError(t, call(t, dir, tc.method, tc.params), -32602)
+	}
+}
+
+func TestWorldErrorsMapToCodesWithoutLeakingDetail(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code int
+		msg  string
+	}{
+		{localworld.ErrNotFound, codeWorldNotFound, "world not found"},
+		{fmt.Errorf("%w: x", localworld.ErrBusy), codeWorldBusy, "another world"},
+		{localworld.ErrInUse, codeWorldBusy, "world is open"},
+		{fmt.Errorf("%w: unknown value", localworld.ErrInvalid), -32602, "unknown value"},
+		{errors.New("open /Users/secret/worlds: denied"), codeWorldFailed, "world operation failed"},
+	} {
+		dir := startWorlds(t, &stubWorlds{err: tc.err})
+		payload := call(t, dir, methodWorldDelete, `{"id":"0123456789abcdef"}`)
+		assertRPCError(t, payload, tc.code)
+		if !strings.Contains(string(payload), tc.msg) || strings.Contains(string(payload), "secret") {
+			t.Fatalf("payload = %s", payload)
+		}
+	}
+}
+
+func TestWorldMethodsAreUnknownWithoutService(t *testing.T) {
+	dir := t.TempDir()
+	server, err := Start(dir, NewStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	assertRPCError(t, call(t, dir, methodWorldList, ""), -32601)
+}
+
+func TestOpenHookRunsOnlyAfterSuccessfulOpen(t *testing.T) {
+	stub := &stubWorlds{}
+	opened := 0
+	worlds := WithOpenHook(stub, func() { opened++ })
+	if err := worlds.Open("0123456789abcdef"); err != nil || opened != 1 || stub.opened != "0123456789abcdef" {
+		t.Fatalf("Open() = %v, hook calls %d", err, opened)
+	}
+	stub.err = errors.New("busy")
+	if err := worlds.Open("0123456789abcdef"); err == nil || opened != 1 {
+		t.Fatalf("failed Open ran the hook: err=%v calls=%d", err, opened)
+	}
+}
+
+func TestClearTransferWithdrawsPendingTransfer(t *testing.T) {
+	store := NewStore()
+	store.ObserveTransfer(proxy.TransferTarget{Host: "a", Port: 1})
+	store.ClearTransfer()
+	if store.Status().Transfer != nil {
+		t.Fatal("transfer still pending after ClearTransfer")
+	}
+}

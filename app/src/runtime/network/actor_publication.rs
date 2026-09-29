@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Local, Projection, Res, ResMut, Resource, Time},
@@ -62,16 +64,34 @@ fn apply_session_pack(
     base: &render::ActorArtworkPages,
     pack: Option<&super::entity_pack::SessionEntityPack>,
     effective: &mut Option<render::ActorArtworkPages>,
+    equipment: Option<&mut EquipmentRuntime>,
 ) {
     if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
         bevy::log::warn!(?error, "server pack entity geometry was not applied");
     }
-    let pages = match pack {
+    let mut pages = match pack {
         Some(pack) => base
             .clone()
             .with_pack_artwork(&pack.textures, &pack.bindings),
         None => base.clone(),
     };
+    let mut layer = None;
+    let mut geometries = Vec::new();
+    if let Some(pack) = pack
+        && let Some(catalog) = &pack.equipment
+    {
+        let (extended, locations) =
+            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
+        pages = extended;
+        geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
+        layer = Some((Arc::clone(&pack.assets), Arc::clone(catalog), locations));
+    }
+    if let Err(error) = scene.replace_pack_equipment(geometries) {
+        bevy::log::warn!(?error, "server pack equipment geometry was not applied");
+    }
+    if let Some(equipment) = equipment {
+        equipment.set_pack_layer(layer);
+    }
     scene.configure_artwork(pages.clone());
     *effective = pack.map(|_| pages);
 }
@@ -88,6 +108,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     artwork: Res<'w, render::ActorArtworkPages>,
     /// The startup artwork plus the session's server-pack pages; `None` in a vanilla session.
     session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
+    cape_state: Local<'s, crate::presentation::cape::CapeState>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -110,6 +131,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         presentation,
         artwork,
         mut session_artwork,
+        mut cape_state,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -142,7 +164,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         }
         let pack = session_id.and_then(|_| client_world.pack_entities.clone());
         if pack.is_some() || session_artwork.is_some() {
-            apply_session_pack(&mut scene, &artwork, pack.as_deref(), &mut session_artwork);
+            apply_session_pack(
+                &mut scene,
+                &artwork,
+                pack.as_deref(),
+                &mut session_artwork,
+                equipment.as_deref_mut(),
+            );
         }
     }
     let artwork = session_artwork.as_ref().unwrap_or(&artwork);
@@ -353,6 +381,27 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         remotes,
         cull_view,
     );
+    if let Some(stream) = client_world.stream.as_ref() {
+        crate::presentation::entity_layers::apply_render_layers(
+            &mut batch,
+            |runtime_id| stream.actor_rig(runtime_id),
+            &artwork,
+        );
+    }
+    if let (Some(stream), Some(cape)) = (
+        client_world.stream.as_ref(),
+        cape_state.rig(client_world.entity_assets.as_deref()),
+    ) {
+        if !scene.contains_geometry(cape.id) {
+            let _ = scene.insert_geometry(cape.geometry.clone());
+        }
+        crate::presentation::cape::apply_capes(
+            &mut batch,
+            cape,
+            |runtime_id| stream.actor_rig(runtime_id),
+            |runtime_id| stream.actor_player_profile(runtime_id),
+        );
+    }
     let selected_count = batch.submissions.len();
     if let (Some(equipment), Some(stream)) =
         (equipment.as_deref_mut(), client_world.stream.as_ref())
@@ -378,7 +427,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
-            if identity.layer == render::ACTOR_LAYER_BODY
+            if (identity.layer == render::ACTOR_LAYER_BODY
+                || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+                || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream
                     .actor(identity.runtime_id)
                     .is_some_and(|actor| actor.is_invisible())
@@ -503,7 +554,7 @@ const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 
 /// Items whose use the client animates without waiting for the server; food and drink wait for
 /// the server flag, since the client cannot tell whether eating is allowed.
-fn local_item_use(
+pub(crate) fn local_item_use(
     stream: &WorldStream,
     ui: &crate::ui_runtime::UiRuntime,
     use_held: bool,

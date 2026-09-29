@@ -9,12 +9,16 @@ mod anchor_probe;
 mod anchor_probe_evidence;
 mod authority;
 mod collision_registries;
+mod control_modes;
 mod correction_shape;
 mod effects;
 mod encoding;
 mod evidence;
+mod local_facts;
+mod locomotion;
 mod outbox;
 mod physics;
+mod prediction_sync;
 mod runtime_system;
 mod speed_authority;
 mod state;
@@ -29,6 +33,7 @@ pub(crate) use effects::{LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;
 pub(crate) use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
+pub use locomotion::{ModeIntent, RideKind};
 pub use outbox::MovementSendError;
 pub use outbox::OUTBOX_CAPACITY;
 #[cfg(test)]
@@ -42,6 +47,7 @@ pub use physics::{
     PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
     physics_movement_input,
 };
+pub(crate) use prediction_sync::send_movement_prediction_sync;
 pub(crate) use runtime_system::advance_local_physics;
 use sim::{CollisionWorld, WorldCollisionIdentity};
 pub(crate) use speed_authority::LocalMovementSpeedAuthority;
@@ -925,6 +931,8 @@ mod correction_tests;
 mod effects_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod locomotion_tests;
 #[cfg(test)]
 mod settle_tests;
 #[cfg(test)]

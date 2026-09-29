@@ -60,6 +60,7 @@ use crate::{
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
+        send_movement_prediction_sync,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
     runtime::{
@@ -97,7 +98,7 @@ use crate::{
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
         UiRuntime, drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-        drive_inventory_ui_actions, drive_server_form_input, flush_chat_network,
+        drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor, flush_chat_network,
         flush_inventory_network, flush_server_form_network,
         gameplay_touch::drive_gameplay_touch_targets,
         presentation::{UiPresentationRuntime, observe_mount_jump_input, publish_ui_runtime},
@@ -151,6 +152,7 @@ pub(crate) enum ClientFrameSet {
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
+    crate::audio::configure(app);
     app.init_resource::<MiningRuntime>()
         .init_resource::<BlockUseRuntime>()
         .init_resource::<SurvivalMiningRuntime>()
@@ -160,6 +162,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .init_resource::<crate::server_camera::ServerCameraInstructions>()
         .init_resource::<crate::session_audio::SessionAudio>()
         .init_resource::<crate::named_audio::NamedAudio>()
+        .init_resource::<crate::audio::AudioEngine>()
         .init_resource::<crate::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
             Update,
@@ -185,6 +188,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             advance_local_physics
                 .in_set(LocalPlayerFrameSet::Physics)
                 .in_set(ClientFrameSet::Physics),
+        )
+        .add_systems(
+            Update,
+            send_movement_prediction_sync
+                .after(advance_local_physics)
+                .in_set(ClientFrameSet::NetworkSend),
         )
         .add_systems(
             Update,
@@ -515,13 +524,36 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         loaded_audio.as_ref(),
     )
     .context("load optional reviewed finite PCM carrier")?;
-    let audio_device = if pcm.is_some() {
+    let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
+    // The sound bank binds optionally: absence or damage leaves playback silent, never fatal.
+    let sound_bank = match crate::audio::SoundBank::open(
+        &crate::audio::sound_bank_path(&loaded_assets.selected_path),
+        audio_catalog.clone(),
+    ) {
+        Ok(Some(bank)) => {
+            eprintln!("loaded sound bank ({} sound files)", bank.file_count());
+            Some(bank)
+        }
+        Ok(None) => {
+            eprintln!(
+                "optional sound bank was not found; run `make audio-bank` (or `make assets`) to enable playback"
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!("sound bank unusable, audio stays silent: {error}");
+            None
+        }
+    };
+    let audio_device = if pcm.is_some() || sound_bank.is_some() {
         crate::named_audio::AudioDevice::open_default_once()
     } else {
         crate::named_audio::AudioDevice::disabled()
     };
-    let named_audio = crate::named_audio::NamedAudio::new(pcm);
-    let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
+    // The full engine supersedes the single-sample named path when a bank is present.
+    let named_audio =
+        crate::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
+    let audio_engine = crate::audio::AudioEngine::new(sound_bank);
     let particle_assets = crate::particles::load_optional_carrier(&loaded_assets.selected_path);
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
@@ -701,6 +733,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .disable::<TerminalCtrlCHandlerPlugin>(),
     );
     app.add_plugins(FxaaPlugin);
+    app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
         present_mode_policy,
     ));
@@ -756,6 +789,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<crate::menu::MenuClipboard>()
         .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
         .insert_resource(named_audio)
+        .insert_resource(audio_engine)
         .insert_non_send_resource(audio_device)
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalMovementEffectTimeline::default())
