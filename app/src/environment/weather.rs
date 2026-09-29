@@ -10,9 +10,8 @@ use meshing::CameraMedium;
 use render::{
     AtmosphereFrame, ColumnSample, ColumnSampler, LightningScene, PRECIPITATION_LEVEL_PER_SECOND,
     PRECIPITATION_SAMPLE_OFFSETS, PrecipitationMix, PrecipitationScene, RainSplashQueue, SkyKind,
-    approach_level, average_precipitation, build_precipitation_columns,
-    lightning_bolt_segments, lightning_flash_level, pick_rain_splashes, precipitation_clock,
-    push_bolt_records,
+    approach_level, average_precipitation, build_precipitation_columns, lightning_bolt_segments,
+    lightning_flash_level, pick_rain_splashes, precipitation_clock, push_bolt_records,
 };
 
 use super::WeatherState;

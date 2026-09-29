@@ -18,12 +18,10 @@ pub use crafting::{
 };
 pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use model::{RecipeHandle, RecipeUpdate};
-pub use screen::{
-    MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
-};
 pub use observation::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
 };
+pub use screen::{MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes};
 
 pub fn decode_recipe_update(body: &[u8]) -> Result<RecipeUpdate, super::InventoryPacketError> {
     decode::decode(body)
