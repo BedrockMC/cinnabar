@@ -15,6 +15,7 @@ type Storefront interface {
 	Balances(ctx context.Context) ([]store.Balance, error)
 	Entitlements(ctx context.Context, offset, limit int) (store.Entitlements, error)
 	Purchase(ctx context.Context, r store.PurchaseRequest) (store.PurchaseResult, error)
+	Image(ctx context.Context, rawURL string) (store.Image, error)
 }
 
 type marketplace struct {
@@ -26,7 +27,7 @@ type marketplace struct {
 // signed out. A nil front opens a real store session with the account's token source on first use.
 func (s *Service) Marketplace(front Storefront) control.Marketplace {
 	if front == nil {
-		front = store.NewSession(s.cfg.TokenSource)
+		front = store.NewSession(s.cfg.TokenSource, s.cfg.StoreImageDir)
 	}
 	return marketplace{svc: s, front: front}
 }
@@ -71,4 +72,11 @@ func (m marketplace) Purchase(ctx context.Context, r store.PurchaseRequest) (sto
 		return store.PurchaseResult{}, err
 	}
 	return m.front.Purchase(ctx, r)
+}
+
+func (m marketplace) Image(ctx context.Context, rawURL string) (store.Image, error) {
+	if _, err := m.svc.source(); err != nil {
+		return store.Image{}, err
+	}
+	return m.front.Image(ctx, rawURL)
 }

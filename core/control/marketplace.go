@@ -16,6 +16,7 @@ const (
 	methodStoreBalance      = "store_balance.v1"
 	methodStoreEntitlements = "store_entitlements.v1"
 	methodStorePurchase     = "store_purchase.v1"
+	methodStoreImage        = "store_image.v1"
 
 	codePurchaseBusy   = -32031
 	codePurchaseReused = -32032
@@ -32,11 +33,12 @@ type Marketplace interface {
 	Balances(ctx context.Context) ([]store.Balance, error)
 	Entitlements(ctx context.Context, offset, limit int) (store.Entitlements, error)
 	Purchase(ctx context.Context, r store.PurchaseRequest) (store.PurchaseResult, error)
+	Image(ctx context.Context, rawURL string) (store.Image, error)
 }
 
 var storeMethods = map[string]struct{}{
 	methodStoreHome: {}, methodStoreSearch: {}, methodStoreOffer: {},
-	methodStoreBalance: {}, methodStoreEntitlements: {}, methodStorePurchase: {},
+	methodStoreBalance: {}, methodStoreEntitlements: {}, methodStorePurchase: {}, methodStoreImage: {},
 }
 
 func isStoreMethod(method string) bool {
@@ -89,6 +91,11 @@ type storeEntitlementsResultV1 struct {
 	store.Entitlements
 }
 
+type storeImageResultV1 struct {
+	SchemaVersion uint32      `json:"schema_version"`
+	Image         store.Image `json:"image"`
+}
+
 type storePurchaseResultV1 struct {
 	SchemaVersion uint32 `json:"schema_version"`
 	store.PurchaseResult
@@ -112,7 +119,7 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		switch {
 		case errors.Is(err, ErrSignedOut):
 			return fail(codeSignedOut, "Not signed in")
-		case errors.Is(err, store.ErrInvalidRequest):
+		case errors.Is(err, store.ErrInvalidRequest), errors.Is(err, store.ErrImageRejected):
 			return invalid()
 		case errors.Is(err, store.ErrPurchaseBusy):
 			return fail(codePurchaseBusy, "Purchase in progress")
@@ -205,6 +212,18 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		}
 		result.Owned = fitOwned(result.Owned)
 		return ok(storeEntitlementsResultV1{SchemaVersion: 1, Entitlements: result})
+	case methodStoreImage:
+		var params struct {
+			URL *string `json:"url"`
+		}
+		if !decodeParams(raw, &params) || params.URL == nil {
+			return invalid()
+		}
+		result, err := market.Image(ctx, *params.URL)
+		if err != nil {
+			return failStore(err)
+		}
+		return ok(storeImageResultV1{SchemaVersion: 1, Image: result})
 	case methodStorePurchase:
 		var params struct {
 			PurchaseID          *string `json:"purchase_id"`
