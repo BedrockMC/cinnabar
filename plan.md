@@ -3036,6 +3036,21 @@ stack, armor derivation and conditional row, nonstandard maxima, full state
 matrix, GUI scaling/safe areas, and native/live comparison. Java chat fade-out
 remains pending measured timing.
 
+**Gameplay HUD through JSON-UI (2026-09-29, owner decision):** the HUD renders
+`hud.hud_screen` and `hud_crosshair.hud_crosshair_screen` through the JSON-UI
+engine over the session's pack stack, so server packs restyle it as on Bedrock.
+The Java look ships as the built-in pack `assets/java-hud` under every server
+pack; for any namespace a server pack restyles (`hud`, `scoreboard`), its files
+are withdrawn so the pack gets vanilla beneath it. The JSON-UI carrier is now a
+required startup carrier. Native renderers (hearts, armor, hunger, bubbles,
+mount hearts/jump, slot art, effects, crosshair) keep Java behavior at their
+controls. Still on the old path: inventory/container screens, the first-person
+hands, the sleep overlay, toasts, the tab list, the open chat (editor and
+history), nametags, and the debug overlay. Incomplete: no live rendered-frame
+pass yet; `font_size` steps and the text-background option default are
+unmeasured; a re-bind costs about 4 ms in the dev profile (steady frames about
+0.2 ms), unmeasured in release; boss-bar progress and XP changes re-bind.
+
 - [ ] **5.1 Bedrock UI foundation.** `P5.1-UI` Create `crates/ui`, ingest the pinned pack's bitmap
   fonts/glyph metrics, implement bounded formatting-code-aware text layout, UI scaling/safe
   areas, focus/navigation, mouse/touch/controller input, and a shared retained draw pipeline.
