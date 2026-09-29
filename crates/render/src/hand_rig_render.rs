@@ -306,7 +306,7 @@ fn prepare(
     };
     let size = [viewport.z, viewport.w];
     upload_geometry(&mut gpu, &device, frame);
-    upload_pose(&mut gpu, &device, frame);
+    upload_pose(&mut gpu, &device, &queue, frame);
     upload_skin(&mut gpu, &device, &queue, frame);
     upload_atlas(&mut gpu, &device, &queue, frame);
     ensure_depth(&mut gpu, &device, size, samples);
@@ -358,29 +358,54 @@ fn upload_geometry(gpu: &mut HandRigGpu, device: &RenderDevice, frame: &HandRigF
     gpu.bind_group = None;
 }
 
-fn upload_pose(gpu: &mut HandRigGpu, device: &RenderDevice, frame: &HandRigFrame) {
+fn upload_pose(
+    gpu: &mut HandRigGpu,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    frame: &HandRigFrame,
+) {
     if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
         return;
     }
-    gpu.instances = Some(storage(
-        device,
-        "first-person rig instance",
-        &frame.rig.instances,
-    ));
-    gpu.previous_bones = Some(storage(
-        device,
-        "first-person rig previous bones",
-        &frame.rig.previous_bones,
-    ));
-    gpu.current_bones = Some(storage(
-        device,
-        "first-person rig current bones",
-        &frame.rig.current_bones,
-    ));
+    // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
+    let mut recreated = false;
+    for (slot, label, bytes) in [
+        (
+            &mut gpu.instances,
+            "first-person rig instance",
+            bytemuck::cast_slice::<_, u8>(&frame.rig.instances),
+        ),
+        (
+            &mut gpu.previous_bones,
+            "first-person rig previous bones",
+            bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones),
+        ),
+        (
+            &mut gpu.current_bones,
+            "first-person rig current bones",
+            bytemuck::cast_slice::<_, u8>(&frame.rig.current_bones),
+        ),
+    ] {
+        match slot {
+            Some(buffer) if buffer.size() == bytes.len() as u64 => {
+                queue.write_buffer(buffer, 0, bytes);
+            }
+            _ => {
+                *slot = Some(device.create_buffer_with_data(&BufferInitDescriptor {
+                    label: Some(label),
+                    contents: bytes,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                }));
+                recreated = true;
+            }
+        }
+    }
     gpu.maximum_vertex_count = frame.rig.maximum_vertex_count;
     gpu.instance_count = u32::try_from(frame.rig.instances.len()).unwrap_or(0);
     gpu.revision = Some(frame.revision);
-    gpu.bind_group = None;
+    if recreated {
+        gpu.bind_group = None;
+    }
 }
 
 fn upload_skin(
