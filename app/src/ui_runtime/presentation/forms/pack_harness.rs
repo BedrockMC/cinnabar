@@ -90,6 +90,14 @@ pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
 }
 
 pub(crate) fn action_form(title: &str, buttons: &[&str]) -> UiRuntime {
+    image_form(title, buttons, Vec::new())
+}
+
+pub(crate) fn image_form(
+    title: &str,
+    buttons: &[&str],
+    images: Vec<Option<protocol::FormButtonImage>>,
+) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
     runtime
         .apply(SequencedUiEvent {
@@ -106,7 +114,7 @@ pub(crate) fn action_form(title: &str, buttons: &[&str]) -> UiRuntime {
                     title: Arc::from(title),
                     content: Arc::from(""),
                     buttons: buttons.iter().map(|text| Arc::from(*text)).collect(),
-                    button_images: [].into(),
+                    button_images: images.into(),
                     omitted_images: 0,
                 }),
             }),
@@ -146,6 +154,7 @@ pub(crate) fn render(
     presentation
         .append_server_form(runtime, &mut nodes, &mut next, metrics, width, height)
         .unwrap();
+    presentation.sync_server_ui_pages();
     nodes
 }
 
@@ -153,6 +162,9 @@ pub(crate) fn engine_presentation() -> Option<UiPresentationRuntime> {
     let carrier = carrier()?;
     let mut presentation = UiPresentationRuntime::new(font()).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
+    let vanilla = local(crate::install_layout::VANILLA_PACK_DIR);
+    let engine = presentation.form_presentation.engine.as_mut().unwrap();
+    engine.textures.set_fallbacks(Default::default(), vanilla);
     Some(presentation)
 }
 
@@ -212,9 +224,32 @@ fn server_pack_form_renders_its_text_through_the_engine() {
         nodes.len(),
     );
     assert!(presentation.form_engine_frame(identity).is_some());
-    for label in ["Rare Box", "Epic Box", "Legendary"] {
-        assert!(texts.iter().any(|text| text.contains(label)), "{label}");
+    let (drawn, missing) = presentation
+        .form_presentation
+        .engine
+        .as_ref()
+        .unwrap()
+        .drawn_sprites();
+    eprintln!(
+        "server pages: {}, sprite textures drawn: {}, outside textures/ui: {:?}, unresolved: {missing:?}",
+        presentation.server_ui_pages().len(),
+        drawn.len(),
+        drawn
+            .iter()
+            .filter(|key| !key.starts_with("textures/ui/"))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        missing.is_empty(),
+        "every drawn image resolves: {missing:?}"
+    );
+    // Without a pack the vanilla template shows the labels verbatim.
+    if pack.is_none() {
+        for label in ["Rare Box", "Epic Box", "Legendary"] {
+            assert!(texts.iter().any(|text| text.contains(label)), "{label}");
+        }
     }
+    assert!(!texts.is_empty());
     assert!(
         texts.iter().all(|text| !text.contains('§')),
         "format codes never draw"
@@ -311,4 +346,106 @@ fn form_frame_cost_with_and_without_the_render_cache() {
     let cached = average(&mut presentation, false);
     eprintln!("form frame: re-resolving {uncached:?}, cached {cached:?}");
     assert!(cached < uncached);
+}
+
+// The vanilla template draws path and URL button images once they resolve.
+#[test]
+fn vanilla_form_button_images_resolve() {
+    use protocol::FormButtonImage::{Path as ImagePath, Url};
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let url = format!("{}/icon.png", super::remote_images::tests::serve(png));
+    let runtime = image_form(
+        "Shop",
+        &["Diamond", "Stone", "Remote"],
+        vec![
+            Some(ImagePath("textures/items/diamond".into())),
+            Some(ImagePath("textures/blocks/stone".into())),
+            Some(Url(url.as_str().into())),
+        ],
+    );
+    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    let remote = engine.textures.remote.clone();
+    render(&mut presentation, &runtime, [1280, 720], 1.0);
+    super::remote_images::tests::settle(&remote, &url);
+    render(&mut presentation, &runtime, [1280, 720], 1.0);
+    let (drawn, missing) = presentation
+        .form_presentation
+        .engine
+        .as_ref()
+        .unwrap()
+        .drawn_sprites();
+    eprintln!("drawn {drawn:?}, unresolved {missing:?}");
+    for image in [
+        "textures/items/diamond",
+        "textures/blocks/stone",
+        url.as_str(),
+    ] {
+        assert!(drawn.iter().any(|key| key == image), "{image} drawn");
+    }
+    assert!(missing.is_empty());
+}
+
+/// Button text shaped like a server's two-line entries plus a description.
+fn entry(name: &str) -> String {
+    format!("§e{name}\n§7PRACTICE\n§eDESCRIPTION\n§7Practice {name} here")
+}
+
+// Writes PNG snapshots of pack forms for visual inspection (local only).
+#[test]
+fn snapshot_pack_forms() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!("skipping: UI carrier absent");
+        return;
+    };
+    if let Some(pack) = env_pack() {
+        presentation.set_server_ui_pack(&pack);
+    }
+    let training: Vec<String> = ["BRIDGING", "CLUTCH", "WALL RUN", "AIMING", "BOT DUEL"]
+        .iter()
+        .map(|name| entry(name))
+        .collect();
+    let ffa: Vec<String> = ["SUMO", "MACE", "BUILD", "SKYWARS"]
+        .iter()
+        .map(|name| entry(name))
+        .collect();
+    let boxes: Vec<String> = (0..90).map(|index| format!("Item {index}")).collect();
+    let forms: [(&str, &str, &[String]); 3] = [
+        ("training", "Training", &training),
+        ("ffa", "Free For All§zfp0;", &ffa),
+        ("boxes", "@mineville/boxes:Spirit Bundle", &boxes),
+    ];
+    for (name, title, buttons) in forms {
+        let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
+        let runtime = action_form(title, &labels);
+        let dpi = DpiScale::new(1.0).unwrap();
+        for _ in 0..2 {
+            presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        }
+        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        super::snapshot::write(&input, name);
+        // The same form with its second button hovered.
+        let identity = runtime.server_forms().active().unwrap().identity;
+        let hovered = presentation.form_engine_frame(identity).and_then(|frame| {
+            let mut buttons = frame
+                .hits
+                .iter()
+                .filter(|hit| hit.kind == json_ui::HitKind::Button);
+            buttons
+                .clone()
+                .nth(1)
+                .or(buttons.next_back())
+                .map(|hit| hit.key.clone())
+        });
+        let mut runtime = runtime;
+        runtime.server_forms_mut().engine_mut().view.hovered = hovered;
+        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        super::snapshot::write(&input, &format!("{name}-hover"));
+    }
 }

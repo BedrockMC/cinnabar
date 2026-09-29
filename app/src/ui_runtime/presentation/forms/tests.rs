@@ -19,7 +19,12 @@ const SERVER_FORM: &str = r##"{
     "button_mappings": [ { "from_button_id": "button.menu_select", "to_button_id": "button.form_button_click", "mapping_type": "pressed" } ],
     "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "form_buttons" } ],
     "controls": [ { "label": { "type": "label", "text": "#form_button_text", "bindings": [
-      { "binding_type": "collection", "binding_collection_name": "form_buttons", "binding_name": "#form_button_text" } ] } } ] }
+      { "binding_type": "collection", "binding_collection_name": "form_buttons", "binding_name": "#form_button_text" } ] } },
+      { "image": { "type": "image", "size": [16, 16], "bindings": [
+        { "binding_type": "collection", "binding_collection_name": "form_buttons",
+          "binding_name": "#form_button_texture", "binding_name_override": "#texture" },
+        { "binding_type": "collection", "binding_collection_name": "form_buttons",
+          "binding_name": "#form_button_texture_file_system", "binding_name_override": "#texture_file_system" } ] } } ] }
 }"##;
 
 pub(crate) fn mini_carrier() -> Arc<RuntimeUiAssets> {
@@ -148,4 +153,136 @@ fn fallback_buttons_show_every_label_line() {
         .collect();
     assert_eq!(rows.len(), 3);
     assert!(rows.windows(2).all(|pair| pair[1] > pair[0]), "{rows:?}");
+}
+
+// Installing and removing a server pack's UI keeps every published frame
+// acceptable to the renderer, which pins the static texture identity and plan.
+#[test]
+fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
+    use render::{UiRenderScene, UiRenderStats};
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(16, 8, image::Rgba([9, 8, 7, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let pack = super::ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/server_form.json".to_owned(),
+            br#"{ "namespace": "server_form", "form_button": { "modifications": [
+                { "array_name": "controls", "operation": "insert_back", "value": [
+                    { "art": { "type": "image", "texture": "textures/ui/pack_button", "size": [16, 8] } } ] } ] } }"#
+                .to_vec(),
+        )]],
+        textures: vec![("textures/ui/pack_button.png".to_owned(), png)],
+    };
+    let mut presentation = mini_engine_presentation();
+    let runtime = super::pack_harness::action_form("Menu", &["A"]);
+    let (mut scene, stats) = (UiRenderScene::default(), UiRenderStats::default());
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    let mut publish = |presentation: &mut UiPresentationRuntime| {
+        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        scene.publish(input, &stats).unwrap();
+    };
+    publish(&mut presentation);
+    presentation.set_server_ui_pack(&pack);
+    assert!(
+        presentation.server_ui_pages().is_empty(),
+        "nothing packs until drawn"
+    );
+    publish(&mut presentation);
+    assert_eq!(
+        presentation.server_ui_pages().len(),
+        1,
+        "the drawn texture packed"
+    );
+    publish(&mut presentation);
+    presentation.set_server_ui_pack(&super::ServerUiPack::default());
+    assert!(presentation.server_ui_pages().is_empty());
+    publish(&mut presentation);
+}
+
+fn png(color: [u8; 4]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::RgbaImage::from_pixel(8, 8, image::Rgba(color))
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    bytes
+}
+
+fn sprite_pages(nodes: &[ui::UiNode]) -> Vec<(u16, [u16; 4])> {
+    nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Sprite {
+                texture_page, uv, ..
+            } => Some((*texture_page, *uv)),
+            _ => None,
+        })
+        .collect()
+}
+
+// Button images by vanilla path draw from the item icon atlas when it holds the
+// texture, else from the local vanilla pack; a URL image shows once downloaded.
+#[test]
+fn path_and_url_button_images_resolve_like_vanilla() {
+    use super::super::IconRef;
+    use protocol::FormButtonImage::{Path, Url};
+    let vanilla = std::env::temp_dir().join(format!("forms-vanilla-{}", std::process::id()));
+    std::fs::create_dir_all(vanilla.join("textures/blocks")).unwrap();
+    std::fs::write(
+        vanilla.join("textures/blocks/stone.png"),
+        png([9, 9, 9, 255]),
+    )
+    .unwrap();
+    let url = format!(
+        "{}/remote.png",
+        super::remote_images::tests::serve(png([1, 2, 3, 255]))
+    );
+    let mut presentation = mini_engine_presentation();
+    let apple = IconRef {
+        page: 0,
+        uv: [0, 0, 1, 1],
+    };
+    let icons = [("textures/items/apple".to_owned(), apple)].into();
+    let engine = presentation.form_presentation.engine.as_mut().unwrap();
+    engine.textures.set_fallbacks(icons, vanilla.clone());
+    let remote = engine.textures.remote.clone();
+    let runtime = super::pack_harness::image_form(
+        "Images",
+        &["Item", "Block", "Remote"],
+        vec![
+            Some(Path("textures/items/apple".into())),
+            Some(Path("textures/blocks/stone".into())),
+            Some(Url(url.as_str().into())),
+        ],
+    );
+    let server_page =
+        presentation.textures.dynamic_start() + super::super::dynamic_textures::SERVER_UI_PAGE;
+    let frame = |presentation: &mut UiPresentationRuntime| {
+        let nodes = super::pack_harness::render(presentation, &runtime, [1280, 720], 1.0);
+        sprite_pages(&nodes)
+    };
+    let first = frame(&mut presentation);
+    assert!(
+        first.contains(&(0, [0, 0, 1, 1])),
+        "the icon atlas draws the item"
+    );
+    let on_server = |sprites: &[(u16, [u16; 4])]| {
+        sprites
+            .iter()
+            .filter(|(page, _)| usize::from(*page) == server_page)
+            .count()
+    };
+    assert_eq!(
+        on_server(&first),
+        1,
+        "the block decodes from the vanilla pack"
+    );
+    super::remote_images::tests::settle(&remote, &url);
+    let loaded = frame(&mut presentation);
+    assert_eq!(on_server(&loaded), 2, "the downloaded image joins it");
+    assert_eq!(presentation.server_ui_pages().len(), 1);
+    let _ = std::fs::remove_dir_all(vanilla);
 }

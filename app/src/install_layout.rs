@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 const APP_DIR: &str = "Cinnabar";
+pub(crate) const VANILLA_PACK_DIR: &str =
+    "assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)]
@@ -211,6 +213,13 @@ impl InstallLayout {
     #[must_use]
     pub fn auth_cache(&self) -> PathBuf {
         self.user_data_root.join("auth/microsoft-token.json")
+    }
+
+    /// The local vanilla resource pack (development checkouts carry it under
+    /// `.local`); runtime fallbacks read images from it when present.
+    #[must_use]
+    pub fn vanilla_pack_dir(&self) -> PathBuf {
+        self.resource_root.join(VANILLA_PACK_DIR)
     }
 
     #[must_use]

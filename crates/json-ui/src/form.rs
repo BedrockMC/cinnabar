@@ -75,8 +75,11 @@ pub struct FormButton {
 pub enum ButtonImage {
     /// A resource-pack texture path → `#form_button_texture`.
     Path(String),
-    /// A downloaded/URL texture → `#form_button_texture_file_system`.
+    /// A downloaded URL texture → both texture bindings.
     Url(String),
+    /// A URL still downloading: `#form_button_texture` reads `loading`, which
+    /// the vanilla template answers with its progress bar.
+    Loading,
 }
 
 /// A custom-form element with its current (possibly user-edited) value. Display
@@ -255,7 +258,8 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
             ActionElement::Button(button) => {
                 let (path, file_system) = match &button.image {
                     Some(ButtonImage::Path(path)) => (path.clone(), String::new()),
-                    Some(ButtonImage::Url(url)) => (String::new(), url.clone()),
+                    Some(ButtonImage::Url(url)) => (url.clone(), url.clone()),
+                    Some(ButtonImage::Loading) => ("loading".to_owned(), String::new()),
                     None => (String::new(), String::new()),
                 };
                 text_item("button", &button.text)
