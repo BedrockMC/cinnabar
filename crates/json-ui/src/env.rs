@@ -3,15 +3,15 @@
 //! evaluates size/`view` arithmetic, so an expression like `"100% - 15px"` is
 //! copied verbatim.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde_json::{Map, Value};
 
-/// A flat variable scope. Descending the tree clones the parent scope and layers
-/// the control's own declarations on top, so inner definitions shadow outer ones.
+/// A flat variable scope. Descending the tree shares the parent values until a
+/// control declares a variable, so inner definitions shadow outer ones.
 #[derive(Clone, Debug, Default)]
 pub struct Env {
-    vars: BTreeMap<String, Value>,
+    vars: Arc<BTreeMap<String, Value>>,
 }
 
 impl Env {
@@ -28,11 +28,37 @@ impl Env {
     }
 
     pub fn set(&mut self, name: impl Into<String>, value: Value) {
-        self.vars.insert(name.into(), value);
+        let name = name.into();
+        if !self
+            .vars
+            .get(&name)
+            .is_some_and(|old| same_representation(old, &value))
+        {
+            Arc::make_mut(&mut self.vars).insert(name, value);
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> {
         self.vars.iter()
+    }
+}
+
+/// Compare values as substitution will spell them, including signed zero and object order.
+fn same_representation(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Number(a), Value::Number(b)) => {
+            a == b && a.as_f64().map(f64::to_bits) == b.as_f64().map(f64::to_bits)
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_representation(a, b))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b)
+                    .all(|((ak, av), (bk, bv))| ak == bk && same_representation(av, bv))
+        }
+        _ => left == right,
     }
 }
 
@@ -220,6 +246,79 @@ fn is_ident_byte(byte: u8) -> bool {
 mod tests {
     use super::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
     use serde_json::{Map, json};
+
+    #[test]
+    fn inherited_scopes_share_values_until_a_declaration_changes_them() {
+        let parent = env();
+        let mut child = parent.clone();
+        let sibling = parent.clone();
+        for _ in 0..100 {
+            let descendant = child.clone();
+            assert!(std::sync::Arc::ptr_eq(&parent.vars, &descendant.vars));
+        }
+        child.set("name", parent.get("name").unwrap().clone());
+        assert!(std::sync::Arc::ptr_eq(&parent.vars, &child.vars));
+        apply_declarations(&mut child, &props(json!({"$name": "child"})));
+        assert!(!std::sync::Arc::ptr_eq(&parent.vars, &child.vars));
+        assert!(std::sync::Arc::ptr_eq(&parent.vars, &sibling.vars));
+        assert_eq!(parent.get("name"), Some(&json!("#title_text")));
+        assert_eq!(sibling.get("name"), parent.get("name"));
+        assert_eq!(child.get("name"), Some(&json!("child")));
+        assert_eq!(child.get("title_size"), parent.get("title_size"));
+    }
+
+    #[test]
+    fn equal_numbers_with_different_signed_zero_representations_replace_the_scope_value() {
+        for (old, new) in [
+            (json!(0.0), json!(-0.0)),
+            (json!([0.0]), json!([-0.0])),
+            (json!({"n": [0.0]}), json!({"n": [-0.0]})),
+        ] {
+            let mut parent = Env::new();
+            parent.set("n", old.clone());
+            let mut child = parent.clone();
+            child.set("n", new.clone());
+            assert_eq!(child.get("n").unwrap().to_string(), new.to_string());
+            assert_eq!(parent.get("n").unwrap().to_string(), old.to_string());
+            assert!(!std::sync::Arc::ptr_eq(&parent.vars, &child.vars));
+        }
+        let mut scope = Env::new();
+        scope.set("n", json!(0.0));
+        scope.set("n", json!(-0.0));
+        let mut unknown = Vec::new();
+        assert_eq!(
+            substitute(&json!("value: $n"), &scope, &mut unknown),
+            json!("value: -0.0")
+        );
+    }
+
+    #[test]
+    #[ignore = "benchmark"]
+    fn frame_cost_bench_inherited_variable_scopes() {
+        let mut parent = Env::new();
+        for index in 0..500 {
+            parent.set(
+                format!("variable_{index}"),
+                json!([index, "inherited pack value"]),
+            );
+        }
+        const SCOPES: u32 = 1_000;
+        let started = std::time::Instant::now();
+        for _ in 0..SCOPES {
+            std::hint::black_box((*parent.vars).clone());
+        }
+        let old = started.elapsed();
+        let started = std::time::Instant::now();
+        for _ in 0..SCOPES {
+            std::hint::black_box(parent.clone());
+        }
+        let new = started.elapsed();
+        eprintln!(
+            "FRAME_COST inherited_variable_scopes_1000x500: old={:.3}ms new={:.3}ms",
+            old.as_secs_f64() * 1e3,
+            new.as_secs_f64() * 1e3
+        );
+    }
 
     fn props(value: serde_json::Value) -> Map<String, serde_json::Value> {
         match value {
