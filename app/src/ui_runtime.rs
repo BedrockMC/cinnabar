@@ -17,6 +17,7 @@ pub mod inventory_ledger;
 pub mod inventory_router;
 pub(crate) mod item_facts;
 pub(crate) mod json_ui_assets;
+pub(crate) mod oreui_assets;
 mod local_abilities;
 mod platform_clipboard;
 pub mod presentation;
