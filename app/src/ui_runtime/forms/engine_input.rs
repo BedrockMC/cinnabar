@@ -4,11 +4,7 @@
 //! `button.menu_exit`, `popup_dialog.*`, toggle/slider/dropdown/edit-box names)
 //! decide what happens. Buttons fire on release over the pressed control.
 
-use bevy::input::{
-    ButtonInput,
-    keyboard::KeyCode,
-    mouse::{MouseButton, MouseScrollUnit},
-};
+use bevy::input::{ButtonInput, keyboard::KeyCode, mouse::MouseScrollUnit};
 use json_ui::{HitKind, HitRegion, focus_order, hit_test, scroll_target};
 use protocol::{CustomFormElement, MenuElement, ServerFormModel};
 use ui::{ChatClipboard, UiPoint};
@@ -22,11 +18,19 @@ const MAX_PASTE_BYTES: usize = 4096;
 /// The custom input template's `max_length` when a region reports none.
 const DEFAULT_INPUT_LENGTH: usize = 100;
 
+/// The primary pointer button's edges this frame and whether it is down.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct PointerButtons {
+    pub(super) pressed: bool,
+    pub(super) released: bool,
+    pub(super) held: bool,
+}
+
 /// One frame of raw input for the engine path.
 pub(super) struct EngineInput<'a> {
     pub(super) cursor: Option<UiPoint>,
     pub(super) keys: &'a ButtonInput<KeyCode>,
-    pub(super) mouse: &'a ButtonInput<MouseButton>,
+    pub(super) pointer: PointerButtons,
     pub(super) wheel: Vec<(f32, MouseScrollUnit)>,
     /// Pressed keys this frame with their produced text.
     pub(super) typed: Vec<(KeyCode, Option<String>)>,
@@ -53,15 +57,15 @@ pub(super) fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineI
             .or_else(|| engine.view.focused.clone());
     }
     if let Some(point) = point {
-        drag(runtime, frame, &model, point, input.mouse);
+        drag(runtime, frame, &model, point, input.pointer.held);
     }
     let mut action = None;
-    if input.mouse.just_pressed(MouseButton::Left)
+    if input.pointer.pressed
         && let Some(point) = point
     {
         press(runtime, frame, &model, hovered, point);
     }
-    if input.mouse.just_released(MouseButton::Left) {
+    if input.pointer.released {
         let engine = runtime.server_forms_mut().engine_mut();
         let pressed = engine.view.pressed.take();
         engine.drag = None;
@@ -105,9 +109,9 @@ fn drag(
     frame: &EngineFrame,
     model: &ServerFormModel,
     point: [f64; 2],
-    mouse: &ButtonInput<MouseButton>,
+    held: bool,
 ) {
-    if !mouse.pressed(MouseButton::Left) {
+    if !held {
         return;
     }
     match runtime.server_forms().engine().drag.clone() {
