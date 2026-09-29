@@ -16,8 +16,8 @@ pub(crate) use creative::{
 };
 
 pub(crate) use window::{
-    BEACON_LEVEL_FOR, LOOM_CELLS, LOOM_COLUMNS, STONECUTTER_CELLS, Widget, WindowLayout, widget_rects,
-    window_layout,
+    BEACON_LEVEL_FOR, LOOM_CELLS, LOOM_COLUMNS, STONECUTTER_CELLS, Widget, WindowLayout,
+    widget_rects, window_layout,
 };
 
 pub(crate) const SLOT_SIZE: f32 = 18.0;
@@ -92,9 +92,9 @@ pub(crate) fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
         InventoryScreen::Personal => {
             let mut slots: Vec<PlacedSlot> = grid(28, 2, [98.0, 18.0]).collect();
             slots.push(PlacedSlot {
-                pos: [152.0, 28.0],
+                pos: [148.0, 24.0],
                 hit: InventoryCellHit::CraftOutput,
-                output: false,
+                output: true,
             });
             slots.extend((0..4u8).map(|row| PlacedSlot {
                 pos: [8.0, 8.0 + f32::from(row) * SLOT_SIZE],
@@ -112,9 +112,9 @@ pub(crate) fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
         InventoryScreen::Workbench => {
             let mut slots: Vec<PlacedSlot> = grid(32, 3, WORKBENCH_GRID).collect();
             slots.push(PlacedSlot {
-                pos: WORKBENCH_OUTPUT,
+                pos: [WORKBENCH_OUTPUT[0] - 4.0, WORKBENCH_OUTPUT[1] - 4.0],
                 hit: InventoryCellHit::CraftOutput,
-                output: false,
+                output: true,
             });
             slots.extend(player_slots(8.0, 84.0));
             slots
