@@ -2483,6 +2483,15 @@ store it only under the user's temporary directory, inspect that file, and never
   - [ ] Run fresh release/GDI views against the matching native client for sun
     and all moon phases, including horizon and filter-edge cases, before
     closing the visible defect.
+- [ ] Precipitation parity with the 26.30/1.26.50 `WeatherRenderer` and `Weather`
+  material: ten wrapped 30-block particle layers per kind over a 2,500-quad mesh
+  (925-particle pool), velocity-stretched sheet streaks, exact rain/snow params,
+  UV cells, lattice offsets, intensity smoothing and density, and a 64x64 column
+  occlusion grid replace the per-column Java-style sheet. Provisional, not
+  closing the gate: wind uses our own seeded simplex (not the native permutation),
+  the 0.01-scale per-layer turbulence and block-light tint are omitted, the
+  density-halving view flag is assumed unset, and no native side-by-side capture
+  has been taken.
 - [ ] Replace the current infinitely thin cloud plane with a vanilla-parity
   cloud volume/layer that has visible thickness and side faces while retaining
   bounded GPU cost, world anchoring, weather/fog fades, and the existing shared
