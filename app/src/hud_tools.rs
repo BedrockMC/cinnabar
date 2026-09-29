@@ -1,5 +1,6 @@
 //! Function-key client tools: screenshot capture (F2) and the debug overlay (F3).
 
+mod debug_overlay;
 mod screenshot;
 
 use std::path::PathBuf;
@@ -13,5 +14,6 @@ pub(crate) struct HudToolsPlugin {
 impl Plugin for HudToolsPlugin {
     fn build(&self, app: &mut App) {
         screenshot::configure(app, self.screenshots_dir.clone());
+        debug_overlay::configure(app);
     }
 }

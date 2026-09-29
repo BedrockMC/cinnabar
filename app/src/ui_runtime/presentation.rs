@@ -32,6 +32,7 @@ use crate::{
 };
 
 mod chat;
+mod debug_overlay;
 mod dynamic_textures;
 mod forms;
 mod hud_extras;
@@ -63,6 +64,7 @@ mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
 use chat::visible_suggestion_range;
+pub(crate) use debug_overlay::DebugLines;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
 use primitives::{bounded_visible_text, hud_position, rect, resolve_chat_line};
@@ -139,6 +141,7 @@ pub struct UiPresentationRuntime {
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
     leave_bed_hit: Option<UiRect>,
+    debug_lines: Option<DebugLines>,
     /// Java GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
     /// Platform safe-area insets in logical px, applied to the HUD geometry,
@@ -236,6 +239,7 @@ impl UiPresentationRuntime {
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
             leave_bed_hit: None,
+            debug_lines: None,
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
@@ -573,6 +577,7 @@ impl UiPresentationRuntime {
         }
 
         if !inventory_open && !menu_visible {
+            self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content_width)?;
             nametags::append_nametag_nodes(
                 &mut nodes,
                 &mut next_id,
