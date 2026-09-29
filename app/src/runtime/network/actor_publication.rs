@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bevy::{
     ecs::system::SystemParam,
+    math::Mat4,
     prelude::{Local, Projection, Res, ResMut, Resource, Time},
     time::Real,
 };
@@ -44,10 +45,13 @@ impl HandRigBuilder {
     }
 }
 
+/// Vertical FOV of the first-person pass; underwater and death-camera narrowing are not modelled.
+const HAND_FOV_DEGREES: f32 = 70.0;
+
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
 /// below the camera; the pack's first-person arm offsets are authored for that facing.
-fn hand_camera_from_rig(scale: f32) -> [[f32; 4]; 3] {
-    rig_world_from_actor(
+fn hand_camera_from_rig(scale: f32, motion: Mat4) -> [[f32; 4]; 3] {
+    let rows = rig_world_from_actor(
         [
             0.0,
             -crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS,
@@ -55,7 +59,15 @@ fn hand_camera_from_rig(scale: f32) -> [[f32; 4]; 3] {
         ],
         0.0,
         scale,
-    )
+    );
+    let placement = Mat4::from_cols_array_2d(&[
+        [rows[0][0], rows[1][0], rows[2][0], 0.0],
+        [rows[0][1], rows[1][1], rows[2][1], 0.0],
+        [rows[0][2], rows[1][2], rows[2][2], 0.0],
+        [rows[0][3], rows[1][3], rows[2][3], 1.0],
+    ]);
+    let composed = (motion * placement).transpose().to_cols_array_2d();
+    [composed[0], composed[1], composed[2]]
 }
 
 /// Rebuilds the scene's pack geometry and artwork for a new session, or restores the
@@ -114,6 +126,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
     local_skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
+    hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
@@ -137,6 +150,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut hand_scene,
         mut hand_revision,
         local_skin,
+        hand_motion,
         mut equipment,
         collisions,
         semantic_input,
@@ -239,15 +253,12 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             camera_position: transform.translation,
             max_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
-    // The hand rig shares the main camera's vertical FOV; with no dynamic FOV modifiers yet this
-    // is the base field of view before gameplay modifiers. Wire it to the base setting once modifiers land.
+    // Vanilla projects the hand with its own fixed FOV, ignoring the FOV option and modifiers.
     let hand_camera_fov = camera
         .single()
         .ok()
-        .and_then(|(_, projection)| match projection {
-            Projection::Perspective(perspective) => Some(perspective.fov),
-            _ => None,
-        });
+        .filter(|(_, projection)| matches!(projection, Projection::Perspective(_)))
+        .map(|_| HAND_FOV_DEGREES.to_radians());
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         client_world
             .stream
@@ -322,6 +333,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 presentation,
                 body,
                 item,
+                motion: hand_motion
+                    .as_deref()
+                    .map_or(Mat4::IDENTITY, hand_motion_matrix),
             })
         })
     } else {
@@ -520,7 +534,7 @@ fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let placement = hand_camera_from_rig(source.presentation.model_scale);
+    let placement = hand_camera_from_rig(source.presentation.model_scale, source.motion);
     let mut submissions = Vec::new();
     if let Some(mut body) = source.body {
         body.world_from_actor = placement;
@@ -548,6 +562,16 @@ struct HandSource {
     presentation: ActorRigPresentation,
     body: Option<ActorRigSubmission>,
     item: Option<(EquipmentPresentation, HandItemAtlas)>,
+    /// View-space hurt tilt, walk bob and sway applied before the rig placement.
+    motion: Mat4,
+}
+
+/// Vanilla's hand stack order: hurt tilt, walk bob, then sway about X and Y.
+fn hand_motion_matrix(motion: &crate::camera::FirstPersonHandMotion) -> Mat4 {
+    motion.hurt
+        * motion.bob.matrix()
+        * Mat4::from_rotation_x(motion.sway_pitch_radians)
+        * Mat4::from_rotation_y(motion.sway_yaw_radians)
 }
 
 /// Marks an instance's texture layer as an item-atlas layer for the first-person shader.
@@ -644,7 +668,7 @@ mod tests {
     // that ahead of the view and to its right.
     #[test]
     fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
-        let rows = super::hand_camera_from_rig(0.9375);
+        let rows = super::hand_camera_from_rig(0.9375, bevy::math::Mat4::IDENTITY);
         let arm = [-8.5 / 16.0, 12.0 / 16.0, 12.0 / 16.0];
         let camera: [f32; 3] = std::array::from_fn(|row| {
             (0..3).map(|axis| rows[row][axis] * arm[axis]).sum::<f32>() + rows[row][3]
