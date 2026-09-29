@@ -51,7 +51,7 @@ pub use self::events::{
     BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
     ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode,
     MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent, MovePlayerMode,
-    MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
+    MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
     PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
     SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
     SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id,
@@ -742,6 +742,11 @@ pub fn into_world_event(
                 pixels: pixels.into(),
             })
         }
+        McpePacketData::OpenSignPacket(packet) => WorldEvent::OpenSign(OpenSignEvent {
+            dimension: current_dimension,
+            position: [packet.pos.x, packet.pos.y, packet.pos.z],
+            front: packet.is_front_side,
+        }),
         McpePacketData::BlockEventPacket(packet) => WorldEvent::BlockEvent(BlockEventEvent {
             dimension: current_dimension,
             position: [
