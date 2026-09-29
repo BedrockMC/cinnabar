@@ -43,10 +43,10 @@ data the client doesn't even use.
 
 ## Required local assets: fail closed at startup
 
-The production runtime requires the compiled atmosphere, entity, and HUD carriers.
-If one is missing, unreadable, malformed, or fails its pinned hash, abort via
-`bail!`/`?` → `main`, naming the exact carrier path and its rebuild command
-(`make hud-assets`, or `make assets` for all). Carriers live under gitignored
+The production runtime requires the compiled atmosphere, entity, HUD, and JSON-UI
+carriers. If one is missing, unreadable, malformed, or fails its pinned hash, abort
+via `bail!`/`?` → `main`, naming the exact carrier path and its rebuild command
+(`make hud-assets`, `make ui-assets`, or `make assets` for all). Carriers live under gitignored
 `.local/`, so `git pull` never delivers them and the fatal error is what tells a
 developer to rebuild. Never skip or hide required player-facing art; a blank HUD
 with only a log line is the failure this forbids. Two documented exceptions remain:
