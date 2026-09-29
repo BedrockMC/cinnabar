@@ -233,18 +233,25 @@ impl AccountControl for LauncherAccount {
         Some(servers.iter().map(featured_card).collect())
     }
 
-    fn gatherings(&mut self) -> Option<Vec<MenuServerCard>> {
+    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         let gatherings = self.with(|snapshot| snapshot.gatherings.take())?;
         Some(
             gatherings
                 .iter()
                 .filter(|gathering| !gathering.address.is_empty())
-                .map(|gathering| MenuServerCard {
-                    name: gathering.name.clone(),
-                    address: gathering.address.clone(),
-                    caption: gathering.caption.clone(),
-                    image_path: gathering.image.path.clone(),
-                    icon: None,
+                .map(|gathering| {
+                    let card = MenuServerCard {
+                        name: gathering.name.clone(),
+                        address: gathering.address.clone(),
+                        caption: gathering.caption.clone(),
+                        image_path: gathering.image.path.clone(),
+                        icon: None,
+                    };
+                    let details = ServerDetails {
+                        description: gathering.description.clone(),
+                        ..ServerDetails::default()
+                    };
+                    (card, details)
                 })
                 .collect(),
         )

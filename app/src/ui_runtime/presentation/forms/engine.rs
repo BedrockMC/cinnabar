@@ -238,13 +238,15 @@ impl FormEngine {
 
 /// Caller art the custom renderers draw: the icon table `#item_renderer_data`
 /// indexes, the player preview, and the pointer (virtual px) tooltips follow.
-/// `images` backs image controls bound to a downloaded artwork's local path.
+/// `images` backs image controls bound to a downloaded artwork's local path;
+/// `portrait` is the signed-in gamerpic.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) images: Option<&'a HashMap<String, IconRef>>,
+    pub(super) portrait: Option<IconRef>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -470,6 +472,17 @@ impl Painter<'_> {
                         color: alpha(durability_color(fraction)),
                     },
                     fill,
+                ))
+            }
+            "profile_image_renderer" => {
+                let portrait = self.art.portrait?;
+                Some((
+                    UiVisual::Sprite {
+                        texture_page: portrait.page,
+                        uv: portrait.uv,
+                        color: alpha([255; 4]),
+                    },
+                    dest,
                 ))
             }
             // The live model is approximated by the cached preview raster, kept at

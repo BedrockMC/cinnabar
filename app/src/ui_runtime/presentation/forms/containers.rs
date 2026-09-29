@@ -120,6 +120,7 @@ impl UiPresentationRuntime {
             preview: self.hud_frame.player_preview,
             pointer,
             images: None,
+            portrait: None,
         };
         let translate = |key: &str| runtime.translation(key);
         let rollback = (nodes.len(), *next);
