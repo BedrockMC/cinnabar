@@ -10,8 +10,8 @@ use crate::ui::{
 };
 
 pub const MAX_UI_TEXTURE_BUCKETS: usize = 8;
-/// Replaceable 256x256 pages after the static UI pages.
-pub const MAX_UI_DYNAMIC_PAGES: usize = 10;
+/// Replaceable 256x256 pages after the static UI pages: ten general, then the session glyph atlas.
+pub const MAX_UI_DYNAMIC_PAGES: usize = 18;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Pixels {

@@ -49,8 +49,10 @@ mod primitives;
 mod publish;
 mod retained_hud;
 pub(crate) mod screens;
+mod session_glyphs;
 mod session_icons;
 pub(crate) use hud_extras::load_optional as load_optional_hud_extras;
+pub(crate) use session_glyphs::SessionGlyphSheets;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
 mod text_metrics;
@@ -129,6 +131,8 @@ impl std::error::Error for UiPresentationError {}
 #[derive(Resource)]
 pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
+    /// The startup font without the session's glyph sheets.
+    base_font: Arc<RuntimeFontCatalog>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     blank_dynamic_page: render::UiTexturePage,
@@ -179,6 +183,7 @@ pub struct UiPresentationRuntime {
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_artwork_dirty: bool,
     session_icons: session_icons::SessionIconPage,
+    session_glyphs: session_glyphs::SessionGlyphPages,
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
@@ -229,6 +234,7 @@ impl UiPresentationRuntime {
         let textures = Arc::new(textures);
         Ok(Self {
             obfuscation: ObfuscationGlyphs::from_catalog(&font),
+            base_font: Arc::clone(&font),
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
@@ -270,6 +276,7 @@ impl UiPresentationRuntime {
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             menu_artwork_dirty: false,
             session_icons: session_icons::SessionIconPage::default(),
+            session_glyphs: session_glyphs::SessionGlyphPages::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),
@@ -405,6 +412,7 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
+        session_glyphs::observe(self, runtime.session_glyphs());
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =

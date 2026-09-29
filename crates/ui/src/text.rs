@@ -516,9 +516,11 @@ fn build_layout(
             }
 
             let (resolved_codepoint, metrics) = resolve_glyph(request.font, codepoint)?;
+            let draw_size_64 = request.font.draw_size_64(resolved_codepoint);
             let advance_64 = scale_metric(i64::from(metrics.advance_64), scale_1024)?;
             let mut candidate = line_candidate(
                 metrics,
+                draw_size_64,
                 x_64,
                 line,
                 line_height_64,
@@ -542,6 +544,7 @@ fn build_layout(
                 x_64 = 0;
                 candidate = line_candidate(
                     metrics,
+                    draw_size_64,
                     x_64,
                     line,
                     line_height_64,
@@ -612,6 +615,7 @@ struct LineCandidate {
 #[allow(clippy::too_many_arguments)]
 fn line_candidate(
     metrics: GlyphMetrics,
+    draw_size_64: Option<[u32; 2]>,
     x_64: i64,
     line: usize,
     line_height_64: i64,
@@ -621,7 +625,15 @@ fn line_candidate(
     line_max_64: i64,
     advance_64: i64,
 ) -> Result<LineCandidate, TextError> {
-    let bounds_64 = glyph_bounds(metrics, x_64, line, line_height_64, baseline_64, scale_1024)?;
+    let bounds_64 = glyph_bounds(
+        metrics,
+        draw_size_64,
+        x_64,
+        line,
+        line_height_64,
+        baseline_64,
+        scale_1024,
+    )?;
     let pen_end_64 = x_64
         .checked_add(advance_64)
         .ok_or(TextError::FixedPointOverflow)?;
@@ -714,6 +726,7 @@ fn resolve_glyph(
 
 fn glyph_bounds(
     metrics: GlyphMetrics,
+    draw_size_64: Option<[u32; 2]>,
     x_64: i64,
     line: usize,
     line_height_64: i64,
@@ -732,18 +745,12 @@ fn glyph_bounds(
             .ok_or(TextError::FixedPointOverflow)?,
         scale_1024,
     )?;
-    let width_64 = scale_metric(
-        i64::from(metrics.uv[2].saturating_sub(metrics.uv[0]))
-            .checked_mul(FIXED_POINT_DENOMINATOR)
-            .ok_or(TextError::FixedPointOverflow)?,
-        scale_1024,
-    )?;
-    let height_64 = scale_metric(
-        i64::from(metrics.uv[3].saturating_sub(metrics.uv[1]))
-            .checked_mul(FIXED_POINT_DENOMINATOR)
-            .ok_or(TextError::FixedPointOverflow)?,
-        scale_1024,
-    )?;
+    let [texel_width_64, texel_height_64] = draw_size_64.unwrap_or([
+        u32::from(metrics.uv[2].saturating_sub(metrics.uv[0])) * FIXED_POINT_DENOMINATOR as u32,
+        u32::from(metrics.uv[3].saturating_sub(metrics.uv[1])) * FIXED_POINT_DENOMINATOR as u32,
+    ]);
+    let width_64 = scale_metric(i64::from(texel_width_64), scale_1024)?;
+    let height_64 = scale_metric(i64::from(texel_height_64), scale_1024)?;
     let line_y_64 = i64::try_from(line)
         .ok()
         .and_then(|line| line.checked_mul(line_height_64))
