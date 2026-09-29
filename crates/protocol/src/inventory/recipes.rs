@@ -13,7 +13,9 @@ mod screen;
 
 pub use budget::RECIPE_OWNED_BYTES;
 pub use catalog::RecipeCatalog;
-pub use crafting::{CraftGridItem, CraftGridMatch, RecipeOutput, match_crafting_grid};
+pub use crafting::{
+    CraftGridItem, CraftGridMatch, RecipeIngredientView, RecipeOutput, match_crafting_grid,
+};
 pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use model::{RecipeHandle, RecipeUpdate};
 pub use screen::{

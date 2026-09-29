@@ -74,7 +74,8 @@ impl HudLayout<'_> {
             let title = frame.window_text.title.as_deref().unwrap_or("Crafting");
             self.inventory_label(title, [origin[0] + 28.0, origin[1] + 6.0])?;
             self.crafting_cells(runtime, frame, origin, WORKBENCH_GRID, 3, WORKBENCH_OUTPUT)?;
-            return self.player_cells(runtime, frame, origin);
+            self.player_cells(runtime, frame, origin)?;
+            return self.recipe_book(runtime, frame, screen, origin);
         }
 
         // Armor, paper doll, offhand, and the 2x2 personal crafting grid.
@@ -122,7 +123,8 @@ impl HudLayout<'_> {
         }
 
         self.crafting_cells(runtime, frame, origin, [98.0, 18.0], 2, [152.0, 28.0])?;
-        self.player_cells(runtime, frame, origin)
+        self.player_cells(runtime, frame, origin)?;
+        self.recipe_book(runtime, frame, screen, origin)
     }
 
     /// One crafting grid, its arrow and the previewed output cell.

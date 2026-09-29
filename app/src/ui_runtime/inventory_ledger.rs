@@ -8,6 +8,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
+mod auto_craft;
 mod cells;
 mod crafting;
 #[cfg(test)]

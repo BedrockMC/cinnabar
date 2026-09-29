@@ -100,6 +100,20 @@ impl UiPresentationRuntime {
         cell_hit(gui, geometry, screen)
     }
 
+    /// The recipe-book control under a GUI point, if the screen has a book.
+    pub(crate) fn inventory_book_hit(
+        &self,
+        gui: [f32; 2],
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+        screen: InventoryScreen,
+        book_open: bool,
+    ) -> Option<InventoryCellHit> {
+        let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
+        let origin = screens::panel_origin(screen, [geometry.gui_width, geometry.gui_height]);
+        screens::book_hit(screen, origin, gui, book_open).map(InventoryCellHit::Widget)
+    }
+
     /// Whether a GUI point lies on the drawn inventory panel.
     pub(crate) fn inventory_panel_contains(
         &self,

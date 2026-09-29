@@ -48,6 +48,11 @@ pub(crate) struct WindowIcons {
     pub(crate) ghost_armor: [Option<IconRef>; 4],
     pub(crate) ghost_shield: Option<IconRef>,
     pub(crate) ghost_template: Option<IconRef>,
+    /// Output icons of the recipe book's visible page.
+    pub(crate) book: [Option<IconRef>; screens::BOOK_CELLS],
+    pub(crate) book_button: Option<IconRef>,
+    /// Whether a further recipe-book page exists.
+    pub(crate) book_more: bool,
 }
 
 impl Default for WindowIcons {
@@ -61,6 +66,9 @@ impl Default for WindowIcons {
             ghost_armor: [None; 4],
             ghost_shield: None,
             ghost_template: None,
+            book: [None; screens::BOOK_CELLS],
+            book_button: None,
+            book_more: false,
         }
     }
 }
@@ -91,6 +99,7 @@ pub(crate) struct WindowText {
     pub(crate) tooltip: Vec<TooltipLine>,
     /// Beacon effect names by effect id.
     pub(crate) effect_names: Vec<(i32, String)>,
+    pub(crate) book_title: Option<String>,
 }
 
 fn stack_of<'a>(runtime: &'a UiRuntime, hit: InventoryCellHit) -> Option<&'a NetworkItemStack> {
