@@ -784,6 +784,7 @@ fn decode_world_raw_with(
             | McpePacketName::ContainerOpenPacket
             | McpePacketName::ContainerClosePacket
             | McpePacketName::ContainerSetDataPacket
+            | McpePacketName::PlayerEnchantOptionsPacket
             | McpePacketName::AnimatePacket
             | McpePacketName::AnimateEntityPacket
             | McpePacketName::LevelChunkPacket

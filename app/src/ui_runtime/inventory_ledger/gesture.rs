@@ -1,6 +1,6 @@
-use protocol::{ContainerIdentity, NetworkItemStack, StackRequestAction, StackRequestSlot};
+use protocol::{NetworkItemStack, StackRequestAction, StackRequestSlot};
 
-use super::helpers::request_slot;
+use super::helpers::{WindowAddress, request_slot};
 use super::overlay::DeltaGroup;
 use super::registry::OccupiedStackRelation;
 use super::{
@@ -84,7 +84,7 @@ pub(super) fn counted_transfer(
     source: Cell,
     destination: Cell,
     stack: &NetworkItemStack,
-    storage_identity: Option<ContainerIdentity>,
+    storage_identity: Option<WindowAddress>,
     requested: Option<u16>,
 ) -> Result<Built, InventoryGestureError> {
     let amount = requested.unwrap_or(stack.count);
@@ -120,7 +120,7 @@ pub(super) fn counted_merge(
     destination: Cell,
     source_stack: &NetworkItemStack,
     destination_stack: &NetworkItemStack,
-    storage_identity: Option<ContainerIdentity>,
+    storage_identity: Option<WindowAddress>,
     amount: u16,
     capacity: u16,
 ) -> Result<Built, InventoryGestureError> {
@@ -163,7 +163,7 @@ pub(super) fn swap(
     destination: Cell,
     source_stack: &NetworkItemStack,
     destination_stack: &NetworkItemStack,
-    storage_identity: Option<ContainerIdentity>,
+    storage_identity: Option<WindowAddress>,
 ) -> Result<Built, InventoryGestureError> {
     Ok(Built {
         action: StackRequestAction::Swap {
@@ -260,7 +260,7 @@ impl PlayerInventoryLedger {
         {
             return Err(InventoryGestureError::AwaitingIdentity);
         }
-        let storage_identity = self.storage_identity();
+        let storage_identity = self.window_address();
         let target_overlay = target_held.as_ref().and_then(|held| held.overlay.as_ref());
         let cursor_overlay = cursor_held.as_ref().and_then(|held| held.overlay.as_ref());
         let target_stack = target_held.as_ref().map(|held| &held.stack);
@@ -468,6 +468,19 @@ impl PlayerInventoryLedger {
         Ok(())
     }
 
+    /// Submits a request that also carries anvil text for its filter index.
+    pub(super) fn submit_filtered(
+        &mut self,
+        submission: Submission,
+        filter_strings: Vec<String>,
+    ) -> Result<i32, InventoryGestureError> {
+        let request_id = self.submit(submission)?;
+        if let Some(pending) = self.queue.back_mut() {
+            pending.filter_strings = filter_strings;
+        }
+        Ok(request_id)
+    }
+
     pub(super) fn submit(&mut self, submission: Submission) -> Result<i32, InventoryGestureError> {
         self.check_surfaces(submission.groups.iter().flat_map(DeltaGroup::touched))?;
         let request_id = self.peek_request_id()?;
@@ -475,6 +488,7 @@ impl PlayerInventoryLedger {
         self.enqueue(PendingRequest {
             request_id,
             actions: submission.actions,
+            filter_strings: Vec::new(),
             groups: submission.groups,
             state: InventoryPendingState::AwaitingTransport,
             transport_deadline_millis: None,

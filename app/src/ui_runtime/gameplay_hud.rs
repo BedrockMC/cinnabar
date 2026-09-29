@@ -518,6 +518,7 @@ impl GameplayHudState {
             | InventoryEvent::Open(_)
             | InventoryEvent::Close(_)
             | InventoryEvent::Data(_)
+            | InventoryEvent::EnchantOptions(_)
             | InventoryEvent::Recipes(_)
             | InventoryEvent::Creative(_) => {
                 self.diagnostics.dropped_inventory_events =
