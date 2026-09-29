@@ -22,6 +22,8 @@ use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
 use crate::widgets::{self, ScrollFrame};
 
+mod measure;
+
 /// A virtual-pixel rectangle, top-left origin.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
@@ -112,6 +114,7 @@ pub fn layout_with<'a>(
 ) -> (LaidOut<'a>, LayoutReport) {
     INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
     LENGTH_MEMO.with(|memo| memo.borrow_mut().clear());
+    measure::reset();
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = resolve_size(root, screen, intrinsic(root, env, None), env);
     let rect = place_by_anchor(root, screen, own, env);
@@ -641,52 +644,12 @@ fn intrinsic_uncached(
 /// its main axis and takes the max across; other controls take the bounding max.
 /// `own_width` is this control's resolved width when already known.
 fn content_extent(control: &ResolvedControl, env: &LayoutEnv, own_width: Option<f64>) -> [f64; 2] {
-    if control.children.is_empty() {
-        return [0.0, 0.0];
-    }
-    let sizes: Vec<[f64; 2]> = control
-        .children
-        .iter()
-        .filter(|child| visible(child))
-        .map(|child| intrinsic(child, env, own_width))
-        .collect();
-    if let Some(columns) = grid_columns(control) {
-        let pitch = sizes.iter().fold([0.0f64, 0.0f64], |acc, size| {
-            [acc[0].max(size[0]), acc[1].max(size[1])]
-        });
-        let columns = fitted_columns(columns, own_width, pitch[0], sizes.len());
-        let rows = sizes.len().div_ceil(columns);
-        return [
-            pitch[0] * columns.min(sizes.len()) as f64,
-            pitch[1] * rows as f64,
-        ];
-    }
-    match stack_axis(control) {
-        Some(Axis::X) => [
-            sizes.iter().map(|s| s[0]).sum(),
-            sizes.iter().map(|s| s[1]).fold(0.0, f64::max),
-        ],
-        Some(Axis::Y) => [
-            sizes.iter().map(|s| s[0]).fold(0.0, f64::max),
-            sizes.iter().map(|s| s[1]).sum(),
-        ],
-        None => [
-            sizes.iter().map(|s| s[0]).fold(0.0, f64::max),
-            sizes.iter().map(|s| s[1]).fold(0.0, f64::max),
-        ],
-    }
+    measure::children(control, env, own_width).content
 }
 
 /// Per-axis largest child, the value `%cm` reports.
 fn children_max(control: &ResolvedControl, env: &LayoutEnv, own_width: Option<f64>) -> [f64; 2] {
-    control
-        .children
-        .iter()
-        .filter(|child| visible(child))
-        .map(|child| intrinsic(child, env, own_width))
-        .fold([0.0, 0.0], |acc, size| {
-            [acc[0].max(size[0]), acc[1].max(size[1])]
-        })
+    measure::children(control, env, own_width).maximum
 }
 
 /// Per-axis largest of a parent's children, the value `%sm` reports to each sibling.
@@ -697,6 +660,18 @@ fn siblings_max(parent: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
 /// Natural content size: an opted-in image's texture `base_size`, a label's text extent
 /// (wrapped at `width` when known), scaled by `font_scale_factor`.
 fn natural(control: &ResolvedControl, env: &LayoutEnv, width: Option<f64>) -> Option<[f64; 2]> {
+    if !matches!(control.control_type.as_deref(), Some("label" | "image")) {
+        return None;
+    }
+    measure::natural(control, width, || natural_uncached(control, env, width))
+}
+
+/// Read a label or opted-in texture size on this layout's first request at `width`.
+fn natural_uncached(
+    control: &ResolvedControl,
+    env: &LayoutEnv,
+    width: Option<f64>,
+) -> Option<[f64; 2]> {
     match control.control_type.as_deref() {
         // An image sizes to its texture only when it opts in; otherwise a
         // default axis fills the parent like any control.
