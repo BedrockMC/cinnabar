@@ -93,9 +93,9 @@ impl UiPresentationRuntime {
             ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
-        // Launcher screens sit on the vanilla panorama; in-game ones over the world.
+        // Launcher screens sit on the panorama pass; in-game ones over the world.
         if !matches!(view.screen, MenuScreen::Pause | MenuScreen::Death)
-            && !panorama::append_panorama(renderer, nodes, next, [width, height])?
+            && !panorama::carried(renderer.assets())
         {
             nodes.push(
                 UiNode::new(UiNodeId::new(*next), None, rect(0.0, 0.0, width, height)?)

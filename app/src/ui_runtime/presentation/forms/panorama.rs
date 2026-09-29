@@ -1,104 +1,116 @@
-//! The launcher's panorama backdrop: the carrier's six cube faces seen from the
-//! cube's centre, turning slowly. Side faces are drawn as texel-column strips
-//! whose height follows their perspective depth, so the view is rectilinear
-//! without a 3D pass; the top and bottom faces fill behind them.
+//! Feeds the launcher's panorama pass: decodes the carrier's six faces once and
+//! turns the camera each frame while a launcher screen is up.
 
 use std::{
-    f32::consts::{FRAC_PI_2, PI},
-    sync::OnceLock,
+    f32::consts::{PI, TAU},
+    io::Cursor,
+    sync::Arc,
     time::Instant,
 };
 
-use ui::{UiNode, UiNodeId, UiVisual};
+use assets::RuntimeUiAssets;
+use bevy::{
+    prelude::{Local, Query, Res, ResMut, With},
+    window::{PrimaryWindow, Window},
+};
+use image::{ImageFormat, ImageReader, Limits};
+use render::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaScene, PanoramaView};
 
-use super::super::{IconRef, UiPresentationError, rect};
-use super::engine::FormEngine;
+use super::super::UiPresentationRuntime;
+use crate::menu::{MenuRuntime, MenuScreen};
 
-/// Vertical field of view; needs native measurement.
+/// Vertical field of view of the panorama camera.
 const VERTICAL_FOV: f32 = 85.0 * PI / 180.0;
-/// Seconds per full turn; needs native measurement.
-const TURN_SECONDS: f32 = 240.0;
-/// Face texels per strip.
-const STRIP_TEXELS: u16 = 4;
+/// Seconds per full turn.
+const TURN_SECONDS: f32 = 360.0;
+/// Constant downward tilt of the camera.
+const PITCH: f32 = 0.0;
 
-/// Draws the panorama over the whole content area; `Ok(false)` when the
-/// carrier lacks the faces.
-pub(super) fn append_panorama(
-    engine: &FormEngine,
-    nodes: &mut Vec<UiNode>,
-    next: &mut u32,
-    size: [f32; 2],
-) -> Result<bool, UiPresentationError> {
-    let faces: Option<Vec<IconRef>> = (0..6)
-        .map(|face| engine.atlas_sprite(&format!("textures/ui/panorama_{face}")))
-        .collect();
-    let Some(faces) = faces else {
-        return Ok(false);
-    };
-    let [width, height] = size;
-    if width <= 0.0 || height <= 0.0 {
-        return Ok(true);
-    }
-    let mut push = |bounds: [f32; 4], icon: IconRef, uv: [u16; 4]| {
-        let node = UiNode::new(
-            UiNodeId::new(*next),
-            None,
-            rect(bounds[0], bounds[1], bounds[2], bounds[3])?,
-        )
-        .with_visual(UiVisual::Sprite {
-            texture_page: icon.page,
-            uv,
-            color: [255; 4],
-        });
-        nodes.push(node);
-        *next = next.saturating_add(1);
-        Ok::<(), UiPresentationError>(())
-    };
-    // Top and bottom only show past the side faces' edges.
-    push([0.0, 0.0, width, height * 0.5], faces[4], faces[4].uv)?;
-    push([0.0, height * 0.5, width, height], faces[5], faces[5].uv)?;
-    let half = height * 0.5;
-    let focal = 1.0 / (VERTICAL_FOV * 0.5).tan();
-    static EPOCH: OnceLock<Instant> = OnceLock::new();
-    let seconds = EPOCH.get_or_init(Instant::now).elapsed().as_secs_f32();
-    let yaw = (seconds / TURN_SECONDS).fract() * 2.0 * PI;
-    for (index, face) in faces.iter().take(4).enumerate() {
-        let side = face.uv[2].saturating_sub(face.uv[0]);
-        let centre = index as f32 * FRAC_PI_2;
-        let local = |t: u16| (2.0 * f32::from(t) / f32::from(side.max(1)) - 1.0).atan();
-        let mut start = 0;
-        while start < side {
-            let end = start.saturating_add(STRIP_TEXELS).min(side);
-            let (from, to) = (local(start), local(end));
-            let uv = [face.uv[0] + start, face.uv[1], face.uv[0] + end, face.uv[3]];
-            start = end;
-            let relative = |angle: f32| wrap(centre + angle - yaw);
-            let (left, right) = (relative(from), relative(to));
-            // Behind the camera, or wrapping across it.
-            if left.abs() >= 1.5 || right.abs() >= 1.5 || right <= left {
-                continue;
-            }
-            let x = |angle: f32| width * 0.5 + focal * angle.tan() * half;
-            let (x0, x1) = (x(left), x(right));
-            if x1 <= 0.0 || x0 >= width {
-                continue;
-            }
-            let depth = relative((from + to) * 0.5).cos() / ((from + to) * 0.5).cos();
-            let extent = focal / depth * half;
-            push([x0, half - extent, x1, half + extent], *face, uv)?;
-        }
-    }
-    Ok(true)
+/// Whether the carrier holds the panorama, so the launcher leaves its backdrop clear.
+pub(super) fn carried(assets: &RuntimeUiAssets) -> bool {
+    assets.ui_file("textures/ui/panorama_0.png").is_some()
 }
 
-/// An angle wrapped into `(-π, π]`.
-fn wrap(angle: f32) -> f32 {
-    let wrapped = (angle + PI).rem_euclid(2.0 * PI) - PI;
-    if wrapped <= -PI {
-        wrapped + 2.0 * PI
-    } else {
-        wrapped
+/// Uploads the faces on first sight of the carrier and shows the panorama
+/// behind launcher screens (never behind the in-game pause or death screens).
+pub(crate) fn drive_menu_panorama(
+    presentation: Res<UiPresentationRuntime>,
+    menu: Option<Res<MenuRuntime>>,
+    scene: Option<ResMut<PanoramaScene>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut state: Local<Option<(Instant, [f32; 4])>>,
+) {
+    let Some(mut scene) = scene else {
+        return;
+    };
+    let Some(engine) = presentation.form_presentation.engine.as_deref() else {
+        scene.show(None);
+        return;
+    };
+    if state.is_none() {
+        let assets = engine.assets();
+        *state = Some((Instant::now(), overlay_tint(assets)));
+        scene.set_faces(decode_faces(assets).map(Arc::new));
     }
+    let shown = menu.as_ref().is_some_and(|menu| {
+        menu.is_visible() && !matches!(menu.screen(), MenuScreen::Pause | MenuScreen::Death)
+    });
+    let aspect = windows
+        .iter()
+        .next()
+        .map(|window| window.width() / window.height().max(1.0))
+        .unwrap_or(16.0 / 9.0);
+    let Some((epoch, tint)) = *state else {
+        return;
+    };
+    let turned = (epoch.elapsed().as_secs_f32() / TURN_SECONDS).fract() * TAU;
+    scene.show((shown && scene.has_faces()).then_some(PanoramaView {
+        yaw_radians: turned,
+        pitch_radians: PITCH,
+        vertical_fov_radians: VERTICAL_FOV,
+        aspect,
+        tint,
+    }));
+}
+
+/// The six faces at their native, equal size; any missing or odd face drops them all.
+fn decode_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
+    let mut side = None;
+    let mut faces = Vec::with_capacity(6);
+    for face in 0..6 {
+        let bytes = assets.ui_file(&format!("textures/ui/panorama_{face}.png"))?;
+        let (width, height, pixels) = decode_png(bytes)?;
+        if width != height || side.is_some_and(|side| side != width) {
+            return None;
+        }
+        side = Some(width);
+        faces.push(pixels);
+    }
+    let faces: [Vec<u8>; 6] = faces.try_into().ok()?;
+    PanoramaFaces::new(side?, faces)
+}
+
+/// The 1x1 overlay's colour as straight-alpha floats; clear when absent.
+fn overlay_tint(assets: &RuntimeUiAssets) -> [f32; 4] {
+    assets
+        .ui_file("textures/ui/panorama_overlay.png")
+        .and_then(decode_png)
+        .and_then(|(_, _, pixels)| pixels.get(..4).map(|p| p.to_vec()))
+        .map_or([0.0; 4], |p| {
+            [p[0], p[1], p[2], p[3]].map(|channel| f32::from(channel) / 255.0)
+        })
+}
+
+fn decode_png(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_PANORAMA_FACE_SIDE);
+    limits.max_image_height = Some(MAX_PANORAMA_FACE_SIDE);
+    limits.max_alloc = Some(u64::from(MAX_PANORAMA_FACE_SIDE).pow(2) * 4);
+    reader.limits(limits);
+    let image = reader.decode().ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    Some((width, height, image.into_raw()))
 }
 
 #[cfg(test)]
@@ -106,9 +118,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn angles_wrap_into_one_turn_around_zero() {
-        assert!((wrap(3.0 * PI / 2.0) + FRAC_PI_2).abs() < 1e-5);
-        assert!((wrap(-3.0 * PI / 2.0) - FRAC_PI_2).abs() < 1e-5);
-        assert!((wrap(0.25) - 0.25).abs() < 1e-6);
+    fn pngs_decode_to_rgba_with_their_size() {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 40]))
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .unwrap();
+        let (width, height, pixels) = decode_png(&bytes).unwrap();
+        assert_eq!((width, height), (2, 2));
+        assert_eq!(&pixels[..4], &[10, 20, 30, 40]);
+        assert!(decode_png(b"not a png").is_none());
     }
 }
