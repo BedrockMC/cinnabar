@@ -4,7 +4,12 @@
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
 //! (needs native measurement against Bedrock's own scale-index rule).
 
-use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, sync::Arc};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
@@ -185,6 +190,7 @@ impl FormEngine {
             let textures = Sidecars {
                 assets: &self.assets,
                 server: &self.server,
+                images: art.images,
             };
             let env = LayoutEnv {
                 text: &measure,
@@ -232,11 +238,13 @@ impl FormEngine {
 
 /// Caller art the custom renderers draw: the icon table `#item_renderer_data`
 /// indexes, the player preview, and the pointer (virtual px) tooltips follow.
+/// `images` backs image controls bound to a downloaded artwork's local path.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
+    pub(super) images: Option<&'a HashMap<String, IconRef>>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -316,10 +324,18 @@ impl TextMeasure for Measure<'_, '_> {
 struct Sidecars<'a> {
     assets: &'a RuntimeUiAssets,
     server: &'a BTreeMap<String, ServerTexture>,
+    images: Option<&'a HashMap<String, IconRef>>,
 }
 
 impl TextureSource for Sidecars<'_> {
     fn texture(&self, path: &str) -> Option<TextureMeta> {
+        if let Some(image) = self.images.and_then(|images| images.get(path)) {
+            let [u0, v0, u1, v1] = image.uv.map(f64::from);
+            return Some(TextureMeta {
+                base_size: [u1 - u0, v1 - v0],
+                nineslice: None,
+            });
+        }
         let key = texture_key(path);
         if let Some(texture) = self.server.get(key) {
             return Some(texture.meta.unwrap_or(TextureMeta {
@@ -583,12 +599,20 @@ impl Painter<'_> {
             ),
             Draw::Sprite { texture, uv, color } => {
                 let key = texture_key(texture);
-                let (page, [x, y, w, h]) = match self.server.get(key) {
-                    Some(server) => (
+                let image = self
+                    .art
+                    .images
+                    .and_then(|images| images.get(texture.as_str()));
+                let (page, [x, y, w, h]) = match (image, self.server.get(key)) {
+                    (Some(image), _) => {
+                        let [u0, v0, u1, v1] = image.uv.map(f32::from);
+                        (image.page, [u0, v0, u1 - u0, v1 - v0])
+                    }
+                    (None, Some(server)) => (
                         self.server_page.saturating_add(server.page),
                         server.rect.map(f32::from),
                     ),
-                    None => {
+                    (None, None) => {
                         let Some(placement) = self.assets.texture(key) else {
                             return Ok(());
                         };
