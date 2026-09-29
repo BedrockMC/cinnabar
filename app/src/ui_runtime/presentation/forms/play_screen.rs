@@ -5,11 +5,31 @@
 
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
-use crate::menu::{MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView};
+use crate::menu::{MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo};
 
 const FEATURED: &str = "third_party_server_network_worlds";
 const PERSONAL_REALMS: &str = "personal_realms";
 const FRIEND_REALMS: &str = "friends_realms";
+/// Round trips (ms) below which the ping icon is green, then yellow; needs native measurement.
+const PING_GREEN_BELOW: u32 = 150;
+const PING_YELLOW_BELOW: u32 = 300;
+
+/// The ping icon for a pong: offline red until answered, then by round trip.
+fn ping_texture(ping: Option<&PingInfo>) -> &'static str {
+    match ping {
+        Some(ping) if ping.online && ping.ping_ms < PING_GREEN_BELOW => "textures/ui/Ping_Green",
+        Some(ping) if ping.online && ping.ping_ms < PING_YELLOW_BELOW => "textures/ui/Ping_Yellow",
+        Some(ping) if ping.online => "textures/ui/Ping_Red",
+        _ => "textures/ui/Ping_Offline_Red",
+    }
+}
+
+fn player_count(ping: Option<&PingInfo>) -> String {
+    match ping {
+        Some(ping) if ping.online => format!("{}/{}", ping.players, ping.max_players),
+        _ => String::new(),
+    }
+}
 
 fn text(value: impl Into<String>) -> Scalar {
     Scalar::Text(value.into())
@@ -82,10 +102,20 @@ fn network_worlds(view: &MenuView, data: &mut DataSource) {
     flag(data, "#no_friends_grid_message_visible", friends.is_empty());
     data.set_global("#friend_world_item_count", text(friends.len().to_string()));
     data.set_collection("friends_network_worlds", friends);
+    let offset = featured(view).count();
     let saved = view
         .servers
         .iter()
-        .map(|server| network(&server.name, &server.address, ""))
+        .enumerate()
+        .map(|(index, server)| {
+            let ping = view.feeds.pings.get(&server.address);
+            network(&server.name, &server.address, &player_count(ping))
+                .with("#texture_name", text(ping_texture(ping)))
+                .with(
+                    "#additional_server_toggle_index",
+                    Scalar::Num((offset + index) as f64),
+                )
+        })
         .collect::<Vec<_>>();
     data.set_global("#server_world_item_count", text(saved.len().to_string()));
     data.set_collection("servers_network_worlds", saved);
@@ -93,8 +123,17 @@ fn network_worlds(view: &MenuView, data: &mut DataSource) {
 
 fn featured_servers(view: &MenuView, data: &mut DataSource) {
     let items = featured(view)
-        .map(|server| {
+        .enumerate()
+        .map(|(index, server)| {
+            let ping = view.feeds.pings.get(&server.address);
             CollectionItem::default()
+                .with("#third_party_toggle_index", Scalar::Num(index as f64))
+                .with("#server_player_count", text(player_count(ping)))
+                .with("#texture_name", text(ping_texture(ping)))
+                .with(
+                    "#is_network_available_and_ping_not_loading",
+                    Scalar::Bool(ping.is_some()),
+                )
                 .with("#third_party_server_name", text(server.name.clone()))
                 .with("#third_party_server_message", text(server.caption.clone()))
                 .with(
@@ -113,6 +152,23 @@ fn featured_servers(view: &MenuView, data: &mut DataSource) {
     let Some(server) = selected else {
         return;
     };
+    if let Some(index) = view.feeds.selected_featured {
+        data.select_radio("server_navigation_toggle", index);
+    }
+    let ping = view.feeds.pings.get(&server.address);
+    flag(data, "#ping_ready_thirdparty", ping.is_some());
+    data.set_global(
+        "#info_third_party_server_player_count",
+        text(player_count(ping)),
+    );
+    data.set_global("#info_ping_texture_name", text(ping_texture(ping)));
+    data.set_global(
+        "#info_server_ping",
+        text(
+            ping.filter(|ping| ping.online)
+                .map_or_else(String::new, |ping| format!("{} ms", ping.ping_ms)),
+        ),
+    );
     data.set_global("#info_third_party_server_name", text(server.name.clone()));
     data.set_global(
         "#info_third_party_server_logo_texture_path",
@@ -133,11 +189,15 @@ fn featured_servers(view: &MenuView, data: &mut DataSource) {
     );
     data.set_global("#description_label", text(details.description.clone()));
     // Long text opens collapsed behind its "read more" toggle.
-    flag(data, "#description_is_read_more", true);
+    let expanded = view.feeds.description_expanded;
+    flag(data, "#description_is_read_more", !expanded);
+    flag(data, "#description_is_read_less", expanded);
     flag(data, "#server_has_news", !details.news.is_empty());
     data.set_global("#news_text", text(details.news.clone()));
     data.set_global("#news_label", text(details.news_title.clone()));
-    flag(data, "#news_is_read_more", true);
+    let expanded = view.feeds.news_expanded;
+    flag(data, "#news_is_read_more", !expanded);
+    flag(data, "#news_is_read_less", expanded);
     let screenshots = details
         .screenshots
         .iter()
@@ -332,6 +392,22 @@ mod tests {
             featured_action(&view, &press(None, None)),
             Some(MenuAction::PlayGathering(0))
         );
+    }
+
+    #[test]
+    fn pongs_pick_the_ping_icon_and_player_count() {
+        let pong = |ping_ms| PingInfo {
+            online: true,
+            players: 3,
+            max_players: 20,
+            ping_ms,
+        };
+        assert_eq!(ping_texture(None), "textures/ui/Ping_Offline_Red");
+        assert_eq!(ping_texture(Some(&pong(40))), "textures/ui/Ping_Green");
+        assert_eq!(ping_texture(Some(&pong(200))), "textures/ui/Ping_Yellow");
+        assert_eq!(ping_texture(Some(&pong(900))), "textures/ui/Ping_Red");
+        assert_eq!(player_count(Some(&pong(40))), "3/20");
+        assert_eq!(player_count(Some(&PingInfo::default())), "");
     }
 
     #[test]
