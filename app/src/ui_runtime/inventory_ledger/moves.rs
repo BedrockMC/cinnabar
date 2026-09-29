@@ -21,6 +21,34 @@ pub enum DropSource {
 }
 
 impl PlayerInventoryLedger {
+    /// Deletes the held stack, as clicking the creative catalog does.
+    pub fn begin_destroy_cursor(&mut self) -> Result<i32, InventoryGestureError> {
+        let personal_generation = self.gesture_preflight(true)?;
+        self.check_surfaces([Cell::Cursor])?;
+        let held = self
+            .named(self.view().get(Cell::Cursor).cloned())?
+            .ok_or(InventoryGestureError::EmptyGesture)?;
+        let amount = u8::try_from(held.stack.count)
+            .ok()
+            .filter(|amount| *amount != 0)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let id = held.stack.stack_network_id;
+        let built = Built {
+            action: StackRequestAction::Destroy {
+                amount,
+                source: request_slot(Cell::Cursor, id, None)?,
+            },
+            group: DeltaGroup::Shrink {
+                source: Cell::Cursor,
+                amount: held.stack.count,
+                source_id: id,
+            },
+            requires_distinct_stack_ids: false,
+            registry_bound_merge: false,
+        };
+        self.submit_built(built, personal_generation)
+    }
+
     /// Swaps a hovered cell with hotbar cell `hotbar`, or places into
     /// whichever of the two is empty.
     pub fn begin_hotbar_swap(
