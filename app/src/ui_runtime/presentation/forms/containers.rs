@@ -121,6 +121,7 @@ impl UiPresentationRuntime {
             icons: &icons,
             preview: self.hud_frame.player_preview,
             pointer,
+            raw: None,
         };
         let translate = |key: &str| runtime.translation(key);
         let rollback = (nodes.len(), *next);

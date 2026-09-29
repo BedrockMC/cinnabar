@@ -23,8 +23,9 @@ pub use status::{
 pub use store::{
     ConfirmedPurchase, PendingPurchase, PurchaseOutcome, PurchaseStatus, StoreBalance,
     StoreEntitlements, StoreImage, StoreOffer, StoreOfferDetail, StorePage, StorePrice,
-    StoreRating, StoreRow, StoreSearch, StoreSearchResults, store_balance, store_entitlements,
-    store_home, store_image, store_offer, store_purchase, store_search,
+    StoreRating, StoreRow, StoreRowMore, StoreSearch, StoreSearchResults, store_balance,
+    store_entitlements, store_home, store_image, store_offer, store_purchase, store_row_more,
+    store_search,
 };
 pub use worlds::{
     Difficulty, GameMode, Generator, NewWorld, World, WorldState, WorldStatus, close_world,

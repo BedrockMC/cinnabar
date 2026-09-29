@@ -104,41 +104,50 @@ impl UiPresentationRuntime {
             );
             *next = next.saturating_add(1);
         }
-        let inputs = engine::EngineInputs {
-            layouts: &mut self.layouts,
-            font: &self.font,
-            metrics,
-            solid_page: self.solid_texture_page,
-            safe_area: self.safe_area,
-            content: [width, height],
-            translate: &translate,
-        };
-        let out = engine::EngineOutput {
-            nodes: &mut *nodes,
-            next: &mut *next,
-            overlay: &[],
-        };
-        let art = engine::ScreenArt {
-            icons: &[],
-            preview: self.hud_frame.player_preview,
-            pointer: None,
-        };
-        let rendered = renderer.render_screen(
-            screen.reference,
-            &screen.data,
-            &screen.context,
-            &state,
-            art,
-            inputs,
-            out,
-        );
-        let frame = match rendered {
-            Ok(Some(frame)) => frame,
-            Ok(None) | Err(_) => {
-                nodes.truncate(rollback.0);
-                *next = rollback.1;
-                return Ok(None);
+        // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
+        let mut layers = vec![&screen];
+        layers.extend(screen.overlay.as_deref());
+        let mut drawn = None;
+        for layer in layers {
+            let inputs = engine::EngineInputs {
+                layouts: &mut self.layouts,
+                font: &self.font,
+                metrics,
+                solid_page: self.solid_texture_page,
+                safe_area: self.safe_area,
+                content: [width, height],
+                translate: &translate,
+            };
+            let out = engine::EngineOutput {
+                nodes: &mut *nodes,
+                next: &mut *next,
+                overlay: &[],
+            };
+            let art = engine::ScreenArt {
+                icons: &[],
+                preview: self.hud_frame.player_preview,
+                pointer: None,
+                raw: Some(&view.store_art),
+            };
+            match renderer.render_screen(
+                layer.reference,
+                &layer.data,
+                &layer.context,
+                &state,
+                art,
+                inputs,
+                out,
+            ) {
+                Ok(Some(frame)) => drawn = Some(frame),
+                Ok(None) | Err(_) => {
+                    nodes.truncate(rollback.0);
+                    *next = rollback.1;
+                    return Ok(None);
+                }
             }
+        }
+        let Some(frame) = drawn else {
+            return Ok(None);
         };
         let mut hits = Vec::new();
         let mut keys = Vec::new();

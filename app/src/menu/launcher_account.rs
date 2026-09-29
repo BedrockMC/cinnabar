@@ -36,6 +36,7 @@ struct Snapshot {
 pub(crate) struct LauncherAccount {
     snapshot: Arc<Mutex<Snapshot>>,
     sign_out: Sender<()>,
+    socket_dir: PathBuf,
 }
 
 impl LauncherAccount {
@@ -45,8 +46,18 @@ impl LauncherAccount {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let (sign_out, requests) = bounded(1);
         let shared = Arc::clone(&snapshot);
-        thread::spawn(move || poll(&socket_dir, &shared, &requests));
-        Self { snapshot, sign_out }
+        let worker_dir = socket_dir.clone();
+        thread::spawn(move || poll(&worker_dir, &shared, &requests));
+        Self {
+            snapshot,
+            sign_out,
+            socket_dir,
+        }
+    }
+
+    /// The control endpoint directory this link polls.
+    pub(crate) fn socket_dir(&self) -> &std::path::Path {
+        &self.socket_dir
     }
 
     fn with<T>(&self, read: impl FnOnce(&mut Snapshot) -> T) -> T {

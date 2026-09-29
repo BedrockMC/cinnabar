@@ -7,7 +7,7 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, unbounded};
 use protocol::store_control::{
     self, BridgeError, ConfirmedPurchase, PurchaseOutcome, StoreBalance, StoreEntitlements,
-    StoreOfferDetail, StorePage, StoreSearch, StoreSearchResults,
+    StoreOfferDetail, StorePage, StoreRowMore, StoreSearch, StoreSearchResults,
 };
 
 const API_QUEUE: usize = 32;
@@ -67,6 +67,10 @@ pub(crate) enum StoreEvent {
     Entitlements {
         offset: u32,
         result: Result<StoreEntitlements, StoreError>,
+    },
+    RowMore {
+        row: usize,
+        result: Result<StoreRowMore, StoreError>,
     },
     Purchase {
         purchase_id: String,
@@ -156,9 +160,13 @@ async fn handle(socket_dir: &std::path::Path, request: StoreRequest) -> StoreEve
         StoreRequest::Balance => {
             StoreEvent::Balance(reduce(store_control::store_balance(socket_dir).await))
         }
-        StoreRequest::Entitlements { offset } => StoreEvent::Entitlements {
+        StoreRequest::Entitlements { offset, refresh } => StoreEvent::Entitlements {
             offset,
-            result: reduce(store_control::store_entitlements(socket_dir, offset, 0).await),
+            result: reduce(store_control::store_entitlements(socket_dir, offset, 0, refresh).await),
+        },
+        StoreRequest::RowMore { row, continuation } => StoreEvent::RowMore {
+            row,
+            result: reduce(store_control::store_row_more(socket_dir, &continuation).await),
         },
         StoreRequest::Purchase(purchase) => StoreEvent::Purchase {
             purchase_id: purchase.purchase_id().to_owned(),

@@ -82,6 +82,8 @@ pub(crate) enum MenuScreen {
     AddServer,
     Pause,
     Death,
+    /// The Marketplace; its content is owned by [`crate::store`].
+    Store,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,6 +143,8 @@ pub(crate) enum MenuAction {
     SignOut,
     /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
     SettingsVolume(u8, u8),
+    /// A press on a Marketplace screen.
+    Store(crate::store::StoreAction),
 }
 
 #[derive(Debug, Resource)]
@@ -196,6 +200,10 @@ pub(crate) struct MenuRuntime {
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
     sign_out_requested: bool,
+    /// Marketplace actions waiting for the store driver.
+    store_actions: Vec<crate::store::StoreAction>,
+    /// The Marketplace's presented state while its screen is up.
+    store_snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
     volumes: settings_values::Volumes,
     volume_change: Option<(u8, u8)>,
     /// The current or pending session is a local world, and whether it was live last frame.
@@ -289,6 +297,8 @@ impl MenuRuntime {
             local_world_requested: None,
             control_auth: None,
             sign_out_requested: false,
+            store_actions: Vec::new(),
+            store_snapshot: None,
             volumes: Default::default(),
             volume_change: None,
             local_world_joined: false,
@@ -371,7 +381,38 @@ impl MenuRuntime {
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
             volumes: self.volumes,
+            store: self.store_snapshot.clone(),
+            store_art: Default::default(),
         }
+    }
+
+    /// Marketplace actions queued since the last call, for the store driver.
+    pub(crate) fn take_store_actions(&mut self) -> Vec<crate::store::StoreAction> {
+        std::mem::take(&mut self.store_actions)
+    }
+
+    /// Publish (or clear) the Marketplace's presented state.
+    pub(crate) fn set_store_snapshot(
+        &mut self,
+        snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+    ) {
+        self.store_snapshot = snapshot;
+    }
+
+    pub(crate) fn in_store(&self) -> bool {
+        self.screen == MenuScreen::Store
+    }
+
+    /// Leave the Marketplace for the start screen.
+    pub(crate) fn leave_store(&mut self) {
+        if self.in_store() {
+            self.enter(MenuScreen::Home);
+        }
+    }
+
+    /// Where the Marketplace settings file lives.
+    pub(crate) fn store_settings_path(&self) -> PathBuf {
+        self.config_path.with_file_name(crate::store::SETTINGS_FILE)
     }
 
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).
@@ -664,6 +705,12 @@ impl MenuRuntime {
             }
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
+            MenuAction::Store(action) => {
+                if action == crate::store::StoreAction::Open {
+                    self.enter(MenuScreen::Store);
+                }
+                self.store_actions.push(action);
+            }
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);
@@ -816,10 +863,14 @@ impl MenuRuntime {
                 MenuAction::PauseDisconnect,
             ],
             MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::PauseDisconnect],
+            MenuScreen::Store => vec![MenuAction::Store(crate::store::StoreAction::Back)],
         }
     }
 
     fn enter(&mut self, screen: MenuScreen) {
+        if screen != MenuScreen::Store {
+            self.store_snapshot = None;
+        }
         self.screen = screen;
         self.focused = 0;
         self.hovered = None;
@@ -838,6 +889,7 @@ impl MenuRuntime {
             // Death has no way back; only respawn or leaving ends it.
             MenuScreen::Home | MenuScreen::Death => {}
             MenuScreen::Pause => self.set_visible(false),
+            MenuScreen::Store => self.store_actions.push(crate::store::StoreAction::Back),
             MenuScreen::Settings if self.settings_return_to_pause => {
                 self.settings_return_to_pause = false;
                 self.enter(MenuScreen::Pause);

@@ -68,6 +68,18 @@ pub struct StoreRow {
     pub kind: Option<String>,
     #[serde(default)]
     pub offers: Vec<StoreOffer>,
+    /// Pass to [`store_row_more`] for the row's next offers.
+    #[serde(default)]
+    pub continuation: Option<String>,
+}
+
+/// The next slice of a row's offers.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct StoreRowMore {
+    #[serde(default)]
+    pub offers: Vec<StoreOffer>,
+    #[serde(default)]
+    pub continuation: Option<String>,
 }
 
 /// A store page reduced to rows of offers.
@@ -267,6 +279,12 @@ struct OfferParams<'a> {
 struct EntitlementParams {
     offset: u32,
     limit: u32,
+    refresh: bool,
+}
+
+#[derive(Serialize)]
+struct RowMoreParams<'a> {
+    continuation: &'a str,
 }
 
 /// Loads a known store page (`None` is the store home) as rows of offers.
@@ -302,16 +320,35 @@ pub async fn store_balance(socket_dir: &Path) -> Result<Vec<StoreBalance>, Bridg
     Ok(body.balances)
 }
 
-/// Reads a window of owned content ids; `limit` 0 takes the core's maximum.
+/// Reads a window of owned content ids; `limit` 0 takes the core's maximum and `refresh` re-reads the
+/// inventory from the service (only honored for the first window).
 pub async fn store_entitlements(
     socket_dir: &Path,
     offset: u32,
     limit: u32,
+    refresh: bool,
 ) -> Result<StoreEntitlements, BridgeError> {
     call(
         socket_dir,
         "store_entitlements.v1",
-        Some(EntitlementParams { offset, limit }),
+        Some(EntitlementParams {
+            offset,
+            limit,
+            refresh,
+        }),
+    )
+    .await
+}
+
+/// Loads the next offers of a row from its continuation token.
+pub async fn store_row_more(
+    socket_dir: &Path,
+    continuation: &str,
+) -> Result<StoreRowMore, BridgeError> {
+    call(
+        socket_dir,
+        "store_row_more.v1",
+        Some(RowMoreParams { continuation }),
     )
     .await
 }
@@ -401,6 +438,21 @@ mod tests {
         assert_eq!(outcome.status, PurchaseStatus::PriceMismatch);
         assert_eq!(outcome.marketplace_error_code, 1234);
         assert!(!outcome.replayed);
+    }
+
+    #[test]
+    fn parses_a_row_continuation_and_its_next_slice() {
+        let page = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"page":{"id":"store",
+            "rows":[{"offers":[],"continuation":"t1"}]}}}"#;
+        let body: PageBody = parse_response(page).expect("page");
+        assert_eq!(body.page.rows[0].continuation.as_deref(), Some("t1"));
+        let more = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "offers":[{"id":"o","title":"T"}],"continuation":"t2"}}"#;
+        let more: StoreRowMore = parse_response(more).expect("more");
+        assert_eq!(
+            (more.offers.len(), more.continuation.as_deref()),
+            (1, Some("t2"))
+        );
     }
 
     #[test]
