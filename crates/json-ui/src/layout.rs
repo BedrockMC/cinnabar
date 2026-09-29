@@ -15,7 +15,7 @@
 
 use serde_json::Value;
 
-use crate::anim::{self, Chain, Fade};
+use crate::anim::{Fade, Inherited};
 use crate::expr::{self, AxisContext, Length, Resolved};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
@@ -165,59 +165,6 @@ fn child_key(parent: &str, control: &ResolvedControl) -> String {
     key
 }
 
-/// What a control takes from its ancestors: the creation time of the nearest
-/// factory instance, and a `propagate_alpha` parent's alpha and fades.
-#[derive(Clone, Default)]
-struct Inherited {
-    alpha: Option<f32>,
-    fades: Vec<Fade>,
-    born: f64,
-    clock: Option<String>,
-}
-
-impl Inherited {
-    /// This control's alpha and fades, and what its children inherit.
-    fn apply(&self, control: &ResolvedControl) -> (f32, Vec<Fade>, Inherited) {
-        let born = widgets::bound_number(control, anim::BORN_KEY).unwrap_or(self.born);
-        let clock = control
-            .properties
-            .get(anim::CLOCK_KEY)
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| self.clock.clone());
-        let rest = alpha(control);
-        let mut fades = self.fades.clone();
-        if let Some(Value::Array(chains)) = control.properties.get(anim::CHAINS_KEY) {
-            fades.extend(chains.iter().filter_map(|chain| {
-                serde_json::from_value::<Chain>(chain.clone())
-                    .ok()
-                    .map(|chain| Fade {
-                        chain,
-                        rest,
-                        born,
-                        clock: clock.clone(),
-                    })
-            }));
-        }
-        let own = rest * self.alpha.unwrap_or(1.0);
-        let propagate = matches!(
-            control.properties.get("propagate_alpha"),
-            Some(Value::Bool(true))
-        );
-        let children = Inherited {
-            alpha: if propagate { Some(own) } else { self.alpha },
-            fades: if propagate {
-                fades.clone()
-            } else {
-                self.fades.clone()
-            },
-            born,
-            clock,
-        };
-        (own, fades, children)
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn place_subtree<'a>(
     control: &'a ResolvedControl,
@@ -228,7 +175,7 @@ fn place_subtree<'a>(
     inherited: &Inherited,
     ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
-    let (own_alpha, fades, inherit) = inherited.apply(control);
+    let (own_alpha, fades, inherit) = inherited.apply(control, alpha(control));
     let child_clip = if clip_children(control) {
         parent_clip.intersect(rect)
     } else {
