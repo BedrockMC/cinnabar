@@ -10,10 +10,13 @@ use meshing::CameraMedium;
 use crate::celestial;
 
 pub const BEDROCK_DAY_TICKS: f64 = celestial::DAY_TICKS;
-pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = 256.0;
-pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03;
-const CLOUD_DIRECTIONAL_AMBIENT: f32 = 0.55;
-const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.083_333_336;
+pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = meshing::CLOUD_WORLD_PERIOD as f64;
+/// Vanilla samples the cloud texture 0.03 blocks ahead per 1.5 ticks.
+pub const CLOUD_SCROLL_BLOCKS_PER_TICK: f64 = 0.03 / 1.5;
+pub const CLOUD_ALPHA: f32 = 0.7;
+/// Fraction of the fade distance clouds stay opaque to; clear one fade distance later.
+const CLOUD_FADE_START: f32 = 0.9;
+const CLOUD_SUNRISE_WEIGHT: f32 = 0.35;
 const RAIN_CLOUD_CHANNEL: f32 = 191.0 / 255.0;
 const THUNDER_CLOUD_CHANNEL: f32 = 30.0 / 255.0;
 const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;
@@ -115,8 +118,7 @@ pub fn moon_phase_tile(phase: u8) -> MoonPhaseTile {
     }
 }
 
-/// Vanilla-style cloud motion in normalized texture space. The texture repeats
-/// every 256 world blocks and moves east at 0.03 blocks per Bedrock tick.
+/// Cloud texture offset as a fraction of the period; clouds drift toward -X.
 #[must_use]
 pub fn cloud_texture_offset(absolute_ticks: f64) -> [f32; 2] {
     let ticks = if absolute_ticks.is_finite() {
@@ -125,7 +127,7 @@ pub fn cloud_texture_offset(absolute_ticks: f64) -> [f32; 2] {
         0.0
     };
     [
-        ((ticks * CLOUD_SCROLL_BLOCKS_PER_TICK) / CLOUD_TEXTURE_WORLD_PERIOD).rem_euclid(1.0)
+        (-(ticks * CLOUD_SCROLL_BLOCKS_PER_TICK) / CLOUD_TEXTURE_WORLD_PERIOD).rem_euclid(1.0)
             as f32,
         0.0,
     ]
@@ -144,66 +146,51 @@ pub fn cloud_weather_colour(rain_level: f32, thunder_level: f32) -> [f32; 3] {
     [weather_colour; 3]
 }
 
-/// Directional diffuse cloud illuminance shared with the legacy cloud shader.
-///
-/// Cloud faces retain a bounded ambient fill while the real sun direction
-/// controls the remaining diffuse response. Invalid vectors or daylight are
-/// rejected to darkness rather than producing non-finite GPU reference data.
+/// Shade the vanilla cloud tessellator bakes per face: top 1, bottom 0.75, x sides 0.925.
 #[must_use]
-pub fn cloud_directional_illuminance(
-    normal: [f32; 3],
-    sun_direction: [f32; 3],
-    daylight: f32,
-) -> f32 {
-    if normal.into_iter().any(|value| !value.is_finite())
-        || sun_direction.into_iter().any(|value| !value.is_finite())
-        || !daylight.is_finite()
-    {
-        return 0.0;
-    }
-    let normal_length = normal.iter().map(|value| value * value).sum::<f32>().sqrt();
-    let sun_length = sun_direction
-        .iter()
-        .map(|value| value * value)
-        .sum::<f32>()
-        .sqrt();
-    if normal_length <= f32::EPSILON || sun_length <= f32::EPSILON {
-        return 0.0;
-    }
-    let directional = normal
-        .into_iter()
-        .zip(sun_direction)
-        .map(|(normal, sun)| normal / normal_length * (sun / sun_length))
-        .sum::<f32>()
-        .max(0.0);
-    bounded_level(daylight).max(PROVISIONAL_CLOUD_NIGHT_FLOOR)
-        * lerp(CLOUD_DIRECTIONAL_AMBIENT, 1.0, directional)
+pub fn cloud_face_shade(normal: [f32; 3]) -> f32 {
+    let [x, y, z] = normal.map(|axis| if axis.is_finite() { axis } else { 0.0 });
+    (0.55 * 0.5 * (y + 1.0) - 0.1 * x * x + 0.1 * z * z + 0.75).clamp(0.0, 1.0)
 }
 
-/// Finite linear cloud distance fog with explicit collapsed-range semantics.
-///
-/// Cloud coverage ends one block before the 256-block texture period. Valid
-/// render-relative fog can therefore collapse at, or extend beyond, that cap.
-/// A collapsed or reversed range becomes a deterministic step at the bounded
-/// end instead of dividing by zero. Non-finite input
-/// fails closed to full fog so the derived transparent alpha remains finite.
+/// Cloud RGBA from `DimensionClientUtils::getCloudColor`: weather tint, day brightness,
+/// the sunrise blend and the fixed alpha.
 #[must_use]
-pub fn cloud_fog_factor(world_distance: f32, fog_start: f32, fog_end: f32) -> f32 {
-    if !world_distance.is_finite() || !fog_start.is_finite() || !fog_end.is_finite() {
-        return 1.0;
-    }
-    let bounded_distance = world_distance.max(0.0);
-    let bounded_start = fog_start.clamp(0.0, 255.0);
-    let bounded_end = fog_end.clamp(0.0, 255.0);
-    if bounded_end <= bounded_start {
-        return if bounded_distance >= bounded_end {
-            1.0
+pub fn cloud_colour(celestial_angle: f32, rain: f32, thunder: f32, sunrise: [f32; 4]) -> [f32; 4] {
+    let [weather, ..] = cloud_weather_colour(rain, thunder);
+    let angle = if celestial_angle.is_finite() {
+        celestial_angle
+    } else {
+        0.0
+    };
+    let brightness = (2.0 * (std::f32::consts::TAU * angle).cos() + 0.5).clamp(0.0, 1.0);
+    let base = [
+        weather * (0.9 * brightness + 0.1),
+        weather * (0.9 * brightness + 0.1),
+        weather * (0.85 * brightness + 0.15),
+    ];
+    let weight = bounded_level(sunrise[3]) * CLOUD_SUNRISE_WEIGHT;
+    let [r, g, b] = std::array::from_fn(|channel| {
+        let band = if sunrise[channel].is_finite() {
+            sunrise[channel]
         } else {
             0.0
         };
-    }
+        (band * weight + base[channel] * (1.0 - weight)).max(0.0)
+    });
+    [r, g, b, CLOUD_ALPHA]
+}
 
-    ((bounded_distance - bounded_start) / (bounded_end - bounded_start)).clamp(0.0, 1.0)
+/// Alpha scale at `distance`: 1 to 0.9 `fade_distance`, 0 by 1.9; a non-positive distance never fades.
+#[must_use]
+pub fn cloud_distance_fade(distance: f32, fade_distance: f32) -> f32 {
+    if !(fade_distance > 0.0 && fade_distance.is_finite()) {
+        return 1.0;
+    }
+    if !distance.is_finite() {
+        return 0.0;
+    }
+    (1.0 - (distance.max(0.0) / fade_distance - CLOUD_FADE_START).max(0.0)).clamp(0.0, 1.0)
 }
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.
@@ -298,7 +285,7 @@ impl AtmosphereFrame {
             sky_zenith_rain: Vec4::new(zenith[0], zenith[1], zenith[2], rain),
             sky_horizon_thunder: Vec4::new(fog_color[0], fog_color[1], fog_color[2], thunder),
             fog_color_start: Vec4::new(fog_color[0], fog_color[1], fog_color[2], fog_start),
-            fog_end_time: Vec4::new(fog_end, day_fraction, cloud_offset[0], cloud_offset[1]),
+            fog_end_time: Vec4::new(fog_end, day_fraction, cloud_offset[0], 0.0),
             sunrise_band: Vec4::new(band_rgb[0], band_rgb[1], band_rgb[2], band[3]),
             sky_extra: Vec4::new(celestial::star_brightness(angle, rain), angle, 0.0, 0.0),
         }
@@ -673,7 +660,24 @@ impl AtmosphereFrame {
 
     #[must_use]
     pub fn cloud_texture_offset(self) -> [f32; 2] {
-        [self.fog_end_time.z, self.fog_end_time.w]
+        [self.fog_end_time.z, 0.0]
+    }
+
+    /// Distance the cloud alpha fade scales by; zero when unset.
+    #[must_use]
+    pub fn cloud_fade_distance(self) -> f32 {
+        self.fog_end_time.w
+    }
+
+    /// Sets the cloud fade distance, render distance times the quality scale in vanilla.
+    #[must_use]
+    pub fn with_cloud_fade_distance(mut self, blocks: f32) -> Self {
+        self.fog_end_time.w = if blocks.is_finite() {
+            blocks.max(0.0)
+        } else {
+            0.0
+        };
+        self
     }
 }
 

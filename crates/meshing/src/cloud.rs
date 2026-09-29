@@ -3,14 +3,20 @@ use std::{error::Error, fmt, mem::size_of};
 use assets::{AtmosphereRole, AtmosphereTexture};
 
 pub const CLOUD_MASK_SIZE: u32 = 256;
-pub const CLOUD_UNDERSIDE_Y: f32 = 128.0;
-pub const CLOUD_TOP_Y: f32 = 132.0;
+/// Blocks per `clouds.png` texel on each horizontal axis.
+pub const CLOUD_CELL_BLOCKS: f32 = 16.0;
+pub const CLOUD_THICKNESS_BLOCKS: f32 = 4.0;
+/// World span after which the cloud texture repeats.
+pub const CLOUD_WORLD_PERIOD: f32 = CLOUD_MASK_SIZE as f32 * CLOUD_CELL_BLOCKS;
+/// Overworld cloud height 192 plus the vanilla renderer's 0.33 lift.
+pub const CLOUD_UNDERSIDE_Y: f32 = 192.33;
+pub const CLOUD_TOP_Y: f32 = CLOUD_UNDERSIDE_Y + CLOUD_THICKNESS_BLOCKS;
 pub const MAX_CLOUD_QUADS: usize = (CLOUD_MASK_SIZE as usize * CLOUD_MASK_SIZE as usize / 2) * 6;
 pub const MAX_CLOUD_BYTES: usize = MAX_CLOUD_QUADS * size_of::<PackedCloudQuad>();
 
 const MASK_SIDE: usize = CLOUD_MASK_SIZE as usize;
 const MASK_WORDS: usize = MASK_SIDE / u64::BITS as usize;
-const CLOUD_VERTICAL_EXTENT: u16 = (CLOUD_TOP_Y - CLOUD_UNDERSIDE_Y) as u16;
+const CLOUD_VERTICAL_EXTENT: u16 = CLOUD_THICKNESS_BLOCKS as u16;
 const FACE_COUNT: usize = 6;
 
 type MaskRows = [[u64; MASK_WORDS]; MASK_SIDE];
@@ -200,7 +206,7 @@ pub fn mesh_cloud_texture(
 
 #[must_use]
 pub fn cloud_instance_origins(camera_xz: [f64; 2], offset_blocks: f64) -> [[f32; 2]; 9] {
-    let period = f64::from(CLOUD_MASK_SIZE);
+    let period = f64::from(CLOUD_WORLD_PERIOD);
     let offset = if offset_blocks.is_finite() {
         offset_blocks.rem_euclid(period)
     } else {

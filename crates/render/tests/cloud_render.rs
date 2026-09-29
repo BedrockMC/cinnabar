@@ -42,11 +42,14 @@ fn finite_cloud_shader_parses_validates_and_vertex_pulls_nine_periods() {
 
 #[test]
 fn all_six_faces_reconstruct_the_packed_fixed_height_bounds() {
-    assert_eq!(CLOUD_UNDERSIDE_Y, 128.0);
-    assert_eq!(CLOUD_TOP_Y, 132.0);
+    assert_eq!(CLOUD_UNDERSIDE_Y, 192.33);
+    assert_eq!(CLOUD_TOP_Y, 196.33);
     let shader = include_str!("../src/cloud.wgsl");
-    assert!(shader.contains("const CLOUD_UNDERSIDE_Y: f32 = 128.0;"));
-    assert!(shader.contains("const CLOUD_TOP_Y: f32 = 132.0;"));
+    assert!(shader.contains("const CLOUD_UNDERSIDE_Y: f32 = 192.33;"));
+    assert!(shader.contains("const CLOUD_TOP_Y: f32 = 196.33;"));
+    assert!(shader.contains("const CLOUD_CELL_BLOCKS: f32 = 16.0;"));
+    assert!(shader.contains("const CLOUD_TEXTURE_WORLD_PERIOD: f32 = 4096.0;"));
+    assert!(shader.contains("local_position.x * CLOUD_CELL_BLOCKS + instance_origin.x"));
 
     for (face, mapping) in [
         (CloudFace::Down, "vec3(x, CLOUD_UNDERSIDE_Y, z)"),
@@ -124,42 +127,20 @@ fn one_sorted_item_draws_exact_quad_vertices_and_nine_instances() {
 }
 
 #[test]
-fn cloud_fragment_uses_face_lighting_weather_bounded_fog_and_camera_band_fade() {
+fn cloud_fragment_uses_baked_shade_vanilla_colour_and_distance_fade_without_fog() {
     let shader = include_str!("../src/cloud.wgsl").replace("\r\n", "\n");
     assert!(shader.contains("const RAIN_CLOUD_COLOUR: vec3<f32> = vec3(191.0 / 255.0);"));
     assert!(shader.contains("const THUNDER_CLOUD_COLOUR: vec3<f32> = vec3(30.0 / 255.0);"));
     assert!(shader.contains("const WEATHER_COLOUR_CONTRIBUTION: f32 = 0.95;"));
-    assert!(shader.contains("fn face_normal(face: u32) -> vec3<f32>"));
-    assert!(shader.contains("dot(in.normal, sun_direction)"));
-    assert!(shader.contains("atmosphere.sun_direction_daylight.xyz"));
-    assert!(shader.contains("atmosphere.sun_direction_daylight.w"));
-    assert!(shader.contains("const PROVISIONAL_CLOUD_NIGHT_FLOOR: f32 = 0.083333336;"));
-    assert!(shader.contains("let illuminance = max("));
-    assert!(shader.contains("PROVISIONAL_CLOUD_NIGHT_FLOOR,"));
-    assert!(shader.contains("atmosphere.sky_zenith_rain.w"));
-    assert!(shader.contains("atmosphere.sky_horizon_thunder.w"));
-    assert!(shader.contains("atmosphere.fog_color_start.w"));
-    assert!(shader.contains("atmosphere.fog_end_time.x"));
-    assert!(shader.contains("distance(in.world_position, view.world_position)"));
-    assert!(shader.contains("fn bounded_cloud_fog("));
-    assert!(shader.contains("fn invalid_cloud_fog_input(value: f32) -> bool"));
-    assert!(shader.contains("return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;"));
-    assert!(shader.contains("if (bounded_end <= bounded_start)"));
-    assert!(shader.contains("select(0.0, 1.0, bounded_distance >= bounded_end)"));
-    assert!(shader.contains("mix(cloud_colour, atmosphere.fog_color_start.rgb, fog)"));
-    assert!(shader.contains("let camera_distance_from_cloud_band = max("));
-    assert!(
-        shader
-            .contains("let camera_band_visibility = smoothstep(\n        CLOUD_CAMERA_FADE_START,")
-    );
-    assert!(
-        shader.contains("let cloud_alpha = clamp((1.0 - fog) * camera_band_visibility, 0.0, 1.0);")
-    );
-    assert!(shader.contains("return vec4(fogged_colour, cloud_alpha);"));
-    assert!(!shader.contains("const SIDE_LIGHT"));
-    assert!(!shader.contains("const UNDERSIDE_LIGHT"));
+    assert!(shader.contains("const CLOUD_ALPHA: f32 = 0.7;"));
+    assert!(shader.contains("const CLOUD_FADE_START: f32 = 0.9;"));
+    assert!(shader.contains("const CLOUD_SUNRISE_WEIGHT: f32 = 0.35;"));
+    assert!(shader.contains("cos(TAU * atmosphere.sky_extra.y)"));
+    assert!(shader.contains("atmosphere.fog_end_time.w"));
+    assert!(shader.contains("cloud_colour() * face_shade(in.normal)"));
+    assert!(!shader.contains("dot(in.normal"));
+    assert!(!shader.contains("fog_color_start.rgb"));
     assert!(!shader.contains("textureSample"));
-    assert!(!shader.contains("sampled.a"));
 }
 
 #[test]
