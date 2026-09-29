@@ -312,6 +312,11 @@ pub(crate) fn prepare_ui_resources(
 }
 
 fn record_render_rejection(stats: &UiRenderStats, revision: u64, reason: UiRenderRejectReason) {
+    static REJECTIONS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let count = REJECTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if count.is_power_of_two() {
+        bevy::log::warn!(count, revision, ?reason, "UI frame rejected");
+    }
     stats.update(|stats| {
         stats.accepted_revision = None;
         stats.draw_calls = 0;

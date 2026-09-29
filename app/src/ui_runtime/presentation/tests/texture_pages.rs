@@ -403,6 +403,7 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
                 rgba8: vec![0; 3].into(),
             },
         ],
+        ..Default::default()
     });
     session_icons::observe(&mut presentation, Some(&icons));
     let icon = presentation.item_icon("test:gem", 0).expect("session icon");
@@ -460,4 +461,126 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         presentation.textures.pages().len(),
         dynamic_start + render::MAX_UI_DYNAMIC_PAGES
     );
+}
+
+/// Asserts `identifier` resolves to an icon whose UV rect is opaque on its uploaded page.
+fn assert_icon_drawable(presentation: &UiPresentationRuntime, identifier: &str) {
+    let icon = presentation
+        .item_icon(identifier, 0)
+        .unwrap_or_else(|| panic!("{identifier} has no icon"));
+    let page = presentation
+        .textures
+        .pages()
+        .get(usize::from(icon.page))
+        .unwrap_or_else(|| panic!("{identifier} points past the uploaded pages"));
+    let [width, height] = page.dimensions();
+    assert!(u32::from(icon.uv[2]) <= width && u32::from(icon.uv[3]) <= height);
+    let opaque = (icon.uv[1]..icon.uv[3]).any(|y| {
+        (icon.uv[0]..icon.uv[2])
+            .any(|x| page.pixels()[(usize::from(y) * width as usize + usize::from(x)) * 4 + 3] != 0)
+    });
+    assert!(opaque, "{identifier} points at blank texels");
+}
+
+// Hotbar icons stay drawable with and without server glyph sheets, a server UI pack and icons.
+#[test]
+fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        fixture_font(),
+        fixture_hud(),
+        independent_icons(40, 16),
+    )
+    .unwrap();
+    presentation
+        .enable_json_ui(super::forms::tests::mini_carrier())
+        .unwrap();
+    assert_icon_drawable(&presentation, "minecraft:fixture_0007");
+
+    let icons = Arc::new(SessionIcons {
+        icons: vec![SessionIcon {
+            identifier: "test:gem".into(),
+            width: 4,
+            height: 4,
+            rgba8: vec![255; 64].into(),
+        }],
+        ..Default::default()
+    });
+    session_icons::observe(&mut presentation, Some(&icons));
+    let mut rgba8 = vec![0u8; 128 * 128 * 4];
+    rgba8[..8 * 128 * 4].fill(255);
+    let sheets = Arc::new(SessionGlyphSheets {
+        cells: assets::extract_cells(&assets::GlyphSheet {
+            high_byte: 0xe0,
+            width: 128,
+            height: 128,
+            rgba8: rgba8.into(),
+        }),
+    });
+    session_glyphs::observe(&mut presentation, Some(&sheets));
+    presentation.set_server_ui_pack(&super::forms::ServerUiPack::default());
+    for identifier in [
+        "minecraft:fixture_0007",
+        "minecraft:fixture_0039",
+        "test:gem",
+    ] {
+        assert_icon_drawable(&presentation, identifier);
+    }
+    session_icons::observe(&mut presentation, None);
+    session_glyphs::observe(&mut presentation, None);
+    assert_icon_drawable(&presentation, "minecraft:fixture_0007");
+}
+
+// Local-only: the production carriers plus session glyphs and a UI pack still upload every page.
+#[test]
+fn real_carriers_keep_icons_drawable_with_session_pages() {
+    use super::forms::pack_harness;
+    let local = |name: &str| {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../.local/assets/compiled")
+                .join(name),
+        )
+        .ok()
+    };
+    let (Some(hud), Some(icons), Some(carrier)) = (
+        local("vanilla-v1.mcbehud"),
+        local("vanilla-v1.mcbeico"),
+        pack_harness::carrier(),
+    ) else {
+        return;
+    };
+    let icons = Arc::new(RuntimeIconCatalog::decode(&icons).unwrap());
+    let sample = icons.entries()[icons.entries().len() / 2]
+        .identifier
+        .to_string();
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        pack_harness::font(),
+        Arc::new(RuntimeHudCatalog::decode(&hud).unwrap()),
+        icons,
+    )
+    .unwrap();
+    presentation.enable_json_ui(carrier).unwrap();
+    eprintln!(
+        "pages {} dynamic_start {} bytes {}",
+        presentation.textures.pages().len(),
+        presentation.textures.dynamic_start(),
+        presentation.textures.plan().bytes()
+    );
+    assert_icon_drawable(&presentation, &sample);
+    let sheets = Arc::new(SessionGlyphSheets {
+        cells: assets::extract_cells(&assets::GlyphSheet {
+            high_byte: 0xe0,
+            width: 128,
+            height: 128,
+            rgba8: vec![255; 128 * 128 * 4].into(),
+        }),
+    });
+    session_glyphs::observe(&mut presentation, Some(&sheets));
+    assert!(presentation.font.glyph('\u{e005}').is_some());
+    assert_icon_drawable(&presentation, &sample);
+    let installed = presentation.textures.pages()[presentation.textures.dynamic_start() + 10]
+        .pixels()
+        .iter()
+        .any(|byte| *byte != 0);
+    assert!(installed, "the glyph page was not installed");
 }
