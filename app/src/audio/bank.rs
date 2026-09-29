@@ -5,7 +5,10 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, Sender, channel},
+    },
 };
 
 use assets::{
@@ -19,6 +22,8 @@ use super::{server::ServerSoundPack, voice::Pcm};
 pub(crate) const SOUND_BANK_FILENAME: &str = "vanilla-v1.mcbesnd";
 const HEADER_READ_BYTES: usize = 40;
 const CACHE_BUDGET_BYTES: usize = 96 * 1024 * 1024;
+/// Worker threads decoding bank entries, so a streamed track cannot hold up every first-play sound.
+const DECODE_WORKERS: usize = 2;
 
 /// Where the sound bank sits relative to the world carrier.
 pub(crate) fn sound_bank_path(world_asset_path: &Path) -> PathBuf {
@@ -45,6 +50,69 @@ pub(crate) struct SoundBank {
     cache_order: VecDeque<Box<str>>,
     cache_bytes: usize,
     failed: HashSet<Box<str>>,
+    decoder: Option<Decoder>,
+    /// Paths being decoded, with their stream flag.
+    in_flight: HashMap<Box<str>, bool>,
+    /// Decoded streamed sounds, held until the next pump's starts take them.
+    ready_streams: HashMap<Box<str>, Arc<Pcm>>,
+}
+
+/// Where a sound's PCM stands; decoding never runs on the calling (main) thread.
+pub(crate) enum PcmLookup {
+    Ready(Arc<Pcm>),
+    Pending,
+    Failed,
+}
+
+type DecodeJob = (Box<str>, Vec<u8>);
+type DecodeResult = (Box<str>, Option<Pcm>);
+
+struct Decoder {
+    jobs: Sender<DecodeJob>,
+    done: Mutex<Receiver<DecodeResult>>,
+}
+
+impl Decoder {
+    fn spawn() -> Option<Self> {
+        let (jobs, job_queue) = channel::<DecodeJob>();
+        let (results, done) = channel();
+        let job_queue = Arc::new(Mutex::new(job_queue));
+        for index in 0..DECODE_WORKERS {
+            let job_queue = Arc::clone(&job_queue);
+            let results = results.clone();
+            std::thread::Builder::new()
+                .name(format!("sound-decode-{index}"))
+                .spawn(move || {
+                    loop {
+                        let job = job_queue
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .recv();
+                        let Ok((path, bytes)) = job else { return };
+                        let pcm = decode_pcm(&bytes, &path);
+                        if results.send((path, pcm)).is_err() {
+                            return;
+                        }
+                    }
+                })
+                .ok()?;
+        }
+        Some(Self {
+            jobs,
+            done: Mutex::new(done),
+        })
+    }
+}
+
+fn decode_pcm(bytes: &[u8], path: &str) -> Option<Pcm> {
+    let sound = decode_sound(bytes)
+        .map_err(|error| bevy::log::debug!(%error, path, "sound decode failed"))
+        .ok()?;
+    Some(Pcm {
+        channels: sound.channels,
+        rate: sound.sample_rate,
+        samples: sound.samples.into(),
+    })
 }
 
 fn parse_music(bytes: &[u8]) -> HashMap<Box<str>, MusicEntry> {
@@ -104,6 +172,9 @@ impl SoundBank {
             cache_order: VecDeque::new(),
             cache_bytes: 0,
             failed: HashSet::new(),
+            decoder: None,
+            in_flight: HashMap::new(),
+            ready_streams: HashMap::new(),
         }))
     }
 
@@ -141,38 +212,75 @@ impl SoundBank {
             .or_else(|| self.catalog.as_ref()?.lookup(name))
     }
 
-    /// Decoded PCM for an alternative's sound path (no extension); non-streaming sounds are cached.
-    pub(crate) fn pcm(&mut self, path: &str, stream: bool) -> Option<Arc<Pcm>> {
+    /// PCM for an alternative's sound path (no extension), queueing a background decode on a
+    /// miss; non-streaming sounds are cached once decoded.
+    pub(crate) fn lookup(&mut self, path: &str, stream: bool) -> PcmLookup {
         if let Some(found) = self.server.as_ref().and_then(|pack| pack.files.get(path)) {
-            return Some(Arc::clone(found));
+            return PcmLookup::Ready(Arc::clone(found));
         }
         if let Some(found) = self.cache.get(path) {
-            return Some(Arc::clone(found));
+            return PcmLookup::Ready(Arc::clone(found));
+        }
+        if let Some(found) = self.ready_streams.remove(path) {
+            return PcmLookup::Ready(found);
         }
         if self.failed.contains(path) {
-            return None;
+            return PcmLookup::Failed;
         }
-        let entry = self.index.entry(path);
-        let decoded = entry
-            .and_then(|entry| self.read_entry(entry))
-            .and_then(|bytes| {
-                decode_sound(&bytes)
-                    .map_err(|error| bevy::log::debug!(%error, path, "sound decode failed"))
-                    .ok()
-            });
-        let Some(sound) = decoded else {
+        if self.in_flight.contains_key(path) {
+            return PcmLookup::Pending;
+        }
+        let bytes = self
+            .index
+            .entry(path)
+            .and_then(|entry| self.read_entry(entry));
+        if self.decoder.is_none() {
+            self.decoder = Decoder::spawn();
+        }
+        let queued = bytes
+            .zip(self.decoder.as_ref())
+            .is_some_and(|(bytes, decoder)| decoder.jobs.send((path.into(), bytes)).is_ok());
+        if !queued {
             self.failed.insert(path.into());
-            return None;
-        };
-        let pcm = Arc::new(Pcm {
-            channels: sound.channels,
-            rate: sound.sample_rate,
-            samples: sound.samples.into(),
-        });
-        if !stream {
-            self.remember(path, &pcm);
+            return PcmLookup::Failed;
         }
-        Some(pcm)
+        self.in_flight.insert(path.into(), stream);
+        PcmLookup::Pending
+    }
+
+    /// Whether a decode of `path` is still running.
+    pub(crate) fn is_decoding(&self, path: &str) -> bool {
+        self.in_flight.contains_key(path)
+    }
+
+    /// Collects finished decodes.
+    pub(crate) fn poll(&mut self) {
+        let Some(decoder) = self.decoder.as_ref() else {
+            return;
+        };
+        let finished: Vec<DecodeResult> = decoder
+            .done
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_iter()
+            .collect();
+        for (path, pcm) in finished {
+            let stream = self.in_flight.remove(&path).unwrap_or(false);
+            match pcm.map(Arc::new) {
+                None => {
+                    self.failed.insert(path);
+                }
+                Some(pcm) if stream => {
+                    self.ready_streams.insert(path, pcm);
+                }
+                Some(pcm) => self.remember(&path, &pcm),
+            }
+        }
+    }
+
+    /// Drops decoded streams no start claimed, so an abandoned track is not held in memory.
+    pub(crate) fn release_unclaimed_streams(&mut self) {
+        self.ready_streams.clear();
     }
 
     fn read_entry(&mut self, entry: SoundBankEntry) -> Option<Vec<u8>> {
@@ -221,6 +329,24 @@ impl SoundBank {
             cache_order: VecDeque::new(),
             cache_bytes: 0,
             failed: HashSet::new(),
+            decoder: None,
+            in_flight: HashMap::new(),
+            ready_streams: HashMap::new(),
+        }
+    }
+
+    /// Blocks until `path` decodes; tests only.
+    #[cfg(test)]
+    pub(crate) fn pcm(&mut self, path: &str, stream: bool) -> Option<Arc<Pcm>> {
+        loop {
+            match self.lookup(path, stream) {
+                PcmLookup::Ready(pcm) => return Some(pcm),
+                PcmLookup::Failed => return None,
+                PcmLookup::Pending => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    self.poll();
+                }
+            }
         }
     }
 }
