@@ -727,9 +727,9 @@ pub fn into_world_event(
         McpePacketData::OpenSignPacket(packet) => {
             WorldEvent::OpenSign(block_side::normalize_open_sign(&packet, current_dimension))
         }
-        McpePacketData::BlockEventPacket(packet) => {
-            WorldEvent::BlockEvent(block_side::normalize_block_event(&packet, current_dimension))
-        }
+        McpePacketData::BlockEventPacket(packet) => WorldEvent::BlockEvent(
+            block_side::normalize_block_event(&packet, current_dimension),
+        ),
         McpePacketData::ChunkRadiusUpdatedPacket(packet) => {
             WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)
         }

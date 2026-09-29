@@ -4,8 +4,8 @@ use assets::{
     AssetError, EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
     EntityAnimationKeyframe, EntityAssetKind, EntityAssetSource, EntityAssetSymbol,
     EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
-    EntityControllerTransition, EntityGeometry, EntityRenderData, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigGeometryBinding,
+    EntityControllerTransition, EntityGeometry, EntityRenderData, EntityRigAnimationBinding,
+    EntityRigBinding, EntityRigControllerBinding, EntityRigGeometryBinding,
 };
 use serde_json::Value;
 
@@ -16,9 +16,9 @@ mod controller;
 mod environment;
 mod outcome;
 mod render;
-mod selection;
 mod rig;
 pub(crate) mod roots;
+mod selection;
 
 use clip::{
     ClipCompileError, ClipOutputs, compile_clip_for_geometry, looks_like_expression, read_json,

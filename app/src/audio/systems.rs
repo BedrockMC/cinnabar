@@ -9,7 +9,8 @@ use std::{
 };
 
 use bevy::prelude::{
-    App, IntoScheduleConfigs, Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Update, Vec3,
+    App, IntoScheduleConfigs, Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Update,
+    Vec3,
 };
 use render::{ParticleSystem, PrecipitationMix};
 use sim::PaletteWorld;

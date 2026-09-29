@@ -28,25 +28,25 @@ pub use creative::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS, normalize_creative_content,
 };
+mod client_packets;
+mod raw_scan;
 pub mod recipes;
 mod request;
 mod validation;
-mod client_packets;
-mod raw_scan;
 mod windows;
-pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
-    CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
-    CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, OFFHAND_WINDOW_ID,
-    PLAYER_INVENTORY_WINDOW_ID, is_personal_ui_inventory, personal_craft_content_indices,
-    personal_craft_slot_index, project_container_cell,
+    CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC,
+    CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell,
+    OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, is_personal_ui_inventory,
+    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
 };
+pub use client_packets::*;
+pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
-pub use client_packets::*;
 pub use windows::*;
 mod registry_snapshot;
 pub use recipes::{
