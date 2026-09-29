@@ -88,9 +88,27 @@ impl DataSource {
         self.collections.insert(name.into(), items);
     }
 
+    /// Replace the list a collection named `name` reads while inside item `index` of the enclosing
+    /// list stored at `parent_key` (a plain name, or another scoped key).
+    pub fn set_scoped_collection(
+        &mut self,
+        parent_key: &str,
+        index: usize,
+        name: &str,
+        items: Vec<CollectionItem>,
+    ) {
+        self.collections
+            .insert(scoped_key(parent_key, index, name), items);
+    }
+
     fn collection_len(&self, name: &str) -> usize {
         self.collections.get(name).map_or(0, Vec::len)
     }
+}
+
+/// The data key of collection `name` inside item `index` of the list at `parent_key`.
+pub fn scoped_key(parent_key: &str, index: usize, name: &str) -> String {
+    format!("{parent_key}[{index}].{name}")
 }
 
 /// Resolves a factory `control_ids`/`control_name` reference to a fresh control
@@ -131,6 +149,21 @@ pub fn bind(
 #[derive(Clone, Debug, Default)]
 struct Scope {
     indices: BTreeMap<String, usize>,
+    /// The data key each active cursor's collection resolved to.
+    keys: BTreeMap<String, String>,
+    /// Entered collections, outermost first: `(data key, index)`.
+    path: Vec<(String, usize)>,
+}
+
+impl Scope {
+    /// The scope inside item `index` of `name`, whose list lives at `key`.
+    fn enter(&self, name: &str, key: String, index: usize) -> Scope {
+        let mut inner = self.clone();
+        inner.indices.insert(name.to_owned(), index);
+        inner.keys.insert(name.to_owned(), key.clone());
+        inner.path.push((key, index));
+        inner
+    }
 }
 
 /// A control plus the own values gathered for it (pass one), before `view`
@@ -190,10 +223,14 @@ impl Binder<'_> {
                     let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
                         continue;
                     };
+                    let key = scope
+                        .keys
+                        .get(collection)
+                        .map_or(collection, String::as_str);
                     let Some(item) = self
                         .data
                         .collections
-                        .get(collection)
+                        .get(key)
                         .and_then(|items| items.get(index))
                     else {
                         continue;
@@ -273,10 +310,11 @@ impl Binder<'_> {
         else {
             return Vec::new();
         };
-        let count = self.data.collection_len(collection);
+        let key = self.collection_key(collection, scope);
+        let count = self.data.collection_len(&key);
         let mut nodes = Vec::with_capacity(count);
         for index in 0..count {
-            let role = self.data.collections[collection][index].role.as_deref();
+            let role = self.data.collections[&key][index].role.as_deref();
             let Some(reference) = select_control(factory, role) else {
                 self.diagnostics.push(format!(
                     "{}: factory has no control for role {role:?}",
@@ -291,11 +329,22 @@ impl Binder<'_> {
                 ));
                 continue;
             };
-            let mut child_scope = scope.clone();
-            child_scope.indices.insert(collection.to_owned(), index);
+            let child_scope = scope.enter(collection, key.clone(), index);
             nodes.push(self.build(&with_index(resolved, index), &child_scope));
         }
         nodes
+    }
+
+    /// The data key for `name` in `scope`: a list registered for the innermost enclosing item wins
+    /// over the shared plain-named list.
+    fn collection_key(&self, name: &str, scope: &Scope) -> String {
+        if let Some((parent, index)) = scope.path.last() {
+            let scoped = scoped_key(parent, *index, name);
+            if self.data.collections.contains_key(&scoped) {
+                return scoped;
+            }
+        }
+        name.to_owned()
     }
 
     /// One `grid_item_template` instance per collection item, capped by
@@ -325,11 +374,9 @@ impl Binder<'_> {
             .get("grid_dimensions")
             .and_then(Value::as_array)
             .and_then(|dims| Some(dims.first()?.as_u64()? * dims.get(1)?.as_u64()?));
+        let key = self.collection_key(collection, scope);
         let count = dimensions
-            .map_or_else(
-                || self.data.collection_len(collection),
-                |cells| cells as usize,
-            )
+            .map_or_else(|| self.data.collection_len(&key), |cells| cells as usize)
             .min(cap);
         let Some(resolved) = self.lib.resolve(template) else {
             self.diagnostics.push(format!(
@@ -340,8 +387,7 @@ impl Binder<'_> {
         };
         (0..count)
             .map(|index| {
-                let mut child_scope = scope.clone();
-                child_scope.indices.insert(collection.to_owned(), index);
+                let child_scope = scope.enter(collection, key.clone(), index);
                 let mut cell = with_index(resolved.clone(), index);
                 cell.properties.insert(
                     "collection_scope".to_owned(),
