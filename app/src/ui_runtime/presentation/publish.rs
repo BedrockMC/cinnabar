@@ -150,7 +150,15 @@ pub(crate) fn publish_ui_runtime(
                 sneaking,
             )
         });
-    presentation.set_player_preview_skin(skin.as_deref(), pose);
+    // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
+    let first_person =
+        camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    presentation.sync_player_preview(
+        skin.as_deref(),
+        pose,
+        runtime.inventory_open() || menu_runtime.is_visible(),
+        first_person && !hand_rig.is_active(),
+    );
     refresh_hud_frame(
         &mut runtime,
         &mut presentation,

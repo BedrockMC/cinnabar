@@ -292,6 +292,34 @@ fn actual_preview_updates_share_static_pages_and_retire_superseded_scenes() {
     assert!(extracted.input.is_some());
 }
 
+/// Mouse look must not rebuild the dynamic page while neither the paper doll nor CPU hands show.
+#[test]
+fn hidden_preview_defers_pose_changes_until_shown() {
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let pose =
+        |yaw: f32, pitch: f32| player_preview::PlayerPreviewPose::new(yaw, yaw, pitch, false);
+    presentation.sync_player_preview(None, pose(0.0, 0.0), false, false);
+    let drawn = Arc::clone(&presentation.textures);
+    for frame in 1..=100 {
+        let turn = frame as f32;
+        presentation.sync_player_preview(None, pose(turn, turn / 4.0), false, false);
+        // Yaw alone does not move the CPU hands.
+        presentation.sync_player_preview(None, pose(turn, 0.0), false, true);
+    }
+    assert!(Arc::ptr_eq(&drawn, &presentation.textures));
+    presentation.sync_player_preview(None, pose(100.0, 0.0), true, false);
+    assert!(!Arc::ptr_eq(&drawn, &presentation.textures));
+    let shown = Arc::clone(&presentation.textures);
+    presentation.sync_player_preview(None, pose(100.0, 5.0), false, true);
+    assert!(!Arc::ptr_eq(&shown, &presentation.textures));
+    let hands = Arc::clone(&presentation.textures);
+    presentation.sync_player_preview(Some(&vec![255; 64 * 64 * 4]), pose(7.0, 5.0), false, false);
+    assert!(
+        !Arc::ptr_eq(&hands, &presentation.textures),
+        "skin changes still redraw"
+    );
+}
+
 #[test]
 fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_ownership() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
