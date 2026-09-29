@@ -96,16 +96,29 @@ func Open(ctx context.Context, src oauth2.TokenSource) (*Client, func(), error) 
 
 // Session opens its Client on first use and serves every store call from it.
 type Session struct {
-	open func(context.Context) (*Client, func(), error)
+	open   func(context.Context) (*Client, func(), error)
+	images *ImageCache
 
 	mu      sync.Mutex
 	client  *Client
 	release func()
 }
 
-// NewSession returns a Session that signs in with src on first use.
-func NewSession(src oauth2.TokenSource) *Session {
-	return &Session{open: func(ctx context.Context) (*Client, func(), error) { return Open(ctx, src) }}
+// NewSession returns a Session that signs in with src on first use; an empty imageDir disables images.
+func NewSession(src oauth2.TokenSource, imageDir string) *Session {
+	s := &Session{open: func(ctx context.Context) (*Client, func(), error) { return Open(ctx, src) }}
+	if imageDir != "" {
+		s.images = NewImageCache(imageDir)
+	}
+	return s
+}
+
+// Image downloads an offer image into the bounded cache and returns its local path.
+func (s *Session) Image(ctx context.Context, rawURL string) (Image, error) {
+	if s.images == nil {
+		return Image{}, ErrImageRejected
+	}
+	return s.images.Fetch(ctx, rawURL)
 }
 
 func (s *Session) get(ctx context.Context) (*Client, error) {

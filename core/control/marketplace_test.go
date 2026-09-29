@@ -33,6 +33,9 @@ func (m *stubMarket) Balances(context.Context) ([]store.Balance, error) { return
 func (m *stubMarket) Entitlements(context.Context, int, int) (store.Entitlements, error) {
 	return store.Entitlements{Owned: []string{"a"}, Total: 1}, m.err
 }
+func (m *stubMarket) Image(context.Context, string) (store.Image, error) {
+	return store.Image{Path: "/tmp/x.png", ContentType: "image/png"}, m.err
+}
 func (m *stubMarket) Purchase(_ context.Context, r store.PurchaseRequest) (store.PurchaseResult, error) {
 	m.calls++
 	m.purchase = r

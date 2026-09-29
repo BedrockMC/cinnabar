@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
@@ -247,6 +248,7 @@ func runWithResourcePackCacheFactory(
 		service := launcher.New(launcher.Config{
 			TokenSource: tokenSource, AuthCache: opts.authCache,
 			Store: statusStore, Selector: selector, Transfers: transfers,
+			StoreImageDir: storeImageDir(opts.authCache),
 		})
 		controlServer.SetServices(service)
 		controlServer.SetMarketplace(service.Marketplace(nil))
@@ -313,4 +315,12 @@ func contextWithStdinEOF(parent context.Context, stdin io.Reader) (context.Conte
 		cancel()
 	}()
 	return ctx, cancel
+}
+
+// storeImageDir places the Marketplace image cache beside the auth cache; empty without one.
+func storeImageDir(authCache string) string {
+	if authCache == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(authCache), "store-images")
 }

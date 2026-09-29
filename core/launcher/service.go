@@ -28,6 +28,8 @@ type Config struct {
 	Store       *control.Store
 	Selector    *proxy.UpstreamSelector
 	Transfers   *proxy.TransferState
+	// StoreImageDir holds cached Marketplace images; empty disables them.
+	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
 	Realms   func(context.Context, oauth2.TokenSource) ([]catalog.Realm, error)
