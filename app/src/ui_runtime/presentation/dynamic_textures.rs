@@ -193,7 +193,11 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone()),
     );
     // Unused art pages keep their old pixels; nothing references them.
-    for offset in 0..render::MAX_UI_ART_PAGES {
+    let art_pages = previous
+        .len()
+        .saturating_sub(art_start)
+        .min(render::MAX_UI_ART_PAGES);
+    for offset in 0..art_pages {
         let page = match runtime.menu_artwork.pages.get(offset) {
             Some(page) if menu_changed => page.clone(),
             _ => previous[art_start + offset].clone(),
