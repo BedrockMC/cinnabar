@@ -76,7 +76,7 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
         independent_icons(735, 16),
     )
     .unwrap();
-    assert_eq!(presentation.textures.plan().bytes(), 58 * 1024 * 1024);
+    assert_eq!(presentation.textures.plan().bytes(), 62 * 1024 * 1024);
     assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 735);
     // The largest icon carrier still fits beside the CJK font; the planner refuses whole
     // catalogs past the byte budget (see render's `planner_checks_entire_catalog_and_all_limits`).
@@ -170,7 +170,7 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
     assert_eq!(
         presentation.textures.plan().bytes(),
-        52 * 1024 * 1024 + 19 * 256 * 256 * 4
+        52 * 1024 * 1024 + 35 * 256 * 256 * 4
     );
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];

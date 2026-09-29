@@ -16,7 +16,7 @@ mod sign_editor;
 #[cfg(test)]
 pub(crate) mod tests;
 
-use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
+use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
 pub(crate) use containers::engine_panel_contains;
@@ -71,41 +71,32 @@ impl UiPresentationRuntime {
 
     /// Overlay a joined server's resource-pack UI: its `ui/*.json` merge over the
     /// vanilla catalog layer by layer and its `textures/**` images shadow the
-    /// carrier's. An empty pack restores vanilla.
+    /// carrier's from reserved dynamic pages, so the static texture identity the
+    /// renderer pins never changes. An empty pack restores vanilla.
     pub(crate) fn set_server_ui_pack(&mut self, pack: &ServerUiPack) {
+        let first = self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE;
         let Some(engine) = self.form_presentation.engine.as_mut() else {
             return;
         };
         engine.set_server_pack(&pack.ui_layers);
-        let packed = server_pack::pack(&pack.textures, engine.page_side());
-        let start = engine.server_page_start();
-        let old = engine.server_pages();
-        let dynamic_start = self.textures.dynamic_start();
-        let mut pages = self.textures.pages()[..start].to_vec();
-        let added = packed.pages.len();
-        pages.extend(packed.pages);
-        pages.extend_from_slice(&self.textures.pages()[start + old..]);
-        let Ok(textures) = render::UiRenderTextureArray::with_source_identity(
-            pages,
-            dynamic_start - old + added,
-            server_pack_identity(self.textures.static_identity(), pack),
-        ) else {
-            engine.set_server_textures(Default::default(), old);
-            return;
-        };
+        let packed = server_pack::pack(&pack.textures, dynamic_textures::SERVER_UI_PAGES);
         bevy::log::info!(
             layers = pack.ui_layers.len(),
             ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),
             textures = packed.textures.len(),
-            pages = added,
+            pages = packed.pages.len(),
             "server resource-pack UI applied to the form engine"
         );
-        engine.set_server_textures(packed.textures, added);
-        self.textures = Arc::new(textures);
-        // Dynamic pages moved; their references rebuild from the new start.
-        self.preview_dirty = true;
-        self.menu_artwork_dirty = true;
+        engine.set_server_textures(packed.textures, packed.pages, first as u16);
         self.rebuild_dynamic_textures();
+    }
+
+    /// The dynamic pages holding the server pack's UI textures.
+    pub(super) fn server_ui_pages(&self) -> &[render::UiTexturePage] {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map_or(&[], |engine| &engine.server_pages)
     }
 
     /// Applies the runtime's server UI pack when it changes identity.
@@ -303,16 +294,4 @@ fn log_path(
         *logged = Some(identity);
         bevy::log::info!(?identity, path, reason, "server form render path");
     }
-}
-
-fn server_pack_identity(base: [u8; 32], pack: &ServerUiPack) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(b"ui-server-pack-v1");
-    digest.update(base);
-    for (path, bytes) in &pack.textures {
-        digest.update(path.as_bytes());
-        digest.update(Sha256::digest(bytes));
-    }
-    digest.finalize().into()
 }
