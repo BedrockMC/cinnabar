@@ -103,6 +103,18 @@ impl ShutdownWatchdog {
     }
 }
 
+/// Arms the watchdog when the world is torn down without an `AppExit`, as macOS `terminate:`
+/// (Cmd+Q, Dock Quit) does; Bevy's pipelined-render teardown otherwise deadlocks there.
+/// Insert before the render plugins finish so it drops ahead of `RenderAppChannels`.
+#[derive(Resource)]
+pub(crate) struct TeardownWatchdog(pub(crate) ShutdownWatchdog);
+
+impl Drop for TeardownWatchdog {
+    fn drop(&mut self) {
+        begin_bounded_shutdown(&self.0, &AppExit::Success);
+    }
+}
+
 pub(crate) fn app_exit_code(exit: &AppExit) -> i32 {
     match exit {
         AppExit::Success => 0,
