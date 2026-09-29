@@ -72,3 +72,18 @@ fn ordered_logical_mapping_does_not_group_draw_order() {
     assert_eq!(physical[3].layer, 1);
     assert_eq!(physical[4], physical[1]);
 }
+
+#[test]
+fn art_pages_follow_the_small_dynamic_pages_within_their_own_cap() {
+    let small = UiTexturePage::owned([256, 256], vec![0; 256 * 256 * 4].into()).unwrap();
+    let side = render::UI_ART_PAGE_SIDE;
+    let art =
+        UiTexturePage::owned([side, side], vec![0; (side * side * 4) as usize].into()).unwrap();
+    let mut pages = vec![small.clone(); MAX_UI_DYNAMIC_PAGES];
+    pages.extend(std::iter::repeat_n(art.clone(), render::MAX_UI_ART_PAGES));
+    assert!(UiTextureCatalog::new(pages.clone(), 0).is_ok());
+    pages.push(art);
+    assert!(UiTextureCatalog::new(pages, 0).is_err());
+    let odd = UiTexturePage::owned([512, 512], vec![0; 512 * 512 * 4].into()).unwrap();
+    assert!(UiTextureCatalog::new(vec![small, odd], 0).is_err());
+}
