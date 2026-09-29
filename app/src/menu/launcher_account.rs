@@ -41,10 +41,6 @@ pub(crate) struct LauncherAccount {
 impl LauncherAccount {
     /// Start polling the control endpoint under `socket_dir`; the worker stops
     /// when this is dropped.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "inserted once the launcher core serves control")
-    )]
     pub(crate) fn new(socket_dir: PathBuf) -> Self {
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let (sign_out, requests) = bounded(1);
@@ -99,9 +95,12 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             {
                 // The first poll only records the standing disconnect.
                 if snapshot.last_disconnect.is_some() {
-                    snapshot.events.push(AccountEvent::Disconnected {
-                        reason: disconnect.message,
-                    });
+                    let reason = if disconnect.message.trim().is_empty() {
+                        format!("Disconnected (reason {})", disconnect.reason)
+                    } else {
+                        disconnect.message
+                    };
+                    snapshot.events.push(AccountEvent::Disconnected { reason });
                 }
                 snapshot.last_disconnect = Some(disconnect.sequence);
             }
@@ -119,17 +118,19 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
     }
 }
 
-/// The core's account state as the menu's sign-in state.
-fn auth_state(account: &Account) -> AuthState {
-    match account.state {
-        CoreAuth::Offline | CoreAuth::SignedOut => AuthState::SignedOut,
+/// The core's account state as the menu's sign-in state; an offline core
+/// knows nothing about the account, so the auth supervisor's state stands.
+fn auth_state(account: &Account) -> Option<AuthState> {
+    Some(match account.state {
+        CoreAuth::Offline => return None,
+        CoreAuth::SignedOut => AuthState::SignedOut,
         CoreAuth::AwaitingCode => AuthState::AwaitingCode {
             uri: account.verification_uri.clone().unwrap_or_default(),
             code: account.user_code.clone().unwrap_or_default(),
         },
         CoreAuth::SignedIn => AuthState::Authenticated,
         CoreAuth::Failed => AuthState::Failed(account.reason.clone().unwrap_or_default()),
-    }
+    })
 }
 
 fn friend_card(friend: &Friend) -> MenuFriendCard {
@@ -148,7 +149,7 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
 
 impl AccountControl for LauncherAccount {
     fn account_status(&mut self) -> Option<AuthState> {
-        self.with(|snapshot| snapshot.account.as_ref().map(auth_state))
+        self.with(|snapshot| snapshot.account.as_ref().and_then(auth_state))
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
@@ -177,7 +178,16 @@ impl AccountControl for LauncherAccount {
     }
 
     fn sign_out(&mut self) -> bool {
-        self.sign_out.try_send(()).is_ok()
+        let queued = self.sign_out.try_send(()).is_ok();
+        if queued {
+            // The signed-in lists and status are stale from here on.
+            self.with(|snapshot| {
+                snapshot.account = None;
+                snapshot.realms = None;
+                snapshot.friends = None;
+            });
+        }
+        queued
     }
 
     fn poll_event(&mut self) -> Option<AccountEvent> {
@@ -198,24 +208,25 @@ mod tests {
             gamertag: None,
             reason: Some("expired".into()),
         };
+        assert_eq!(auth_state(&account(CoreAuth::Offline)), None);
         assert_eq!(
-            auth_state(&account(CoreAuth::Offline)),
-            AuthState::SignedOut
+            auth_state(&account(CoreAuth::SignedOut)),
+            Some(AuthState::SignedOut)
         );
         assert_eq!(
             auth_state(&account(CoreAuth::AwaitingCode)),
-            AuthState::AwaitingCode {
+            Some(AuthState::AwaitingCode {
                 uri: "https://aka.ms/remoteconnect".into(),
                 code: "ABCD".into()
-            }
+            })
         );
         assert_eq!(
             auth_state(&account(CoreAuth::SignedIn)),
-            AuthState::Authenticated
+            Some(AuthState::Authenticated)
         );
         assert_eq!(
             auth_state(&account(CoreAuth::Failed)),
-            AuthState::Failed("expired".into())
+            Some(AuthState::Failed("expired".into()))
         );
     }
 }

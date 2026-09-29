@@ -17,7 +17,9 @@ use crate::{
     ui_runtime::UiRuntime,
 };
 
-use super::{CoreProcessGuard, MenuRuntime, spawn_core_for_address, wait_for_core};
+use super::{
+    CoreProcessGuard, LauncherCoreSlot, MenuRuntime, spawn_core_for_address, wait_for_core,
+};
 
 #[derive(SystemParam)]
 pub(crate) struct MenuSessionState<'w> {
@@ -30,6 +32,7 @@ pub(crate) struct MenuSessionState<'w> {
     local_physics: ResMut<'w, LocalPhysicsController>,
     local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
     interaction: ResMut<'w, InteractionOriginSnapshot>,
+    launcher: Option<ResMut<'w, LauncherCoreSlot>>,
 }
 
 impl MenuSessionState<'_> {
@@ -59,7 +62,8 @@ impl MenuSessionState<'_> {
 /// This is the single replacement-handoff path shared by user joins and
 /// automatic server-transfer follows: identity-checked session directory,
 /// bounded core start wait, old-network shutdown, and a fresh session
-/// generation for every attempt.
+/// generation for every attempt. A running launcher core takes the join
+/// instead: it selects the target over `connect.v1` and the session dials it.
 fn attempt_connect(
     commands: &mut bevy::prelude::Commands,
     menu: &mut MenuRuntime,
@@ -67,11 +71,40 @@ fn attempt_connect(
     session: &mut MenuSessionState<'_>,
     address: String,
     auth_cache: Option<std::path::PathBuf>,
+    local_world: bool,
 ) {
     // A replacement owns no route back into the old session, even when
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.mark_disconnected();
     let generation = session.retire(menu);
+    let launcher = session
+        .launcher
+        .as_deref()
+        .and_then(|slot| slot.prepare_join(&address, local_world, auth_cache.is_some()));
+    match launcher {
+        Some(Ok(socket_dir)) => {
+            if let Err(error) =
+                start_network(commands, menu, client_blob_cache, generation, socket_dir)
+            {
+                menu.message = Some(format!("Could not connect: {error}"));
+                menu.connecting = false;
+            }
+            return;
+        }
+        // A local world exists only behind the launcher core.
+        Some(Err(error)) if local_world => {
+            menu.message = Some(format!("Could not open {address}: {error}"));
+            menu.connecting = false;
+            return;
+        }
+        None if local_world => {
+            menu.message = Some(format!("Could not open {address}: no launcher core"));
+            menu.connecting = false;
+            return;
+        }
+        // Otherwise a per-session core dials the address directly.
+        Some(Err(_)) | None => {}
+    }
     // Namespaced by process id like the `--address` path: a bare
     // generation counter restarts at the same value every launch, so a
     // previous run's directory would be reused for this session.
@@ -116,26 +149,35 @@ fn attempt_connect(
         return;
     }
     menu.bind_session_directory(session_directory);
-    match crate::runtime::network::spawn_network(NetworkConfig {
+    if let Err(error) = start_network(commands, menu, client_blob_cache, generation, socket_dir) {
+        super::core_process::stop_core_then(&mut session.guard, |_| {
+            menu.release_session_directory();
+        });
+        menu.message = Some(format!("Could not connect: {error}"));
+        menu.connecting = false;
+    }
+}
+
+/// Starts the network session against the core serving `socket_dir`.
+fn start_network(
+    commands: &mut bevy::prelude::Commands,
+    menu: &mut MenuRuntime,
+    client_blob_cache: &crate::app::ClientBlobCacheOwner,
+    generation: u64,
+    socket_dir: std::path::PathBuf,
+) -> Result<(), String> {
+    let replacement = crate::runtime::network::spawn_network(NetworkConfig {
         session_generation: generation,
         socket_dir,
         display_name: menu.display_name.clone(),
         client_blob_cache: client_blob_cache.cache(),
         player_skin: menu.player_skin.clone(),
-    }) {
-        Ok(replacement) => {
-            commands.insert_resource(replacement.movement_ticker());
-            commands.insert_resource(replacement);
-            menu.mark_connecting();
-        }
-        Err(error) => {
-            super::core_process::stop_core_then(&mut session.guard, |_| {
-                menu.release_session_directory();
-            });
-            menu.message = Some(format!("Could not connect: {error}"));
-            menu.connecting = false;
-        }
-    }
+    })
+    .map_err(|error| error.to_string())?;
+    commands.insert_resource(replacement.movement_ticker());
+    commands.insert_resource(replacement);
+    menu.mark_connecting();
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -146,18 +188,37 @@ pub(crate) fn drive_menu_connection(
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
     mut session: MenuSessionState,
     launcher_account: Option<ResMut<super::launcher_account::LauncherAccount>>,
-    local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
+    mut local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
 ) {
     menu.poll_catalog();
     menu.sync_audio_settings(audio_settings);
-    if let Some(mut account) = launcher_account {
-        menu.sync_account_control(&mut *account);
+    let in_session = session.client_world.stream.is_some();
+    if let Some(slot) = session.launcher.as_deref_mut() {
+        let idle = menu.is_launcher() && !menu.is_connecting() && !in_session;
+        slot.drive(
+            &mut commands,
+            &mut menu,
+            idle,
+            client_blob_cache.enables_upstream_client_cache(),
+            local_worlds.as_deref_mut(),
+        );
     }
-    if let Some(mut worlds) = local_worlds {
-        menu.sync_local_worlds(&mut worlds);
+    match launcher_account {
+        Some(mut account) => menu.sync_account_control(&mut *account),
+        None => menu.sign_out_locally(),
     }
-    if menu.is_connecting() && session.client_world.stream.is_some() {
+    if let Some(worlds) = local_worlds.as_deref_mut() {
+        menu.sync_local_worlds(worlds, in_session);
+    }
+    if menu.take_respawn_request()
+        && let Some(runtime_id) = session.runtime.local_runtime_id()
+    {
+        let generation = session.runtime.session_id();
+        let packet = protocol::respawn_request_packet(runtime_id);
+        let _ = session.network.send_form_packet(generation, packet);
+    }
+    if menu.is_connecting() && in_session {
         menu.mark_connected();
     }
     if let Some(pending) = menu.take_pending_connect() {
@@ -168,6 +229,7 @@ pub(crate) fn drive_menu_connection(
             &mut session,
             pending.address,
             pending.auth_cache,
+            pending.local_world,
         );
     }
     if menu.take_disconnect_request() {
@@ -262,6 +324,7 @@ pub(crate) fn follow_server_transfer(
         &mut session,
         address.clone(),
         auth_cache,
+        false,
     );
     if menu.is_connecting() {
         menu.message = Some(format!("Transferring to {address}…"));

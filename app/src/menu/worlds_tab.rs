@@ -1,20 +1,54 @@
 //! The play screen's worlds tab over the local-worlds module: its list feeds
-//! the tab's cards and a chosen card selects and opens that world.
+//! the tab's cards, a chosen card opens that world, and an opened world is
+//! joined through the launcher core and closed when its session ends.
 
 use protocol::world_control::World;
 
-use super::{LocalWorldCard, MenuRuntime};
-use crate::local_worlds::{LocalWorlds, game_mode_label};
+use super::{LocalWorldCard, MenuRuntime, PendingConnect};
+use crate::local_worlds::{Input, LocalWorlds, game_mode_label};
 
 impl MenuRuntime {
-    /// Mirror the module's world list and forward a pending play choice.
-    pub(crate) fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds) {
+    /// Mirror the module's worlds, forward a play choice, join a world that
+    /// finished opening, and track whether a local-world session is live.
+    pub(crate) fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
         let cards = worlds.menu().worlds().iter().map(world_card).collect();
         self.set_local_worlds(cards);
         if let Some(index) = self.take_local_world_request() {
-            worlds.input(crate::local_worlds::Input::Select(index));
-            worlds.input(crate::local_worlds::Input::Play);
+            worlds.input(Input::Select(index));
+            worlds.input(Input::Play);
         }
+        if let Some(id) = worlds.take_ready() {
+            let name = worlds
+                .menu()
+                .worlds()
+                .iter()
+                .find(|world| world.id == id)
+                .map_or(id, |world| world.name.clone());
+            self.request_local_world_join(name);
+        }
+        let active = self.local_world_joined && (in_session || self.connecting);
+        if active != self.local_world_active {
+            self.local_world_active = active;
+            if active {
+                worlds.set_playing(true);
+            } else {
+                // The core saves and stops the world once its session is over.
+                worlds.leave_world();
+                self.local_world_joined = false;
+            }
+        }
+    }
+
+    fn request_local_world_join(&mut self, name: String) {
+        self.begin_fresh_transfer_chain();
+        self.stop_catalog();
+        self.local_world_joined = true;
+        self.pending_connect = Some(PendingConnect {
+            address: name,
+            auth_cache: None,
+            local_world: true,
+        });
+        self.mark_connecting();
     }
 }
 
@@ -66,9 +100,26 @@ mod tests {
     fn a_chosen_card_selects_the_world_in_the_module() {
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         let mut worlds = LocalWorlds::default();
-        menu.sync_local_worlds(&mut worlds);
+        menu.sync_local_worlds(&mut worlds, false);
         assert!(menu.view().local_worlds.is_empty());
         menu.activate(super::super::MenuAction::PlayLocalWorld(0));
         assert_eq!(menu.take_local_world_request(), None);
+    }
+
+    #[test]
+    fn a_local_world_session_closes_the_world_when_it_ends() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let mut worlds = LocalWorlds::default();
+        menu.request_local_world_join("Home".to_owned());
+        assert!(
+            menu.pending_connect
+                .as_ref()
+                .is_some_and(|join| join.local_world)
+        );
+        menu.sync_local_worlds(&mut worlds, false);
+        assert!(menu.local_world_active, "connecting counts as live");
+        menu.connecting = false;
+        menu.sync_local_worlds(&mut worlds, false);
+        assert!(!menu.local_world_active && !menu.local_world_joined);
     }
 }
