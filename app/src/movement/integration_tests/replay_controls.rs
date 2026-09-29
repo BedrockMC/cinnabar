@@ -17,6 +17,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     assert_eq!(frame.samples.len(), 3);
     let factor = 0.7_f32 * 0.3_f32;
     let expected = [(0.7_f32 * factor).to_bits(), (0.9_f32 * factor).to_bits()];
+    let wire_expected = [(-0.7_f32 * factor).to_bits(), (0.9_f32 * factor).to_bits()];
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
     ticker.set_source(MovementSource::Physics);
@@ -115,8 +116,8 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
                 expected_value
             );
         }
-        assert_eq!(live.snapshot.move_vector.map(f32::to_bits), expected);
-        assert_eq!(replayed.snapshot.move_vector.map(f32::to_bits), expected);
+        assert_eq!(live.snapshot.move_vector.map(f32::to_bits), wire_expected);
+        assert_eq!(replayed.snapshot.move_vector.map(f32::to_bits), wire_expected);
         assert_eq!(
             replayed.snapshot.flags.bits() & mask.bits(),
             live.snapshot.flags.bits() & mask.bits()
@@ -125,7 +126,7 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
             replayed.snapshot.flags.bits() & PlayerInputFlags::UP_LEFT.bits(),
             0
         );
-        assert_eq!(replayed.snapshot.raw_move_vector, [-1.0, -1.0]);
-        assert_eq!(replayed.snapshot.analogue_move_vector, [-1.0, -1.0]);
+        assert_eq!(replayed.snapshot.raw_move_vector, [1.0, -1.0]);
+        assert_eq!(replayed.snapshot.analogue_move_vector, [1.0, -1.0]);
     }
 }

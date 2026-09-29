@@ -103,6 +103,10 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
     // and closes when the simulator reports ground contact again. The exact
     // vanilla assertion rule is still an open native measurement; this
     // provisional contract is pinned witness-for-witness in `state_tests`.
+    // Every takeoff is a jump trigger, including a repeat from a held button.
+    if sample.processed.jump_initiated {
+        flags |= PlayerInputFlags::START_JUMPING;
+    }
     if sample.processed.jump_arc_active {
         flags |= PlayerInputFlags::JUMPING;
     }
