@@ -3,7 +3,8 @@
 
 pub use bridge::{
     Account, Artwork, AuthState, BridgeError, ConnectTarget, Events, FeaturedGame, FeaturedServer,
-    Friend, Gathering, Profile, Realm, ServerDisconnect, ServerPing, TransferPending,
-    account_status, connect_target, list_featured_servers, list_friends, list_gatherings,
-    list_realms, ping_servers, poll_events, profile, sign_out,
+    Friend, Gathering, Home, Inbox, LiveEvent, Message, MessageButton, MessageEvent, MessageImage,
+    Profile, Realm, ServerDisconnect, ServerPing, TransferPending, account_status, connect_target,
+    home, list_featured_servers, list_friends, list_gatherings, list_realms, ping_servers,
+    poll_events, profile, report_message_event, sign_out,
 };
