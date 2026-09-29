@@ -8,6 +8,7 @@ mod menu_screens;
 mod menus;
 mod model;
 mod npc;
+mod oreui_profile;
 mod pages;
 mod panorama;
 mod play_screen;

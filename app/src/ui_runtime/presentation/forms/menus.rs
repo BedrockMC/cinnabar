@@ -7,7 +7,7 @@ use json_ui::{HitRegion, ViewState};
 use ui::{UiNode, UiNodeId, UiRect, UiVisual};
 
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
-use super::{engine, menu_screens, panorama};
+use super::{engine, menu_screens, oreui_profile, panorama};
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 use crate::ui_runtime::UiRuntime;
 
@@ -68,6 +68,34 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(None);
         };
+        // Profile is an OreUI route in 26.30; it draws natively over the panorama.
+        let profile = view.screen == MenuScreen::Profile
+            && !view.connecting
+            && view.disconnect_message.is_none()
+            && view.dialog.is_none()
+            && !matches!(
+                view.auth_state,
+                crate::menu::auth::AuthState::AwaitingCode { .. }
+            );
+        if profile {
+            let portrait = [
+                &view.feeds.profile.picture_path,
+                &view.feeds.home.persona_head,
+            ]
+            .into_iter()
+            .find_map(|path| self.menu_artwork.refs.get(path).copied());
+            let inputs = oreui_profile::ProfileInputs {
+                layouts: &mut self.layouts,
+                font: &self.font,
+                metrics,
+                solid_page: self.solid_texture_page,
+                portrait,
+                size: [width, height],
+            };
+            let hits = oreui_profile::append(view, inputs, nodes, next)?;
+            self.form_presentation.menu_keys.clear();
+            return Ok(Some(hits));
+        }
         let translate = |key: &str| runtime.translation(key);
         let Some(screen) = menu_screens::screen_data(view, &translate) else {
             return Ok(None);
