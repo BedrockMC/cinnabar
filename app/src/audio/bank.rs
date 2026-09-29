@@ -204,7 +204,7 @@ impl SoundBank {
     }
 
     #[cfg(test)]
-    pub(crate) fn for_test(
+    pub(crate) fn from_parts(
         index: SoundBankIndex,
         tables: SoundEventTables,
         catalog: Option<Arc<RuntimeAudioCatalog>>,
