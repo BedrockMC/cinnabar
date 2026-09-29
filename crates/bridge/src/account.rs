@@ -157,7 +157,7 @@ struct AccountBody {
     account: Account,
 }
 
-async fn call<R: DeserializeOwned, P: Serialize>(
+pub(crate) async fn call<R: DeserializeOwned, P: Serialize>(
     socket_dir: &Path,
     method: &str,
     params: Option<P>,
@@ -175,7 +175,7 @@ async fn call<R: DeserializeOwned, P: Serialize>(
     parse_response(&response)
 }
 
-fn parse_response<R: DeserializeOwned>(payload: &[u8]) -> Result<R, BridgeError> {
+pub(crate) fn parse_response<R: DeserializeOwned>(payload: &[u8]) -> Result<R, BridgeError> {
     let response: Envelope<R> = serde_json::from_slice(payload)?;
     if response.jsonrpc != "2.0" {
         return invalid("jsonrpc must be exactly 2.0");

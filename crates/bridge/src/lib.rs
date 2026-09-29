@@ -5,6 +5,7 @@ mod endpoint;
 mod error;
 mod framed;
 mod status;
+mod store;
 mod worlds;
 
 use std::path::Path;
@@ -18,6 +19,12 @@ pub use framed::FramedStream;
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
     StatusV1, TransferPending, read_status, report_pack_application,
+};
+pub use store::{
+    ConfirmedPurchase, PendingPurchase, PurchaseOutcome, PurchaseStatus, StoreBalance,
+    StoreEntitlements, StoreOffer, StoreOfferDetail, StorePage, StorePrice, StoreRating, StoreRow,
+    StoreSearch, StoreSearchResults, store_balance, store_entitlements, store_home, store_offer,
+    store_purchase, store_search,
 };
 pub use worlds::{
     Difficulty, GameMode, Generator, NewWorld, World, WorldState, WorldStatus, close_world,
