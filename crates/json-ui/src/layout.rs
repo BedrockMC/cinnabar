@@ -625,12 +625,18 @@ fn siblings_max(parent: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
     children_max(parent, env, None)
 }
 
-/// Natural content size: an image's texture `base_size`, a label's text extent
+/// Natural content size: an opted-in image's texture `base_size`, a label's text extent
 /// (wrapped at `width` when known), scaled by `font_scale_factor`.
 fn natural(control: &ResolvedControl, env: &LayoutEnv, width: Option<f64>) -> Option<[f64; 2]> {
     match control.control_type.as_deref() {
-        Some("image") => texture_path(control)
-            .and_then(|path| env.textures.texture(&path).map(|meta| meta.base_size)),
+        // An image sizes to its texture only when it opts in; otherwise a
+        // default axis fills the parent like any control.
+        Some("image")
+            if widgets::bound_bool(control, "default_size_scales_to_ratio") == Some(true) =>
+        {
+            texture_path(control)
+                .and_then(|path| env.textures.texture(&path).map(|meta| meta.base_size))
+        }
         Some("label") => {
             let scale = font_scale(control);
             let text = label_text(control);
@@ -680,9 +686,9 @@ fn axis_context(
 
 // --- property readers -------------------------------------------------------
 
-/// A control's size on `axis`. An omitted size is `default`: a label's text or
-/// an image's texture size, a stack panel's children along its axis, else the
-/// parent's full extent.
+/// A control's size on `axis`. An omitted size is `default`: a label's text
+/// size (an image's texture size with `default_size_scales_to_ratio`), a stack
+/// panel's children along its axis, else the parent's full extent.
 fn length(control: &ResolvedControl, axis: Axis) -> Length {
     let index = axis_index(axis);
     let explicit = match control.properties.get("size") {
