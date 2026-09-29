@@ -609,6 +609,8 @@ fn resolve_rig(
         anim_tick: 0,
         life_tick: 0,
         finished: (false, false),
+        bones: &[],
+        bone_names: &[],
     };
     let mut variables = layout.fresh(actor.runtime_id ^ actor.spawn_revision.rotate_left(32));
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
