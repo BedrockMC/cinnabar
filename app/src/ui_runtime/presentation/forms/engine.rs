@@ -42,10 +42,11 @@ pub(crate) struct FormEngine {
     /// Texture page of carrier atlas page 0.
     first_page: u16,
     context: Context,
-    /// Server-pack textures shadowing the carrier's, and how many pages follow
-    /// the carrier pages for them.
+    /// Server-pack textures shadowing the carrier's, the dynamic pages holding
+    /// them, and the texture page of the first of those.
     server: BTreeMap<String, ServerTexture>,
-    server_pages: usize,
+    pub(super) server_pages: Vec<render::UiTexturePage>,
+    server_page: u16,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
     /// The last form's bound tree and laid-out output, reused while unchanged.
@@ -98,7 +99,8 @@ impl FormEngine {
             first_page,
             context: Context::desktop(),
             server: BTreeMap::new(),
-            server_pages: 0,
+            server_pages: Vec::new(),
+            server_page: 0,
             server_source: None,
             cache: None,
             passes: [0; 2],
@@ -110,7 +112,7 @@ impl FormEngine {
             assets: &self.assets,
             server: &self.server,
             first_page: self.first_page,
-            server_page: self.server_page_start() as u16,
+            server_page: self.server_page,
         }
     }
 
@@ -135,29 +137,16 @@ impl FormEngine {
         }
     }
 
-    /// Texture page of the first server-pack page (right after the carrier's).
-    pub(super) fn server_page_start(&self) -> usize {
-        usize::from(self.first_page) + self.assets.atlas_pages().len()
-    }
-
-    pub(super) fn server_pages(&self) -> usize {
-        self.server_pages
-    }
-
-    /// The carrier page size server textures pack into.
-    pub(super) fn page_side(&self) -> [u32; 2] {
-        self.assets.atlas_pages().iter().fold([1, 1], |acc, page| {
-            [acc[0].max(page.width), acc[1].max(page.height)]
-        })
-    }
-
+    /// Install packed server textures living on the dynamic pages from `first`.
     pub(super) fn set_server_textures(
         &mut self,
         textures: BTreeMap<String, ServerTexture>,
-        pages: usize,
+        pages: Vec<render::UiTexturePage>,
+        first: u16,
     ) {
         self.server = textures;
         self.server_pages = pages;
+        self.server_page = first;
     }
 
     /// Re-apply a server resource pack's ui files over the vanilla catalog;
@@ -210,7 +199,7 @@ impl FormEngine {
             assets: &self.assets,
             server: &self.server,
             first_page: self.first_page,
-            server_page: (usize::from(self.first_page) + self.assets.atlas_pages().len()) as u16,
+            server_page: self.server_page,
         };
         let screen_cancel = json_ui::form_screen_cancel(&self.catalog);
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
