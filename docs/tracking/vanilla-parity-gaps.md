@@ -61,10 +61,11 @@ granularity needs measurement; text-to-speech disabled), pause, death, connectin
 (student view) and server settings (a form over the settings menu, not yet a settings
 section) draw from their vanilla screens; profile and first-run progress (it completes
 before the window opens) stay programmatic. Launcher screens sit on an opaque backdrop
-until the panorama is packed; the worlds tab mirrors `LocalWorlds` and opens the chosen
-world, but joining it (`take_ready`) and attaching the local-worlds core are unwired; the
-respawn request is exposed for the session to consume; the launcher control resource needs inserting
-where the launcher core serves `-control-status`.
+until the panorama is packed; a launcher run keeps one `-control-status` core (restarted
+on sign-in/sign-out) that feeds account, realms, friends and local worlds; joins select their
+target over `connect.v1` and fall back to a per-session core; opened local worlds are joined and
+closed with their session; respawn sends the client-ready respawn request only (no player
+action, per the reference); a dead launcher core is not detected until a join times out.
 
 ## Equipment / attachable rendering (Bedrock 3D target)
 T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane work now adds
