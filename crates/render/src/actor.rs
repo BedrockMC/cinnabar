@@ -218,6 +218,14 @@ impl ActorRenderScene {
         self.rig_builder.insert_geometry(geometry)
     }
 
+    /// Registers several geometries under one catalog rebuild; on error none is registered.
+    pub fn insert_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.rig_builder.insert_geometries(geometries)
+    }
+
     #[must_use]
     pub fn contains_geometry(&self, id: EntityRigId) -> bool {
         self.rig_builder.contains_geometry(id)
