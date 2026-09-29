@@ -20,9 +20,9 @@ const ENTITY: &str = r#"{"format_version":"1.26.0","minecraft:client_entity":{"d
  "geometry":{"default":"geometry.humanoid.custom","cape":"geometry.cape"},
  "scripts":{"scale":"0.9375",
   "initialize":["variable.is_holding_right = 0.0;"],
-  "pre_animation":["variable.tcos0 = (Math.cos(query.modified_distance_moved * 38.17) * query.modified_move_speed / variable.gliding_speed_value) * 57.3;"],
+  "pre_animation":["variable.tcos0 = (Math.cos(query.modified_distance_moved * 38.17) * query.modified_move_speed / variable.gliding_speed_value) * 57.3;","variable.first_person_rotation_factor = math.sin((1 - variable.attack_time) * 180.0);"],
   "animate":["root"]},
- "animations":{"root":"controller.animation.player.root","look":"controller.animation.humanoid.look_at_target","look_default":"animation.humanoid.look_at_target.default","legs":"animation.player.move.legs","attack":"animation.player.attack.rotations","sneak":"animation.player.sneaking","fp_base":"animation.player.first_person.base_pose","fp_swap":"animation.player.first_person.swap_item","unused":"controller.animation.player.base"},
+ "animations":{"root":"controller.animation.player.root","look":"controller.animation.humanoid.look_at_target","look_default":"animation.humanoid.look_at_target.default","legs":"animation.player.move.legs","attack":"animation.player.attack.rotations","sneak":"animation.player.sneaking","fp_base":"animation.player.first_person.base_pose","fp_swap":"animation.player.first_person.swap_item","fp_attack":"animation.player.first_person.attack_rotation","unused":"controller.animation.player.base"},
  "render_controllers":[{"controller.render.player.first_person":"variable.is_first_person"},{"controller.render.player.third_person":"!variable.is_first_person"}]}}}"#;
 
 const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.humanoid.custom","texture_width":64,"texture_height":64},"bones":[
@@ -43,11 +43,12 @@ const ANIMATIONS: &str = r#"{"format_version":"1.8.0","animations":{
  "animation.player.attack.rotations":{"loop":true,"bones":{"rightarm":{"rotation":["-math.sin(variable.attack_time * 180) * 30",0.0,0.0]}}},
  "animation.player.sneaking":{"loop":true,"bones":{"root":{"rotation":["28.0 - this",0.0,0.0]}}},
  "animation.player.first_person.base_pose":{"loop":true,"bones":{"body":{"rotation":["query.target_x_rotation","query.target_y_rotation",0.0]}}},
- "animation.player.first_person.swap_item":{"loop":true,"bones":{"rightarm":{"position":[0.0,"-10.0 * (1.0 - variable.player_arm_height)",0.0]}}}}}"#;
+ "animation.player.first_person.swap_item":{"loop":true,"bones":{"rightarm":{"position":[0.0,"-10.0 * (1.0 - variable.player_arm_height)",0.0]}}},
+ "animation.player.first_person.attack_rotation":{"loop":true,"bones":{"rightarm":{"rotation":["math.sin(variable.first_person_item_rotation_factor * (1.0 - variable.attack_time) * (1.0 - variable.attack_time) * 280.0) * -60.0",0.0,0.0]}}}}}"#;
 
 const CONTROLLERS: &str = r#"{"format_version":"1.10.0","animation_controllers":{
  "controller.animation.player.root":{"initial_state":"first_person","states":{
-  "first_person":{"animations":["fp_base","fp_swap"],"transitions":[{"third_person":"!variable.is_first_person"}]},
+  "first_person":{"animations":["fp_base","fp_swap",{"fp_attack":"variable.attack_time > 0.0"}],"transitions":[{"third_person":"!variable.is_first_person"}]},
   "third_person":{"animations":[{"look":"!query.is_sleeping && !query.is_emoting"},"legs",{"attack":"variable.attack_time > 0.0"},{"sneak":"query.is_sneaking"},{"missing_clip":"query.get_equipped_item_name == 'bow'"}],
    "transitions":[{"first_person":"variable.is_first_person"}]}}},
  "controller.animation.humanoid.look_at_target":{"initial_state":"default","states":{"default":{"animations":["look_default"]}}}}}"#;
@@ -546,4 +547,43 @@ fn malformed_skin_geometry_falls_back_to_the_default_model() {
     assert!(rig.skin_geometry.is_none());
     assert_eq!(rig.bone_names.len(), 7);
     assert_eq!(world.actor_animation_stats().invalid_skin_geometries, 1);
+}
+
+// The server never echoes the local player's own swing, so a local attack swings the local rig:
+// the first-person arm through the pack's attack rotation and the third-person arm alike.
+#[test]
+fn a_local_swing_animates_the_first_and_third_person_arm() {
+    let entities = entities();
+    for first_person in [true, false] {
+        let mut world = stream(Arc::clone(&entities));
+        let feed = LocalPlayerFeed {
+            first_person,
+            ..local_feed(None)
+        };
+        let arm = |world: &mut WorldStream| {
+            world.sync_local_player_pose(&feed);
+            world.advance_actor_interpolation_ticks(1);
+            bone_of(world, &entities, 1, "rightArm")
+        };
+        for _ in 0..3 {
+            arm(&mut world);
+        }
+        assert!(
+            !turned(arm(&mut world)),
+            "first person {first_person}: rests"
+        );
+        world.start_local_player_swing();
+        let swing = (0..3).map(|_| turned(arm(&mut world))).collect::<Vec<_>>();
+        assert!(
+            swing.contains(&true),
+            "first person {first_person}: {swing:?}"
+        );
+        for _ in 0..6 {
+            arm(&mut world);
+        }
+        assert!(
+            !turned(arm(&mut world)),
+            "first person {first_person}: settles"
+        );
+    }
 }

@@ -56,6 +56,10 @@ pub(super) struct EngineSlots {
     pub(super) player_x_rotation: Option<usize>,
     /// View-bobbing gate the first-person walk/breathing animations weigh against.
     pub(super) bob_animation: Option<usize>,
+    /// The first-person attack swing's factor, which the pinned pack reads but never assigns,
+    /// and the pack's own older name for it, which its `pre_animation` still computes.
+    pub(super) first_person_item_rotation_factor: Option<usize>,
+    pub(super) first_person_rotation_factor: Option<usize>,
     /// Equip progress that lowers the first-person arm while the held item swaps.
     pub(super) player_arm_height: Option<usize>,
     pub(super) swim_amount: Option<usize>,
@@ -125,6 +129,10 @@ impl VariableLayout {
                 is_first_person: slot("variable.is_first_person"),
                 player_x_rotation: slot("variable.player_x_rotation"),
                 bob_animation: slot("variable.bob_animation"),
+                first_person_item_rotation_factor: slot(
+                    "variable.first_person_item_rotation_factor",
+                ),
+                first_person_rotation_factor: slot("variable.first_person_rotation_factor"),
                 player_arm_height: slot("variable.player_arm_height"),
                 swim_amount: slot("variable.swim_amount"),
                 left_arm_swim_amount: slot("variable.left_arm_swim_amount"),
@@ -161,6 +169,19 @@ impl MolangVariables {
         if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
             *entry = Some(MolangValue::Number(value));
         }
+    }
+
+    pub(super) fn clear(&mut self, slot: Option<usize>) {
+        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
+            *entry = None;
+        }
+    }
+
+    pub(super) fn get(&self, slot: Option<usize>) -> Option<f32> {
+        self.values
+            .get(slot?)
+            .and_then(Option::as_ref)
+            .map(MolangValue::number)
     }
 
     pub(super) fn clear_temporaries(&mut self) {
