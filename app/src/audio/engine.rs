@@ -14,6 +14,8 @@ use super::{
 /// Concurrent voice ceiling; needs native measurement.
 pub(super) const MAX_VOICES: usize = 48;
 const MAX_QUEUED: usize = 256;
+/// Starts waiting on a decode, across frames.
+const MAX_PENDING: usize = 64;
 const MAX_SAME_SOUND: usize = 6;
 /// Audible radius of a positional sound without an explicit `max_distance`.
 const DEFAULT_MAX_DISTANCE: f32 = 16.0;
@@ -91,6 +93,7 @@ pub(crate) struct EngineStats {
     pub no_listener: u64,
     pub voice_limit: u64,
     pub queue_overflow: u64,
+    pub decode_backlog: u64,
     pub stale: u64,
     pub unrouted: u64,
     pub backend_failed: u64,
@@ -509,6 +512,18 @@ impl AudioEngine {
         let pcm = match self.bank.as_mut()?.lookup(&path, stream) {
             PcmLookup::Ready(pcm) => pcm,
             PcmLookup::Pending => {
+                // Unmanaged starts beyond the same-sound cap would be refused once ready.
+                let waiting = (self.pending.iter())
+                    .filter(|start| start.managed.is_none() && start.path == path)
+                    .count();
+                if managed.is_none() && waiting >= MAX_SAME_SOUND {
+                    self.stats.voice_limit += 1;
+                    return None;
+                }
+                if self.pending.len() >= MAX_PENDING {
+                    self.stats.queue_overflow += 1;
+                    return None;
+                }
                 self.pending.push(PendingStart {
                     request: request.clone(),
                     managed,
@@ -518,6 +533,10 @@ impl AudioEngine {
                     patient: managed.is_some() || stream,
                     queued_at: self.clock,
                 });
+                return None;
+            }
+            PcmLookup::Busy => {
+                self.stats.decode_backlog += 1;
                 return None;
             }
             PcmLookup::Failed => {
@@ -702,6 +721,20 @@ mod tests {
             1,
             "decoded once, then cached"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    // A burst of starts for one still-decoding sound must not queue without bound.
+    #[test]
+    fn pending_starts_are_coalesced_and_bounded() {
+        let (mut engine, path) = engine_with_encoded("random.burst", "player");
+        let settings = AudioSettings::default();
+        for _ in 0..MAX_QUEUED {
+            engine.enqueue(SoundRequest::new("random.burst"));
+        }
+        engine.pump(None, 0.0, &settings);
+        assert!(engine.pending.len() <= MAX_SAME_SOUND);
+        assert!(engine.stats.voice_limit > 0);
         let _ = std::fs::remove_file(path);
     }
 
