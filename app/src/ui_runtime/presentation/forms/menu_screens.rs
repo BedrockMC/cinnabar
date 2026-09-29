@@ -6,9 +6,10 @@
 
 use std::sync::Arc;
 
-use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
+use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
+use super::play_screen;
 use crate::menu::{
     MenuAction, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
 };
@@ -128,7 +129,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 "start.start_screen"
             }
             MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-                play_screen(view, &mut data);
+                super::play_screen::bind(view, &mut data);
                 "play.play_screen"
             }
             MenuScreen::AddServer => {
@@ -154,8 +155,19 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
 }
 
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
-    data.set_global("#playername", text(view.display_name.clone()));
-    data.set_global("#gamertag_label", text(view.display_name.clone()));
+    let profile = &view.feeds.profile;
+    let gamertag = if profile.gamertag.is_empty() {
+        view.display_name.clone()
+    } else {
+        profile.gamertag.clone()
+    };
+    data.set_global("#playername", text(gamertag.clone()));
+    data.set_global("#gamertag_label", text(gamertag));
+    data.set_global(
+        "#show_gamerpic",
+        Scalar::Bool(!profile.picture_path.is_empty()),
+    );
+    flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
     data.set_global("#version", text("v1.26.30"));
     flags(
         data,
@@ -173,80 +185,6 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
         AuthState::Authenticated => flags(data, &["#gamertag_pic_and_label_visible"]),
         AuthState::AwaitingCode { .. } => {}
     }
-}
-
-fn play_screen(view: &MenuView, data: &mut DataSource) {
-    let tab = match view.screen {
-        MenuScreen::Social => 1,
-        MenuScreen::Servers => 2,
-        _ => 0,
-    };
-    data.select_radio("navigation_tab", tab);
-    flags(
-        data,
-        &[
-            "#is_network_available_and_multiplayer_visible",
-            "#friends_grid_visible",
-            "#servers_grid_visible",
-            "#featured_servers_visible",
-            "#realms_grids_visible",
-            "#personal_realms_grid_visible",
-            "#local_worlds_visible",
-            "#is_additional_server_label_visible",
-        ],
-    );
-    let worlds = view
-        .local_worlds
-        .iter()
-        .map(|world| {
-            CollectionItem::default()
-                .with("#local_world_name", text(world.name.clone()))
-                .with("#local_world_game_mode", text(world.game_mode.clone()))
-                .with("#local_world_date", text(world.date.clone()))
-                .with("#local_worldfile_size", text(world.size.clone()))
-        })
-        .collect::<Vec<_>>();
-    data.set_global("#world_item_count", text(worlds.len().to_string()));
-    data.set_collection("local_worlds", worlds);
-    let network = |header: &str, details: &str, players: &str| {
-        CollectionItem::default()
-            .with("#network_world_header", text(header))
-            .with("#network_world_details", text(details))
-            .with("#network_world_player_count", text(players))
-            .with("#network_world_button_enabled", Scalar::Bool(true))
-            .with("#game_online", Scalar::Bool(true))
-    };
-    let friends = view
-        .friends
-        .iter()
-        .map(|friend| network(&friend.world_name, &friend.gamertag, &friend.members))
-        .collect::<Vec<_>>();
-    data.set_global("#friend_world_item_count", text(friends.len().to_string()));
-    data.set_collection("friends_network_worlds", friends);
-    let saved = view
-        .servers
-        .iter()
-        .map(|server| network(&server.name, &server.address, ""))
-        .collect::<Vec<_>>();
-    data.set_global("#server_world_item_count", text(saved.len().to_string()));
-    data.set_collection("servers_network_worlds", saved);
-    let featured = view
-        .featured
-        .iter()
-        .map(|server| network(&server.name, &server.caption, ""))
-        .collect();
-    data.set_collection("third_party_server_network_worlds", featured);
-    let realms = view
-        .realms
-        .iter()
-        .map(|realm| {
-            CollectionItem::default()
-                .with("#realms_world_header", text(realm.name.clone()))
-                .with("#realms_world_details", text(realm.state.clone()))
-                .with("#realms_world_player_count", text(""))
-        })
-        .collect();
-    data.set_collection("personal_realms", realms);
 }
 
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
@@ -359,17 +297,16 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.menu_network_world_item" => match collection? {
             "friends_network_worlds" => MenuAction::PlayFriend(index?),
             "servers_network_worlds" => MenuAction::PlaySaved(index?),
-            "third_party_server_network_worlds" => MenuAction::PlayFeatured(index?),
-            _ => return None,
+            _ => return play_screen::featured_action(view, region),
         },
         "button.menu_network_server_item" | "button.connect_to_third_party_server" => {
             match collection {
                 Some("servers_network_worlds") => MenuAction::PlaySaved(index?),
-                _ => MenuAction::PlayFeatured(index?),
+                _ => return play_screen::featured_action(view, region),
             }
         }
         "button.menu_network_server_world_edit" => MenuAction::EditSaved(index?),
-        "button.menu_start_realms_world" => MenuAction::PlayRealm(index?),
+        "button.menu_start_realms_world" => return play_screen::realm_action(view, region),
         "button.menu_start_local_world" => MenuAction::PlayLocalWorld(index?),
         _ => return None,
     })
@@ -388,9 +325,12 @@ fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
         "server_navigation_toggle" if region.key.contains("add_server") => {
             Some(MenuAction::PlayAddServer)
         }
+        "server_navigation_toggle" if play_screen::is_featured(region) => {
+            Some(MenuAction::SelectFeatured(region.collection_index?))
+        }
         "server_navigation_toggle" => match region.collection.as_deref()? {
             "servers_network_worlds" => Some(MenuAction::PlaySaved(region.collection_index?)),
-            _ => Some(MenuAction::PlayFeatured(region.collection_index?)),
+            _ => None,
         },
         _ => None,
     }
