@@ -220,12 +220,31 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
             false,
         ),
         step(
+            "Compiling sound bank",
+            assetc(
+                "audio-bank",
+                vec![
+                    ("pack", pack.clone()),
+                    ("out", out("vanilla-v1.mcbesnd")),
+                    ("report", out("audio-bank.json")),
+                ],
+            ),
+            false,
+        ),
+        step(
             "Compiling equipment assets",
-            pack_step(
+            assetc(
                 "equipment-assets",
-                VANILLA_MANIFEST,
-                "vanilla-v1.mcbeeqp",
-                "equipment-assets.json",
+                vec![
+                    ("pack", pack.clone()),
+                    ("source-manifest", VANILLA_MANIFEST.to_owned()),
+                    ("out", out("vanilla-v1.mcbeeqp")),
+                    ("report", out("equipment-assets.json")),
+                    (
+                        "behavior-pack",
+                        format!("{}/behavior_pack", vanilla.cache_dir),
+                    ),
+                ],
             ),
             false,
         ),
