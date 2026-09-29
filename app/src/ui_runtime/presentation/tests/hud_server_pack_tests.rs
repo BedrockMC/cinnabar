@@ -179,3 +179,49 @@ fn server_packs_restyle_the_engine_hud() {
         }
     }
 }
+
+/// Local diagnosis: every painted node of the HUD under the pack stack
+/// `CINNABAR_HUD_PACK_STACK` names (`:`-separated layers, lowest first).
+#[test]
+fn server_pack_stack_hud_dump() {
+    let Ok(stack) = std::env::var("CINNABAR_HUD_PACK_STACK") else {
+        return;
+    };
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    presentation.set_server_ui_pack(&dir_pack(&stack));
+    let runtime = session("Objective");
+    for now in [500, 516] {
+        presentation
+            .build(&runtime, now, [1920, 1080], DpiScale::new(1.0).unwrap())
+            .unwrap();
+    }
+    for node in presentation.hud_draw_nodes() {
+        if node.alpha <= 0.0 {
+            continue;
+        }
+        eprintln!(
+            "{:40} {:34} {:7.1} {:7.1} {:6.1} {:6.1} {:?}",
+            node.name,
+            node.key
+                .chars()
+                .rev()
+                .take(34)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>(),
+            node.dest.x,
+            node.dest.y,
+            node.dest.w,
+            node.dest.h,
+            match &node.draw {
+                Draw::Sprite { texture, .. } => texture.clone(),
+                Draw::Text { text, .. } => format!("text {text:?}"),
+                Draw::Custom { renderer, .. } => format!("custom {renderer}"),
+                Draw::Solid { color } => format!("solid {color:?}"),
+            }
+        );
+    }
+}
