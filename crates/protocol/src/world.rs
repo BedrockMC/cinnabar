@@ -37,6 +37,7 @@ use crate::{
     },
 };
 
+mod block_side;
 mod custom_blocks;
 mod events;
 mod game_mode;
