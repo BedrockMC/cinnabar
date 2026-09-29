@@ -263,6 +263,7 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
             visual: item::ItemVisualId(0),
         }]
         .into_boxed_slice(),
+        render: Default::default(),
     }
 }
 

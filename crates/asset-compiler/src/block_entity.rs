@@ -123,7 +123,7 @@ pub fn compile_block_entity_assets(
     if decoded.len() > MAX_BLOCK_ENTITY_PLACEMENTS {
         return Err(invalid("too many block-entity textures"));
     }
-    let (width, height, rgba8, placements) = pack(decoded)?;
+    let (width, height, rgba8, placements) = pack_atlas(decoded)?;
     let bytes = encode_block_entity_catalog(source_manifest, width, height, &rgba8, &placements)?;
     Ok(CompiledBlockEntityCarrier {
         report: BlockEntityCompileReport {
@@ -290,7 +290,7 @@ fn decode(path: &Path, name: &str) -> Result<Outcome, AssetError> {
 }
 
 /// Shelf-packs textures tallest first into a fixed-width atlas.
-fn pack(
+fn pack_atlas(
     mut textures: Vec<(String, Texture)>,
 ) -> Result<(u32, u32, Vec<u8>, Vec<BlockEntityPlacement>), AssetError> {
     textures.sort_by(|left, right| {

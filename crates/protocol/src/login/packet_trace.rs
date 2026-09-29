@@ -13,10 +13,10 @@ pub struct PacketIdTraceSnapshot {
 #[derive(Default)]
 pub(super) struct PacketIdTraceState {
     pub(super) started_at: Option<std::time::Instant>,
-    packet_ids: Vec<u32>,
-    recorded: usize,
-    overflow: u64,
-    timed_out: bool,
+    pub(super) packet_ids: Vec<u32>,
+    pub(super) recorded: usize,
+    pub(super) overflow: u64,
+    pub(super) timed_out: bool,
 }
 
 impl PacketIdTraceState {

@@ -146,10 +146,10 @@ impl Catalog {
         self.load_text(entry, &text);
     }
 
-    /// Layers one pack `ui/*.json` file over the catalog; controls it defines
-    /// replace earlier ones. Bad files are recorded in diagnostics and skipped.
+    /// Layers one pack `ui/*.json` file over the catalog with pack merge
+    /// semantics. Bad files are recorded in diagnostics and skipped.
     pub fn overlay_text(&mut self, entry: &str, text: &str) {
-        self.load_text(entry, text);
+        self.merge_overlay_file(entry, text);
     }
 
     /// Layers a pack's `_global_variables.json`; its variables replace earlier ones.

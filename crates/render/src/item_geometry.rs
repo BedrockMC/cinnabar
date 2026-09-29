@@ -47,13 +47,14 @@ pub fn extruded_sprite_vertices(
     let mut vertices = Vec::new();
     let (x0, x1) = (x_at(0), x_at(width));
     let (y0, y1) = (y_at(height), y_at(0));
-    for (z, normal) in [
-        (half_depth, [0.0, 0.0, 1.0]),
-        (-half_depth, [0.0, 0.0, -1.0]),
+    let upright = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]].map(to_region);
+    let mirrored = [[1.0, 1.0], [0.0, 1.0], [0.0, 0.0], [1.0, 0.0]].map(to_region);
+    for (z, normal, uvs, back_uvs) in [
+        (half_depth, [0.0, 0.0, 1.0], upright, mirrored),
+        (-half_depth, [0.0, 0.0, -1.0], mirrored, upright),
     ] {
         let corners = [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]];
-        let uvs = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]].map(to_region);
-        push_quad(&mut vertices, corners, uvs, normal);
+        push_quad(&mut vertices, corners, uvs, back_uvs, normal);
     }
     for row in 0..height {
         for column in 0..width {

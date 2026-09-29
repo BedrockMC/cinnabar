@@ -183,10 +183,10 @@ mod tests {
     #[test]
     fn button_mode_actions_keep_their_action_indexes() {
         let json = r#"[{"button_name":"Shop","mode":0},{"button_name":"","mode":1},{"button_name":"Quest"}]"#;
-        let buttons = buttons(json).unwrap();
-        assert_eq!(buttons.len(), 2);
-        assert_eq!(buttons[1].text.as_ref(), "Quest");
-        assert_eq!(buttons[1].action_index, 2);
+        let parsed = buttons(json).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[1].text.as_ref(), "Quest");
+        assert_eq!(parsed[1].action_index, 2);
         assert!(buttons("").unwrap().is_empty());
         assert_eq!(buttons("{}"), Err(UnsupportedForm::Controls));
     }
