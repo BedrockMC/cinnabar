@@ -610,6 +610,14 @@ impl UiRuntime {
         self.session_icons.as_ref()
     }
 
+    pub(crate) fn set_server_ui(&mut self, pack: Option<Arc<super::presentation::ServerUiPack>>) {
+        self.server_ui = pack;
+    }
+
+    pub(crate) fn server_ui(&self) -> Option<&Arc<super::presentation::ServerUiPack>> {
+        self.server_ui.as_ref()
+    }
+
     pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {
         self.server_lang
             .as_ref()

@@ -8,16 +8,19 @@ mod menu_screens;
 mod menus;
 mod model;
 mod npc;
+#[cfg(test)]
+pub(crate) mod pack_harness;
 mod pages;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
 pub(crate) use containers::engine_panel_contains;
+pub(crate) use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
@@ -38,6 +41,8 @@ pub(super) struct FormPresentation {
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
+    /// The form whose render path was last logged, so each form logs once.
+    logged: Option<ServerFormIdentity>,
 }
 
 impl UiPresentationRuntime {
@@ -64,19 +69,15 @@ impl UiPresentationRuntime {
         Ok(())
     }
 
-    /// Overlay a joined server's resource pack (pack-relative paths): its
-    /// `ui/*.json` merge over the vanilla catalog and its `textures/**` images
-    /// shadow the carrier's. An empty set restores vanilla.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "fed once server resource-pack application lands")
-    )]
-    pub(crate) fn set_server_ui_pack(&mut self, files: &[(String, Vec<u8>)]) {
+    /// Overlay a joined server's resource-pack UI: its `ui/*.json` merge over the
+    /// vanilla catalog layer by layer and its `textures/**` images shadow the
+    /// carrier's. An empty pack restores vanilla.
+    pub(crate) fn set_server_ui_pack(&mut self, pack: &ServerUiPack) {
         let Some(engine) = self.form_presentation.engine.as_mut() else {
             return;
         };
-        engine.set_server_pack(files);
-        let packed = server_pack::pack(files, engine.page_side());
+        engine.set_server_pack(&pack.ui_layers);
+        let packed = server_pack::pack(&pack.textures, engine.page_side());
         let start = engine.server_page_start();
         let old = engine.server_pages();
         let dynamic_start = self.textures.dynamic_start();
@@ -87,17 +88,38 @@ impl UiPresentationRuntime {
         let Ok(textures) = render::UiRenderTextureArray::with_source_identity(
             pages,
             dynamic_start - old + added,
-            server_pack_identity(self.textures.static_identity(), files),
+            server_pack_identity(self.textures.static_identity(), pack),
         ) else {
             engine.set_server_textures(Default::default(), old);
             return;
         };
+        bevy::log::info!(
+            layers = pack.ui_layers.len(),
+            ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),
+            textures = packed.textures.len(),
+            pages = added,
+            "server resource-pack UI applied to the form engine"
+        );
         engine.set_server_textures(packed.textures, added);
         self.textures = Arc::new(textures);
         // Dynamic pages moved; their references rebuild from the new start.
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
+    }
+
+    /// Applies the runtime's server UI pack when it changes identity.
+    pub(super) fn observe_server_ui(&mut self, pack: Option<&Arc<ServerUiPack>>) {
+        let Some(engine) = self.form_presentation.engine.as_mut() else {
+            return;
+        };
+        if !engine.take_server_source(pack) {
+            return;
+        }
+        match pack {
+            Some(pack) => self.set_server_ui_pack(&Arc::clone(pack)),
+            None => self.set_server_ui_pack(&ServerUiPack::default()),
+        }
     }
 
     /// The engine frame for `identity`, when the engine drew that form.
@@ -167,9 +189,11 @@ impl UiPresentationRuntime {
         let engine = self.form_presentation.engine.take();
         let previous_container = self.form_presentation.container.take();
         let menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
+        let logged = self.form_presentation.logged;
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
+            logged,
             ..FormPresentation::default()
         };
         // Server settings draw over the settings menu; other forms wait it out.
@@ -206,49 +230,87 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
-        if let Some(renderer) = self.form_presentation.engine.as_deref() {
-            let translate = |key: &str| runtime.translation(key);
-            let state = runtime.server_forms().engine();
-            if let Some(form) = model::engine_model(&entry.model, state, &translate) {
-                let rollback = (nodes.len(), *next);
-                let inputs = engine::EngineInputs {
-                    layouts: &mut self.layouts,
-                    font: &self.font,
-                    metrics,
-                    solid_page: self.solid_texture_page,
-                    safe_area: self.safe_area,
-                    content: [width, height],
-                    translate: &translate,
-                };
-                let out = engine::EngineOutput {
-                    nodes: &mut *nodes,
-                    next: &mut *next,
-                    overlay: &[],
-                };
-                match renderer.render(&form, &state.view, entry.identity, inputs, out) {
-                    Ok(Some(frame)) => {
-                        self.form_presentation.frame = Some(frame);
-                        return Ok(());
-                    }
-                    // A missing template or a node the tree rejects falls back
-                    // to the programmatic dialog rather than a blank screen.
-                    Ok(None) | Err(_) => {
-                        nodes.truncate(rollback.0);
-                        *next = rollback.1;
+        let reason = match self.form_presentation.engine.as_deref_mut() {
+            None => "JSON-UI carrier not loaded".to_owned(),
+            Some(renderer) => {
+                let translate = |key: &str| runtime.translation(key);
+                let state = runtime.server_forms().engine();
+                match model::engine_model(&entry.model, state, &translate) {
+                    None => "form kind has no engine template".to_owned(),
+                    Some(form) => {
+                        let rollback = (nodes.len(), *next);
+                        let inputs = engine::EngineInputs {
+                            layouts: &mut self.layouts,
+                            font: &self.font,
+                            metrics,
+                            solid_page: self.solid_texture_page,
+                            safe_area: self.safe_area,
+                            content: [width, height],
+                            translate: &translate,
+                        };
+                        let out = engine::EngineOutput {
+                            nodes: &mut *nodes,
+                            next: &mut *next,
+                            overlay: &[],
+                        };
+                        let catalog = renderer.catalog_label();
+                        match renderer.render(&form, &state.view, entry.identity, inputs, out) {
+                            Ok(Some(frame)) => {
+                                self.form_presentation.frame = Some(frame);
+                                log_path(
+                                    &mut self.form_presentation.logged,
+                                    entry.identity,
+                                    "engine",
+                                    &catalog,
+                                );
+                                return Ok(());
+                            }
+                            // A missing template or a node the tree rejects falls
+                            // back to the programmatic dialog, not a blank screen.
+                            Ok(None) => {
+                                nodes.truncate(rollback.0);
+                                *next = rollback.1;
+                                format!("template did not resolve ({catalog})")
+                            }
+                            Err(error) => {
+                                nodes.truncate(rollback.0);
+                                *next = rollback.1;
+                                format!("engine output rejected: {error}")
+                            }
+                        }
                     }
                 }
             }
-        }
+        };
+        log_path(
+            &mut self.form_presentation.logged,
+            entry.identity,
+            "fallback",
+            &reason,
+        );
         self.append_fallback_form(runtime, nodes, next, metrics, width, height)
     }
 }
 
-fn server_pack_identity(base: [u8; 32], files: &[(String, Vec<u8>)]) -> [u8; 32] {
+/// Logs which path draws `identity`, once per form.
+fn log_path(
+    logged: &mut Option<ServerFormIdentity>,
+    identity: ServerFormIdentity,
+    path: &str,
+    reason: &str,
+) {
+    if *logged != Some(identity) {
+        *logged = Some(identity);
+        bevy::log::info!(?identity, path, reason, "server form render path");
+    }
+}
+
+fn server_pack_identity(base: [u8; 32], pack: &ServerUiPack) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
     digest.update(b"ui-server-pack-v1");
     digest.update(base);
-    for (path, bytes) in files {
+    for (path, bytes) in &pack.textures {
         digest.update(path.as_bytes());
         digest.update(Sha256::digest(bytes));
     }

@@ -30,10 +30,10 @@ impl UiPresentationRuntime {
         let left = (width - panel_width) * 0.5;
         let top = (height - panel_height) * 0.5;
         let text_width = panel_width - 32.0;
-        let row_height =
-            (metrics.line_height_64 as f32 / 64.0 * metrics.scale.get() + 20.0).max(44.0);
+        let line_height = metrics.line_height_64 as f32 / 64.0 * metrics.scale.get();
+        let base_row = (line_height + 20.0).max(44.0);
         let list_top = top + 64.0;
-        let list_height = (panel_height - 80.0 - row_height).max(1.0);
+        let list_height = (panel_height - 80.0 - base_row).max(1.0);
         let list_bottom = list_top + list_height;
         let modal_buttons;
         let element_buttons: Vec<Arc<str>>;
@@ -70,6 +70,21 @@ impl UiPresentationRuntime {
                 &[],
             ),
         };
+        // Rows grow to the tallest multi-line label; empty lines drop, as a
+        // vanilla label discards them.
+        let label_lines = |label: &str| {
+            label
+                .split('\n')
+                .filter(|line| !line.is_empty())
+                .count()
+                .clamp(1, MAX_LABEL_LINES)
+        };
+        let lines = buttons
+            .iter()
+            .map(|label| label_lines(label))
+            .max()
+            .unwrap_or(1);
+        let row_height = (line_height * lines as f32 + 20.0).max(44.0);
         let notice = match &entry.model {
             ServerFormModel::TextMenu(menu) if menu.omitted_images > 0 => Some(format!(
                 "{} button images omitted. Text-only buttons.",
@@ -220,16 +235,23 @@ impl UiPresentationRuntime {
                 ),
             );
             *next = next.saturating_add(1);
-            let label_layout = fit_line(self, metrics, label, (text_width - 24.0).max(1.0))?;
-            text(
-                nodes,
-                next,
-                list_clip,
-                label_layout,
-                metrics,
-                rect(12.0, y + 10.0, text_width - 12.0, y + row_height - 8.0)?,
-                [239, 243, 247, 255],
-            );
+            let mut carry = String::new();
+            let label_lines = label.split('\n').filter(|line| !line.is_empty());
+            for (row, line) in label_lines.take(MAX_LABEL_LINES).enumerate() {
+                let source = format!("{carry}{line}");
+                carry = super::engine::active_codes(&source);
+                let layout = fit_line(self, metrics, &source, (text_width - 24.0).max(1.0))?;
+                let top = y + 10.0 + row as f32 * line_height;
+                text(
+                    nodes,
+                    next,
+                    list_clip,
+                    layout,
+                    metrics,
+                    rect(12.0, top, text_width - 12.0, top + line_height)?,
+                    [239, 243, 247, 255],
+                );
+            }
             // Only whole visible controls are actionable, never cropped rows.
             if y >= 0.0 && y + row_height - 6.0 <= list_height {
                 state.hits.push((
@@ -247,12 +269,12 @@ impl UiPresentationRuntime {
             }
         }
         state.offsets.push(scroll); // fixed cancel never needs list movement
-        let cancel_top = top + panel_height - row_height - 12.0;
+        let cancel_top = top + panel_height - base_row - 12.0;
         let cancel = rect(
             left + 16.0,
             cancel_top,
             left + panel_width - 16.0,
-            cancel_top + row_height - 6.0,
+            cancel_top + base_row - 6.0,
         )?;
         solid(
             nodes,
@@ -273,7 +295,7 @@ impl UiPresentationRuntime {
             cancel_clip,
             cancel_layout,
             metrics,
-            rect(12.0, 10.0, text_width - 12.0, row_height - 8.0)?,
+            rect(12.0, 10.0, text_width - 12.0, base_row - 8.0)?,
             [239, 243, 247, 255],
         );
         state.hits.push((
@@ -283,10 +305,14 @@ impl UiPresentationRuntime {
         state.engine = self.form_presentation.engine.take();
         state.container = self.form_presentation.container.take();
         state.menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
+        state.logged = self.form_presentation.logged;
         self.form_presentation = state;
         Ok(())
     }
 }
+
+/// Most lines a fallback button label shows.
+const MAX_LABEL_LINES: usize = 4;
 
 pub(super) fn fit_line(
     presentation: &mut UiPresentationRuntime,
