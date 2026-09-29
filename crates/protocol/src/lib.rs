@@ -62,14 +62,15 @@ pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
-    destroy_block_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    destroy_block_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
+    use_actor_packet,
+};
+pub use inventory::recipes::{
+    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle,
+    RecipeIngredientView, RecipeOutput, RecipeUpdate, decode_recipe_update, match_crafting_grid,
 };
 pub use inventory::recipes::{
     MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
-};
-pub use inventory::recipes::{
-    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeIngredientView, RecipeOutput,
-    RecipeUpdate, decode_recipe_update, match_crafting_grid,
 };
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
@@ -78,41 +79,40 @@ pub use inventory::{
     is_personal_ui_inventory,
 };
 pub use inventory::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
+    lectern_update_packet,
+};
+pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
-    CONTAINER_NAME_LEVEL_ENTITY,
-    CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent, ContainerDataEvent,
-    ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
-    InventoryEvent, InventoryPacketError, InventorySlotEvent, ItemStackResponseEvent,
-    MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS,
-    MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, OFFHAND_WINDOW_ID, PLAYER_INVENTORY_SLOTS,
-    PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity, StackRequestAction,
-    StackRequestContainer, StackRequestSlot, StackResponse, StackResponseContainer,
-    StackResponseSlot, StackResponseStatus, VerifiedNetworkItemStack, container_close_packet,
-    item_stack_request_packet, item_stack_request_packet_filtered, normalize_authority,
-    normalize_container_close, normalize_container_data, normalize_container_open,
-    normalize_content, normalize_hotbar, normalize_response, normalize_slot, open_inventory_packet,
-    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
-    validate_item_nbt_size,
+    CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
+    ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, InventoryAuthority,
+    InventoryContentEvent, InventoryEvent, InventoryPacketError, InventorySlotEvent,
+    ItemStackResponseEvent, MAX_CONTAINER_SLOTS, MAX_FILTER_STRINGS, MAX_ITEM_NBT_BYTES,
+    MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES, MAX_STACK_RESPONSES, OFFHAND_WINDOW_ID,
+    PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
+    StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus, VerifiedNetworkItemStack,
+    container_close_packet, item_stack_request_packet, item_stack_request_packet_filtered,
+    normalize_authority, normalize_container_close, normalize_container_data,
+    normalize_container_open, normalize_content, normalize_hotbar, normalize_response,
+    normalize_slot, open_inventory_packet, personal_craft_content_indices,
+    personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
 };
 pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
     MAX_CREATIVE_ITEMS,
 };
 pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
-    lectern_update_packet,
-};
-pub use inventory::{
     EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, OpenCells, UI_SLOT_COUNT,
     WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
     WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER,
     WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE,
-    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE,
-    WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment,
-    is_chest_like_name, is_open_window_name, is_result_preview_name, normalize_enchant_options,
-    open_cell_request, open_name_first_cell, ui_slot_container_name, ui_slot_for_name,
-    ui_slot_request_container,
+    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM,
+    WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH,
+    WindowKind, WindowSegment, is_chest_like_name, is_open_window_name, is_result_preview_name,
+    normalize_enchant_options, open_cell_request, open_name_first_cell, ui_slot_container_name,
+    ui_slot_for_name, ui_slot_request_container,
 };
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
@@ -128,8 +128,8 @@ pub use item::{
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemDisplay, ItemPacketError, ItemRegistryEntry,
     ItemRegistryEvent, ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, item_book, item_bundle_id, item_charged_projectile, item_custom_color, item_display,
-    item_enchantment_level, item_extra_damage, item_icon_keys, item_stack_damage,
+    NetworkItemStack, item_book, item_bundle_id, item_charged_projectile, item_custom_color,
+    item_display, item_enchantment_level, item_extra_damage, item_icon_keys, item_stack_damage,
     select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::vanilla_item_capacity;

@@ -739,6 +739,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir: layout.screenshots_dir(),
     });
+    if !connection_requested {
+        app.init_resource::<crate::menu::LauncherCoreSlot>();
+    }
     app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
         present_mode_policy,
     ));
