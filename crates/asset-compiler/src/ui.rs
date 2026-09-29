@@ -3,8 +3,9 @@
 //! the raw `ui/*.json` catalog verbatim into the hash-pinned UI carrier.
 //!
 //! Textures wider or taller than [`MAX_UI_TEXTURE_SIDE`] (full-screen art,
-//! panoramas, animation strips) are not form sprites and are skipped and
-//! counted, mirroring the icon compiler's bounded-source policy. The raw ui
+//! animation strips) are not form sprites and are skipped and counted,
+//! mirroring the icon compiler's bounded-source policy. The six menu panorama
+//! faces are the exception: they are packed downscaled to [`PANORAMA_SIDE`]. The raw ui
 //! json is kept unresolved because a joined server pack overrides it at runtime.
 
 use std::{
@@ -31,6 +32,11 @@ const MAX_UI_SIDECAR_BYTES: usize = 64 * 1024;
 /// Atlas page width, and the maximum shelf height before spilling to a new page.
 const PAGE_SIDE: u32 = 2048;
 const GUTTER: u32 = 1;
+/// Side the menu panorama faces are packed at.
+const PANORAMA_SIDE: u32 = 512;
+/// Source-byte and decoded-side caps for a panorama face.
+const MAX_PANORAMA_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PANORAMA_SOURCE_SIDE: u32 = 2048;
 /// Bounds the recursive walk so a pathological tree cannot exhaust memory.
 const MAX_WALK_ENTRIES: usize = 200_000;
 
@@ -151,7 +157,13 @@ fn read_textures(pack: &Path, png_paths: &[String]) -> Result<TextureSet, AssetE
     let mut undecodable = 0usize;
     for relative in png_paths {
         let path = pack.join(relative);
-        match decode_ui_texture(&path, strip_extension(relative))? {
+        let logical = strip_extension(relative);
+        let outcome = if is_panorama_face(logical) {
+            decode_panorama_face(&path, logical)?
+        } else {
+            decode_ui_texture(&path, logical)?
+        };
+        match outcome {
             TextureOutcome::Packed(texture) => textures.push(texture),
             TextureOutcome::Oversized => oversized += 1,
             TextureOutcome::Undecodable => undecodable += 1,
@@ -205,6 +217,40 @@ fn decode_ui_texture(path: &Path, logical: &str) -> Result<TextureOutcome, Asset
         width: dimensions.0,
         height: dimensions.1,
         rgba8: decoded.into_rgba8().into_raw().into_boxed_slice(),
+    }))
+}
+
+fn is_panorama_face(logical: &str) -> bool {
+    logical
+        .strip_prefix("textures/ui/panorama_")
+        .is_some_and(|face| matches!(face, "0" | "1" | "2" | "3" | "4" | "5"))
+}
+
+/// Decode one panorama face and downscale it to [`PANORAMA_SIDE`].
+fn decode_panorama_face(path: &Path, logical: &str) -> Result<TextureOutcome, AssetError> {
+    let Some(bytes) = read_bounded(path, MAX_PANORAMA_SOURCE_BYTES)? else {
+        return Ok(TextureOutcome::Oversized);
+    };
+    let mut reader = ImageReader::with_format(Cursor::new(&bytes), ImageFormat::Png);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_PANORAMA_SOURCE_SIDE);
+    limits.max_image_height = Some(MAX_PANORAMA_SOURCE_SIDE);
+    limits.max_alloc = Some(u64::from(MAX_PANORAMA_SOURCE_SIDE).pow(2) * 4);
+    reader.limits(limits);
+    let Ok(decoded) = reader.decode() else {
+        return Ok(TextureOutcome::Undecodable);
+    };
+    let face = ::image::imageops::resize(
+        &decoded.into_rgba8(),
+        PANORAMA_SIDE,
+        PANORAMA_SIDE,
+        ::image::imageops::FilterType::Triangle,
+    );
+    Ok(TextureOutcome::Packed(DecodedUiTexture {
+        path: logical.to_owned(),
+        width: PANORAMA_SIDE,
+        height: PANORAMA_SIDE,
+        rgba8: face.into_raw().into_boxed_slice(),
     }))
 }
 
@@ -584,5 +630,23 @@ mod tests {
         // Placement pixels land where the atlas says they do.
         let uv = assets.texture_uv("textures/ui/button").unwrap();
         assert!(uv.u1 <= 1.0 && uv.v1 <= 1.0);
+    }
+
+    #[test]
+    fn panorama_faces_are_packed_downscaled() {
+        let pack = synthetic_pack();
+        write(
+            pack.path(),
+            "textures/ui/panorama_0.png",
+            &png(1024, 1024, [40, 80, 120, 255]),
+        );
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        assert_eq!(compiled.report.textures_packed, 3);
+        let assets = decode_ui_carrier(&compiled.bytes).unwrap();
+        let face = assets.texture("textures/ui/panorama_0").unwrap();
+        assert_eq!(
+            (face.width, face.height),
+            (PANORAMA_SIDE as u16, PANORAMA_SIDE as u16)
+        );
     }
 }
