@@ -49,6 +49,18 @@ impl UiRuntime {
         }
     }
 
+    /// Adds a client-generated system line that consumes no server sequence.
+    pub(crate) fn push_local_chat_line(&mut self, message: Arc<str>, now_millis: u64) {
+        let _ = self.chat.push_local(ChatMessage {
+            fifo_sequence: 0,
+            received_millis: now_millis,
+            kind: ChatMessageKind::System,
+            source: None,
+            message,
+            parameters: Arc::from([]),
+        });
+    }
+
     pub(super) fn apply_command_output(
         &mut self,
         event: CommandOutputEvent,

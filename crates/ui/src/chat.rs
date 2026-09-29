@@ -774,6 +774,21 @@ impl ChatStore {
         {
             return ChatApplyResult::RejectedStaleSequence;
         }
+        let sequence = message.fifo_sequence;
+        let result = self.retain(message);
+        if matches!(result, ChatApplyResult::Applied { .. }) {
+            self.last_sequence = Some(sequence);
+        }
+        result
+    }
+
+    /// Retains a client-generated row without consuming a server FIFO sequence.
+    pub fn push_local(&mut self, mut message: ChatMessage) -> ChatApplyResult {
+        message.fifo_sequence = self.last_sequence.unwrap_or(0);
+        self.retain(message)
+    }
+
+    fn retain(&mut self, message: ChatMessage) -> ChatApplyResult {
         let message_bytes = message.retained_bytes();
         if message_bytes > MAX_CHAT_RETAINED_BYTES {
             return ChatApplyResult::RejectedTooLarge;
@@ -790,7 +805,6 @@ impl ChatStore {
             evicted += 1;
         }
         self.retained_bytes += message_bytes;
-        self.last_sequence = Some(message.fifo_sequence);
         self.messages.push_back(message);
         ChatApplyResult::Applied { evicted }
     }
