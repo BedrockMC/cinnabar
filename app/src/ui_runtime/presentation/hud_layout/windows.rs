@@ -7,9 +7,9 @@
 use std::sync::Arc;
 
 use protocol::{NetworkItemStack, WindowKind};
-use ui::{TextLayoutRequest, TextStyle};
+use ui::{TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiVisual};
 
-use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime};
+use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime, rect};
 use crate::ui_runtime::inventory_actions::visible_creative_entries;
 use crate::ui_runtime::inventory_ledger::InventoryTarget;
 use crate::ui_runtime::presentation::inventory_pointer::{InventoryCellHit, InventoryScreen};
@@ -43,6 +43,11 @@ pub(crate) struct WindowIcons {
     /// The result a recipe screen would produce now, drawn while the server
     /// previews none.
     pub(crate) recipe_output: Option<(Option<IconRef>, NetworkItemStack)>,
+    /// Faint silhouettes for empty armor, shield and smithing-template slots;
+    /// absent while the item atlas carries no such art.
+    pub(crate) ghost_armor: [Option<IconRef>; 4],
+    pub(crate) ghost_shield: Option<IconRef>,
+    pub(crate) ghost_template: Option<IconRef>,
 }
 
 impl Default for WindowIcons {
@@ -53,6 +58,9 @@ impl Default for WindowIcons {
             creative_tabs: [None; TAB_COUNT as usize],
             recipe: [None; STONECUTTER_CELLS],
             recipe_output: None,
+            ghost_armor: [None; 4],
+            ghost_shield: None,
+            ghost_template: None,
         }
     }
 }
@@ -182,7 +190,11 @@ impl HudLayout<'_> {
         Ok(size)
     }
 
-    fn slot_frame(&mut self, position: [f32; 2], size: f32) -> Result<(), UiPresentationError> {
+    pub(super) fn slot_frame(
+        &mut self,
+        position: [f32; 2],
+        size: f32,
+    ) -> Result<(), UiPresentationError> {
         self.solid_gui(position, [size, size], [139, 139, 139, 255])?;
         self.solid_gui(position, [size, 1.0], [55, 55, 55, 255])?;
         self.solid_gui(position, [1.0, size], [55, 55, 55, 255])?;
@@ -230,6 +242,8 @@ impl HudLayout<'_> {
                 self.icon_gui(icon, cell)?;
             }
             self.stack_decorations(stack, cell, durability)?;
+        } else if slot.hit == InventoryCellHit::Craft(53) {
+            self.ghost_icon(frame.window_icons.ghost_template, cell)?;
         } else if slot.hit == InventoryCellHit::CraftOutput
             && let Some((icon, stack)) = &frame.window_icons.recipe_output
         {
@@ -238,6 +252,32 @@ impl HudLayout<'_> {
             }
             self.stack_decorations(stack, cell, None)?;
         }
+        Ok(())
+    }
+
+    /// An empty-slot silhouette at half strength.
+    pub(super) fn ghost_icon(
+        &mut self,
+        icon: Option<IconRef>,
+        cell: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
+        let Some(icon) = icon else {
+            return Ok(());
+        };
+        let g = self.geometry;
+        let [x, y] = g.logical(cell);
+        let node = UiNode::new(
+            UiNodeId::new(*self.next_id),
+            None,
+            rect(x, y, x + 16.0 * g.scale, y + 16.0 * g.scale)?,
+        )
+        .with_visual(UiVisual::Sprite {
+            texture_page: icon.page,
+            uv: icon.uv,
+            color: [255, 255, 255, 110],
+        });
+        self.nodes.push(node);
+        *self.next_id = self.next_id.saturating_add(1);
         Ok(())
     }
 

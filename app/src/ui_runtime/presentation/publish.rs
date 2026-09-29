@@ -330,6 +330,18 @@ pub(crate) fn refresh_hud_frame(
     }
     let mut durability = super::hud_layout::Durability::default();
     let mut window_icons = super::hud_layout::WindowIcons::default();
+    if runtime.inventory_open() {
+        for (row, name) in ["helmet", "chestplate", "leggings", "boots"]
+            .iter()
+            .enumerate()
+        {
+            window_icons.ghost_armor[row] =
+                presentation.item_icon(&format!("minecraft:empty_armor_slot_{name}"), 0);
+        }
+        window_icons.ghost_shield = presentation.item_icon("minecraft:empty_armor_slot_shield", 0);
+        window_icons.ghost_template =
+            presentation.item_icon("minecraft:empty_slot_smithing_template", 0);
+    }
     {
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger();
