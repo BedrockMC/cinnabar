@@ -1,4 +1,4 @@
-//! Device-bounded immutable neutral artwork. Replacement requires renderer recreation.
+//! Device-bounded immutable neutral artwork, replaced whole when its identity changes.
 use super::*;
 use crate::actor::{
     ActorArtworkPages, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES, gpu::ActorDrawSpan,
@@ -15,7 +15,6 @@ pub(super) struct GpuArtwork {
     identity: Option<([u8; 32], [u8; 32])>,
     pub pages: Vec<GpuArtworkPage>,
     rejected: bool,
-    replacement_seen: Option<([u8; 32], [u8; 32])>,
 }
 
 impl GpuArtwork {
@@ -29,16 +28,12 @@ impl GpuArtwork {
         if self.identity == Some(identity) {
             return !self.rejected;
         }
-        if self.identity.is_some() {
-            // Never overlap old/new immutable texture generations. Player rendering
-            // remains available; a new carrier needs startup/device recreation.
-            if self.replacement_seen != Some(identity) {
-                bevy::log::warn!(
-                    "neutral actor artwork changed; generic pages require renderer recreation"
-                );
-                self.replacement_seen = Some(identity);
-            }
-            return false;
+        if self.identity.take().is_some() {
+            // Session packs change the artwork. wgpu keeps dropped pages alive until
+            // work already submitted with them completes, so a generation is only
+            // briefly doubled.
+            self.pages.clear();
+            self.rejected = false;
         }
         if pages.identity == [0; 32] {
             return true;
@@ -152,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn immutable_pages_do_not_allocate_overlapping_carrier_generations() {
+    fn replacement_artwork_supersedes_the_previous_generation() {
         use bevy::render::renderer::WgpuWrapper;
         use std::sync::Arc;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
@@ -172,8 +167,11 @@ mod tests {
         assert_eq!(gpu.pages.len(), 1);
         assert!(gpu.prepare(&pages, &device, &queue));
         pages.entity_identity = [3; 32];
-        assert!(!gpu.prepare(&pages, &device, &queue));
+        assert!(gpu.prepare(&pages, &device, &queue));
         assert_eq!(gpu.pages.len(), 1);
-        assert_eq!(gpu.identity, Some(([1; 32], [2; 32])));
+        assert_eq!(gpu.identity, Some(([1; 32], [3; 32])));
+        pages.identity = [0; 32];
+        assert!(gpu.prepare(&pages, &device, &queue));
+        assert!(gpu.pages.is_empty() && gpu.identity.is_none());
     }
 }

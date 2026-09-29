@@ -24,6 +24,9 @@ const HEADER_READ_BYTES: usize = 40;
 const CACHE_BUDGET_BYTES: usize = 96 * 1024 * 1024;
 /// Worker threads decoding bank entries, so a streamed track cannot hold up every first-play sound.
 const DECODE_WORKERS: usize = 2;
+/// Decodes queued at once, and their compressed bytes; a lookup beyond either is `Busy`.
+const MAX_QUEUED_DECODES: usize = 64;
+const MAX_QUEUED_DECODE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Where the sound bank sits relative to the world carrier.
 pub(crate) fn sound_bank_path(world_asset_path: &Path) -> PathBuf {
@@ -51,8 +54,9 @@ pub(crate) struct SoundBank {
     cache_bytes: usize,
     failed: HashSet<Box<str>>,
     decoder: Option<Decoder>,
-    /// Paths being decoded, with their stream flag.
-    in_flight: HashMap<Box<str>, bool>,
+    /// Paths being decoded, with their stream flag and compressed size.
+    in_flight: HashMap<Box<str>, (bool, usize)>,
+    in_flight_bytes: usize,
     /// Decoded streamed sounds, held until the next pump's starts take them.
     ready_streams: HashMap<Box<str>, Arc<Pcm>>,
 }
@@ -61,6 +65,8 @@ pub(crate) struct SoundBank {
 pub(crate) enum PcmLookup {
     Ready(Arc<Pcm>),
     Pending,
+    /// The decode backlog is full; the caller may retry later.
+    Busy,
     Failed,
 }
 
@@ -174,6 +180,7 @@ impl SoundBank {
             failed: HashSet::new(),
             decoder: None,
             in_flight: HashMap::new(),
+            in_flight_bytes: 0,
             ready_streams: HashMap::new(),
         }))
     }
@@ -230,10 +237,18 @@ impl SoundBank {
         if self.in_flight.contains_key(path) {
             return PcmLookup::Pending;
         }
-        let bytes = self
-            .index
-            .entry(path)
-            .and_then(|entry| self.read_entry(entry));
+        let Some(entry) = self.index.entry(path) else {
+            self.failed.insert(path.into());
+            return PcmLookup::Failed;
+        };
+        let size = entry.len as usize;
+        if !self.in_flight.is_empty()
+            && (self.in_flight.len() >= MAX_QUEUED_DECODES
+                || self.in_flight_bytes.saturating_add(size) > MAX_QUEUED_DECODE_BYTES)
+        {
+            return PcmLookup::Busy;
+        }
+        let bytes = self.read_entry(entry);
         if self.decoder.is_none() {
             self.decoder = Decoder::spawn();
         }
@@ -244,7 +259,8 @@ impl SoundBank {
             self.failed.insert(path.into());
             return PcmLookup::Failed;
         }
-        self.in_flight.insert(path.into(), stream);
+        self.in_flight.insert(path.into(), (stream, size));
+        self.in_flight_bytes += size;
         PcmLookup::Pending
     }
 
@@ -265,7 +281,8 @@ impl SoundBank {
             .try_iter()
             .collect();
         for (path, pcm) in finished {
-            let stream = self.in_flight.remove(&path).unwrap_or(false);
+            let (stream, size) = self.in_flight.remove(&path).unwrap_or_default();
+            self.in_flight_bytes -= size;
             match pcm.map(Arc::new) {
                 None => {
                     self.failed.insert(path);
@@ -331,6 +348,7 @@ impl SoundBank {
             failed: HashSet::new(),
             decoder: None,
             in_flight: HashMap::new(),
+            in_flight_bytes: 0,
             ready_streams: HashMap::new(),
         }
     }
@@ -342,7 +360,7 @@ impl SoundBank {
             match self.lookup(path, stream) {
                 PcmLookup::Ready(pcm) => return Some(pcm),
                 PcmLookup::Failed => return None,
-                PcmLookup::Pending => {
+                PcmLookup::Pending | PcmLookup::Busy => {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                     self.poll();
                 }
@@ -363,6 +381,46 @@ mod tests {
             br#"{"creative":{"event_name":"music.game.creative","min_delay":30,"max_delay":90}}"#,
         );
         assert_eq!(music["creative"].max_delay, 90.0);
+    }
+
+    /// One PCM16 mono FSB5 of two frames at 48 kHz.
+    fn tone() -> Vec<u8> {
+        let mut fsb = b"FSB5".to_vec();
+        let mode = (9_u64 << 1) | (2_u64 << 34);
+        for value in [1_u32, 1, 8, 0, 4, 2, 0, 0] {
+            fsb.extend(value.to_le_bytes());
+        }
+        fsb.resize(60, 0);
+        fsb.extend(mode.to_le_bytes());
+        fsb.extend([0, 0x40, 0, 0xc0]);
+        fsb
+    }
+
+    // Distinct first plays must not queue every compressed file at once.
+    #[test]
+    fn queued_decodes_are_bounded_until_polled() {
+        let files: Vec<_> = (0..MAX_QUEUED_DECODES + 8)
+            .map(|index| (format!("sounds/tone{index}"), tone()))
+            .collect();
+        let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("encode");
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-bank-backlog-{}.mcbesnd",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).expect("write");
+        let mut bank = SoundBank::open(&path, None)
+            .expect("open")
+            .expect("present");
+        let busy = files
+            .iter()
+            .filter(|(name, _)| matches!(bank.lookup(name, false), PcmLookup::Busy))
+            .count();
+        assert_eq!(busy, 8);
+        assert!(
+            bank.pcm("sounds/tone0", false).is_some(),
+            "the backlog drains"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

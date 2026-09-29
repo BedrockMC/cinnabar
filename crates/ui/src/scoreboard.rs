@@ -85,6 +85,8 @@ impl From<i32> for ScoreSortOrder {
 pub enum ScoreAction {
     Change,
     Remove,
+    /// Clears the entry from every objective; its objective name is unused.
+    RemoveFromAll,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -193,6 +195,15 @@ struct ObjectiveState {
 struct StoredScore {
     score: i32,
     owner: ScoreOwner,
+}
+
+type StagedScores = BTreeMap<(Arc<str>, i64), Option<StoredScore>>;
+
+/// Whether `key` holds a score once the batch staged so far applies.
+fn is_retained(staged: &StagedScores, objective: &ObjectiveState, key: &(Arc<str>, i64)) -> bool {
+    staged
+        .get(key)
+        .map_or_else(|| objective.scores.contains_key(&key.1), Option::is_some)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -540,43 +551,43 @@ impl ScoreboardStore {
                 .saturating_add(1);
             return RetainedUiApply::Ignored;
         }
-        let mut staged = BTreeMap::<(Arc<str>, i64), Option<StoredScore>>::new();
+        let mut staged = StagedScores::new();
         for entry in entries {
             if !text_is_bounded(&entry.objective_name) || !entry.owner.text_is_bounded() {
                 self.diagnostics.text_field_rejections =
                     self.diagnostics.text_field_rejections.saturating_add(1);
                 return RetainedUiApply::Ignored;
             }
-            let Some(objective) = self.objectives.get(&entry.objective_name) else {
+            let named =
+                (entry.action != ScoreAction::RemoveFromAll).then_some(&entry.objective_name);
+            if named.is_some_and(|name| !self.objectives.contains_key(name)) {
                 self.diagnostics.missing_objectives =
                     self.diagnostics.missing_objectives.saturating_add(1);
                 return RetainedUiApply::Ignored;
-            };
-            let key = (Arc::clone(&entry.objective_name), entry.scoreboard_id);
-            match entry.action {
-                ScoreAction::Change => {
-                    staged.insert(
-                        key,
-                        Some(StoredScore {
-                            score: entry.score,
-                            owner: entry.owner.clone(),
-                        }),
-                    );
-                }
-                ScoreAction::Remove => {
-                    let exists = staged.get(&key).map_or_else(
-                        || objective.scores.contains_key(&entry.scoreboard_id),
-                        Option::is_some,
-                    );
-                    if exists {
-                        staged.insert(key, None);
-                    } else {
-                        self.diagnostics.missing_scores =
-                            self.diagnostics.missing_scores.saturating_add(1);
-                        return RetainedUiApply::Ignored;
-                    }
-                }
             }
+            if entry.action == ScoreAction::Change {
+                let score = StoredScore {
+                    score: entry.score,
+                    owner: entry.owner.clone(),
+                };
+                staged.insert(
+                    (Arc::clone(&entry.objective_name), entry.scoreboard_id),
+                    Some(score),
+                );
+                continue;
+            }
+            // A removal clears the entry from its objective, or from all of them.
+            let removed: Vec<_> = (self.objectives.iter())
+                .filter(|(name, _)| named.is_none_or(|named| named == *name))
+                .map(|(name, objective)| ((Arc::clone(name), entry.scoreboard_id), objective))
+                .filter(|(key, objective)| is_retained(&staged, objective, key))
+                .map(|(key, _)| key)
+                .collect();
+            if removed.is_empty() {
+                self.diagnostics.missing_scores = self.diagnostics.missing_scores.saturating_add(1);
+                return RetainedUiApply::Ignored;
+            }
+            staged.extend(removed.into_iter().map(|key| (key, None)));
         }
         if staged.is_empty() {
             return RetainedUiApply::Ignored;

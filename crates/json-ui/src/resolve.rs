@@ -62,13 +62,8 @@ impl<'a> Resolver<'a> {
         if self.root.is_none() {
             self.root = Some(root_env.clone());
         }
-        let (control, provenance) = flatten_def(
-            self.catalog,
-            namespace,
-            name,
-            &mut Vec::new(),
-            &mut self.diagnostics,
-        )?;
+        let (control, provenance) =
+            flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
         let env = self.build_env(root_env, &control.props);
         // An ignored definition creates nothing, whether a screen or a
         // factory's instance (a pack's title overlay gated on one title).
@@ -218,8 +213,11 @@ impl<'a> Resolver<'a> {
                 Some(flag) => flag,
                 None => {
                     self.diagnostics.push(format!(
-                        "{}.{}: undecidable `ignored` `{expression}`; keeping",
-                        control.owner_ns, control.name
+                        "{}.{}: undecidable `ignored` `{}` ({} bytes); keeping",
+                        control.owner_ns,
+                        control.name,
+                        clipped(expression),
+                        expression.len()
                     ));
                     false
                 }
@@ -249,12 +247,10 @@ impl<'a> Resolver<'a> {
             None => base.clone(),
         };
         let base_ref = ControlRef::parse(&reference, &child.owner_ns);
-        let mut visited = Vec::new();
         match flatten_def(
             self.catalog,
             &base_ref.namespace,
             &base_ref.name,
-            &mut visited,
             &mut self.diagnostics,
         ) {
             Some((base_control, _)) => {
@@ -429,6 +425,15 @@ fn parse_reference(reference: &str, owner: &str, env: &Env) -> ControlRef {
         None => reference.to_owned(),
     };
     ControlRef::parse(&resolved, owner)
+}
+
+/// A diagnostic-sized prefix of server-supplied text.
+fn clipped(text: &str) -> &str {
+    let mut end = text.len().min(80);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 fn value_string(value: Value) -> Option<String> {
