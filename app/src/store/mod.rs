@@ -1,6 +1,5 @@
 //! Marketplace client state behind the vanilla store screens: the control worker, the purchase flow,
 //! the store data sources for the JSON-UI engine and the bounded offer-image cache.
-#![allow(dead_code, reason = "consumed by the store screens as they land")]
 
 mod bindings;
 mod flow;
