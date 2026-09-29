@@ -137,23 +137,17 @@ fn ordinary_cube_mirror_and_default_bone_flags_remain_admissible() {
 
 #[test]
 fn fractional_alpha_actor_pixels_are_counted_not_quantized() {
-    for (alpha, material, conditional, reason) in [(
-        128,
-        "entity_alphatest",
-        false,
-        "missing_or_ambiguous_texture",
-    )] {
-        let pack = pack(alpha, material, conditional);
-        let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-        assert_eq!(compiled.report.bindings, 0);
-        assert!(
-            compiled
-                .report
-                .fallbacks
-                .iter()
-                .any(|entry| entry.reason.as_ref() == reason)
-        );
-    }
+    let reason = "missing_or_ambiguous_texture";
+    let pack = pack(128, "entity_alphatest", false);
+    let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(compiled.report.bindings, 0);
+    assert!(
+        compiled
+            .report
+            .fallbacks
+            .iter()
+            .any(|entry| entry.reason.as_ref() == reason)
+    );
 }
 
 #[test]

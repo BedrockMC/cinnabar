@@ -33,6 +33,7 @@ pub enum BlockEntityRouteKind {
 }
 
 impl BlockEntityRouteKind {
+    #[cfg(test)]
     fn from_byte(byte: u8) -> Option<Self> {
         Some(match byte {
             1 => Self::ExistingBlockState,

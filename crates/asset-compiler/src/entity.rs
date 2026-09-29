@@ -31,7 +31,6 @@ pub use pack::{
     compile_entity_pack,
 };
 
-pub(crate) use animation::roots::authored_roots;
 use collect::{collect_family, collect_optional_family, collect_optional_file};
 use geometry::parse_geometry;
 pub(crate) use json::parse_fully_unique_json;
