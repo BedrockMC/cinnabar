@@ -244,14 +244,14 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		return ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
 	}
 	if isScreenMethod(method) {
-		if len(raw) != 0 {
-			return fail(-32602, "Invalid params")
-		}
 		screens, supported := services.(ScreenServices)
 		if !supported {
 			return fail(codeServicesDisabled, "Launcher services unavailable")
 		}
-		result, err := screenResult(ctx, screens, method)
+		result, err := screenResult(ctx, screens, method, raw)
+		if errors.Is(err, errInvalidParams) {
+			return fail(-32602, "Invalid params")
+		}
 		if err != nil {
 			return failService(err)
 		}

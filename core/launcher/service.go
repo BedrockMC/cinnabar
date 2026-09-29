@@ -40,6 +40,7 @@ type Config struct {
 	Gatherings func(context.Context, oauth2.TokenSource) ([]catalog.Gathering, error)
 	Profile    func(context.Context, oauth2.TokenSource) (catalog.Profile, error)
 	CacheArt   func(ctx context.Context, directory string, images []*catalog.Image)
+	Ping       func(ctx context.Context, addresses []string) []catalog.PingResult
 }
 
 // Service implements control.Services.
@@ -73,6 +74,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.CacheArt == nil {
 		cfg.CacheArt = catalog.CacheImages
+	}
+	if cfg.Ping == nil {
+		cfg.Ping = catalog.PingServers
 	}
 	return &Service{cfg: cfg}
 }
@@ -146,6 +150,11 @@ func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
 	}
 	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
 	return profile, nil
+}
+
+// Ping pings servers for their player counts and round trip; it needs no account.
+func (s *Service) Ping(ctx context.Context, addresses []string) []catalog.PingResult {
+	return s.cfg.Ping(ctx, addresses)
 }
 
 func (s *Service) cacheArt(ctx context.Context, images []*catalog.Image) {
