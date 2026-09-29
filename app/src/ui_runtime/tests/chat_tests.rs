@@ -554,3 +554,12 @@ fn typing_after_tab_restarts_completion() {
     assert!(runtime.take_chat_autocomplete_request().is_some());
     assert!(runtime.chat_suggestions().is_empty());
 }
+
+#[test]
+fn local_chat_line_does_not_consume_the_next_server_sequence() {
+    let mut runtime = UiRuntime::new(2);
+    runtime.push_local_chat_line(Arc::from("Saved screenshot as a.png"), 5);
+    runtime.push_local_chat_line(Arc::from("Saved screenshot as b.png"), 6);
+    runtime.apply(envelope(2, 0, text("server"))).unwrap();
+    assert_eq!(runtime.chat().messages().len(), 3);
+}

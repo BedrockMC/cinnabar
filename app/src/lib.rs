@@ -9,6 +9,7 @@ mod environment;
 mod first_run;
 mod game_mode_capabilities;
 mod hotbar;
+mod hud_tools;
 mod install_layout;
 mod interaction_authority;
 pub mod lifecycle;
