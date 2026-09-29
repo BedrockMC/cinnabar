@@ -22,6 +22,7 @@ use crate::ui_runtime::gameplay_hud::HudEffect;
 mod inventory;
 mod pinned;
 mod player;
+mod sleep;
 mod status_motion;
 mod status_rows;
 mod titles;
@@ -38,6 +39,8 @@ use pinned::{
     effect_blink_alpha, hotbar_slot_role, hsv_to_rgb,
 };
 pub(crate) use pinned::{effect_icon_role, java_gui_scale};
+pub(crate) use sleep::SleepTimeline;
+pub(super) use sleep::leave_bed_bounds;
 
 #[derive(Clone, Debug)]
 pub(crate) struct InventoryIcons(pub(crate) [Option<IconRef>; 36]);
@@ -105,6 +108,7 @@ pub(crate) struct HudFrame {
     pub tab_list_open: bool,
     /// Hardcore heart sprites, present only when the optional extras carrier is loaded.
     pub hardcore_hearts: Option<super::hud_extras::HardcoreHearts>,
+    pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
 }
@@ -223,6 +227,7 @@ impl<'a> HudLayout<'a> {
             self.inventory_screen(runtime, frame)?;
             return Ok(());
         }
+        self.sleep_overlay(frame)?;
         // Visibility gates on the authoritative game mode directly, never on
         // inferred slot retention: a live switch to spectator with a retained
         // local slot must still drop the hotbar and crosshair.

@@ -30,10 +30,10 @@ use crate::{
         normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
     },
     ui::{
-        GameModeEvent, UiEvent, UiPacketError, normalize_block_crack, normalize_boss,
-        normalize_display_objective, normalize_form, normalize_health, normalize_player_status,
-        normalize_remove_objective, normalize_score, normalize_soft_enum, normalize_text,
-        normalize_title, normalize_toast,
+        GameModeEvent, UiEvent, UiPacketError, normalize_available_commands, normalize_block_crack,
+        normalize_boss, normalize_display_objective, normalize_form, normalize_health,
+        normalize_player_status, normalize_remove_objective, normalize_score, normalize_soft_enum,
+        normalize_text, normalize_title, normalize_toast,
     },
 };
 
@@ -400,6 +400,9 @@ pub fn into_world_event(
         }
         McpePacketData::UpdateSoftEnumPacket(packet) => {
             WorldEvent::Ui(normalize_soft_enum(packet)?)
+        }
+        McpePacketData::AvailableCommandsPacket(packet) => {
+            WorldEvent::Ui(normalize_available_commands(*packet))
         }
         McpePacketData::AddActorPacket(packet) => {
             WorldEvent::Actor(normalize_add_entity(*packet, current_dimension)?)

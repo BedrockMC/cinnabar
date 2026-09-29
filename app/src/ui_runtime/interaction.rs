@@ -162,6 +162,11 @@ pub(crate) fn flush_chat_network(
     if network.closed_command_has_pending_control() {
         return;
     }
+    if runtime.take_wake_request()
+        && let Some(runtime_id) = runtime.local_runtime_id()
+    {
+        let _ = network.send_inventory_packet(protocol::stop_sleeping_packet(runtime_id));
+    }
     match flush_chat_sends(
         &mut runtime,
         8,
@@ -228,6 +233,9 @@ pub(crate) fn drive_chat_ui_actions(
         && let Some(position) = window.cursor_position()
         && let Ok(position) = UiPoint::new(position.x, position.y)
     {
+        if presentation.hit_test_leave_bed(position, logical_size) {
+            runtime.request_wake();
+        }
         dispatch_chat_ui_action(
             &mut runtime,
             UiAction::PointerPrimary {
@@ -241,6 +249,9 @@ pub(crate) fn drive_chat_ui_actions(
     for touch in touches.iter_just_pressed() {
         let position = touch.position();
         if let Ok(position) = UiPoint::new(position.x, position.y) {
+            if presentation.hit_test_leave_bed(position, logical_size) {
+                runtime.request_wake();
+            }
             dispatch_chat_ui_action(
                 &mut runtime,
                 UiAction::PointerPrimary {
@@ -663,16 +674,14 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         match input.key_code {
             KeyCode::Escape => {
+                runtime.request_wake();
                 runtime.close_chat();
             }
             KeyCode::Enter | KeyCode::NumpadEnter => {
-                if runtime.chat_suggestions().is_empty() {
-                    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-                    if runtime.queue_chat_send(now_millis).is_ok() {
-                        runtime.close_chat();
-                    }
-                } else {
-                    runtime.handle_chat_ui_action(UiAction::Accept);
+                // Enter always sends; Tab completes.
+                let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if runtime.queue_chat_send(now_millis).is_ok() {
+                    runtime.close_chat();
                 }
             }
             KeyCode::Backspace => runtime.backspace_chat_text(),

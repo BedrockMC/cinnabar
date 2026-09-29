@@ -62,7 +62,7 @@ pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
-    destroy_block_packet, swing_arm_packet, use_actor_packet,
+    destroy_block_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeOutput,
@@ -160,7 +160,8 @@ pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
     ChatAutocompleteCompletion, ChatAutocompleteEvent, ChatPacketError, CommandOutputEvent,
-    CommandOutputMessage, CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm,
+    CommandOutputMessage, CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent,
+    CompletionContext, CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm,
     FormButtonImage, FormKind, FormNumber, FormRequestEvent, GameModeEvent, GameModeUpdate,
     HudEvent, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
     MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES, MAX_FORM_BUTTONS, MAX_FORM_JSON_BYTES,

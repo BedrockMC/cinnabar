@@ -187,6 +187,11 @@ impl InstallLayout {
     }
 
     #[must_use]
+    pub fn screenshots_dir(&self) -> PathBuf {
+        self.user_data_root.join("screenshots")
+    }
+
+    #[must_use]
     pub fn crash_dir(&self) -> PathBuf {
         self.user_data_root.join("crashes")
     }
