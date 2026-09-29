@@ -39,7 +39,10 @@ impl HudLayout<'_> {
         let screen = InventoryScreen::of_runtime(runtime);
         // The container-routing setting hands the screens the engine lays out to JSON-UI.
         if frame.engine_containers
-            && !matches!(screen, InventoryScreen::Window(..) | InventoryScreen::Creative)
+            && !matches!(
+                screen,
+                InventoryScreen::Window(..) | InventoryScreen::Creative
+            )
         {
             return Ok(());
         }

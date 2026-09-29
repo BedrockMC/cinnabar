@@ -30,9 +30,6 @@ mod toasts;
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
-pub(super) use windows::{
-    Durability, TooltipLine, WindowIcons, WindowText, default_title, title_key,
-};
 use pinned::{
     BOSS_TINTS, BOTTOM_STACK_HEIGHT, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH,
     LABEL_FADE_MILLIS, LABEL_WINDOW_MILLIS, MAX_PRESENTED_BOSS_BARS, XP_LEVEL_COLOR,
@@ -41,6 +38,9 @@ use pinned::{
 pub(crate) use pinned::{effect_icon_role, java_gui_scale};
 pub(crate) use sleep::SleepTimeline;
 pub(super) use sleep::leave_bed_bounds;
+pub(super) use windows::{
+    Durability, TooltipLine, WindowIcons, WindowText, default_title, title_key,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct InventoryIcons(pub(crate) [Option<IconRef>; 36]);
