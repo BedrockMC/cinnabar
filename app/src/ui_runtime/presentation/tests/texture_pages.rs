@@ -489,3 +489,25 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         dynamic_start + render::MAX_UI_DYNAMIC_PAGES
     );
 }
+
+/// Mouse look with the preview hidden; run with `-- --ignored --nocapture`.
+#[test]
+#[ignore = "benchmark"]
+fn frame_cost_bench_hidden_player_preview_while_turning() {
+    let skin = vec![200; 64 * 64 * 4];
+    let pose = |frame: u32| player_preview::PlayerPreviewPose::new(frame as f32, 0.0, 0.0, false);
+    let time = |mut frame: Box<dyn FnMut(u32) + '_>| {
+        let started = std::time::Instant::now();
+        (0..200).for_each(&mut frame);
+        started.elapsed().as_secs_f64() * 1e3 / 200.0
+    };
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let old = time(Box::new(|frame| {
+        presentation.set_player_preview_skin(Some(&skin), pose(frame));
+    }));
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let new = time(Box::new(|frame| {
+        presentation.sync_player_preview(Some(&skin), pose(frame), false, false);
+    }));
+    eprintln!("FRAME_COST player_preview_turning_hidden: old={old:.3}ms new={new:.3}ms");
+}
