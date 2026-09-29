@@ -236,3 +236,30 @@ fn standard_biped_is_six_cuboids_with_a_complete_base_layer_uv_mesh() {
         .fold(f32::NEG_INFINITY, f32::max);
     assert_eq!([min_y, max_y], [0.0, 2.0]);
 }
+
+// A legacy 64x32 skin gains left limbs that mirror the right limbs face by face.
+#[test]
+fn legacy_half_height_skin_expands_with_mirrored_left_limbs() {
+    let mut legacy = vec![0u8; 64 * 32 * 4];
+    let texel = |x: usize, y: usize| (y * 64 + x) * 4;
+    // Right leg front face, leftmost column.
+    legacy[texel(4, 20)..texel(4, 20) + 4].copy_from_slice(&[1, 2, 3, 255]);
+    let square = super::normalize_actor_skin(&super::ActorSkinPixels {
+        width: 64,
+        height: 32,
+        rgba8: legacy.into(),
+    })
+    .expect("legacy skin normalizes");
+    assert_eq!(square.len(), super::STANDARD_SKIN_BYTES);
+    // Left leg front face (20..24, 52..64) mirrors it into its rightmost column.
+    assert_eq!(&square[texel(23, 52)..texel(23, 52) + 4], &[1, 2, 3, 255]);
+    assert_eq!(&square[texel(4, 20)..texel(4, 20) + 4], &[1, 2, 3, 255]);
+    assert!(
+        super::normalize_actor_skin(&super::ActorSkinPixels {
+            width: 64,
+            height: 48,
+            rgba8: vec![0; 64 * 48 * 4].into(),
+        })
+        .is_none()
+    );
+}

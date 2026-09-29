@@ -142,6 +142,7 @@ pub(crate) fn render(
     presentation
         .append_server_form(runtime, &mut nodes, &mut next, metrics, width, height)
         .unwrap();
+    presentation.sync_server_ui_pages();
     nodes
 }
 
@@ -208,7 +209,27 @@ fn server_pack_form_renders_its_text_through_the_engine() {
         nodes.len(),
     );
     assert!(presentation.form_engine_frame(identity).is_some());
-    eprintln!("server pages: {}", presentation.server_ui_pages().len());
+    let (drawn, missing) = presentation
+        .form_presentation
+        .engine
+        .as_ref()
+        .unwrap()
+        .drawn_sprites();
+    eprintln!(
+        "server pages: {}, sprite textures drawn: {}, unresolved: {missing:?}",
+        presentation.server_ui_pages().len(),
+        drawn.len()
+    );
+    // The UI carrier holds only vanilla `textures/ui`; other vanilla textures a
+    // pack names (item art) are a known carrier gap, not an atlas miss.
+    let misses: Vec<_> = missing
+        .iter()
+        .filter(|key| key.starts_with("textures/ui/") || pack.is_none())
+        .collect();
+    assert!(
+        misses.is_empty(),
+        "every drawn pack or UI image resolves: {misses:?}"
+    );
     // Without a pack the vanilla template shows the labels verbatim.
     if pack.is_none() {
         for label in ["Rare Box", "Epic Box", "Legendary"] {

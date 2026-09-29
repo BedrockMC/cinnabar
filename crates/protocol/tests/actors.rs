@@ -502,7 +502,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
 }
 
 #[test]
-fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
+fn player_list_retains_bounded_standard_and_persona_baked_skins() {
     let rgba = vec![0x7f; 64 * 64 * 4];
     let classic = PlayerListPacketPayloadAddEntry {
         player_name: "Classic".to_owned(),
@@ -555,6 +555,7 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     assert_eq!(
         skin,
         &PlayerSkin::Standard(StandardSkin {
+            geometry: None,
             cape: None,
             width: 64,
             height: 64,
@@ -569,9 +570,9 @@ fn player_list_retains_bounded_standard_skin_and_marks_persona_explicitly() {
     else {
         panic!("expected untrusted add entry")
     };
-    assert_eq!(
-        skin,
-        &PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona)
+    assert!(
+        matches!(skin, PlayerSkin::Standard(skin) if skin.width == 64),
+        "a persona skin keeps its baked image"
     );
 }
 

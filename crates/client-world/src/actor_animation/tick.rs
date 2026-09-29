@@ -23,6 +23,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) armor: [Option<WornArmor>; 5],
     /// The player's skin carries a cape image.
     pub(crate) has_cape: bool,
+    /// The player's skin model inputs, when it may name its own geometry.
+    pub(crate) skin_geometry: Option<Arc<protocol::SkinGeometrySource>>,
     /// The actor type's synced property definitions, in wire index order.
     pub(crate) properties: Option<Arc<[crate::actor_store::properties::PropertyDefinition]>>,
 }
@@ -257,13 +259,13 @@ pub(super) fn evaluate_state(
         &weighted_clips,
         budget,
     )?;
-    let pose = compose_pose(&state.bones, &local).ok_or(EvalError::Invalid)?;
+    let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
     // Render selection must not freeze the pose when it alone exceeds the budget.
     let render = super::render::evaluate_render(
         &evaluator,
         &mut variables,
         state.rig_binding,
-        &state.bone_names,
+        state.posed_bone_names(),
         budget,
     )
     .ok();

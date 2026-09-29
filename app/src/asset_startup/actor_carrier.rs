@@ -24,6 +24,9 @@ pub(crate) fn require_actor_artwork(
     entities: &LoadedEntityAssets,
 ) -> Result<render::ActorArtworkPages, AssetStartupError> {
     let catalog = require_actor_assets(world, entities)?;
+    if let Some(skin) = default_player_skin(&catalog, entities.runtime()) {
+        render::install_default_player_skin(skin);
+    }
     let artwork = render::ActorArtworkPages::new(&catalog);
     eprintln!(
         "loaded neutral unlit actor artwork: bindings={}, textures={}, page budget rejections={}, rest pose fallbacks={} (pose_expression_unverified); lighting/tint/overlay parity incomplete",
@@ -37,6 +40,24 @@ pub(crate) fn require_actor_artwork(
             .count()
     );
     Ok(artwork)
+}
+
+/// The player entity's default texture from the carrier, when present.
+fn default_player_skin(
+    catalog: &RuntimeActorCatalog,
+    entities: &assets::RuntimeEntityAssets,
+) -> Option<std::sync::Arc<[u8]>> {
+    catalog
+        .textures()
+        .iter()
+        .find(|texture| {
+            (texture.width, texture.height) == (64, 64)
+                && entities
+                    .sources()
+                    .get(texture.source as usize)
+                    .is_some_and(|source| source.path.as_ref() == render::DEFAULT_PLAYER_SKIN_PATH)
+        })
+        .map(|texture| std::sync::Arc::clone(&texture.rgba8))
 }
 
 fn read_coherent_actor_assets(

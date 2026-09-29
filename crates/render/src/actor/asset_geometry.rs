@@ -98,6 +98,43 @@ pub(super) fn geometry_from_geometry_index(
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
 }
 
+/// Rig geometry of a player skin's own model under `id`. Cubes carry their resolved mirror and
+/// inflate, so no bone-level values apply.
+pub fn skin_geometry(
+    geometry: &assets::SkinGeometry,
+    id: EntityRigId,
+) -> Result<ActorRigGeometry, ActorRigGeometryError> {
+    let bones = &geometry.bones;
+    if bones.is_empty() || bones.len() > MAX_RENDER_BONES_PER_ACTOR {
+        return Err(ActorRigGeometryError::BoneCount);
+    }
+    let texture_size = (geometry.texture_width, geometry.texture_height);
+    let mut vertices = Vec::new();
+    for (bone_index, bone) in bones.iter().enumerate() {
+        if bone.never_render == Some(true) {
+            continue;
+        }
+        for cube in &bone.cubes {
+            super::geometry::append_entity_cube_vertices(
+                &mut vertices,
+                cube,
+                bone_index as u32,
+                texture_size,
+                false,
+                0.0,
+            )?;
+            if vertices.len() > MAX_ACTOR_RIG_VERTICES {
+                return Err(ActorRigGeometryError::CatalogCapacity);
+            }
+        }
+    }
+    if vertices.is_empty() {
+        return Err(ActorRigGeometryError::VertexCount);
+    }
+    let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
+    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
+}
+
 /// A worn skull: the player head cube (plus the hat layer for humanoid heads) on one bone, with
 /// its UVs mapped into the block-entity atlas's static region. `None` when the kind has no
 /// packed texture.
