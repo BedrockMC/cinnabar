@@ -434,12 +434,12 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         }
     }
     let sheets = Arc::new(SessionGlyphSheets {
-        sheets: vec![assets::GlyphSheet {
+        cells: assets::extract_cells(&assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
             height: 128,
             rgba8: rgba8.into(),
-        }],
+        }),
     });
     session_glyphs::observe(&mut presentation, Some(&sheets));
     let glyph = *presentation.font.glyph('\u{e005}').expect("sheet glyph");

@@ -137,7 +137,7 @@ pub use font::{
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use glyph_sheet::{
-    GlyphAtlas, GlyphSheet, SHEET_GRID, SheetGlyph, advance_64, opaque_columns, pack_glyph_sheets,
+    CellGlyph, GlyphAtlas, GlyphSheet, SHEET_GRID, SheetGlyph, extract_cells, pack_cells,
     texel_size_64,
 };
 pub use hud::{
