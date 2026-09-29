@@ -74,7 +74,8 @@ pub use inventory::{
 };
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
-    CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY,
+    CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
+    CONTAINER_NAME_LEVEL_ENTITY,
     CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent, ContainerDataEvent,
     ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
     InventoryEvent, InventoryPacketError, InventorySlotEvent, ItemStackResponseEvent,
@@ -121,7 +122,7 @@ pub use item::{
     HOTBAR_SLOT_COUNT, ItemActorEvent, ItemDisplay, ItemPacketError, ItemRegistryEntry,
     ItemRegistryEvent, ItemRegistryVersion, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES,
-    NetworkItemStack, item_charged_projectile, item_custom_color, item_display,
+    NetworkItemStack, item_bundle_id, item_charged_projectile, item_custom_color, item_display,
     item_enchantment_level, item_extra_damage, item_icon_keys, item_stack_damage,
     select_hotbar_slot_packet, vanilla_item_registry,
 };

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
 mod auto_craft;
+mod bundles;
 mod cells;
 mod crafting;
 #[cfg(test)]
@@ -183,6 +184,8 @@ pub struct PlayerInventoryLedger {
     creative: Option<protocol::CreativeContentEvent>,
     /// Enchanting-table options for the current input item.
     enchant_options: Option<std::sync::Arc<[protocol::EnchantOption]>>,
+    /// Bundle contents by dynamic container id.
+    bundles: BTreeMap<u32, Vec<NetworkItemStack>>,
     queue: VecDeque<PendingRequest>,
     next_request_id: i32,
     session_generation: u64,
@@ -213,6 +216,7 @@ impl Default for PlayerInventoryLedger {
             item_registry: None,
             creative: None,
             enchant_options: None,
+            bundles: BTreeMap::new(),
             queue: VecDeque::new(),
             next_request_id: -3,
             session_generation: 0,
