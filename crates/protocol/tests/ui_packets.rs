@@ -304,6 +304,29 @@ fn gophertunnel_1_26_44_named_removal_is_followed_by_the_next_entry() {
     assert_eq!(score.entries[1].scoreboard_id, 8);
 }
 
+// Native clients clear an objective-less removal's entry from every objective,
+// so an absent name must stay distinguishable from a present empty one.
+#[test]
+fn absent_removal_objective_differs_from_an_empty_name() {
+    use valentine::bedrock::version::v1_26_44::{RemoveScore, ScoreboardId};
+    let removal = |objective_name| {
+        let packet = SetScorePacket {
+            score_info: vec![SetScorePacketScoreInfoItem::RemoveScore(RemoveScore {
+                action: "remove".to_owned(),
+                scoreboard_id: ScoreboardId { scoreboard_id: 7 },
+                objective_name,
+            })],
+        };
+        let UiEvent::Score(score) = ui(packet).unwrap() else {
+            panic!("expected score event")
+        };
+        score.entries[0].clone()
+    };
+    let absent = removal(None);
+    assert_eq!(removal(Some(None)), absent);
+    assert_ne!(removal(Some(Some(String::new()))), absent);
+}
+
 #[test]
 fn oversized_text_scores_and_form_json_fail_closed() {
     let text = raw_text_packet("x".repeat(MAX_UI_TEXT_BYTES + 1));
