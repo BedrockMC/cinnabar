@@ -10,7 +10,7 @@ use bevy::{
 };
 use render::{
     ActorSkinPixels, ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
-    VisibilityDiagnosticsInput, normalize_actor_skin,
+    VisibilityDiagnosticsInput,
 };
 use render::{UiRenderInput, UiRenderScene, UiRenderStats, UiRenderTextureArray};
 use sha2::{Digest, Sha256};

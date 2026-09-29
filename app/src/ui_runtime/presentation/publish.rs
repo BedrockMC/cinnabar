@@ -128,7 +128,7 @@ pub(crate) fn publish_ui_runtime(
         let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
             return None;
         };
-        normalize_actor_skin(&ActorSkinPixels {
+        render::normalize_actor_skin_cached(&ActorSkinPixels {
             width: skin.width,
             height: skin.height,
             rgba8: Arc::clone(&skin.rgba8),
