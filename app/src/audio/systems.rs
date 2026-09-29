@@ -55,10 +55,6 @@ pub(crate) fn ui_click() {
 #[derive(Debug, Clone, PartialEq, Message)]
 pub(crate) struct UiSoundCue(pub &'static str);
 
-impl UiSoundCue {
-    pub(crate) const CLICK: Self = Self(UI_CLICK);
-}
-
 pub(crate) fn configure(app: &mut App) {
     app.init_resource::<AudioSettings>()
         .add_message::<UiSoundCue>()

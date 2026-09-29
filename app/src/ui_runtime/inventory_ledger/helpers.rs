@@ -38,7 +38,7 @@ pub(super) fn bare_storage_window_matches(
 
 /// How the open window's own cells are named in a request.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(super) struct WindowAddress {
+pub(in crate::ui_runtime) struct WindowAddress {
     pub(super) identity: ContainerIdentity,
     pub(super) kind: protocol::WindowKind,
 }

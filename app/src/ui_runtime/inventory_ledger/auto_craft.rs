@@ -91,8 +91,7 @@ impl PlayerInventoryLedger {
         let entry = self
             .negotiated_item_entry(output.network_id)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let total = u8::try_from(output.count)
-            .ok()
+        let total = Some(output.count)
             .filter(|total| entry_capacity(entry).is_some_and(|capacity| *total <= capacity))
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let request_id = self.peek_request_id()?;

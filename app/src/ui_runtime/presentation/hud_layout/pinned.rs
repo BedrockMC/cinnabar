@@ -228,6 +228,6 @@ mod tests {
         let (early_low, early_high) = range(801, 821);
         let (late_low, late_high) = range(980, 1_000);
         assert!(late_high - late_low > early_high - early_low);
-        assert!(late_low >= 120 && late_high <= 255);
+        assert!(late_low >= 120);
     }
 }

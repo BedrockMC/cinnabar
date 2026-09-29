@@ -1,7 +1,5 @@
 //! The writable-book, written-book and lectern reading screens.
 
-use std::collections::VecDeque;
-
 use bevy::prelude::KeyCode;
 use protocol::{BookEdit, MAX_BOOK_PAGES, Packet};
 
@@ -144,10 +142,6 @@ impl UiRuntime {
 
     pub(crate) fn requeue_client_packet(&mut self, packet: Packet) {
         self.client_packets.push_front(packet);
-    }
-
-    pub(crate) const fn client_packets(&self) -> &VecDeque<Packet> {
-        &self.client_packets
     }
 
     /// Shows a book screen over the world.

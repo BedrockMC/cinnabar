@@ -69,6 +69,9 @@ pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
 /// Generated item meshes kept resident; further distinct items draw nothing.
 const MAX_ITEM_MESHES: usize = 512;
 
+/// Body bone index per armor bone; `None` where the body lacks it.
+type ArmorBoneMap = Arc<[Option<usize>]>;
+
 #[derive(Resource)]
 pub(crate) struct EquipmentRuntime {
     assets: Arc<RuntimeEntityAssets>,
@@ -81,7 +84,7 @@ pub(crate) struct EquipmentRuntime {
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
-    armor_maps: BTreeMap<(u32, Box<str>), Arc<[Option<usize>]>>,
+    armor_maps: BTreeMap<(u32, Box<str>), ArmorBoneMap>,
     meshes: BTreeMap<MeshKey, Option<EntityRigId>>,
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.

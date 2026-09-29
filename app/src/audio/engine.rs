@@ -191,10 +191,6 @@ impl AudioEngine {
         self.bank.as_ref()
     }
 
-    pub(crate) fn active_voices(&self) -> usize {
-        self.voices.len()
-    }
-
     /// Uniform sample in `[0, 1)` from an internal SplitMix64 stream.
     pub(crate) fn unit(&mut self) -> f32 {
         self.rng = self.rng.wrapping_add(0x9e37_79b9_7f4a_7c15);

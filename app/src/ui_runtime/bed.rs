@@ -21,10 +21,6 @@ impl UiRuntime {
         }
     }
 
-    pub(crate) const fn local_sleeping(&self) -> bool {
-        self.local_sleeping
-    }
-
     /// Queues one StopSleeping action; a no-op unless the local player is asleep.
     pub(crate) fn request_wake(&mut self) {
         self.wake_requested |= self.local_sleeping;

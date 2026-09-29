@@ -26,7 +26,7 @@ pub(super) const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
 /// single frame cannot mix scales or line pitches. Font atlas texels are two
 /// texels per Java GUI design pixel, while sprite geometry uses one GUI pixel.
 #[derive(Clone, Copy)]
-pub(in crate::ui_runtime::presentation) struct TextMetrics {
+pub(crate) struct TextMetrics {
     pub(super) scale: UiScale,
     pub(super) line_height_64: u32,
     pub(super) baseline_64: u32,

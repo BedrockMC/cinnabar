@@ -18,7 +18,9 @@ use crate::acceptance::markers::FAST_TRANSFER_ACTION;
 use protocol::{ChatPacketError, Packet};
 use ui::{ChatClipboard, ChatEditor, PointerPhase, UiAction, UiPoint};
 
-use super::inventory_ledger::{CellGesture, DropSource, InventoryGestureError};
+#[cfg(test)]
+use super::inventory_ledger::CellGesture;
+use super::inventory_ledger::{DropSource, InventoryGestureError};
 use super::{PlatformClipboard, UiRuntime, presentation};
 use presentation::inventory_pointer::InventoryCellHit;
 
@@ -538,6 +540,7 @@ pub(crate) fn dispatch_inventory_key(
 }
 
 /// Routes one resolved pointer gesture; the output cell crafts once.
+#[cfg(test)]
 pub(crate) fn dispatch_inventory_click(
     runtime: &mut UiRuntime,
     hit: InventoryCellHit,

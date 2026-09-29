@@ -2,6 +2,13 @@
 
 use super::*;
 
+/// A server pack's entity catalog, attachable catalog and artwork locations.
+pub(crate) type PackEquipmentLayer = (
+    Arc<RuntimeEntityAssets>,
+    Arc<RuntimeEquipmentCatalog>,
+    Vec<Option<ActorArtworkLocation>>,
+);
+
 /// A pack's attachable bindings with its own entity catalog and artwork locations.
 pub(crate) struct PackEquipment {
     assets: Arc<RuntimeEntityAssets>,
@@ -52,14 +59,7 @@ impl EquipmentRuntime {
 
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
-    pub(crate) fn set_pack_layer(
-        &mut self,
-        layer: Option<(
-            Arc<RuntimeEntityAssets>,
-            Arc<RuntimeEquipmentCatalog>,
-            Vec<Option<ActorArtworkLocation>>,
-        )>,
-    ) {
+    pub(crate) fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
         self.pack = layer.map(|(assets, catalog, locations)| PackEquipment {
             texture_locations: catalog
                 .textures()

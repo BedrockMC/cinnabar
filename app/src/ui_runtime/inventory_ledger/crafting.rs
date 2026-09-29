@@ -59,6 +59,9 @@ pub enum CraftSink {
     Inventory,
 }
 
+/// `(cell, amount, occupied destination stack id and count)`.
+type OutputPlacement = (Cell, u16, Option<(i32, u16)>);
+
 /// One presented grid cell resolved through the session item registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CraftGridCell {
@@ -360,7 +363,7 @@ impl PlayerInventoryLedger {
         &self,
         created: &NetworkItemStack,
         capacity: u8,
-    ) -> Option<Vec<(Cell, u16, Option<(i32, u16)>)>> {
+    ) -> Option<Vec<OutputPlacement>> {
         let capacity = u16::from(capacity);
         let mut remaining = created.count;
         let mut plan = Vec::new();
