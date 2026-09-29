@@ -91,6 +91,9 @@ pub struct BossBar {
     pub progress: f64,
     /// `#rrggbb` tint of the filled bar.
     pub color: String,
+    /// Segments the bar's overlay divides it into (0 for a plain bar); not a
+    /// vanilla binding: the built-in Java pack reads it as `#bar_notches`.
+    pub notches: u32,
 }
 
 /// The HUD's screen context: `base` with the edition and editor flags the
@@ -366,6 +369,7 @@ fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
                         Scalar::Num(1.0 - bar.progress.clamp(0.0, 1.0)),
                     )
                     .with("#bar_color", Scalar::Text(bar.color.clone()))
+                    .with("#bar_notches", Scalar::Num(f64::from(bar.notches)))
             })
             .collect(),
     );
