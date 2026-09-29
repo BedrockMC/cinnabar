@@ -26,7 +26,7 @@ pub(super) fn draw(
         Some(MenuAction::Navigate(MenuScreen::Home)),
     )? + space(canvas, 2);
     let bottom = height - space(canvas, 2);
-    let grid = Grid::new(canvas, width);
+    let grid = Grid::new(canvas.r(1.0), width);
     let (menu_span, list_span) = if grid.narrow {
         ((0, 2), (2, 6))
     } else {

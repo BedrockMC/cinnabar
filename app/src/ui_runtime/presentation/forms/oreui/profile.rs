@@ -28,7 +28,7 @@ pub(super) fn draw(
         width,
         Some(MenuAction::Navigate(MenuScreen::Home)),
     )? + space(canvas, 2);
-    let grid = Grid::new(canvas, width);
+    let grid = Grid::new(canvas.r(1.0), width);
     let (card_span, content_span) = if grid.narrow {
         ((0, 8), (0, 8))
     } else {

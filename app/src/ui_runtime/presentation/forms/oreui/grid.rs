@@ -13,8 +13,7 @@ pub(super) struct Grid {
 
 impl Grid {
     /// The grid across `width`: narrow below 70rem, tablet below 128rem.
-    pub(super) fn new(canvas: &Canvas<'_>, width: f32) -> Self {
-        let rem = canvas.r(1.0);
+    pub(super) fn new(rem: f32, width: f32) -> Self {
         let (padding, gutter) = if width < 70.0 * rem {
             (0.8, 0.4)
         } else if width < 128.0 * rem {
@@ -42,4 +41,21 @@ impl Grid {
 /// Spacer size `step` (1..=8) in logical pixels.
 pub(super) fn space(canvas: &Canvas<'_>, step: usize) -> f32 {
     canvas.r(super::theme::SPACE[step.clamp(1, 8) - 1])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_spans_sit_inside_the_gutters() {
+        // 10 px per rem: 200rem wide is desktop, capped at 128rem, 2.4rem padding.
+        let grid = Grid::new(10.0, 2000.0);
+        assert!(!grid.narrow);
+        let [left, right] = grid.span(0, 12);
+        assert!((left - (360.0 + 24.0 + 8.0)).abs() < 1e-3);
+        assert!((right - (2000.0 - 360.0 - 24.0 - 8.0)).abs() < 1e-3);
+        let narrow = Grid::new(10.0, 600.0);
+        assert!(narrow.narrow);
+    }
 }

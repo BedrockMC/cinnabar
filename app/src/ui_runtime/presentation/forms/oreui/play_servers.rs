@@ -323,3 +323,23 @@ fn ping_label(ping: Option<&PingInfo>) -> &'static str {
         Some(_) => "High ping",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ping_labels_follow_the_round_trip() {
+        let pong = |ping_ms| PingInfo {
+            online: true,
+            players: 1,
+            max_players: 2,
+            ping_ms,
+        };
+        assert_eq!(ping_label(None), "Loading ping");
+        assert_eq!(ping_label(Some(&PingInfo::default())), "Offline");
+        assert_eq!(ping_label(Some(&pong(20))), "Low ping");
+        assert_eq!(ping_label(Some(&pong(200))), "Medium ping");
+        assert_eq!(ping_label(Some(&pong(500))), "High ping");
+    }
+}
