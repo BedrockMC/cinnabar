@@ -575,20 +575,47 @@ fn normalize_skin(skin: Option<&ActorSkinPixels>) -> Vec<u8> {
         .to_vec()
 }
 
+/// Pack path of the player entity's default texture, the stand-in for skins that cannot load.
+pub const DEFAULT_PLAYER_SKIN_PATH: &str = "textures/entity/steve.png";
+
+static VANILLA_DEFAULT_SKIN: OnceLock<Arc<[u8]>> = OnceLock::new();
+
+/// Installs the vanilla default skin once; a later call or a non-standard raster is ignored.
+pub fn install_default_player_skin(skin: Arc<[u8]>) {
+    if skin.len() == STANDARD_SKIN_BYTES {
+        let _ = VANILLA_DEFAULT_SKIN.set(skin);
+    }
+}
+
+/// The vanilla Steve skin once installed, else a generated diagnostic skin.
 #[must_use]
 pub fn default_actor_skin_rgba8() -> Arc<[u8]> {
-    static DEFAULT_SKIN: OnceLock<Arc<[u8]>> = OnceLock::new();
-    Arc::clone(DEFAULT_SKIN.get_or_init(|| generated_default_skin().into()))
+    static GENERATED: OnceLock<Arc<[u8]>> = OnceLock::new();
+    Arc::clone(
+        VANILLA_DEFAULT_SKIN
+            .get()
+            .unwrap_or_else(|| GENERATED.get_or_init(|| generated_default_skin().into())),
+    )
 }
 
 #[must_use]
 pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
-    if skin.width != skin.height || !matches!(skin.width, 64 | 128 | 256) {
+    if !matches!(skin.width, 64 | 128 | 256)
+        || (skin.height != skin.width && skin.height * 2 != skin.width)
+    {
         return None;
     }
     let side = usize::try_from(skin.width).expect("bounded standard skin side");
-    if skin.rgba8.len() != side * side * 4 {
+    let height = usize::try_from(skin.height).expect("bounded standard skin height");
+    if skin.rgba8.len() != side * height * 4 {
         return None;
+    }
+    if height != side {
+        return normalize_actor_skin(&ActorSkinPixels {
+            width: skin.width,
+            height: skin.width,
+            rgba8: legacy_skin_to_square(&skin.rgba8, side).into(),
+        });
     }
     if side == STANDARD_SKIN_SIDE {
         return Some(Arc::clone(&skin.rgba8));
@@ -604,6 +631,43 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
         }
     }
     Some(normalized.into())
+}
+
+/// Expands a legacy half-height skin to the square layout: the left limbs are the right limbs
+/// with every face mirrored, as the legacy geometry draws them.
+fn legacy_skin_to_square(rgba8: &[u8], side: usize) -> Vec<u8> {
+    let scale = side / STANDARD_SKIN_SIDE;
+    let mut square = vec![0; side * side * 4];
+    square[..rgba8.len()].copy_from_slice(rgba8);
+    // (source x, source y, dest offset x, dest offset y, width, height) in 64-unit texels.
+    const LIMB_FACES: [(usize, usize, isize, usize, usize, usize); 12] = [
+        (4, 16, 16, 32, 4, 4),
+        (8, 16, 16, 32, 4, 4),
+        (0, 20, 24, 32, 4, 12),
+        (4, 20, 16, 32, 4, 12),
+        (8, 20, 8, 32, 4, 12),
+        (12, 20, 16, 32, 4, 12),
+        (44, 16, -8, 32, 4, 4),
+        (48, 16, -8, 32, 4, 4),
+        (40, 20, 0, 32, 4, 12),
+        (44, 20, -8, 32, 4, 12),
+        (48, 20, -16, 32, 4, 12),
+        (52, 20, -8, 32, 4, 12),
+    ];
+    for (x, y, dx, dy, width, height) in LIMB_FACES {
+        let (x, y, width, height) = (x * scale, y * scale, width * scale, height * scale);
+        let target_x = (x as isize + dx * scale as isize) as usize;
+        let target_y = y + dy * scale;
+        for row in 0..height {
+            for column in 0..width {
+                let source = ((y + row) * side + x + column) * 4;
+                let target = ((target_y + row) * side + target_x + width - 1 - column) * 4;
+                let pixel: [u8; 4] = rgba8[source..source + 4].try_into().expect("four bytes");
+                square[target..target + 4].copy_from_slice(&pixel);
+            }
+        }
+    }
+    square
 }
 
 fn generated_default_skin() -> Vec<u8> {

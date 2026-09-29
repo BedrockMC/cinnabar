@@ -46,7 +46,6 @@ fn normalize_cape(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerSkinUnavailable {
-    UnsupportedPersona,
     InvalidDimensions,
     InvalidByteLength,
     RetainedBudgetExceeded,
@@ -62,11 +61,12 @@ pub(super) fn normalize_player_skin(
     skin: SerializedSkinRef,
     retained_bytes: &mut usize,
 ) -> PlayerSkin {
-    if skin.is_persona {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona);
-    }
+    // Vanilla rebuilds persona skins from piece assets this client lacks; the sender's baked
+    // `image_data` stands in for that rebuild (a provisional approximation).
     let (width, height) = (skin.image_data.width, skin.image_data.height);
-    if width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE) {
+    // Legacy 64x32 skins are kept; the renderer expands them to the square layout.
+    let legacy = (width, height) == (64, 32);
+    if !legacy && (width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE)) {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
     }
     let Some(expected_bytes) = usize::try_from(width)

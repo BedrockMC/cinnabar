@@ -62,16 +62,16 @@ pub use actor::{
     ActorRigFrameBuilder, ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan,
     ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
     ActorRigVertex, ActorRuntimeWitness, ActorSkinPixels, ActorTexturePage, ActorVertex,
-    DEFAULT_SKIN_PROVENANCE, EntityRigId, EquipmentRaster, MAX_ACTOR_BONE_ARENA_BYTES,
-    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
+    DEFAULT_PLAYER_SKIN_PATH, DEFAULT_SKIN_PROVENANCE, EntityRigId, EquipmentRaster,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
     MAX_ACTOR_TEXTURE_PAGES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
     actor_rig_submission_is_visible, default_actor_skin_rgba8, entity_geometry, equipment_geometry,
     equipment_rig_id, extruded_sprite_vertices, find_geometry_index, geometry_bone_names,
-    geometry_bone_pivots, item_mesh_rig_id, normalize_actor_skin, pack_equipment_rig_id,
-    pack_overlay_rgba8, pack_rig_id, skull_geometry, standard_biped_overlay_vertices,
-    standard_biped_vertices, textured_cube_vertices,
+    geometry_bone_pivots, install_default_player_skin, item_mesh_rig_id, normalize_actor_skin,
+    pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id, skull_geometry,
+    standard_biped_overlay_vertices, standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
