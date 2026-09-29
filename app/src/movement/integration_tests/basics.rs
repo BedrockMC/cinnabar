@@ -254,7 +254,7 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     assert_eq!(first.delta, pressed.velocity);
     assert_eq!(
         first.move_vector,
-        [-std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2]
+        [std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2]
     );
     assert_eq!(first.position, pressed.position);
     assert_ne!(first.flags.bits() & PlayerInputFlags::UP.bits(), 0);
@@ -286,6 +286,8 @@ fn tick_snapshots_encode_velocity_edges_directions_and_collision_hints() {
     );
 
     pressed.tick = 43;
+    // A held button without a new takeoff.
+    pressed.processed.jump_initiated = false;
     ticker.enqueue_completed_physics(pressed.clone()).unwrap();
     let held = ticker.pop_pending().unwrap().snapshot;
     assert_eq!(held.tick, 43);
@@ -468,7 +470,7 @@ fn normalized_keyboard_diagonal_emits_the_processed_direction_flag() {
     ticker.enqueue_completed_physics(sample.clone()).unwrap();
     let snapshot = ticker.pop_pending().unwrap().snapshot;
 
-    assert!((snapshot.move_vector[0] - component).abs() < 1e-6);
+    assert!((snapshot.move_vector[0] + component).abs() < 1e-6);
     assert!((snapshot.move_vector[1] - component).abs() < 1e-6);
     assert_ne!(
         snapshot.flags.bits() & PlayerInputFlags::UP_RIGHT.bits(),

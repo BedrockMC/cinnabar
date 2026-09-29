@@ -44,11 +44,11 @@ fn correction_rebuilds_primary_controls_from_each_retained_input_snapshot() {
     .unwrap();
     let pending = ticker.pending_samples();
     assert_eq!(pending.len(), 2);
-    assert_eq!(pending[0].snapshot.move_vector, [0.0375, 0.075]);
-    assert_eq!(pending[1].snapshot.move_vector, [0.075, 0.15]);
+    assert_eq!(pending[0].snapshot.move_vector, [-0.0375, 0.075]);
+    assert_eq!(pending[1].snapshot.move_vector, [-0.075, 0.15]);
     for sample in pending {
-        assert_eq!(sample.snapshot.raw_move_vector, [0.25, 0.5]);
-        assert_eq!(sample.snapshot.analogue_move_vector, [0.25, 0.5]);
+        assert_eq!(sample.snapshot.raw_move_vector, [-0.25, 0.5]);
+        assert_eq!(sample.snapshot.analogue_move_vector, [-0.25, 0.5]);
     }
 }
 

@@ -269,3 +269,54 @@ fn a_rider_follows_the_mount_seat_and_reports_the_seat_delta() {
         PlayerInputFlags::JUMPING
     ));
 }
+
+#[test]
+fn holding_right_sends_negative_wire_x_and_moves_right_of_facing() {
+    let mut physics = settled_controller();
+    let mut ticker = super::MovementTicker::default();
+    ticker.reset(1, 101, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(super::MovementSource::Physics);
+    // Yaw 0 faces +z, so the player's right is -x.
+    let input = super::physics_movement_input([1.0, 0.0], 0.0, true, false, false, false, false);
+    let sample = step(
+        &mut physics,
+        input,
+        ModeIntent::default(),
+        &VersionedFloor(1),
+    );
+    assert!(
+        sample.position[0] < 0.0,
+        "strafing right moves toward -x at yaw 0"
+    );
+    ticker.enqueue_completed_physics(sample).unwrap();
+    let snapshot = ticker.pop_pending().unwrap().snapshot;
+    assert!(snapshot.move_vector[0] < 0.0, "wire x is left-positive");
+    assert!(has(snapshot.flags, PlayerInputFlags::RIGHT));
+    assert!(!has(snapshot.flags, PlayerInputFlags::LEFT));
+}
+
+#[test]
+fn a_repeated_takeoff_from_a_held_jump_signals_start_jumping() {
+    let mut physics = settled_controller();
+    let jump = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let mut previous = HeldInput::default();
+    let mut takeoffs = 0;
+    for _ in 0..60 {
+        let sample = step(
+            &mut physics,
+            jump,
+            ModeIntent::default(),
+            &VersionedFloor(1),
+        );
+        let flags = input_flags(&sample, previous);
+        if sample.processed.jump_initiated {
+            takeoffs += 1;
+            assert!(has(flags, PlayerInputFlags::START_JUMPING));
+        }
+        previous = HeldInput::from(&sample);
+    }
+    assert!(takeoffs >= 2, "a held jump repeats");
+}
