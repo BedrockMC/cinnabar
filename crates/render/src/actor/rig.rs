@@ -55,6 +55,14 @@ pub(crate) fn is_equipment_rig_id(id: EntityRigId) -> bool {
     id.0 >= EQUIPMENT_RIG_ID_BASE && id != DIAGNOSTIC_RIG_ID
 }
 
+const SKIN_RIG_ID_BASE: u32 = 0xE000_0000;
+
+/// Rig id of a player skin's own model in cache slot `slot`.
+#[must_use]
+pub const fn skin_rig_id(slot: u32) -> EntityRigId {
+    EntityRigId(SKIN_RIG_ID_BASE + slot)
+}
+
 /// Rig id of a generated item mesh registered with [`ActorRigFrameBuilder::insert_geometry`].
 #[must_use]
 pub const fn item_mesh_rig_id(mesh_index: u32) -> EntityRigId {

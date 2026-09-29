@@ -118,7 +118,12 @@ pub(super) fn advance_presentation_state(
         ViewEffect::NONE
     };
     hand.hurt = hurt.view_matrix(yaw);
-    let (sway_pitch, sway_yaw) = sway.sway_radians();
+    // Vanilla sways the hand only while view bobbing is on.
+    let (sway_pitch, sway_yaw) = if settings.feel().view_bobbing {
+        sway.sway_radians()
+    } else {
+        (0.0, 0.0)
+    };
     hand.sway_pitch_radians = sway_pitch;
     hand.sway_yaw_radians = sway_yaw;
 }
