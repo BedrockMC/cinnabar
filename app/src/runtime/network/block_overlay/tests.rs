@@ -220,8 +220,11 @@ fn geometry_quads_follow_uvs_and_placement_rotation() {
     let north_state = overlay.visuals[3];
     assert_eq!(north_state.kind, VisualKind::Model);
     let template = overlay.model_templates[north_state.model_template as usize];
-    assert_eq!(template.quad_count, 7, "six body faces and the top plate");
-    let quads = &overlay.model_quads[template.quad_start as usize..][..7];
+    assert_eq!(
+        template.quad_count, 13,
+        "six body faces, the top plate, and the six faces of the turned cube"
+    );
+    let quads = &overlay.model_quads[template.quad_start as usize..][..13];
     let front = quads
         .iter()
         .find(|quad| quad.flags & 7 == 5)
@@ -236,7 +239,7 @@ fn geometry_quads_follow_uvs_and_placement_rotation() {
 
     let west_state = overlay.visuals[2];
     let west_template = overlay.model_templates[west_state.model_template as usize];
-    let west_quads = &overlay.model_quads[west_template.quad_start as usize..][..7];
+    let west_quads = &overlay.model_quads[west_template.quad_start as usize..][..13];
     let turned_front = west_quads
         .iter()
         .find(|quad| quad.uvs.iter().all(|uv| uv[0] <= 2048 && uv[1] <= 2048))
