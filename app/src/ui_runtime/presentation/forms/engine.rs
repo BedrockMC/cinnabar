@@ -82,18 +82,8 @@ impl FormEngine {
         self.server_pages
     }
 
-    /// A carrier texture's page and pixel rect, for art drawn outside a screen.
-    pub(super) fn atlas_sprite(&self, key: &str) -> Option<IconRef> {
-        let placement = self.assets.texture(key)?;
-        Some(IconRef {
-            page: self.first_page.saturating_add(placement.page),
-            uv: [
-                placement.x,
-                placement.y,
-                placement.x.saturating_add(placement.width),
-                placement.y.saturating_add(placement.height),
-            ],
-        })
+    pub(super) fn assets(&self) -> &RuntimeUiAssets {
+        &self.assets
     }
 
     /// The carrier page size server textures pack into.

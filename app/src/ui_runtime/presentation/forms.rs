@@ -16,6 +16,8 @@ mod sign_editor;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use panorama::drive_menu_panorama;
+
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
