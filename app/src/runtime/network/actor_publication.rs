@@ -18,6 +18,7 @@ use super::{
     dropped_items::DroppedItemPublisher, publish_local_actor_visibility,
 };
 use crate::{
+    melee::SwingTracker,
     presentation::actors::{
         ActorRigPresentation, actor_rig_presentation, local_actor_presentation_for_visibility,
         local_diagnostic_presentation, rig_world_from_actor, select_actor_presentations_for_view,
@@ -127,6 +128,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
     local_skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
+    swings: Option<ResMut<'w, SwingTracker>>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
@@ -152,6 +154,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut hand_scene,
         mut hand_revision,
         local_skin,
+        mut swings,
         hand_motion,
         mut equipment,
         collisions,
@@ -223,6 +226,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         // local body/hand are driven by the shared rig, not the static fallback.
         if let Some(feed) = &local_feed {
             stream.sync_local_player_pose(feed);
+        }
+        // Attacks, mining and use swing the local arm at once; the server echoes no swing.
+        if swings
+            .as_deref_mut()
+            .is_some_and(SwingTracker::take_started)
+        {
+            stream.start_local_player_swing();
         }
         let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
         stream.set_actor_camera_rotation([
