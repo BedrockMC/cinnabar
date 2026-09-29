@@ -17,7 +17,7 @@ use render::{
 use super::overlay::{OverlayKind, OverlayLayer, ScreenOverlays};
 use crate::install_layout::InstallLayout;
 
-const VANILLA_PACK: &str = "assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack";
+use crate::install_layout::VANILLA_PACK_DIR as VANILLA_PACK;
 
 fn overlay_kind(kind: OverlayKind) -> ScreenOverlayKind {
     match kind {
