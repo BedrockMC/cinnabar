@@ -128,7 +128,13 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
         .insert_resource(BlockEntityRuntime::new())
         .add_systems(
             Update,
-            (update_block_entity_scene, request_missing_maps).chain(),
+            (
+                render::begin_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
+                update_block_entity_scene,
+                request_missing_maps,
+                render::end_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
+            )
+                .chain(),
         );
 }
 

@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use bevy::prelude::Resource;
+use bevy::prelude::{Res, ResMut, Resource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -25,10 +25,17 @@ pub enum RuntimeStage {
     OpaqueBatchPlanning,
     TransparentQueue,
     AcceptanceTelemetry,
+    /// Main-world wall time from `First` to `Last`.
+    MainFrame,
+    ActorPublication,
+    UiPublication,
+    Particles,
+    Audio,
+    BlockEntities,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 20] = [
         Self::NetworkIngestion,
         Self::WorldStream,
         Self::CaveVisibility,
@@ -43,6 +50,12 @@ impl RuntimeStage {
         Self::OpaqueBatchPlanning,
         Self::TransparentQueue,
         Self::AcceptanceTelemetry,
+        Self::MainFrame,
+        Self::ActorPublication,
+        Self::UiPublication,
+        Self::Particles,
+        Self::Audio,
+        Self::BlockEntities,
     ];
 
     #[must_use]
@@ -62,6 +75,12 @@ impl RuntimeStage {
             Self::OpaqueBatchPlanning => "opaque_batch_planning",
             Self::TransparentQueue => "transparent_queue",
             Self::AcceptanceTelemetry => "acceptance_telemetry",
+            Self::MainFrame => "main_frame",
+            Self::ActorPublication => "actor_publication",
+            Self::UiPublication => "ui_publication",
+            Self::Particles => "particles",
+            Self::Audio => "audio",
+            Self::BlockEntities => "block_entities",
         }
     }
 }
@@ -174,6 +193,30 @@ impl RuntimeStageProfiler {
             interval: Duration::from_nanos(now.saturating_sub(previous)),
             samples: std::array::from_fn(|index| self.state.stages[index].take()),
         })
+    }
+}
+
+/// Open spans timed across several systems, indexed by [`RuntimeStage`].
+#[derive(Resource, Debug, Default)]
+pub struct RuntimeStageSpans([Option<Instant>; RuntimeStage::ALL.len()]);
+
+/// Opens the span of stage `S` (a `RuntimeStage as usize`); pair with [`end_stage_span`].
+pub fn begin_stage_span<const S: usize>(spans: Option<ResMut<RuntimeStageSpans>>) {
+    if let Some(mut spans) = spans {
+        spans.0[S] = Some(Instant::now());
+    }
+}
+
+/// Closes the span of stage `S` and records its wall time.
+pub fn end_stage_span<const S: usize>(
+    profiler: Option<Res<RuntimeStageProfiler>>,
+    spans: Option<ResMut<RuntimeStageSpans>>,
+) {
+    if let (Some(profiler), Some(started)) =
+        (profiler, spans.and_then(|mut spans| spans.0[S].take()))
+        && profiler.enabled()
+    {
+        profiler.state.stages[S].record(started.elapsed());
     }
 }
 

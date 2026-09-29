@@ -133,6 +133,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     semantic_input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
+    profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -158,7 +159,11 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         semantic_input,
         ui,
         mut dropped_items,
+        profiler,
     } = params;
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::ActorPublication));
     let ActorPresentationState {
         avatar,
         mut local_visibility,
