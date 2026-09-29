@@ -5,8 +5,8 @@
 //! Textures wider or taller than [`MAX_UI_TEXTURE_SIDE`] (full-screen art,
 //! panoramas, animation strips) are not form sprites and are skipped and
 //! counted, mirroring the icon compiler's bounded-source policy. The six menu
-//! panorama faces are stored beside the ui json as raw files instead, for the
-//! panorama pass to decode at full resolution. The raw ui
+//! panorama faces and their overlay are also stored beside the ui json as raw
+//! files, for the panorama pass to decode at full resolution. The raw ui
 //! json is kept unresolved because a joined server pack overrides it at runtime.
 
 use std::{
@@ -91,7 +91,7 @@ pub fn compile_ui_assets(
     ui_paths.extend(
         png_paths
             .iter()
-            .filter(|relative| is_panorama_face(strip_extension(relative)))
+            .filter(|relative| is_panorama_file(strip_extension(relative)))
             .cloned(),
     );
 
@@ -483,10 +483,11 @@ fn relative_posix(path: &Path, pack_root: &Path) -> Option<String> {
     Some(out)
 }
 
-fn is_panorama_face(logical: &str) -> bool {
+/// The six panorama faces and their overlay tint.
+fn is_panorama_file(logical: &str) -> bool {
     logical
         .strip_prefix("textures/ui/panorama_")
-        .is_some_and(|face| matches!(face, "0" | "1" | "2" | "3" | "4" | "5"))
+        .is_some_and(|face| matches!(face, "0" | "1" | "2" | "3" | "4" | "5" | "overlay"))
 }
 
 fn strip_extension(relative: &str) -> &str {
