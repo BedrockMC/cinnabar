@@ -188,10 +188,12 @@ impl<'a> Resolver<'a> {
         let mut resolved = Vec::new();
         for child in children {
             let (working, provenance, unresolved) = self.resolve_child_base(child, env);
-            let child_env = self.build_env(env, &working.props);
-            if self.is_ignored(&working, &child_env) {
+            // `ignored` reads the enclosing scope only: the vanilla client
+            // evaluates it before the control's own `$` declarations apply.
+            if self.is_ignored(&working, env) {
                 continue;
             }
+            let child_env = self.build_env(env, &working.props);
             resolved.push(self.resolve_with_env(
                 &working,
                 provenance,
@@ -440,5 +442,32 @@ fn instance_name(name: &str, env: &Env) -> String {
     {
         Some(Value::String(value)) => value.clone(),
         _ => name.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Catalog, Context, resolve};
+
+    // A control's own `$` declarations do not decide its `ignored`.
+    #[test]
+    fn ignored_reads_the_enclosing_scope() {
+        let mut catalog = Catalog::default();
+        catalog.overlay_text(
+            "ui/a.json",
+            r#"{ "namespace": "n", "root": { "type": "panel", "$touch_mode|default": false,
+                "controls": [
+                    { "touch": { "type": "panel", "ignored": "(not $touch_mode)", "$touch_mode": true } },
+                    { "mouse": { "type": "panel", "ignored": "$touch_mode" } } ] } }"#,
+        );
+        let root = resolve(&catalog, "n.root", &Context::empty())
+            .control
+            .unwrap();
+        let names: Vec<_> = root
+            .children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect();
+        assert_eq!(names, ["mouse"]);
     }
 }

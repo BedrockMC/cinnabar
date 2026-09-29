@@ -421,9 +421,41 @@ fn snapshot_pack_forms() {
         ("ffa", "Free For All§zfp0;", &ffa),
         ("boxes", "@mineville/boxes:Spirit Bundle", &boxes),
     ];
-    for (name, title, buttons) in forms {
+    let navigator: Vec<String> = [
+        "Lobby", "Factions", "Skyblock", "KitPvP", "Practice", "Events",
+    ]
+    .iter()
+    .map(|name| format!("§l{name}\n§r§7Click to join"))
+    .collect();
+    let navigator_title =
+        std::env::var("CINNABAR_NAV_TITLE").unwrap_or_else(|_| "Navigator".to_owned());
+    let icons = [
+        "compass",
+        "diamond",
+        "apple_golden",
+        "blaze_powder",
+        "paper",
+        "book_normal",
+    ];
+    for (name, title, buttons) in
+        forms
+            .into_iter()
+            .chain([("navigator", navigator_title.as_str(), navigator.as_slice())])
+    {
         let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
-        let runtime = action_form(title, &labels);
+        let runtime = if name == "navigator" {
+            let images = icons
+                .iter()
+                .map(|icon| {
+                    Some(protocol::FormButtonImage::Path(
+                        format!("textures/items/{icon}").into(),
+                    ))
+                })
+                .collect();
+            image_form(title, &labels, images)
+        } else {
+            action_form(title, &labels)
+        };
         let dpi = DpiScale::new(1.0).unwrap();
         for _ in 0..2 {
             presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
