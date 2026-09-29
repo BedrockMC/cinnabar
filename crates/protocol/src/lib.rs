@@ -60,6 +60,9 @@ pub use interaction::{
     destroy_block_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
+    MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
+};
+pub use inventory::recipes::{
     CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeOutput,
     RecipeUpdate, decode_recipe_update, match_crafting_grid,
 };

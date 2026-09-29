@@ -40,6 +40,7 @@ fn recipe(width: u8, height: u8, shapeless: bool, cells: &[Option<&str>]) -> Rec
 fn catalog(recipes: Vec<Recipe>) -> RecipeCatalog {
     let owner = Credits::isolated(1 << 20);
     let update = RecipeUpdate {
+        screen: None,
         batch: Some(Arc::new(Batch {
             records: recipes
                 .into_iter()

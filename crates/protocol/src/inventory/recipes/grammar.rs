@@ -2,6 +2,7 @@ use super::{
     budget::MAX_RECORDS,
     model::Output,
     reader::{ReadResult, Reader, Refusal},
+    screen::ScreenRecipeKind,
 };
 
 #[derive(Clone, Copy, Default)]
@@ -21,6 +22,21 @@ pub(super) struct Candidate<'a> {
     pub(super) priority: i32,
     pub(super) ingredients: [Ingredient<'a>; super::model::MAX_INGREDIENTS],
     pub(super) output: Output,
+}
+
+/// A screen recipe as read from the wire, borrowing its strings.
+pub(super) struct ScreenRecord<'a> {
+    pub(super) id: u32,
+    pub(super) kind: ScreenRecipeKind,
+    pub(super) ingredients: [Ingredient<'a>; 3],
+    pub(super) len: usize,
+    pub(super) output: Option<Output>,
+}
+
+/// Something the screens need beyond crafting-table recipes.
+pub(super) enum ScreenItem<'a> {
+    Recipe(ScreenRecord<'a>),
+    Multi { uuid: [u8; 16], id: u32 },
 }
 
 pub(super) fn identifier(value: &str) -> bool {
@@ -112,7 +128,7 @@ fn normal<'a>(
     reader: &mut Reader<'a>,
     shaped: bool,
     eligible: bool,
-) -> ReadResult<(u32, Option<Candidate<'a>>)> {
+) -> ReadResult<(u32, Option<Candidate<'a>>, Option<ScreenRecord<'a>>)> {
     reader.string()?;
     let (width, height) = if shaped {
         (reader.int()?, reader.int()?)
@@ -153,12 +169,36 @@ fn normal<'a>(
         }
     }
     reader.take(16)?;
-    valid &= reader.string()? == "crafting_table";
+    let block = reader.string()?;
     let priority = reader.int()?;
     let mirror = shaped && reader.byte()? != 0;
     valid &= unlock(reader)?;
     let id = reader.uint()?;
     valid &= id != 0;
+    let screen_kind = match block {
+        "stonecutter" => Some(ScreenRecipeKind::Stonecutter),
+        "cartography_table" => Some(ScreenRecipeKind::Cartography),
+        _ => None,
+    };
+    let screen = screen_kind
+        .filter(|_| valid && !shaped)
+        .zip(result)
+        .map(|(kind, output)| {
+            let mut kept = [Ingredient::default(); 3];
+            let mut len = 0;
+            for item in ingredients.iter().filter(|item| item.count > 0).take(3) {
+                kept[len] = *item;
+                len += 1;
+            }
+            ScreenRecord {
+                id,
+                kind,
+                ingredients: kept,
+                len,
+                output: Some(output),
+            }
+        });
+    valid &= block == "crafting_table";
     Ok((
         id,
         if valid {
@@ -174,6 +214,7 @@ fn normal<'a>(
         } else {
             None
         },
+        screen,
     ))
 }
 
@@ -183,6 +224,7 @@ fn normal<'a>(
 pub(super) fn walk<'a>(
     reader: &mut Reader<'a>,
     mut record: impl FnMut(u32, Option<Candidate<'a>>) -> ReadResult<()>,
+    mut screen: impl FnMut(ScreenItem<'a>) -> ReadResult<()>,
 ) -> ReadResult<(bool, usize)> {
     let mut total = 0usize;
     for family in 0..11 {
@@ -194,24 +236,45 @@ pub(super) fn walk<'a>(
         for _ in 0..count {
             match family {
                 0 | 1 | 3 | 4 | 5 => {
-                    let (id, candidate) =
+                    let (id, candidate, screen_recipe) =
                         normal(reader, matches!(family, 0 | 5), matches!(family, 0 | 1))?;
+                    if let Some(recipe) = screen_recipe {
+                        screen(ScreenItem::Recipe(recipe))?;
+                    }
                     record(id, candidate)?;
                 }
                 2 => {
-                    reader.take(16)?;
-                    record(reader.uint()?, None)?;
+                    let uuid: [u8; 16] = reader.take(16)?.try_into().map_err(|_| Refusal::Wire)?;
+                    let id = reader.uint()?;
+                    screen(ScreenItem::Multi { uuid, id })?;
+                    record(id, None)?;
                 }
                 6 | 7 => {
                     reader.string()?;
-                    for _ in 0..3 {
-                        ingredient(reader)?;
+                    let mut ingredients = [Ingredient::default(); 3];
+                    for slot in &mut ingredients {
+                        *slot = ingredient(reader)?;
                     }
-                    if family == 6 {
-                        output(reader)?;
-                    }
+                    let result = if family == 6 { output(reader)? } else { None };
                     reader.string()?;
-                    record(reader.uint()?, None)?;
+                    let id = reader.uint()?;
+                    let sound = ingredients.iter().all(|item| item.valid && item.count > 0)
+                        && id != 0
+                        && (family == 7 || result.is_some());
+                    if sound {
+                        screen(ScreenItem::Recipe(ScreenRecord {
+                            id,
+                            kind: if family == 6 {
+                                ScreenRecipeKind::SmithingTransform
+                            } else {
+                                ScreenRecipeKind::SmithingTrim
+                            },
+                            ingredients,
+                            len: 3,
+                            output: result,
+                        }))?;
+                    }
+                    record(id, None)?;
                 }
                 8 | 9 => {
                     for _ in 0..if family == 8 { 6 } else { 3 } {
