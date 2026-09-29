@@ -27,6 +27,16 @@ pub(crate) struct ServerSoundPack {
     pub files: HashMap<Box<str>, Arc<Pcm>>,
 }
 
+impl std::fmt::Debug for ServerSoundPack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerSoundPack")
+            .field("definitions", &self.definitions.len())
+            .field("tables", &self.tables.is_some())
+            .field("files", &self.files.len())
+            .finish()
+    }
+}
+
 fn float(value: Option<&Value>) -> Option<f32> {
     value?.as_f64().map(|n| n as f32).filter(|n| n.is_finite())
 }
@@ -181,9 +191,12 @@ impl ServerSoundPack {
 
 static MAILBOX: Mutex<(u64, Option<Arc<ServerSoundPack>>)> = Mutex::new((0, None));
 
-/// Publishes this session's server sounds (`None` view or no overrides clears them).
-pub(crate) fn publish_server_sounds(view: Option<&LayeredPackView>) {
-    let pack = view.and_then(ServerSoundPack::from_view).map(Arc::new);
+/// Serializes tests that publish to or observe the process-wide mailbox.
+#[cfg(test)]
+pub(crate) static SERVER_SOUNDS_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Publishes the accepted session's server sounds; `None` clears them.
+pub(crate) fn publish_server_sounds(pack: Option<Arc<ServerSoundPack>>) {
     let mut mailbox = MAILBOX.lock().unwrap_or_else(|poison| poison.into_inner());
     mailbox.0 += 1;
     mailbox.1 = pack;
@@ -269,6 +282,9 @@ mod tests {
 
     #[test]
     fn mailbox_reports_each_publication_once() {
+        let _mailbox = SERVER_SOUNDS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         publish_server_sounds(None);
         let mut seen = 0;
         assert!(matches!(poll_server_sounds(&mut seen), Some(None)));
