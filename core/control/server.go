@@ -22,6 +22,9 @@ const (
 	requestIOTimeout = 2 * time.Second
 )
 
+// maxConcurrentRequests bounds simultaneous local requests; extra connections are dropped.
+const maxConcurrentRequests = 16
+
 const methodPackApplication = "pack_application.v1"
 
 type request struct {
@@ -46,11 +49,13 @@ type responseError struct {
 type Server struct {
 	listener         net.Listener
 	store            *Store
-	worlds           Worlds // nil disables the world_* methods
+	worlds           Worlds   // nil disables the world_* methods; guarded by mu
+	services         Services // nil disables the launcher methods; guarded by mu
 	done             chan struct{}
 	once             sync.Once
 	mu               sync.Mutex
-	active           net.Conn
+	active           map[net.Conn]struct{}
+	handlers         sync.WaitGroup
 	closing          bool
 	err              error
 	requestIOTimeout time.Duration
@@ -85,6 +90,7 @@ func startServer(socketDir string, store *Store, worlds Worlds, timeout time.Dur
 		listener:         listener,
 		store:            store,
 		worlds:           worlds,
+		active:           make(map[net.Conn]struct{}),
 		done:             make(chan struct{}),
 		requestIOTimeout: timeout,
 	}
@@ -110,16 +116,49 @@ func (server *Server) serve() {
 			_ = conn.Close()
 			return
 		}
-		server.active = conn
-		server.mu.Unlock()
-		_ = server.serveOne(conn)
-		server.mu.Lock()
-		if server.active == conn {
-			server.active = nil
+		if len(server.active) >= maxConcurrentRequests {
+			server.mu.Unlock()
+			_ = conn.Close()
+			continue
 		}
+		server.active[conn] = struct{}{}
+		server.handlers.Add(1)
 		server.mu.Unlock()
-		_ = conn.Close()
+		go func() {
+			defer server.handlers.Done()
+			_ = server.serveOne(conn)
+			server.mu.Lock()
+			delete(server.active, conn)
+			server.mu.Unlock()
+			_ = conn.Close()
+		}()
 	}
+}
+
+// SetWorlds enables the world_* methods; safe to call while serving.
+func (server *Server) SetWorlds(worlds Worlds) {
+	server.mu.Lock()
+	server.worlds = worlds
+	server.mu.Unlock()
+}
+
+// SetServices enables the launcher methods; safe to call while serving.
+func (server *Server) SetServices(services Services) {
+	server.mu.Lock()
+	server.services = services
+	server.mu.Unlock()
+}
+
+func (server *Server) worldService() Worlds {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	return server.worlds
+}
+
+func (server *Server) launcherServices() Services {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	return server.services
 }
 
 func (server *Server) serveOne(conn net.Conn) error {
@@ -146,7 +185,10 @@ func (server *Server) serveOne(conn net.Conn) error {
 	if call.Method == methodPackApplication {
 		return server.servePackApplication(conn, id, call.Params)
 	}
-	if server.worlds != nil && isWorldMethod(call.Method) {
+	if isServiceMethod(call.Method) {
+		return server.serveService(conn, id, call.Method, call.Params)
+	}
+	if server.worldService() != nil && isWorldMethod(call.Method) {
 		return server.serveWorld(conn, id, call.Method, call.Params)
 	}
 	if len(call.Params) != 0 {
@@ -188,13 +230,17 @@ func (server *Server) Close() error {
 		server.store.SetLifecycle(LifecycleStopping)
 		server.mu.Lock()
 		server.closing = true
-		active := server.active
+		active := make([]net.Conn, 0, len(server.active))
+		for conn := range server.active {
+			active = append(active, conn)
+		}
 		server.mu.Unlock()
 		closeErr := server.listener.Close()
-		if active != nil {
-			closeErr = errors.Join(closeErr, active.Close())
+		for _, conn := range active {
+			closeErr = errors.Join(closeErr, conn.Close())
 		}
 		<-server.done
+		server.handlers.Wait()
 		server.mu.Lock()
 		server.err = errors.Join(server.err, closeErr)
 		server.mu.Unlock()
