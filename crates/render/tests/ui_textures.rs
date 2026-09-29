@@ -18,8 +18,8 @@ fn mixed_dimensions_plan_native_bytes_before_materialization() {
 
 #[test]
 fn planner_checks_entire_catalog_and_all_limits() {
-    assert!(UiTexturePlan::new(&[[4096, 4096]]).is_ok());
-    assert!(UiTexturePlan::new(&[[4096, 4096], [1, 1]]).is_err());
+    assert!(UiTexturePlan::new(&[[4096, 4096], [4096, 4096]]).is_ok());
+    assert!(UiTexturePlan::new(&[[4096, 4096], [4096, 4096], [1, 1]]).is_err());
     assert!(UiTexturePlan::new(&[[u32::MAX, u32::MAX]]).is_err());
     assert!(UiTexturePlan::new(&[[0, 256]]).is_err());
     assert!(UiTexturePlan::new(&vec![[1, 1]; 257]).is_err());
