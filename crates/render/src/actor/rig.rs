@@ -231,6 +231,8 @@ pub struct ActorRigGeometry {
     pub id: EntityRigId,
     pub vertices: Arc<[ActorRigVertex]>,
     pub bone_pivots: Arc<[[f32; 3]]>,
+    /// One past the highest bone any vertex uses; a pose needs at least this many bones.
+    bones_used: usize,
 }
 
 impl ActorRigGeometry {
@@ -260,10 +262,16 @@ impl ActorRigGeometry {
         {
             return Err(ActorRigGeometryError::InvalidVertex);
         }
+        let bones_used = vertices
+            .iter()
+            .map(|vertex| vertex.bone_index as usize + 1)
+            .max()
+            .unwrap_or(0);
         Ok(Self {
             id,
             vertices,
             bone_pivots,
+            bones_used,
         })
     }
 
@@ -651,10 +659,8 @@ impl ActorRigFrameBuilder {
                 rejects.missing_geometry = rejects.missing_geometry.saturating_add(1);
                 continue;
             };
-            if geometry.vertices.iter().any(|vertex| {
-                vertex.bone_index as usize >= previous.len()
-                    || vertex.bone_index as usize >= geometry.bone_pivots.len()
-            }) {
+            // Construction already bounds every vertex bone by the pivots.
+            if geometry.bones_used > previous.len() {
                 rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
                 continue;
             }

@@ -263,3 +263,29 @@ fn legacy_half_height_skin_expands_with_mirrored_left_limbs() {
         .is_none()
     );
 }
+
+/// An HD skin is resampled once per source raster, not once per frame.
+#[test]
+fn cached_skin_normalization_resamples_each_source_once() {
+    let hd = ActorSkinPixels {
+        width: 128,
+        height: 128,
+        rgba8: (0..128 * 128 * 4).map(|value| value as u8).collect(),
+    };
+    let first = super::normalize_actor_skin_cached(&hd).unwrap();
+    assert_eq!(first, super::normalize_actor_skin(&hd).unwrap());
+    for _ in 0..10 {
+        assert!(Arc::ptr_eq(
+            &first,
+            &super::normalize_actor_skin_cached(&hd).unwrap()
+        ));
+    }
+    let copy = ActorSkinPixels {
+        rgba8: hd.rgba8.to_vec().into(),
+        ..hd
+    };
+    assert!(!Arc::ptr_eq(
+        &first,
+        &super::normalize_actor_skin_cached(&copy).unwrap()
+    ));
+}
