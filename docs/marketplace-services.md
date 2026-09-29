@@ -67,8 +67,8 @@ token claims.
 Minecoins are bought in the platform store (Microsoft Store here), not through Mojang. The client then redeems the store receipt:
 `POST /api/v1.0/transaction/redeem` with the common `CustomTags` block plus `platformPurchaseId`, the platform receipt fields,
 `passSubscription`, `sku` and a production/sandbox flag. The coin-bundle screens (`coin_purchase_screen.json`, `MinecoinCatalogModel`)
-list the bundles and open the platform store; Cinnabar has no platform-store integration, so bundles are shown but the buy button opens
-the account page on minecraft.net instead.
+list the bundles and open the platform store. Cinnabar has no platform-store integration: the insufficient-funds dialog
+(`store.popup.purchaseFailedInsufficientFunds.*`) is shown, and its "Get Minecoins" button is where a top-up would attach.
 
 ## Owned content
 
