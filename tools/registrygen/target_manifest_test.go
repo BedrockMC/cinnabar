@@ -231,13 +231,13 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	}
 	consumers := map[string][]string{
 		"Makefile": {"assets/bedrock-target.json", target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "block-physics-v2168", "vanilla-v2168.mcbea"},
-		"app/src/asset_startup/world_provenance.rs": {"block-registry-v2168.bin", "block-light-registry-v2168.bin", "biome-registry-v2168.bin", "bedrock-target.json"},
-		"app/src/install_layout.rs":                 {"block-physics-v2168.bin", "vanilla-v2168.mcbea"},
-		"tools/dist/src/layout.rs":                  {"block-physics-v2168.bin", "vanilla-v2168.mcbea"},
-		"app/src/metrics/diagnostics.rs":            {"block-registry-v2168.bin"},
-		"crates/asset-compiler/src/entity/item.rs":  {"block-registry-v2168.bin", "block-item-routes-v2168.json"},
-		"crates/asset-compiler/src/bin/assetc.rs":   {"vanilla-v2168.mcbea"},
-		"crates/protocol/Cargo.toml":                {target.CodecFeature},
+		"app/src/asset_startup/world_provenance.rs":   {"block-registry-v2168.bin", "block-light-registry-v2168.bin", "biome-registry-v2168.bin", "bedrock-target.json"},
+		"app/src/install_layout.rs":                   {"block-physics-v2168.bin", "vanilla-v2168.mcbea"},
+		"tools/dist/src/layout.rs":                    {"block-physics-v2168.bin", "vanilla-v2168.mcbea"},
+		"app/src/metrics/diagnostics.rs":              {"block-registry-v2168.bin"},
+		"crates/asset-compiler/src/entity/item.rs":    {"block-registry-v2168.bin", "block-item-routes-v2168.json"},
+		"crates/asset-compiler/src/bin/assetc/cli.rs": {"vanilla-v2168.mcbea"},
+		"crates/protocol/Cargo.toml":                  {target.CodecFeature},
 	}
 	for path, required := range consumers {
 		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
