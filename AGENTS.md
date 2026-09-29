@@ -12,6 +12,12 @@ it never closes a vanilla acceptance gate.
 
 ## Gameplay HUD: Java Edition parity exception
 
+By explicit owner decision, the gameplay HUD — chat, scoreboard, hearts and other
+status bars, crosshair, boss bars, hotbar, and the rest of the in-game HUD — targets
+Java Edition appearance and layout parity. This is a scoped exception; version-matched
+Bedrock parity still governs everything else. Bedrock textures remain acceptable, and
+the open font is an accepted permanent deviation for copyright reasons.
+
 
 These are the things that are not obvious from the code. Read the linked docs when
 the work touches them.
