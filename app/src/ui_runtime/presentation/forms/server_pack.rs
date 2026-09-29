@@ -1,8 +1,8 @@
 //! A joined server's resource-pack UI textures: `textures/**/*.png` decode and
-//! shelf-pack into extra atlas pages the size of the carrier's (one texture
-//! bucket), with their `*.json` sidecars, and shadow the vanilla carrier's
-//! textures of the same path. Oversized or undecodable images are skipped, as
-//! the carrier compiler skips them.
+//! shelf-pack into reserved 256x256 dynamic pages, with their `*.json`
+//! sidecars, and shadow the vanilla carrier's textures of the same path.
+//! Oversized or undecodable images are skipped, as the carrier compiler skips
+//! them, and so is whatever overflows the reserved pages.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -13,10 +13,8 @@ use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
 use render::UiTexturePage;
 
-/// Largest server texture side accepted, matching the carrier's form sprites.
-const MAX_SERVER_TEXTURE_SIDE: u32 = 256;
-/// Bound on packed server pages, so a hostile pack cannot exhaust texture memory.
-const MAX_SERVER_PAGES: usize = 2;
+/// Side of a dynamic UI page, which also bounds one server texture.
+const PAGE_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
 
 /// A session's server resource-pack UI: each pack's `ui/**/*.json`, lowest
@@ -71,8 +69,9 @@ pub(super) struct PackedServerTextures {
     pub(super) textures: BTreeMap<String, ServerTexture>,
 }
 
-/// Decode and pack the pack's UI textures into pages of `side`.
-pub(super) fn pack(files: &[(String, Vec<u8>)], side: [u32; 2]) -> PackedServerTextures {
+/// Decode and pack the pack's UI textures into at most `max_pages` pages.
+pub(super) fn pack(files: &[(String, Vec<u8>)], max_pages: usize) -> PackedServerTextures {
+    let side = [PAGE_SIDE; 2];
     let sidecars: BTreeMap<&str, TextureMeta> = files
         .iter()
         .filter_map(|(path, bytes)| {
@@ -107,7 +106,7 @@ pub(super) fn pack(files: &[(String, Vec<u8>)], side: [u32; 2]) -> PackedServerT
             shelf = 0;
         }
         if buffers.is_empty() || y + height > side[1] {
-            if buffers.len() == MAX_SERVER_PAGES {
+            if buffers.len() == max_pages {
                 break;
             }
             buffers.push(vec![0; row_bytes * side[1] as usize]);
@@ -144,19 +143,15 @@ fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
         .with_guessed_format()
         .ok()?;
     let (width, height) = probe.into_dimensions().ok()?;
-    if width == 0
-        || height == 0
-        || width > MAX_SERVER_TEXTURE_SIDE
-        || height > MAX_SERVER_TEXTURE_SIDE
-    {
+    if width == 0 || height == 0 || width > PAGE_SIDE || height > PAGE_SIDE {
         return None;
     }
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
     let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_SERVER_TEXTURE_SIDE);
-    limits.max_image_height = Some(MAX_SERVER_TEXTURE_SIDE);
+    limits.max_image_width = Some(PAGE_SIDE);
+    limits.max_image_height = Some(PAGE_SIDE);
     reader.limits(limits);
     let image = reader.decode().ok()?.into_rgba8();
     Some((width, height, image.into_raw()))
@@ -185,7 +180,7 @@ mod tests {
             ("textures/ui/huge.png".to_owned(), png(300, 4)),
             ("ui/screen.json".to_owned(), b"{}".to_vec()),
         ];
-        let packed = pack(&files, [64, 64]);
+        let packed = pack(&files, 1);
         assert_eq!(packed.pages.len(), 1);
         let button = packed.textures["textures/ui/button"];
         assert_eq!(button.rect, [0, 0, 16, 8]);
