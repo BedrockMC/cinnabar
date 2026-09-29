@@ -9,11 +9,13 @@
 mod account;
 mod account_control;
 pub(crate) mod auth;
+mod connection;
 pub(crate) mod core_process;
 #[cfg(test)]
 mod flow_tests;
 mod input;
 pub(crate) mod launcher_account;
+mod launcher_core;
 pub(crate) mod servers;
 mod settings_values;
 mod view;
@@ -21,12 +23,13 @@ mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
 
+pub(crate) use connection::{
+    drive_menu_connection, follow_server_transfer, recover_menu_session_failure,
+};
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
-pub(crate) use input::{
-    MenuClipboard, drive_menu_connection, drive_menu_input, follow_server_transfer,
-    recover_menu_session_failure,
-};
+pub(crate) use input::{MenuClipboard, drive_menu_input};
+pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{load_servers, save_servers};
 pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 use view::CatalogFile;
@@ -195,6 +198,9 @@ pub(crate) struct MenuRuntime {
     sign_out_requested: bool,
     volumes: settings_values::Volumes,
     volume_change: Option<(u8, u8)>,
+    /// The current or pending session is a local world, and whether it was live last frame.
+    local_world_joined: bool,
+    local_world_active: bool,
     /// Identity-checked owner of this session's runtime directory; bound
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
@@ -205,6 +211,8 @@ pub(crate) struct MenuRuntime {
 struct PendingConnect {
     address: String,
     auth_cache: Option<PathBuf>,
+    /// Joins the launcher core's opened local world instead of `address`.
+    local_world: bool,
 }
 
 impl MenuRuntime {
@@ -283,6 +291,8 @@ impl MenuRuntime {
             sign_out_requested: false,
             volumes: Default::default(),
             volume_change: None,
+            local_world_joined: false,
+            local_world_active: false,
         }
     }
 
@@ -312,11 +322,16 @@ impl MenuRuntime {
     }
 
     pub(crate) fn view(&self) -> MenuView {
-        let auth_state = self.control_auth.clone().unwrap_or_else(|| {
-            self.auth_process
-                .as_ref()
-                .map_or(AuthState::SignedOut, |process| process.state().clone())
-        });
+        // A sign-in in flight outranks the core's report, which outranks a finished helper.
+        let supervisor = self
+            .auth_process
+            .as_ref()
+            .map(|process| process.state().clone());
+        let auth_state = match (supervisor, self.control_auth.clone()) {
+            (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => state,
+            (_, Some(control)) => control,
+            (supervisor, None) => supervisor.unwrap_or(AuthState::SignedOut),
+        };
         let catalog_loading = matches!(
             &auth_state,
             AuthState::Checking | AuthState::AwaitingCode { .. }
@@ -388,10 +403,6 @@ impl MenuRuntime {
     }
 
     /// The death screen's respawn press, for the session to send once.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "sent once the respawn request lands")
-    )]
     pub(crate) fn take_respawn_request(&mut self) -> bool {
         std::mem::take(&mut self.respawn_requested)
     }
@@ -893,9 +904,11 @@ impl MenuRuntime {
             self.auth_process.as_ref().map(AuthSupervisor::state),
         );
         self.stop_sign_in();
+        self.local_world_joined = false;
         self.pending_connect = Some(PendingConnect {
             address,
             auth_cache,
+            local_world: false,
         });
         self.mark_connecting();
     }

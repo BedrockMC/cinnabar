@@ -1,12 +1,6 @@
-//! The menu's view of the core's account control surface. The core-relay lane
-//! adds typed clients for these control methods and events; implementing
-//! [`AccountControl`] over them links the play and sign-in screens without the
-//! menu knowing the transport. Until one is supplied, the account catalog and
-//! the auth supervisor keep feeding the menu as before.
-#![cfg_attr(
-    not(test),
-    allow(dead_code, reason = "fed by the core-relay control clients")
-)]
+//! The menu's view of the core's account control surface, so the play and
+//! sign-in screens never see the transport. Without a launcher core the
+//! account catalog and the auth supervisor keep feeding the menu.
 
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime};
 
@@ -24,6 +18,10 @@ pub(crate) mod method {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AccountEvent {
     /// The sign-in state changed (device code shown, signed in, signed out).
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "auth changes arrive as polled status")
+    )]
     Auth(AuthState),
     /// The live session ended; the reason shows on the disconnect screen.
     Disconnected { reason: String },
@@ -65,9 +63,33 @@ impl MenuRuntime {
                 }
             }
         }
-        if std::mem::take(&mut self.sign_out_requested) && control.sign_out() {
-            self.control_auth = Some(AuthState::SignedOut);
+        if std::mem::take(&mut self.sign_out_requested) {
+            control.sign_out();
+            self.finish_sign_out();
         }
+    }
+
+    /// Sign out without a launcher core: the saved tokens are removed here.
+    pub(crate) fn sign_out_locally(&mut self) {
+        if std::mem::take(&mut self.sign_out_requested) {
+            let _ = std::fs::remove_file(self.layout.auth_cache());
+            self.finish_sign_out();
+        }
+    }
+
+    /// Forget the validated sign-in and return to the signed-out profile; the
+    /// launcher core then restarts offline and signing in again runs the
+    /// device-code helper.
+    fn finish_sign_out(&mut self) {
+        self.auth_process = None;
+        self.auth_attempted = true;
+        self.control_auth = None;
+        self.stop_catalog();
+        self.catalog_started = false;
+        self.realms.clear();
+        self.friends.clear();
+        self.catalog_message = None;
+        self.enter(super::MenuScreen::Profile);
     }
 }
 
@@ -122,6 +144,7 @@ mod tests {
         menu.activate(super::super::MenuAction::SignOut);
         menu.sync_account_control(&mut control);
         assert!(control.signed_out);
-        assert_eq!(menu.view().auth_state, AuthState::SignedOut);
+        assert!(menu.friends.is_empty());
+        assert_eq!(menu.view().screen, super::super::MenuScreen::Profile);
     }
 }
