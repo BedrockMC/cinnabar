@@ -8,9 +8,9 @@
 use std::sync::Arc;
 
 use json_ui::{
-    BossBar, CROSSHAIR_SCREEN, Catalog, CatalogLibrary, Context, DataSource, FormRender,
-    HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolvedControl, Sidebar, Timed, ViewState, bind,
-    hud_context, hud_data_source, render_bound, resolve,
+    BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context, DataSource,
+    FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl, Sidebar,
+    Timed, ViewState, bind_shared, hud_clocks, hud_context, hud_data_source, render_bound, resolve,
 };
 use ui::{TimedText, UiNode};
 
@@ -53,7 +53,9 @@ const MAX_BOSS_BARS: usize = 8;
 /// One screen's resolved tree per catalog and its last layout per model.
 #[derive(Default)]
 pub(super) struct CachedScreen {
-    resolved: Option<(Arc<Catalog>, Option<ResolvedControl>)>,
+    resolved: Option<(Arc<Catalog>, Option<Arc<ResolvedControl>>)>,
+    /// Factory and grid resolutions for the resolved catalog, kept across binds.
+    library: ResolveCache,
     laid: Option<Laid>,
     /// Bind+layout passes run, for cache tests and profiling.
     pub(super) passes: usize,
@@ -90,12 +92,16 @@ impl CachedScreen {
                 .as_ref()
                 .is_some_and(|(resolved_for, _)| Arc::ptr_eq(resolved_for, catalog));
             if !current {
-                let tree = resolve(catalog, reference, context).control;
+                let tree = resolve(catalog, reference, context).control.map(Arc::new);
                 self.resolved = Some((Arc::clone(catalog), tree));
+                self.library = ResolveCache::default();
             }
             let tree = self.resolved.as_ref()?.1.as_ref()?;
-            let library = CatalogLibrary { catalog, context };
-            let bound = bind(tree, &data, &library);
+            let library = CachedLibrary {
+                library: CatalogLibrary { catalog, context },
+                cache: &self.library,
+            };
+            let bound = bind_shared(tree, &data, &library);
             self.passes += 1;
             self.laid = Some(Laid {
                 catalog: Arc::clone(catalog),
@@ -114,6 +120,8 @@ impl CachedScreen {
 pub(super) struct HudScreens {
     pub(super) hud: CachedScreen,
     crosshair: CachedScreen,
+    /// This frame's fade clocks (title, action bar, item name).
+    clocks: std::collections::BTreeMap<String, f64>,
 }
 
 impl UiPresentationRuntime {
@@ -140,6 +148,7 @@ impl UiPresentationRuntime {
             .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
             .map(sidebar_model);
         let model = hud_model(runtime, &frame, sidebar, &mut icons);
+        self.form_presentation.hud.clocks = hud_clocks(&model);
         let paint = hud_layout::capture_hud_paint(runtime, &frame, self.hud_textures.as_ref());
         let context = hud_context(renderer.context());
         let catalog = Arc::clone(renderer.catalog());
@@ -152,6 +161,10 @@ impl UiPresentationRuntime {
         };
         let translate = |key: &str| runtime.translation(key);
         let screens = &mut self.form_presentation.hud;
+        let art = ScreenArt {
+            clocks: Some(&screens.clocks),
+            ..art
+        };
         for (reference, data, screen) in [
             (HUD_SCREEN, hud_data_source(&model), &mut screens.hud),
             (CROSSHAIR_SCREEN, DataSource::new(), &mut screens.crosshair),
@@ -367,5 +380,10 @@ impl UiPresentationRuntime {
     /// Bind+layout passes the engine HUD ran.
     pub(crate) fn hud_passes(&self) -> usize {
         self.form_presentation.hud.hud.passes
+    }
+
+    /// A draw node's fade multiplier at `now`, under this frame's clocks.
+    pub(crate) fn hud_fade(&self, node: &json_ui::DrawNode, now: f64) -> f32 {
+        json_ui::fade_factor_at(&node.fades, now, &self.form_presentation.hud.clocks)
     }
 }
