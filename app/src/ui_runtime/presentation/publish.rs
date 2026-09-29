@@ -18,6 +18,15 @@ pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
 
+/// Resources beyond Bevy's sixteen-parameter limit.
+type PublishExtras<'w> = (
+    Res<'w, WorldStreamFramePoll>,
+    Res<'w, crate::menu::MenuRuntime>,
+    Res<'w, render::HandRigScene>,
+    Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
+    Option<Res<'w, render::RuntimeStageProfiler>>,
+);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
     mut runtime: ResMut<UiRuntime>,
@@ -34,13 +43,7 @@ pub(crate) fn publish_ui_runtime(
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig, collisions, profiler): (
-        Res<WorldStreamFramePoll>,
-        Res<crate::menu::MenuRuntime>,
-        Res<render::HandRigScene>,
-        Option<Res<crate::movement::PhysicsCollisionRegistries>>,
-        Option<Res<render::RuntimeStageProfiler>>,
-    ),
+    (frame_poll, menu_runtime, hand_rig, collisions, profiler): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
     let _timer = profiler
