@@ -89,6 +89,7 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         username: "player".into(),
         verified: true,
         skin: PlayerSkin::Standard(StandardSkin {
+            geometry: None,
             cape: None,
             width: 64,
             height: 64,
@@ -123,6 +124,7 @@ fn rig<'a>(
         body_yaw: 0.0,
         render: &[],
         bone_names: &[],
+        skin_geometry: None,
     }
 }
 

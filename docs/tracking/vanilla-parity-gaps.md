@@ -288,6 +288,15 @@ Molang state, and every texture a candidate can select is built into the actor p
 | Approximated | materials are all drawn with the neutral binary-alpha material; a controller layer whose `geometry` never selects the rig's default geometry is skipped; hidden bones hide only their own cubes; fractional-alpha and mis-sized variant rasters are omitted |
 | Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `is_hurt_color`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape), pack-catalog variants |
 
+Player skins: a skin's own geometry (resource patch `geometry.default`, inheritance only within
+the skin's JSON, lenient field parsing) replaces the default humanoid, driven by the player's
+animations through matching bone names; equipment rides it by bone name. Provisional: the skin
+page is 64x64, so 128x128 images are downsampled; `animation_data` (animated face/textures) and
+the patch's other geometry, animation and flag keys are ignored; persona skins draw the sender's
+baked image instead of vanilla's piece rebuild; an unloadable image or unresolved model falls back
+to the pack's Steve skin and default humanoid (vanilla uses its skin pack's Dummy skin, absent from
+the samples). Legacy 64x32 images are expanded as vanilla does.
+
 Player cape: drawn from the skin's cape raster with the `geometry.cape` mesh posed from the
 player's bones by name; the cape's rest turn, layer resampling and `cape_flap_amount` scale need
 native verification. With the real carriers no cape draws yet: vanilla defines `geometry.cape` in
