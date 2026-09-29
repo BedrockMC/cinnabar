@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -24,8 +25,27 @@ func defaultLocalServerBinary() (string, error) {
 	return filepath.Join(filepath.Dir(exe), name), nil
 }
 
-// openLocalWorlds fails closed when the server binary is missing so an open never dies later with a vague error.
+// detectRuntime probes how BDS can run; -local-backend=dragonfly skips the probe.
+func detectRuntime(ctx context.Context, opts options) localworld.RuntimeInfo {
+	if opts.localBackend == "dragonfly" {
+		return localworld.RuntimeInfo{Kind: localworld.RuntimeNone, Reason: "dragonfly forced by -local-backend"}
+	}
+	return localworld.DetectRuntime(ctx, opts.docker)
+}
+
+// defaultBackend resolves -local-backend; auto picks BDS when it can run natively or in a container.
+func defaultBackend(flag string, info localworld.RuntimeInfo) string {
+	if flag == "auto" || flag == "" {
+		return localworld.DefaultBackend(info)
+	}
+	return flag
+}
+
+// openLocalWorlds builds the manager with a dragonfly runner (when its binary exists) and a BDS runner.
+// The dragonfly binary is required, and its absence fatal, only when it is the default backend.
 func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, error) {
+	runtimeInfo := detectRuntime(context.Background(), opts)
+	backend := defaultBackend(opts.localBackend, runtimeInfo)
 	binary := opts.localServerBin
 	if binary == "" {
 		var err error
@@ -33,13 +53,28 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 			return nil, fmt.Errorf("locate local world server: %w", err)
 		}
 	}
-	if info, err := os.Stat(binary); err != nil || info.IsDir() {
+	runners := localworld.Runners{}
+	if info, err := os.Stat(binary); err == nil && !info.IsDir() {
+		runners[localworld.BackendDragonfly] = localworld.ProcessRunner{Binary: binary, Log: logger}
+	} else if backend == localworld.BackendDragonfly {
 		return nil, fmt.Errorf("local world server binary not found at %s; build it with `make local-server`", binary)
 	}
 	store, err := localworld.OpenStore(opts.localWorldsDir)
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("local worlds enabled", "dir", opts.localWorldsDir)
-	return localworld.NewManager(store, localworld.ProcessRunner{Binary: binary, Log: logger}, logger), nil
+	store.SetDefaultBackend(backend)
+	bdsDir := opts.bdsDir
+	if bdsDir == "" {
+		bdsDir = filepath.Join(filepath.Dir(filepath.Clean(opts.localWorldsDir)), "bds")
+	}
+	provisioner := &localworld.Provisioner{Root: bdsDir, Version: opts.bdsVersion, Log: logger}
+	provisioner.SetRuntime(runtimeInfo)
+	provisioner.SetDetector(func(ctx context.Context) localworld.RuntimeInfo { return detectRuntime(ctx, opts) })
+	runners[localworld.BackendBDS] = localworld.BDSRunner{Provisioner: provisioner, Log: logger, Docker: opts.docker}
+	manager := localworld.NewManager(store, runners, logger)
+	manager.SetSetup(provisioner)
+	manager.SetAutoBackend(opts.localBackend == "auto" || opts.localBackend == "")
+	logger.Info("local worlds enabled", "dir", opts.localWorldsDir, "default_backend", backend, "bds_runtime", runtimeInfo.Kind, "reason", runtimeInfo.Reason)
+	return manager, nil
 }
