@@ -369,7 +369,9 @@ impl MovementTicker {
 
     fn snapshot(&mut self, sample: &PhysicsMovementSample) -> PlayerAuthInputSnapshot {
         let current_input = HeldInput::from(sample);
-        let move_vector = normalize_move_vector(sample.move_vector);
+        // Samples carry right-positive x; the wire vectors are left-positive.
+        let wire = |vector: [f32; 2]| [-vector[0], vector[1]];
+        let move_vector = wire(normalize_move_vector(sample.move_vector));
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
@@ -378,8 +380,8 @@ impl MovementTicker {
             // not the post-tick velocity.
             delta: sample.movement,
             move_vector,
-            analogue_move_vector: sample.analogue_move_vector,
-            raw_move_vector: sample.raw_move_vector,
+            analogue_move_vector: wire(sample.analogue_move_vector),
+            raw_move_vector: wire(sample.raw_move_vector),
             pitch: sample.pitch,
             yaw: sample.yaw,
             head_yaw: sample.head_yaw,
