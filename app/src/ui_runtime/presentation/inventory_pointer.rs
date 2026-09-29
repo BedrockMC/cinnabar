@@ -30,6 +30,8 @@ pub(crate) enum InventoryScreen {
     /// A container window other than chests and the workbench, with its cell count.
     Window(WindowKind, usize),
     Creative,
+    /// A book reader, editor or lectern page.
+    Book,
 }
 
 impl InventoryScreen {
@@ -46,6 +48,9 @@ impl InventoryScreen {
     /// The screen for the runtime's state: creative mode swaps the personal
     /// screen for the creative catalog.
     pub(crate) fn of_runtime(runtime: &crate::ui_runtime::UiRuntime) -> Self {
+        if runtime.screen_state().book.is_some() {
+            return Self::Book;
+        }
         let screen = Self::of(runtime.inventory_ledger());
         let creative = runtime
             .player_game_mode()
@@ -98,6 +103,38 @@ impl UiPresentationRuntime {
         }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
         cell_hit(gui, geometry, screen)
+    }
+
+    /// The recipe-book control under a GUI point, if the screen has a book.
+    pub(crate) fn inventory_book_hit(
+        &self,
+        gui: [f32; 2],
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+        screen: InventoryScreen,
+        book_open: bool,
+    ) -> Option<InventoryCellHit> {
+        let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
+        let origin = screens::panel_origin(screen, [geometry.gui_width, geometry.gui_height]);
+        screens::book_hit(screen, origin, gui, book_open).map(InventoryCellHit::Widget)
+    }
+
+    /// The book control under a GUI point while a book screen is open.
+    pub(crate) fn inventory_reader_hit(
+        &self,
+        gui: [f32; 2],
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+        editable: bool,
+        signing: bool,
+    ) -> Option<InventoryCellHit> {
+        let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
+        let origin = screens::panel_origin(
+            InventoryScreen::Book,
+            [geometry.gui_width, geometry.gui_height],
+        );
+        screens::reader_hit([gui[0] - origin[0], gui[1] - origin[1]], editable, signing)
+            .map(|button| InventoryCellHit::Widget(Widget::Reader(button)))
     }
 
     /// Whether a GUI point lies on the drawn inventory panel.

@@ -7,15 +7,15 @@
 use std::sync::Arc;
 
 use protocol::{NetworkItemStack, WindowKind};
-use ui::{TextLayoutRequest, TextStyle};
+use ui::{TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiVisual};
 
-use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime};
+use super::{HudFrame, HudLayout, IconRef, UiPresentationError, UiRuntime, rect};
 use crate::ui_runtime::inventory_actions::visible_creative_entries;
 use crate::ui_runtime::inventory_ledger::InventoryTarget;
 use crate::ui_runtime::presentation::inventory_pointer::{InventoryCellHit, InventoryScreen};
 use crate::ui_runtime::presentation::screens::{
     self, CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, PlacedSlot, SEARCH_TAB, SLOT_SIZE,
-    TAB_COUNT, Widget, tab_origin, tab_size,
+    STONECUTTER_CELLS, TAB_COUNT, Widget, tab_origin, tab_size,
 };
 
 const FURNACE_COOK_TICKS: f32 = 200.0;
@@ -38,6 +38,21 @@ pub(crate) struct WindowIcons {
     pub(crate) ui: [Option<IconRef>; UI_ICON_SLOTS],
     pub(crate) creative: [Option<IconRef>; GRID_CELLS],
     pub(crate) creative_tabs: [Option<IconRef>; TAB_COUNT as usize],
+    /// Output icons of the stonecutter's recipe cells.
+    pub(crate) recipe: [Option<IconRef>; STONECUTTER_CELLS],
+    /// The result a recipe screen would produce now, drawn while the server
+    /// previews none.
+    pub(crate) recipe_output: Option<(Option<IconRef>, NetworkItemStack)>,
+    /// Faint silhouettes for empty armor, shield and smithing-template slots;
+    /// absent while the item atlas carries no such art.
+    pub(crate) ghost_armor: [Option<IconRef>; 4],
+    pub(crate) ghost_shield: Option<IconRef>,
+    pub(crate) ghost_template: Option<IconRef>,
+    /// Output icons of the recipe book's visible page.
+    pub(crate) book: [Option<IconRef>; screens::BOOK_CELLS],
+    pub(crate) book_button: Option<IconRef>,
+    /// Whether a further recipe-book page exists.
+    pub(crate) book_more: bool,
 }
 
 impl Default for WindowIcons {
@@ -46,6 +61,14 @@ impl Default for WindowIcons {
             ui: [None; UI_ICON_SLOTS],
             creative: [None; GRID_CELLS],
             creative_tabs: [None; TAB_COUNT as usize],
+            recipe: [None; STONECUTTER_CELLS],
+            recipe_output: None,
+            ghost_armor: [None; 4],
+            ghost_shield: None,
+            ghost_template: None,
+            book: [None; screens::BOOK_CELLS],
+            book_button: None,
+            book_more: false,
         }
     }
 }
@@ -76,6 +99,7 @@ pub(crate) struct WindowText {
     pub(crate) tooltip: Vec<TooltipLine>,
     /// Beacon effect names by effect id.
     pub(crate) effect_names: Vec<(i32, String)>,
+    pub(crate) book_title: Option<String>,
 }
 
 fn stack_of<'a>(runtime: &'a UiRuntime, hit: InventoryCellHit) -> Option<&'a NetworkItemStack> {
@@ -175,7 +199,11 @@ impl HudLayout<'_> {
         Ok(size)
     }
 
-    fn slot_frame(&mut self, position: [f32; 2], size: f32) -> Result<(), UiPresentationError> {
+    pub(super) fn slot_frame(
+        &mut self,
+        position: [f32; 2],
+        size: f32,
+    ) -> Result<(), UiPresentationError> {
         self.solid_gui(position, [size, size], [139, 139, 139, 255])?;
         self.solid_gui(position, [size, 1.0], [55, 55, 55, 255])?;
         self.solid_gui(position, [1.0, size], [55, 55, 55, 255])?;
@@ -223,7 +251,42 @@ impl HudLayout<'_> {
                 self.icon_gui(icon, cell)?;
             }
             self.stack_decorations(stack, cell, durability)?;
+        } else if slot.hit == InventoryCellHit::Craft(53) {
+            self.ghost_icon(frame.window_icons.ghost_template, cell)?;
+        } else if slot.hit == InventoryCellHit::CraftOutput
+            && let Some((icon, stack)) = &frame.window_icons.recipe_output
+        {
+            if let Some(icon) = icon {
+                self.icon_gui(*icon, cell)?;
+            }
+            self.stack_decorations(stack, cell, None)?;
         }
+        Ok(())
+    }
+
+    /// An empty-slot silhouette at half strength.
+    pub(super) fn ghost_icon(
+        &mut self,
+        icon: Option<IconRef>,
+        cell: [f32; 2],
+    ) -> Result<(), UiPresentationError> {
+        let Some(icon) = icon else {
+            return Ok(());
+        };
+        let g = self.geometry;
+        let [x, y] = g.logical(cell);
+        let node = UiNode::new(
+            UiNodeId::new(*self.next_id),
+            None,
+            rect(x, y, x + 16.0 * g.scale, y + 16.0 * g.scale)?,
+        )
+        .with_visual(UiVisual::Sprite {
+            texture_page: icon.page,
+            uv: icon.uv,
+            color: [255, 255, 255, 110],
+        });
+        self.nodes.push(node);
+        *self.next_id = self.next_id.saturating_add(1);
         Ok(())
     }
 
@@ -284,7 +347,7 @@ impl HudLayout<'_> {
         self.held_item(runtime, frame)
     }
 
-    fn measure(&mut self, text: &str) -> Result<f32, UiPresentationError> {
+    pub(super) fn measure(&mut self, text: &str) -> Result<f32, UiPresentationError> {
         let layout = self
             .layouts
             .layout(TextLayoutRequest {
@@ -388,7 +451,23 @@ impl HudLayout<'_> {
         Ok(())
     }
 
-    /// Enchant options and beacon effect buttons.
+    /// A bordered button body; `shade` is the fill grey.
+    fn button(
+        &mut self,
+        at: [f32; 2],
+        size: [f32; 2],
+        border: [u8; 4],
+        shade: u8,
+    ) -> Result<(), UiPresentationError> {
+        self.solid_gui(at, size, border)?;
+        self.solid_gui(
+            [at[0] + 1.0, at[1] + 1.0],
+            [size[0] - 2.0, size[1] - 2.0],
+            [shade, shade, shade, 255],
+        )
+    }
+
+    /// Enchant options, beacon effects, stonecutter recipes, loom patterns and the anvil name field.
     fn window_widgets(
         &mut self,
         runtime: &UiRuntime,
@@ -401,6 +480,17 @@ impl HudLayout<'_> {
             _ => None,
         };
         let level = runtime.hud().experience().map_or(0, |xp| xp.level);
+        let state = runtime.screen_state();
+        let stonecutter_choice = runtime.active_screen_recipe().map(|recipe| recipe.id);
+        let stonecutter_ids: Vec<u32> = if kind == WindowKind::Stonecutter {
+            runtime
+                .stonecutter_options()
+                .iter()
+                .map(|recipe| recipe.id)
+                .collect()
+        } else {
+            Vec::new()
+        };
         for (widget, pos, size) in screens::widget_rects(kind) {
             let at = [origin[0] + pos[0], origin[1] + pos[1]];
             let hot = hovered == Some(widget);
@@ -415,12 +505,7 @@ impl HudLayout<'_> {
                         (Some(_), true) => 130,
                         (Some(_), false) => 100,
                     };
-                    self.solid_gui(at, size, [0, 0, 0, 255])?;
-                    self.solid_gui(
-                        [at[0] + 1.0, at[1] + 1.0],
-                        [size[0] - 2.0, size[1] - 2.0],
-                        [shade, shade, shade, 255],
-                    )?;
+                    self.button(at, size, [0, 0, 0, 255], shade)?;
                     if let Some(option) = option {
                         let cost = option.cost.to_string();
                         let color = if u32::from(option.cost) <= level {
@@ -438,48 +523,134 @@ impl HudLayout<'_> {
                     }
                 }
                 Widget::BeaconEffect { id, secondary } => {
-                    let (primary, second) = runtime.screen_state().beacon;
+                    let (primary, second) = state.beacon;
                     let selected = if secondary {
                         second == id
                     } else {
                         primary == id
                     };
+                    let unlocked = screens::BEACON_LEVEL_FOR
+                        .iter()
+                        .find(|(effect, _)| *effect == id)
+                        .is_some_and(|(_, needed)| {
+                            state.beacon_level.is_none_or(|have| have >= *needed)
+                        });
                     let border = if selected {
                         [120, 230, 120, 255]
                     } else {
                         [0, 0, 0, 255]
                     };
-                    self.solid_gui(at, size, border)?;
-                    let shade = if hot { 150 } else { 110 };
-                    self.solid_gui(
-                        [at[0] + 2.0, at[1] + 2.0],
-                        [size[0] - 4.0, size[1] - 4.0],
-                        [shade, shade, shade, 255],
-                    )?;
-                    let name = frame
-                        .window_text
-                        .effect_names
-                        .iter()
-                        .find(|(effect, _)| *effect == id)
-                        .map_or("?", |(_, name)| name.as_str());
-                    let short: String = name.chars().take(2).collect();
-                    self.ui_text(&short, [at[0] + 5.0, at[1] + 7.0], [255; 4], true)?;
+                    let shade = if !unlocked {
+                        60
+                    } else if hot {
+                        150
+                    } else {
+                        110
+                    };
+                    self.button(at, size, border, shade)?;
+                    if let Some(role) = super::effect_icon_role(id) {
+                        let tint = if unlocked {
+                            [255; 4]
+                        } else {
+                            [255, 255, 255, 90]
+                        };
+                        self.sprite_gui(role, [at[0] + 2.0, at[1] + 2.0], tint)?;
+                    }
+                }
+                Widget::BeaconUpgrade => {
+                    let (primary, second) = state.beacon;
+                    let unlocked = state.beacon_level.is_none_or(|have| have >= 4) && primary != 0;
+                    let selected = primary != 0 && second == primary;
+                    let border = if selected {
+                        [120, 230, 120, 255]
+                    } else {
+                        [0, 0, 0, 255]
+                    };
+                    let shade = if !unlocked {
+                        60
+                    } else if hot {
+                        150
+                    } else {
+                        110
+                    };
+                    self.button(at, size, border, shade)?;
+                    if let Some(role) = super::effect_icon_role(primary) {
+                        self.sprite_gui(role, [at[0] + 2.0, at[1] + 2.0], [255; 4])?;
+                        self.ui_text("+", [at[0] + 14.0, at[1] + 12.0], [255; 4], true)?;
+                    }
                 }
                 Widget::BeaconConfirm => {
-                    let ready = runtime.screen_state().beacon.0 != 0;
-                    let shade = if ready {
+                    let ready = state.beacon.0 != 0;
+                    let shade = if ready { 90 } else { 60 };
+                    let border = if ready {
                         [60, 160, 60, 255]
                     } else {
-                        [70, 70, 70, 255]
+                        [0, 0, 0, 255]
                     };
-                    self.solid_gui(at, size, [0, 0, 0, 255])?;
-                    self.solid_gui(
-                        [at[0] + 2.0, at[1] + 2.0],
-                        [size[0] - 4.0, size[1] - 4.0],
-                        shade,
-                    )?;
+                    self.button(at, size, border, shade)?;
                     self.ui_text("OK", [at[0] + 5.0, at[1] + 7.0], [255; 4], true)?;
                 }
+                Widget::StonecutterRecipe(index) => {
+                    let Some(id) = stonecutter_ids.get(usize::from(index)) else {
+                        self.button(at, size, [0, 0, 0, 255], 60)?;
+                        continue;
+                    };
+                    let chosen = stonecutter_choice == Some(*id);
+                    let border = if chosen {
+                        [120, 230, 120, 255]
+                    } else {
+                        [0, 0, 0, 255]
+                    };
+                    self.button(at, size, border, if hot { 150 } else { 110 })?;
+                    if let Some(icon) = frame.window_icons.recipe[usize::from(index)] {
+                        self.icon_gui(icon, [at[0], at[1] + 1.0])?;
+                    }
+                }
+                Widget::LoomPattern(index) => {
+                    let position = state.loom_row * screens::LOOM_COLUMNS + usize::from(index);
+                    let Some(pattern) =
+                        crate::ui_runtime::screen_recipes::LOOM_PATTERNS.get(position)
+                    else {
+                        continue;
+                    };
+                    let chosen = state.loom_pattern.as_deref() == Some(*pattern);
+                    let border = if chosen {
+                        [120, 230, 120, 255]
+                    } else {
+                        [0, 0, 0, 255]
+                    };
+                    self.button(at, size, border, if hot { 150 } else { 110 })?;
+                    self.ui_text(pattern, [at[0] + 2.0, at[1] + 3.0], [255; 4], false)?;
+                }
+                Widget::AnvilName => {
+                    let border = if state.anvil_focused {
+                        [255, 255, 255, 255]
+                    } else {
+                        [160, 160, 160, 255]
+                    };
+                    self.solid_gui(at, size, border)?;
+                    self.solid_gui(
+                        [at[0] + 1.0, at[1] + 1.0],
+                        [size[0] - 2.0, size[1] - 2.0],
+                        [0, 0, 0, 255],
+                    )?;
+                    let text = format!(
+                        "{}{}",
+                        state.anvil_name,
+                        if state.anvil_focused { "_" } else { "" }
+                    );
+                    self.ui_text(
+                        &text,
+                        [at[0] + 3.0, at[1] + 2.0],
+                        [224, 224, 224, 255],
+                        false,
+                    )?;
+                }
+                // Book controls draw with their own panels.
+                Widget::BookToggle
+                | Widget::BookRecipe(_)
+                | Widget::BookPage { .. }
+                | Widget::Reader(_) => {}
             }
         }
         Ok(())
@@ -645,6 +816,7 @@ pub(crate) const fn default_title(kind: WindowKind) -> &'static str {
         WindowKind::Cartography => "Cartography Table",
         WindowKind::Smithing => "Upgrade Gear",
         WindowKind::Crafter => "Crafter",
+        WindowKind::Lectern => "Lectern",
     }
 }
 
@@ -670,5 +842,6 @@ pub(crate) const fn title_key(kind: WindowKind) -> &'static str {
         WindowKind::Cartography => "container.cartography_table",
         WindowKind::Smithing => "container.upgrade",
         WindowKind::Crafter => "container.crafter",
+        WindowKind::Lectern => "container.lectern",
     }
 }

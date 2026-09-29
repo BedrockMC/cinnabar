@@ -1,8 +1,10 @@
 use super::{
     budget::{Credits, MAX_UPDATE_BYTES},
+    crafting::RecipeOutput,
     grammar,
     model::{Batch, Ingredient, MAX_INGREDIENTS, Recipe, RecipeUpdate, Record},
     reader::{Reader, Refusal},
+    screen::{MAX_SCREEN_RECIPES, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipes},
 };
 use std::{mem::size_of, sync::Arc};
 
@@ -17,16 +19,20 @@ fn decode_with_credits(
     let parse = || -> Result<RecipeUpdate, Refusal> {
         let mut reader = Reader::new(body)?;
         let mut retained_names = 0usize;
-        let (clear, total) = grammar::walk(&mut reader, |_, candidate| {
-            retained_names += candidate.map_or(0, |candidate| {
-                candidate
-                    .ingredients
-                    .iter()
-                    .filter(|item| item.count > 0)
-                    .count()
-            });
-            Ok(())
-        })?;
+        let (clear, total) = grammar::walk(
+            &mut reader,
+            |_, candidate| {
+                retained_names += candidate.map_or(0, |candidate| {
+                    candidate
+                        .ingredients
+                        .iter()
+                        .filter(|item| item.count > 0)
+                        .count()
+                });
+                Ok(())
+            },
+            |_| Ok(()),
+        )?;
         // Conservative string allocation allowance includes per-string allocator
         // metadata for each retained ingredient name, Vec capacity, the batch
         // and its Arc/permit metadata.
@@ -45,40 +51,80 @@ fn decode_with_credits(
             .try_reserve_exact(total)
             .map_err(|_| Refusal::Policy)?;
         let mut reader = Reader::new(body)?;
-        grammar::walk(&mut reader, |id, candidate| {
-            let recipe = if let Some(candidate) = candidate {
-                let mut ingredients: [Option<Ingredient>; MAX_INGREDIENTS] =
-                    std::array::from_fn(|_| None);
-                for (index, item) in candidate.ingredients.into_iter().enumerate() {
-                    if item.count == 0 {
-                        continue;
+        let mut screens = ScreenRecipes::default();
+        grammar::walk(
+            &mut reader,
+            |id, candidate| {
+                let recipe = if let Some(candidate) = candidate {
+                    let mut ingredients: [Option<Ingredient>; MAX_INGREDIENTS] =
+                        std::array::from_fn(|_| None);
+                    for (index, item) in candidate.ingredients.into_iter().enumerate() {
+                        if item.count == 0 {
+                            continue;
+                        }
+                        let mut name = String::new();
+                        name.try_reserve_exact(item.name.len())
+                            .map_err(|_| Refusal::Policy)?;
+                        name.push_str(item.name);
+                        ingredients[index] = Some(Ingredient {
+                            name,
+                            tag: item.tag,
+                            aux: item.aux as u16,
+                            count: item.count as u8,
+                        });
                     }
-                    let mut name = String::new();
-                    name.try_reserve_exact(item.name.len())
-                        .map_err(|_| Refusal::Policy)?;
-                    name.push_str(item.name);
-                    ingredients[index] = Some(Ingredient {
-                        name,
-                        tag: item.tag,
-                        aux: item.aux as u16,
-                        count: item.count as u8,
-                    });
+                    Some(Recipe {
+                        width: candidate.width,
+                        height: candidate.height,
+                        shapeless: candidate.shapeless,
+                        mirror: candidate.mirror,
+                        priority: candidate.priority,
+                        ingredients,
+                        output: candidate.output,
+                    })
+                } else {
+                    None
+                };
+                records.push(Record { id, recipe });
+                Ok(())
+            },
+            |item| {
+                match item {
+                    grammar::ScreenItem::Multi { uuid, id } => {
+                        screens.multi.push(MultiRecipe { uuid, id })
+                    }
+                    grammar::ScreenItem::Recipe(record) => {
+                        if screens.recipes.len() < MAX_SCREEN_RECIPES {
+                            screens.recipes.push(ScreenRecipe {
+                                id: record.id,
+                                kind: record.kind,
+                                ingredients: record.ingredients[..record.len]
+                                    .iter()
+                                    .map(|item| ScreenIngredient {
+                                        name: Arc::from(item.name),
+                                        tag: item.tag,
+                                        aux: item.aux as u16,
+                                    })
+                                    .collect(),
+                                output: record.output.map(|output| RecipeOutput {
+                                    network_id: output.id,
+                                    aux: output.aux,
+                                    count: output.count,
+                                    block_runtime_id: output.block,
+                                    empty_envelope: output.empty_envelope,
+                                }),
+                            });
+                        }
+                    }
                 }
-                Some(Recipe {
-                    width: candidate.width,
-                    height: candidate.height,
-                    shapeless: candidate.shapeless,
-                    mirror: candidate.mirror,
-                    priority: candidate.priority,
-                    ingredients,
-                    output: candidate.output,
-                })
-            } else {
-                None
-            };
-            records.push(Record { id, recipe });
-            Ok(())
-        })?;
+                Ok(())
+            },
+        )?;
+        // Ambiguous duplicate ids are dropped like ambiguous crafting records.
+        let ids: Vec<u32> = screens.recipes.iter().map(|recipe| recipe.id).collect();
+        screens
+            .recipes
+            .retain(|recipe| ids.iter().filter(|id| **id == recipe.id).count() == 1);
         records.sort_unstable_by_key(|record| record.id);
         // Ambiguous duplicates are tombstones, independent of arrival order.
         let mut output = 0;
@@ -103,6 +149,8 @@ fn decode_with_credits(
                 clear,
                 _permit: permit,
             })),
+            screen: (!screens.recipes.is_empty() || !screens.multi.is_empty())
+                .then(|| Arc::new(screens)),
         })
     };
     match parse() {

@@ -27,6 +27,7 @@ fn registry(capacity: Option<u8>) -> RecipeRegistrySnapshot {
 fn catalog(count: usize) -> RecipeCatalog {
     let owner = Credits::isolated(65536);
     let update = RecipeUpdate {
+        screen: None,
         batch: Some(Arc::new(Batch {
             records: (0..count)
                 .map(|index| Record {
@@ -120,7 +121,10 @@ fn stale_and_applied_unavailable_updates_remain_distinct() {
     let mut catalog = catalog(1);
     let registry = registry(Some(64));
     let before = catalog.observations(&registry);
-    let unavailable = RecipeUpdate { batch: None };
+    let unavailable = RecipeUpdate {
+        batch: None,
+        screen: None,
+    };
     assert!(!catalog.apply(1, 1, &unavailable));
     assert_eq!(catalog.observations(&registry), before);
     assert!(catalog.apply(1, 2, &unavailable));
@@ -134,6 +138,7 @@ fn stale_and_applied_unavailable_updates_remain_distinct() {
 fn unsupported_advertised_records_are_not_invented_as_supported_recipes() {
     let owner = Credits::isolated(4096);
     let update = RecipeUpdate {
+        screen: None,
         batch: Some(Arc::new(Batch {
             records: vec![Record {
                 id: 123,

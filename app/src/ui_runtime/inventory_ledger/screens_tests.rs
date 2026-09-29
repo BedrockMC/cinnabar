@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 
+use sha2::Digest;
+
 use protocol::{
     CONTAINER_NAME_CURSOR, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
     EnchantOption, EnchantOptionsEvent, InventoryContentEvent, InventoryEvent, InventorySlotEvent,
@@ -325,4 +327,77 @@ fn gather_fills_the_cursor_partial_stacks_first() {
     assert_eq!(takes, vec![(5, 20), (6, 34)]);
     assert_eq!(ledger.cursor_stack().unwrap().count, 64);
     assert_eq!(ledger.displayed_stack(6).unwrap().count, 30);
+}
+
+fn bundle_stack(stack_network_id: i32, bundle_id: i32) -> NetworkItemStack {
+    let mut nbt = vec![10, 0, 0, 3, 9, 0];
+    nbt.extend(b"bundle_id");
+    nbt.extend(bundle_id.to_le_bytes());
+    nbt.push(0);
+    let mut extra = (-1_i16).to_le_bytes().to_vec();
+    extra.push(1);
+    extra.extend(nbt);
+    NetworkItemStack {
+        nbt_digest: sha2::Sha256::digest(&extra).into(),
+        extra_data: Arc::from(extra),
+        ..stack(stack_network_id, 1)
+    }
+}
+
+fn dynamic(dynamic_id: u32) -> ContainerIdentity {
+    ContainerIdentity {
+        window_id: Some(-1),
+        slot_type: Some(protocol::CONTAINER_NAME_DYNAMIC),
+        dynamic_id: Some(dynamic_id),
+    }
+}
+
+/// A bundle's contents ride its dynamic container; extract takes the newest item.
+#[test]
+fn bundle_extract_takes_the_newest_item_from_the_dynamic_container() {
+    let mut ledger = personal_ledger(&[(0, bundle_stack(70, 7))]);
+    ledger.apply(&content(dynamic(7), vec![stack(80, 3), stack(81, 2)]));
+    assert_eq!(ledger.bundle_contents(7).map(<[_]>::len), Some(2));
+    ledger
+        .begin_bundle_extract(InventoryTarget::Player(0))
+        .unwrap();
+    let Some(StackRequestAction::Take {
+        amount,
+        source,
+        destination,
+    }) = ledger.newest_action()
+    else {
+        panic!("a take from the bundle");
+    };
+    assert_eq!((amount, source.slot, source.stack_network_id), (2, 1, 81));
+    assert_eq!(
+        source.container,
+        StackRequestContainer::OpenWindow {
+            name: protocol::CONTAINER_NAME_DYNAMIC,
+            dynamic_id: Some(7)
+        }
+    );
+    assert_eq!(destination.container, StackRequestContainer::Cursor);
+    assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 81);
+}
+
+/// Insert appends after the last content slot and empties the cursor.
+#[test]
+fn bundle_insert_appends_to_the_dynamic_container() {
+    let mut ledger = personal_ledger(&[(0, bundle_stack(70, 7))]);
+    ledger.apply(&content(dynamic(7), vec![stack(80, 3)]));
+    set_cursor(&mut ledger, stack(60, 4));
+    ledger
+        .begin_bundle_insert(InventoryTarget::Player(0))
+        .unwrap();
+    let Some(StackRequestAction::Place {
+        amount,
+        destination,
+        ..
+    }) = ledger.newest_action()
+    else {
+        panic!("a place into the bundle");
+    };
+    assert_eq!((amount, destination.slot), (4, 1));
+    assert!(ledger.cursor_stack().is_none());
 }

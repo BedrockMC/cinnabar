@@ -46,8 +46,10 @@ impl ScreenLayout {
             InventoryScreen::Storage(slots) => {
                 Self::Storage(container_kind(ledger.storage_window_type()?, slots)?)
             }
-            // Other windows and the creative catalog keep the Java-styled screens.
-            InventoryScreen::Window(..) | InventoryScreen::Creative => return None,
+            // Other windows, the creative catalog and books keep the Java-styled screens.
+            InventoryScreen::Window(..) | InventoryScreen::Creative | InventoryScreen::Book => {
+                return None;
+            }
         })
     }
 

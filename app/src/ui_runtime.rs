@@ -1,6 +1,7 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
 mod bed;
+mod book_screen;
 mod chat_completion;
 mod chat_send;
 mod crafting_authority;
@@ -25,6 +26,7 @@ pub mod presentation;
 mod raw_text_resolution;
 pub mod render_adapter;
 mod scoreboard_adapter;
+mod screen_recipes;
 mod screen_state;
 mod sign_editor;
 mod use_on_identity_evidence;
@@ -209,6 +211,8 @@ pub struct UiRuntime {
     inventory_pointer_gui: Option<[f32; 2]>,
     inventory_keys: interaction::InventoryKeys,
     screen: screen_state::ScreenState,
+    /// Client packets the screens queue for the network flush.
+    client_packets: VecDeque<protocol::Packet>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
     last_selected_identity: Option<(i32, u32)>,
@@ -292,6 +296,7 @@ impl UiRuntime {
             inventory_pointer_gui: None,
             inventory_keys: interaction::InventoryKeys::default(),
             screen: screen_state::ScreenState::default(),
+            client_packets: VecDeque::new(),
             last_health_drop_millis: None,
             last_selected_identity_change_millis: None,
             last_selected_identity: None,

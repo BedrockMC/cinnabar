@@ -3,7 +3,7 @@
 use valentine::bedrock::version::v1_26_44::{
     BlockPickRequestPacket, BlockPos, BookEditActionAddPage, BookEditActionDeletePage,
     BookEditActionFinalize, BookEditActionReplacePage, BookEditActionSwapPages, BookEditPacket,
-    BookEditPacketOperation,
+    BookEditPacketOperation, LecternUpdatePacket,
 };
 
 /// Longest page text a book edit carries.
@@ -20,6 +20,21 @@ pub fn block_pick_request_packet(position: [i32; 3], with_data: bool) -> crate::
         },
         with_data,
         max_slots: 9,
+    }
+    .into()
+}
+
+/// Reports a lectern's page turn to the server.
+#[must_use]
+pub fn lectern_update_packet(page: u8, total_pages: u8, position: [i32; 3]) -> crate::Packet {
+    LecternUpdatePacket {
+        newpagetoshow: page,
+        total_pages,
+        positionof_lecterntoupdate: BlockPos {
+            x: position[0],
+            y: position[1],
+            z: position[2],
+        },
     }
     .into()
 }
