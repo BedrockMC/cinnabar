@@ -61,7 +61,7 @@ use ui::{
     BossBarStore, ChatApplyResult, ChatAutocompleteError, ChatAutocompleteRequest,
     ChatAutocompleteState, ChatClipboard, ChatEditor, ChatEditorError, ChatHistory, ChatPasteError,
     ChatRateLimit, ChatSendError, ChatSendQueue, ChatSendRequest, ChatStore, HudStore,
-    MAX_CHAT_INPUT_BYTES, RetainedUiSequenceError, ScoreboardStore, UiAction,
+    MAX_CHAT_INPUT_BYTES, RetainedUiSequenceError, ScoreboardStore,
 };
 
 use self::gameplay_hud::GameplayHudState;
