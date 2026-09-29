@@ -9,7 +9,9 @@ use std::sync::Arc;
 use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
-use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
+use crate::menu::{
+    MenuAction, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
+};
 
 /// Settings selector indices, fed to the screen as its `$*_forced_index` vars.
 /// Zero means "no section picked yet", which opens video.
@@ -43,20 +45,6 @@ const SETTINGS_SECTIONS: &[&str] = &[
 const VIDEO_SECTION: u8 = 7;
 /// GUI scale choices the settings slider steps through (1..=4).
 const GUI_SCALE_STEPS: f64 = 4.0;
-/// The sound section's sliders; volumes are not yet adjustable in the app.
-const VOLUME_SLIDERS: &[&str] = &[
-    "main_volume",
-    "music_volume",
-    "sound_volume",
-    "ambient_volume",
-    "block_volume",
-    "hostile_volume",
-    "neutral_volume",
-    "player_volume",
-    "record_volume",
-    "weather_volume",
-    "texttospeech_volume",
-];
 
 /// The screen a menu state opens and what it binds.
 pub(super) struct MenuScreenData {
@@ -305,9 +293,14 @@ fn settings_screen(view: &MenuView, data: &mut DataSource) {
         text(format!("GUI Scale: {scale}")),
     );
     flags(data, &["#gui_scale_visible", "#gui_scale_enabled"]);
-    for slider in VOLUME_SLIDERS {
-        data.set_global(format!("#{slider}"), Scalar::Num(1.0));
-        data.set_global(format!("#{slider}_slider_label"), text("100%"));
+    for ((slider, _), percent) in VOLUME_SLIDERS.iter().zip(view.volumes) {
+        let shown = percent.unwrap_or(100);
+        data.set_global(format!("#{slider}"), Scalar::Num(f64::from(shown) / 100.0));
+        data.set_global(format!("#{slider}_slider_label"), text(format!("{shown}%")));
+        data.set_global(
+            format!("#{slider}_enabled"),
+            Scalar::Bool(percent.is_some()),
+        );
     }
 }
 
@@ -403,11 +396,29 @@ fn toggle_action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
     }
 }
 
-/// The GUI-scale slider's value for a pointer segment: the slider is split into
-/// one hit rect per scale step.
-pub(super) fn slider_steps(region: &HitRegion) -> Option<u8> {
-    (region.kind == HitKind::Slider && region.control_name.as_deref() == Some("gui_scale"))
-        .then_some(GUI_SCALE_STEPS as u8)
+/// A settings slider's action per pointer segment, left to right: the slider
+/// is split into one hit rect per value it snaps to.
+pub(super) fn slider_actions(region: &HitRegion) -> Option<Vec<MenuAction>> {
+    if region.kind != HitKind::Slider {
+        return None;
+    }
+    let name = region.control_name.as_deref()?;
+    if name == "gui_scale" {
+        return Some(
+            (1..=GUI_SCALE_STEPS as u8)
+                .map(MenuAction::SettingsScale)
+                .collect(),
+        );
+    }
+    let slot = VOLUME_SLIDERS
+        .iter()
+        .position(|(slider, _)| *slider == name)?;
+    let last = u16::from(VOLUME_STEPS - 1);
+    Some(
+        (0..=last)
+            .map(|step| MenuAction::SettingsVolume(slot as u8, (step * 100 / last) as u8))
+            .collect(),
+    )
 }
 
 impl MenuView {
@@ -543,6 +554,21 @@ mod tests {
             action_for(&view(MenuScreen::Settings), &tab),
             Some(MenuAction::SettingsSection(8))
         );
+    }
+
+    #[test]
+    fn sliders_split_into_their_settings_values() {
+        let mut slider = region(HitKind::Slider, None);
+        slider.control_name = Some("gui_scale".to_owned());
+        let scale = slider_actions(&slider).unwrap();
+        assert_eq!(scale.last(), Some(&MenuAction::SettingsScale(4)));
+        slider.control_name = Some("music_volume".to_owned());
+        let music = slider_actions(&slider).unwrap();
+        assert_eq!(music.len(), usize::from(VOLUME_STEPS));
+        assert_eq!(music[0], MenuAction::SettingsVolume(1, 0));
+        assert_eq!(music.last(), Some(&MenuAction::SettingsVolume(1, 100)));
+        slider.control_name = Some("fov".to_owned());
+        assert!(slider_actions(&slider).is_none());
     }
 
     #[test]

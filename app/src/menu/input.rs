@@ -508,10 +508,16 @@ pub(crate) fn drive_menu_connection(
     client_blob_cache: Res<crate::app::ClientBlobCacheOwner>,
     mut session: MenuSessionState,
     launcher_account: Option<ResMut<super::launcher_account::LauncherAccount>>,
+    local_worlds: Option<ResMut<crate::local_worlds::LocalWorlds>>,
+    audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
 ) {
     menu.poll_catalog();
+    menu.sync_audio_settings(audio_settings);
     if let Some(mut account) = launcher_account {
         menu.sync_account_control(&mut *account);
+    }
+    if let Some(mut worlds) = local_worlds {
+        menu.sync_local_worlds(&mut worlds);
     }
     if menu.is_connecting() && session.client_world.stream.is_some() {
         menu.mark_connected();

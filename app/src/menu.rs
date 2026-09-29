@@ -15,7 +15,9 @@ mod flow_tests;
 mod input;
 pub(crate) mod launcher_account;
 pub(crate) mod servers;
+mod settings_values;
 mod view;
+mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
 
@@ -26,6 +28,7 @@ pub(crate) use input::{
     recover_menu_session_failure,
 };
 use servers::{load_servers, save_servers};
+pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
 use view::CatalogFile;
 pub(crate) use view::{
     LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
@@ -133,6 +136,8 @@ pub(crate) enum MenuAction {
     Respawn,
     PlayLocalWorld(usize),
     SignOut,
+    /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
+    SettingsVolume(u8, u8),
 }
 
 #[derive(Debug, Resource)]
@@ -188,6 +193,8 @@ pub(crate) struct MenuRuntime {
     /// Sign-in state reported by the core's account control, when bound.
     control_auth: Option<AuthState>,
     sign_out_requested: bool,
+    volumes: settings_values::Volumes,
+    volume_change: Option<(u8, u8)>,
     /// Identity-checked owner of this session's runtime directory; bound
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
@@ -274,6 +281,8 @@ impl MenuRuntime {
             local_world_requested: None,
             control_auth: None,
             sign_out_requested: false,
+            volumes: Default::default(),
+            volume_change: None,
         }
     }
 
@@ -346,17 +355,16 @@ impl MenuRuntime {
             disconnect_message: self.disconnect_message.clone(),
             editing: self.editing,
             local_worlds: self.local_worlds.clone(),
+            volumes: self.volumes,
         }
     }
 
     /// The local worlds the worlds tab lists (the local-worlds module feeds it).
-    #[cfg_attr(not(test), allow(dead_code, reason = "fed by the local worlds module"))]
     pub(crate) fn set_local_worlds(&mut self, worlds: Vec<LocalWorldCard>) {
         self.local_worlds = worlds;
     }
 
     /// A local world the player chose to open, for the local-worlds module.
-    #[cfg_attr(not(test), allow(dead_code, reason = "fed by the local worlds module"))]
     pub(crate) fn take_local_world_request(&mut self) -> Option<usize> {
         self.local_world_requested.take()
     }
@@ -644,6 +652,7 @@ impl MenuRuntime {
                 self.set_visible(false);
             }
             MenuAction::SignOut => self.sign_out_requested = true,
+            MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);

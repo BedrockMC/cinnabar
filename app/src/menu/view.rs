@@ -91,6 +91,7 @@ pub(crate) struct MenuView {
     /// The saved server the add screen is editing.
     pub(crate) editing: Option<usize>,
     pub(crate) local_worlds: Vec<LocalWorldCard>,
+    pub(crate) volumes: super::settings_values::Volumes,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

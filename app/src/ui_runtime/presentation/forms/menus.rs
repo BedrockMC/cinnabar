@@ -144,9 +144,9 @@ impl UiPresentationRuntime {
         let mut keys = Vec::new();
         for region in frame.hits.iter().filter(|region| region.enabled) {
             let origin = [self.safe_area.left(), self.safe_area.top()];
-            if let Some(steps) = menu_screens::slider_steps(region) {
-                for (step, bounds) in segments(region, steps, frame.scale, origin) {
-                    hits.push((MenuAction::SettingsScale(step + 1), bounds));
+            if let Some(actions) = menu_screens::slider_actions(region) {
+                for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
+                    hits.push((actions[step], bounds));
                 }
                 continue;
             }
@@ -177,12 +177,17 @@ fn window_rect(region: &HitRegion, scale: f32, origin: [f32; 2]) -> Option<UiRec
 }
 
 /// A slider split into `steps` equal hit rects, one per value.
-fn segments(region: &HitRegion, steps: u8, scale: f32, origin: [f32; 2]) -> Vec<(u8, UiRect)> {
-    let width = region.rect.w / f64::from(steps);
+fn segments(
+    region: &HitRegion,
+    steps: usize,
+    scale: f32,
+    origin: [f32; 2],
+) -> Vec<(usize, UiRect)> {
+    let width = region.rect.w / steps.max(1) as f64;
     (0..steps)
         .filter_map(|step| {
             let mut part = region.clone();
-            part.rect.x = region.rect.x + width * f64::from(step);
+            part.rect.x = region.rect.x + width * step as f64;
             part.rect.w = width;
             window_rect(&part, scale, origin).map(|bounds| (step, bounds))
         })
