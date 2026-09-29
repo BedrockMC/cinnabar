@@ -395,7 +395,7 @@ mod tests {
             kind: BlockEntityKind::EndPortal,
         };
         let animated = scene
-            .update(SceneClock::default(), &[], &[portal.clone()])
+            .update(SceneClock::default(), &[], std::slice::from_ref(&portal))
             .revision;
         assert_eq!(
             scene.update(SceneClock::default(), &[], &[portal]).revision,
