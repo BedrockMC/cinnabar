@@ -73,3 +73,73 @@ fn icon_keys_resolve_to_bounded_sprites() {
     let strip = &icons.icons[1];
     assert_eq!(strip.rgba8[(15 * 16) * 4], 15, "first frame rows only");
 }
+
+fn stack(packs: &[&[(&str, Vec<u8>)]]) -> LayeredPackView {
+    let archives = packs
+        .iter()
+        .enumerate()
+        .map(|(index, files)| {
+            let id = format!("00000000-0000-0000-0000-{index:012}");
+            let manifest = format!(
+                r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+            );
+            let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            for (path, bytes) in std::iter::once(("manifest.json", manifest.into_bytes()))
+                .chain(files.iter().map(|(path, bytes)| (*path, bytes.clone())))
+            {
+                writer
+                    .start_file(path, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                writer.write_all(&bytes).unwrap();
+            }
+            protocol::ResourcePackArchive::unencrypted(
+                id.parse().unwrap(),
+                "1.0.0".into(),
+                String::new(),
+                writer.finish().unwrap().into_inner(),
+            )
+        })
+        .collect();
+    LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(archives),
+    ))
+}
+
+// Keys merge across every pack, fall back to textures/items, and misses say why.
+#[test]
+fn custom_item_icons_merge_across_packs_and_explain_misses() {
+    let key = |identifier: &str, key: &str| (Arc::<str>::from(identifier), Arc::<str>::from(key));
+    let base_catalog = br#"{"texture_data":{"a_key":{"textures":"textures/items/a"}}}"#.to_vec();
+    let top_catalog = br#"{"texture_data":{"b_key":{"textures":"textures/items/b"},"dead_key":{"textures":"textures/items/none"}}}"#.to_vec();
+    let view = stack(&[
+        &[
+            ("textures/item_texture.json", base_catalog),
+            ("textures/items/a.png", png(16, 16)),
+        ],
+        &[
+            ("textures/item_texture.json", top_catalog),
+            ("textures/items/b.png", png(16, 16)),
+            ("textures/items/loose.png", png(16, 16)),
+        ],
+    ]);
+    let icons = compile_session_icons(
+        &view,
+        &[
+            key("t:a", "a_key"),
+            key("t:b", "b_key"),
+            key("t:loose", "loose"),
+            key("t:dead", "dead_key"),
+            key("t:absent", "missing_key"),
+        ],
+    )
+    .expect("icons");
+    let mut resolved: Vec<_> = icons
+        .icons
+        .iter()
+        .map(|i| i.identifier.to_string())
+        .collect();
+    resolved.sort();
+    assert_eq!(resolved, ["t:a", "t:b", "t:loose"]);
+    assert!(icons.misses["t:dead"].contains("no readable image"));
+    assert!(icons.misses["t:absent"].contains("not in the merged item_texture.json"));
+}

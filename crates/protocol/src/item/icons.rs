@@ -35,14 +35,14 @@ fn short_name_key(identifier: &str) -> Option<Arc<str>> {
     (!name.is_empty() && name.len() <= MAX_ICON_KEY_BYTES).then(|| name.into())
 }
 
-/// Reads `components.item_properties["minecraft:icon"]`: a key, or an object
+/// Reads `components["minecraft:icon"]` (or the legacy `item_properties` copy): a key, or an object
 /// naming it under `textures.default` or `texture`.
 fn icon_key(bytes: &[u8]) -> Option<Arc<str>> {
     let root = read_root(bytes)?;
-    let icon = root
-        .field("components")?
-        .field("item_properties")?
-        .field("minecraft:icon")?;
+    let components = root.field("components")?;
+    let icon = components
+        .field("minecraft:icon")
+        .or_else(|| components.field("item_properties")?.field("minecraft:icon"))?;
     let key = icon
         .as_str()
         .or_else(|| icon.field("textures")?.field("default")?.as_str())
@@ -87,5 +87,16 @@ mod tests {
         legacy.extend(b"gem1");
         assert_eq!(icon_key(&component_nbt(&legacy)).as_deref(), Some("gem1"));
         assert!(icon_key(&component_nbt(&[])).is_none());
+
+        // The current layout puts the icon beside item_properties, not inside it.
+        let mut direct = named(10, "components");
+        direct.extend(named(8, "minecraft:icon"));
+        direct.extend([5]);
+        direct.extend(b"blade");
+        direct.extend([0]);
+        let mut nbt = named(10, "");
+        nbt.extend(direct);
+        nbt.extend([0]);
+        assert_eq!(icon_key(&nbt).as_deref(), Some("blade"));
     }
 }
