@@ -856,22 +856,14 @@ impl UiPresentationRuntime {
             }
         }
 
-        let menu_hit_targets = if let Some(view) = self.menu_view.as_ref() {
-            menu::append_menu_nodes(
-                view,
-                &mut nodes,
-                &mut next_id,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                content_width,
-                content_height,
-                safe_area,
-            )?
-        } else {
-            Vec::new()
-        };
+        let menu_hit_targets = self.append_menu(
+            runtime,
+            &mut nodes,
+            &mut next_id,
+            metrics,
+            content_width,
+            content_height,
+        )?;
 
         // Hit rects are compared against window-logical pointer positions, so
         // translate the content-relative rows by the safe-area origin.

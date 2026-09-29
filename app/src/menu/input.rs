@@ -378,6 +378,14 @@ pub(crate) fn drive_menu_input(
         menu.pointer_down = false;
         return;
     }
+    // Zero health in play opens the death screen; recovery closes it.
+    if let Some(health) = runtime.as_ref().and_then(|runtime| runtime.hud().health()) {
+        if health.current() == 0 {
+            menu.open_death();
+        } else {
+            menu.note_player_alive();
+        }
+    }
     if !menu.is_visible() {
         // Gameplay/chat handled these messages already. In particular, do not
         // replay the Escape that opens pause as "back" on the following frame.

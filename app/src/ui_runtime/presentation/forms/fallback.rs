@@ -273,6 +273,7 @@ impl UiPresentationRuntime {
         ));
         state.engine = self.form_presentation.engine.take();
         state.container = self.form_presentation.container.take();
+        state.menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
         self.form_presentation = state;
         Ok(())
     }
