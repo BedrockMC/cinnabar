@@ -6,9 +6,9 @@ use super::super::super::UiPresentationError;
 use super::icons::{self, Icon};
 use super::paint::{Bounds, Canvas};
 use super::theme::{
-    BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, EDGE, HEADER_HEIGHT, HEADER_STRIP, HEADER5, NEUTRAL,
-    NEUTRAL20, NEUTRAL80, OUTLINE, OVERLAY_SCREEN, PRIMARY, PRIMARY_BUTTON, PRIMARY_ROLE, Role,
-    SECONDARY, SECONDARY_BUTTON, Type,
+    BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, CAPTION, EDGE, HEADER_HEIGHT, HEADER_STRIP, HEADER5,
+    NEUTRAL, NEUTRAL20, NEUTRAL80, OUTLINE, OVERLAY_SCREEN, PRIMARY_BUTTON, PRIMARY_ROLE, Rgba,
+    Role, SECONDARY, SECONDARY_BUTTON, TEXT_DIMMER, Type,
 };
 use crate::menu::{MenuAction, MenuView};
 
@@ -208,7 +208,73 @@ pub(super) fn divider(
     canvas.fill([left, y + w, right, y + w * 2.0], BEVEL_LIGHT)
 }
 
-/// A neutral list row: hover and selection lighten it; returns nothing but draws the bevel.
+/// Bevelled face colours: border, top-left edge, bottom-right edge, fill.
+struct Bevel {
+    edge_light: Rgba,
+    edge_dark: Rgba,
+    fill: Rgba,
+}
+
+const ROW_IDLE: Bevel = Bevel {
+    edge_light: rgb(0x5a5b5c),
+    edge_dark: rgb(0x323334),
+    fill: rgb(0x48494a),
+};
+const ROW_HOVER: Bevel = Bevel {
+    edge_light: rgb(0x69696b),
+    edge_dark: rgb(0x3e3e3f),
+    fill: rgb(0x58585a),
+};
+const ROW_PRESSED: Bevel = Bevel {
+    edge_light: rgb(0x464747),
+    edge_dark: rgb(0x222324),
+    fill: rgb(0x313233),
+};
+const TAB_IDLE: Bevel = Bevel {
+    edge_light: rgb(0x6d6d6e),
+    edge_dark: rgb(0x5a5b5c),
+    fill: rgb(0x48494a),
+};
+const TAB_HOVER: Bevel = Bevel {
+    edge_light: rgb(0x79797b),
+    edge_dark: rgb(0x69696b),
+    fill: rgb(0x58585a),
+};
+const TAB_SELECTED: Bevel = Bevel {
+    edge_light: rgb(0x5a5b5c),
+    edge_dark: rgb(0x464747),
+    fill: rgb(0x313233),
+};
+
+const fn rgb(value: u32) -> Rgba {
+    [(value >> 16) as u8, (value >> 8) as u8, value as u8, 255]
+}
+
+/// A bevelled face inside a dark border; `front` adds the lower front face strip.
+fn bevelled(
+    canvas: &mut Canvas<'_>,
+    b: Bounds,
+    bevel: &Bevel,
+    front: bool,
+) -> Result<(), UiPresentationError> {
+    canvas.fill(b, BORDER)?;
+    let edge = canvas.r(EDGE);
+    let inner = [b[0] + edge, b[1] + edge, b[2] - edge, b[3] - edge];
+    let face = if front {
+        let strip = canvas.r(0.4);
+        canvas.fill(
+            [inner[0], inner[3] - strip, inner[2], inner[3]],
+            NEUTRAL80.fill,
+        )?;
+        [inner[0], inner[1], inner[2], inner[3] - strip]
+    } else {
+        inner
+    };
+    canvas.fill(face, bevel.fill)?;
+    canvas.specular(face, bevel.edge_light, bevel.edge_dark)
+}
+
+/// A world or server list row: a bevelled action face that lightens on hover.
 pub(super) fn row(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -217,17 +283,21 @@ pub(super) fn row(
     action: Option<MenuAction>,
 ) -> Result<(), UiPresentationError> {
     let state = Interaction::of(view, action);
-    let fill = if state.pressed {
-        NEUTRAL.pressed
+    let bevel = if state.pressed {
+        &ROW_PRESSED
     } else if state.hovered || selected {
-        NEUTRAL.hovered
+        &ROW_HOVER
     } else {
-        NEUTRAL.fill
+        &ROW_IDLE
     };
-    canvas.fill(b, fill)?;
-    canvas.bevel(b, BEVEL_LIGHT, BEVEL_DARK)?;
+    bevelled(canvas, b, bevel, false)?;
     if state.focused {
-        canvas.frame(b, EDGE, OUTLINE)?;
+        let ring = canvas.r(0.4);
+        canvas.frame(
+            [b[0] - ring, b[1] - ring, b[2] + ring, b[3] + ring],
+            EDGE,
+            OUTLINE,
+        )?;
     }
     if let Some(action) = action {
         canvas.hit(action, b)?;
@@ -235,7 +305,8 @@ pub(super) fn row(
     Ok(())
 }
 
-/// Solid tabs across `b`; the selected one is green with a white underline.
+/// The bevelled tab bar: raised tabs with a front face; the selected one sits
+/// 0.4rem lower, darker, with a white indicator under its centre.
 pub(super) fn tabs(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -246,34 +317,96 @@ pub(super) fn tabs(
     if labels.is_empty() {
         return Ok(());
     }
-    let width = (b[2] - b[0]) / labels.len() as f32;
+    let overlap = canvas.r(EDGE);
+    let width = (b[2] - b[0] + overlap * (labels.len() - 1) as f32) / labels.len() as f32;
     for (index, (label, action)) in labels.iter().enumerate() {
-        let cell = [
-            b[0] + width * index as f32,
-            b[1],
-            b[0] + width * (index + 1) as f32,
-            b[3],
-        ];
+        let left = b[0] + (width - overlap) * index as f32;
+        let cell = [left, b[1], left + width, b[3]];
         if index == selected {
-            let lift = canvas.r(0.4);
-            let face = [cell[0], cell[1] + lift, cell[2], cell[3]];
-            canvas.fill(face, PRIMARY)?;
-            canvas.frame(face, EDGE, BORDER)?;
-            let underline = canvas.r(EDGE);
-            let inset = canvas.r(1.2);
+            let face = [cell[0], cell[1] + canvas.r(0.4), cell[2], cell[3]];
+            bevelled(canvas, face, &TAB_SELECTED, false)?;
+            let indicator = canvas.r(4.8).min(face[2] - face[0]);
+            let centre = (face[0] + face[2]) * 0.5;
             canvas.fill(
                 [
-                    face[0] + inset,
-                    face[3] - underline * 3.0,
-                    face[2] - inset,
-                    face[3] - underline * 2.0,
+                    centre - indicator * 0.5,
+                    face[3],
+                    centre + indicator * 0.5,
+                    face[3] + canvas.r(EDGE),
                 ],
                 OUTLINE,
             )?;
-            canvas.text_centred(label, face, BODY, PRIMARY_ROLE.text, false)?;
-        } else {
-            button(canvas, view, cell, Variant::Secondary, label, *action)?;
+            canvas.text_centred(label, face, BODY, NEUTRAL.text, false)?;
+            continue;
+        }
+        let state = Interaction::of(view, *action);
+        bevelled(
+            canvas,
+            cell,
+            if state.hovered { &TAB_HOVER } else { &TAB_IDLE },
+            true,
+        )?;
+        if state.focused {
+            canvas.frame(
+                [
+                    cell[0] - overlap,
+                    cell[1] - overlap,
+                    cell[2] + overlap,
+                    cell[3] + overlap,
+                ],
+                EDGE,
+                OUTLINE,
+            )?;
+        }
+        let face = [cell[0], cell[1], cell[2], cell[3] - canvas.r(0.4)];
+        canvas.text_centred(label, face, BODY, NEUTRAL.text, false)?;
+        if let Some(action) = action {
+            canvas.hit(*action, cell)?;
         }
     }
     Ok(())
+}
+
+/// The translucent side menu panel with its border.
+pub(super) fn side_menu(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), UiPresentationError> {
+    canvas.fill(b, [0, 0, 0, 153])?;
+    canvas.frame(b, EDGE, BORDER)
+}
+
+/// A side-menu section label (bottom-aligned caption over a divider); returns its bottom.
+pub(super) fn section_label(
+    canvas: &mut Canvas<'_>,
+    label: &str,
+    span: [f32; 2],
+    top: f32,
+) -> Result<f32, UiPresentationError> {
+    let height = canvas.r(4.8);
+    let pad = canvas.r(1.6);
+    let text_top = top + height - canvas.r(0.8) - canvas.r(CAPTION.line);
+    canvas.text(
+        label,
+        [span[0] + pad, text_top],
+        span[1] - span[0] - pad * 2.0,
+        CAPTION,
+        TEXT_DIMMER,
+        false,
+    )?;
+    divider(canvas, span[0], span[1], top + height - canvas.r(EDGE))?;
+    Ok(top + height)
+}
+
+/// A small solid tag; returns its right edge.
+pub(super) fn tag(
+    canvas: &mut Canvas<'_>,
+    label: &str,
+    at: [f32; 2],
+    fill: Rgba,
+    text: Rgba,
+) -> Result<f32, UiPresentationError> {
+    let pad = canvas.r(0.4);
+    let width = canvas.measure(label, BODY)? + pad * 2.0;
+    let b = [at[0], at[1], at[0] + width, at[1] + canvas.r(2.0)];
+    canvas.fill(b, fill)?;
+    canvas.text(label, [b[0] + pad, b[1]], width, BODY, text, false)?;
+    Ok(b[2])
 }

@@ -22,7 +22,6 @@ pub(super) const TEXT_DIMMEST: Rgba = rgb(0xb1b2b5);
 pub(super) const TEXT_DARK: Rgba = rgb(0x1e1e1f);
 pub(super) const BORDER: Rgba = rgb(0x1e1e1f);
 pub(super) const OUTLINE: Rgba = rgb(0xffffff);
-pub(super) const PRIMARY: Rgba = rgb(0x3c8527);
 pub(super) const OVERLAY_SCREEN: Rgba = black(128);
 pub(super) const TEXT_SHADOW: Rgba = black(77);
 pub(super) const BADGE: Rgba = rgb(0xca3636);
