@@ -3,6 +3,7 @@
 mod actor;
 mod audio;
 mod blob_cache;
+mod block_edit;
 mod camera;
 mod codec;
 mod disconnect;
@@ -48,6 +49,7 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
+pub use block_edit::{map_info_request_packet, sign_edit_packet};
 pub use camera::{
     CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
     CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
@@ -164,11 +166,12 @@ pub use world::{
     CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent, DimensionRange,
     HASHED_AIR_NETWORK_ID, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS,
     MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_SUB_CHUNK_REQUESTS, MapDataEvent, MovePlayerEvent,
-    MovePlayerMode, MovementCorrectionSubject, PLAYER_NETWORK_OFFSET, PlayerGameMode,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, WeatherChannel,
-    WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
-    WorldWireError, air_network_id, block_name_sort_key, into_world_event, is_hardcore,
-    request_sub_chunk_column, server_authoritative_block_breaking, vanilla_dimension_range,
+    MovePlayerMode, MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET,
+    PlayerGameMode, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
+    SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent,
+    SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable,
+    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent,
+    WorldPacketError, WorldWireError, air_network_id, block_name_sort_key, into_world_event,
+    is_hardcore, request_sub_chunk_column, server_authoritative_block_breaking,
+    vanilla_dimension_range,
 };
