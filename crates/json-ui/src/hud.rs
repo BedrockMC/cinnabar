@@ -27,6 +27,9 @@ pub struct HudModel {
     pub exp_progress: f64,
     pub level: u32,
     pub hotbar: Vec<HudSlot>,
+    /// Not a vanilla binding: the built-in Java pack's offhand slot reads it as
+    /// the `offhand_items` collection and `#offhand_visible`.
+    pub offhand: Option<HudSlot>,
     pub riding_hearts: bool,
     pub bubbles_visible: bool,
     pub paper_doll: bool,
@@ -147,6 +150,14 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
     data.set_global("#gamertag", Scalar::Text(String::new()));
     data.set_grid_dimensions("#hotbar_grid_dimensions", [model.hotbar.len() as u32, 1]);
     data.set_collection("hotbar_items", model.hotbar.iter().map(slot_item).collect());
+    data.set_global(
+        "#offhand_visible",
+        Scalar::Bool(model.offhand.is_some() && model.hotbar_visible),
+    );
+    data.set_collection(
+        "offhand_items",
+        model.offhand.iter().map(slot_item).collect(),
+    );
     titles(&mut data, model);
     if let Some(item) = &model.item_name {
         data.set_global("#item_text", Scalar::Text(item.text.clone()));

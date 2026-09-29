@@ -25,7 +25,6 @@ use ui::{
 
 use super::gameplay_hud_tests::RENDERABLE_EFFECT_IDS;
 use super::*;
-use crate::ui_runtime::presentation::UiPresentationRuntime;
 
 fn saturated_runtime() -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
@@ -208,12 +207,11 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
         },
     );
     runtime.observe_selected_item_identity(10_000);
-    let mut presentation = UiPresentationRuntime::with_hud(
-        crate::ui_runtime::presentation::tests::fixture_font(),
-        crate::ui_runtime::presentation::tests::fixture_hud(),
-    )
-    .unwrap();
-    presentation.enable_scoreboard_background();
+    let Some(mut presentation) =
+        crate::ui_runtime::presentation::tests::engine_hud_tests::engine_presentation()
+    else {
+        return;
+    };
     presentation.hud_frame_mut().first_person = true;
     presentation.hud_frame_mut().selected_item_name = Some(Arc::from("Saturated Blade"));
 

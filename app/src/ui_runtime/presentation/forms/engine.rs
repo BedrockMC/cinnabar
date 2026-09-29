@@ -22,6 +22,8 @@ use ui::{
 };
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
+
+pub(crate) mod hud_renderers;
 use super::server_pack::{ServerTexture, ServerUiPack};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
@@ -37,6 +39,9 @@ const TOOLTIP_BACKGROUND: [u8; 4] = [16, 0, 16, 224];
 
 pub(crate) struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
+    /// The carrier's vanilla catalog, before the built-in Java HUD pack.
+    vanilla: Arc<Catalog>,
+    /// Vanilla under the built-in Java HUD pack: the catalog with no server pack.
     base: Arc<Catalog>,
     catalog: Arc<Catalog>,
     /// Texture page of carrier atlas page 0.
@@ -90,10 +95,12 @@ pub(super) struct EngineInputs<'a> {
 
 impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, catalog: Catalog, first_page: u16) -> Self {
-        let base = Arc::new(catalog);
+        let vanilla = Arc::new(catalog);
+        let base = Arc::new(with_java_hud(&vanilla, &Default::default()));
         Self {
             assets,
             catalog: Arc::clone(&base),
+            vanilla,
             base,
             first_page,
             context: Context::desktop(),
@@ -128,9 +135,13 @@ impl FormEngine {
     /// Which catalog forms resolve against, for the render-path log.
     pub(super) fn catalog_label(&self) -> String {
         if Arc::ptr_eq(&self.catalog, &self.base) {
-            "vanilla catalog".to_owned()
+            "vanilla catalog with the Java HUD pack".to_owned()
         } else {
-            let notes = self.catalog.diagnostics().len() - self.base.diagnostics().len();
+            let notes = self
+                .catalog
+                .diagnostics()
+                .len()
+                .saturating_sub(self.vanilla.diagnostics().len());
             format!("server pack overlay, {notes} pack diagnostics")
         }
     }
@@ -160,14 +171,24 @@ impl FormEngine {
         self.server_pages = pages;
     }
 
-    /// Re-apply a server resource pack's ui files over the vanilla catalog;
-    /// an empty set restores the vanilla catalog.
+    /// Re-apply a server resource pack's ui files over the vanilla catalog and
+    /// the Java HUD pack; an empty set restores the base catalog.
     pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
             self.catalog = Arc::clone(&self.base);
             return;
         }
-        let mut catalog = (*self.base).clone();
+        let touched = layers
+            .iter()
+            .flat_map(|files| {
+                self.vanilla.overlay_namespaces(
+                    files
+                        .iter()
+                        .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+                )
+            })
+            .collect();
+        let mut catalog = with_java_hud(&self.vanilla, &touched);
         for files in layers {
             catalog.apply_pack(
                 files
@@ -175,7 +196,11 @@ impl FormEngine {
                     .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
             );
         }
-        for note in &catalog.diagnostics()[self.base.diagnostics().len()..] {
+        for note in catalog
+            .diagnostics()
+            .iter()
+            .skip(self.vanilla.diagnostics().len())
+        {
             bevy::log::debug!(note, "server ui pack");
         }
         self.catalog = Arc::new(catalog);
@@ -245,6 +270,26 @@ impl FormEngine {
         }))
     }
 
+    pub(super) fn catalog(&self) -> &Arc<Catalog> {
+        &self.catalog
+    }
+
+    pub(super) fn context(&self) -> &Context {
+        &self.context
+    }
+
+    /// Paint what `draw` lays out (given the layout env and root size) over this
+    /// engine's textures; `Ok(None)` when it lays out nothing.
+    pub(super) fn draw<R: Borrow<FormRender>>(
+        &self,
+        art: ScreenArt<'_>,
+        inputs: EngineInputs<'_>,
+        out: EngineOutput<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        render_with(self.art(), inputs, out, art, None, draw)
+    }
+
     /// Render an allow-listed screen against `data`; `art` backs its custom
     /// renderers (item icons, the player preview, the pointer tooltip).
     #[allow(clippy::too_many_arguments)]
@@ -262,6 +307,19 @@ impl FormEngine {
             render_screen(reference, &self.catalog, context, data, root, env, view)
         })
     }
+}
+
+/// `vanilla` under the built-in Java HUD pack, less its files for any namespace
+/// in `withdrawn`: a server pack authored against vanilla that restyles a
+/// namespace gets vanilla beneath it there, so it looks as designed.
+fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
+    let mut catalog = vanilla.clone();
+    let kept = super::hud::JAVA_HUD_PACK
+        .iter()
+        .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
+        .map(|(path, _, bytes)| (*path, *bytes));
+    catalog.apply_pack(kept);
+    catalog
 }
 
 fn render_with<R: Borrow<FormRender>>(
@@ -335,12 +393,15 @@ fn render_with<R: Borrow<FormRender>>(
 }
 
 /// Caller art the custom renderers draw: the icon table `#item_renderer_data`
-/// indexes, the player preview, and the pointer (virtual px) tooltips follow.
+/// indexes, the player preview, the pointer (virtual px) tooltips follow, the
+/// animation clock (seconds) fades evaluate at, and the HUD's native state.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
+    pub(super) now: f64,
+    pub(super) hud: Option<&'a hud_renderers::HudPaint>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -523,8 +584,9 @@ impl Painter<'_> {
         Ok(id)
     }
 
-    /// Bridge the custom renderers container screens use: item icons from the
-    /// icon atlas and the durability bar. Others draw nothing yet.
+    /// Bridge the custom renderers screens use: item icons from the icon atlas,
+    /// the durability bar, the player preview, tooltips, and the HUD's native
+    /// renderers. Others draw nothing yet.
     fn custom(
         &mut self,
         renderer: &str,
@@ -533,6 +595,11 @@ impl Painter<'_> {
         alpha: impl Fn([u8; 4]) -> [u8; 4],
     ) -> Option<(UiVisual, [f32; 4])> {
         let number = |key: &str| data.get(key).and_then(serde_json::Value::as_f64);
+        if let Some(hud) = self.art.hud
+            && hud_renderers::paint(self, hud, renderer, data, dest, &alpha)
+        {
+            return None;
+        }
         match renderer {
             "inventory_item_renderer" => {
                 let icon = self
@@ -710,8 +777,38 @@ impl Painter<'_> {
         Ok(())
     }
 
-    /// A solid rect in the current clip group.
-    fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]) -> Result<(), UiPresentationError> {
+    /// A sprite of the texture at `path` (server pack first, then the carrier),
+    /// sampling the normalised `uv`; `None` when neither holds it.
+    fn sprite(&self, path: &str, uv: json_ui::UvRect, color: [u8; 4]) -> Option<UiVisual> {
+        let key = texture_key(path);
+        let (page, [x, y, w, h]) = match self.server.get(key) {
+            Some(server) => (
+                self.server_page.saturating_add(server.page),
+                server.rect.map(f32::from),
+            ),
+            None => {
+                let placement = self.assets.texture(key)?;
+                (
+                    self.first_page.saturating_add(placement.page),
+                    [placement.x, placement.y, placement.width, placement.height].map(f32::from),
+                )
+            }
+        };
+        let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
+        Some(UiVisual::Sprite {
+            texture_page: page,
+            uv: [
+                pixel(x, w, uv.u0),
+                pixel(y, h, uv.v0),
+                pixel(x, w, uv.u1),
+                pixel(y, h, uv.v1),
+            ],
+            color,
+        })
+    }
+
+    /// Push `visual` at `bounds` into the current clip group.
+    fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) -> Result<(), UiPresentationError> {
         let Some((clip, parent)) = self.clip else {
             return Ok(());
         };
@@ -727,12 +824,18 @@ impl Painter<'_> {
                     bounds[3] - clip[1],
                 )?,
             )
-            .with_visual(UiVisual::Solid {
-                texture_page: self.solid_page,
-                color,
-            }),
+            .with_visual(visual),
         );
         Ok(())
+    }
+
+    /// A solid rect in the current clip group.
+    fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]) -> Result<(), UiPresentationError> {
+        let visual = UiVisual::Solid {
+            texture_page: self.solid_page,
+            color,
+        };
+        self.push(visual, bounds)
     }
 
     fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
@@ -746,8 +849,12 @@ impl Painter<'_> {
         {
             return Ok(());
         }
+        let opacity = node.alpha * json_ui::fade_factor(&node.fades, self.art.now);
+        if opacity <= 0.0 {
+            return Ok(());
+        }
         let alpha = |color: [u8; 4]| {
-            let a = (f32::from(color[3]) * node.alpha.clamp(0.0, 1.0)).round() as u8;
+            let a = (f32::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
             [color[0], color[1], color[2], a]
         };
         // Tooltips ignore the hovered control's clip.
@@ -775,7 +882,7 @@ impl Painter<'_> {
             };
             return self.text(text, dest, clip, style);
         }
-        let parent = self.group(clip)?;
+        self.group(clip)?;
         let (visual, bounds) = match &node.draw {
             Draw::Solid { color } => (
                 UiVisual::Solid {
@@ -785,37 +892,10 @@ impl Painter<'_> {
                 dest,
             ),
             Draw::Sprite { texture, uv, color } => {
-                let key = texture_key(texture);
-                let (page, [x, y, w, h]) = match self.server.get(key) {
-                    Some(server) => (
-                        self.server_page.saturating_add(server.page),
-                        server.rect.map(f32::from),
-                    ),
-                    None => {
-                        let Some(placement) = self.assets.texture(key) else {
-                            return Ok(());
-                        };
-                        (
-                            self.first_page.saturating_add(placement.page),
-                            [placement.x, placement.y, placement.width, placement.height]
-                                .map(f32::from),
-                        )
-                    }
+                let Some(visual) = self.sprite(texture, *uv, alpha(*color)) else {
+                    return Ok(());
                 };
-                let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
-                (
-                    UiVisual::Sprite {
-                        texture_page: page,
-                        uv: [
-                            pixel(x, w, uv.u0),
-                            pixel(y, h, uv.v0),
-                            pixel(x, w, uv.u1),
-                            pixel(y, h, uv.v1),
-                        ],
-                        color: alpha(*color),
-                    },
-                    dest,
-                )
+                (visual, dest)
             }
             // Drawn above, one node per line.
             Draw::Text { .. } => return Ok(()),
@@ -824,21 +904,7 @@ impl Painter<'_> {
                 None => return Ok(()),
             },
         };
-        let id = self.id();
-        self.nodes.push(
-            UiNode::new(
-                id,
-                Some(parent),
-                rect(
-                    bounds[0] - clip[0],
-                    bounds[1] - clip[1],
-                    bounds[2] - clip[0],
-                    bounds[3] - clip[1],
-                )?,
-            )
-            .with_visual(visual),
-        );
-        Ok(())
+        self.push(visual, bounds)
     }
 }
 

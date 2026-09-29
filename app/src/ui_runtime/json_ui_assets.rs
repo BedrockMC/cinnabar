@@ -1,6 +1,6 @@
-//! Optional JSON-UI carrier (`make ui-assets`). Its absence, a decode failure, or
-//! stale provenance logs once and leaves server forms on the programmatic
-//! fallback dialog; startup never fails over it.
+//! The required JSON-UI carrier (`make ui-assets`): the gameplay HUD, forms, and
+//! engine screens draw from it, so startup fails closed when it is missing,
+//! unreadable, malformed, or compiled from another pinned source manifest.
 
 use std::{
     fs::File,
@@ -19,28 +19,23 @@ pub(crate) fn ui_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(UI_ASSETS_FILENAME)
 }
 
-/// The decoded carrier, or `None` (with a startup notice) when it is unusable.
-pub(crate) fn load_optional_ui_assets(world_asset_path: &Path) -> Option<Arc<RuntimeUiAssets>> {
+/// The decoded carrier, or an error naming its path and rebuild command.
+pub(crate) fn require_ui_assets(world_asset_path: &Path) -> anyhow::Result<Arc<RuntimeUiAssets>> {
     let path = ui_asset_path(world_asset_path);
-    match read_carrier(&path) {
-        Ok(assets) => {
-            eprintln!(
-                "loaded JSON-UI carrier from {} ({} atlas pages, {} textures, {} ui files)",
-                path.display(),
-                assets.atlas_pages().len(),
-                assets.textures().len(),
-                assets.ui_files().len()
-            );
-            Some(Arc::new(assets))
-        }
-        Err(reason) => {
-            eprintln!(
-                "JSON-UI carrier unavailable at {} ({reason}); server forms use the fallback dialog. Build it with `{UI_ASSETS_COMPILE_COMMAND}`.",
-                path.display()
-            );
-            None
-        }
-    }
+    let assets = read_carrier(&path).map_err(|reason| {
+        anyhow::anyhow!(
+            "required JSON-UI carrier at {} is unusable ({reason}); build it with `{UI_ASSETS_COMPILE_COMMAND}`, or refresh every required carrier with `make assets`",
+            path.display()
+        )
+    })?;
+    eprintln!(
+        "loaded JSON-UI carrier from {} ({} atlas pages, {} textures, {} ui files)",
+        path.display(),
+        assets.atlas_pages().len(),
+        assets.textures().len(),
+        assets.ui_files().len()
+    );
+    Ok(Arc::new(assets))
 }
 
 fn read_carrier(path: &Path) -> Result<RuntimeUiAssets, String> {
