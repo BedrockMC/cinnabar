@@ -15,6 +15,8 @@ mod hand_rig_render;
 mod item_geometry;
 mod lightning;
 mod lightning_render;
+mod panorama;
+mod panorama_render;
 mod particles;
 mod present_mode;
 mod runtime_profile;
@@ -145,6 +147,8 @@ pub use lightning::{
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
     push_bolt_records,
 };
+pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaScene, PanoramaView};
+pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     Dx12PresentModePolicy, Dx12PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
     resolve_dx12_present_mode_remedy,
