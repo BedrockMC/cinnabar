@@ -555,6 +555,7 @@ fn player_list_retains_bounded_standard_and_persona_baked_skins() {
     assert_eq!(
         skin,
         &PlayerSkin::Standard(StandardSkin {
+            geometry: None,
             cape: None,
             width: 64,
             height: 64,

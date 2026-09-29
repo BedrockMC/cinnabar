@@ -1,0 +1,362 @@
+//! Custom player-skin geometry: the geometry JSON a serialized skin carries, resolved through
+//! the skin's resource patch into one model. Parsing is lenient (remote data): unknown fields are
+//! ignored and malformed cubes are dropped; only an unusable model is rejected.
+use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
+
+use crate::{
+    EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs,
+    EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_TEXTURE_DIMENSION,
+};
+
+/// Bones one skin model may have; the actor renderer's per-rig bone bound.
+pub const MAX_SKIN_GEOMETRY_BONES: usize = 96;
+/// Cubes one skin model may have.
+pub const MAX_SKIN_GEOMETRY_CUBES: usize = 2048;
+/// Inheritance links followed before a chain is treated as cyclic.
+const MAX_INHERITANCE_DEPTH: usize = 8;
+
+/// One resolved skin model; UVs address a `texture_width` x `texture_height` image.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkinGeometry {
+    pub identifier: Box<str>,
+    pub texture_width: u16,
+    pub texture_height: u16,
+    /// Bones after inheritance, parents resolved by name (an unknown parent becomes a root).
+    pub bones: Box<[EntityGeometryBone]>,
+    /// Digest of the model inputs, for caching built meshes.
+    pub digest: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SkinGeometryError {
+    Json,
+    MissingGeometry,
+    NoBones,
+    TooManyBones,
+    TooManyCubes,
+    CyclicHierarchy,
+}
+
+/// The geometry the resource patch names as the skin's default model.
+#[must_use]
+pub fn skin_geometry_name(resource_patch: &str) -> Option<String> {
+    let patch: Value = serde_json::from_str(resource_patch).ok()?;
+    patch
+        .get("geometry")?
+        .get("default")?
+        .as_str()
+        .map(str::to_ascii_lowercase)
+}
+
+/// Resolves the skin's model. `Ok(None)` means the default geometry applies: no geometry data
+/// (vanilla then uses its skin pack's classic model) or no named geometry in the patch.
+/// Inheritance resolves only within the skin's own geometries, as vanilla's per-skin group does.
+pub fn parse_skin_geometry(
+    resource_patch: &str,
+    geometry_data: &str,
+) -> Result<Option<SkinGeometry>, SkinGeometryError> {
+    let Some(name) = skin_geometry_name(resource_patch) else {
+        return Ok(None);
+    };
+    let data = geometry_data.trim();
+    if data.is_empty() || data == "null" {
+        return Ok(None);
+    }
+    let root: Value = serde_json::from_str(data).map_err(|_| SkinGeometryError::Json)?;
+    let geometries = parse_geometries(&root).ok_or(SkinGeometryError::Json)?;
+    let own = |identifier: &str| {
+        geometries
+            .iter()
+            .find(|entry| entry.identifier.eq_ignore_ascii_case(identifier))
+    };
+    // Walk the inheritance chain from the named geometry to its root.
+    let mut chain = Vec::new();
+    let mut current = Some(name.clone());
+    while let Some(identifier) = current.take() {
+        if chain.len() > MAX_INHERITANCE_DEPTH {
+            return Err(SkinGeometryError::CyclicHierarchy);
+        }
+        let entry = own(&identifier).ok_or(SkinGeometryError::MissingGeometry)?;
+        chain.push(entry);
+        current.clone_from(&entry.inherits);
+    }
+    let (mut texture_width, mut texture_height) = (None, None);
+    let mut bones: Vec<EntityGeometryBone> = Vec::new();
+    for entry in chain.iter().rev() {
+        texture_width = entry.texture_width.or(texture_width);
+        texture_height = entry.texture_height.or(texture_height);
+        for child in &entry.bones {
+            match bones
+                .iter_mut()
+                .find(|bone| bone.name.eq_ignore_ascii_case(&child.name))
+            {
+                Some(existing) => overlay_bone(existing, child),
+                None => bones.push(child.clone()),
+            }
+        }
+    }
+    finish(
+        name,
+        texture_width,
+        texture_height,
+        bones,
+        resource_patch,
+        geometry_data,
+    )
+    .map(Some)
+}
+
+fn finish(
+    identifier: String,
+    texture_width: Option<u16>,
+    texture_height: Option<u16>,
+    mut bones: Vec<EntityGeometryBone>,
+    resource_patch: &str,
+    geometry_data: &str,
+) -> Result<SkinGeometry, SkinGeometryError> {
+    if bones.is_empty() {
+        return Err(SkinGeometryError::NoBones);
+    }
+    if bones.len() > MAX_SKIN_GEOMETRY_BONES {
+        return Err(SkinGeometryError::TooManyBones);
+    }
+    if bones.iter().map(|bone| bone.cubes.len()).sum::<usize>() > MAX_SKIN_GEOMETRY_CUBES {
+        return Err(SkinGeometryError::TooManyCubes);
+    }
+    let names: Vec<Box<str>> = bones.iter().map(|bone| bone.name.clone()).collect();
+    for bone in &mut bones {
+        let known = bone.parent.as_deref().is_some_and(|parent| {
+            !parent.eq_ignore_ascii_case(&bone.name)
+                && names.iter().any(|name| name.eq_ignore_ascii_case(parent))
+        });
+        if !known {
+            bone.parent = None;
+        }
+    }
+    for start in 0..bones.len() {
+        let mut current = Some(start);
+        for _ in 0..=bones.len() {
+            current = current.and_then(|index| {
+                let parent = bones[index].parent.as_deref()?;
+                bones
+                    .iter()
+                    .position(|bone| bone.name.eq_ignore_ascii_case(parent))
+            });
+        }
+        if current.is_some() {
+            return Err(SkinGeometryError::CyclicHierarchy);
+        }
+    }
+    let mut digest = Sha256::new();
+    digest.update(resource_patch.as_bytes());
+    digest.update([0]);
+    digest.update(geometry_data.as_bytes());
+    Ok(SkinGeometry {
+        identifier: identifier.into(),
+        texture_width: texture_width.unwrap_or(64),
+        texture_height: texture_height.unwrap_or(64),
+        bones: bones.into(),
+        digest: digest.finalize().into(),
+    })
+}
+
+struct ParsedGeometry {
+    identifier: String,
+    inherits: Option<String>,
+    texture_width: Option<u16>,
+    texture_height: Option<u16>,
+    bones: Vec<EntityGeometryBone>,
+}
+
+fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
+    let root = root.as_object()?;
+    let mut parsed = Vec::new();
+    if let Some(modern) = root.get("minecraft:geometry").and_then(Value::as_array) {
+        for geometry in modern {
+            let description = geometry.get("description")?;
+            let identifier = description.get("identifier")?.as_str()?;
+            // Modern formats dropped inheritance; vanilla skips such an entry.
+            if identifier.contains(':') {
+                continue;
+            }
+            parsed.push(ParsedGeometry {
+                identifier: identifier.to_owned(),
+                inherits: None,
+                texture_width: dimension(description.get("texture_width")),
+                texture_height: dimension(description.get("texture_height")),
+                bones: bones(geometry.get("bones")),
+            });
+        }
+    }
+    for (key, geometry) in root {
+        if !key.starts_with("geometry.") || !geometry.is_object() {
+            continue;
+        }
+        let (identifier, inherits) = match key.split_once(':') {
+            Some((identifier, inherits)) => (identifier, Some(inherits.to_owned())),
+            None => (key.as_str(), None),
+        };
+        parsed.push(ParsedGeometry {
+            identifier: identifier.to_owned(),
+            inherits,
+            texture_width: dimension(geometry.get("texturewidth")),
+            texture_height: dimension(geometry.get("textureheight")),
+            bones: bones(geometry.get("bones")),
+        });
+    }
+    Some(parsed)
+}
+
+fn dimension(value: Option<&Value>) -> Option<u16> {
+    let value = value?.as_f64()?;
+    (value.is_finite() && value >= 1.0 && value <= f64::from(MAX_ENTITY_TEXTURE_DIMENSION))
+        .then_some(value as u16)
+}
+
+fn scalar(value: &Value) -> Option<EntityGeometryScalar> {
+    EntityGeometryScalar::new(value.as_f64()? as f32)
+}
+
+fn vector<const N: usize>(value: Option<&Value>) -> Option<[EntityGeometryScalar; N]> {
+    let values = value?.as_array()?;
+    if values.len() != N {
+        return None;
+    }
+    let parsed = values.iter().map(scalar).collect::<Option<Vec<_>>>()?;
+    parsed.try_into().ok()
+}
+
+fn bones(value: Option<&Value>) -> Vec<EntityGeometryBone> {
+    let Some(bones) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    bones
+        .iter()
+        .filter_map(|bone| {
+            let bone = bone.as_object()?;
+            let name = bone.get("name")?.as_str()?;
+            if name.is_empty() || name.chars().any(char::is_control) {
+                return None;
+            }
+            let mirror = bone.get("mirror").and_then(Value::as_bool);
+            let inflate = bone.get("inflate").and_then(scalar);
+            let cubes = bone
+                .get("cubes")
+                .and_then(Value::as_array)
+                .map(|cubes| {
+                    cubes
+                        .iter()
+                        .filter_map(|cube| {
+                            cube_from(
+                                cube.as_object()?,
+                                mirror.unwrap_or(false),
+                                inflate.unwrap_or(EntityGeometryScalar::ZERO),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            Some(EntityGeometryBone {
+                name: name.into(),
+                parent: bone
+                    .get("parent")
+                    .and_then(Value::as_str)
+                    .filter(|parent| !parent.is_empty())
+                    .map(Into::into),
+                pivot: vector(bone.get("pivot")),
+                rotation: vector(bone.get("rotation")),
+                // Cubes carry the resolved mirror and inflate; the bone keeps none of its own.
+                mirror: None,
+                inflate: None,
+                never_render: bone.get("neverRender").and_then(Value::as_bool),
+                reset: bone.get("reset").and_then(Value::as_bool),
+                cubes: cubes.into(),
+            })
+        })
+        .collect()
+}
+
+/// A drawable cube, or `None` when it is malformed or degenerate.
+fn cube_from(
+    cube: &Map<String, Value>,
+    bone_mirror: bool,
+    bone_inflate: EntityGeometryScalar,
+) -> Option<EntityGeometryCube> {
+    let origin = vector(cube.get("origin"))?;
+    let size: [EntityGeometryScalar; 3] = vector(cube.get("size"))?;
+    let inflate = cube.get("inflate").and_then(scalar).unwrap_or(bone_inflate);
+    let zero_axes = size.iter().filter(|value| value.get() == 0.0).count();
+    if size.iter().any(|value| value.get() < 0.0)
+        || zero_axes > 1
+        || (zero_axes == 1 && inflate.get() != 0.0)
+    {
+        return None;
+    }
+    let zero = [EntityGeometryScalar::ZERO; 3];
+    Some(EntityGeometryCube {
+        origin,
+        size,
+        pivot: vector(cube.get("pivot")).unwrap_or(zero),
+        rotation: vector(cube.get("rotation")).unwrap_or(zero),
+        uv: match cube.get("uv") {
+            Some(Value::Object(faces)) => face_uvs(faces)?,
+            other => {
+                EntityGeometryUv::Box(vector(other).unwrap_or([EntityGeometryScalar::ZERO; 2]))
+            }
+        },
+        inflate,
+        mirror: cube
+            .get("mirror")
+            .and_then(Value::as_bool)
+            .unwrap_or(bone_mirror),
+    })
+}
+
+fn face_uvs(faces: &Map<String, Value>) -> Option<EntityGeometryUv> {
+    let face = |name: &str| {
+        let face = faces.get(name)?;
+        Some(EntityGeometryFaceUv {
+            uv: vector(face.get("uv"))?,
+            uv_size: vector(face.get("uv_size")),
+        })
+    };
+    let uvs = EntityGeometryFaceUvs {
+        north: face("north"),
+        south: face("south"),
+        east: face("east"),
+        west: face("west"),
+        up: face("up"),
+        down: face("down"),
+    };
+    [
+        &uvs.north, &uvs.south, &uvs.east, &uvs.west, &uvs.up, &uvs.down,
+    ]
+    .iter()
+    .any(|face| face.is_some())
+    .then_some(EntityGeometryUv::Faces(uvs))
+}
+
+fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
+    if child.parent.is_some() {
+        base.parent.clone_from(&child.parent);
+    }
+    if child.pivot.is_some() {
+        base.pivot = child.pivot;
+    }
+    if child.rotation.is_some() {
+        base.rotation = child.rotation;
+    }
+    if child.never_render.is_some() {
+        base.never_render = child.never_render;
+    }
+    if child.reset == Some(true) {
+        base.cubes = Box::default();
+    }
+    if !child.cubes.is_empty() {
+        base.cubes.clone_from(&child.cubes);
+    }
+}
+
+#[cfg(test)]
+mod tests;
