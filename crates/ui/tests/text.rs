@@ -68,11 +68,17 @@ fn pinned_bedrock_color_codes_include_resin() {
 }
 
 #[test]
-fn parser_normalizes_crlf_and_preserves_invalid_section_sequences() {
+fn parser_normalizes_crlf_and_hides_unknown_section_codes() {
     let spans = parse_bedrock_text("A\r\nB§zC§", 64).unwrap();
-    assert_eq!(spans.plain_text(), "A\nB§zC§");
-    let section_before_crlf = parse_bedrock_text("§\r\nA", 64).unwrap();
-    assert_eq!(section_before_crlf.plain_text(), "§\nA");
+    assert_eq!(spans.plain_text(), "A\nBC§");
+    let marker = parse_bedrock_text("Free For All§zfp0;", 64).unwrap();
+    assert_eq!(marker.plain_text(), "Free For Allfp0;");
+    let section_before_newline = parse_bedrock_text("§\nA§C", 64).unwrap();
+    assert_eq!(
+        section_before_newline.plain_text(),
+        "A",
+        "codes are case-sensitive"
+    );
 
     assert!(matches!(
         parse_bedrock_text("four", 3),
