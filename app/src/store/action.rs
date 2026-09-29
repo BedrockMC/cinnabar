@@ -91,6 +91,9 @@ pub(crate) fn action_for(view: StoreView, modal: bool, region: &HitRegion) -> Op
                 index: u16::try_from(index).ok()?,
             }
         }
+        "button.navigate_next_page" if view == StoreView::Search => {
+            StoreAction::ShowMore { row: 0 }
+        }
         "button.show_more_offers" => {
             let row = match view {
                 StoreView::Home => key_indices(&region.key)
