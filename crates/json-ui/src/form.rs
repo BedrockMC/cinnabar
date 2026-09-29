@@ -157,13 +157,8 @@ fn factory_id(model: &FormModel) -> Option<&'static str> {
 /// The form screen's `$screen_content` (a resource pack may repoint it), the
 /// control whose factory picks the long or custom form.
 fn screen_content(catalog: &Catalog) -> Option<String> {
-    let (screen, _) = crate::merge::flatten_def(
-        catalog,
-        FORM_SCREEN.0,
-        FORM_SCREEN.1,
-        &mut Vec::new(),
-        &mut Vec::new(),
-    )?;
+    let (screen, _) =
+        crate::merge::flatten_def(catalog, FORM_SCREEN.0, FORM_SCREEN.1, &mut Vec::new())?;
     ["$screen_content", "$screen_content|default"]
         .iter()
         .find_map(|key| screen.props.get(*key)?.as_str().map(str::to_owned))
@@ -172,13 +167,8 @@ fn screen_content(catalog: &Catalog) -> Option<String> {
 /// Where the form screen routes `button.menu_cancel` (Escape), from its own
 /// global mappings, which sit above the content a form renders.
 pub fn form_screen_cancel(catalog: &Catalog) -> Option<String> {
-    let (screen, _) = crate::merge::flatten_def(
-        catalog,
-        FORM_SCREEN.0,
-        FORM_SCREEN.1,
-        &mut Vec::new(),
-        &mut Vec::new(),
-    )?;
+    let (screen, _) =
+        crate::merge::flatten_def(catalog, FORM_SCREEN.0, FORM_SCREEN.1, &mut Vec::new())?;
     screen
         .props
         .get("button_mappings")?
