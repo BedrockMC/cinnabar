@@ -351,6 +351,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 hurt.note_knockback(event.motion[0], event.motion[2]);
             }
             if movement.physics_is_authorized() {
+                crate::movement::note_motion(event.tick, event.motion);
                 local_physics.queue_server_motion(event.motion, event.tick);
             }
             continue;
@@ -431,6 +432,13 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     // acknowledgement arms on the teleport path only.
                     let outcome = if correction.teleported {
                         movement.note_server_teleport(ServerTeleportKind::MovePlayer);
+                        crate::movement::note_correction(
+                            crate::movement::CorrectionKind::Teleport,
+                            tick,
+                            resolved.position,
+                            correction.on_ground,
+                            local_physics.sample_at(tick),
+                        );
                         reconcile_candidate_physics_correction(
                             &mut movement,
                             &mut local_physics,

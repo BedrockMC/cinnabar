@@ -608,6 +608,7 @@ impl UiPresentationRuntime {
                 metrics,
                 self.solid_texture_page,
                 &self.nametag_anchors,
+                [content_width, content_height],
             )?;
             retained_hud::append_below_name_nodes(
                 &mut nodes,
@@ -959,6 +960,7 @@ impl UiPresentationRuntime {
             content_width,
             content_height,
         )?;
+        self.sync_server_ui_pages();
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;

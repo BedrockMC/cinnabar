@@ -64,6 +64,8 @@ pub struct ActorRigSnapshot<'a> {
     pub render: &'a [RenderTextureLayer],
     /// Lowercase bone names in pose order.
     pub bone_names: &'a [Box<str>],
+    /// The skin model the pose drives, instead of the rig's geometry.
+    pub skin_geometry: Option<&'a Arc<assets::SkinGeometry>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -73,6 +75,7 @@ pub struct ActorAnimationStats {
     pub world_budget_exhaustions: u64,
     pub frozen_actors: u64,
     pub unrigged_spawns: u64, // spawns with entity assets loaded but no compiled rig
+    pub invalid_skin_geometries: u64, // skin models that fell back to the default geometry
 }
 
 #[derive(Debug)]
@@ -127,6 +130,8 @@ struct ActorRigState {
     history: VecDeque<ActorTickInput>,
     /// Main-hand item the arm has finished equipping.
     equipped_main: Option<Arc<str>>,
+    /// The worn skin's own model, when it names one.
+    skin: Option<skin::SkinModel>,
     variables: MolangVariables,
     initialized: bool,
     motion: MotionState,
@@ -379,6 +384,10 @@ impl ActorAnimationStore {
                 state.rest_completed_tick = 0;
             }
             let context = context(actor);
+            if skin::sync_skin(state, context.skin_geometry.as_ref()) {
+                self.stats.invalid_skin_geometries =
+                    self.stats.invalid_skin_geometries.saturating_add(1);
+            }
             advance_motion(state, actor, &context);
             if state.fallback == EntityRigFallback::GeometryOnly {
                 state.previous.clone_from(&state.current);
@@ -424,6 +433,7 @@ impl ActorAnimationStore {
                     &context,
                     &mut budget,
                 );
+                state.refresh_skin_drivers();
             }
             let result = evaluate_state(
                 state_assets,
@@ -529,7 +539,8 @@ impl ActorAnimationStore {
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
-            bone_names: &state.bone_names,
+            bone_names: state.posed_bone_names(),
+            skin_geometry: state.skin_skeleton().map(|skeleton| &skeleton.geometry),
         })
     }
 
@@ -657,6 +668,7 @@ fn resolve_rig(
         fallback: rig.fallback,
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
         equipped_main: None,
+        skin: None,
         variables,
         initialized: false,
         motion: MotionState::spawn(actor.body_yaw, actor.head_yaw),
@@ -740,6 +752,11 @@ fn resolve_bones(
             }
         }
     }
+    skeleton(&merged)
+}
+
+/// Runtime bones and lowercase names of a merged bone list; parents must resolve by name.
+fn skeleton(merged: &[EntityGeometryBone]) -> Option<(Vec<RuntimeBone>, Vec<Box<str>>)> {
     if merged.len() > MAX_RUNTIME_BONES_PER_RIG {
         return None;
     }
@@ -811,6 +828,7 @@ mod motion;
 mod pose;
 mod query;
 mod render;
+mod skin;
 mod tick;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
 use motion::{MotionInput, MotionState};

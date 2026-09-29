@@ -17,12 +17,17 @@ use assets::RuntimeFontCatalog;
 const MAX_NAMETAG_DISTANCE: f32 = 64.0;
 /// Rows kept per frame so a crowded server cannot flood the retained tree.
 pub(super) const MAX_PRESENTED_NAMETAGS: usize = 32;
-/// Head-top offset the tag hangs above, in blocks.
-const HEAD_OFFSET: f32 = 2.35;
-/// World height of one 9 GUI px text line, in blocks. Needs independent measurement.
-const LINE_WORLD_HEIGHT: f32 = 0.225;
-/// Logical px of a text line at `UiScale` 1.0 (18 font texels).
-const LINE_LOGICAL_AT_UNIT_SCALE: f32 = 18.0;
+/// The tag hangs this far above the top of the actor's bounding box, in blocks.
+const HEAD_CLEARANCE: f32 = 0.7;
+/// Bounding-box heights used when the actor publishes none: standing and sneaking players.
+const DEFAULT_HEIGHT: f32 = 1.8;
+const SNEAKING_HEIGHT: f32 = 1.5;
+/// Entity metadata key of the bounding-box height.
+const METADATA_HEIGHT: u32 = 54;
+/// World size of one font design pixel (1.6 / 60 blocks); the tag is a fixed-size billboard.
+const BLOCKS_PER_FONT_PIXEL: f32 = 1.6 / 60.0;
+/// Font atlas texels per font design pixel.
+const TEXELS_PER_FONT_PIXEL: f32 = 2.0;
 const SCALE_STEPS_PER_UNIT: f32 = 16.0;
 const BOX_PADDING: f32 = 2.0;
 const BOX_ALPHA: u8 = 64;
@@ -78,7 +83,13 @@ pub(super) fn project_nametag(
     if !always && !actor_flag(actor, ACTOR_FLAG_SHOW_NAME) {
         return None;
     }
-    let position = Vec3::from_array(actor.position) + Vec3::Y * HEAD_OFFSET;
+    let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
+    let height = match actor.metadata.get(&METADATA_HEIGHT) {
+        Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height > 0.0 => *height,
+        _ if sneaking => SNEAKING_HEIGHT,
+        _ => DEFAULT_HEIGHT,
+    };
+    let position = Vec3::from_array(actor.position) + Vec3::Y * (height + HEAD_CLEARANCE);
     let distance = camera_transform.translation().distance(position);
     if !distance.is_finite() || distance > MAX_NAMETAG_DISTANCE {
         return None;
@@ -95,33 +106,27 @@ pub(super) fn project_nametag(
             return None;
         }
     }
-    let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
     let occluded = is_occluded(position);
     if sneaking && occluded {
         return None;
     }
     let pixels_per_block = (point.y - above.y).abs();
-    (x.is_finite()
-        && y.is_finite()
-        && pixels_per_block.is_finite()
-        && pixels_per_block > 0.0
-        && (0.0..=content_size[0]).contains(&x)
-        && (0.0..=content_size[1]).contains(&y))
-    .then_some(NametagAnchor {
-        x,
-        y,
-        name,
-        sneaking,
-        occluded,
-        pixels_per_block,
-        distance,
-    })
+    (x.is_finite() && y.is_finite() && pixels_per_block.is_finite() && pixels_per_block > 0.0)
+        .then_some(NametagAnchor {
+            x,
+            y,
+            name,
+            sneaking,
+            occluded,
+            pixels_per_block,
+            distance,
+        })
 }
 
-/// Text scale that makes a line span `LINE_WORLD_HEIGHT` blocks, quantized so the layout cache
-/// sees a bounded set of sizes.
+/// Text scale that gives a font pixel its fixed world size, quantized so the layout cache sees a
+/// bounded set of sizes.
 fn text_scale(pixels_per_block: f32) -> UiScale {
-    let ratio = LINE_WORLD_HEIGHT * pixels_per_block / LINE_LOGICAL_AT_UNIT_SCALE;
+    let ratio = BLOCKS_PER_FONT_PIXEL * pixels_per_block / TEXELS_PER_FONT_PIXEL;
     let stepped = (ratio * SCALE_STEPS_PER_UNIT).round() / SCALE_STEPS_PER_UNIT;
     UiScale::new(stepped.clamp(UiScale::MIN, UiScale::MAX)).unwrap_or_default()
 }
@@ -136,6 +141,7 @@ pub(super) fn append_nametag_nodes(
     metrics: TextMetrics,
     solid_texture_page: u16,
     anchors: &[NametagAnchor],
+    content_size: [f32; 2],
 ) -> Result<(), UiPresentationError> {
     let mut ordered: Vec<&NametagAnchor> = anchors.iter().take(MAX_PRESENTED_NAMETAGS).collect();
     ordered.sort_by(|a, b| b.distance.total_cmp(&a.distance));
@@ -154,6 +160,13 @@ pub(super) fn append_nametag_nodes(
         let [width, height] = layout.size_64().map(|value| value as f32 / 64.0);
         let left = anchor.x - width / 2.0;
         let top = anchor.y - height;
+        if left + width + BOX_PADDING < 0.0
+            || left - BOX_PADDING > content_size[0]
+            || top + height + BOX_PADDING < 0.0
+            || top - BOX_PADDING > content_size[1]
+        {
+            continue;
+        }
         let faint = anchor.sneaking || anchor.occluded;
         let box_alpha = if faint { BOX_ALPHA / 2 } else { BOX_ALPHA };
         let id = UiNodeId::new(*next_id);

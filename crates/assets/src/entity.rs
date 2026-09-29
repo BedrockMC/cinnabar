@@ -42,7 +42,8 @@ pub const ENTITY_BLOB_VERSION: u32 = 6;
 ///   below `PACK_EQUIPMENT_INDEX_BASE` is a vanilla entity-catalog geometry (skulls sit at
 ///   `0x00ff_0000`) and one at or above it is `PACK_EQUIPMENT_INDEX_BASE + ` a geometry index
 ///   of the session's server-pack catalog.
-/// - `0xC000_0000..`: generated item meshes; `u32::MAX` is the diagnostic rig.
+/// - `0xC000_0000..0xE000_0000`: generated item meshes.
+/// - `0xE000_0000..`: player skins' own models; `u32::MAX` is the diagnostic rig.
 pub const PACK_RIG_ID_BASE: u32 = 0x4000_0000;
 /// First equipment geometry index that names a server-pack catalog geometry.
 pub const PACK_EQUIPMENT_INDEX_BASE: u32 = 0x1000_0000;

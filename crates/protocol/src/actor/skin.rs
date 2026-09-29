@@ -11,6 +11,48 @@ pub struct StandardSkin {
     pub rgba8: Arc<[u8]>,
     /// The skin's cape image when it carries a valid one; counts toward the skin byte budget.
     pub cape: Option<CapeImage>,
+    /// The skin's own model inputs when it may name a non-default geometry.
+    pub geometry: Option<Arc<SkinGeometrySource>>,
+}
+
+/// The resource patch and geometry JSON a skin carries; parsed by the actor runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkinGeometrySource {
+    pub resource_patch: Arc<str>,
+    pub geometry_data: Arc<str>,
+}
+
+impl SkinGeometrySource {
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.resource_patch.len() + self.geometry_data.len()
+    }
+}
+
+/// Model input bytes one skin may retain; larger models fall back to the default geometry.
+pub const MAX_SKIN_GEOMETRY_SOURCE_BYTES: usize = 1024 * 1024;
+
+/// Model inputs are retained only when the skin carries geometry data; without it vanilla draws
+/// its classic model.
+fn geometry_source(
+    skin: &SerializedSkinRef,
+    retained_bytes: &mut usize,
+) -> Option<Arc<SkinGeometrySource>> {
+    let data = skin.geometry_data.trim();
+    let bytes = skin.resource_patch.len() + skin.geometry_data.len();
+    let next = retained_bytes.checked_add(bytes)?;
+    if data.is_empty()
+        || data == "null"
+        || bytes > MAX_SKIN_GEOMETRY_SOURCE_BYTES
+        || next > MAX_PLAYER_LIST_SKIN_BYTES
+    {
+        return None;
+    }
+    *retained_bytes = next;
+    Some(Arc::new(SkinGeometrySource {
+        resource_patch: skin.resource_patch.as_str().into(),
+        geometry_data: skin.geometry_data.as_str().into(),
+    }))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,7 +88,6 @@ fn normalize_cape(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerSkinUnavailable {
-    UnsupportedPersona,
     InvalidDimensions,
     InvalidByteLength,
     RetainedBudgetExceeded,
@@ -62,11 +103,12 @@ pub(super) fn normalize_player_skin(
     skin: SerializedSkinRef,
     retained_bytes: &mut usize,
 ) -> PlayerSkin {
-    if skin.is_persona {
-        return PlayerSkin::Unavailable(PlayerSkinUnavailable::UnsupportedPersona);
-    }
+    // Vanilla rebuilds persona skins from piece assets this client lacks; the sender's baked
+    // `image_data` stands in for that rebuild (a provisional approximation).
     let (width, height) = (skin.image_data.width, skin.image_data.height);
-    if width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE) {
+    // Legacy 64x32 skins are kept; the renderer expands them to the square layout.
+    let legacy = (width, height) == (64, 32);
+    if !legacy && (width != height || !matches!(width, 64 | 128 | MAX_STANDARD_SKIN_SIDE)) {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions);
     }
     let Some(expected_bytes) = usize::try_from(width)
@@ -88,10 +130,12 @@ pub(super) fn normalize_player_skin(
     }
     *retained_bytes = next_bytes;
     let cape = normalize_cape(&skin.cape_image_data, retained_bytes);
+    let geometry = geometry_source(&skin, retained_bytes);
     PlayerSkin::Standard(StandardSkin {
         width,
         height,
         rgba8: Arc::from(skin.image_data.image_bytes),
         cape,
+        geometry,
     })
 }

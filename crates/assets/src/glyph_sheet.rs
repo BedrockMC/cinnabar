@@ -1,16 +1,18 @@
 //! Bedrock `font/glyph_XX.png` sheets: a 16x16 grid of cells per high byte. Each cell is
 //! trimmed to its opaque box and packed into atlas pages. Private-use sheets (E0-F8) draw at
-//! one unscaled px per texel; every other sheet is normalised so a cell is 8 px wide. Cells
-//! are centred vertically on the 8 px text line.
+//! one GUI px per texel; every other sheet is normalised so a cell is 8 GUI px wide. Cells
+//! are centred vertically on the text line.
 
 use crate::GlyphMetrics;
 
 pub const SHEET_GRID: u32 = 16;
-/// Width in unscaled px of a normalised (non-private-use) cell.
-const NORMALISED_CELL_PX: u32 = 8;
-/// Pixels from the line's baseline up to the top of the 8 px text line.
-const ASCENT_PX: i64 = 7;
-const LINE_PX: i64 = 8;
+/// Font atlas texels per GUI pixel; glyph metrics are in atlas texels, like the base font's.
+const DESIGN_PIXEL_TEXELS: u32 = 2;
+/// Width in texels of a normalised (non-private-use) cell: 8 GUI px.
+const NORMALISED_CELL: u32 = 8 * DESIGN_PIXEL_TEXELS;
+/// Texels from the line's baseline up to the top of the text line, and the line's height.
+const ASCENT: i64 = 14;
+const LINE: i64 = 16;
 const GUTTER: u32 = 1;
 const PRIVATE_USE_SHEETS: std::ops::RangeInclusive<u8> = 0xe0..=0xf8;
 
@@ -49,12 +51,12 @@ pub struct GlyphAtlas {
     pub glyphs: Vec<SheetGlyph>,
 }
 
-/// 1/64 unscaled px drawn per texel for a sheet whose cells are `cell_width` texels wide.
+/// 1/64 atlas texels drawn per sheet texel for a sheet whose cells are `cell_width` texels wide.
 pub fn texel_size_64(high_byte: u8, cell_width: u32) -> u32 {
     if PRIVATE_USE_SHEETS.contains(&high_byte) {
-        64
+        DESIGN_PIXEL_TEXELS * 64
     } else {
-        NORMALISED_CELL_PX * 64 / cell_width
+        NORMALISED_CELL * 64 / cell_width
     }
 }
 
@@ -77,7 +79,8 @@ pub fn extract_cells(sheet: &GlyphSheet) -> Vec<CellGlyph> {
     }
     let (cell_w, cell_h) = (sheet.width / SHEET_GRID, sheet.height / SHEET_GRID);
     let texel_64 = i64::from(texel_size_64(sheet.high_byte, cell_w));
-    let bearing_x = i16::from(PRIVATE_USE_SHEETS.contains(&sheet.high_byte));
+    let bearing_x =
+        i16::from(PRIVATE_USE_SHEETS.contains(&sheet.high_byte)) * DESIGN_PIXEL_TEXELS as i16;
     let pixel = |x: u32, y: u32| ((y * sheet.width + x) * 4) as usize;
     let mut cells = Vec::new();
     for index in 0..SHEET_GRID * SHEET_GRID {
@@ -114,15 +117,15 @@ pub fn extract_cells(sheet: &GlyphSheet) -> Vec<CellGlyph> {
             rgba8.extend_from_slice(&sheet.rgba8[start..start + (width * 4) as usize]);
         }
         // Cell centre on the text line's centre, then down to the cropped top row.
-        let offset_64 =
-            (LINE_PX * 64 - i64::from(cell_h) * texel_64) / 2 + i64::from(top) * texel_64;
-        let bearing_y = ((-ASCENT_PX * 64 + offset_64 + 32).div_euclid(64)) as i16;
+        let offset_64 = (LINE * 64 - i64::from(cell_h) * texel_64) / 2 + i64::from(top) * texel_64;
+        let bearing_y = ((-ASCENT * 64 + offset_64 + 32).div_euclid(64)) as i16;
         cells.push(CellGlyph {
             codepoint,
             size: [width, height],
             rgba8: rgba8.into(),
             bearing: [bearing_x, bearing_y],
-            advance_64: (i64::from(width) * texel_64 + 64).min(i64::from(i16::MAX)) as i16,
+            advance_64: (i64::from(width) * texel_64 + i64::from(DESIGN_PIXEL_TEXELS) * 64)
+                .min(i64::from(i16::MAX)) as i16,
             draw_size_64: [
                 (i64::from(width) * texel_64) as u32,
                 (i64::from(height) * texel_64) as u32,
@@ -247,21 +250,21 @@ mod tests {
     }
 
     #[test]
-    fn private_use_cells_draw_one_px_per_texel_centred_on_the_line() {
+    fn private_use_cells_draw_one_gui_px_per_texel_centred_on_the_line() {
         let cells = extract_cells(&sheet(
             0xe1,
             8,
             &[(3, [0, 8], [0, 8]), (0xff, [2, 4], [3, 4])],
         ));
         let full = cell(&cells, '\u{e103}');
-        assert_eq!(full.draw_size_64, [8 * 64, 8 * 64]);
-        assert_eq!(full.advance_64, 9 * 64);
-        assert_eq!(full.bearing, [1, -7]);
+        assert_eq!(full.draw_size_64, [16 * 64, 16 * 64]);
+        assert_eq!(full.advance_64, 18 * 64);
+        assert_eq!(full.bearing, [2, -14]);
         let narrow = cell(&cells, '\u{e1ff}');
-        assert_eq!(narrow.draw_size_64, [2 * 64, 64]);
-        assert_eq!(narrow.advance_64, 3 * 64);
-        // Row 3 of an 8 px cell on an 8 px line sits 3 px below the line top.
-        assert_eq!(narrow.bearing[1], -7 + 3);
+        assert_eq!(narrow.draw_size_64, [4 * 64, 2 * 64]);
+        assert_eq!(narrow.advance_64, 6 * 64);
+        // Row 3 of an 8 px cell drawn 2 texels per px sits 6 texels below the line top.
+        assert_eq!(narrow.bearing[1], -14 + 6);
         assert_eq!(cell(&cells, '\u{e100}').advance_64, 0);
     }
 
@@ -271,17 +274,16 @@ mod tests {
         let cells = extract_cells(&sheet(0xe0, 64, &[(1, [0, 33], [28, 35])]));
         let glyph = cell(&cells, '\u{e001}');
         assert_eq!(glyph.size, [33, 7]);
-        assert_eq!(glyph.draw_size_64, [33 * 64, 7 * 64]);
-        // Line centre is baseline-3; art centre is 3.5 rows below the cell centre offset of zero.
-        assert_eq!(glyph.bearing[1], -7 + (8 - 64) / 2 + 28);
+        assert_eq!(glyph.draw_size_64, [66 * 64, 14 * 64]);
+        assert_eq!(glyph.bearing[1], -14 + (16 - 128) / 2 + 56);
     }
 
     #[test]
     fn other_sheets_normalise_cells_to_eight_px() {
         let cells = extract_cells(&sheet(0x4e, 16, &[(1, [0, 16], [0, 16])]));
         let glyph = cell(&cells, '\u{4e01}');
-        assert_eq!(glyph.draw_size_64, [8 * 64, 8 * 64]);
-        assert_eq!(glyph.advance_64, 9 * 64);
+        assert_eq!(glyph.draw_size_64, [16 * 64, 16 * 64]);
+        assert_eq!(glyph.advance_64, 18 * 64);
     }
 
     #[test]

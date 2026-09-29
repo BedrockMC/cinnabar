@@ -869,6 +869,7 @@ fn dimension_reset_clears_actors_and_session_reset_also_clears_roster() {
 #[test]
 fn render_players_join_roster_skins_and_sort_by_runtime_id() {
     let skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+        geometry: None,
         cape: None,
         width: 64,
         height: 64,
@@ -926,6 +927,7 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
     let skin_bytes = 64 * 64 * 4;
     let skin = |value| {
         PlayerSkin::Standard(StandardSkin {
+            geometry: None,
             cape: None,
             width: 64,
             height: 64,
@@ -960,6 +962,7 @@ fn incremental_player_lists_cannot_exceed_the_store_skin_byte_budget() {
     );
 
     let oversized_replacement = PlayerSkin::Standard(StandardSkin {
+        geometry: None,
         cape: None,
         width: 128,
         height: 128,

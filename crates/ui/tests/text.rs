@@ -631,7 +631,7 @@ fn private_use_codepoints_hit_the_replacement_until_a_sheet_supplies_them() {
     let glyph = drawn.glyphs()[1];
     assert_eq!(glyph.resolved_codepoint, '\u{e001}');
     assert_eq!(glyph.page, 5);
-    // A 2px-wide private-use cell at UI scale 2 spans 4px.
-    assert_eq!(glyph.bounds_64[2] - glyph.bounds_64[0], 2 * 2 * 64);
+    // A 2-texel private-use cell is 4 atlas texels, 8 px at UI scale 2.
+    assert_eq!(glyph.bounds_64[2] - glyph.bounds_64[0], 4 * 2 * 64);
     assert_eq!(base.glyph('\u{e001}'), None);
 }

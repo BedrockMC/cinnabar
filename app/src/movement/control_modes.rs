@@ -44,8 +44,6 @@ pub(crate) struct ControlObservation {
     pub toggle_sneak: bool,
     /// Something external forbids sprinting (hunger, item use, blindness).
     pub sprint_blocked: bool,
-    /// The previous completed tick collided horizontally.
-    pub horizontal_collision: bool,
     /// Ability flight is active, where sneak means descend and never latches.
     pub flying: bool,
 }
@@ -102,10 +100,8 @@ impl ControlModes {
             self.sprint_toggled = false;
         }
 
-        let can_sprint = moving_forward
-            && !sneaking
-            && !observed.sprint_blocked
-            && !observed.horizontal_collision;
+        // The 26.30 sprint trigger has no wall-collision stop, so a wall never drops sprint.
+        let can_sprint = moving_forward && !sneaking && !observed.sprint_blocked;
         if !can_sprint {
             self.sprinting = false;
         } else if (observed.sprint_held && !observed.toggle_sprint)
@@ -169,19 +165,12 @@ mod tests {
     }
 
     #[test]
-    fn collision_sneak_and_block_end_sprint_without_flicker() {
+    fn sneak_and_block_end_sprint() {
         let mut modes = ControlModes::default();
         let sprint = ControlObservation {
             sprint_held: true,
             ..frame(0, 1.0)
         };
-        assert!(modes.update(sprint).sprint_request);
-        let bump = ControlObservation {
-            horizontal_collision: true,
-            ..sprint
-        };
-        assert!(!modes.update(bump).sprint_request);
-        assert!(!modes.update(bump).sprint_request);
         assert!(modes.update(sprint).sprint_request);
 
         let sneak = ControlObservation {
