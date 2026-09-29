@@ -613,6 +613,17 @@ impl UiRuntime {
         self.session_glyphs = glyphs;
     }
 
+    pub(crate) fn set_hud_overrides(
+        &mut self,
+        overrides: Option<Arc<super::presentation::SessionHudOverrides>>,
+    ) {
+        self.hud_overrides = overrides;
+    }
+
+    pub(crate) fn hud_overrides(&self) -> Option<&Arc<super::presentation::SessionHudOverrides>> {
+        self.hud_overrides.as_ref()
+    }
+
     pub(crate) fn session_glyphs(&self) -> Option<&Arc<super::presentation::SessionGlyphSheets>> {
         self.session_glyphs.as_ref()
     }

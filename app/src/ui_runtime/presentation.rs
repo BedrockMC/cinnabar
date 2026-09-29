@@ -52,6 +52,7 @@ pub(crate) mod screens;
 mod session_glyphs;
 mod session_icons;
 pub(crate) use hud_extras::load_optional as load_optional_hud_extras;
+pub(crate) use retained_hud::SessionHudOverrides;
 pub(crate) use session_glyphs::SessionGlyphSheets;
 pub(crate) use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 mod startup;
@@ -572,6 +573,9 @@ impl UiPresentationRuntime {
                 scoreboard,
                 opacity,
                 self.hud_textures.as_ref(),
+                runtime
+                    .hud_overrides()
+                    .is_some_and(|o| o.hide_sidebar_scores),
             )?;
         }
 

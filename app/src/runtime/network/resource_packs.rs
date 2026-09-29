@@ -8,9 +8,10 @@ use serde_json::Value;
 use super::{
     block_overlay::{CompiledBlockOverlay, compile_block_overlay},
     glyph_sheets::compile_session_glyphs,
+    hud_overrides::compile_hud_overrides,
     item_icons::compile_session_icons,
 };
-use crate::ui_runtime::presentation::{SessionGlyphSheets, SessionIcons};
+use crate::ui_runtime::presentation::{SessionGlyphSheets, SessionHudOverrides, SessionIcons};
 
 /// Everything the session applies from its server pack stack.
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub struct PackApplication {
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
+    pub(crate) hud_overrides: Option<Arc<SessionHudOverrides>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
 }
@@ -32,6 +34,7 @@ impl Default for PackApplication {
             block_overlay: None,
             item_icons: None,
             glyph_sheets: None,
+            hud_overrides: None,
             entities: None,
             property_defaults: Vec::new(),
         }
@@ -88,6 +91,7 @@ pub(super) fn prepare_pack_application(
         server_lang: merged_server_lang(&view),
         item_icons: compile_session_icons(&view, icon_keys),
         glyph_sheets: compile_session_glyphs(&view),
+        hud_overrides: compile_hud_overrides(&view),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
         admission: PackAdmission::Validated(stack),
@@ -378,6 +382,17 @@ pub(super) fn install_session_icons(
 ) {
     if runtime.session_id() == generation {
         runtime.set_session_icons(icons.filter(|_| setup_succeeded));
+    }
+}
+
+pub(super) fn install_hud_overrides(
+    runtime: &mut crate::ui_runtime::UiRuntime,
+    generation: u64,
+    overrides: Option<Arc<SessionHudOverrides>>,
+    setup_succeeded: bool,
+) {
+    if runtime.session_id() == generation {
+        runtime.set_hud_overrides(overrides.filter(|_| setup_succeeded));
     }
 }
 
