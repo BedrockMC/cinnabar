@@ -437,6 +437,7 @@ impl StoreState {
                 requests
             }
             StoreEvent::Offer(Ok(detail)) => {
+                let detail = *detail;
                 self.failure = None;
                 if self.details.len() >= MAX_CACHED_DETAILS {
                     self.details.clear();
