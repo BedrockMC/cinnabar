@@ -32,6 +32,7 @@ use crate::{
 };
 
 mod chat;
+mod debug_overlay;
 mod dynamic_textures;
 mod forms;
 mod hud_extras;
@@ -65,6 +66,7 @@ mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
 use chat::visible_suggestion_range;
+pub(crate) use debug_overlay::DebugLines;
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
 use primitives::{bounded_visible_text, hud_position, rect, resolve_chat_line};
@@ -140,6 +142,8 @@ pub struct UiPresentationRuntime {
     scoreboard_opacity: Option<ScoreboardOpacityAuthority>,
     chat_hit_logical_size: Option<[f32; 2]>,
     chat_suggestion_hits: Vec<(usize, UiRect)>,
+    leave_bed_hit: Option<UiRect>,
+    debug_lines: Option<DebugLines>,
     /// Java GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
     /// Platform safe-area insets in logical px, applied to the HUD geometry,
@@ -238,6 +242,8 @@ impl UiPresentationRuntime {
             scoreboard_opacity: None,
             chat_hit_logical_size: None,
             chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
+            leave_bed_hit: None,
+            debug_lines: None,
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
@@ -424,6 +430,7 @@ impl UiPresentationRuntime {
             .max(chat_left);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
+        self.leave_bed_hit = None;
         let menu_visible = self.menu_view.is_some();
         // Titles, the action bar and toasts lay out in the Java-parity HUD when it renders.
         let hud_lays_out_overlays = hud_geometry.is_some() && self.hud_textures.is_some();
@@ -445,6 +452,11 @@ impl UiPresentationRuntime {
                 geometry,
             )?;
             layout.append(runtime, &frame)?;
+            self.leave_bed_hit = frame
+                .sleep
+                .is_sleeping()
+                .then(|| hud_layout::leave_bed_bounds(&geometry, safe_area))
+                .flatten();
         }
 
         let inventory_open = runtime.inventory_open();
@@ -570,6 +582,7 @@ impl UiPresentationRuntime {
         }
 
         if !inventory_open && !menu_visible {
+            self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content_width)?;
             nametags::append_nametag_nodes(
                 &mut nodes,
                 &mut next_id,
@@ -632,6 +645,13 @@ impl UiPresentationRuntime {
                     ))
                     .map_err(UiPresentationError::Text)?;
                 suggestion_layouts.push((index, layout, [220, 220, 220, 255], selected));
+            }
+            if let Some(usage) = runtime.chat_usage_hint() {
+                let layout = self
+                    .layouts
+                    .layout(metrics.request(bounded_visible_text(usage), wrap_width, &self.font))
+                    .map_err(UiPresentationError::Text)?;
+                suggestion_layouts.push((usize::MAX, layout, [170, 170, 170, 255], false));
             }
         }
 
@@ -918,6 +938,7 @@ impl UiPresentationRuntime {
 
         let chat_suggestion_hits = positioned_suggestions
             .iter()
+            .filter(|(index, ..)| *index != usize::MAX)
             .map(|(index, _, top, bottom, _, _)| {
                 rect(
                     chat_left + safe_area.left(),

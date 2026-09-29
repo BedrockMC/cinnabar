@@ -735,6 +735,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     app.add_plugins(FxaaPlugin);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
+    app.add_plugins(crate::hud_tools::HudToolsPlugin {
+        screenshots_dir: layout.screenshots_dir(),
+    });
     app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
         present_mode_policy,
     ));

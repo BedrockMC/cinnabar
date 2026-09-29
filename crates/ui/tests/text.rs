@@ -118,6 +118,32 @@ fn layout_wraps_in_checked_fixed_point_and_uses_replacement_glyph() {
 }
 
 #[test]
+fn zero_width_and_control_characters_add_no_glyphs() {
+    let font = font([0x11; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let layout = cache
+        .layout(TextLayoutRequest {
+            text: "A\u{fe0f}\u{200b}\tB",
+            style: TextStyle::default(),
+            width_64: 1_024,
+            line_height_64: 64,
+            baseline_64: 0,
+            scale: UiScale::new(1.0).unwrap(),
+            font: &font,
+        })
+        .unwrap();
+
+    assert_eq!(
+        layout
+            .glyphs()
+            .iter()
+            .map(|glyph| glyph.codepoint)
+            .collect::<String>(),
+        "AB"
+    );
+}
+
+#[test]
 fn visual_overhang_drives_wrapping_and_reported_bounds() {
     let negative = font_with_glyph(
         [0x12; 32],

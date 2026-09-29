@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 
 use crate::UiScale;
 
+mod invisible;
+
 pub const MAX_TEXT_SPANS: usize = 4_096;
 pub const MAX_GLYPHS_PER_LAYOUT: usize = 16_384;
 pub const MAX_WRAP_LINES: usize = 1_024;
@@ -663,6 +665,9 @@ fn build_layout(
                 line_min_64 = 0;
                 line_max_64 = 0;
                 x_64 = 0;
+                continue;
+            }
+            if invisible::is_invisible(codepoint) {
                 continue;
             }
 
