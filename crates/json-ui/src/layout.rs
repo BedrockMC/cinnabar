@@ -184,7 +184,7 @@ fn place_subtree<'a>(
     ctx.ancestors.push((control.name.clone(), rect, child_clip));
     let mut children = Vec::with_capacity(control.children.len());
     for (child, mut child_rect) in layout_children(control, rect, ctx.env) {
-        let mut child_shown = !hidden.iter().any(|name| *name == child.name);
+        let mut child_shown = !hidden.contains(&child.name);
         let mut clip_for_child = child_clip;
         // A dropdown's content lays out inside its named area, not its parent.
         if let Some((area, content)) = &dropdown

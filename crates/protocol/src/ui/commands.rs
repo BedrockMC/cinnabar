@@ -62,7 +62,7 @@ pub struct CommandSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandTreeEvent {
     pub commands: Arc<[CommandSpec]>,
-    pub soft_enums: Arc<[(Arc<str>, Arc<[Arc<str>]>)]>,
+    pub soft_enums: Arc<[NamedValues]>,
 }
 
 type NamedValues = (Arc<str>, Arc<[Arc<str>]>);
@@ -445,7 +445,7 @@ impl ChatAutocompleteCatalog {
             values.is_empty() || values.iter().any(|value| value.eq_ignore_ascii_case(token))
         };
         let matched = match &param.kind {
-            CommandParamKind::Enum { values, .. } => listed(&**values),
+            CommandParamKind::Enum { values, .. } => listed(values),
             CommandParamKind::SoftEnum(name) => self
                 .soft_enums
                 .get(name)

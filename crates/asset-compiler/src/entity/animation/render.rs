@@ -140,9 +140,14 @@ pub(super) fn compile_render(
     for (rig_index, rig) in rigs.iter().enumerate() {
         let entity = &symbols[rig.entity_symbol as usize];
         debug_assert_eq!(entity.kind, EntityAssetKind::Entity);
-        if !entity_json.contains_key(&entity.source_index) {
-            let value = read_json(root, payloads, &sources[entity.source_index as usize])?;
-            entity_json.insert(entity.source_index, value);
+        if let std::collections::btree_map::Entry::Vacant(slot) =
+            entity_json.entry(entity.source_index)
+        {
+            slot.insert(read_json(
+                root,
+                payloads,
+                &sources[entity.source_index as usize],
+            )?);
         }
         let Some(description) = entity_json[&entity.source_index]
             .get("minecraft:client_entity")

@@ -199,8 +199,10 @@ mod tests {
 
     #[test]
     fn hurt_counts_down_and_death_saturates() {
-        let mut status = ActorStatus::default();
-        status.hurt_time = HURT_DURATION_TICKS;
+        let mut status = ActorStatus {
+            hurt_time: HURT_DURATION_TICKS,
+            ..ActorStatus::default()
+        };
         for _ in 0..HURT_DURATION_TICKS {
             assert!(status.overlay_active());
             status.tick();

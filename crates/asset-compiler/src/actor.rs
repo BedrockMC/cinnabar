@@ -194,10 +194,9 @@ fn build_artwork(
             }
             let mut default_texture = None;
             for &source in &sources {
-                if !decoded.contains_key(&source) {
+                if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                     let path = entities.sources[source as usize].path.as_ref();
-                    let raster = decode_raster(path, &read(source)?);
-                    decoded.insert(source, raster);
+                    slot.insert(decode_raster(path, &read(source)?));
                 }
                 let Some(raster) = decoded[&source].as_ref() else {
                     continue;

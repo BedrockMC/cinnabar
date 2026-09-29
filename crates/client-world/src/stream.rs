@@ -221,8 +221,8 @@ use model::{
 pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
-pub use block_events::{BlockEventCue, MAX_RETAINED_BLOCK_EVENTS};
-pub use map_data::{MAX_RETAINED_MAPS, MapImage};
+pub use block_events::BlockEventCue;
+pub use map_data::MapImage;
 pub use model::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
     CommittedUiEvent, ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest,
