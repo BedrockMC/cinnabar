@@ -118,6 +118,34 @@ pub struct Profile {
     pub gamerpic: Artwork,
 }
 
+/// One server's RakNet pong; `online` is false when it did not answer.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ServerPing {
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub online: bool,
+    #[serde(default)]
+    pub players: u32,
+    #[serde(default)]
+    pub max_players: u32,
+    #[serde(default)]
+    pub ping_ms: u32,
+    #[serde(default)]
+    pub motd: String,
+}
+
+#[derive(Serialize)]
+struct PingParams<'a> {
+    addresses: &'a [String],
+}
+
+#[derive(Deserialize)]
+struct PingBody {
+    #[serde(default)]
+    servers: Vec<ServerPing>,
+}
+
 /// One friend's joinable world; `xuid` identifies it for [`ConnectTarget::Friend`].
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct Friend {
@@ -356,6 +384,16 @@ pub async fn list_gatherings(socket_dir: &Path) -> Result<Vec<Gathering>, Bridge
     Ok(body.gatherings)
 }
 
+/// Pings up to 64 servers for their player counts and round trip.
+pub async fn ping_servers(
+    socket_dir: &Path,
+    addresses: &[String],
+) -> Result<Vec<ServerPing>, BridgeError> {
+    let params = PingParams { addresses };
+    let body: PingBody = call(socket_dir, "ping.v1", Some(params)).await?;
+    Ok(body.servers)
+}
+
 /// Reads the signed-in profile.
 pub async fn profile(socket_dir: &Path) -> Result<Profile, BridgeError> {
     let body: ProfileBody = call::<_, ()>(socket_dir, "profile.v1", None).await?;
@@ -454,6 +492,20 @@ mod tests {
             {"name":"R","state":"OPEN","target":"realm_id/7","online_players":2,"max_players":10}]}}"#;
         let body: RealmsBody = parse_response(realm).expect("realm");
         assert_eq!(body.realms[0].online_players, 2);
+    }
+
+    #[test]
+    fn ping_params_and_results_match_the_wire_contract() {
+        let addresses = vec!["a.test:19132".to_owned()];
+        let encoded = serde_json::to_string(&PingParams {
+            addresses: &addresses,
+        })
+        .expect("encode");
+        assert_eq!(encoded, r#"{"addresses":["a.test:19132"]}"#);
+        let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
+            {"address":"a.test:19132","online":true,"players":3,"max_players":20,"ping_ms":41}]}}"#;
+        let body: PingBody = parse_response(reply).expect("ping");
+        assert_eq!(body.servers[0].ping_ms, 41);
     }
 
     #[test]

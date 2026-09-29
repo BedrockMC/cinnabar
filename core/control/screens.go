@@ -2,6 +2,8 @@ package control
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 )
@@ -11,13 +13,23 @@ const (
 	methodFeaturedServers = "featured_servers.v1"
 	methodGatherings      = "gatherings.v1"
 	methodProfile         = "profile.v1"
+	methodPing            = "ping.v1"
 )
+
+var errInvalidParams = errors.New("control: invalid params")
 
 // ScreenServices feeds the start and play screens; a Services value may implement it.
 type ScreenServices interface {
 	FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error)
 	Gatherings(ctx context.Context) ([]catalog.Gathering, error)
 	Profile(ctx context.Context) (catalog.Profile, error)
+	// Ping needs no account; unreachable servers come back offline.
+	Ping(ctx context.Context, addresses []string) []catalog.PingResult
+}
+
+type pingResultV1 struct {
+	SchemaVersion uint32               `json:"schema_version"`
+	Servers       []catalog.PingResult `json:"servers"`
 }
 
 type featuredServersResultV1 struct {
@@ -37,13 +49,29 @@ type profileResultV1 struct {
 
 func isScreenMethod(method string) bool {
 	switch method {
-	case methodFeaturedServers, methodGatherings, methodProfile:
+	case methodFeaturedServers, methodGatherings, methodProfile, methodPing:
 		return true
 	}
 	return false
 }
 
-func screenResult(ctx context.Context, screens ScreenServices, method string) (any, error) {
+func screenResult(ctx context.Context, screens ScreenServices, method string, raw json.RawMessage) (any, error) {
+	if method == methodPing {
+		var params struct {
+			Addresses []string `json:"addresses"`
+		}
+		if !decodeParams(raw, &params) || len(params.Addresses) > catalog.MaxPingTargets {
+			return nil, errInvalidParams
+		}
+		servers := screens.Ping(ctx, params.Addresses)
+		if servers == nil {
+			servers = []catalog.PingResult{}
+		}
+		return pingResultV1{SchemaVersion: 1, Servers: servers}, nil
+	}
+	if len(raw) != 0 {
+		return nil, errInvalidParams
+	}
 	switch method {
 	case methodFeaturedServers:
 		servers, err := screens.FeaturedServers(ctx)

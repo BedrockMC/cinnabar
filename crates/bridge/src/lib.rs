@@ -11,9 +11,9 @@ use std::path::Path;
 
 pub use account::{
     Account, Artwork, AuthState, ConnectTarget, Events, FeaturedGame, FeaturedServer, Friend,
-    Gathering, Profile, Realm, ServerDisconnect, account_status, connect_target,
-    list_featured_servers, list_friends, list_gatherings, list_realms, poll_events, profile,
-    sign_out,
+    Gathering, Profile, Realm, ServerDisconnect, ServerPing, account_status, connect_target,
+    list_featured_servers, list_friends, list_gatherings, list_realms, ping_servers, poll_events,
+    profile, sign_out,
 };
 pub use error::BridgeError;
 pub use framed::FramedStream;

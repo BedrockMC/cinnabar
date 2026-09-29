@@ -22,6 +22,14 @@ func (stubScreens) Profile(context.Context) (catalog.Profile, error) {
 	return catalog.Profile{Gamertag: "Steve", XUID: "1"}, nil
 }
 
+func (stubScreens) Ping(_ context.Context, addresses []string) []catalog.PingResult {
+	results := make([]catalog.PingResult, len(addresses))
+	for index, address := range addresses {
+		results[index] = catalog.PingResult{Address: address, Online: true, Players: 3}
+	}
+	return results
+}
+
 func TestScreenFeedsServeWhenTheBackendSupportsThem(t *testing.T) {
 	dir := startServices(t, NewStore(), &stubScreens{})
 	var featured featuredServersResultV1
@@ -41,6 +49,14 @@ func TestScreenFeedsServeWhenTheBackendSupportsThem(t *testing.T) {
 	}
 	if reply := rpc(t, dir, methodProfile, `{"x":1}`); reply.Error == nil || reply.Error.Code != -32602 {
 		t.Fatalf("params must be rejected: %+v", reply.Error)
+	}
+	var pinged pingResultV1
+	if reply := rpc(t, dir, methodPing, `{"addresses":["a.test:19132"]}`); reply.Error != nil ||
+		json.Unmarshal(reply.Result, &pinged) != nil || len(pinged.Servers) != 1 || pinged.Servers[0].Players != 3 {
+		t.Fatalf("ping = %+v / %+v", pinged, reply.Error)
+	}
+	if reply := rpc(t, dir, methodPing, ""); reply.Error == nil || reply.Error.Code != -32602 {
+		t.Fatalf("ping needs addresses: %+v", reply.Error)
 	}
 }
 
