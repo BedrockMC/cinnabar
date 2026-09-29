@@ -352,30 +352,30 @@ impl<'a> Binder<'a> {
             };
             match binding.get("binding_type").and_then(Value::as_str) {
                 Some("collection") => {
-                    let Some(collection) = binding
-                        .get("binding_collection_name")
-                        .and_then(Value::as_str)
-                    else {
-                        continue;
-                    };
-                    let Some(&index) = scope.indices.get(collection) else {
-                        continue;
-                    };
                     let Some(source) = binding.get("binding_name").and_then(Value::as_str) else {
                         continue;
                     };
-                    let Some(item) = self
-                        .data
-                        .collections
-                        .get(collection)
-                        .and_then(|items| items.get(index))
-                    else {
-                        continue;
-                    };
-                    if let Some(value) =
+                    let item = binding
+                        .get("binding_collection_name")
+                        .and_then(Value::as_str)
+                        .and_then(|collection| {
+                            let index = *scope.indices.get(collection)?;
+                            self.data.collections.get(collection)?.get(index)
+                        });
+                    let value = item.and_then(|item| {
                         lookup(source, &item.values, &own, self.data.strict, &self.env)
-                    {
-                        own.insert(target_name(binding, source), value);
+                    });
+                    let target = target_name(binding, source);
+                    match value {
+                        Some(value) => {
+                            own.insert(target, value);
+                        }
+                        // A controller answers a collection flag it lacks (an item
+                        // lock, a collection it does not own) with `false`.
+                        None if self.data.strict && target == "#visible" => {
+                            own.insert(target, Scalar::Bool(false));
+                        }
+                        None => {}
                     }
                 }
                 // Establishes the subtree cursor, which the factory already set;

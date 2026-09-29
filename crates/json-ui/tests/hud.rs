@@ -209,6 +209,9 @@ fn vanilla_hud_draws_its_bound_surfaces() {
         return;
     };
     dump(&nodes);
+    // Item-lock overlays bind flags the controller never raises for the hotbar.
+    assert!(named(&nodes, "container_item_lock_yellow").is_empty());
+    assert!(named(&nodes, "container_item_lock_red").is_empty());
     let customs: Vec<&str> = nodes
         .iter()
         .filter_map(|node| match &node.draw {
@@ -434,4 +437,69 @@ fn hud_phase_timing() {
             render.nodes.len()
         );
     }
+}
+
+// A factory creates nothing from an ignored definition, and a collection flag
+// the screen does not answer hides its control.
+#[test]
+fn ignored_instances_and_unanswered_collection_flags_draw_nothing() {
+    let globals = br#"{}"#;
+    let defs = br#"{ "ui_defs": ["ui/s.json"] }"#;
+    let screen = br##"{
+        "namespace": "s",
+        "overlay": { "type": "image", "texture": "textures/ui/Black", "ignored": true },
+        "kept": { "type": "image", "texture": "textures/ui/White", "size": [4, 4] },
+        "root": {
+            "type": "panel",
+            "controls": [
+                { "titles": { "type": "panel", "factory": { "name": "title_factory",
+                    "control_ids": { "overlay": "overlay@s.overlay", "kept": "kept@s.kept" } } } },
+                { "cells": { "type": "stack_panel", "collection_name": "slots",
+                    "factory": { "name": "cells", "control_name": "s.cell" } } }
+            ]
+        },
+        "cell": { "type": "image", "texture": "textures/ui/lock", "size": [4, 4],
+            "bindings": [ { "binding_name": "#locked", "binding_name_override": "#visible",
+                "binding_type": "collection", "binding_collection_name": "slots" } ] }
+    }"##;
+    let catalog = Catalog::from_files([
+        ("ui/_global_variables.json", globals.as_slice()),
+        ("ui/_ui_defs.json", defs.as_slice()),
+        ("ui/s.json", screen.as_slice()),
+    ])
+    .unwrap();
+    let mut data = json_ui::DataSource::new();
+    data.set_strict(true);
+    data.set_factory(
+        "title_factory",
+        vec![
+            json_ui::FactoryItem::new("overlay", 0.0),
+            json_ui::FactoryItem::new("kept", 0.0),
+        ],
+    );
+    data.set_collection("slots", vec![json_ui::CollectionItem::default(); 3]);
+    let context = Context::desktop();
+    let root = json_ui::resolve(&catalog, "s.root", &context)
+        .control
+        .unwrap();
+    let library = json_ui::CatalogLibrary {
+        catalog: &catalog,
+        context: &context,
+    };
+    let bound = json_ui::bind(&root, &data, &library);
+    let textures = PackTextures::new(PathBuf::new());
+    let env = LayoutEnv {
+        text: &FixedText,
+        textures: &textures,
+    };
+    let render = json_ui::render_bound(bound, [100.0, 100.0], &env, &ViewState::default());
+    let drawn: Vec<&str> = render
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            Draw::Sprite { texture, .. } => Some(texture.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(drawn, ["textures/ui/White"]);
 }
