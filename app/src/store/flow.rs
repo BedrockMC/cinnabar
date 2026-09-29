@@ -32,7 +32,14 @@ pub(crate) enum PurchaseDialog {
     },
     /// The account is no longer signed in.
     SignedOut,
+    /// Purchases are switched off until the owner verifies them; nothing was sent.
+    Disabled,
 }
+
+/// Shown when a confirmed purchase is stopped by the `store_purchases_enabled` setting; not a
+/// vanilla string.
+pub(crate) const DISABLED_TITLE: &str = "Purchases disabled";
+pub(crate) const DISABLED_BODY: &str = "Purchases disabled until verified";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PurchaseFlow {
@@ -88,6 +95,7 @@ impl PurchaseFlow {
         balances: &[StoreBalance],
         confirm: Option<(String, String)>,
         purchase_id: String,
+        purchases_enabled: bool,
     ) -> Begin {
         if !self.is_idle() {
             return Begin::Ignored;
@@ -124,11 +132,20 @@ impl PurchaseFlow {
             };
             return Begin::Showing;
         }
+        if !purchases_enabled {
+            *self = Self::Done(PurchaseDialog::Disabled);
+            return Begin::Showing;
+        }
         Begin::Send(self.start(pending, offer.title.clone(), purchase_id))
     }
 
-    /// The player confirmed the modal; returns the purchase to send.
-    pub(crate) fn confirm(&mut self, purchase_id: String) -> Option<ConfirmedPurchase> {
+    /// The player confirmed the modal; returns the purchase to send, or `None` when nothing is
+    /// awaiting confirmation or purchases are disabled.
+    pub(crate) fn confirm(
+        &mut self,
+        purchase_id: String,
+        purchases_enabled: bool,
+    ) -> Option<ConfirmedPurchase> {
         let Self::Confirming {
             pending,
             offer_title,
@@ -137,6 +154,10 @@ impl PurchaseFlow {
         else {
             return None;
         };
+        if !purchases_enabled {
+            *self = Self::Done(PurchaseDialog::Disabled);
+            return None;
+        }
         Some(self.start(pending, offer_title, purchase_id))
     }
 
@@ -270,6 +291,12 @@ impl PurchaseDialog {
                     ..ModalForm::default()
                 }
             }
+            Self::Disabled => ModalForm {
+                title: DISABLED_TITLE.to_owned(),
+                body: DISABLED_BODY.to_owned(),
+                button1: close,
+                ..ModalForm::default()
+            },
             Self::SignedOut => ModalForm {
                 title: tr("store.popup.xblRequired.title"),
                 body: tr("store.popup.xblRequired.message"),
@@ -361,13 +388,27 @@ mod tests {
     #[test]
     fn a_covered_price_sends_once_and_ignores_a_second_press() {
         let mut flow = PurchaseFlow::Idle;
-        let sent = flow.begin(&offer(), &price(320), &balances(500), None, "id-1".into());
+        let sent = flow.begin(
+            &offer(),
+            &price(320),
+            &balances(500),
+            None,
+            "id-1".into(),
+            true,
+        );
         let Begin::Send(purchase) = sent else {
             panic!("expected a send, got {sent:?}");
         };
         assert_eq!(purchase.purchase_id(), "id-1");
         assert_eq!(
-            flow.begin(&offer(), &price(320), &balances(500), None, "id-2".into()),
+            flow.begin(
+                &offer(),
+                &price(320),
+                &balances(500),
+                None,
+                "id-2".into(),
+                true
+            ),
             Begin::Ignored
         );
         assert!(matches!(flow, PurchaseFlow::InProgress { .. }));
@@ -377,7 +418,14 @@ mod tests {
     fn an_uncovered_or_unknown_balance_never_sends() {
         let mut flow = PurchaseFlow::Idle;
         assert_eq!(
-            flow.begin(&offer(), &price(320), &balances(100), None, "id".into()),
+            flow.begin(
+                &offer(),
+                &price(320),
+                &balances(100),
+                None,
+                "id".into(),
+                true
+            ),
             Begin::Showing
         );
         assert_eq!(
@@ -386,7 +434,7 @@ mod tests {
         );
         flow.dismiss();
         assert_eq!(
-            flow.begin(&offer(), &price(320), &[], None, "id".into()),
+            flow.begin(&offer(), &price(320), &[], None, "id".into(), true),
             Begin::Showing
         );
         assert!(matches!(
@@ -395,7 +443,7 @@ mod tests {
         ));
         flow.dismiss();
         assert_eq!(
-            flow.begin(&offer(), &price(0), &balances(9), None, "id".into()),
+            flow.begin(&offer(), &price(0), &balances(9), None, "id".into(), true),
             Begin::Ignored
         );
     }
@@ -410,17 +458,25 @@ mod tests {
                 &price(320),
                 &balances(500),
                 confirm.clone(),
-                "id".into()
+                "id".into(),
+                true
             ),
             Begin::Showing
         );
         let modal = flow.modal(&tr).expect("confirmation modal");
         assert_eq!(modal.button1, "<store.purchase.bundle.confirm>");
         flow.dismiss();
-        assert!(flow.is_idle() && flow.confirm("x".into()).is_none());
+        assert!(flow.is_idle() && flow.confirm("x".into(), true).is_none());
 
-        flow.begin(&offer(), &price(320), &balances(500), confirm, "id".into());
-        let purchase = flow.confirm("id-2".into()).expect("confirmed");
+        flow.begin(
+            &offer(),
+            &price(320),
+            &balances(500),
+            confirm,
+            "id".into(),
+            true,
+        );
+        let purchase = flow.confirm("id-2".into(), true).expect("confirmed");
         assert_eq!(purchase.purchase_id(), "id-2");
         assert!(matches!(flow, PurchaseFlow::InProgress { .. }));
     }
@@ -436,12 +492,12 @@ mod tests {
         ];
         for (status, body) in cases {
             let mut flow = PurchaseFlow::Idle;
-            flow.begin(&offer(), &price(1), &balances(5), None, "id".into());
+            flow.begin(&offer(), &price(1), &balances(5), None, "id".into(), true);
             flow.finish("id", Ok(outcome(status)));
             assert_eq!(flow.modal(&tr).expect("modal").body, body);
         }
         let mut flow = PurchaseFlow::Idle;
-        flow.begin(&offer(), &price(1), &balances(5), None, "id".into());
+        flow.begin(&offer(), &price(1), &balances(5), None, "id".into(), true);
         flow.finish("stale", Ok(outcome(PurchaseStatus::Purchased)));
         assert!(
             matches!(flow, PurchaseFlow::InProgress { .. }),
@@ -461,7 +517,7 @@ mod tests {
     #[test]
     fn failures_carry_codes_and_a_dead_session_asks_to_sign_in() {
         let mut flow = PurchaseFlow::Idle;
-        flow.begin(&offer(), &price(1), &balances(5), None, "id".into());
+        flow.begin(&offer(), &price(1), &balances(5), None, "id".into(), true);
         let mut failed = outcome(PurchaseStatus::Failed);
         failed.marketplace_error_code = 1502;
         flow.finish("id", Ok(failed));
@@ -471,9 +527,32 @@ mod tests {
                 && body.contains("<store.popup.purchaseFailed.msg>")
         );
         flow.dismiss();
-        flow.begin(&offer(), &price(1), &balances(5), None, "id2".into());
+        flow.begin(&offer(), &price(1), &balances(5), None, "id2".into(), true);
         flow.finish("id2", Err(StoreError::SignedOut));
         assert_eq!(flow, PurchaseFlow::Done(PurchaseDialog::SignedOut));
+    }
+
+    #[test]
+    fn disabled_purchases_show_the_notice_and_never_send() {
+        let mut flow = PurchaseFlow::Idle;
+        let begun = flow.begin(&offer(), &price(5), &balances(10), None, "id".into(), false);
+        assert_eq!(begun, Begin::Showing);
+        assert_eq!(flow, PurchaseFlow::Done(PurchaseDialog::Disabled));
+        assert_eq!(flow.modal(&tr).expect("modal").body, DISABLED_BODY);
+        flow.dismiss();
+
+        // A confirmation that is answered after purchases were switched off is stopped too.
+        let confirm = Some(("t".to_owned(), "b".to_owned()));
+        flow.begin(
+            &offer(),
+            &price(5),
+            &balances(10),
+            confirm,
+            "id".into(),
+            true,
+        );
+        assert!(flow.confirm("id".into(), false).is_none());
+        assert_eq!(flow, PurchaseFlow::Done(PurchaseDialog::Disabled));
     }
 
     #[test]

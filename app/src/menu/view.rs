@@ -92,6 +92,10 @@ pub(crate) struct MenuView {
     pub(crate) editing: Option<usize>,
     pub(crate) local_worlds: Vec<LocalWorldCard>,
     pub(crate) volumes: super::settings_values::Volumes,
+    /// The Marketplace's state while its screen is up.
+    pub(crate) store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+    /// Atlas icons of the Marketplace thumbnails, by local file path.
+    pub(crate) store_art: std::collections::HashMap<String, IconRef>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

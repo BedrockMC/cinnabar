@@ -223,6 +223,8 @@ pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
+    /// Atlas icons for textures named by a local file path (Marketplace thumbnails).
+    pub(super) raw: Option<&'a std::collections::HashMap<String, IconRef>>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -569,21 +571,37 @@ impl Painter<'_> {
             ),
             Draw::Sprite { texture, uv, color } => {
                 let key = texture_key(texture);
-                let (page, [x, y, w, h]) = match self.server.get(key) {
-                    Some(server) => (
-                        self.server_page.saturating_add(server.page),
-                        server.rect.map(f32::from),
+                let raw = self
+                    .art
+                    .raw
+                    .and_then(|icons| icons.get(texture.as_str()).or_else(|| icons.get(key)));
+                let (page, [x, y, w, h]) = match (raw, self.server.get(key)) {
+                    (Some(icon), _) => (
+                        icon.page,
+                        [
+                            icon.uv[0],
+                            icon.uv[1],
+                            icon.uv[2].saturating_sub(icon.uv[0]),
+                            icon.uv[3].saturating_sub(icon.uv[1]),
+                        ]
+                        .map(f32::from),
                     ),
-                    None => {
-                        let Some(placement) = self.assets.texture(key) else {
-                            return Ok(());
-                        };
-                        (
-                            self.first_page.saturating_add(placement.page),
-                            [placement.x, placement.y, placement.width, placement.height]
-                                .map(f32::from),
-                        )
-                    }
+                    (None, server) => match server {
+                        Some(server) => (
+                            self.server_page.saturating_add(server.page),
+                            server.rect.map(f32::from),
+                        ),
+                        None => {
+                            let Some(placement) = self.assets.texture(key) else {
+                                return Ok(());
+                            };
+                            (
+                                self.first_page.saturating_add(placement.page),
+                                [placement.x, placement.y, placement.width, placement.height]
+                                    .map(f32::from),
+                            )
+                        }
+                    },
                 };
                 let pixel = |base: f32, span: f32, t: f32| (base + span * t).round() as u16;
                 (

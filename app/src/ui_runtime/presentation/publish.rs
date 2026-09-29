@@ -202,14 +202,24 @@ pub(crate) fn publish_ui_runtime(
     presentation.set_nametag_anchors(nametags);
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
+        let store_paths = view
+            .store
+            .as_deref()
+            .map(crate::store::StoreSnapshot::image_paths)
+            .unwrap_or_default();
         let artwork_paths = view
             .featured
             .iter()
             .chain(view.gatherings.iter())
             .filter(|server| !server.image_path.is_empty())
             .map(|server| server.image_path.clone())
+            .chain(store_paths.iter().cloned())
             .collect();
         presentation.sync_menu_artwork(artwork_paths);
+        view.store_art = store_paths
+            .into_iter()
+            .filter_map(|path| Some((path.clone(), presentation.menu_artwork_icon(&path)?)))
+            .collect();
         for server in view.featured.iter_mut().chain(view.gatherings.iter_mut()) {
             server.icon = presentation.menu_artwork_icon(&server.image_path);
         }
