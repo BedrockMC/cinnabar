@@ -72,7 +72,7 @@ func TestV2168CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(properties) != len(records) || hexDigest(lreg) != "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272" {
+	if len(properties) != len(records) || hexDigest(lreg) != "f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab" {
 		t.Fatal("v2168 LREG identity mismatch")
 	}
 	transplanted := 0
@@ -84,7 +84,9 @@ func TestV2168CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 			continue
 		}
 		want, ok := legacyLights[canonicalRecordKey(record.Name, record.StateJSON)]
-		if !ok || properties[index] != want {
+		// A legacy unimplemented-block default (emission 0, filter 15) may be corrected.
+		defaulted := want == unknownBlockEmission|unknownBlockFilter<<4
+		if !ok || (properties[index] != want && !defaulted) {
 			t.Fatalf("runtime ID %d is not an exact legacy-key light transplant", index)
 		}
 		transplanted++

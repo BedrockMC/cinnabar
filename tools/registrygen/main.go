@@ -345,6 +345,9 @@ func main() {
 	blockV2168LegacyBREG := flag.String("block-v2168-legacy-breg", "", "reviewed protocol-1001 BREG used for conservative projection")
 	blockV2168LegacyLight := flag.String("block-v2168-legacy-light", "", "reviewed protocol-1001 LREG used for exact-key light projection")
 	blockV2168Allowlist := flag.String("block-v2168-allowlist", "", "reviewed retail item allowlist")
+	blockV2168Retail := flag.String("block-v2168-retail-light", "", "retail block_properties_table.json whose values replace unimplemented-block light defaults")
+	relightBREG := flag.String("relight-breg", "", "existing v2168 BREG for -relight mode")
+	relightLREG := flag.String("relight-lreg", "", "existing v2168 LREG rewritten by -relight mode")
 	blockV2168Manifest := flag.String("block-v2168-manifest", "", "path to write the v2168 block projection manifest")
 	pmmpRoot := flag.String("pmmp", "", "pinned PMMP BedrockData directory")
 	prismarineRoot := flag.String("prismarine", "", "pinned Prismarine minecraft-data directory")
@@ -416,6 +419,28 @@ func main() {
 		}
 		return
 	}
+	if *relightBREG != "" || *relightLREG != "" {
+		if *relightBREG == "" || *relightLREG == "" || *blockV2168Retail == "" || *lightOut == "" {
+			fmt.Fprintln(os.Stderr, "registrygen: relight mode requires -relight-breg, -relight-lreg, -block-v2168-retail-light, and -light-out")
+			os.Exit(2)
+		}
+		light, changed, err := relightV2168(*relightBREG, *relightLREG, *blockV2168Retail)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(*lightOut, light, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		digest := sha256.Sum256(light)
+		if err := os.WriteFile(*lightOut+".sha256", []byte(fmt.Sprintf("%x  %s\n", digest, filepath.Base(*lightOut))), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("relit %d states; LREG sha256 %x\n", changed, digest)
+		return
+	}
 	if *blockV2168Source != "" || *blockV2168LegacyBREG != "" || *blockV2168LegacyLight != "" || *blockV2168Allowlist != "" || *blockV2168Manifest != "" {
 		if *out == "" || *blockV2168Source == "" || *blockV2168LegacyBREG == "" || *blockV2168LegacyLight == "" ||
 			*blockV2168Allowlist == "" || *blockV2168Manifest == "" || *biomeOut != "" || *biomeCoverage != "" ||
@@ -426,7 +451,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "registrygen: v2168 block mode requires its source, legacy registries, allowlist, output, and manifest flags")
 			os.Exit(2)
 		}
-		if err := writeV2168BlockProjection(*blockV2168Source, *blockV2168LegacyBREG, *blockV2168LegacyLight, *blockV2168Allowlist, *out, *lightOut, *blockV2168Manifest); err != nil {
+		if err := writeV2168BlockProjection(*blockV2168Source, *blockV2168LegacyBREG, *blockV2168LegacyLight, *blockV2168Allowlist, *out, *lightOut, *blockV2168Manifest, *blockV2168Retail); err != nil {
 			fmt.Fprintf(os.Stderr, "registrygen: %v\n", err)
 			os.Exit(1)
 		}

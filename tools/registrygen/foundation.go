@@ -13,7 +13,7 @@ const maxFoundationBytes = 16 * 1024
 
 const (
 	v2168FoundationBlockSHA256 = "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8"
-	v2168FoundationLightSHA256 = "88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272"
+	v2168FoundationLightSHA256 = "f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab"
 )
 
 type FoundationStatus string

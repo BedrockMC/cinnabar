@@ -783,7 +783,7 @@ but it does not make them current 1.26.40 content. Standalone versioned protocol
 bind all 17,499 current block identities, a BREG-bound fail-closed block-light projection, and the
 exact 88-entry public-retail numeric biome projection. The BREG and LREG hashes are respectively
 `e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8` and
-`88bac8fd074e392930321d12f46b291f0557d89dd87392a13fb3b5025bfcd272`; BIOREG remains
+`f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab`; BIOREG remains
 `5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c`.
 The protocol-2168 foundation manifest is structurally ready, but every production default remains
 on v1001 until current physics and dependent visual evidence close as one coherent switch.
