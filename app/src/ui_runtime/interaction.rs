@@ -600,13 +600,10 @@ pub(crate) fn drive_chat_keyboard_input(
                 runtime.close_chat();
             }
             KeyCode::Enter | KeyCode::NumpadEnter => {
-                if runtime.chat_suggestions().is_empty() {
-                    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-                    if runtime.queue_chat_send(now_millis).is_ok() {
-                        runtime.close_chat();
-                    }
-                } else {
-                    runtime.handle_chat_ui_action(UiAction::Accept);
+                // Enter always sends; Tab completes.
+                let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if runtime.queue_chat_send(now_millis).is_ok() {
+                    runtime.close_chat();
                 }
             }
             KeyCode::Backspace => runtime.backspace_chat_text(),

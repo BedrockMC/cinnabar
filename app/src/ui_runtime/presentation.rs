@@ -628,6 +628,13 @@ impl UiPresentationRuntime {
                     .map_err(UiPresentationError::Text)?;
                 suggestion_layouts.push((index, layout, [220, 220, 220, 255], selected));
             }
+            if let Some(usage) = runtime.chat_usage_hint() {
+                let layout = self
+                    .layouts
+                    .layout(metrics.request(bounded_visible_text(usage), wrap_width, &self.font))
+                    .map_err(UiPresentationError::Text)?;
+                suggestion_layouts.push((usize::MAX, layout, [170, 170, 170, 255], false));
+            }
         }
 
         let suggestion_reserved_height = suggestion_layouts
@@ -921,6 +928,7 @@ impl UiPresentationRuntime {
 
         let chat_suggestion_hits = positioned_suggestions
             .iter()
+            .filter(|(index, ..)| *index != usize::MAX)
             .map(|(index, _, top, bottom, _, _)| {
                 rect(
                     chat_left + safe_area.left(),
