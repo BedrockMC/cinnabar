@@ -165,3 +165,75 @@ pub(crate) const fn has_output(kind: WindowKind) -> bool {
             | WindowKind::Stonecutter
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KINDS: [WindowKind; 17] = [
+        WindowKind::Furnace,
+        WindowKind::BlastFurnace,
+        WindowKind::Smoker,
+        WindowKind::Enchanting,
+        WindowKind::Brewing,
+        WindowKind::Anvil,
+        WindowKind::Dispenser,
+        WindowKind::Dropper,
+        WindowKind::Hopper,
+        WindowKind::Horse,
+        WindowKind::Beacon,
+        WindowKind::Loom,
+        WindowKind::Grindstone,
+        WindowKind::Stonecutter,
+        WindowKind::Cartography,
+        WindowKind::Smithing,
+        WindowKind::Crafter,
+    ];
+
+    /// Every screen lists each hit once and keeps all slots inside its panel.
+    #[test]
+    fn slots_are_unique_and_inside_the_panel() {
+        for kind in KINDS {
+            let screen = InventoryScreen::Window(kind, 17);
+            let slots = screen_slots(screen);
+            let panel = panel_size(screen);
+            for (index, slot) in slots.iter().enumerate() {
+                assert!(
+                    slot.pos[0] >= 0.0 && slot.pos[0] + SLOT_SIZE <= panel[0],
+                    "{kind:?}"
+                );
+                assert!(
+                    slot.pos[1] >= 0.0 && slot.pos[1] + SLOT_SIZE <= panel[1],
+                    "{kind:?}"
+                );
+                assert!(
+                    slots[..index].iter().all(|other| other.hit != slot.hit),
+                    "{kind:?} repeats {:?}",
+                    slot.hit
+                );
+            }
+            let players = slots
+                .iter()
+                .filter(|slot| matches!(slot.hit, InventoryCellHit::Player(_)))
+                .count();
+            assert_eq!(players, 36, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn the_furnace_result_hit_covers_its_enlarged_frame() {
+        let slots = screen_slots(InventoryScreen::Window(WindowKind::Furnace, 3));
+        let hit = slot_at(&slots, [112.0 + 25.0, 31.0 + 25.0]).expect("inside the frame");
+        assert_eq!(hit.hit, InventoryCellHit::Storage(2));
+    }
+
+    #[test]
+    fn horse_chest_cells_follow_the_content_length() {
+        let slots = screen_slots(InventoryScreen::Window(WindowKind::Horse, 17));
+        let storage = slots
+            .iter()
+            .filter(|slot| matches!(slot.hit, InventoryCellHit::Storage(_)))
+            .count();
+        assert_eq!(storage, 17);
+    }
+}

@@ -26,8 +26,12 @@ mod status_motion;
 mod status_rows;
 mod titles;
 mod toasts;
+mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
+pub(super) use windows::{
+    Durability, TooltipLine, WindowIcons, WindowText, default_title, title_key,
+};
 use pinned::{
     BOSS_TINTS, BOTTOM_STACK_HEIGHT, HARMFUL_EFFECT_IDS, HOTBAR_CAP_ALPHA, HOTBAR_WIDTH,
     LABEL_FADE_MILLIS, LABEL_WINDOW_MILLIS, MAX_PRESENTED_BOSS_BARS, XP_LEVEL_COLOR,
@@ -63,6 +67,9 @@ pub(crate) struct HudFrame {
     pub inventory_icons: InventoryIcons,
     pub storage_icons: StorageIcons,
     pub crafting: CraftingFrame,
+    pub window_icons: WindowIcons,
+    pub durability: Durability,
+    pub window_text: WindowText,
     pub cursor_icon: Option<IconRef>,
     pub armor_icons: [Option<IconRef>; 4],
     pub offhand_icon: Option<IconRef>,
