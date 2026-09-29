@@ -32,7 +32,7 @@ use super::{
     display::{
         ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND,
         LAYER_OFF_HAND, attach_to_bone, head_block_display, held_block_display,
-        held_sprite_display,
+        held_sprite_display, is_hand_equipped,
     },
     elytra,
 };
