@@ -14,6 +14,8 @@ const (
 	methodGatherings      = "gatherings.v1"
 	methodProfile         = "profile.v1"
 	methodPing            = "ping.v1"
+	methodHome            = "home.v1"
+	methodMessageEvent    = "message_event.v1"
 )
 
 var errInvalidParams = errors.New("control: invalid params")
@@ -25,6 +27,19 @@ type ScreenServices interface {
 	Profile(ctx context.Context) (catalog.Profile, error)
 	// Ping needs no account; unreachable servers come back offline.
 	Ping(ctx context.Context, addresses []string) []catalog.PingResult
+	// Home gathers messaging, inbox, treatments, invites, live events and the persona head.
+	Home(ctx context.Context) (catalog.Home, error)
+	ReportMessage(ctx context.Context, event catalog.MessageEvent) error
+}
+
+type homeResultV1 struct {
+	SchemaVersion uint32       `json:"schema_version"`
+	Home          catalog.Home `json:"home"`
+}
+
+// messageEventTypes are the reports a launcher may send.
+var messageEventTypes = map[string]bool{
+	"Click": true, "Dismiss": true, "Delete": true, "Impression": true, "ControlImpression": true, "ReadAll": true,
 }
 
 type pingResultV1 struct {
@@ -49,7 +64,7 @@ type profileResultV1 struct {
 
 func isScreenMethod(method string) bool {
 	switch method {
-	case methodFeaturedServers, methodGatherings, methodProfile, methodPing:
+	case methodFeaturedServers, methodGatherings, methodProfile, methodPing, methodHome, methodMessageEvent:
 		return true
 	}
 	return false
@@ -69,10 +84,28 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 		}
 		return pingResultV1{SchemaVersion: 1, Servers: servers}, nil
 	}
+	if method == methodMessageEvent {
+		var params struct {
+			Type       string `json:"event_type"`
+			InstanceID string `json:"instance_id"`
+			ReportID   string `json:"report_id"`
+			ButtonID   string `json:"button_id"`
+		}
+		if !decodeParams(raw, &params) || !messageEventTypes[params.Type] {
+			return nil, errInvalidParams
+		}
+		err := screens.ReportMessage(ctx, catalog.MessageEvent{
+			Type: params.Type, InstanceID: params.InstanceID, ReportID: params.ReportID, ButtonID: params.ButtonID,
+		})
+		return emptyResultV1{SchemaVersion: 1}, err
+	}
 	if len(raw) != 0 {
 		return nil, errInvalidParams
 	}
 	switch method {
+	case methodHome:
+		home, err := screens.Home(ctx)
+		return homeResultV1{SchemaVersion: 1, Home: home}, err
 	case methodFeaturedServers:
 		servers, err := screens.FeaturedServers(ctx)
 		if servers == nil {
