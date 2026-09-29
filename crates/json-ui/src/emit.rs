@@ -88,6 +88,8 @@ pub enum Draw {
         align: TextAlign,
         /// `font_scale_factor`: glyphs draw this many times their natural size.
         scale: f32,
+        /// Whether the text is a language key or `%token` text (`localize`, default on).
+        localize: bool,
     },
     /// A `custom` control (`renderer` names it, e.g. `inventory_item_renderer`)
     /// with its bound `#` values, drawn by the caller.
@@ -321,6 +323,7 @@ fn text_draw(control: &ResolvedControl) -> Draw {
         shadow: matches!(control.properties.get("shadow"), Some(Value::Bool(true))),
         align: alignment(control),
         scale: crate::layout::font_scale(control) as f32,
+        localize: crate::layout::localizes(control),
     }
 }
 

@@ -481,3 +481,36 @@ fn snapshot_pack_forms() {
         super::snapshot::write(&input, &format!("{name}-hover"));
     }
 }
+
+/// The start screen shows no unresolved `$variable`, raw key or demo control.
+#[test]
+fn start_screen_text_resolves_through_the_language_table() {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let Some(lang) = std::fs::read(local("assets/compiled/vanilla-v1.mcbelang"))
+        .ok()
+        .and_then(|bytes| assets::RuntimeLangCatalog::decode(&bytes).ok())
+    else {
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(Arc::new(lang));
+    let menu = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned());
+    presentation.set_menu_view(Some(menu.view()));
+    let dpi = DpiScale::new(1.0).unwrap();
+    let metrics = TextMetrics::for_viewport([1280, 720], dpi, None);
+    let mut nodes = Vec::new();
+    let mut next = 1;
+    presentation
+        .append_menu(&runtime, &mut nodes, &mut next, metrics, 1280.0, 720.0)
+        .unwrap();
+    let texts = drawn_texts(&nodes);
+    assert!(texts.iter().any(|text| text == "Play"), "{texts:?}");
+    for text in &texts {
+        assert!(
+            !text.starts_with('$') && !text.contains("start_screen.") && text != "Unlock Full Game",
+            "{text:?} in {texts:?}"
+        );
+    }
+}

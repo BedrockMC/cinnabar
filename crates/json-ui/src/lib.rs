@@ -24,6 +24,7 @@ mod hud;
 mod input;
 mod json5;
 mod layout;
+mod localize;
 mod merge;
 mod pack;
 mod predicate;
@@ -64,6 +65,7 @@ pub use input::{
     scroll_target,
 };
 pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_with};
+pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
 pub use screens::{ENGINE_SCREENS, ScreenRender, is_engine_screen, render_screen};

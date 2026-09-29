@@ -47,6 +47,43 @@ const VIDEO_SECTION: u8 = 7;
 /// GUI scale choices the settings slider steps through (1..=4).
 const GUI_SCALE_STEPS: f64 = 4.0;
 
+/// Lang key the vanilla start and pause controllers give the unlock-full-game text.
+const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
+
+/// The desktop context plus the globals a retail, full-game, non-edu client
+/// computes in code (`VanillaSceneFactory::createGlobalVars`).
+pub(super) fn retail_context() -> Context {
+    Context::desktop()
+        .with_flag("trial", false)
+        .with_flag("education_edition", false)
+        .with_flag("store_disabled", false)
+        .with_flag("is_ios", false)
+        .with_flag("nx_os", false)
+        .with_flag("is_ps4", false)
+        .with_flag("is_publish", true)
+}
+
+/// `StartMenuScreenController::addStaticScreenVars` for a full-game, non-edu
+/// account: demo, edu and unlock controls stay ignored.
+fn start_screen_vars(context: Context) -> Context {
+    unlock_text(context)
+        .with_flag("unlock_full_game_button_ignored", true)
+        .with_flag("featured_world_ignored", true)
+        .with_flag("courses_ignored", true)
+        .with_flag("edu_feedback_ignored", true)
+        .with_flag("play_button_visible", true)
+        .with_flag("use_single_column_for_buttons", false)
+        .with_flag("can_swap_vr_mode", false)
+        .with_flag("showing_new_player_flow_buttons", false)
+}
+
+fn unlock_text(context: Context) -> Context {
+    context.with_var(
+        "unlock_full_game_button_text",
+        Value::String(UNLOCK_FULL_GAME_TEXT.into()),
+    )
+}
+
 /// The screen a menu state opens and what it binds.
 pub(super) struct MenuScreenData {
     pub(super) reference: &'static str,
@@ -77,7 +114,7 @@ fn flags(data: &mut DataSource, on: &[&str]) {
 pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<MenuScreenData> {
     let mut data = DataSource::new();
     data.set_strict(true);
-    let context = Context::desktop().with_flag("can_quit", true).with_var(
+    let mut context = retail_context().with_flag("can_quit", true).with_var(
         "play_button_target",
         Value::String("button.menu_play".into()),
     );
@@ -124,10 +161,13 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
             MenuScreen::Pause => {
                 data.set_global("#playername", text(view.display_name.clone()));
                 flags(&mut data, &["#playername_visible"]);
+                data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
+                context = unlock_text(context);
                 "pause.pause_screen"
             }
             MenuScreen::Home => {
                 start_screen(view, &mut data, translate);
+                context = start_screen_vars(context);
                 "start.start_screen"
             }
             MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
@@ -193,6 +233,8 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
     super::start_feed::bind(view, data);
     data.set_global("#version", text("v1.26.30"));
+    data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
+    data.set_global("#edu_demo_only_ui_visible", Scalar::Bool(false));
     flags(
         data,
         &["#online_stack_visible", "#upper_online_buttons_visible"],

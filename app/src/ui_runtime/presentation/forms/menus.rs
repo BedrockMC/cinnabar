@@ -197,7 +197,7 @@ impl UiPresentationRuntime {
         // A launcher dialog opens the vanilla popup and takes over the input.
         if let Some(dialog) = view.dialog {
             let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
-            let context = json_ui::form_context(&model, &json_ui::Context::desktop());
+            let context = json_ui::form_context(&model, &menu_screens::retail_context());
             let data = json_ui::form_data_source(&model);
             let inputs = engine::EngineInputs {
                 layouts: &mut self.layouts,
