@@ -63,7 +63,7 @@ pub use inventory::recipes::{
     MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
 };
 pub use inventory::recipes::{
-    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeOutput,
+    CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle, RecipeIngredientView, RecipeOutput,
     RecipeUpdate, decode_recipe_update, match_crafting_grid,
 };
 pub use inventory::{

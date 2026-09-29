@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use protocol::{RecipeCatalog, ScreenRecipe, ScreenRecipeKind, WindowKind};
+use protocol::{RecipeCatalog, RecipeHandle, ScreenRecipe, ScreenRecipeKind, WindowKind};
 
 use super::UiRuntime;
 use super::inventory_ledger::{InventoryTarget, PlayerInventoryLedger};
@@ -94,5 +94,31 @@ impl UiRuntime {
             }
             _ => None,
         }
+    }
+
+    /// Crafting recipes the inventory can supply now that fit the open grid,
+    /// after skipping `skip`, at most `take`.
+    pub(crate) fn book_recipes(&self, skip: usize, take: usize) -> Vec<RecipeHandle> {
+        let Some(catalog) = self.screen_catalog() else {
+            return Vec::new();
+        };
+        let ledger = self.inventory_ledger();
+        let small = ledger.window_kind() != Some(WindowKind::Workbench);
+        catalog
+            .crafting_handles()
+            .into_iter()
+            .filter(|recipe| {
+                let (width, height) = recipe.dimensions();
+                let fits = !small
+                    || if recipe.is_shapeless() {
+                        recipe.ingredient_views().len() <= 4
+                    } else {
+                        width <= 2 && height <= 2
+                    };
+                fits && ledger.can_auto_craft(recipe)
+            })
+            .skip(skip)
+            .take(take)
+            .collect()
     }
 }

@@ -32,6 +32,9 @@ pub(crate) struct ScreenState {
     pub(crate) anvil_focused: bool,
     /// The beacon's pyramid level, from its block entity.
     pub(crate) beacon_level: Option<u8>,
+    pub(crate) book_open: bool,
+    /// Page of the recipe book, in whole grids.
+    pub(crate) book_page: usize,
     window: Option<u64>,
 }
 

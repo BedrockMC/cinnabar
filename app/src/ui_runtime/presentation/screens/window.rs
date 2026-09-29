@@ -32,6 +32,11 @@ pub(crate) enum Widget {
     /// One loom pattern cell by position on the visible page.
     LoomPattern(u8),
     AnvilName,
+    /// Opens or closes the recipe book.
+    BookToggle,
+    /// One recipe cell by position on the visible page.
+    BookRecipe(u8),
+    BookPage { next: bool },
 }
 
 pub(crate) const STONECUTTER_COLUMNS: usize = 4;

@@ -7,8 +7,15 @@ use protocol::WindowKind;
 
 use super::inventory_pointer::{InventoryCellHit, InventoryScreen};
 
+mod book;
 mod creative;
 mod window;
+
+pub(crate) use book::{
+    BOOK_CELLS, BOOK_CELL_SIZE, BOOK_PANEL, book_hit, book_origin, cell_origin as book_cell_origin,
+    page_origin as book_page_origin, page_size as book_page_size, toggle_origin as book_toggle_origin,
+    toggle_size as book_toggle_size,
+};
 
 pub(crate) use creative::{
     CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, SEARCH_TAB, TAB_COUNT, creative_slots,

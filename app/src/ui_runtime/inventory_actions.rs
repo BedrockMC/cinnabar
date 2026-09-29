@@ -11,7 +11,7 @@ use super::inventory_ledger::{
 };
 use super::presentation::inventory_pointer::InventoryCellHit;
 use super::presentation::screens::{
-    BEACON_LEVEL_FOR, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, Widget,
+    BEACON_LEVEL_FOR, BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, Widget,
 };
 use super::screen_recipes::LOOM_PATTERNS;
 use super::screen_state::{ScreenState, creative_entries};
@@ -242,6 +242,34 @@ impl UiRuntime {
             Widget::AnvilName => {
                 self.screen_state_mut().anvil_focused = true;
                 Ok(0)
+            }
+            Widget::BookToggle => {
+                let state = self.screen_state_mut();
+                state.book_open = !state.book_open;
+                state.book_page = 0;
+                Ok(0)
+            }
+            Widget::BookPage { next } => {
+                let page = self.screen_state().book_page;
+                let target = if next {
+                    page + 1
+                } else {
+                    page.saturating_sub(1)
+                };
+                if next && self.book_recipes(target * BOOK_CELLS, 1).is_empty() {
+                    return Err(InventoryGestureError::InvalidRequest);
+                }
+                self.screen_state_mut().book_page = target;
+                Ok(0)
+            }
+            Widget::BookRecipe(index) => {
+                let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
+                let recipe = self
+                    .book_recipes(skip, 1)
+                    .into_iter()
+                    .next()
+                    .ok_or(InventoryGestureError::InvalidRequest)?;
+                self.inventory_ledger_mut().begin_auto_craft(&recipe)
             }
         }
     }

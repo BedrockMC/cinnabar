@@ -354,8 +354,13 @@ pub(crate) fn drive_inventory_ui_actions(
     let physical_size = [window.physical_width(), window.physical_height()];
     let gui = presentation.inventory_gui_point(point, physical_size, window.scale_factor());
     runtime.set_inventory_pointer_gui(gui);
+    let book_open = runtime.screen_state().book_open;
     let hit = gui.and_then(|gui| {
-        presentation.inventory_cell_hit(gui, physical_size, window.scale_factor(), screen)
+        presentation
+            .inventory_book_hit(gui, physical_size, window.scale_factor(), screen, book_open)
+            .or_else(|| {
+                presentation.inventory_cell_hit(gui, physical_size, window.scale_factor(), screen)
+            })
     });
     runtime.screen_state_mut().hover = hit;
     for key in presses {

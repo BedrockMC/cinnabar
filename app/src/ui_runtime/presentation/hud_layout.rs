@@ -22,6 +22,7 @@ use crate::ui_runtime::gameplay_hud::HudEffect;
 mod inventory;
 mod pinned;
 mod player;
+mod recipe_book;
 mod status_motion;
 mod status_rows;
 mod titles;

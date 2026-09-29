@@ -524,6 +524,34 @@ pub(crate) fn refresh_hud_frame(
                 window_icons.recipe_output = Some((icon, stack));
             }
         }
+        if matches!(
+            inventory_screen,
+            super::inventory_pointer::InventoryScreen::Personal
+                | super::inventory_pointer::InventoryScreen::Workbench
+        ) {
+            window_icons.book_button = presentation.item_icon("minecraft:book", 0);
+            window_text.book_title = runtime
+                .translation("recipe.book.title")
+                .map(|text| text.to_string());
+            if runtime.screen_state().book_open {
+                let first = runtime.screen_state().book_page * super::screens::BOOK_CELLS;
+                let page = runtime.book_recipes(first, super::screens::BOOK_CELLS + 1);
+                window_icons.book_more = page.len() > super::screens::BOOK_CELLS;
+                for (cell, recipe) in page.iter().take(super::screens::BOOK_CELLS).enumerate() {
+                    let output = recipe.output();
+                    let stack = protocol::NetworkItemStack {
+                        network_id: output.network_id,
+                        metadata: u32::from(output.aux),
+                        count: u16::from(output.count),
+                        block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                        ..protocol::NetworkItemStack::empty()
+                    };
+                    window_icons.book[cell] = resolve_identifier(&stack)
+                        .as_deref()
+                        .and_then(|id| presentation.item_icon(id, stack.metadata));
+                }
+            }
+        }
         // The tooltip follows the hovered cell's stack.
         let hovered = runtime.screen_state().hover.and_then(|hit| {
             use super::inventory_pointer::InventoryCellHit as Hit;
@@ -565,15 +593,33 @@ pub(crate) fn refresh_hud_frame(
                     );
                     (entries.get(position).copied().map(|item| &item.stack), None)
                 }
+                Hit::Widget(super::screens::Widget::BookRecipe(index)) => {
+                    let skip = runtime.screen_state().book_page * super::screens::BOOK_CELLS
+                        + usize::from(index);
+                    let output = runtime
+                        .book_recipes(skip, 1)
+                        .first()
+                        .map(protocol::RecipeHandle::output);
+                    return output.map(|output| {
+                        let stack = protocol::NetworkItemStack {
+                            network_id: output.network_id,
+                            metadata: u32::from(output.aux),
+                            count: u16::from(output.count),
+                            block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                            ..protocol::NetworkItemStack::empty()
+                        };
+                        (stack, None)
+                    });
+                }
                 Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
             };
-            stack.map(|stack| (stack, name))
+            stack.map(|stack| (stack.clone(), name))
         });
         if let Some((stack, name)) = hovered {
-            let identifier = resolve_identifier(stack);
+            let identifier = resolve_identifier(&stack);
             window_text.tooltip = super::inventory_tooltip::tooltip_lines(
                 runtime,
-                stack,
+                &stack,
                 identifier.as_deref(),
                 name.as_deref(),
             );
