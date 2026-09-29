@@ -70,6 +70,11 @@ impl<'a> Resolver<'a> {
             &mut self.diagnostics,
         )?;
         let env = self.build_env(root_env, &control.props);
+        // An ignored definition creates nothing, whether a screen or a
+        // factory's instance (a pack's title overlay gated on one title).
+        if self.is_ignored(&control, &env) {
+            return None;
+        }
         Some(self.resolve_with_env(&control, provenance, None, &env, 0))
     }
 
