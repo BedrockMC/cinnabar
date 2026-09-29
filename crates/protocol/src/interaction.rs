@@ -6,8 +6,9 @@ use valentine::bedrock::version::v1_26_44::{
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
     EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
-    InventoryTransaction, InventoryTransactionPacket, InventoryTransactionPacketTransaction,
-    ItemUseInventoryTransaction, ItemUseOnActorInventoryTransaction,
+    EnumsPlayerActionType, InventoryTransaction, InventoryTransactionPacket,
+    InventoryTransactionPacketTransaction, ItemUseInventoryTransaction,
+    ItemUseOnActorInventoryTransaction, PlayerActionPacket,
     TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
 };
 
@@ -330,6 +331,21 @@ impl SwingSource {
             Self::Attack => "Attack",
         }
     }
+}
+
+/// Builds the PlayerAction that asks the server to wake the local player.
+#[must_use]
+pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {
+    PlayerActionPacket {
+        player_runtime_id: ActorRuntimeId {
+            actor_runtime_id: local_runtime_id,
+        },
+        action: EnumsPlayerActionType::StopSleeping,
+        block_position: BlockPos { x: 0, y: 0, z: 0 },
+        result_pos: BlockPos { x: 0, y: 0, z: 0 },
+        face: 0,
+    }
+    .into()
 }
 
 /// Builds the local player's arm-swing animation packet.

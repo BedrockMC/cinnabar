@@ -428,7 +428,12 @@ pub(crate) fn refresh_hud_frame(
     let player_preview_icon = presentation.player_preview_icon();
     let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
     runtime.observe_selected_item_identity_value(selected_identity, now_millis);
+    let sleeping = stream
+        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .is_some_and(|actor| actor.is_sleeping());
+    runtime.set_local_sleeping(sleeping);
     let frame = presentation.hud_frame_mut();
+    frame.sleep.observe(sleeping, now_millis);
     frame.first_person = first_person;
     frame.mount_health = mount_health;
     frame.hotbar_durability = hotbar_durability;

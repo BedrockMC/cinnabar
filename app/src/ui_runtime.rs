@@ -1,5 +1,6 @@
 //! App-owned conversion boundary between retained UI output and render POD.
 
+mod bed;
 mod chat_completion;
 mod crafting_authority;
 pub use crafting_authority::CraftingPreview;
@@ -172,6 +173,8 @@ pub struct UiRuntime {
     chat_autocomplete: ChatAutocompleteState,
     chat_autocomplete_catalog: ChatAutocompleteCatalog,
     chat_usage_hint: Option<Arc<str>>,
+    local_sleeping: bool,
+    wake_requested: bool,
     chat_tab_cycling: bool,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
     chat_sends: ChatSendQueue,
@@ -245,6 +248,8 @@ impl UiRuntime {
             chat_autocomplete: ChatAutocompleteState::default(),
             chat_autocomplete_catalog: ChatAutocompleteCatalog::default(),
             chat_usage_hint: None,
+            local_sleeping: false,
+            wake_requested: false,
             chat_tab_cycling: false,
             pending_chat_autocomplete_request: None,
             chat_sends: ChatSendQueue::new(
@@ -649,6 +654,8 @@ impl UiRuntime {
         self.chat_autocomplete.begin_session(session_id);
         self.chat_autocomplete_catalog = ChatAutocompleteCatalog::default();
         self.chat_usage_hint = None;
+        self.local_sleeping = false;
+        self.wake_requested = false;
         self.pending_chat_autocomplete_request = None;
         self.in_flight_chat_send = None;
         let dropped = self.chat_sends.begin_session(session_id);
