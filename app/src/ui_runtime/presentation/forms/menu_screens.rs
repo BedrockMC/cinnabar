@@ -326,7 +326,9 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.respawn_button" => MenuAction::Respawn,
         "button.gathering" => MenuAction::OpenLiveEvent,
         "button.menu_inbox" => MenuAction::Navigate(MenuScreen::Inbox),
-        "button.friends_drawer" | "button.menu_friends" => MenuAction::Navigate(MenuScreen::Friends),
+        "button.friends_drawer" | "button.menu_friends" => {
+            MenuAction::Navigate(MenuScreen::Friends)
+        }
         "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,

@@ -653,6 +653,8 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::SettingsScale(scale) => self.gui_scale = scale.clamp(1, 4),
+            // The game menu opened from the death screen returns to it.
+            MenuAction::PauseResume if self.death_shown => self.enter(MenuScreen::Death),
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
                 self.disconnect_requested = true;
@@ -707,6 +709,7 @@ impl MenuRuntime {
         match self.screen {
             // Death has no way back; only respawn or leaving ends it.
             MenuScreen::Home | MenuScreen::Death => {}
+            MenuScreen::Pause if self.death_shown => self.enter(MenuScreen::Death),
             MenuScreen::Pause => self.set_visible(false),
             MenuScreen::Settings if self.settings_return_to_pause => {
                 self.settings_return_to_pause = false;
