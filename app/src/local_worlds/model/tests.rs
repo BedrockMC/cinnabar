@@ -1,5 +1,9 @@
-use protocol::world_control::{Difficulty, GameMode, Generator, World, WorldState, WorldStatus};
+use protocol::world_control::{
+    Backend, Difficulty, GameMode, Generator, Prefs, UnavailableReason, World, WorldState,
+    WorldStatus,
+};
 
+use super::super::prompt::{DOCKER_URL, PromptButton, PromptKind};
 use super::*;
 
 fn world(id: &str, name: &str) -> World {
@@ -9,6 +13,7 @@ fn world(id: &str, name: &str) -> World {
         game_mode: GameMode::Survival,
         generator: Generator::Normal,
         difficulty: Difficulty::Normal,
+        backend: Backend::Dragonfly,
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
@@ -19,8 +24,12 @@ fn status(state: WorldState, id: &str) -> WorldStatus {
     WorldStatus {
         state,
         world_id: Some(id.to_owned()),
+        backend: None,
         paused: false,
+        pause_supported: true,
         error: None,
+        setup: None,
+        backend_unavailable_reason: None,
     }
 }
 
@@ -227,4 +236,187 @@ fn request_failure_surfaces_message_and_unblocks() {
     );
     assert_eq!(menu.screen(), Screen::Error);
     assert!(!menu.busy());
+}
+
+fn with_reason(reason: UnavailableReason) -> WorldStatus {
+    let mut status = status(WorldState::Idle, "");
+    status.world_id = None;
+    status.backend_unavailable_reason = Some(reason);
+    status
+}
+
+fn docker_menu(reason: UnavailableReason, names: &[&str]) -> WorldsMenu {
+    let mut menu = loaded(names);
+    menu.apply(Event::Prefs(Prefs::default(), with_reason(reason)));
+    menu
+}
+
+#[test]
+fn no_backend_reason_never_shows_the_docker_modal() {
+    let mut menu = loaded(&["a"]);
+    menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.screen(), Screen::Create);
+}
+
+#[test]
+fn docker_missing_gates_create_until_play_anyway() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    assert!(menu.update(Input::BeginCreate).is_empty());
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert_eq!(menu.prompt(), Some(PromptKind::DockerMissing));
+    assert!(
+        menu.update(Input::Prompt(PromptButton::PlayAnyway))
+            .is_empty()
+    );
+    assert_eq!(menu.screen(), Screen::Create);
+    menu.update(Input::Back);
+    menu.update(Input::BeginCreate);
+    assert_eq!(
+        menu.screen(),
+        Screen::Create,
+        "acknowledged for the session"
+    );
+}
+
+#[test]
+fn docker_missing_get_docker_opens_the_site_and_stays() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.update(Input::BeginCreate);
+    assert_eq!(
+        menu.update(Input::Prompt(PromptButton::GetDocker)),
+        vec![Effect::OpenUrl(DOCKER_URL)]
+    );
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+}
+
+#[test]
+fn dont_show_again_persists_and_continues() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &["a"]);
+    menu.update(Input::BeginCreate);
+    let effects = menu.update(Input::Prompt(PromptButton::DontShowAgain));
+    assert_eq!(
+        effects,
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: true,
+            redetect: false
+        }]
+    );
+    assert_eq!(menu.screen(), Screen::Create);
+    // A dismissed docker_missing prompt stays hidden in a fresh session.
+    let mut fresh = loaded(&["a"]);
+    fresh.apply(Event::Prefs(
+        Prefs {
+            docker_prompt_dismissed: true,
+        },
+        with_reason(UnavailableReason::DockerMissing),
+    ));
+    fresh.update(Input::BeginCreate);
+    assert_eq!(fresh.screen(), Screen::Create);
+}
+
+#[test]
+fn dismissal_does_not_hide_the_docker_not_running_prompt() {
+    let mut menu = loaded(&[]);
+    menu.apply(Event::Prefs(
+        Prefs {
+            docker_prompt_dismissed: true,
+        },
+        with_reason(UnavailableReason::DockerNotRunning),
+    ));
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.prompt(), Some(PromptKind::DockerNotRunning));
+}
+
+#[test]
+fn retry_redetects_and_continues_once_docker_is_up() {
+    let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);
+    menu.update(Input::BeginCreate);
+    assert_eq!(
+        menu.update(Input::Prompt(PromptButton::Retry)),
+        vec![Effect::SetPrefs {
+            dismiss_docker_prompt: false,
+            redetect: true
+        }]
+    );
+    assert!(menu.busy());
+    menu.apply(Event::Prefs(
+        Prefs::default(),
+        with_reason(UnavailableReason::DockerNotRunning),
+    ));
+    assert_eq!((menu.screen(), menu.busy()), (Screen::BackendPrompt, false));
+    menu.update(Input::Prompt(PromptButton::Retry));
+    menu.apply(Event::Prefs(Prefs::default(), status(WorldState::Idle, "")));
+    assert_eq!(menu.screen(), Screen::Create);
+}
+
+#[test]
+fn playing_a_dragonfly_world_skips_the_modal_but_a_bds_world_gets_it() {
+    let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &["a"]);
+    assert_eq!(
+        menu.update(Input::Play),
+        vec![Effect::Open("id0".to_owned())]
+    );
+    menu.update(Input::Back);
+    let mut bds = world("id0", "a");
+    bds.backend = Backend::Bds;
+    menu.apply(Event::Listed(vec![bds]));
+    assert!(menu.update(Input::Play).is_empty());
+    assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert_eq!(
+        menu.update(Input::Prompt(PromptButton::PlayAnyway)),
+        vec![Effect::Open("id0".to_owned())]
+    );
+}
+
+#[test]
+fn eula_required_prompts_then_reopens_the_same_world_after_acceptance() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::Play);
+    assert!(menu.apply(Event::EulaRequired).is_empty());
+    assert_eq!(menu.screen(), Screen::Eula);
+    assert!(menu.update(Input::Back).is_empty());
+    assert_eq!(menu.screen(), Screen::List);
+
+    menu.update(Input::Play);
+    menu.apply(Event::EulaRequired);
+    assert_eq!(menu.update(Input::AcceptEula), vec![Effect::AcceptEula]);
+    assert!(menu.busy());
+    assert_eq!(
+        menu.apply(Event::EulaAccepted),
+        vec![Effect::Open("id0".to_owned())]
+    );
+    assert_eq!(
+        (menu.screen(), menu.opening_name()),
+        (Screen::Opening, Some("a"))
+    );
+}
+
+#[test]
+fn accept_eula_outside_the_eula_screen_does_nothing() {
+    let mut menu = loaded(&["a"]);
+    assert!(menu.update(Input::AcceptEula).is_empty());
+    assert!(!menu.busy());
+}
+
+#[test]
+fn backend_label_follows_the_reported_runtime() {
+    let mut menu = loaded(&[]);
+    assert_eq!(menu.active_backend_label(), "Basic server");
+    let mut idle = status(WorldState::Idle, "");
+    idle.setup = Some(protocol::world_control::Setup {
+        state: protocol::world_control::SetupState::Ready,
+        version: None,
+        bytes_done: 0,
+        bytes_total: 0,
+        eula_accepted: true,
+        error: None,
+        runtime: "container".to_owned(),
+        reason: None,
+    });
+    menu.apply(Event::Prefs(Prefs::default(), idle));
+    assert_eq!(
+        menu.active_backend_label(),
+        "Bedrock Dedicated Server (Docker)"
+    );
 }

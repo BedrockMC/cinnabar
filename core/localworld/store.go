@@ -21,9 +21,17 @@ var idPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 // Store keeps one directory per world under a per-user root: world.json beside the server's data folders.
 type Store struct {
-	root string
-	now  func() time.Time
-	mu   sync.Mutex
+	root           string
+	now            func() time.Time
+	mu             sync.Mutex
+	defaultBackend string
+}
+
+// SetDefaultBackend sets the backend of worlds created without an explicit one.
+func (store *Store) SetDefaultBackend(backend string) {
+	store.mu.Lock()
+	store.defaultBackend = backend
+	store.mu.Unlock()
 }
 
 // OpenStore creates root if needed.
@@ -60,6 +68,9 @@ func (store *Store) read(id string) (World, error) {
 	var world World
 	if err := json.Unmarshal(raw, &world); err != nil || world.ID != id {
 		return World{}, fmt.Errorf("localworld: corrupt world metadata for %s", id)
+	}
+	if world.Backend == "" {
+		world.Backend = BackendDragonfly // worlds saved before backends existed
 	}
 	return world, nil
 }
@@ -122,12 +133,18 @@ func (store *Store) Create(spec Spec) (World, error) {
 		seed = int64(binary.BigEndian.Uint64(raw))
 	}
 	now := store.now().Unix()
-	world := World{
-		ID: hex.EncodeToString(id), Name: spec.Name, GameMode: spec.GameMode, Generator: spec.Generator,
-		Difficulty: spec.Difficulty, Seed: seed, CreatedUnix: now, LastPlayedUnix: now,
-	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if spec.Backend == "" {
+		spec.Backend = store.defaultBackend
+	}
+	if spec.Backend == "" {
+		spec.Backend = BackendDragonfly
+	}
+	world := World{
+		ID: hex.EncodeToString(id), Name: spec.Name, GameMode: spec.GameMode, Generator: spec.Generator,
+		Difficulty: spec.Difficulty, Backend: spec.Backend, Seed: seed, CreatedUnix: now, LastPlayedUnix: now,
+	}
 	if err := store.write(world); err != nil {
 		return World{}, err
 	}

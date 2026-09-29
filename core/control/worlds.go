@@ -2,10 +2,12 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net"
+	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 )
@@ -19,6 +21,8 @@ const (
 	methodWorldClose  = "world_close.v1"
 	methodWorldPause  = "world_pause.v1"
 	methodWorldStatus = "world_status.v1"
+	methodBDSEULA     = "bds_accept_eula.v1"
+	methodPrefs       = "local_worlds_prefs.v1"
 
 	// maxListedWorlds keeps a world_list response inside MaxFrameLen.
 	maxListedWorlds = 200
@@ -26,6 +30,8 @@ const (
 	codeWorldFailed   = -32000
 	codeWorldNotFound = -32010
 	codeWorldBusy     = -32011
+	codeEULARequired  = -32012
+	codeBackendAbsent = -32013
 )
 
 // Worlds is the local-world service behind the world_* methods; *localworld.Manager implements it.
@@ -34,7 +40,9 @@ type Worlds interface {
 	Create(localworld.Spec) (localworld.World, error)
 	Rename(id, name string) (localworld.World, error)
 	Delete(id string) error
-	Open(id string) error
+	Open(id string, opts ...localworld.OpenOptions) error
+	AcceptEULA() error
+	Prefs(ctx context.Context, update localworld.PrefsUpdate) (localworld.Prefs, error)
 	Close() error
 	SetPaused(paused bool) error
 	Status() localworld.Status
@@ -60,7 +68,7 @@ func WithOpenHook(worlds Worlds, onOpen func()) Worlds {
 
 var worldMethods = map[string]struct{}{
 	methodWorldList: {}, methodWorldCreate: {}, methodWorldRename: {}, methodWorldDelete: {},
-	methodWorldOpen: {}, methodWorldClose: {}, methodWorldPause: {}, methodWorldStatus: {},
+	methodWorldOpen: {}, methodWorldClose: {}, methodWorldPause: {}, methodWorldStatus: {}, methodBDSEULA: {}, methodPrefs: {},
 }
 
 func isWorldMethod(method string) bool {
@@ -74,6 +82,7 @@ type WorldResultV1 struct {
 	Worlds        []localworld.World `json:"worlds,omitempty"`
 	World         *localworld.World  `json:"world,omitempty"`
 	Status        *localworld.Status `json:"status,omitempty"`
+	Prefs         *localworld.Prefs  `json:"prefs,omitempty"`
 }
 
 type worldResponse struct {
@@ -135,16 +144,39 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		}
 	case methodWorldDelete, methodWorldOpen:
 		var params struct {
-			ID *string `json:"id"`
+			ID           *string `json:"id"`
+			ViewDistance int     `json:"view_distance"`
 		}
-		if !decodeParams(raw, &params) || params.ID == nil {
+		if !decodeParams(raw, &params) || params.ID == nil || params.ViewDistance < 0 || params.ViewDistance > 64 ||
+			(method == methodWorldDelete && params.ViewDistance != 0) {
 			return invalid()
 		}
 		if method == methodWorldDelete {
 			err = worlds.Delete(*params.ID)
 		} else {
-			err = worlds.Open(*params.ID)
+			err = worlds.Open(*params.ID, localworld.OpenOptions{ViewDistance: params.ViewDistance})
 		}
+	case methodPrefs:
+		var params struct {
+			DockerPromptDismissed *bool `json:"docker_prompt_dismissed"`
+			Redetect              bool  `json:"redetect"`
+		}
+		if len(raw) != 0 && !decodeParams(raw, &params) {
+			return invalid()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		prefs, prefsErr := worlds.Prefs(ctx, localworld.PrefsUpdate{DockerPromptDismissed: params.DockerPromptDismissed, Redetect: params.Redetect})
+		cancel()
+		err = prefsErr
+		result.Prefs = &prefs
+	case methodBDSEULA:
+		var params struct {
+			Accepted *bool `json:"accepted"`
+		}
+		if !decodeParams(raw, &params) || params.Accepted == nil || !*params.Accepted {
+			return invalid()
+		}
+		err = worlds.AcceptEULA()
 	case methodWorldClose:
 		err = worlds.Close()
 	case methodWorldPause:
@@ -159,7 +191,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 	if err != nil {
 		return fail(worldErrorCode(err), worldErrorMessage(err))
 	}
-	if method == methodWorldOpen || method == methodWorldClose || method == methodWorldPause || method == methodWorldStatus {
+	if method == methodWorldOpen || method == methodWorldClose || method == methodWorldPause || method == methodWorldStatus || method == methodBDSEULA || method == methodPrefs {
 		status := worlds.Status()
 		result.Status = &status
 	}
@@ -174,13 +206,17 @@ func worldErrorCode(err error) int {
 		return codeWorldBusy
 	case errors.Is(err, localworld.ErrInvalid):
 		return -32602
+	case errors.Is(err, localworld.ErrEULARequired):
+		return codeEULARequired
+	case errors.Is(err, localworld.ErrBackendUnavailable):
+		return codeBackendAbsent
 	}
 	return codeWorldFailed
 }
 
 // worldErrorMessage exposes only sentinel-class messages; other errors may carry local paths.
 func worldErrorMessage(err error) string {
-	for _, known := range []error{localworld.ErrNotFound, localworld.ErrBusy, localworld.ErrInUse, localworld.ErrNotOpen} {
+	for _, known := range []error{localworld.ErrNotFound, localworld.ErrBusy, localworld.ErrInUse, localworld.ErrNotOpen, localworld.ErrEULARequired, localworld.ErrBackendUnavailable} {
 		if errors.Is(err, known) {
 			return known.Error()
 		}
