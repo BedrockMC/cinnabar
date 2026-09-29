@@ -10,7 +10,9 @@ use render::{
 use super::{
     armor::{bone_map, hidden_bone, pack_tint, remap_pose},
     atlas::{ATLAS_SIDE, SpriteAtlas},
-    display::{ItemDisplay, attach_to_bone, held_sprite_display},
+    display::{
+        ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped,
+    },
     runtime::{FirstPersonArms, layer_presentation},
 };
 
@@ -79,6 +81,7 @@ fn attach_with_identity_display_passes_the_hand_pose_through() {
         rotation: Quat::IDENTITY,
         translation: Vec3::ZERO,
         scale: 1.0,
+        mirror_x: false,
     };
     let attached = attach_to_bone(bone([0.25, 0.5, -0.75], 1.0), display).unwrap();
     assert_eq!(attached.translation_scale, [0.25, 0.5, -0.75, 1.0]);
@@ -91,6 +94,7 @@ fn attach_scales_the_display_offset_by_the_hand_scale_and_hides_with_it() {
         rotation: Quat::IDENTITY,
         translation: Vec3::new(0.0, 1.0, 0.0),
         scale: 0.5,
+        mirror_x: false,
     };
     let attached = attach_to_bone(bone([0.0, 2.0, 0.0], 2.0), display).unwrap();
     assert_eq!(attached.translation_scale, [0.0, 4.0, 0.0, 1.0]);
@@ -109,19 +113,26 @@ fn hand_rotation_turns_the_display_offset() {
         rotation: Quat::IDENTITY,
         translation: Vec3::X,
         scale: 1.0,
+        mirror_x: false,
     };
     let attached = attach_to_bone(hand, display).unwrap();
     assert!((attached.translation_scale[1] - 1.0).abs() < 1e-5);
     assert!(attached.translation_scale[0].abs() < 1e-5);
 }
 
+// Held items take the reference's sizes: the item default scale (1.5) over the grip scale, and
+// the icon is mirrored into the reference's icon space.
 #[test]
-fn held_sprite_display_points_the_sprite_up_axis_up_and_width_forward() {
-    let display = held_sprite_display();
-    let up = display.rotation * Vec3::Y;
-    let forward = display.rotation * Vec3::X;
-    assert!((up - Vec3::Y).length() < 1e-5);
-    assert!((forward - Vec3::NEG_Z).length() < 1e-5);
+fn held_item_placements_follow_the_reference_scales() {
+    let sprite = held_sprite_display(false);
+    let sword = held_sprite_display(true);
+    let block = held_block_display();
+    assert!((sprite.scale - 0.5625).abs() < 1e-5, "{}", sprite.scale);
+    assert!((sword.scale - 0.9375).abs() < 1e-5, "{}", sword.scale);
+    assert!((block.scale - 0.375).abs() < 1e-5, "{}", block.scale);
+    assert!(sprite.mirror_x && sword.mirror_x && !block.mirror_x);
+    assert!(is_hand_equipped("minecraft:diamond_sword") && is_hand_equipped("minecraft:stick"));
+    assert!(!is_hand_equipped("minecraft:name_tag"));
 }
 
 #[test]
