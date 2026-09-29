@@ -156,3 +156,90 @@ func (s *transferObservingSession) ReadBatch() ([]packet.Packet, error) {
 	}
 	return batch, err
 }
+
+// DisconnectInfo is the server's own reason for ending a session.
+type DisconnectInfo struct {
+	Reason  int32
+	Message string
+}
+
+const maxDisconnectMessageBytes = 512
+
+func disconnectInfoFrom(err error) (DisconnectInfo, bool) {
+	var disconnect *minecraft.DisconnectPacketError
+	if !errors.As(err, &disconnect) || disconnect == nil {
+		return DisconnectInfo{}, false
+	}
+	message := disconnect.Error()
+	if len(message) > maxDisconnectMessageBytes {
+		message = strings.ToValidUTF8(message[:maxDisconnectMessageBytes], "")
+	}
+	return DisconnectInfo{Reason: disconnect.Reason, Message: message}, true
+}
+
+func reportDisconnect(callback func(DisconnectInfo), err error) {
+	if callback == nil {
+		return
+	}
+	if info, ok := disconnectInfoFrom(err); ok {
+		callback(info)
+	}
+}
+
+// disconnectObservingSession reports a server disconnect read from upstream and still returns the error.
+type disconnectObservingSession struct {
+	upstreamSession
+	callback func(DisconnectInfo)
+}
+
+func observeDisconnects(upstream upstreamSession, callback func(DisconnectInfo)) upstreamSession {
+	if callback == nil {
+		return upstream
+	}
+	return &disconnectObservingSession{upstreamSession: upstream, callback: callback}
+}
+
+func (s *disconnectObservingSession) ReadBatch() ([]packet.Packet, error) {
+	batch, err := s.upstreamSession.ReadBatch()
+	if err != nil {
+		reportDisconnect(s.callback, err)
+	}
+	return batch, err
+}
+
+// UpstreamSelector holds the client-chosen upstream for later connections. The zero value is ready.
+type UpstreamSelector struct {
+	mu     sync.Mutex
+	target string
+}
+
+// Set selects target ("host:port", "realm_id/N" or "friend_xuid/X"); "" clears.
+func (s *UpstreamSelector) Set(target string) {
+	s.mu.Lock()
+	s.target = target
+	s.mu.Unlock()
+}
+
+// Target returns the selected upstream; ok is false when none is selected.
+func (s *UpstreamSelector) Target() (target string, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.target, s.target != ""
+}
+
+// withSelectedTarget dials the client-selected upstream ahead of next.
+func withSelectedTarget(
+	selector *UpstreamSelector,
+	dial func(context.Context, string) (*resolvedUpstreamTarget, error),
+	next func(context.Context) (*resolvedUpstreamTarget, error),
+) func(context.Context) (*resolvedUpstreamTarget, error) {
+	if selector == nil {
+		return next
+	}
+	return func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		if target, ok := selector.Target(); ok {
+			return dial(ctx, target)
+		}
+		return next(ctx)
+	}
+}

@@ -3,9 +3,12 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -116,5 +119,58 @@ func TestTransferStateClearDropsPending(t *testing.T) {
 	state.Clear()
 	if got := state.Upstream("first:1"); got != "first:1" {
 		t.Fatalf("Upstream() = %q after Clear", got)
+	}
+}
+
+func TestSelectedTargetOutranksLocalAndFallsBack(t *testing.T) {
+	var selector UpstreamSelector
+	dial := func(_ context.Context, address string) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{address: address}, nil
+	}
+	next := func(context.Context) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{address: "fallback:1"}, nil
+	}
+	resolve := withSelectedTarget(&selector, dial, next)
+	if target, _ := resolve(context.Background()); target.address != "fallback:1" {
+		t.Fatalf("unselected = %q", target.address)
+	}
+	selector.Set("realm_id/9")
+	if target, _ := resolve(context.Background()); target.address != "realm_id/9" {
+		t.Fatalf("selected = %q", target.address)
+	}
+	selector.Set("")
+	if target, _ := resolve(context.Background()); target.address != "fallback:1" {
+		t.Fatalf("cleared = %q", target.address)
+	}
+	if withSelectedTarget(nil, dial, next) == nil {
+		t.Fatal("nil selector must pass the resolver through")
+	}
+}
+
+func TestObserveDisconnectsReportsServerReasonAndKeepsError(t *testing.T) {
+	up := newFakeUpstream(nil)
+	reason := &minecraft.DisconnectPacketError{Reason: 5, Message: "You are banned"}
+	up.reads <- packetResult{err: fmt.Errorf("read: %w", reason)}
+	var got []DisconnectInfo
+	session := observeDisconnects(up, func(info DisconnectInfo) { got = append(got, info) })
+	if _, err := session.ReadBatch(); !errors.Is(err, reason) {
+		t.Fatalf("ReadBatch() error = %v, want the original disconnect", err)
+	}
+	if want := []DisconnectInfo{{Reason: 5, Message: "You are banned"}}; !slices.Equal(got, want) {
+		t.Fatalf("reported %v, want %v", got, want)
+	}
+}
+
+func TestReportDisconnectIgnoresOtherErrorsAndBoundsMessage(t *testing.T) {
+	calls := 0
+	reportDisconnect(func(DisconnectInfo) { calls++ }, io.EOF)
+	reportDisconnect(nil, &minecraft.DisconnectPacketError{Message: "x"})
+	if calls != 0 {
+		t.Fatalf("callback ran %d times for a non-disconnect", calls)
+	}
+	var info DisconnectInfo
+	reportDisconnect(func(i DisconnectInfo) { info = i }, &minecraft.DisconnectPacketError{Message: strings.Repeat("é", 1000)})
+	if len(info.Message) == 0 || len(info.Message) > maxDisconnectMessageBytes || !utf8.ValidString(info.Message) {
+		t.Fatalf("message length %d valid=%t", len(info.Message), utf8.ValidString(info.Message))
 	}
 }

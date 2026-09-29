@@ -97,7 +97,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 		return server.writeResponse(conn, worldResponse{JSONRPC: "2.0", ID: id, Error: &responseError{Code: code, Message: message}})
 	}
 	invalid := func() error { return fail(-32602, "Invalid params") }
-	worlds := server.worlds
+	worlds := server.worldService()
 	result := &WorldResultV1{SchemaVersion: 1}
 	var err error
 	switch method {
