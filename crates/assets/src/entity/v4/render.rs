@@ -132,11 +132,10 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         if rule.pattern.is_empty()
             || rule.pattern.len() > MAX_ENTITY_RENDER_PATTERN_BYTES
             || rule.pattern.chars().any(|ch| ch.is_ascii_uppercase())
-            || rule
-                .pattern
-                .strip_suffix('*')
-                .unwrap_or(&rule.pattern)
-                .contains('*')
+            || {
+                let rest = rule.pattern.strip_prefix('*').unwrap_or(&rule.pattern);
+                rest.strip_suffix('*').unwrap_or(rest).contains('*')
+            }
             || !expression(rule.condition)
         {
             return Err(invalid("entity render visibility rule is invalid"));

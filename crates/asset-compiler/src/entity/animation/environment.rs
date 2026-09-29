@@ -193,7 +193,8 @@ pub(super) fn compile_geometry_selections(
                     leaves
                         .into_iter()
                         .map(|(path, geometry)| {
-                            let text = condition_text(&path)?;
+                            // Rig candidate conditions must end in a boolean op.
+                            let text = format!("({}) != 0", condition_text(&path)?);
                             let condition = transaction.compile(&text).ok()?;
                             Some(SelectableGeometry {
                                 geometry: geometry?,
