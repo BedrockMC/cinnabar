@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::catalog::Catalog;
 use crate::env::{Env, substitute};
-use crate::tree::ControlRef;
+use crate::tree::{ControlRef, ResolvedControl};
 
 /// Property holding the resolved chains of a control (a JSON array of chains).
 pub(crate) const CHAINS_KEY: &str = "anim_alpha";
@@ -192,6 +192,62 @@ pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Op
         .iter()
         .any(|step| step.kind == StepKind::Alpha)
         .then_some(Chain { steps, looping })
+}
+
+/// What a control takes from its ancestors: the creation time of the nearest
+/// factory instance, and a `propagate_alpha` parent's alpha and fades.
+#[derive(Clone, Default)]
+pub(crate) struct Inherited {
+    alpha: Option<f32>,
+    fades: Vec<Fade>,
+    born: f64,
+    clock: Option<String>,
+}
+
+impl Inherited {
+    /// This control's alpha and fades, and what its children inherit.
+    pub(crate) fn apply(
+        &self,
+        control: &ResolvedControl,
+        rest: f32,
+    ) -> (f32, Vec<Fade>, Inherited) {
+        let born = crate::widgets::bound_number(control, BORN_KEY).unwrap_or(self.born);
+        let clock = control
+            .properties
+            .get(CLOCK_KEY)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| self.clock.clone());
+        let mut fades = self.fades.clone();
+        if let Some(Value::Array(chains)) = control.properties.get(CHAINS_KEY) {
+            fades.extend(chains.iter().filter_map(|chain| {
+                serde_json::from_value::<Chain>(chain.clone())
+                    .ok()
+                    .map(|chain| Fade {
+                        chain,
+                        rest,
+                        born,
+                        clock: clock.clone(),
+                    })
+            }));
+        }
+        let own = rest * self.alpha.unwrap_or(1.0);
+        let propagate = matches!(
+            control.properties.get("propagate_alpha"),
+            Some(Value::Bool(true))
+        );
+        let children = Inherited {
+            alpha: if propagate { Some(own) } else { self.alpha },
+            fades: if propagate {
+                fades.clone()
+            } else {
+                self.fades.clone()
+            },
+            born,
+            clock,
+        };
+        (own, fades, children)
+    }
 }
 
 /// The standard easing curves by their JSON-UI names; unknown names are linear.

@@ -27,8 +27,10 @@ use crate::predicate::{self, Bindings, Scalar};
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
 mod feed;
+mod source;
 
 pub use feed::FactoryItem;
+use source::Src;
 
 /// One entry of a bound collection: the factory role that selects which control to
 /// instantiate for this index, plus the `#name` values readable at it.
@@ -206,69 +208,6 @@ struct Scope {
     panel: Option<String>,
     /// A factory item's property bag, the base every control under it binds on.
     values: std::sync::Arc<BTreeMap<String, Scalar>>,
-}
-
-/// A control the binder reads in place: a node of a shared tree, plus the
-/// name and properties the binder gives a created instance.
-#[derive(Clone)]
-struct Src {
-    tree: Arc<ResolvedControl>,
-    path: Vec<u32>,
-    patch: Option<Arc<Patch>>,
-}
-
-#[derive(Clone, Default)]
-struct Patch {
-    name: Option<String>,
-    properties: BTreeMap<String, Value>,
-}
-
-impl Src {
-    fn root(tree: Arc<ResolvedControl>) -> Self {
-        Self {
-            tree,
-            path: Vec::new(),
-            patch: None,
-        }
-    }
-
-    fn get(&self) -> &ResolvedControl {
-        self.path
-            .iter()
-            .fold(&*self.tree, |node, &index| &node.children[index as usize])
-    }
-
-    fn child(&self, index: usize) -> Self {
-        let mut path = self.path.clone();
-        path.push(index as u32);
-        Self {
-            tree: Arc::clone(&self.tree),
-            path,
-            patch: None,
-        }
-    }
-
-    fn name(&self) -> &str {
-        match self.patch.as_ref().and_then(|patch| patch.name.as_deref()) {
-            Some(name) => name,
-            None => &self.get().name,
-        }
-    }
-
-    fn prop(&self, key: &str) -> Option<&Value> {
-        self.patch
-            .as_ref()
-            .and_then(|patch| patch.properties.get(key))
-            .or_else(|| self.get().properties.get(key))
-    }
-
-    /// This source with `edit` applied to its patch.
-    fn patched(mut self, edit: impl FnOnce(&mut Patch)) -> Self {
-        let mut patch = self.patch.as_deref().cloned().unwrap_or_default();
-        edit(&mut patch);
-        self.patch = Some(Arc::new(patch));
-        self
-    }
 }
 
 /// A control plus the own values gathered for it (pass one), before `view`
