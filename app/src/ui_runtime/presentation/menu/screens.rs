@@ -51,6 +51,9 @@ pub(super) fn append(
         MenuScreen::Pause => secondary::pause(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
+        MenuScreen::Death => secondary::death(
+            view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
+        ),
     }
 }
 

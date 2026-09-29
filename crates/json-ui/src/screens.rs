@@ -43,6 +43,16 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "redstone.dropper_screen",
     "redstone.crafter_screen",
     "horse.horse_screen",
+    "npc_interact.npc_screen",
+    "pause.pause_screen",
+    "start.start_screen",
+    "play.play_screen",
+    "add_external_server.add_external_server_screen_new",
+    "settings.screen_controls_and_settings",
+    "death.death_screen",
+    "progress.progress_screen",
+    "disconnect.disconnect_screen",
+    "xbl_console_signin.xbl_console_signin",
 ];
 
 pub fn is_engine_screen(reference: &str) -> bool {

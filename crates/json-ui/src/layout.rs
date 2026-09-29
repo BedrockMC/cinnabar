@@ -294,7 +294,14 @@ fn grid_columns(control: &ResolvedControl) -> Option<Option<usize>> {
         .and_then(Value::as_array)
         .and_then(|dims| dims.first()?.as_f64())
         .filter(|columns| *columns >= 1.0)
-        .map(|columns| columns as usize);
+        .map(|columns| columns as usize)
+        // A grid sized by a bound dimension is a one-column menu list.
+        .or_else(|| {
+            control
+                .properties
+                .contains_key("grid_dimension_binding")
+                .then_some(1)
+        });
     Some(fixed)
 }
 

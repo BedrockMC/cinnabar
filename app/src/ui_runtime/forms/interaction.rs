@@ -29,7 +29,9 @@ pub(crate) fn drive_server_form_input(
     mut owned_last_frame: Local<bool>,
 ) {
     let (window, mut cursor) = window.into_inner();
-    if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
+    if menu.as_ref().is_some_and(|menu| menu.is_visible())
+        && !runtime.server_forms().settings_form_active()
+    {
         runtime.server_forms_mut().reject_active_busy();
         wheel.clear();
         keyboard.clear();

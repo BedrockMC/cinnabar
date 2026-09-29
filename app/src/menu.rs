@@ -7,10 +7,17 @@
 //! the same font, safe-area, and pointer coordinates as the gameplay HUD.
 
 mod account;
+mod account_control;
 pub(crate) mod auth;
 pub(crate) mod core_process;
+#[cfg(test)]
+mod flow_tests;
 mod input;
+pub(crate) mod launcher_account;
 pub(crate) mod servers;
+mod settings_values;
+mod view;
+mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
 
@@ -21,6 +28,11 @@ pub(crate) use input::{
     recover_menu_session_failure,
 };
 use servers::{load_servers, save_servers};
+pub(crate) use settings_values::{VOLUME_SLIDERS, VOLUME_STEPS};
+use view::CatalogFile;
+pub(crate) use view::{
+    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+};
 
 use std::{
     fs,
@@ -30,12 +42,8 @@ use std::{
 };
 
 use bevy::prelude::Resource;
-use serde::{Deserialize, Serialize};
 
-use crate::{
-    install_layout::InstallLayout, session_cleanup::SessionDirectoryGuard,
-    ui_runtime::presentation::IconRef,
-};
+use crate::{install_layout::InstallLayout, session_cleanup::SessionDirectoryGuard};
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -70,6 +78,7 @@ pub(crate) enum MenuScreen {
     Settings,
     AddServer,
     Pause,
+    Death,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,115 +129,15 @@ pub(crate) enum MenuAction {
     PauseResume,
     PauseDisconnect,
     PauseSettings,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SavedServer {
-    pub(crate) name: String,
-    pub(crate) address: String,
-    #[serde(default)]
-    pub(crate) favorite: bool,
-    #[serde(default)]
-    pub(crate) last_joined_unix: u64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-pub(crate) struct MenuServerCard {
-    pub(crate) name: String,
-    pub(crate) address: String,
-    pub(crate) caption: String,
-    #[serde(default)]
-    pub(crate) image_path: String,
-    #[serde(skip)]
-    pub(crate) icon: Option<IconRef>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-pub(crate) struct MenuRealmCard {
-    pub(crate) name: String,
-    pub(crate) state: String,
-    #[serde(default)]
-    pub(crate) target: String,
-    #[serde(default)]
-    pub(crate) address: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct MenuFriendCard {
-    pub(crate) gamertag: String,
-    pub(crate) world_name: String,
-    pub(crate) members: String,
-    pub(crate) xuid: String,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct MenuView {
-    pub(crate) visible: bool,
-    pub(crate) screen: MenuScreen,
-    pub(crate) focused_action: Option<MenuAction>,
-    pub(crate) hovered: Option<MenuAction>,
-    pub(crate) pressed: Option<MenuAction>,
-    pub(crate) server_tab: MenuServerTab,
-    pub(crate) dialog: Option<MenuDialog>,
-    pub(crate) field: Option<MenuField>,
-    pub(crate) name: String,
-    pub(crate) address: String,
-    pub(crate) message: Option<String>,
-    pub(crate) gui_scale: u8,
-    pub(crate) display_name: String,
-    pub(crate) servers: Vec<SavedServer>,
-    pub(crate) featured: Vec<MenuServerCard>,
-    pub(crate) gatherings: Vec<MenuServerCard>,
-    pub(crate) realms: Vec<MenuRealmCard>,
-    pub(crate) friends: Vec<MenuFriendCard>,
-    pub(crate) featured_icon: Option<IconRef>,
-    pub(crate) gathering_icon: Option<IconRef>,
-    pub(crate) realm_icon: Option<IconRef>,
-    pub(crate) friend_icon: Option<IconRef>,
-    pub(crate) saved_icon: Option<IconRef>,
-    pub(crate) profile_icon: Option<IconRef>,
-    pub(crate) catalog_loading: bool,
-    pub(crate) catalog_message: Option<String>,
-    pub(crate) auth_state: AuthState,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-struct CatalogFile {
-    #[serde(default)]
-    featured: Vec<MenuServerCard>,
-    #[serde(default)]
-    gatherings: Vec<MenuServerCard>,
-    #[serde(default)]
-    realms: Vec<MenuRealmCard>,
-    #[serde(default)]
-    friends: Vec<CatalogFriend>,
-    #[serde(default)]
-    errors: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct CatalogFriend {
-    gamertag: String,
-    world_name: String,
-    xuid: String,
-    members: i32,
-    max_members: i32,
-}
-
-impl From<CatalogFriend> for MenuFriendCard {
-    fn from(friend: CatalogFriend) -> Self {
-        let members = if friend.max_members > 0 {
-            format!("{}/{} players", friend.members, friend.max_members)
-        } else {
-            format!("{} players", friend.members)
-        };
-        Self {
-            gamertag: friend.gamertag,
-            world_name: friend.world_name,
-            members,
-            xuid: friend.xuid,
-        }
-    }
+    /// Load a saved server into the add/edit draft.
+    EditSaved(usize),
+    /// Pick a settings section by its selector index.
+    SettingsSection(u8),
+    Respawn,
+    PlayLocalWorld(usize),
+    SignOut,
+    /// A sound slider (by [`VOLUME_SLIDERS`] index) set to a percent.
+    SettingsVolume(u8, u8),
 }
 
 #[derive(Debug, Resource)]
@@ -273,6 +182,19 @@ pub(crate) struct MenuRuntime {
     layout: InstallLayout,
     /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
     player_skin: crate::player_skin::LocalPlayerSkin,
+    editing: Option<usize>,
+    settings_section: u8,
+    disconnect_message: Option<String>,
+    /// Death screen shown for the current death; cleared once alive again.
+    death_shown: bool,
+    respawn_requested: bool,
+    local_worlds: Vec<LocalWorldCard>,
+    local_world_requested: Option<usize>,
+    /// Sign-in state reported by the core's account control, when bound.
+    control_auth: Option<AuthState>,
+    sign_out_requested: bool,
+    volumes: settings_values::Volumes,
+    volume_change: Option<(u8, u8)>,
     /// Identity-checked owner of this session's runtime directory; bound
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
@@ -350,11 +272,26 @@ impl MenuRuntime {
             layout,
             player_skin,
             session_directory: None,
+            editing: None,
+            settings_section: 0,
+            disconnect_message: None,
+            death_shown: false,
+            respawn_requested: false,
+            local_worlds: Vec::new(),
+            local_world_requested: None,
+            control_auth: None,
+            sign_out_requested: false,
+            volumes: Default::default(),
+            volume_change: None,
         }
     }
 
     pub(crate) fn is_visible(&self) -> bool {
         self.visible
+    }
+
+    pub(crate) fn screen(&self) -> MenuScreen {
+        self.screen
     }
 
     pub(crate) fn is_launcher(&self) -> bool {
@@ -375,10 +312,11 @@ impl MenuRuntime {
     }
 
     pub(crate) fn view(&self) -> MenuView {
-        let auth_state = self
-            .auth_process
-            .as_ref()
-            .map_or(AuthState::SignedOut, |process| process.state().clone());
+        let auth_state = self.control_auth.clone().unwrap_or_else(|| {
+            self.auth_process
+                .as_ref()
+                .map_or(AuthState::SignedOut, |process| process.state().clone())
+        });
         let catalog_loading = matches!(
             &auth_state,
             AuthState::Checking | AuthState::AwaitingCode { .. }
@@ -412,7 +350,50 @@ impl MenuRuntime {
             catalog_loading,
             catalog_message: self.catalog_message.clone(),
             auth_state,
+            connecting: self.connecting,
+            settings_section: self.settings_section,
+            disconnect_message: self.disconnect_message.clone(),
+            editing: self.editing,
+            local_worlds: self.local_worlds.clone(),
+            volumes: self.volumes,
         }
+    }
+
+    /// The local worlds the worlds tab lists (the local-worlds module feeds it).
+    pub(crate) fn set_local_worlds(&mut self, worlds: Vec<LocalWorldCard>) {
+        self.local_worlds = worlds;
+    }
+
+    /// A local world the player chose to open, for the local-worlds module.
+    pub(crate) fn take_local_world_request(&mut self) -> Option<usize> {
+        self.local_world_requested.take()
+    }
+
+    /// Show the death screen once per death (health reached zero in play).
+    pub(crate) fn open_death(&mut self) {
+        if self.visible || self.connecting || self.death_shown {
+            return;
+        }
+        self.death_shown = true;
+        self.enter(MenuScreen::Death);
+    }
+
+    /// Health came back above zero: a later death shows the screen again.
+    pub(crate) fn note_player_alive(&mut self) {
+        self.death_shown = false;
+        if self.screen == MenuScreen::Death && self.visible {
+            self.set_visible(false);
+            self.screen = MenuScreen::Home;
+        }
+    }
+
+    /// The death screen's respawn press, for the session to send once.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "sent once the respawn request lands")
+    )]
+    pub(crate) fn take_respawn_request(&mut self) -> bool {
+        std::mem::take(&mut self.respawn_requested)
     }
 
     pub(crate) fn open_pause(&mut self) {
@@ -482,6 +463,7 @@ impl MenuRuntime {
         self.text_selected = false;
         self.settings_return_to_pause = false;
         self.message = Some(session_failure_message(error));
+        self.disconnect_message = self.message.clone();
         // Let the account catalog repopulate now that the session is gone.
         self.catalog_started = false;
         true
@@ -530,6 +512,7 @@ impl MenuRuntime {
         }
         self.pressed = Some(action);
         self.message = None;
+        self.disconnect_message = None;
         match action {
             MenuAction::Navigate(screen) => {
                 self.settings_return_to_pause = false;
@@ -556,6 +539,7 @@ impl MenuRuntime {
             MenuAction::StartSignIn => self.start_sign_in(),
             MenuAction::CancelSignIn => self.stop_sign_in(),
             MenuAction::PlayAddServer => {
+                self.editing = None;
                 self.name.clear();
                 self.address.clear();
                 self.enter(MenuScreen::AddServer);
@@ -652,6 +636,27 @@ impl MenuRuntime {
             MenuAction::PauseSettings => {
                 self.enter(MenuScreen::Settings);
                 self.settings_return_to_pause = true;
+            }
+            MenuAction::EditSaved(index) => {
+                if let Some(server) = self.servers.get(index) {
+                    self.name = server.name.clone();
+                    self.address = server.address.clone();
+                    self.enter(MenuScreen::AddServer);
+                    self.editing = Some(index);
+                    self.focus_field(MenuField::Name);
+                }
+            }
+            MenuAction::SettingsSection(section) => self.settings_section = section,
+            MenuAction::Respawn => {
+                self.respawn_requested = true;
+                self.set_visible(false);
+            }
+            MenuAction::SignOut => self.sign_out_requested = true,
+            MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
+            MenuAction::PlayLocalWorld(index) => {
+                if index < self.local_worlds.len() {
+                    self.local_world_requested = Some(index);
+                }
             }
         }
     }
@@ -799,6 +804,7 @@ impl MenuRuntime {
                 MenuAction::PauseSettings,
                 MenuAction::PauseDisconnect,
             ],
+            MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::PauseDisconnect],
         }
     }
 
@@ -818,7 +824,8 @@ impl MenuRuntime {
             return;
         }
         match self.screen {
-            MenuScreen::Home => {}
+            // Death has no way back; only respawn or leaving ends it.
+            MenuScreen::Home | MenuScreen::Death => {}
             MenuScreen::Pause => self.set_visible(false),
             MenuScreen::Settings if self.settings_return_to_pause => {
                 self.settings_return_to_pause = false;
@@ -848,7 +855,10 @@ impl MenuRuntime {
             favorite: false,
             last_joined_unix: 0,
         };
-        if let Some(existing) = self
+        if let Some(existing) = self.editing.and_then(|index| self.servers.get_mut(index)) {
+            existing.name = server.name;
+            existing.address = server.address;
+        } else if let Some(existing) = self
             .servers
             .iter_mut()
             .find(|existing| existing.address.eq_ignore_ascii_case(&server.address))

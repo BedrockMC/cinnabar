@@ -749,6 +749,8 @@ fn decode_world_raw_with(
             | McpePacketName::BossEventPacket
             | McpePacketName::SetTitlePacket
             | McpePacketName::ModalFormRequestPacket
+            | McpePacketName::ServerSettingsResponsePacket
+            | McpePacketName::NpcDialoguePacket
             | McpePacketName::RemoveObjectivePacket
             | McpePacketName::SetDisplayObjectivePacket
             | McpePacketName::SetScorePacket

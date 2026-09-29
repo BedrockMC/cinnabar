@@ -388,6 +388,12 @@ pub fn into_world_event(
         McpePacketData::SetScorePacket(packet) => WorldEvent::Ui(normalize_score(packet)?),
         McpePacketData::BossEventPacket(packet) => WorldEvent::Ui(normalize_boss(*packet)?),
         McpePacketData::ModalFormRequestPacket(packet) => WorldEvent::Ui(normalize_form(packet)?),
+        McpePacketData::ServerSettingsResponsePacket(packet) => {
+            WorldEvent::Ui(crate::ui::normalize_server_settings(packet)?)
+        }
+        McpePacketData::NpcDialoguePacket(packet) => {
+            WorldEvent::Ui(crate::ui::normalize_npc_dialogue(*packet)?)
+        }
         McpePacketData::SetHealthPacket(packet) => WorldEvent::Ui(normalize_health(packet)),
         McpePacketData::PlayStatusPacket(packet) => {
             WorldEvent::Ui(normalize_player_status(packet)?)
