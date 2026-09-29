@@ -15,6 +15,7 @@ use ui::BoundedStat;
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
 
+mod debug_overlay_tests;
 mod forms_tests;
 mod hud_matrix_tests;
 mod inventory_count_tests;
