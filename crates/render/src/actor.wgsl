@@ -32,7 +32,7 @@ struct VertexOutput {
     @location(3) world_normal: vec3<f32>,
     @location(4) back_uv: vec2<f32>,
     @location(5) @interpolate(flat) tint: u32,
-    @location(5) @interpolate(flat) overlay: vec4<f32>,
+    @location(6) @interpolate(flat) overlay: vec4<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
