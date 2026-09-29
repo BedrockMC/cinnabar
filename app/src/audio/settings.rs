@@ -65,6 +65,11 @@ impl AudioSettings {
         }
     }
 
+    /// The category's own slider, before master scaling.
+    pub(crate) fn volume(&self, category: AudioCategory) -> f32 {
+        self.volumes[category.slot()]
+    }
+
     /// Effective gain of `category`: its own slider times master (master alone for `Master`).
     pub(crate) fn effective(&self, category: AudioCategory) -> f32 {
         let master = self.volumes[AudioCategory::Master.slot()];
