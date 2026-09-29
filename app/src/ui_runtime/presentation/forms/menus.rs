@@ -125,11 +125,13 @@ impl UiPresentationRuntime {
             preview: self.hud_frame.player_preview,
             pointer: None,
             images: Some(&self.menu_artwork.refs),
-            portrait: self
-                .menu_artwork
-                .refs
-                .get(&view.feeds.profile.picture_path)
-                .copied(),
+            // The gamerpic, else the rendered persona head.
+            portrait: [
+                &view.feeds.profile.picture_path,
+                &view.feeds.home.persona_head,
+            ]
+            .into_iter()
+            .find_map(|path| self.menu_artwork.refs.get(path).copied()),
         };
         let rendered = renderer.render_screen(
             screen.reference,

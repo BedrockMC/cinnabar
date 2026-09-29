@@ -163,10 +163,8 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     };
     data.set_global("#playername", text(gamertag.clone()));
     data.set_global("#gamertag_label", text(gamertag));
-    data.set_global(
-        "#show_gamerpic",
-        Scalar::Bool(!profile.picture_path.is_empty()),
-    );
+    let portrait = !profile.picture_path.is_empty() || !view.feeds.home.persona_head.is_empty();
+    data.set_global("#show_gamerpic", Scalar::Bool(portrait));
     flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
     super::start_feed::bind(view, data);
     data.set_global("#version", text("v1.26.30"));
