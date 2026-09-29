@@ -8,6 +8,8 @@ use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player
 
 /// Dynamic page offset holding the session's server item icons.
 pub(super) const SESSION_ICON_PAGE: usize = 9;
+/// Dynamic pages after the general ten, holding the session's glyph-sheet atlas.
+pub(super) const GLYPH_PAGES: usize = 8;
 
 pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
     let changed = runtime
@@ -204,6 +206,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .clone()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone()),
     );
+    let glyph_pages = &runtime.session_glyphs.pages;
+    dynamic.extend((0..GLYPH_PAGES).map(|offset| {
+        glyph_pages
+            .get(offset)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
         let old = &previous[first_dynamic + offset];

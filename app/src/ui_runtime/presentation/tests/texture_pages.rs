@@ -76,7 +76,7 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
         independent_icons(735, 16),
     )
     .unwrap();
-    assert_eq!(presentation.textures.plan().bytes(), 56 * 1024 * 1024);
+    assert_eq!(presentation.textures.plan().bytes(), 58 * 1024 * 1024);
     assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 735);
     // The largest icon carrier still fits beside the CJK font; the planner refuses whole
     // catalogs past the byte budget (see render's `planner_checks_entire_catalog_and_all_limits`).
@@ -170,7 +170,7 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
     assert_eq!(
         presentation.textures.plan().bytes(),
-        52 * 1024 * 1024 + 11 * 256 * 256 * 4
+        52 * 1024 * 1024 + 19 * 256 * 256 * 4
     );
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];
@@ -419,4 +419,45 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
 
     session_icons::observe(&mut presentation, None);
     assert!(presentation.item_icon("test:gem", 0).is_none());
+}
+
+// Server glyph sheets land on the trailing dynamic pages and only the session font resolves them.
+#[test]
+fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    assert!(presentation.font.glyph('\u{e005}').is_none());
+    let mut rgba8 = vec![0u8; 128 * 128 * 4];
+    for y in 0..8usize {
+        for x in 0..8usize {
+            let at = ((y * 128) + 5 * 8 + x) * 4;
+            rgba8[at..at + 4].copy_from_slice(&[255; 4]);
+        }
+    }
+    let sheets = Arc::new(SessionGlyphSheets {
+        cells: assets::extract_cells(&assets::GlyphSheet {
+            high_byte: 0xe0,
+            width: 128,
+            height: 128,
+            rgba8: rgba8.into(),
+        }),
+    });
+    session_glyphs::observe(&mut presentation, Some(&sheets));
+    let glyph = *presentation.font.glyph('\u{e005}').expect("sheet glyph");
+    let dynamic_start = presentation.textures.dynamic_start();
+    assert_eq!(usize::from(glyph.page), dynamic_start + 10);
+    assert_eq!(glyph.advance_64, 9 * 64);
+    let page = &presentation.textures.pages()[usize::from(glyph.page)];
+    let [left, top, ..] = glyph.uv;
+    assert_eq!(
+        page.pixels()[(usize::from(top) * 256 + usize::from(left)) * 4 + 3],
+        255
+    );
+    assert!(presentation.base_font.glyph('\u{e005}').is_none());
+
+    session_glyphs::observe(&mut presentation, None);
+    assert!(presentation.font.glyph('\u{e005}').is_none());
+    assert_eq!(
+        presentation.textures.pages().len(),
+        dynamic_start + render::MAX_UI_DYNAMIC_PAGES
+    );
 }

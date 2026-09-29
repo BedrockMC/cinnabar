@@ -88,8 +88,12 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   shield/pumpkin head.
 - **First person:** near-camera rig pass fed with arm-only masking per the pack's first-person
   part visibility (arm shows for empty hand/map only) plus a drawable held sprite or block cube
-  on the posed `rightItem` bone (item atlas bound to the pass); camera-to-rig offset and item
-  placement are provisional. Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
+  on the posed `rightItem` bone (item atlas bound to the pass). Placement follows the 26.30
+  reference: a zero-yaw actor in view space, feet one eye height below the camera, with the
+  target/body/head rotation queries zeroed; `variable.player_arm_height` is the equip progress
+  (its per-tick step and swap height are unresolved in the reference and need measurement).
+  Still missing: view bob and arm sway on the hand, and the hand FOV (uses the main camera FOV).
+  Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
   poses are neutral: `query.main_hand_item_use_duration` now counts using-item flag ticks, but
   `max_duration` has no source (no item-use state; only food durations exist in pack data).
 - **Block items:** plain opaque cubes in hand (third and first person) and on the head
@@ -118,8 +122,7 @@ Known gap: a one-tick cosmetic body smear on same-dimension teleport/large snap
 hand (M2) not built (near-camera GPU pass).
 
 First-person hand (near-camera draw node) merged; provisional/native-tunable: the
-hand's daylight is pinned to 1.0 (won't darken at night), the camera offset/yaw and
-FOV need native tuning, and the held-item model isn't attached yet.
+hand's daylight is pinned to 1.0 (won't darken at night) and its FOV needs native tuning.
 
 Root cause: the local player is never spawned as an actor, so it never gets the
 animated rig remotes use. All three below flow from that.
@@ -292,4 +295,5 @@ Molang state, and every texture a candidate can select is built into the actor p
 
 Player cape: drawn from the skin's cape raster with the `geometry.cape` mesh posed from the
 player's bones by name; the cape's rest turn, layer resampling and `cape_flap_amount` scale need
-native verification.
+native verification. With the real carriers no cape draws yet: vanilla defines `geometry.cape` in
+`models/mobs.json`, which the entity compiler does not read.
