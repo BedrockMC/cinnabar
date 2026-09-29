@@ -473,6 +473,18 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let icon_report = temporary.join("icon.json");
     let audio = temporary.join("audio.mcbeaud");
     let audio_report = temporary.join("audio.json");
+    let audio_bank = temporary.join("audio.mcbesnd");
+    let audio_bank_report = temporary.join("audio-bank.json");
+    let equipment = temporary.join("equipment.mcbeeqp");
+    let equipment_report = temporary.join("equipment.json");
+    let ui = temporary.join("ui.mcbeui");
+    let ui_report = temporary.join("ui.json");
+    let weather = temporary.join("weather.mcbewth");
+    let hud_extras = temporary.join("hud-extras.mcbehxt");
+    let particle = temporary.join("particle.mcbept");
+    let particle_report = temporary.join("particle.json");
+    let block_entity = temporary.join("block-entity.mcbeben");
+    let block_entity_report = temporary.join("block-entity.json");
 
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
@@ -507,6 +519,18 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("ICON_ASSET_REPORT={}", make_path(&icon_report)),
         format!("AUDIO_ASSET_BLOB={}", make_path(&audio)),
         format!("AUDIO_ASSET_REPORT={}", make_path(&audio_report)),
+        format!("AUDIO_BANK_BLOB={}", make_path(&audio_bank)),
+        format!("AUDIO_BANK_REPORT={}", make_path(&audio_bank_report)),
+        format!("EQUIPMENT_ASSET_BLOB={}", make_path(&equipment)),
+        format!("EQUIPMENT_ASSET_REPORT={}", make_path(&equipment_report)),
+        format!("UI_ASSET_BLOB={}", make_path(&ui)),
+        format!("UI_ASSET_REPORT={}", make_path(&ui_report)),
+        format!("WEATHER_ASSET_BLOB={}", make_path(&weather)),
+        format!("HUD_EXTRAS_ASSET_BLOB={}", make_path(&hud_extras)),
+        format!("PARTICLE_ASSET_BLOB={}", make_path(&particle)),
+        format!("PARTICLE_ASSET_REPORT={}", make_path(&particle_report)),
+        format!("BLOCK_ENTITY_ASSET_BLOB={}", make_path(&block_entity)),
+        format!("BLOCK_ENTITY_ASSET_REPORT={}", make_path(&block_entity_report)),
         format!("PHYSICS_REGISTRY={}", make_path(&physics)),
         producer_assignment("VANILLA_ASSET_FETCH", "acquire", &log, &[&sentinel]),
         producer_assignment("WORLD_ASSET_COMPILE", "world", &log, &[&world]),
@@ -542,6 +566,38 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "audio",
             &log,
             &[&audio, &audio_report],
+        ),
+        producer_assignment(
+            "AUDIO_BANK_COMPILE",
+            "audio-bank",
+            &log,
+            &[&audio_bank, &audio_bank_report],
+        ),
+        producer_assignment(
+            "EQUIPMENT_ASSET_COMPILE",
+            "equipment",
+            &log,
+            &[&equipment, &equipment_report],
+        ),
+        producer_assignment("UI_ASSET_COMPILE", "ui", &log, &[&ui, &ui_report]),
+        producer_assignment("WEATHER_ASSET_COMPILE", "weather", &log, &[&weather]),
+        producer_assignment(
+            "HUD_EXTRAS_ASSET_COMPILE",
+            "hud-extras",
+            &log,
+            &[&hud_extras],
+        ),
+        producer_assignment(
+            "PARTICLE_ASSET_COMPILE",
+            "particle",
+            &log,
+            &[&particle, &particle_report],
+        ),
+        producer_assignment(
+            "BLOCK_ENTITY_ASSET_COMPILE",
+            "block-entity",
+            &log,
+            &[&block_entity, &block_entity_report],
         ),
         format!(
             "PHYSICS_REGISTRY_COMPILE=echo generated > \"{}\"",
@@ -600,6 +656,13 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "lang",
             "icon",
             "audio",
+            "audio-bank",
+            "equipment",
+            "ui",
+            "weather",
+            "hud-extras",
+            "particle",
+            "block-entity",
             "physics",
             "launch",
         ]

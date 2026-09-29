@@ -685,7 +685,10 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
     let compiled = carrier_v4_fixture();
     let encoded = entity::encode_entity_blob(&compiled).expect("encode version-4 carrier");
     assert_eq!(&encoded[..8], b"MCBEENT3");
-    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 5);
+    assert_eq!(
+        u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
+        entity::ENTITY_BLOB_VERSION
+    );
 
     let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-4 carrier");
     assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
@@ -699,7 +702,10 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
 #[test]
 fn carrier_rejects_adjacent_versions_and_hashes_extended_payload() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
-    for version in [4_u32, 6] {
+    for version in [
+        entity::ENTITY_BLOB_VERSION - 1,
+        entity::ENTITY_BLOB_VERSION + 1,
+    ] {
         let mut wrong = encoded.to_vec();
         wrong[8..12].copy_from_slice(&version.to_le_bytes());
         assert!(RuntimeEntityAssetsV4::decode(&wrong).is_err());

@@ -986,6 +986,8 @@ mod tests {
             &ctx(Transform::IDENTITY),
         );
         assert_eq!(view.skips().actor_bound, 1);
-        assert!(view.pose_override(&ctx(Transform::IDENTITY)).is_some());
+        // The attachment is kept; until the actor exists the player camera stays in charge.
+        assert!(view.has_pose_override());
+        assert!(view.pose_override(&ctx(Transform::IDENTITY)).is_none());
     }
 }

@@ -51,6 +51,7 @@ fn primary_merges_an_occupied_compatible_stack_up_to_capacity() {
 
     press(&mut app, MouseButton::Left);
     app.update();
+    release_and_update(&mut app, MouseButton::Left);
 
     let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
     assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(64));
@@ -65,6 +66,7 @@ fn primary_merges_an_occupied_compatible_stack_up_to_capacity() {
     let mut full = pointer_app(full, InventoryCellHit::Player(0), false, true);
     press(&mut full, MouseButton::Left);
     full.update();
+    release_and_update(&mut full, MouseButton::Left);
     let ledger = full.world().resource::<UiRuntime>().inventory_ledger();
     assert_eq!(ledger.pending_state(), None);
     assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(64));
@@ -81,6 +83,7 @@ fn secondary_places_one_into_occupied_compatible_stack_without_gameplay_use() {
 
     press(&mut app, MouseButton::Right);
     app.update();
+    release_and_update(&mut app, MouseButton::Right);
 
     let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
     assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(61));
@@ -152,6 +155,7 @@ fn secondary_places_one_into_empty_player_and_storage_cells() {
 
         press(&mut app, MouseButton::Right);
         app.update();
+        release_and_update(&mut app, MouseButton::Right);
 
         let ledger = app.world().resource::<UiRuntime>().inventory_ledger();
         assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(6));
@@ -665,6 +669,18 @@ fn press(app: &mut App, button: MouseButton) {
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(button);
+}
+
+/// Releases `button` and runs a frame; a held cursor stack acts on release.
+fn release_and_update(app: &mut App, button: MouseButton) {
+    {
+        let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        // The inventory resets button state, so re-arm the held state first.
+        buttons.press(button);
+        buttons.clear();
+        buttons.release(button);
+    }
+    app.update();
 }
 
 fn press_key(app: &mut App, key: KeyCode) {

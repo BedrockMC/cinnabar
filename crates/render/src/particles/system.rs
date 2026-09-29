@@ -327,7 +327,10 @@ mod tests {
         system.spawn(&request("burst", 0.0));
         system.tick(0.1, &EmptyWorld);
         assert_eq!(system.emitter_count(), 1);
-        system.tick(1.0, &EmptyWorld);
+        // One tick advances at most a quarter second.
+        for _ in 0..4 {
+            system.tick(0.25, &EmptyWorld);
+        }
         assert_eq!(system.emitter_count(), 0);
     }
 
