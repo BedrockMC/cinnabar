@@ -1,6 +1,6 @@
 //! Composition of an item's display placement with the hand bone's pose.
 
-use bevy::math::{Quat, Vec3};
+use bevy::math::{Mat3, Mat4, Quat, Vec3};
 use render::RenderBoneTransform;
 
 pub(super) const LAYER_MAIN_HAND: u8 = 1;
@@ -10,27 +10,67 @@ pub(super) const LAYER_CHESTPLATE: u8 = 4;
 pub(super) const LAYER_LEGGINGS: u8 = 5;
 pub(super) const LAYER_BOOTS: u8 = 6;
 
-/// Item-space to hand-bone placement: rotation, translation in blocks, uniform scale.
+/// Item-space to hand-bone placement: rotation, translation in blocks, uniform scale, and an
+/// optional mirror of item X applied first.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ItemDisplay {
     pub(super) rotation: Quat,
     pub(super) translation: Vec3,
     pub(super) scale: f32,
+    pub(super) mirror_x: bool,
 }
 
-/// Third-person placement of a flat sprite item held in the main hand.
-///
-/// Provisional: it turns the sprite's up axis to the hand's up and its width axis to forward so
-/// the tip points forward-up, with the grip corner at the fist. Scale and offsets need native
-/// measurement against the retail client; no vanilla number is derived here.
-pub(super) fn held_sprite_display() -> ItemDisplay {
-    const SCALE: f32 = 0.85;
-    const GRIP_FROM_CENTER: f32 = 0.31;
-    ItemDisplay {
-        rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
-        translation: Vec3::new(0.0, GRIP_FROM_CENTER * SCALE, -GRIP_FROM_CENTER * SCALE),
-        scale: SCALE,
+impl ItemDisplay {
+    /// Decomposes a rotation + uniform scale + translation matrix (X mirrored first if asked).
+    fn from_matrix(matrix: Mat4, mirror_x: bool) -> Self {
+        let linear = Mat3::from_mat4(matrix);
+        let scale = linear.determinant().cbrt();
+        Self {
+            rotation: Quat::from_mat3(&(linear * scale.recip())).normalize(),
+            translation: matrix.w_axis.truncate(),
+            scale,
+            mirror_x,
+        }
     }
+}
+
+fn degrees(value: f32) -> f32 {
+    value.to_radians()
+}
+
+/// The reference's hand-bone frame (Y and X negated) turned into the rig bone frame.
+fn rig_from_reference_bone() -> Mat4 {
+    Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0))
+}
+
+/// Main-hand placement of a flat sprite item, identical in first and third person, from the
+/// 26.30 reference's held-item and default item transforms. `hand_equipped` items (tools,
+/// weapons, rods) are held upright like a sword.
+pub(super) fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
+    let grip = if hand_equipped {
+        Mat4::from_rotation_y(degrees(180.0))
+            * Mat4::from_translation(Vec3::new(0.1, 0.265, 0.0))
+            * Mat4::from_scale(Vec3::splat(0.625))
+            * Mat4::from_rotation_x(degrees(80.0))
+            * Mat4::from_rotation_y(degrees(45.0))
+    } else {
+        Mat4::from_translation(Vec3::new(0.3125, 0.1875, -0.1875))
+            * Mat4::from_scale(Vec3::splat(0.375))
+            * Mat4::from_rotation_z(degrees(60.0))
+            * Mat4::from_rotation_x(degrees(-90.0))
+            * Mat4::from_rotation_z(degrees(20.0))
+    };
+    let item_default = Mat4::from_scale(Vec3::splat(1.5))
+        * Mat4::from_rotation_y(degrees(50.0))
+        * Mat4::from_rotation_z(degrees(335.0))
+        * Mat4::from_translation(Vec3::new(0.075, -0.245, -0.1));
+    // The reference icon spans X in [-1, 0] with its left column at 0 and Y in [0, 1]; the
+    // extruded mesh is centred with its left column at -X, so it is shifted and mirrored.
+    let icon_from_mesh = Mat4::from_translation(Vec3::new(-0.5, 0.5, 0.0));
+    ItemDisplay::from_matrix(
+        rig_from_reference_bone() * grip * item_default * icon_from_mesh,
+        true,
+    )
 }
 
 /// The item's single bone: the hand bone's pose with `display` applied in the hand frame, so
@@ -59,19 +99,26 @@ pub(super) fn attach_to_bone(
             translation.z,
             hand_scale * display.scale,
         ],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: if display.mirror_x {
+            [-1.0, 1.0, 1.0, 1.0]
+        } else {
+            render::UNIT_AXIS_SCALE
+        },
     };
     bone.is_finite().then_some(bone)
 }
 
-/// Third-person placement of a held block cube: a small cube turned to show its corner, resting
-/// in front of the fist. Provisional; needs native measurement like the sprite placement.
+/// Main-hand placement of a block item's centred unit cube, from the reference's legacy block
+/// item transforms (its block mesh origin is assumed centred and needs confirming).
 pub(super) fn held_block_display() -> ItemDisplay {
-    ItemDisplay {
-        rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
-        translation: Vec3::new(0.0, 0.05, -0.2),
-        scale: 0.4,
-    }
+    ItemDisplay::from_matrix(
+        rig_from_reference_bone()
+            * Mat4::from_translation(Vec3::new(0.0, 0.1875, -0.3125))
+            * Mat4::from_rotation_x(degrees(200.0))
+            * Mat4::from_rotation_y(degrees(225.0))
+            * Mat4::from_scale(Vec3::splat(0.375)),
+        false,
+    )
 }
 
 /// A block worn on the head: a cube just larger than the head, centred on it. Provisional.
@@ -80,5 +127,27 @@ pub(super) fn head_block_display() -> ItemDisplay {
         rotation: Quat::IDENTITY,
         translation: Vec3::new(0.0, 0.25, 0.0),
         scale: 0.5625,
+        mirror_x: false,
     }
+}
+
+/// Items vanilla holds upright (its `isHandEquipped`): tools, weapons and rod-like items. The
+/// reference keeps this per item in code; the list mirrors vanilla's hand-equipped items.
+pub(super) fn is_hand_equipped(identifier: &str) -> bool {
+    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+    ["_sword", "_axe", "_pickaxe", "_shovel", "_hoe", "_spear"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+        || matches!(
+            name,
+            "stick"
+                | "bone"
+                | "blaze_rod"
+                | "breeze_rod"
+                | "fishing_rod"
+                | "carrot_on_a_stick"
+                | "warped_fungus_on_a_stick"
+                | "mace"
+                | "debug_stick"
+        )
 }

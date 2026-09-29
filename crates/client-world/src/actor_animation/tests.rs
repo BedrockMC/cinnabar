@@ -77,6 +77,8 @@ fn read_with(
         anim_tick: 0,
         life_tick,
         finished: (false, false),
+        bones: &[],
+        bone_names: &[],
     };
     query::query(&inputs, name, arguments)
 }
@@ -682,4 +684,39 @@ fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_ground_speed() {
     assert_eq!(slot.number(), 5.0);
     let flap = read_with(&actor, &input, &context, 0, "query.cape_flap_amount", &[]);
     assert!((flap.number() - 0.4).abs() < 1.0e-6);
+}
+
+// The first-person item offset reads rest pivots; rig pivots mirror authored X.
+#[test]
+fn default_bone_pivot_reads_the_authored_rest_pivot() {
+    let actor = actor_with_metadata(HashMap::new());
+    let input = ActorTickInput::default();
+    let context = ActorTickContext::default();
+    let bones = [RuntimeBone {
+        parent: None,
+        pivot: [5.0, 22.0, 1.0],
+        rotation: [0.0; 3],
+    }];
+    let names = [Box::<str>::from("rightarm")];
+    let inputs = QueryInputs {
+        actor: &actor,
+        input: &input,
+        context: &context,
+        anim_tick: 0,
+        life_tick: 0,
+        finished: (false, false),
+        bones: &bones,
+        bone_names: &names,
+    };
+    let pivot = |name: &str, axis: f32| {
+        query::query(
+            &inputs,
+            "query.get_default_bone_pivot",
+            &[MolangValue::String(name.into()), MolangValue::Number(axis)],
+        )
+        .number()
+    };
+    assert_eq!(pivot("rightArm", 0.0), -5.0);
+    assert_eq!(pivot("rightArm", 1.0), 22.0);
+    assert_eq!(pivot("missing", 1.0), 0.0);
 }
