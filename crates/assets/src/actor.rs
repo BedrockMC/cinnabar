@@ -7,11 +7,11 @@ use crate::{AssetError, RuntimeEntityAssets};
 mod eligibility;
 pub use eligibility::neutral_actor_geometry_uvs_are_supported;
 
-pub const ACTOR_CARRIER_MAGIC: [u8; 8] = *b"MCBEACT2";
-pub const ACTOR_CARRIER_VERSION: u32 = 2;
+pub const ACTOR_CARRIER_MAGIC: [u8; 8] = *b"MCBEACT3";
+pub const ACTOR_CARRIER_VERSION: u32 = 3;
 // Engine safety ceilings, not retail constants.
 pub const MAX_ACTOR_TEXTURE_SIDE: u16 = 512;
-pub const MAX_ACTOR_TEXTURES: usize = 128;
+pub const MAX_ACTOR_TEXTURES: usize = 2048;
 pub const MAX_ACTOR_BINDINGS: usize = 4096;
 pub const MAX_ACTOR_PIXEL_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_ACTOR_CARRIER_BYTES: usize = MAX_ACTOR_PIXEL_BYTES + 1024 * 1024;
@@ -189,11 +189,19 @@ impl RuntimeActorCatalog {
     pub fn bindings(&self) -> &[ActorArtworkBinding] {
         &self.bindings
     }
+    /// The first geometry candidate's binding of a rig.
     pub fn binding(&self, rig: u32) -> Option<&ActorArtworkBinding> {
+        let index = self.bindings.partition_point(|binding| binding.rig < rig);
         self.bindings
-            .binary_search_by_key(&rig, |binding| binding.rig)
-            .ok()
-            .map(|index| &self.bindings[index])
+            .get(index)
+            .filter(|binding| binding.rig == rig)
+    }
+    /// The texture of the actor texture table drawn from entity-catalog source `source`.
+    pub fn texture_of_source(&self, source: u32) -> Option<u32> {
+        self.textures
+            .iter()
+            .position(|texture| texture.source == source)
+            .map(|index| index as u32)
     }
 }
 
@@ -255,7 +263,7 @@ fn validate(
         return Err(invalid("actor catalog counts exceed bounds"));
     }
     let mut total = 0usize;
-    let mut pixel_identities = std::collections::BTreeSet::new();
+    let mut seen_sources = std::collections::BTreeSet::new();
     for texture in textures {
         let length = pixel_length(texture.width, texture.height)?;
         total = total
@@ -274,21 +282,21 @@ fn validate(
                 .rgba8
                 .chunks_exact(4)
                 .any(|pixel| !matches!(pixel[3], 0 | 255))
-            || !pixel_identities.insert((texture.width, texture.height, texture.pixel_sha256))
+            || !seen_sources.insert(texture.source)
         {
             return Err(invalid("actor pixels or raster provenance are invalid"));
         }
     }
-    let mut previous = None;
-    let mut used_textures = std::collections::BTreeSet::new();
+    let mut previous: Option<(u32, u32)> = None;
     for binding in bindings {
         let rig = entities
             .rig_bindings()
             .get(binding.rig as usize)
             .ok_or_else(|| invalid("actor rig is absent"))?;
+        let candidates = rig.first_geometry..rig.first_geometry + u32::from(rig.geometry_count);
         let geometry_binding = entities
             .rig_geometries()
-            .get(rig.first_geometry as usize)
+            .get(binding.geometry_candidate as usize)
             .ok_or_else(|| invalid("actor rig geometry is absent"))?;
         let geometry = entities
             .geometries()
@@ -297,18 +305,15 @@ fn validate(
         let texture = textures
             .get(binding.texture as usize)
             .ok_or_else(|| invalid("actor texture index is absent"))?;
-        if previous.is_some_and(|previous| previous >= binding.rig)
+        let key = (binding.rig, binding.geometry_candidate);
+        if previous.is_some_and(|previous| previous >= key)
             || binding.entity_symbol != rig.entity_symbol
-            || binding.geometry_candidate != rig.first_geometry
+            || !candidates.contains(&binding.geometry_candidate)
             || binding.render_controller != rig.render_controller
-            || rig.geometry_count != 1
-            || geometry_binding.condition.is_some()
             || binding.geometry != geometry_binding.geometry
             || geometry.texture_width != texture.width
             || geometry.texture_height != texture.height
-            || !neutral_actor_material_is_supported(&binding.material)
-            || neutral_actor_pose_mode(entities, binding.geometry_candidate as usize)
-                != Some(binding.pose_mode)
+            || binding.material.is_empty()
             || !neutral_actor_geometry_uvs_are_supported(
                 entities.geometries(),
                 binding.geometry as usize,
@@ -316,11 +321,7 @@ fn validate(
         {
             return Err(invalid("actor artwork binding is invalid or ambiguous"));
         }
-        previous = Some(binding.rig);
-        used_textures.insert(binding.texture);
-    }
-    if used_textures.len() != textures.len() {
-        return Err(invalid("actor catalog contains unreferenced textures"));
+        previous = Some(key);
     }
     Ok(())
 }

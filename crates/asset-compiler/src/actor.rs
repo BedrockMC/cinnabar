@@ -4,15 +4,13 @@ use std::{collections::BTreeMap, io::Cursor, path::Path, sync::Arc};
 use assets::{
     ActorArtworkBinding, ActorTexture, AssetError, CompiledEntityAssets, MAX_ACTOR_PIXEL_BYTES,
     MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, encode_actor_catalog, encode_entity_blob,
-    neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
+    neutral_actor_geometry_uvs_are_supported,
 };
 use image::{ImageFormat, ImageReader, Limits};
 use serde::Serialize;
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::entity::{compile_entity_assets, parse_fully_unique_json, read_bounded_source};
-mod eligibility;
+use crate::entity::{compile_entity_assets, read_bounded_source};
 mod pack;
 pub use pack::{ActorPackCompilation, compile_actor_pack};
 
@@ -99,7 +97,7 @@ pub fn compile_actor_assets(
     Ok(CompiledActorCarrier { bytes, report })
 }
 
-/// Neutral artwork for every eligible rig of a catalog; `read` returns a source's bytes by index.
+/// Artwork for every rig with a decodable texture; `read` returns a source's bytes by index.
 struct ArtworkBuild {
     textures: Vec<ActorTexture>,
     bindings: Vec<ActorArtworkBinding>,
@@ -107,185 +105,147 @@ struct ArtworkBuild {
     pixel_bytes: usize,
 }
 
+struct DecodedRaster {
+    width: u16,
+    height: u16,
+    pixels: Vec<u8>,
+}
+
+fn decode_raster(path: &str, bytes: &[u8]) -> Option<DecodedRaster> {
+    let format = if path.ends_with(".png") {
+        ImageFormat::Png
+    } else {
+        ImageFormat::Tga
+    };
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_ACTOR_TEXTURE_SIDE.into());
+    limits.max_image_height = Some(MAX_ACTOR_TEXTURE_SIDE.into());
+    limits.max_alloc = Some(4 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
+    let (width, height) = (
+        u16::try_from(image.width()).ok()?,
+        u16::try_from(image.height()).ok()?,
+    );
+    let pixels = image.into_rgba8().into_raw();
+    // The actor pipeline discards on alpha, so only binary alpha reproduces the raster.
+    pixels
+        .chunks_exact(4)
+        .all(|pixel| matches!(pixel[3], 0 | 255))
+        .then_some(DecodedRaster {
+            width,
+            height,
+            pixels,
+        })
+}
+
 fn build_artwork(
     entities: &CompiledEntityAssets,
-    runtime_entities: &assets::RuntimeEntityAssets,
+    _runtime_entities: &assets::RuntimeEntityAssets,
     read: &mut dyn FnMut(u32) -> Result<Vec<u8>, AssetError>,
 ) -> Result<ArtworkBuild, AssetError> {
-    let mut json_cache = BTreeMap::<u32, Value>::new();
     let mut textures = Vec::<ActorTexture>::new();
     let mut bindings = Vec::new();
     let mut fallbacks = Vec::new();
     let mut pixel_bytes = 0usize;
+    // Decoded once per source; `None` when the raster is unusable.
+    let mut decoded = BTreeMap::<u32, Option<DecodedRaster>>::new();
+    let mut table = BTreeMap::<u32, usize>::new();
+    let render = &entities.render;
     for (rig_index, rig) in entities.rig_bindings.iter().enumerate() {
-        let rig_index = rig_index as u32;
         let reject = |fallbacks: &mut Vec<ActorFallback>, reason: &str| {
             fallbacks.push(ActorFallback {
-                rig: rig_index,
+                rig: rig_index as u32,
                 reason: reason.into(),
             });
         };
-        if rig.geometry_count != 1 {
-            reject(&mut fallbacks, "conditional_selection");
-            continue;
-        }
-        let candidate = entities.rig_geometries[rig.first_geometry as usize];
-        if candidate.condition.is_some() {
-            reject(&mut fallbacks, "conditional_selection");
-            continue;
-        }
-        let entity_symbol = &entities.symbols[rig.entity_symbol as usize];
-        let controller_symbol = &entities.symbols[rig.render_controller as usize];
-        for source_index in [entity_symbol.source_index, controller_symbol.source_index] {
-            if let std::collections::btree_map::Entry::Vacant(entry) =
-                json_cache.entry(source_index)
-            {
-                let source = &entities.sources[source_index as usize];
-                let bytes = read(source_index)?;
-                entry.insert(parse_fully_unique_json(
-                    Path::new(source.path.as_ref()),
-                    &bytes,
-                )?);
-            }
-        }
-        let entity_json = json_cache[&entity_symbol.source_index].clone();
-        let controller_json = json_cache[&controller_symbol.source_index].clone();
-        if !eligibility::supported(entities, rig_index as usize, &entity_json, |index| {
-            if let Some(value) = json_cache.get(&index) {
-                return Ok(value.clone());
-            }
-            let source = &entities.sources[index as usize];
-            let bytes = read(index)?;
-            let value = parse_fully_unique_json(Path::new(source.path.as_ref()), &bytes)?;
-            json_cache.insert(index, value.clone());
-            Ok(value)
-        })? {
-            reject(&mut fallbacks, "unsupported_authored_state");
-            continue;
-        }
-        let Some(pose_mode) =
-            assets::neutral_actor_pose_mode(runtime_entities, rig.first_geometry as usize)
-        else {
-            reject(&mut fallbacks, "unsupported_pose_program");
-            continue;
-        };
-        let description = &entity_json["minecraft:client_entity"]["description"];
-        let controller =
-            &controller_json["render_controllers"][controller_symbol.identifier.as_ref()];
-        let Some(route) = resolve_route(description, controller) else {
-            reject(&mut fallbacks, "conditional_selection");
-            continue;
-        };
-        if !neutral_actor_material_is_supported(route.material) {
-            reject(&mut fallbacks, "unsupported_material");
-            continue;
-        }
-        if controller.as_object().is_none_or(|object| {
-            object
-                .keys()
-                .any(|key| !matches!(key.as_str(), "geometry" | "materials" | "textures"))
-        }) {
-            reject(&mut fallbacks, "unsupported_render_state");
-            continue;
-        }
-        let geometry = &entities.geometries[candidate.geometry as usize];
-        if geometry.identifier.as_ref() != route.geometry {
-            reject(&mut fallbacks, "geometry_identity");
-            continue;
-        }
-        if !neutral_actor_geometry_uvs_are_supported(
-            &entities.geometries,
-            candidate.geometry as usize,
-        ) {
-            reject(&mut fallbacks, "uv_extents_or_inheritance");
-            continue;
-        }
-        let possible: Vec<_> = entities
-            .sources
+        let first = render
+            .layers
+            .partition_point(|layer| (layer.rig as usize) < rig_index);
+        let layers = &render.layers[first..];
+        let layers = &layers[..layers.partition_point(|layer| layer.rig as usize == rig_index)];
+        let sources: Vec<u32> = layers
             .iter()
-            .enumerate()
-            .filter(|(_, source)| {
-                source.path.as_ref() == format!("{}.png", route.texture)
-                    || source.path.as_ref() == format!("{}.tga", route.texture)
+            .flat_map(|layer| {
+                let slots = &render.slots[layer.first_slot as usize..][..layer.slot_count as usize];
+                slots.iter().flat_map(|slot| {
+                    render.candidates[slot.first_candidate as usize..]
+                        [..slot.candidate_count as usize]
+                        .iter()
+                        .map(|candidate| candidate.source)
+                })
             })
             .collect();
-        if possible.len() != 1 || !route.texture.starts_with("textures/entity/") {
-            reject(&mut fallbacks, "missing_or_ambiguous_texture");
+        if sources.is_empty() {
+            reject(&mut fallbacks, "no_render_layer");
             continue;
         }
-        let (source_index, source) = possible[0];
-        let bytes = read(source_index as u32)?;
-        let format = if source.path.ends_with(".png") {
-            ImageFormat::Png
-        } else {
-            ImageFormat::Tga
-        };
-        let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
-        let mut limits = Limits::default();
-        limits.max_image_width = Some(MAX_ACTOR_TEXTURE_SIDE.into());
-        limits.max_image_height = Some(MAX_ACTOR_TEXTURE_SIDE.into());
-        limits.max_alloc = Some(4 * 1024 * 1024);
-        reader.limits(limits);
-        let image = match reader.decode() {
-            Ok(image) => image,
-            Err(_) => {
-                reject(&mut fallbacks, "raster_decode_or_bounds");
+        for offset in 0..usize::from(rig.geometry_count) {
+            let candidate_index = rig.first_geometry as usize + offset;
+            let candidate = entities.rig_geometries[candidate_index];
+            let geometry = &entities.geometries[candidate.geometry as usize];
+            if !neutral_actor_geometry_uvs_are_supported(
+                &entities.geometries,
+                candidate.geometry as usize,
+            ) {
+                reject(&mut fallbacks, "uv_extents_or_inheritance");
                 continue;
             }
-        };
-        if image.width() != u32::from(geometry.texture_width)
-            || image.height() != u32::from(geometry.texture_height)
-        {
-            reject(&mut fallbacks, "texture_dimensions");
-            continue;
-        }
-        let pixels = image.into_rgba8().into_raw();
-        if pixels
-            .chunks_exact(4)
-            .any(|pixel| !matches!(pixel[3], 0 | 255))
-        {
-            reject(&mut fallbacks, "fractional_alpha");
-            continue;
-        }
-        let hash: [u8; 32] = Sha256::digest(&pixels).into();
-        let texture = if let Some(index) = textures.iter().position(|texture| {
-            texture.width == geometry.texture_width
-                && texture.height == geometry.texture_height
-                && texture.pixel_sha256 == hash
-                && texture.rgba8.as_ref() == pixels.as_slice()
-        }) {
-            index
-        } else {
-            if textures.len() == MAX_ACTOR_TEXTURES
-                || pixel_bytes
-                    .checked_add(pixels.len())
-                    .is_none_or(|total| total > MAX_ACTOR_PIXEL_BYTES)
-            {
-                reject(&mut fallbacks, "texture_budget");
-                continue;
+            let mut default_texture = None;
+            for &source in &sources {
+                if !decoded.contains_key(&source) {
+                    let path = entities.sources[source as usize].path.as_ref();
+                    let raster = decode_raster(path, &read(source)?);
+                    decoded.insert(source, raster);
+                }
+                let Some(raster) = decoded[&source].as_ref() else {
+                    continue;
+                };
+                if raster.width != geometry.texture_width
+                    || raster.height != geometry.texture_height
+                {
+                    continue;
+                }
+                let index = match table.get(&source) {
+                    Some(&index) => index,
+                    None => {
+                        if textures.len() == MAX_ACTOR_TEXTURES
+                            || pixel_bytes
+                                .checked_add(raster.pixels.len())
+                                .is_none_or(|total| total > MAX_ACTOR_PIXEL_BYTES)
+                        {
+                            reject(&mut fallbacks, "texture_budget");
+                            continue;
+                        }
+                        pixel_bytes += raster.pixels.len();
+                        textures.push(ActorTexture {
+                            source,
+                            width: raster.width,
+                            height: raster.height,
+                            pixel_sha256: Sha256::digest(&raster.pixels).into(),
+                            rgba8: Arc::from(raster.pixels.as_slice()),
+                        });
+                        table.insert(source, textures.len() - 1);
+                        textures.len() - 1
+                    }
+                };
+                default_texture.get_or_insert(index);
             }
-            pixel_bytes += pixels.len();
-            textures.push(ActorTexture {
-                source: source_index as u32,
-                width: geometry.texture_width,
-                height: geometry.texture_height,
-                pixel_sha256: hash,
-                rgba8: Arc::from(pixels),
+            let Some(texture) = default_texture else {
+                reject(&mut fallbacks, "missing_or_ambiguous_texture");
+                continue;
+            };
+            bindings.push(ActorArtworkBinding {
+                rig: rig_index as u32,
+                geometry_candidate: candidate_index as u32,
+                entity_symbol: rig.entity_symbol,
+                geometry: candidate.geometry,
+                render_controller: rig.render_controller,
+                texture: texture as u32,
+                material: "entity".into(),
+                pose_mode: assets::ActorPoseMode::CompiledLiteral,
             });
-            textures.len() - 1
-        };
-        bindings.push(ActorArtworkBinding {
-            rig: rig_index,
-            geometry_candidate: rig.first_geometry,
-            entity_symbol: rig.entity_symbol,
-            geometry: candidate.geometry,
-            render_controller: rig.render_controller,
-            texture: texture as u32,
-            material: route.material.into(),
-            pose_mode,
-        });
-        if pose_mode == assets::ActorPoseMode::RestPose {
-            reject(&mut fallbacks, pose_mode.reason());
         }
     }
     Ok(ArtworkBuild {
@@ -296,54 +256,6 @@ fn build_artwork(
     })
 }
 
-struct Route<'a> {
-    geometry: &'a str,
-    texture: &'a str,
-    material: &'a str,
-}
-fn resolve_route<'a>(description: &'a Value, controller: &'a Value) -> Option<Route<'a>> {
-    let geometry = alias(
-        description,
-        "geometry",
-        controller["geometry"].as_str()?,
-        "Geometry.",
-    )?;
-    let materials = controller["materials"].as_array()?;
-    let textures = controller["textures"].as_array()?;
-    if materials.len() != 1 || textures.len() != 1 {
-        return None;
-    }
-    let material = materials[0].as_object()?;
-    if material.len() != 1 {
-        return None;
-    }
-    Some(Route {
-        geometry,
-        texture: alias(description, "textures", textures[0].as_str()?, "Texture.")?,
-        material: alias(
-            description,
-            "materials",
-            material.get("*")?.as_str()?,
-            "Material.",
-        )?,
-    })
-}
-fn alias<'a>(
-    description: &'a Value,
-    family: &str,
-    expression: &str,
-    prefix: &str,
-) -> Option<&'a str> {
-    let key = expression.strip_prefix(prefix)?;
-    if key.is_empty()
-        || !key
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-    {
-        return None;
-    }
-    description[family].as_object()?.get(key)?.as_str()
-}
 fn invalid(detail: &str) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),

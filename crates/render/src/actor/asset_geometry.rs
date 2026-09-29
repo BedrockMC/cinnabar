@@ -53,6 +53,15 @@ pub(super) fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeome
         .collect()
 }
 
+/// Rig geometry of catalog geometry `geometry_index` under `id`.
+pub fn entity_geometry(
+    assets: &RuntimeEntityAssets,
+    geometry_index: usize,
+    id: EntityRigId,
+) -> Result<ActorRigGeometry, ActorRigGeometryError> {
+    geometry_from_geometry_index(assets, geometry_index, id)
+}
+
 pub(super) fn geometry_from_geometry_index(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,

@@ -66,160 +66,33 @@ fn generic_actor_carrier_resolves_unconditional_route_and_exact_entity_identity(
 }
 
 #[test]
-fn authored_selection_and_scripts_cannot_bypass_neutral_admission() {
-    for mutation in [
-        serde_json::json!({"render_controllers":[{"controller.render.example":"0"}]}),
-        serde_json::json!({"render_controllers":["controller.render.example","controller.render.example"]}),
-        serde_json::json!({"scripts":{"scale":"0"}}),
-        serde_json::json!({"scripts":{"initialize":["variable.x=1;"]}}),
-        serde_json::json!({"scripts":{"pre_animation":["variable.x=1;"]}}),
-        serde_json::json!({"scripts":{"animate":[{"missing":"1"}]}}),
-    ] {
-        let pack = pack(0, "entity_alphatest", false);
-        let path = pack.path().join("entity/example.entity.json");
-        let mut value: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        for (key, entry) in mutation.as_object().unwrap() {
-            value["minecraft:client_entity"]["description"][key] = entry.clone();
-        }
-        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-        let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-        assert_eq!(compiled.report.bindings, 0, "{mutation}");
-        assert!(!compiled.report.fallbacks.is_empty());
-    }
-}
-
-fn animated_pack(weight: &str) -> TempDir {
+fn variant_textures_compile_into_render_layers_and_the_carrier() {
     let pack = pack(0, "entity_alphatest", false);
-    let path = pack.path().join("entity/example.entity.json");
+    let root = pack.path();
+    let path = root.join("entity/example.entity.json");
     let mut entity: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    entity["minecraft:client_entity"]["description"]["animations"] =
-        serde_json::json!({"swim":"animation.example.swim"});
-    entity["minecraft:client_entity"]["description"]["animation_controllers"] =
-        serde_json::json!([{"general":"controller.animation.example"}]);
+    entity["minecraft:client_entity"]["description"]["textures"]["other"] =
+        serde_json::json!("textures/entity/other");
     fs::write(path, serde_json::to_vec(&entity).unwrap()).unwrap();
-    write(pack.path(), "animations/empty.json", br#"{"format_version":"1.8.0","animations":{"animation.example.swim":{"loop":true,"animation_length":2,"bones":{"root":{"rotation":{"0":[0,-20,0],"1":[0,20,0],"2":[0,-20,0]}}}}}}"#);
-    write(pack.path(), "animation_controllers/empty.json", serde_json::to_vec(&serde_json::json!({"format_version":"1.10.0","animation_controllers":{"controller.animation.example":{"initial_state":"default","states":{"default":{"animations":[{"swim":weight}]}}}}})).unwrap().as_slice());
-    pack
-}
-
-#[test]
-fn legacy_controller_only_query_pose_is_explicit_rest_and_cannot_be_forged_literal() {
-    for (weight, mode) in [
-        ("1", assets::ActorPoseMode::CompiledLiteral),
-        (
-            "math.min(1.0, query.modified_move_speed * 10)",
-            assets::ActorPoseMode::RestPose,
-        ),
-    ] {
-        let pack = animated_pack(weight);
-        let entities = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-        assert_eq!(entities.rig_geometries[0].animation_count, 0);
-        assert_eq!(entities.rig_geometries[0].controller_count, 1);
-        let entity_bytes = encode_entity_blob(&entities).unwrap();
-        let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-        let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &entity_bytes).unwrap();
-        assert_eq!(catalog.bindings().len(), 1);
-        assert_eq!(catalog.bindings()[0].pose_mode, mode);
-        assert_eq!(
-            compiled.report.rest_pose_bindings,
-            usize::from(mode == assets::ActorPoseMode::RestPose)
-        );
-        if mode == assets::ActorPoseMode::RestPose {
-            assert!(
-                compiled
-                    .report
-                    .fallbacks
-                    .iter()
-                    .any(|v| v.reason.as_ref() == "pose_expression_unverified")
-            );
-            let mut forged = catalog.bindings().to_vec();
-            forged[0].pose_mode = assets::ActorPoseMode::CompiledLiteral;
-            assert!(encode_actor_catalog(&entity_bytes, catalog.textures(), &forged).is_err());
-            let mut bytes = compiled.bytes.clone();
-            let mode_offset = 128 + 40 + 16 * 16 * 4 + 24;
-            for invalid in [0u32, 9] {
-                bytes[mode_offset..mode_offset + 4].copy_from_slice(&invalid.to_le_bytes());
-                let end = bytes.len() - 32;
-                let hash = Sha256::digest(&bytes[..end]);
-                bytes[end..].copy_from_slice(&hash);
-                assert!(RuntimeActorCatalog::decode(&bytes, &entity_bytes).is_err());
-            }
-        }
-    }
-}
-
-#[test]
-fn ignored_geometry_clip_and_controller_semantics_are_observable_rejections() {
-    for (file, pointer, value) in [
-        (
-            "models/entity/example.geo.json",
-            "/minecraft:geometry/0/bones/0/binding",
-            serde_json::json!("query.is_alive"),
-        ),
-        (
-            "models/entity/example.geo.json",
-            "/minecraft:geometry/0/bones/0/bind_pose_rotation",
-            serde_json::json!([0, 30, 0]),
-        ),
-        (
-            "models/entity/example.geo.json",
-            "/minecraft:geometry/0/bones/0/reset",
-            serde_json::json!(true),
-        ),
-        (
-            "models/entity/example.geo.json",
-            "/minecraft:geometry/0/bones/0/texture_meshes",
-            serde_json::json!([]),
-        ),
-        (
-            "animations/empty.json",
-            "/animations/animation.example.swim/start_delay",
-            serde_json::json!(1),
-        ),
-        (
-            "animations/empty.json",
-            "/animations/animation.example.swim/anim_time_update",
-            serde_json::json!("query.life_time"),
-        ),
-        (
-            "animations/empty.json",
-            "/animations/animation.example.swim/bones/root/relative_to",
-            serde_json::json!({"rotation":"entity"}),
-        ),
-        (
-            "animations/empty.json",
-            "/animations/animation.example.swim/bones/root/scale",
-            serde_json::json!([1, 2, 1]),
-        ),
-        (
-            "animation_controllers/empty.json",
-            "/animation_controllers/controller.animation.example/states/default/blend_transition",
-            serde_json::json!(0.2),
-        ),
-        (
-            "animation_controllers/empty.json",
-            "/animation_controllers/controller.animation.example/states/default/variables",
-            serde_json::json!({}),
-        ),
-    ] {
-        let pack = animated_pack("1");
-        let path = pack.path().join(file);
-        let mut json: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        let (parent, key) = pointer.rsplit_once('/').unwrap();
-        json.pointer_mut(parent).unwrap()[key] = value;
-        fs::write(path, serde_json::to_vec(&json).unwrap()).unwrap();
-        let result = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-        assert_eq!(result.report.bindings, 0, "{pointer}");
-        assert!(
-            result
-                .report
-                .fallbacks
-                .iter()
-                .any(|v| v.reason.as_ref() == "unsupported_authored_state")
-        );
-    }
+    write(root, "render_controllers/example.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.example":{"arrays":{"textures":{"Array.skins":["Texture.default","Texture.other"]}},"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Array.skins[query.variant]"],"part_visibility":[{"root":"query.is_baby"}]}}}"#);
+    RgbaImage::from_pixel(16, 16, Rgba([90, 20, 10, 255]))
+        .save(root.join("textures/entity/other.png"))
+        .unwrap();
+    let entities = compile_entity_assets(root, MANIFEST).unwrap();
+    assert_eq!(entities.render.layers.len(), 1);
+    assert_eq!(entities.render.slots.len(), 1);
+    assert_eq!(entities.render.candidates.len(), 2);
+    assert_eq!(entities.render.visibility.len(), 1);
+    assert!(
+        entities
+            .render
+            .candidates
+            .iter()
+            .all(|c| c.condition.is_some())
+    );
+    let compiled = compile_actor_assets(root, MANIFEST).unwrap();
+    assert_eq!(compiled.report.bindings, 1);
+    assert_eq!(compiled.report.textures, 2);
 }
 
 #[test]
@@ -238,53 +111,6 @@ fn handled_never_render_is_retained_instead_of_rejected_as_unknown_state() {
             .bindings,
         1
     );
-}
-
-#[test]
-fn bone_defaults_are_rejected_even_with_cube_overrides_or_inherited_sources() {
-    for (property, value) in [
-        ("inflate", serde_json::json!(1)),
-        ("mirror", serde_json::json!(true)),
-    ] {
-        for inherited in [false, true] {
-            for explicit_cube_override in [false, true] {
-                let pack = pack(0, "entity_alphatest", false);
-                let path = pack.path().join("models/entity/example.geo.json");
-                let mut bone = serde_json::json!({"name":"root","cubes":[{"origin":[0,0,0],"size":[1,2,7],"uv":[0,0]}]});
-                bone[property] = value.clone();
-                if explicit_cube_override {
-                    bone["cubes"][0][property] = if property == "inflate" {
-                        serde_json::json!(0)
-                    } else {
-                        serde_json::json!(false)
-                    };
-                }
-                let definition =
-                    serde_json::json!({"texturewidth":16,"textureheight":16,"bones":[bone]});
-                let geometry = if inherited {
-                    serde_json::json!({"format_version":"1.8.0","geometry.parent":definition,"geometry.example:geometry.parent":{"texturewidth":16,"textureheight":16,"bones":[]}})
-                } else {
-                    serde_json::json!({"format_version":"1.8.0","geometry.example":definition})
-                };
-                fs::write(path, serde_json::to_vec(&geometry).unwrap()).unwrap();
-                let parent = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-                let bytes = encode_entity_blob(&parent).unwrap();
-                let result = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-                let catalog = RuntimeActorCatalog::decode(&result.bytes, &bytes).unwrap();
-                assert!(
-                    catalog.bindings().is_empty(),
-                    "{property} inherited={inherited} override={explicit_cube_override}"
-                );
-                assert!(
-                    result
-                        .report
-                        .fallbacks
-                        .iter()
-                        .any(|v| v.reason.as_ref() == "unsupported_authored_state")
-                );
-            }
-        }
-    }
 }
 
 #[test]
@@ -310,12 +136,13 @@ fn ordinary_cube_mirror_and_default_bone_flags_remain_admissible() {
 }
 
 #[test]
-fn unsupported_actor_pixels_material_and_selection_are_counted_not_quantized() {
-    for (alpha, material, conditional, reason) in [
-        (128, "entity_alphatest", false, "fractional_alpha"),
-        (0, "unreviewed_material", false, "unsupported_material"),
-        (0, "entity_alphatest", true, "conditional_selection"),
-    ] {
+fn fractional_alpha_actor_pixels_are_counted_not_quantized() {
+    for (alpha, material, conditional, reason) in [(
+        128,
+        "entity_alphatest",
+        false,
+        "missing_or_ambiguous_texture",
+    )] {
         let pack = pack(alpha, material, conditional);
         let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
         assert_eq!(compiled.report.bindings, 0);
@@ -342,7 +169,7 @@ fn actor_pixels_are_not_cropped_to_geometry_dimensions() {
             .report
             .fallbacks
             .iter()
-            .any(|entry| entry.reason.as_ref() == "texture_dimensions")
+            .any(|entry| entry.reason.as_ref() == "missing_or_ambiguous_texture")
     );
 }
 
@@ -365,7 +192,7 @@ fn runtime_rejects_rehashed_untrusted_pixels_and_binding_substitutions() {
             3 => bindings[0].render_controller = u32::MAX,
             4 => bindings[0].texture = u32::MAX,
             5 => bindings[0].geometry_candidate = u32::MAX,
-            _ => bindings[0].material = "unreviewed".into(),
+            _ => bindings[0].material = "".into(),
         }
         assert!(encode_actor_catalog(&entities, &textures, &bindings).is_err());
     }

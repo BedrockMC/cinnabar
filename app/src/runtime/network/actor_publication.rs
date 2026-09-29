@@ -108,6 +108,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     artwork: Res<'w, render::ActorArtworkPages>,
     /// The startup artwork plus the session's server-pack pages; `None` in a vanilla session.
     session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
+    cape_state: Local<'s, crate::presentation::cape::CapeState>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -130,6 +131,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         presentation,
         artwork,
         mut session_artwork,
+        mut cape_state,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -379,6 +381,27 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         remotes,
         cull_view,
     );
+    if let Some(stream) = client_world.stream.as_ref() {
+        crate::presentation::entity_layers::apply_render_layers(
+            &mut batch,
+            |runtime_id| stream.actor_rig(runtime_id),
+            &artwork,
+        );
+    }
+    if let (Some(stream), Some(cape)) = (
+        client_world.stream.as_ref(),
+        cape_state.rig(client_world.entity_assets.as_deref()),
+    ) {
+        if !scene.contains_geometry(cape.id) {
+            let _ = scene.insert_geometry(cape.geometry.clone());
+        }
+        crate::presentation::cape::apply_capes(
+            &mut batch,
+            cape,
+            |runtime_id| stream.actor_rig(runtime_id),
+            |runtime_id| stream.actor_player_profile(runtime_id),
+        );
+    }
     let selected_count = batch.submissions.len();
     if let (Some(equipment), Some(stream)) =
         (equipment.as_deref_mut(), client_world.stream.as_ref())
@@ -404,7 +427,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
             let identity = submission.input.identity;
-            if identity.layer == render::ACTOR_LAYER_BODY
+            if (identity.layer == render::ACTOR_LAYER_BODY
+                || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+                || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
                 && stream
                     .actor(identity.runtime_id)
                     .is_some_and(|actor| actor.is_invisible())

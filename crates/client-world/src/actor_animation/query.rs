@@ -281,6 +281,8 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "standing_scale" => truth(actor_flag(actor, FLAG_STANDING)),
         "is_in_water" => truth(in_water(actor, input)),
         "sleep_rotation" => actor.status.sleep_rotation.unwrap_or(0.0),
+        // Grows with ground speed; the scale needs independent measurement.
+        "cape_flap_amount" => (input.velocity[0].hypot(input.velocity[2]) * 4.0).clamp(0.0, 1.0),
         "has_cape" => truth(context.has_cape),
         "item_is_charged" => truth(context.hand_charged),
         "is_in_lava" => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
@@ -326,7 +328,12 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
     let Some(armor) = worn_armor(context, slot) else {
         return 0.0;
     };
-    let material = item_name(&armor.item).split('_').next().unwrap_or("");
+    let name = item_name(&armor.item);
+    // The chest slot reads 5 for an elytra, which hides the cape.
+    if slot == 1.0 && name == "elytra" {
+        return 5.0;
+    }
+    let material = name.split('_').next().unwrap_or("");
     match material {
         "leather" => 1.0,
         "iron" => 2.0,

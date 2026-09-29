@@ -16,11 +16,14 @@ pub use v4::{
     EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
-    EntityRigAnimationBinding, EntityRigBinding, EntityRigControllerBinding, EntityRigFallback,
-    EntityRigGeometryBinding, MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS,
-    MAX_ENTITY_ANIMATION_KEYFRAMES, MAX_ENTITY_CONTROLLER_ANIMATIONS,
-    MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS,
-    MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS,
+    EntityRenderCandidate, EntityRenderData, EntityRenderLayer, EntityRenderSlot,
+    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
+    MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
+    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
+    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
+    MAX_ENTITY_RENDER_VISIBILITY, MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS,
     MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES, MAX_MOLANG_COLLECTION_ITEMS,
     MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
     MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
@@ -31,7 +34,7 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 5;
+pub const ENTITY_BLOB_VERSION: u32 = 6;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings.
 /// - `PACK_RIG_ID_BASE..0x8000_0000`: the session's server-pack entity catalog bindings.
@@ -236,6 +239,7 @@ pub struct CompiledEntityAssets {
     pub rig_controllers: Box<[EntityRigControllerBinding]>,
     pub item_visuals: Box<[ItemVisualDefinition]>,
     pub item_visual_aliases: Box<[ItemVisualAlias]>,
+    pub render: EntityRenderData,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -263,6 +267,7 @@ struct EntityCatalogPayload {
     rig_controllers: Box<[EntityRigControllerBinding]>,
     item_visuals: Box<[ItemVisualDefinition]>,
     item_visual_aliases: Box<[ItemVisualAlias]>,
+    render: EntityRenderData,
 }
 
 #[derive(Clone, Debug)]
@@ -290,6 +295,7 @@ pub struct RuntimeEntityAssets {
     rig_controllers: Arc<[EntityRigControllerBinding]>,
     item_visuals: Arc<[ItemVisualDefinition]>,
     item_visual_aliases: Arc<[ItemVisualAlias]>,
+    render: Arc<EntityRenderData>,
 }
 
 impl RuntimeEntityAssets {
@@ -382,6 +388,7 @@ impl RuntimeEntityAssets {
             rig_controllers: payload.rig_controllers,
             item_visuals: payload.item_visuals,
             item_visual_aliases: payload.item_visual_aliases,
+            render: payload.render,
         };
         Self::from_compiled(compiled)
     }
@@ -413,6 +420,7 @@ impl RuntimeEntityAssets {
             rig_controllers: Arc::from(compiled.rig_controllers),
             item_visuals: Arc::from(compiled.item_visuals),
             item_visual_aliases: Arc::from(compiled.item_visual_aliases),
+            render: Arc::new(compiled.render),
         })
     }
 

@@ -196,6 +196,7 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
         rig_controllers: Box::new([]),
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
+        render: Default::default(),
     })
     .unwrap()
 }
