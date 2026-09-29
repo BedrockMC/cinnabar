@@ -1,7 +1,8 @@
 //! [`AccountControl`] over the core's launcher control endpoint. A worker thread
 //! polls `events.v1` and `account_status.v1` often and the slow catalog calls
-//! (`realms_list.v1`, `friends_list.v1`) rarely, so the menu never blocks on
-//! the socket; sign-out requests queue to the same worker.
+//! (`realms_list.v1`, `friends_list.v1`) rarely and the screen feeds
+//! (`featured_servers.v1`, `gatherings.v1`, `profile.v1`) more rarely still, so
+//! the menu never blocks on the socket; sign-out requests queue to the same worker.
 
 use std::{
     path::PathBuf,
@@ -12,21 +13,30 @@ use std::{
 
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
-use protocol::launcher_control::{self, Account, AuthState as CoreAuth, Friend, Realm};
+use protocol::launcher_control::{
+    self, Account, AuthState as CoreAuth, FeaturedServer, Friend, Gathering, Profile, Realm,
+};
 
 use super::account_control::{AccountControl, AccountEvent};
-use super::{AuthState, MenuFriendCard, MenuRealmCard};
+use super::view::{MenuGameCard, MenuProfile, ServerDetails};
+use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often the catalog lists refresh (they can take tens of seconds).
 const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
+/// How often the screen feeds refresh; they change rarely and cost several calls.
+const FEED_INTERVAL: Duration = Duration::from_secs(300);
 
 #[derive(Default)]
 struct Snapshot {
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     friends: Option<Vec<Friend>>,
+    /// Delivered once per fetch.
+    featured: Option<Vec<FeaturedServer>>,
+    gatherings: Option<Vec<Gathering>>,
+    profile: Option<Profile>,
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
 }
@@ -66,6 +76,7 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
         return;
     };
     let mut catalog_due = Instant::now();
+    let mut feed_due = Instant::now();
     loop {
         match requests.recv_timeout(EVENT_INTERVAL) {
             Ok(()) => {
@@ -88,7 +99,24 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
                     .ok(),
             )
         });
+        let feeds = (Instant::now() >= feed_due).then(|| {
+            feed_due = Instant::now() + FEED_INTERVAL;
+            (
+                runtime
+                    .block_on(launcher_control::list_featured_servers(socket_dir))
+                    .ok(),
+                runtime
+                    .block_on(launcher_control::list_gatherings(socket_dir))
+                    .ok(),
+                runtime.block_on(launcher_control::profile(socket_dir)).ok(),
+            )
+        });
         let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+        if let Some((featured, gatherings, profile)) = feeds {
+            snapshot.featured = featured.or(snapshot.featured.take());
+            snapshot.gatherings = gatherings.or(snapshot.gatherings.take());
+            snapshot.profile = profile.or(snapshot.profile.take());
+        }
         if let Some(events) = events {
             if let Some(disconnect) = events.disconnect
                 && snapshot.last_disconnect != Some(disconnect.sequence)
@@ -162,6 +190,12 @@ impl AccountControl for LauncherAccount {
                         state: realm.state.clone(),
                         target: realm.target.clone(),
                         address: realm.address.clone().unwrap_or_default(),
+                        owner: realm.owner.clone(),
+                        online_players: realm.online_players,
+                        max_players: realm.max_players,
+                        days_left: realm.days_left,
+                        expired: realm.expired,
+                        member: realm.member,
                     })
                     .collect()
             })
@@ -193,11 +227,97 @@ impl AccountControl for LauncherAccount {
     fn poll_event(&mut self) -> Option<AccountEvent> {
         self.with(|snapshot| (!snapshot.events.is_empty()).then(|| snapshot.events.remove(0)))
     }
+
+    fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+        let servers = self.with(|snapshot| snapshot.featured.take())?;
+        Some(servers.iter().map(featured_card).collect())
+    }
+
+    fn gatherings(&mut self) -> Option<Vec<MenuServerCard>> {
+        let gatherings = self.with(|snapshot| snapshot.gatherings.take())?;
+        Some(
+            gatherings
+                .iter()
+                .filter(|gathering| !gathering.address.is_empty())
+                .map(|gathering| MenuServerCard {
+                    name: gathering.name.clone(),
+                    address: gathering.address.clone(),
+                    caption: gathering.caption.clone(),
+                    image_path: gathering.image.path.clone(),
+                    icon: None,
+                })
+                .collect(),
+        )
+    }
+
+    fn profile(&mut self) -> Option<MenuProfile> {
+        let profile = self.with(|snapshot| snapshot.profile.take())?;
+        Some(MenuProfile {
+            gamertag: profile.gamertag,
+            picture_path: profile.gamerpic.path,
+        })
+    }
+}
+
+fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
+    let card = MenuServerCard {
+        name: server.name.clone(),
+        address: server.address.clone(),
+        caption: server.caption.clone(),
+        image_path: server.logo.path.clone(),
+        icon: None,
+    };
+    let details = ServerDetails {
+        description: server.description.clone(),
+        news_title: server.news_title.clone(),
+        news: server.news.clone(),
+        screenshots: server
+            .screenshots
+            .iter()
+            .filter(|shot| !shot.path.is_empty())
+            .map(|shot| shot.path.clone())
+            .collect(),
+        games: server
+            .games
+            .iter()
+            .map(|game| MenuGameCard {
+                title: game.title.clone(),
+                subtitle: game.subtitle.clone(),
+                description: game.description.clone(),
+                image_path: game.image.path.clone(),
+            })
+            .collect(),
+    };
+    (card, details)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn featured_servers_split_into_cards_and_details() {
+        let server = FeaturedServer {
+            name: "S".into(),
+            address: "a.test:19132".into(),
+            news: "Update".into(),
+            screenshots: vec![
+                protocol::launcher_control::Artwork {
+                    url: "https://a.test/s.png".into(),
+                    path: String::new(),
+                },
+                protocol::launcher_control::Artwork {
+                    url: "https://a.test/t.png".into(),
+                    path: "/art/t.img".into(),
+                },
+            ],
+            ..FeaturedServer::default()
+        };
+        let (card, details) = featured_card(&server);
+        assert_eq!(card.address, "a.test:19132");
+        assert_eq!(details.news, "Update");
+        assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
+    }
 
     #[test]
     fn core_account_states_map_to_menu_sign_in_states() {

@@ -2,7 +2,8 @@
 //! sign-in screens never see the transport. Without a launcher core the
 //! account catalog and the auth supervisor keep feeding the menu.
 
-use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime};
+use super::view::{MenuProfile, ServerDetails};
+use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
 
 /// Control method names the implementation calls.
 #[allow(dead_code, reason = "named for the core-relay control clients")]
@@ -39,6 +40,18 @@ pub(crate) trait AccountControl {
     fn sign_out(&mut self) -> bool;
     /// The next pending account event, if any.
     fn poll_event(&mut self) -> Option<AccountEvent>;
+    /// `featured_servers.v1`: cards plus their info-panel details, when fetched.
+    fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
+        None
+    }
+    /// `gatherings.v1`: joinable gatherings, when fetched.
+    fn gatherings(&mut self) -> Option<Vec<MenuServerCard>> {
+        None
+    }
+    /// `profile.v1`: the signed-in profile, when fetched.
+    fn profile(&mut self) -> Option<MenuProfile> {
+        None
+    }
 }
 
 impl MenuRuntime {
@@ -51,6 +64,26 @@ impl MenuRuntime {
         }
         if let Some(friends) = control.friends() {
             self.friends = friends;
+        }
+        if let Some(featured) = control.featured() {
+            self.feeds.details = featured
+                .iter()
+                .map(|(card, details)| (card.address.clone(), details.clone()))
+                .collect();
+            self.featured = featured.into_iter().map(|(card, _)| card).collect();
+            if self
+                .feeds
+                .selected_featured
+                .is_some_and(|index| index >= self.featured.len())
+            {
+                self.feeds.selected_featured = None;
+            }
+        }
+        if let Some(gatherings) = control.gatherings() {
+            self.gatherings = gatherings;
+        }
+        if let Some(profile) = control.profile() {
+            self.feeds.profile = profile;
         }
         if let Some(status) = control.account_status() {
             self.control_auth = Some(status);
@@ -88,6 +121,7 @@ impl MenuRuntime {
         self.catalog_started = false;
         self.realms.clear();
         self.friends.clear();
+        self.feeds.profile = MenuProfile::default();
         self.catalog_message = None;
         self.enter(super::MenuScreen::Profile);
     }

@@ -1,6 +1,8 @@
 //! The menu's presented data: saved servers, catalog cards, and the per-frame
 //! view the renderers draw from.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab, auth::AuthState};
@@ -45,6 +47,54 @@ pub(crate) struct MenuRealmCard {
     pub(crate) target: String,
     #[serde(default)]
     pub(crate) address: String,
+    #[serde(default)]
+    pub(crate) owner: String,
+    #[serde(default)]
+    pub(crate) online_players: u32,
+    #[serde(default)]
+    pub(crate) max_players: u32,
+    #[serde(default)]
+    pub(crate) days_left: i32,
+    #[serde(default)]
+    pub(crate) expired: bool,
+    /// Joined as a member rather than owned.
+    #[serde(default)]
+    pub(crate) member: bool,
+}
+
+/// A featured server's info-panel details; artwork is a local cached path.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ServerDetails {
+    pub(crate) description: String,
+    pub(crate) news_title: String,
+    pub(crate) news: String,
+    pub(crate) screenshots: Vec<String>,
+    pub(crate) games: Vec<MenuGameCard>,
+}
+
+/// One game a featured server advertises.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuGameCard {
+    pub(crate) title: String,
+    pub(crate) subtitle: String,
+    pub(crate) description: String,
+    pub(crate) image_path: String,
+}
+
+/// The signed-in profile as the start screen shows it.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuProfile {
+    pub(crate) gamertag: String,
+    pub(crate) picture_path: String,
+}
+
+/// Service feed data beyond the catalog cards: featured-server details keyed
+/// by address, the profile, and the featured server the info panel shows.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuFeeds {
+    pub(crate) details: HashMap<String, ServerDetails>,
+    pub(crate) profile: MenuProfile,
+    pub(crate) selected_featured: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -92,6 +142,7 @@ pub(crate) struct MenuView {
     pub(crate) editing: Option<usize>,
     pub(crate) local_worlds: Vec<LocalWorldCard>,
     pub(crate) volumes: super::settings_values::Volumes,
+    pub(crate) feeds: MenuFeeds,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
