@@ -445,8 +445,11 @@ impl ChatAutocompleteCatalog {
             values.is_empty() || values.iter().any(|value| value.eq_ignore_ascii_case(token))
         };
         let matched = match &param.kind {
-            CommandParamKind::Enum { values, .. } => listed(values),
-            CommandParamKind::SoftEnum(name) => self.soft_enums.get(name).is_none_or(|v| listed(v)),
+            CommandParamKind::Enum { values, .. } => listed(&**values),
+            CommandParamKind::SoftEnum(name) => self
+                .soft_enums
+                .get(name)
+                .is_none_or(|v| listed(v.as_slice())),
             CommandParamKind::Int => token.parse::<i64>().is_ok(),
             CommandParamKind::Float => token.parse::<f64>().is_ok(),
             CommandParamKind::Position => {
@@ -510,7 +513,7 @@ fn finish(suggestions: &mut Vec<Arc<str>>, typed: &str, sort: bool) {
         suggestions.sort_by_cached_key(|value| value.to_ascii_lowercase());
         suggestions.dedup();
     }
-    suggestions.retain(|value| value.as_ref() != typed);
+    suggestions.retain(|value| &**value != typed);
     suggestions.truncate(MAX_CHAT_AUTOCOMPLETE);
     let mut bytes = 0usize;
     let keep = suggestions
