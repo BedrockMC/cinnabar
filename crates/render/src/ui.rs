@@ -13,7 +13,8 @@ pub const MAX_UI_BATCHES: usize = 8_192;
 pub const MAX_UI_DRAW_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_UI_TEXTURE_SIDE: u32 = 4_096;
 pub const MAX_UI_TEXTURE_LAYERS: u32 = 256;
-pub const MAX_UI_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
+/// Fits the CJK-fallback font pages plus the JSON-UI atlas beside the HUD and icon pages.
+pub const MAX_UI_TEXTURE_BYTES: usize = 128 * 1024 * 1024;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
