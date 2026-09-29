@@ -454,16 +454,17 @@ impl AudioEngine {
             .iter()
             .filter(|alt| !(settings.low_memory && alt.load_on_low_memory == Some(false)))
             .collect();
-        let total: u32 = alternatives.iter().map(|alt| u32::from(alt.weight)).sum();
+        // u64: server alternatives are unbounded in count before admission caps them.
+        let total: u64 = alternatives.iter().map(|alt| u64::from(alt.weight)).sum();
         if total == 0 {
             self.stats.no_definition += 1;
             return None;
         }
-        let mut pick = (roll[0] * total as f32) as u32;
+        let mut pick = ((f64::from(roll[0]) * total as f64) as u64).min(total - 1);
         let chosen = alternatives
             .iter()
             .find(|alt| {
-                let weight = u32::from(alt.weight);
+                let weight = u64::from(alt.weight);
                 if pick < weight {
                     true
                 } else {
@@ -813,6 +814,31 @@ mod tests {
         assert!(!engine.was_recent("hurt", [0.0; 3], 1.0, 2.0));
         engine.pump(None, 2.0, &AudioSettings::default());
         assert!(!engine.was_recent("break", [0.0; 3], 1.0, 2.0));
+    }
+
+    // Admitted server alternatives can sum past u32; the pick must neither panic nor wrap.
+    #[test]
+    fn huge_aggregate_weights_pick_without_overflow() {
+        let mut engine = engine(&[]);
+        let alternative = AudioAlternative {
+            weight: u16::MAX,
+            ..definition("x", "ui").alternatives[0].clone()
+        };
+        let mut heavy = definition("heavy", "ui");
+        heavy.alternatives = vec![alternative; 65_538].into();
+        engine.install_server(Some(Arc::new(crate::audio::server::ServerSoundPack {
+            definitions: [(Box::from("heavy"), heavy)].into(),
+            tables: None,
+            files: HashMap::new(),
+        })));
+        let request = SoundRequest::new("heavy");
+        let settings = AudioSettings::default();
+        assert!(
+            engine
+                .start_rolled(&request, None, &settings, None, [0.999_999, 0.0, 0.0])
+                .is_none()
+        );
+        assert_eq!(engine.stats.no_pcm, 1, "the pick reached PCM lookup");
     }
 
     #[test]

@@ -17,6 +17,9 @@ use super::voice::Pcm;
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_TOTAL_PCM_BYTES: usize = 64 * 1024 * 1024;
 const MAX_DEFINITIONS: usize = 8192;
+/// Alternatives kept per definition and across the whole pack; extras are dropped.
+const MAX_ALTERNATIVES: usize = 256;
+const MAX_TOTAL_ALTERNATIVES: usize = 65_536;
 
 pub(crate) struct ServerSoundPack {
     pub definitions: HashMap<Box<str>, AudioDefinition>,
@@ -56,6 +59,7 @@ fn definition(name: &str, value: &Value) -> Option<AudioDefinition> {
         .as_array()?
         .iter()
         .filter_map(alternative)
+        .take(MAX_ALTERNATIVES)
         .collect();
     let text = |key: &str| map.get(key).and_then(Value::as_str).map(Box::<str>::from);
     Some(AudioDefinition {
@@ -129,10 +133,20 @@ impl ServerSoundPack {
     /// `None` when the stack overrides no sound routing at all.
     pub(crate) fn from_view(view: &LayeredPackView) -> Option<Self> {
         let raw: Map<String, Value> = view.merged_sound_definitions();
+        let mut alternatives_left = MAX_TOTAL_ALTERNATIVES;
         let definitions: HashMap<Box<str>, AudioDefinition> = raw
             .iter()
             .take(MAX_DEFINITIONS)
             .filter_map(|(name, value)| Some((Box::from(name.as_str()), definition(name, value)?)))
+            .filter(|(_, definition)| {
+                match alternatives_left.checked_sub(definition.alternatives.len()) {
+                    Some(left) => {
+                        alternatives_left = left;
+                        true
+                    }
+                    None => false,
+                }
+            })
             .collect();
         let routing = view.merged_json_object("sounds.json", None);
         let tables = (!routing.is_empty())
@@ -215,6 +229,13 @@ mod tests {
         assert_eq!(parsed.min_distance, Some(2.0));
         assert_eq!(parsed.use_legacy_max_distance.as_deref(), Some("true"));
         assert!(definition("x", &json!({"category": "ui"})).is_none());
+    }
+
+    #[test]
+    fn definition_keeps_a_bounded_number_of_alternatives() {
+        let many = vec![json!({"name": "sounds/x", "weight": 65535}); MAX_ALTERNATIVES + 10];
+        let parsed = definition("many", &json!({ "sounds": many })).expect("definition");
+        assert_eq!(parsed.alternatives.len(), MAX_ALTERNATIVES);
     }
 
     fn wav(channels: u16, rate: u32, samples: &[i16]) -> Vec<u8> {
