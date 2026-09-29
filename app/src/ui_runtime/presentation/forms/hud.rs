@@ -325,6 +325,13 @@ fn hud_model(
                 name: bounded_visible_text(&bar.title).to_owned(),
                 progress: f64::from(bar.health),
                 color: boss_tint(bar.style.color),
+                notches: match bar.style.overlay {
+                    ui::BossOverlay::Progress => 0,
+                    ui::BossOverlay::Notched6 => 6,
+                    ui::BossOverlay::Notched10 => 10,
+                    ui::BossOverlay::Notched12 => 12,
+                    ui::BossOverlay::Notched20 => 20,
+                },
             })
             .collect(),
     }

@@ -120,6 +120,7 @@ fn model() -> HudModel {
             name: "Wither".into(),
             progress: 0.75,
             color: "#aa00aa".into(),
+            notches: 0,
         }],
         ..HudModel::default()
     }

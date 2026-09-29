@@ -657,6 +657,8 @@ fn boss_bars_render_titled_tinted_tracks_and_updates() {
     };
     assert!(tint([170, 0, 170, 255]) > 0, "purple fill");
     assert!(tint([255, 85, 85, 255]) > 0, "red fill");
+    let notches = customs(nodes, "java_boss_notches");
+    assert_eq!(notches.len(), 2, "one overlay per bar");
     let names: Vec<f64> = ["Boss", "Other"]
         .iter()
         .map(|name| text(nodes, name).unwrap().dest.y)
@@ -903,4 +905,35 @@ fn hud_frame_timing() {
     }
     let changing = started.elapsed() / frames;
     eprintln!("engine HUD frame: steady {steady:?}, re-bound every frame {changing:?}");
+}
+
+// An N-notch overlay adds exactly N-1 dividers over the bar.
+#[test]
+fn notched_boss_overlays_draw_their_dividers() {
+    let quads = |overlay| {
+        let mut presentation = engine_presentation()?;
+        let mut runtime = UiRuntime::new(1);
+        runtime
+            .apply(SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 0,
+                server_tick: None,
+                event: boss_event(
+                    ProtocolBossAction::Show,
+                    9,
+                    "",
+                    1.0,
+                    ProtocolBossColor::Red,
+                    overlay,
+                ),
+            })
+            .unwrap();
+        Some(build(&mut presentation, &runtime, 0).vertices.len() / 4)
+    };
+    let Some(plain) = quads(ProtocolBossOverlay::Progress) else {
+        return;
+    };
+    assert_eq!(quads(ProtocolBossOverlay::Notched6), Some(plain + 5));
+    assert_eq!(quads(ProtocolBossOverlay::Notched20), Some(plain + 19));
 }

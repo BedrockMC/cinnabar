@@ -133,6 +133,20 @@ pub(super) fn paint(
             }
             return true;
         }
+        // The built-in Java pack's notched boss-bar overlay.
+        "java_boss_notches" => {
+            let notches = data
+                .get("#bar_notches")
+                .and_then(Value::as_f64)
+                .map_or(0, |notches| notches.clamp(0.0, 64.0) as u32);
+            let width = dest[2] - dest[0];
+            let px = painter.px;
+            for notch in 1..notches {
+                let x = dest[0] + width * notch as f32 / notches as f32;
+                let _ = painter.solid([x, dest[1], x + px, dest[3]], alpha([0, 0, 0, 255]));
+            }
+            return true;
+        }
         "cursor_renderer" => {
             if let Some(sprite) = hud.crosshair {
                 crosshair(painter, sprite, dest);

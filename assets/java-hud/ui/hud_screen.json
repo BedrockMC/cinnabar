@@ -468,6 +468,25 @@
         "progress_bar_for_collections@common.progress_bar_for_collections": {
           "offset": [ 0, 9 ]
         }
+      },
+      // Java's notched overlays: dark one-pixel dividers between segments.
+      {
+        "notches": {
+          "type": "custom",
+          "renderer": "java_boss_notches",
+          "size": [ 182, 5 ],
+          "anchor_from": "top_middle",
+          "anchor_to": "top_middle",
+          "offset": [ 0, 9 ],
+          "layer": 3,
+          "bindings": [
+            {
+              "binding_name": "#bar_notches",
+              "binding_type": "collection",
+              "binding_collection_name": "boss_bars"
+            }
+          ]
+        }
       }
     ],
     "bindings": [
