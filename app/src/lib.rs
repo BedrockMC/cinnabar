@@ -32,6 +32,7 @@ pub mod semantic_controls;
 pub mod server_camera;
 pub mod session_audio;
 mod session_cleanup;
+mod store;
 pub mod settings_runtime;
 mod survival_mining;
 pub mod ui_runtime;
