@@ -577,24 +577,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         icon_assets.into_runtime(),
     )
     .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
-    if let Some((extras, identity)) =
-        crate::ui_runtime::presentation::load_optional_hud_extras(&loaded_assets.selected_path)
-    {
-        ui_presentation.install_hud_extras(&extras, identity);
-    }
-    // Optional: without the JSON-UI carrier, server forms keep the fallback dialog.
-    if let Some(ui_assets) =
-        crate::ui_runtime::json_ui_assets::load_optional_ui_assets(&loaded_assets.selected_path)
-        && let Err(reason) = ui_presentation.enable_json_ui(ui_assets)
-    {
-        eprintln!("JSON-UI engine disabled ({reason}); server forms use the fallback dialog");
-    }
+    // The gameplay HUD draws through the JSON-UI engine, so its carrier is required.
+    let ui_assets =
+        crate::ui_runtime::json_ui_assets::require_ui_assets(&loaded_assets.selected_path)?;
+    ui_presentation
+        .enable_json_ui(ui_assets)
+        .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
     ui_presentation.set_engine_containers(args.json_ui_containers);
-    // Hybrid HUD: Bedrock has no static scoreboard background alpha (it is a runtime engine
-    // binding), so bind Java Edition's sidebar opacities. The sidebar still shows only when the
-    // server publishes a sidebar objective.
-    ui_presentation.enable_scoreboard_background();
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();

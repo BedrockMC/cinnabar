@@ -25,8 +25,11 @@ impl ControlRef {
 
     /// Split a reference against a default namespace, dropping any leading `@`.
     /// `common.foo` keeps its namespace; a bare `foo` adopts `default_ns`.
+    /// A `name@ns.base` factory entry names its base after the `@`.
     pub fn parse(reference: &str, default_ns: &str) -> Self {
-        let reference = reference.strip_prefix('@').unwrap_or(reference);
+        let reference = reference
+            .rsplit_once('@')
+            .map_or(reference, |(_, base)| base);
         match reference.split_once('.') {
             Some((namespace, name)) => Self::new(namespace, name),
             None => Self::new(default_ns, reference),
@@ -51,6 +54,9 @@ pub struct Factory {
     pub control_ids: BTreeMap<String, ControlRef>,
     /// A single-target factory (`control_name`), used by some radio groups.
     pub control_name: Option<ControlRef>,
+    /// `max_children_size`: a fed factory keeps only its newest this many.
+    #[serde(default)]
+    pub max_children_size: Option<usize>,
 }
 
 impl Factory {

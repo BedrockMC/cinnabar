@@ -1,55 +1,8 @@
 use ui::{UiNode, UiNodeId, UiVisual};
 
-use super::{HudLayout, HudTextureRole, IconRef, UiPresentationError, rect};
+use super::{HudLayout, IconRef, UiPresentationError, rect};
 
 impl HudLayout<'_> {
-    /// Crosshair-attached melee charge, drawn only below full charge. Bedrock
-    /// does not publish a cooldown, so production keeps this hidden.
-    pub(super) fn attack_indicator(
-        &mut self,
-        frame: &super::HudFrame,
-    ) -> Result<(), UiPresentationError> {
-        let Some(charge) = frame.attack_indicator_charge else {
-            return Ok(());
-        };
-        if charge >= 1.0 {
-            return Ok(());
-        }
-        let g = self.geometry;
-        let left = (g.gui_width - 16.0) / 2.0;
-        let top = g.gui_height / 2.0 + 9.0;
-        self.solid_gui([left, top], [16.0, 2.0], [0, 0, 0, 170])?;
-        let filled = (charge.clamp(0.0, 1.0) * 16.0).floor();
-        if filled >= 1.0 {
-            self.solid_gui([left, top], [filled, 2.0], [255, 255, 255, 255])?;
-        }
-        Ok(())
-    }
-
-    /// 15x15 vanilla-alpha crosshair centered exactly on the framebuffer
-    /// center: the fractional GUI remainder of a non-divisible viewport is
-    /// kept rather than floored, so the quad's center equals width/2 and
-    /// height/2 in physical pixels at every GUI scale, aspect, and DPI.
-    pub(super) fn crosshair(&mut self) -> Result<(), UiPresentationError> {
-        let g = self.geometry;
-        let x = (g.gui_width - 15.0) / 2.0;
-        let y = (g.gui_height - 15.0) / 2.0;
-        let sprite = self.textures.sprite(HudTextureRole::Crosshair);
-        let [left, top] = g.logical([x, y]);
-        let node = UiNode::new(
-            UiNodeId::new(*self.next_id),
-            None,
-            rect(left, top, left + 15.0 * g.scale, top + 15.0 * g.scale)?,
-        )
-        .with_visual(UiVisual::InvertedSprite {
-            texture_page: self.textures.page,
-            uv: sprite.uv,
-        });
-        self.nodes.push(node);
-        *self.next_id = self.next_id.saturating_add(1);
-        Ok(())
-    }
-
     /// First-person item presentation. Skin-backed arm geometry is paired
     /// with cached, depth-rasterized item geometry instead of flat icon quads.
     pub(super) fn held_items(

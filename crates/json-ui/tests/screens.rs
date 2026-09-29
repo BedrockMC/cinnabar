@@ -65,27 +65,6 @@ fn chest_data() -> DataSource {
 }
 
 #[test]
-fn the_hud_screen_is_refused() {
-    let Some(catalog) = catalog() else {
-        eprintln!("skipping: vanilla ui assets not present");
-        return;
-    };
-    let rendered = render_screen(
-        "hud.hud_screen",
-        &catalog,
-        &Context::desktop(),
-        &DataSource::new(),
-        [480.0, 270.0],
-        &env(),
-        &ViewState::default(),
-    );
-    assert!(
-        rendered.is_none(),
-        "the gameplay HUD never routes through the engine"
-    );
-}
-
-#[test]
 fn small_chest_exposes_every_slot_by_collection() {
     let Some(catalog) = catalog() else {
         eprintln!("skipping: vanilla ui assets not present");

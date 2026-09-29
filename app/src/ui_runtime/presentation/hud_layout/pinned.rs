@@ -22,22 +22,12 @@ pub(super) const HOTBAR_WIDTH: f32 = 182.0;
 /// Fixed height of the bottom-anchored HUD stack in GUI px, measured from the
 /// selected-item label zone top down to the hotbar's bottom edge.
 pub(super) const BOTTOM_STACK_HEIGHT: f32 = 59.0;
-/// The pinned hotbar cap alpha from the reviewed `hud_screen.json` authority.
-pub(super) const HOTBAR_CAP_ALPHA: u8 = 166;
-/// Experience-level green from the Java reference (0x80FF20).
-pub(super) const XP_LEVEL_COLOR: [u8; 4] = [128, 255, 32, 255];
 /// Damage blink: hearts flash for one second, alternating every 150 ms
 /// (the reference alternates every 3 ticks for 20 ticks).
 pub(super) const DAMAGE_FLASH_WINDOW_MILLIS: u64 = 1_000;
 pub(super) const DAMAGE_FLASH_PHASE_MILLIS: u64 = 150;
-/// Selected-item label: visible 2 s after an authoritative identity change,
-/// fading out over the final 500 ms (40 ticks / 10 ticks in the reference).
-pub(super) const LABEL_WINDOW_MILLIS: u64 = 2_000;
-pub(super) const LABEL_FADE_MILLIS: u64 = 500;
 /// Effects blink through their final 10 s (200 ticks).
 pub(super) const EFFECT_BLINK_TICKS: u64 = 200;
-/// Display cap for stacked boss bars; the retained store holds more.
-pub(super) const MAX_PRESENTED_BOSS_BARS: usize = 8;
 /// Row cap for pathological health maxima: six stacked rows (60 hearts).
 pub(super) const MAX_HEART_ROWS: u16 = 6;
 /// The reference caps mount hearts at 30.
@@ -50,7 +40,7 @@ pub(super) const HARMFUL_EFFECT_IDS: [i32; 13] = [2, 4, 7, 9, 15, 17, 18, 19, 20
 /// official Bedrock progress textures; these multipliers are a recorded
 /// approximation of the reference bar hues pending the native gallery
 /// (RebeccaPurple is exact by definition).
-pub(super) const BOSS_TINTS: [(ui::BossColor, [u8; 4]); 8] = [
+pub(crate) const BOSS_TINTS: [(ui::BossColor, [u8; 4]); 8] = [
     (ui::BossColor::Pink, [255, 105, 180, 255]),
     (ui::BossColor::Blue, [85, 85, 255, 255]),
     (ui::BossColor::Red, [255, 85, 85, 255]),
@@ -96,20 +86,6 @@ pub(crate) fn effect_icon_role(effect_id: i32) -> Option<HudTextureRole> {
         30 => HudTextureRole::EffectIconDarkness,
         _ => return None,
     })
-}
-
-pub(super) const fn hotbar_slot_role(slot: u8) -> HudTextureRole {
-    match slot {
-        0 => HudTextureRole::Hotbar0,
-        1 => HudTextureRole::Hotbar1,
-        2 => HudTextureRole::Hotbar2,
-        3 => HudTextureRole::Hotbar3,
-        4 => HudTextureRole::Hotbar4,
-        5 => HudTextureRole::Hotbar5,
-        6 => HudTextureRole::Hotbar6,
-        7 => HudTextureRole::Hotbar7,
-        _ => HudTextureRole::Hotbar8,
-    }
 }
 
 /// `Some(true)` while the damage blink shows the flash sprites, `Some(false)`

@@ -79,6 +79,32 @@ impl Catalog {
         }
     }
 
+    /// The namespaces a pack's ui files define or extend (a file may omit the
+    /// namespace of the vanilla file it overrides).
+    pub fn overlay_namespaces<'a>(
+        &self,
+        files: impl IntoIterator<Item = (&'a str, &'a [u8])>,
+    ) -> std::collections::BTreeSet<String> {
+        files
+            .into_iter()
+            .filter(|(path, _)| {
+                path.starts_with("ui/")
+                    && path.ends_with(".json")
+                    && *path != GLOBALS
+                    && *path != UI_DEFS
+            })
+            .filter_map(
+                |(path, bytes)| match json5::parse(&String::from_utf8_lossy(bytes)) {
+                    Ok(Value::Object(object)) => match object.get("namespace") {
+                        Some(Value::String(namespace)) => Some(namespace.clone()),
+                        _ => self.file_namespace(path).map(str::to_owned),
+                    },
+                    _ => None,
+                },
+            )
+            .collect()
+    }
+
     pub(crate) fn merge_overlay_file(&mut self, entry: &str, text: &str) {
         let object = match json5::parse(text) {
             Ok(Value::Object(object)) => object,

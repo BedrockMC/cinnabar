@@ -60,7 +60,11 @@ pub(crate) fn pack_files(root: &Path) -> Vec<(String, Vec<u8>)> {
 
 /// The packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest first).
 pub(crate) fn env_pack() -> Option<ServerUiPack> {
-    let dirs = std::env::var(PACK_ENV).ok()?;
+    Some(dir_pack(&std::env::var(PACK_ENV).ok()?))
+}
+
+/// The unpacked packs `dirs` lists (`:`-separated, lowest first) as a session pack.
+pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
     let mut pack = ServerUiPack::default();
     let mut all = Vec::new();
     for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
@@ -82,7 +86,7 @@ pub(crate) fn env_pack() -> Option<ServerUiPack> {
         }
     }
     pack.textures = textures.into_iter().collect();
-    Some(pack)
+    pack
 }
 
 pub(crate) fn action_form(title: &str, buttons: &[&str]) -> UiRuntime {

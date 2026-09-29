@@ -15,6 +15,7 @@
 
 use serde_json::Value;
 
+use crate::anim::{Fade, Inherited};
 use crate::expr::{self, AxisContext, Length, Resolved};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
@@ -82,6 +83,8 @@ pub struct LaidOut<'a> {
     /// Absolute draw layer (the parent's plus this control's own).
     pub layer: i32,
     pub alpha: f32,
+    /// Animations scaling `alpha` at paint time, own and propagated.
+    pub fades: Vec<Fade>,
     pub visible: bool,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
@@ -108,6 +111,7 @@ pub fn layout_with<'a>(
     state: &ViewState,
 ) -> (LaidOut<'a>, LayoutReport) {
     INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
+    LENGTH_MEMO.with(|memo| memo.borrow_mut().clear());
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
     let own = resolve_size(root, screen, intrinsic(root, env, None), env);
     let rect = place_by_anchor(root, screen, own, env);
@@ -120,7 +124,15 @@ pub fn layout_with<'a>(
         ancestors: Vec::new(),
     };
     let key = child_key("", root);
-    let laid = place_subtree(root, key, rect, screen, 0, true, &mut ctx);
+    let laid = place_subtree(
+        root,
+        key,
+        rect,
+        screen,
+        (0, true),
+        &Inherited::default(),
+        &mut ctx,
+    );
     (laid, ctx.report)
 }
 
@@ -159,10 +171,11 @@ fn place_subtree<'a>(
     key: String,
     rect: Rect,
     parent_clip: Rect,
-    parent_layer: i32,
-    shown: bool,
+    (parent_layer, shown): (i32, bool),
+    inherited: &Inherited,
     ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
+    let (own_alpha, fades, inherit) = inherited.apply(control, alpha(control));
     let child_clip = if clip_children(control) {
         parent_clip.intersect(rect)
     } else {
@@ -220,8 +233,8 @@ fn place_subtree<'a>(
             next_key,
             child_rect,
             clip_for_child,
-            absolute_layer,
-            child_shown,
+            (absolute_layer, child_shown),
+            &inherit,
             ctx,
         ));
     }
@@ -242,7 +255,8 @@ fn place_subtree<'a>(
         rect,
         clip: parent_clip,
         layer: absolute_layer,
-        alpha: alpha(control),
+        alpha: own_alpha,
+        fades,
         visible: shown && visible(control),
         children,
     }
@@ -376,7 +390,7 @@ fn stack_children<'a>(
             nat,
             cross,
         );
-        let cross_size = pixels_or(length(child, cross).eval(&cross_ctx), parent_cross);
+        let cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
         // A vertical stack knows each child's width before its height, so wrapped
         // text and `%c` content measure at that width.
         let known_width = (main == Axis::Y).then_some(cross_size);
@@ -391,7 +405,7 @@ fn stack_children<'a>(
         );
         // An invisible stack child collapses instead of holding its slot.
         let resolved = if visible(child) {
-            length(child, main).eval(&main_ctx)
+            eval_length(child, main, &main_ctx)
         } else {
             Resolved::Pixels(0.0)
         };
@@ -423,8 +437,8 @@ fn stack_children<'a>(
         let off = offset(child, parent_rect, env);
         let main_pos = cursor + axis_pick(off, main);
         let cross_pos = axis_min(parent_rect, cross)
-            + parent_cross * anchor_frac(anchor_to(child), cross)
-            - cross_size * anchor_frac(anchor_from(child), cross)
+            + parent_cross * anchor_frac(anchor_from(child), cross)
+            - cross_size * anchor_frac(anchor_to(child), cross)
             + axis_pick(off, cross);
         placed.push((
             child,
@@ -435,7 +449,8 @@ fn stack_children<'a>(
     placed
 }
 
-/// The child's rect from its resolved size and anchor/offset within `parent_rect`.
+/// The child's rect from its resolved size and anchor/offset within `parent_rect`:
+/// its `anchor_to` point lands on the parent's `anchor_from` point.
 fn place_by_anchor(
     control: &ResolvedControl,
     parent_rect: Rect,
@@ -445,11 +460,11 @@ fn place_by_anchor(
     let from = anchor_from(control);
     let to = anchor_to(control);
     let off = offset(control, parent_rect, env);
-    let x = parent_rect.x + parent_rect.w * anchor_frac(to, Axis::X)
-        - size[0] * anchor_frac(from, Axis::X)
+    let x = parent_rect.x + parent_rect.w * anchor_frac(from, Axis::X)
+        - size[0] * anchor_frac(to, Axis::X)
         + off[0];
-    let y = parent_rect.y + parent_rect.h * anchor_frac(to, Axis::Y)
-        - size[1] * anchor_frac(from, Axis::Y)
+    let y = parent_rect.y + parent_rect.h * anchor_frac(from, Axis::Y)
+        - size[1] * anchor_frac(to, Axis::Y)
         + off[1];
     Rect::new(x, y, size[0], size[1])
 }
@@ -470,7 +485,7 @@ fn resolve_size(
         natural(control, env, None),
         Axis::X,
     );
-    let width = pixels_or(length(control, Axis::X).eval(&width_ctx), parent_rect.w);
+    let width = pixels_or(eval_length(control, Axis::X, &width_ctx), parent_rect.w);
     let content = content_extent(control, env, Some(width));
     let nat = natural(control, env, Some(width));
     let height_ctx = axis_context(
@@ -482,8 +497,17 @@ fn resolve_size(
         nat,
         Axis::Y,
     );
-    let height = pixels_or(length(control, Axis::Y).eval(&height_ctx), parent_rect.h);
-    clamp_bounds(control, parent_rect, [width, height], content, nat, env)
+    let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), parent_rect.h);
+    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, env);
+    for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
+        .into_iter()
+        .enumerate()
+    {
+        if matches!(control.properties.get(key), Some(Value::Bool(true))) {
+            size[index] = size[index].max(sibling_max[index]);
+        }
+    }
+    size
 }
 
 fn clamp_bounds(
@@ -498,11 +522,11 @@ fn clamp_bounds(
     for (index, axis) in [Axis::X, Axis::Y].into_iter().enumerate() {
         let parent = axis_of(parent_rect, axis);
         let ctx = axis_context(parent, None, content, content, content, nat, axis);
-        if let Some(max) = bound_length(control, "max_size", index) {
-            out[index] = out[index].min(max.eval_pixels(&ctx));
+        if let Some(max) = eval_bound(control, "max_size", index, &ctx) {
+            out[index] = out[index].min(max);
         }
-        if let Some(min) = bound_length(control, "min_size", index) {
-            out[index] = out[index].max(min.eval_pixels(&ctx));
+        if let Some(min) = eval_bound(control, "min_size", index, &ctx) {
+            out[index] = out[index].max(min);
         }
     }
     out
@@ -516,6 +540,51 @@ std::thread_local! {
     /// one `layout` call; `layout` clears the memo first.
     static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u64), [f64; 2]>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+std::thread_local! {
+    /// Per-`layout` memo of parsed `size`/`min_size`/`max_size` lengths, keyed by
+    /// control address and slot, so each is read and parsed once per layout.
+    static LENGTH_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u8), Option<Length>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn memo_length<R>(
+    control: &ResolvedControl,
+    slot: u8,
+    read: impl FnOnce() -> Option<Length>,
+    eval: impl FnOnce(Option<&Length>) -> R,
+) -> R {
+    let key = (control as *const ResolvedControl as usize, slot);
+    LENGTH_MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let length = memo.entry(key).or_insert_with(read);
+        eval(length.as_ref())
+    })
+}
+
+fn eval_length(control: &ResolvedControl, axis: Axis, ctx: &AxisContext) -> Resolved {
+    memo_length(
+        control,
+        axis_index(axis) as u8,
+        || Some(length(control, axis)),
+        |length| length.map_or(Resolved::Pixels(0.0), |length| length.eval(ctx)),
+    )
+}
+
+fn eval_bound(
+    control: &ResolvedControl,
+    key: &str,
+    index: usize,
+    ctx: &AxisContext,
+) -> Option<f64> {
+    let slot = if key == "max_size" { 2 } else { 4 } + index as u8;
+    memo_length(
+        control,
+        slot,
+        || bound_length(control, key, index),
+        |length| length.map(|length| length.eval_pixels(ctx)),
+    )
 }
 
 /// Intrinsic size used when a parent aggregates this child for its own `%c`/`%cm`.
@@ -549,7 +618,7 @@ fn intrinsic_uncached(
         natural(control, env, None),
         Axis::X,
     );
-    let width = pixels_or(length(control, Axis::X).eval(&width_ctx), parent);
+    let width = pixels_or(eval_length(control, Axis::X, &width_ctx), parent);
     let known = parent_width.map(|_| width);
     let height_ctx = axis_context(
         0.0,
@@ -560,7 +629,7 @@ fn intrinsic_uncached(
         natural(control, env, known),
         Axis::Y,
     );
-    let height = pixels_or(length(control, Axis::Y).eval(&height_ctx), 0.0);
+    let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), 0.0);
     // A parent aggregating this child sees it after its own min/max clamp.
     let content = content_extent(control, env, known);
     let parent_rect = Rect::new(0.0, 0.0, parent, 0.0);
@@ -650,11 +719,24 @@ fn natural(control: &ResolvedControl, env: &LayoutEnv, width: Option<f64>) -> Op
     }
 }
 
-/// A label's `font_scale_factor` (1 when absent or non-positive).
+/// A label's glyph scale: `font_scale_factor` (1 when absent or non-positive)
+/// times its `font_size` step.
 pub(crate) fn font_scale(control: &ResolvedControl) -> f64 {
-    widgets::bound_number(control, "font_scale_factor")
+    let factor = widgets::bound_number(control, "font_scale_factor")
         .filter(|scale| *scale > 0.0)
-        .unwrap_or(1.0)
+        .unwrap_or(1.0);
+    factor * font_size_scale(control)
+}
+
+/// Glyph scale of a `font_size` (small/normal/large/extra_large); needs native
+/// measurement of the client's font-size table.
+fn font_size_scale(control: &ResolvedControl) -> f64 {
+    match control.properties.get("font_size").and_then(Value::as_str) {
+        Some("small") => 0.75,
+        Some("large") => 1.5,
+        Some("extra_large") => 2.0,
+        _ => 1.0,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -700,8 +782,9 @@ fn length(control: &ResolvedControl, axis: Axis) -> Length {
         }
         _ => None,
     };
+    let is_grid = control.control_type.as_deref() == Some("grid");
     match explicit {
-        Some(Length::Default) | None if stack_axis(control) == Some(axis) => {
+        Some(Length::Default) | None if stack_axis(control) == Some(axis) || is_grid => {
             expr::parse_length("100%c").unwrap_or(Length::Default)
         }
         Some(length) => length,
