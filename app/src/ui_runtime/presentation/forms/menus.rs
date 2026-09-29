@@ -124,6 +124,11 @@ impl UiPresentationRuntime {
             preview: self.hud_frame.player_preview,
             pointer: None,
             images: Some(&self.menu_artwork.refs),
+            portrait: self
+                .menu_artwork
+                .refs
+                .get(&view.feeds.profile.picture_path)
+                .copied(),
         };
         let rendered = renderer.render_screen(
             screen.reference,

@@ -44,8 +44,8 @@ pub(crate) trait AccountControl {
     fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         None
     }
-    /// `gatherings.v1`: joinable gatherings, when fetched.
-    fn gatherings(&mut self) -> Option<Vec<MenuServerCard>> {
+    /// `gatherings.v1`: joinable gatherings with their details, when fetched.
+    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         None
     }
     /// `profile.v1`: the signed-in profile, when fetched.
@@ -66,10 +66,11 @@ impl MenuRuntime {
             self.friends = friends;
         }
         if let Some(featured) = control.featured() {
-            self.feeds.details = featured
-                .iter()
-                .map(|(card, details)| (card.address.clone(), details.clone()))
-                .collect();
+            self.feeds.details.extend(
+                featured
+                    .iter()
+                    .map(|(card, details)| (card.address.clone(), details.clone())),
+            );
             self.featured = featured.into_iter().map(|(card, _)| card).collect();
             if self
                 .feeds
@@ -80,7 +81,12 @@ impl MenuRuntime {
             }
         }
         if let Some(gatherings) = control.gatherings() {
-            self.gatherings = gatherings;
+            self.feeds.details.extend(
+                gatherings
+                    .iter()
+                    .map(|(card, details)| (card.address.clone(), details.clone())),
+            );
+            self.gatherings = gatherings.into_iter().map(|(card, _)| card).collect();
         }
         if let Some(profile) = control.profile() {
             self.feeds.profile = profile;
