@@ -28,18 +28,28 @@ type Config struct {
 	Store       *control.Store
 	Selector    *proxy.UpstreamSelector
 	Transfers   *proxy.TransferState
+	ArtworkDir  string // bounded cache for screen artwork; empty skips caching
 
 	// Injectable for tests; nil selects the real implementation.
 	Realms   func(context.Context, oauth2.TokenSource) ([]catalog.Realm, error)
 	Friends  func(context.Context, oauth2.TokenSource) ([]catalog.Friend, error)
 	Gamertag func(context.Context, oauth2.TokenSource) (string, error)
 	Remove   func(path string) error
+
+	Featured   func(context.Context, oauth2.TokenSource) ([]catalog.FeaturedServer, error)
+	Gatherings func(context.Context, oauth2.TokenSource) ([]catalog.Gathering, error)
+	Profile    func(context.Context, oauth2.TokenSource) (catalog.Profile, error)
+	CacheArt   func(ctx context.Context, directory string, images []*catalog.Image)
+	Ping       func(ctx context.Context, addresses []string) []catalog.PingResult
+	Home       func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
+	Report     func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, event catalog.MessageEvent) error
 }
 
 // Service implements control.Services.
 type Service struct {
 	cfg       Config
 	signedOut atomic.Bool
+	messaging catalog.MessagingSession
 }
 
 // New returns a Service; it fills unset injectables with the real implementations.
@@ -55,6 +65,27 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Remove == nil {
 		cfg.Remove = os.Remove
+	}
+	if cfg.Featured == nil {
+		cfg.Featured = catalog.FeaturedServers
+	}
+	if cfg.Gatherings == nil {
+		cfg.Gatherings = catalog.Gatherings
+	}
+	if cfg.Profile == nil {
+		cfg.Profile = catalog.AccountProfile
+	}
+	if cfg.CacheArt == nil {
+		cfg.CacheArt = catalog.CacheImages
+	}
+	if cfg.Ping == nil {
+		cfg.Ping = catalog.PingServers
+	}
+	if cfg.Home == nil {
+		cfg.Home = catalog.HomeFeed
+	}
+	if cfg.Report == nil {
+		cfg.Report = catalog.ReportMessageEvent
 	}
 	return &Service{cfg: cfg}
 }
@@ -82,6 +113,96 @@ func (s *Service) Friends(ctx context.Context) ([]catalog.Friend, error) {
 		return nil, err
 	}
 	return s.cfg.Friends(ctx, src)
+}
+
+// FeaturedServers lists the featured servers with their artwork cached.
+func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer, error) {
+	src, err := s.source()
+	if err != nil {
+		return nil, err
+	}
+	servers, err := s.cfg.Featured(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	s.cacheArt(ctx, catalog.FeaturedImages(servers))
+	return servers, nil
+}
+
+// Gatherings lists the community gatherings with their artwork cached.
+func (s *Service) Gatherings(ctx context.Context) ([]catalog.Gathering, error) {
+	src, err := s.source()
+	if err != nil {
+		return nil, err
+	}
+	gatherings, err := s.cfg.Gatherings(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	images := make([]*catalog.Image, 0, len(gatherings))
+	for index := range gatherings {
+		images = append(images, &gatherings[index].Image)
+	}
+	s.cacheArt(ctx, images)
+	return gatherings, nil
+}
+
+// Profile returns the signed-in profile with its gamerpic cached.
+func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
+	src, err := s.source()
+	if err != nil {
+		return catalog.Profile{}, err
+	}
+	profile, err := s.cfg.Profile(ctx, src)
+	if err != nil {
+		return catalog.Profile{}, err
+	}
+	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
+	return profile, nil
+}
+
+// Home returns the start screen's service data with its artwork cached.
+func (s *Service) Home(ctx context.Context) (catalog.Home, error) {
+	src, err := s.source()
+	if err != nil {
+		return catalog.Home{}, err
+	}
+	home, err := s.cfg.Home(ctx, src, &s.messaging, s.cfg.ArtworkDir)
+	if err != nil {
+		return catalog.Home{}, err
+	}
+	var images []*catalog.Image
+	for index := range home.Messages {
+		for image := range home.Messages[index].Images {
+			images = append(images, &home.Messages[index].Images[image].Image)
+		}
+	}
+	for index := range home.LiveEvents {
+		images = append(images, &home.LiveEvents[index].Badge, &home.LiveEvents[index].EventImage)
+	}
+	images = append(images, &home.PersonaHead)
+	s.cacheArt(ctx, images)
+	return home, nil
+}
+
+// ReportMessage posts one messaging report for the signed-in session.
+func (s *Service) ReportMessage(ctx context.Context, event catalog.MessageEvent) error {
+	src, err := s.source()
+	if err != nil {
+		return err
+	}
+	return s.cfg.Report(ctx, src, &s.messaging, event)
+}
+
+// Ping pings servers for their player counts and round trip; it needs no account.
+func (s *Service) Ping(ctx context.Context, addresses []string) []catalog.PingResult {
+	return s.cfg.Ping(ctx, addresses)
+}
+
+func (s *Service) cacheArt(ctx context.Context, images []*catalog.Image) {
+	if s.cfg.ArtworkDir != "" {
+		s.cfg.CacheArt(ctx, s.cfg.ArtworkDir, images)
+	}
 }
 
 // Connect selects the upstream for the next client connection and drops any pending transfer.

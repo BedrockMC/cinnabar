@@ -151,3 +151,60 @@ func TestPublishSignedInIncludesGamertag(t *testing.T) {
 		t.Fatalf("auth = %+v", got)
 	}
 }
+
+func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
+	var cached []string
+	service := New(Config{
+		TokenSource: staticSource{}, ArtworkDir: "/art",
+		Featured: func(context.Context, oauth2.TokenSource) ([]catalog.FeaturedServer, error) {
+			return []catalog.FeaturedServer{{Name: "S", Logo: catalog.Image{URL: "https://a.test/l.png"}}}, nil
+		},
+		Profile: func(context.Context, oauth2.TokenSource) (catalog.Profile, error) {
+			return catalog.Profile{Gamertag: "Steve"}, nil
+		},
+		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
+			for _, image := range images {
+				if image.URL != "" {
+					image.Path = directory + "/cached"
+					cached = append(cached, image.URL)
+				}
+			}
+		},
+	})
+	servers, err := service.FeaturedServers(context.Background())
+	if err != nil || len(servers) != 1 || servers[0].Logo.Path != "/art/cached" || len(cached) != 1 {
+		t.Fatalf("servers = %+v, err = %v, cached = %v", servers, err, cached)
+	}
+	if profile, err := service.Profile(context.Background()); err != nil || profile.Gamertag != "Steve" {
+		t.Fatalf("profile = %+v, err = %v", profile, err)
+	}
+	offline := New(Config{})
+	if _, err := offline.Gatherings(context.Background()); !errors.Is(err, control.ErrSignedOut) {
+		t.Fatalf("offline gatherings err = %v", err)
+	}
+}
+
+func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
+	service := New(Config{
+		TokenSource: staticSource{}, ArtworkDir: "/art",
+		Home: func(context.Context, oauth2.TokenSource, *catalog.MessagingSession, string) (catalog.Home, error) {
+			return catalog.Home{
+				Messages: []catalog.Message{{ID: "m", Images: []catalog.MessageImage{
+					{ID: "tile", Image: catalog.Image{URL: "https://a.test/t.png"}},
+				}}},
+				LiveEvents: []catalog.LiveEvent{{ID: "g", Badge: catalog.Image{URL: "https://a.test/b.png"}}},
+			}, nil
+		},
+		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
+			for _, image := range images {
+				if image.URL != "" {
+					image.Path = directory + "/cached"
+				}
+			}
+		},
+	})
+	home, err := service.Home(context.Background())
+	if err != nil || home.Messages[0].Images[0].Path != "/art/cached" || home.LiveEvents[0].Badge.Path != "/art/cached" {
+		t.Fatalf("home = %+v, err = %v", home, err)
+	}
+}

@@ -2,7 +2,9 @@
 //! reaches the bridge through this facade.
 
 pub use bridge::{
-    Account, AuthState, BridgeError, ConnectTarget, Events, Friend, Realm, ServerDisconnect,
-    TransferPending, account_status, connect_target, list_friends, list_realms, poll_events,
-    sign_out,
+    Account, Artwork, AuthState, BridgeError, ConnectTarget, Events, FeaturedGame, FeaturedServer,
+    Friend, Gathering, Home, Inbox, LiveEvent, Message, MessageButton, MessageEvent, MessageImage,
+    Profile, Realm, ServerDisconnect, ServerPing, TransferPending, account_status, connect_target,
+    home, list_featured_servers, list_friends, list_gatherings, list_realms, ping_servers,
+    poll_events, profile, report_message_event, sign_out,
 };

@@ -20,6 +20,264 @@ pub struct Realm {
     pub target: String,
     #[serde(default)]
     pub address: Option<String>,
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default)]
+    pub motd: String,
+    #[serde(default)]
+    pub world_type: String,
+    #[serde(default)]
+    pub online_players: u32,
+    #[serde(default)]
+    pub max_players: u32,
+    #[serde(default)]
+    pub days_left: i32,
+    #[serde(default)]
+    pub expired: bool,
+    /// Joined as a member rather than owned.
+    #[serde(default)]
+    pub member: bool,
+}
+
+/// Remote HTTPS artwork and the core's cached copy of it, when it has one.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Artwork {
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub path: String,
+}
+
+/// One activity a featured server or gathering advertises.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct FeaturedGame {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub image: Artwork,
+}
+
+/// A featured server with the details the play screen's info panel shows.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct FeaturedServer {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub caption: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub news_title: String,
+    #[serde(default)]
+    pub news: String,
+    #[serde(default)]
+    pub logo: Artwork,
+    #[serde(default)]
+    pub screenshots: Vec<Artwork>,
+    #[serde(default)]
+    pub games: Vec<FeaturedGame>,
+}
+
+/// A community gathering; `address` is empty when it could not be resolved.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Gathering {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub caption: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub creator: String,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub image: Artwork,
+    #[serde(default)]
+    pub start_unix: i64,
+    #[serde(default)]
+    pub end_unix: i64,
+}
+
+/// The signed-in account as the start and profile screens show it.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Profile {
+    #[serde(default)]
+    pub gamertag: String,
+    #[serde(default)]
+    pub xuid: String,
+    #[serde(default)]
+    pub gamerpic: Artwork,
+    #[serde(default)]
+    pub real_name: String,
+    #[serde(default)]
+    pub presence_text: String,
+    #[serde(default)]
+    pub gamerscore: i64,
+    #[serde(default)]
+    pub friends: u32,
+    #[serde(default)]
+    pub followers: u32,
+}
+
+/// The start screen's service data: messaging surfaces, inbox counts,
+/// treatments, the pending Realms invite count, live events and the persona head.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct Home {
+    #[serde(default)]
+    pub messages: Vec<Message>,
+    #[serde(default)]
+    pub inbox: Inbox,
+    #[serde(default)]
+    pub treatments: Vec<String>,
+    #[serde(default)]
+    pub realm_invites: u32,
+    #[serde(default)]
+    pub live_events: Vec<LiveEvent>,
+    #[serde(default)]
+    pub persona_head: Artwork,
+}
+
+/// One player-messaging message; `surface` places it (`PlayButton`, `InboxMessage`, ...).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Message {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub instance_id: String,
+    #[serde(default)]
+    pub report_id: String,
+    #[serde(default)]
+    pub surface: String,
+    #[serde(default)]
+    pub template: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub header: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub sub_title: String,
+    #[serde(default)]
+    pub banner: String,
+    #[serde(default)]
+    pub images: Vec<MessageImage>,
+    #[serde(default)]
+    pub buttons: Vec<MessageButton>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct MessageImage {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct MessageButton {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub link: String,
+    #[serde(default)]
+    pub action: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Inbox {
+    #[serde(default)]
+    pub total: u32,
+    #[serde(default)]
+    pub unread: u32,
+}
+
+/// A live gathering with its active segment's start-screen UI.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct LiveEvent {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub start_unix: i64,
+    #[serde(default)]
+    pub end_unix: i64,
+    #[serde(default)]
+    pub route_to_servers: bool,
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub button_text: String,
+    #[serde(default)]
+    pub caption_text: String,
+    #[serde(default)]
+    pub caption_countdown: bool,
+    #[serde(default)]
+    pub badge: Artwork,
+    #[serde(default)]
+    pub event_image: Artwork,
+}
+
+/// A messaging report: `event_type` is Click, Dismiss, Delete, Impression, ControlImpression or ReadAll.
+#[derive(Clone, Debug, Default, Serialize, Eq, PartialEq)]
+pub struct MessageEvent {
+    pub event_type: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub instance_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub report_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub button_id: String,
+}
+
+#[derive(Deserialize)]
+struct HomeBody {
+    #[serde(default)]
+    home: Home,
+}
+
+/// One server's RakNet pong; `online` is false when it did not answer.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ServerPing {
+    #[serde(default)]
+    pub address: String,
+    #[serde(default)]
+    pub online: bool,
+    #[serde(default)]
+    pub players: u32,
+    #[serde(default)]
+    pub max_players: u32,
+    #[serde(default)]
+    pub ping_ms: u32,
+    #[serde(default)]
+    pub motd: String,
+}
+
+#[derive(Serialize)]
+struct PingParams<'a> {
+    addresses: &'a [String],
+}
+
+#[derive(Deserialize)]
+struct PingBody {
+    #[serde(default)]
+    servers: Vec<ServerPing>,
 }
 
 /// One friend's joinable world; `xuid` identifies it for [`ConnectTarget::Friend`].
@@ -157,6 +415,24 @@ struct AccountBody {
     account: Account,
 }
 
+#[derive(Deserialize)]
+struct FeaturedBody {
+    #[serde(default)]
+    servers: Vec<FeaturedServer>,
+}
+
+#[derive(Deserialize)]
+struct GatheringsBody {
+    #[serde(default)]
+    gatherings: Vec<Gathering>,
+}
+
+#[derive(Deserialize)]
+struct ProfileBody {
+    #[serde(default)]
+    profile: Profile,
+}
+
 async fn call<R: DeserializeOwned, P: Serialize>(
     socket_dir: &Path,
     method: &str,
@@ -230,6 +506,49 @@ pub async fn poll_events(socket_dir: &Path) -> Result<Events, BridgeError> {
     call::<Events, ()>(socket_dir, "events.v1", None).await
 }
 
+/// Lists the featured servers.
+pub async fn list_featured_servers(socket_dir: &Path) -> Result<Vec<FeaturedServer>, BridgeError> {
+    let body: FeaturedBody = call::<_, ()>(socket_dir, "featured_servers.v1", None).await?;
+    Ok(body.servers)
+}
+
+/// Lists the community gatherings.
+pub async fn list_gatherings(socket_dir: &Path) -> Result<Vec<Gathering>, BridgeError> {
+    let body: GatheringsBody = call::<_, ()>(socket_dir, "gatherings.v1", None).await?;
+    Ok(body.gatherings)
+}
+
+/// Pings up to 64 servers for their player counts and round trip.
+pub async fn ping_servers(
+    socket_dir: &Path,
+    addresses: &[String],
+) -> Result<Vec<ServerPing>, BridgeError> {
+    let params = PingParams { addresses };
+    let body: PingBody = call(socket_dir, "ping.v1", Some(params)).await?;
+    Ok(body.servers)
+}
+
+/// Reads the start screen's service data.
+pub async fn home(socket_dir: &Path) -> Result<Home, BridgeError> {
+    let body: HomeBody = call::<_, ()>(socket_dir, "home.v1", None).await?;
+    Ok(body.home)
+}
+
+/// Reports one messaging event (impression, click, dismiss, ...).
+pub async fn report_message_event(
+    socket_dir: &Path,
+    event: &MessageEvent,
+) -> Result<(), BridgeError> {
+    call::<Empty, _>(socket_dir, "message_event.v1", Some(event)).await?;
+    Ok(())
+}
+
+/// Reads the signed-in profile.
+pub async fn profile(socket_dir: &Path) -> Result<Profile, BridgeError> {
+    let body: ProfileBody = call::<_, ()>(socket_dir, "profile.v1", None).await?;
+    Ok(body.profile)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,6 +615,68 @@ mod tests {
         let quiet: Events = parse_response(quiet).expect("quiet");
         assert_eq!(quiet.auth.state, AuthState::Offline);
         assert!(quiet.disconnect.is_none() && quiet.transfer.is_none());
+    }
+
+    #[test]
+    fn screen_feeds_parse_leniently() {
+        let featured = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
+            {"name":"S","address":"a.test:19132","logo":{"url":"https://a.test/l.png"},
+             "games":[{"title":"Skywars"}],"future":true},{}]}}"#;
+        let body: FeaturedBody = parse_response(featured).expect("featured");
+        assert_eq!(body.servers.len(), 2);
+        assert_eq!(body.servers[0].logo.url, "https://a.test/l.png");
+        assert_eq!(body.servers[0].games[0].title, "Skywars");
+        let gatherings = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1}}"#;
+        assert!(
+            parse_response::<GatheringsBody>(gatherings)
+                .expect("gatherings")
+                .gatherings
+                .is_empty()
+        );
+        let profile = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "profile":{"gamertag":"Steve","xuid":"1","gamerpic":{"path":"/art/p.img"}}}}"#;
+        let body: ProfileBody = parse_response(profile).expect("profile");
+        assert_eq!(body.profile.gamerpic.path, "/art/p.img");
+        let realm = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"realms":[
+            {"name":"R","state":"OPEN","target":"realm_id/7","online_players":2,"max_players":10}]}}"#;
+        let body: RealmsBody = parse_response(realm).expect("realm");
+        assert_eq!(body.realms[0].online_players, 2);
+    }
+
+    #[test]
+    fn ping_params_and_results_match_the_wire_contract() {
+        let addresses = vec!["a.test:19132".to_owned()];
+        let encoded = serde_json::to_string(&PingParams {
+            addresses: &addresses,
+        })
+        .expect("encode");
+        assert_eq!(encoded, r#"{"addresses":["a.test:19132"]}"#);
+        let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
+            {"address":"a.test:19132","online":true,"players":3,"max_players":20,"ping_ms":41}]}}"#;
+        let body: PingBody = parse_response(reply).expect("ping");
+        assert_eq!(body.servers[0].ping_ms, 41);
+    }
+
+    #[test]
+    fn home_parses_leniently_and_events_skip_empty_fields() {
+        let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"home":{
+            "messages":[{"id":"m","surface":"PlayButton","template":"t",
+              "images":[{"id":"tile","url":"https://a.test/t.png","path":"/art/t.img"}]}],
+            "inbox":{"total":3,"unread":2,"categories":[]},"realm_invites":1,
+            "live_events":[{"id":"g","caption_countdown":true}],"extra":1}}}"#;
+        let body: HomeBody = parse_response(reply).expect("home");
+        assert_eq!(body.home.messages[0].images[0].path, "/art/t.img");
+        assert_eq!(body.home.inbox.unread, 2);
+        assert!(body.home.live_events[0].caption_countdown);
+        let event = MessageEvent {
+            event_type: "Impression".into(),
+            instance_id: "i".into(),
+            ..MessageEvent::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&event).expect("encode"),
+            r#"{"event_type":"Impression","instance_id":"i"}"#
+        );
     }
 
     #[test]

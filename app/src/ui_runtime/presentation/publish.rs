@@ -219,12 +219,26 @@ pub(crate) fn publish_ui_runtime(
     presentation.set_nametag_anchors(nametags);
     let menu_view = menu_runtime.is_visible().then(|| {
         let mut view = menu_runtime.view();
+        let selected = view
+            .feeds
+            .selected_featured
+            .and_then(|index| view.featured.get(index))
+            .and_then(|server| view.feeds.details.get(&server.address));
         let artwork_paths = view
             .featured
             .iter()
             .chain(view.gatherings.iter())
-            .filter(|server| !server.image_path.is_empty())
             .map(|server| server.image_path.clone())
+            .chain(std::iter::once(view.feeds.profile.picture_path.clone()))
+            .chain(home_art(&view.feeds.home))
+            .chain(selected.into_iter().flat_map(|details| {
+                details
+                    .screenshots
+                    .iter()
+                    .cloned()
+                    .chain(details.games.iter().map(|game| game.image_path.clone()))
+            }))
+            .filter(|path| !path.is_empty())
             .collect();
         presentation.sync_menu_artwork(artwork_paths);
         for server in view.featured.iter_mut().chain(view.gatherings.iter_mut()) {
@@ -970,4 +984,21 @@ impl UiPresentationRuntime {
         self.last_input = Some(input.clone());
         input
     }
+}
+
+/// The start screen's service art: messaging tile layers, the event badge and the persona head.
+fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
+    let mut paths = vec![home.persona_head.clone()];
+    for art in [&home.play_art, &home.store_art].into_iter().flatten() {
+        paths.extend([
+            art.default_background.clone(),
+            art.hover_background.clone(),
+            art.default_foreground.clone(),
+            art.hover_foreground.clone(),
+        ]);
+    }
+    if let Some(event) = &home.live_event {
+        paths.push(event.badge_path.clone());
+    }
+    paths
 }

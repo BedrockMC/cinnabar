@@ -181,27 +181,15 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
     };
     let mut dynamic = vec![preview];
     let menu_changed = runtime.menu_artwork_dirty;
+    let art_start = first_dynamic + render::MAX_UI_DYNAMIC_PAGES;
     if runtime.menu_artwork_dirty {
-        runtime.menu_artwork = menu_artwork::load(
-            &runtime.menu_artwork_paths,
-            width,
-            height,
-            (first_dynamic + 1) as u16,
-            8,
-            layer_bytes * 8,
-        );
+        runtime.menu_artwork = menu_artwork::load(&runtime.menu_artwork_paths, art_start as u16);
         runtime.menu_artwork_dirty = false;
     }
     let previous = runtime.textures.pages();
-    for offset in 0..8 {
-        let page = if !menu_changed {
-            previous[first_dynamic + 1 + offset].clone()
-        } else if let Some(page) = runtime.menu_artwork.pages.get(offset) {
-            page.clone()
-        } else {
-            runtime.blank_dynamic_page.clone()
-        };
-        dynamic.push(page);
+    // The small pages between the preview and the session icons stay reserved.
+    for _ in 0..8 {
+        dynamic.push(runtime.blank_dynamic_page.clone());
     }
     dynamic.push(
         runtime
@@ -224,6 +212,18 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
+    // Unused art pages keep their old pixels; nothing references them.
+    let art_pages = previous
+        .len()
+        .saturating_sub(art_start)
+        .min(render::MAX_UI_ART_PAGES);
+    for offset in 0..art_pages {
+        let page = match runtime.menu_artwork.pages.get(offset) {
+            Some(page) if menu_changed => page.clone(),
+            _ => previous[art_start + offset].clone(),
+        };
+        dynamic.push(page);
+    }
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
         let old = &previous[first_dynamic + offset];

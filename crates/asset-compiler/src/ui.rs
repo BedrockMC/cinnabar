@@ -4,7 +4,9 @@
 //!
 //! Textures wider or taller than [`MAX_UI_TEXTURE_SIDE`] (full-screen art,
 //! panoramas, animation strips) are not form sprites and are skipped and
-//! counted, mirroring the icon compiler's bounded-source policy. The raw ui
+//! counted, mirroring the icon compiler's bounded-source policy. The six menu
+//! panorama faces and their overlay are also stored beside the ui json as raw
+//! files, for the panorama pass to decode at full resolution. The raw ui
 //! json is kept unresolved because a joined server pack overrides it at runtime.
 
 use std::{
@@ -86,6 +88,12 @@ pub fn compile_ui_assets(
     let mut ui_paths = Vec::new();
     let mut ignored = Vec::new();
     walk(&ui_dir, pack, &mut ignored, &mut ui_paths, &mut budget)?;
+    ui_paths.extend(
+        png_paths
+            .iter()
+            .filter(|relative| is_panorama_file(strip_extension(relative)))
+            .cloned(),
+    );
 
     let (textures, textures_skipped_oversized, textures_skipped_undecodable) =
         read_textures(pack, &png_paths)?;
@@ -475,6 +483,13 @@ fn relative_posix(path: &Path, pack_root: &Path) -> Option<String> {
     Some(out)
 }
 
+/// The six panorama faces and their overlay tint.
+fn is_panorama_file(logical: &str) -> bool {
+    logical
+        .strip_prefix("textures/ui/panorama_")
+        .is_some_and(|face| matches!(face, "0" | "1" | "2" | "3" | "4" | "5" | "overlay"))
+}
+
 fn strip_extension(relative: &str) -> &str {
     relative.rsplit_once('.').map_or(relative, |(stem, _)| stem)
 }
@@ -584,5 +599,19 @@ mod tests {
         // Placement pixels land where the atlas says they do.
         let uv = assets.texture_uv("textures/ui/button").unwrap();
         assert!(uv.u1 <= 1.0 && uv.v1 <= 1.0);
+    }
+
+    #[test]
+    fn panorama_faces_are_stored_as_raw_files() {
+        let pack = synthetic_pack();
+        let face = png(1024, 1024, [40, 80, 120, 255]);
+        write(pack.path(), "textures/ui/panorama_0.png", &face);
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let assets = decode_ui_carrier(&compiled.bytes).unwrap();
+        assert!(assets.texture("textures/ui/panorama_0").is_none());
+        assert_eq!(
+            assets.ui_file("textures/ui/panorama_0.png").unwrap(),
+            face.as_slice()
+        );
     }
 }

@@ -7,11 +7,12 @@ use json_ui::{HitRegion, ViewState};
 use ui::{UiNode, UiNodeId, UiRect, UiVisual};
 
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
-use super::{engine, menu_screens};
+use super::{engine, menu_screens, panorama};
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 use crate::ui_runtime::UiRuntime;
 
-/// Backdrop behind launcher screens (needs the vanilla panorama).
+const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
+/// Backdrop behind launcher screens when the carrier lacks the panorama.
 const LAUNCHER_BACKDROP: [u8; 4] = [8, 10, 14, 255];
 
 impl UiPresentationRuntime {
@@ -64,6 +65,23 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
+        // Without the UI carrier the programmatic launcher draws every screen.
+        if self.form_presentation.engine.is_none() {
+            return Ok(None);
+        }
+        // Screens 26.30 draws with OreUI by default draw natively.
+        let portrait = [
+            &view.feeds.profile.picture_path,
+            &view.feeds.home.persona_head,
+        ]
+        .into_iter()
+        .find_map(|path| self.menu_artwork.refs.get(path).copied());
+        if let Some(hits) =
+            self.append_oreui_screen(view, nodes, next, metrics, [width, height], portrait)?
+        {
+            self.form_presentation.menu_keys.clear();
+            return Ok(Some(hits));
+        }
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(None);
         };
@@ -92,9 +110,10 @@ impl UiPresentationRuntime {
             ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
-        // The vanilla panorama is not packed (its art exceeds the UI atlas
-        // bound), so launcher screens sit on an opaque backdrop instead.
-        if !matches!(view.screen, MenuScreen::Pause | MenuScreen::Death) {
+        // Launcher screens sit on the panorama pass; in-game ones over the world.
+        if !matches!(view.screen, MenuScreen::Pause | MenuScreen::Death)
+            && !panorama::carried(renderer.assets())
+        {
             nodes.push(
                 UiNode::new(UiNodeId::new(*next), None, rect(0.0, 0.0, width, height)?)
                     .with_visual(UiVisual::Solid {
@@ -122,6 +141,14 @@ impl UiPresentationRuntime {
             icons: &[],
             preview: self.hud_frame.player_preview,
             pointer: None,
+            images: Some(&self.menu_artwork.refs),
+            // The gamerpic, else the rendered persona head.
+            portrait: [
+                &view.feeds.profile.picture_path,
+                &view.feeds.home.persona_head,
+            ]
+            .into_iter()
+            .find_map(|path| self.menu_artwork.refs.get(path).copied()),
             ..engine::ScreenArt::default()
         };
         let rendered = renderer.render_screen(
@@ -157,6 +184,54 @@ impl UiPresentationRuntime {
             if let Some(bounds) = window_rect(region, frame.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
+            }
+        }
+        // A launcher dialog opens the vanilla popup and takes over the input.
+        if let Some(dialog) = view.dialog {
+            let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
+            let context = json_ui::form_context(&model, &json_ui::Context::desktop());
+            let data = json_ui::form_data_source(&model);
+            let inputs = engine::EngineInputs {
+                layouts: &mut self.layouts,
+                font: &self.font,
+                metrics,
+                solid_page: self.solid_texture_page,
+                safe_area: self.safe_area,
+                content: [width, height],
+                translate: &translate,
+            };
+            let out = engine::EngineOutput {
+                nodes: &mut *nodes,
+                next: &mut *next,
+                overlay: &[],
+            };
+            if let Ok(Some(popup)) = renderer.render_screen(
+                MODAL_POPUP,
+                &data,
+                &context,
+                &state,
+                engine::ScreenArt::default(),
+                inputs,
+                out,
+            ) {
+                let origin = [self.safe_area.left(), self.safe_area.top()];
+                hits.clear();
+                keys.clear();
+                for region in popup.hits.iter().filter(|region| region.enabled) {
+                    let action = match region.pressed.as_deref() {
+                        Some("popup_dialog.left_button") => confirm,
+                        Some(
+                            "popup_dialog.rightcancel_button"
+                            | "popup_dialog.escape"
+                            | "button.menu_exit",
+                        ) => MenuAction::DismissDialog,
+                        _ => continue,
+                    };
+                    if let Some(bounds) = window_rect(region, popup.scale, origin) {
+                        hits.push((action, bounds));
+                        keys.push((action, region.key.clone()));
+                    }
+                }
             }
         }
         self.form_presentation.menu_keys = keys;

@@ -15,6 +15,8 @@ mod hand_rig_render;
 mod item_geometry;
 mod lightning;
 mod lightning_render;
+mod panorama;
+mod panorama_render;
 mod particles;
 mod present_mode;
 mod runtime_profile;
@@ -24,8 +26,8 @@ mod ui;
 mod ui_textures;
 
 pub use ui_textures::{
-    MAX_UI_DYNAMIC_PAGES, MAX_UI_TEXTURE_BUCKETS, UiTextureBucket, UiTextureCatalog,
-    UiTextureLocation, UiTexturePage, UiTexturePlan,
+    MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE,
+    UiTextureBucket, UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 mod ui_render;
 mod viewmodel;
@@ -146,6 +148,8 @@ pub use lightning::{
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
     push_bolt_records,
 };
+pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaScene, PanoramaView};
+pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     Dx12PresentModePolicy, Dx12PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
     resolve_dx12_present_mode_remedy,

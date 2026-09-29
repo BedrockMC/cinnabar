@@ -1,6 +1,8 @@
 //! The menu's presented data: saved servers, catalog cards, and the per-frame
 //! view the renderers draw from.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab, auth::AuthState};
@@ -45,6 +47,137 @@ pub(crate) struct MenuRealmCard {
     pub(crate) target: String,
     #[serde(default)]
     pub(crate) address: String,
+    #[serde(default)]
+    pub(crate) owner: String,
+    #[serde(default)]
+    pub(crate) online_players: u32,
+    #[serde(default)]
+    pub(crate) max_players: u32,
+    #[serde(default)]
+    pub(crate) days_left: i32,
+    #[serde(default)]
+    pub(crate) expired: bool,
+    /// Joined as a member rather than owned.
+    #[serde(default)]
+    pub(crate) member: bool,
+}
+
+/// A featured server's info-panel details; artwork is a local cached path.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ServerDetails {
+    pub(crate) description: String,
+    pub(crate) news_title: String,
+    pub(crate) news: String,
+    pub(crate) screenshots: Vec<String>,
+    pub(crate) games: Vec<MenuGameCard>,
+}
+
+/// One game a featured server advertises.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuGameCard {
+    pub(crate) title: String,
+    pub(crate) subtitle: String,
+    pub(crate) description: String,
+    pub(crate) image_path: String,
+}
+
+/// The signed-in profile as the start screen shows it.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuProfile {
+    pub(crate) gamertag: String,
+    pub(crate) picture_path: String,
+    pub(crate) real_name: String,
+    pub(crate) presence: String,
+    pub(crate) gamerscore: i64,
+    pub(crate) friends: u32,
+    pub(crate) followers: u32,
+}
+
+/// Service feed data beyond the catalog cards: featured-server details keyed
+/// by address, the profile, and the featured server the info panel shows.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuFeeds {
+    pub(crate) details: HashMap<String, ServerDetails>,
+    pub(crate) profile: MenuProfile,
+    pub(crate) selected_featured: Option<usize>,
+    /// RakNet pongs keyed by the address the row joins.
+    pub(crate) pings: HashMap<String, PingInfo>,
+    /// The info panel's description and news are expanded past "read more".
+    pub(crate) description_expanded: bool,
+    pub(crate) news_expanded: bool,
+    pub(crate) home: MenuHome,
+}
+
+/// The start screen's service data: messaging tile art, inbox and invite
+/// counts, the live event button and the rendered persona head.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MenuHome {
+    pub(crate) play_art: Option<ButtonArt>,
+    pub(crate) store_art: Option<ButtonArt>,
+    pub(crate) inbox_unread: u32,
+    pub(crate) realm_invites: u32,
+    pub(crate) live_event: Option<LiveEventCard>,
+    pub(crate) persona_head: String,
+    /// Inbox messages, newest first as the service lists them.
+    pub(crate) inbox: Vec<InboxItem>,
+}
+
+/// One inbox message.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct InboxItem {
+    pub(crate) header: String,
+    pub(crate) body: String,
+    pub(crate) category: String,
+    pub(crate) unread: bool,
+}
+
+/// A main button's messaging art: local image paths per layer and its banner.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ButtonArt {
+    pub(crate) default_background: String,
+    pub(crate) hover_background: String,
+    pub(crate) default_foreground: String,
+    pub(crate) hover_foreground: String,
+    pub(crate) banner: String,
+}
+
+/// The live gathering the start screen's event button leads to.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LiveEventCard {
+    pub(crate) button_text: String,
+    pub(crate) caption: String,
+    pub(crate) countdown: bool,
+    pub(crate) start_unix: i64,
+    pub(crate) badge_path: String,
+    pub(crate) address: String,
+    pub(crate) route_to_servers: bool,
+}
+
+impl MenuFeeds {
+    /// Show another featured server; its panel opens collapsed.
+    pub(crate) fn select(&mut self, index: usize) {
+        if self.selected_featured != Some(index) {
+            self.description_expanded = false;
+            self.news_expanded = false;
+        }
+        self.selected_featured = Some(index);
+    }
+
+    pub(crate) fn toggle_read_more(&mut self, section: u8) {
+        match section {
+            0 => self.description_expanded = !self.description_expanded,
+            _ => self.news_expanded = !self.news_expanded,
+        }
+    }
+}
+
+/// One server's pong: `online` is false when it did not answer.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PingInfo {
+    pub(crate) online: bool,
+    pub(crate) players: u32,
+    pub(crate) max_players: u32,
+    pub(crate) ping_ms: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -92,6 +225,7 @@ pub(crate) struct MenuView {
     pub(crate) editing: Option<usize>,
     pub(crate) local_worlds: Vec<LocalWorldCard>,
     pub(crate) volumes: super::settings_values::Volumes,
+    pub(crate) feeds: MenuFeeds,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
