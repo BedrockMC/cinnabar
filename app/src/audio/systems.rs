@@ -40,6 +40,7 @@ const FEET_PROBE_BELOW: f64 = 0.2;
 const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
 const UI_CLICK: &str = "random.click";
+const AUDIO_STAGE: usize = render::RuntimeStage::Audio as usize;
 
 static PENDING_UI_CLICKS: AtomicU32 = AtomicU32::new(0);
 
@@ -62,6 +63,7 @@ pub(crate) fn configure(app: &mut App) {
         .add_systems(
             Update,
             (
+                render::begin_stage_span::<AUDIO_STAGE>,
                 ingest_audio_events,
                 drive_local_motion,
                 drive_ambience,
@@ -70,6 +72,7 @@ pub(crate) fn configure(app: &mut App) {
                 drive_consume_audio,
                 drive_actor_audio,
                 pump_audio,
+                render::end_stage_span::<AUDIO_STAGE>,
             )
                 .chain()
                 .after(crate::named_audio::drain_live_named_audio),

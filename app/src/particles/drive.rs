@@ -88,7 +88,13 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
 pub(crate) fn configure_particles(app: &mut App) {
     app.init_resource::<ParticleInbox>().add_systems(
         Update,
-        drive_particles.after(crate::camera::FlyCameraUpdateSet),
+        (
+            render::begin_stage_span::<{ render::RuntimeStage::Particles as usize }>,
+            drive_particles,
+            render::end_stage_span::<{ render::RuntimeStage::Particles as usize }>,
+        )
+            .chain()
+            .after(crate::camera::FlyCameraUpdateSet),
     );
 }
 

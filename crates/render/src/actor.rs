@@ -1,4 +1,4 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use bevy::{
     math::{Mat4, Vec3, Vec4},
@@ -216,6 +216,14 @@ impl ActorRenderScene {
         geometry: ActorRigGeometry,
     ) -> Result<(), ActorRigGeometryError> {
         self.rig_builder.insert_geometry(geometry)
+    }
+
+    /// Registers several geometries under one catalog rebuild; on error none is registered.
+    pub fn insert_geometries(
+        &mut self,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.rig_builder.insert_geometries(geometries)
     }
 
     #[must_use]
@@ -631,6 +639,39 @@ pub fn normalize_actor_skin(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
         }
     }
     Some(normalized.into())
+}
+
+/// Resampled skins retained by source raster; bounded like the player skin array.
+const NORMALIZED_SKIN_CACHE: usize = MAX_RENDERED_PLAYERS;
+
+/// [`normalize_actor_skin`] memoized by source raster, so HD and legacy skins are not resampled
+/// every frame. The entry holds its source, so a matched pointer is never a reused allocation.
+#[must_use]
+pub fn normalize_actor_skin_cached(skin: &ActorSkinPixels) -> Option<Arc<[u8]>> {
+    if skin.width as usize == STANDARD_SKIN_SIDE && skin.height == skin.width {
+        return normalize_actor_skin(skin);
+    }
+    type Entry = (Arc<[u8]>, u32, u32, Option<Arc<[u8]>>);
+    static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
+    let mut cache = CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((.., normalized)) = cache.iter().find(|(source, width, height, _)| {
+        Arc::ptr_eq(source, &skin.rgba8) && *width == skin.width && *height == skin.height
+    }) {
+        return normalized.clone();
+    }
+    let normalized = normalize_actor_skin(skin);
+    if cache.len() == NORMALIZED_SKIN_CACHE {
+        cache.remove(0);
+    }
+    cache.push((
+        Arc::clone(&skin.rgba8),
+        skin.width,
+        skin.height,
+        normalized.clone(),
+    ));
+    normalized
 }
 
 /// Expands a legacy half-height skin to the square layout: the left limbs are the right limbs

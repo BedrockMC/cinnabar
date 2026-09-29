@@ -5,8 +5,8 @@ use bevy::{
     anti_alias::{AntiAliasPlugin, fxaa::FxaaPlugin},
     app::TerminalCtrlCHandlerPlugin,
     prelude::{
-        App, ClearColor, Color, DefaultPlugins, IntoScheduleConfigs, Last, PluginGroup, Resource,
-        SystemSet, Update, Window, default,
+        App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
+        Resource, SystemSet, Update, Window, default,
     },
     render::{
         RenderPlugin,
@@ -838,7 +838,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             args.require_transparent_presentation,
         ));
     if stage_profile_enabled {
-        app.insert_resource(RuntimeStageProfiler::new(true));
+        const MAIN_FRAME: usize = render::RuntimeStage::MainFrame as usize;
+        app.insert_resource(RuntimeStageProfiler::new(true))
+            .init_resource::<render::RuntimeStageSpans>()
+            .add_systems(First, render::begin_stage_span::<MAIN_FRAME>)
+            .add_systems(
+                Last,
+                render::end_stage_span::<MAIN_FRAME>.after(arm_shutdown_watchdog),
+            );
     }
     app.add_plugins((
         ActorRenderPlugin,

@@ -7,7 +7,7 @@ use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
     EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_rig_submission_is_visible,
-    default_actor_skin_rgba8, normalize_actor_skin, pack_overlay_rgba8,
+    default_actor_skin_rgba8, pack_overlay_rgba8,
 };
 
 /// Damage tint blended over a hurt or dying actor.
@@ -487,7 +487,7 @@ fn player_route_and_skin(
     let skin = profile
         .filter(|profile| profile.unique_id == actor.unique_id)
         .and_then(|profile| match &profile.skin {
-            PlayerSkin::Standard(skin) => normalize_actor_skin(&ActorSkinPixels {
+            PlayerSkin::Standard(skin) => render::normalize_actor_skin_cached(&ActorSkinPixels {
                 width: skin.width,
                 height: skin.height,
                 rgba8: Arc::clone(&skin.rgba8),

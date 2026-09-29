@@ -14,9 +14,8 @@ pub struct RenderTextureLayer {
 }
 
 /// `pattern` is lowercase with an optional leading and/or trailing `*`; bone names match
-/// ignoring ASCII case.
+/// ignoring ASCII case. Runs per rule, bone and actor every tick, so it never allocates.
 fn pattern_matches(pattern: &str, name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
     let (leading, rest) = match pattern.strip_prefix('*') {
         Some(rest) => (true, rest),
         None => (false, pattern),
@@ -25,11 +24,16 @@ fn pattern_matches(pattern: &str, name: &str) -> bool {
         Some(core) => (true, core),
         None => (false, rest),
     };
+    let (name, core) = (name.as_bytes(), core.as_bytes());
+    let at = |start: usize| {
+        name.get(start..start + core.len())
+            .is_some_and(|window| window.eq_ignore_ascii_case(core))
+    };
     match (leading, trailing) {
-        (true, true) => name.contains(core),
-        (true, false) => name.ends_with(core),
-        (false, true) => name.starts_with(core),
-        (false, false) => name == core,
+        (true, true) => (0..=name.len().saturating_sub(core.len())).any(at),
+        (true, false) => name.len() >= core.len() && at(name.len() - core.len()),
+        (false, true) => at(0),
+        (false, false) => name.eq_ignore_ascii_case(core),
     }
 }
 
@@ -149,5 +153,7 @@ mod tests {
         assert!(pattern_matches("*saddle*", "leftSaddleStrap"));
         assert!(pattern_matches("*ear", "MuleEar"));
         assert!(!pattern_matches("*saddle*", "body"));
+        assert!(pattern_matches("leg*", "LegFront") && pattern_matches("head", "HEAD"));
+        assert!(pattern_matches("*", "") && !pattern_matches("*ear", "ar"));
     }
 }

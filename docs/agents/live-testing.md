@@ -67,7 +67,9 @@ performance acceptance.
 For main-thread attribution, set `RUST_MCBE_STAGE_PROFILE=1` only on an
 instrumented release acceptance run. The client emits one
 `RUST_MCBE_STAGE_PROFILE` record per second with count, cumulative milliseconds,
-and maximum milliseconds for each runtime stage. Compare runs with the same
+and maximum milliseconds for each runtime stage; `main_frame` is the main world's
+`First`..`Last` wall time, against which the chunk, actor, UI, particle, audio and
+block-entity stages attribute it. Compare runs with the same
 scene, BDS state, duration, release profile, and present mode. Treat overlapping
 worker and main-thread stages as attribution rather than additive wall time, and
 run the final performance gate again without the variable because profiling

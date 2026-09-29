@@ -6,7 +6,7 @@ use assets::FloatRange;
 use bevy::prelude::Resource;
 
 use super::{
-    bank::SoundBank,
+    bank::{PcmLookup, SoundBank},
     settings::{AudioCategory, AudioSettings},
     voice::{VoiceShared, VoiceSource, attenuation, pan_for},
 };
@@ -19,6 +19,8 @@ const MAX_SAME_SOUND: usize = 6;
 const DEFAULT_MAX_DISTANCE: f32 = 16.0;
 /// Seconds a managed loop takes to fade in or out; needs native measurement.
 const LOOP_FADE_SECONDS: f32 = 1.5;
+/// A one-shot still decoding after this long is dropped rather than played late.
+const MAX_DECODE_WAIT_SECONDS: f64 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Listener {
@@ -111,6 +113,18 @@ struct Voice {
     gain: f32,
 }
 
+/// A start waiting for its PCM; replayed with the same rolls so it resolves identically.
+struct PendingStart {
+    request: SoundRequest,
+    managed: Option<(&'static str, f32)>,
+    roll: [f32; 3],
+    path: Box<str>,
+    category: AudioCategory,
+    /// Loops and streamed tracks wait for their decode however long it takes.
+    patient: bool,
+    queued_at: f64,
+}
+
 fn priority(category: AudioCategory) -> u8 {
     match category {
         AudioCategory::Ui => 4,
@@ -131,6 +145,7 @@ pub(crate) struct AudioEngine {
     server_seen: u64,
     clock: f64,
     recent: Vec<(Box<str>, [f32; 3], f64)>,
+    pending: Vec<PendingStart>,
 }
 
 impl Default for AudioEngine {
@@ -154,6 +169,7 @@ impl AudioEngine {
             server_seen: 0,
             clock: 0.0,
             recent: Vec::new(),
+            pending: Vec::new(),
         }
     }
 
@@ -212,6 +228,7 @@ impl AudioEngine {
         self.voices
             .iter()
             .any(|voice| voice.category == category && !voice.shared.finished())
+            || self.pending.iter().any(|start| start.category == category)
     }
 
     /// Cancels every voice playing `name`.
@@ -219,10 +236,12 @@ impl AudioEngine {
         for voice in self.voices.iter().filter(|voice| &*voice.name == name) {
             voice.shared.cancel();
         }
+        self.pending.retain(|start| &*start.request.name != name);
     }
 
     pub(crate) fn stop_all(&mut self) {
         self.queue.clear();
+        self.pending.clear();
         self.loops.clear();
         for voice in &self.voices {
             voice.shared.cancel();
@@ -272,6 +291,7 @@ impl AudioEngine {
         let clock = self.clock;
         self.recent.retain(|(_, _, time)| clock - time < 5.0);
         let mut started = Vec::new();
+        self.resume_decoded(&mut started, listener, settings);
         self.reconcile_loops(&mut started, listener, settings);
         for request in std::mem::take(&mut self.queue) {
             if let Some(source) = self.start(&request, listener, settings, None) {
@@ -280,6 +300,45 @@ impl AudioEngine {
         }
         self.refresh(listener, dt, settings);
         started
+    }
+
+    /// Starts deferred sounds whose decode finished; drops one-shots that waited too long.
+    fn resume_decoded(
+        &mut self,
+        started: &mut Vec<VoiceSource>,
+        listener: Option<Listener>,
+        settings: &AudioSettings,
+    ) {
+        let Some(bank) = self.bank.as_mut() else {
+            self.pending.clear();
+            return;
+        };
+        bank.poll();
+        let clock = self.clock;
+        for start in std::mem::take(&mut self.pending) {
+            if self
+                .bank
+                .as_ref()
+                .is_some_and(|bank| bank.is_decoding(&start.path))
+            {
+                if start.patient || clock - start.queued_at <= MAX_DECODE_WAIT_SECONDS {
+                    self.pending.push(start);
+                }
+                continue;
+            }
+            if let Some(source) = self.start_rolled(
+                &start.request,
+                listener,
+                settings,
+                start.managed,
+                start.roll,
+            ) {
+                started.push(source);
+            }
+        }
+        if let Some(bank) = self.bank.as_mut() {
+            bank.release_unclaimed_streams();
+        }
     }
 
     fn reconcile_loops(
@@ -306,7 +365,13 @@ impl AudioEngine {
         let missing: Vec<(&'static str, LoopSpec)> = self
             .loops
             .iter()
-            .filter(|(key, _)| !self.voices.iter().any(|voice| voice.key == Some(**key)))
+            .filter(|(key, _)| {
+                !self.voices.iter().any(|voice| voice.key == Some(**key))
+                    && !self
+                        .pending
+                        .iter()
+                        .any(|start| start.managed.is_some_and(|(pending, _)| pending == **key))
+            })
             .map(|(key, spec)| (*key, spec.clone()))
             .collect();
         for (key, spec) in missing {
@@ -368,6 +433,17 @@ impl AudioEngine {
             return None;
         }
         let roll = [self.unit(), self.unit(), self.unit()];
+        self.start_rolled(request, listener, settings, managed, roll)
+    }
+
+    fn start_rolled(
+        &mut self,
+        request: &SoundRequest,
+        listener: Option<Listener>,
+        settings: &AudioSettings,
+        managed: Option<(&'static str, f32)>,
+        roll: [f32; 3],
+    ) -> Option<VoiceSource> {
         let bank = self.bank.as_mut()?;
         let Some(definition) = bank.definition(&request.name) else {
             self.stats.no_definition += 1;
@@ -429,6 +505,25 @@ impl AudioEngine {
                 return None;
             }
         }
+        let pcm = match self.bank.as_mut()?.lookup(&path, stream) {
+            PcmLookup::Ready(pcm) => pcm,
+            PcmLookup::Pending => {
+                self.pending.push(PendingStart {
+                    request: request.clone(),
+                    managed,
+                    roll,
+                    path: path.clone(),
+                    category,
+                    patient: managed.is_some() || stream,
+                    queued_at: self.clock,
+                });
+                return None;
+            }
+            PcmLookup::Failed => {
+                self.stats.no_pcm += 1;
+                return None;
+            }
+        };
         let same = self
             .voices
             .iter()
@@ -464,10 +559,6 @@ impl AudioEngine {
                 }
             }
         }
-        let Some(pcm) = self.bank.as_mut()?.pcm(&path, stream) else {
-            self.stats.no_pcm += 1;
-            return None;
-        };
         let (level, target_level, key) = match managed {
             Some((key, target)) => (0.0, target, Some(key)),
             None => (1.0, 1.0, None),
@@ -554,6 +645,90 @@ mod tests {
             );
         }
         AudioEngine::new(Some(bank))
+    }
+
+    /// An engine whose bank holds `name` only as an encoded file, so its first play must decode.
+    fn engine_with_encoded(name: &str, category: &str) -> (AudioEngine, std::path::PathBuf) {
+        let catalog = RuntimeAudioCatalog::decode(
+            &assets::encode_audio_catalog([0; 32], [0; 32], &[definition(name, category)])
+                .expect("catalog"),
+        )
+        .expect("decode");
+        // One PCM16 mono FSB5 of two frames at 48 kHz.
+        let mut fsb = b"FSB5".to_vec();
+        let mode = (9_u64 << 1) | (2_u64 << 34);
+        for value in [1_u32, 1, 8, 0, 4, 2, 0, 0] {
+            fsb.extend(value.to_le_bytes());
+        }
+        fsb.resize(60, 0);
+        fsb.extend(mode.to_le_bytes());
+        fsb.extend([0, 0x40, 0, 0xc0]);
+        let bytes =
+            assets::encode_sound_bank(b"{}", b"{}", b"{}", &[(format!("sounds/{name}"), fsb)])
+                .expect("bank");
+        let path = std::env::temp_dir().join(format!(
+            "cinnabar-engine-{}-{name}.mcbesnd",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).expect("write");
+        let bank = SoundBank::open(&path, Some(Arc::new(catalog)))
+            .expect("open")
+            .expect("present");
+        (AudioEngine::new(Some(bank)), path)
+    }
+
+    /// A first play queues a background decode instead of decoding inside the frame.
+    #[test]
+    fn undecoded_sounds_start_on_a_later_pump() {
+        let (mut engine, path) = engine_with_encoded("random.pop", "player");
+        let settings = AudioSettings::default();
+        engine.enqueue(SoundRequest::new("random.pop"));
+        assert!(engine.pump(None, 0.01, &settings).is_empty());
+        assert_eq!(engine.pending.len(), 1);
+        let mut started = Vec::new();
+        for _ in 0..2000 {
+            started = engine.pump(None, 0.0, &settings);
+            if !started.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(started.len(), 1);
+        assert!(engine.pending.is_empty());
+        engine.enqueue(SoundRequest::new("random.pop"));
+        assert_eq!(
+            engine.pump(None, 0.0, &settings).len(),
+            1,
+            "decoded once, then cached"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// A loop waiting on its decode is not requested again every pump.
+    #[test]
+    fn pending_loops_are_not_duplicated() {
+        let (mut engine, path) = engine_with_encoded("ambient.loop", "ambient");
+        let settings = AudioSettings::default();
+        engine.set_loop(
+            "underwater",
+            Some(LoopSpec {
+                name: "ambient.loop".into(),
+                volume: 0.5,
+            }),
+        );
+        // Held so the started voice stays alive.
+        let mut started = Vec::new();
+        for _ in 0..2000 {
+            started.extend(engine.pump(None, 0.0, &settings));
+            assert!(engine.pending.len() <= 1);
+            if !started.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(started.len(), 1);
+        assert!(engine.pump(None, 0.0, &settings).is_empty());
+        let _ = std::fs::remove_file(path);
     }
 
     const LISTENER: Listener = Listener {

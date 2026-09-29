@@ -263,3 +263,57 @@ fn legacy_half_height_skin_expands_with_mirrored_left_limbs() {
         .is_none()
     );
 }
+
+/// An HD skin is resampled once per source raster, not once per frame.
+#[test]
+fn cached_skin_normalization_resamples_each_source_once() {
+    let hd = ActorSkinPixels {
+        width: 128,
+        height: 128,
+        rgba8: (0..128 * 128 * 4).map(|value| value as u8).collect(),
+    };
+    let first = super::normalize_actor_skin_cached(&hd).unwrap();
+    assert_eq!(first, super::normalize_actor_skin(&hd).unwrap());
+    for _ in 0..10 {
+        assert!(Arc::ptr_eq(
+            &first,
+            &super::normalize_actor_skin_cached(&hd).unwrap()
+        ));
+    }
+    let copy = ActorSkinPixels {
+        rgba8: hd.rgba8.to_vec().into(),
+        ..hd
+    };
+    assert!(!Arc::ptr_eq(
+        &first,
+        &super::normalize_actor_skin_cached(&copy).unwrap()
+    ));
+}
+
+/// New skin models and item meshes share one catalog rebuild instead of one each.
+#[test]
+fn batched_geometries_rebuild_the_catalog_once() {
+    let mut builder = super::ActorRigFrameBuilder::new([]).unwrap();
+    let cuboid = |slot| {
+        super::ActorRigGeometry::synthetic_cuboid(super::skin_rig_id(slot), [0.0; 3], [1.0; 3], 1)
+            .unwrap()
+    };
+    let before = builder.geometry_vertices().len();
+    builder
+        .insert_geometries((0..8).map(cuboid).collect())
+        .unwrap();
+    assert!((0..8).all(|slot| builder.contains_geometry(super::skin_rig_id(slot))));
+    assert_eq!(builder.geometry_vertices().len(), before + 8 * 36);
+    let mut duplicate = vec![cuboid(9)];
+    duplicate.push(
+        super::ActorRigGeometry::synthetic_cuboid(
+            super::EntityRigId(u32::MAX),
+            [0.0; 3],
+            [1.0; 3],
+            1,
+        )
+        .unwrap(),
+    );
+    assert!(builder.insert_geometries(duplicate).is_err());
+    assert!(!builder.contains_geometry(super::skin_rig_id(9)));
+}

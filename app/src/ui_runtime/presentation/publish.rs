@@ -18,6 +18,15 @@ pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
 
+/// Resources beyond Bevy's sixteen-parameter limit.
+type PublishExtras<'w> = (
+    Res<'w, WorldStreamFramePoll>,
+    Res<'w, crate::menu::MenuRuntime>,
+    Res<'w, render::HandRigScene>,
+    Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
+    Option<Res<'w, render::RuntimeStageProfiler>>,
+);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn publish_ui_runtime(
     mut runtime: ResMut<UiRuntime>,
@@ -34,14 +43,12 @@ pub(crate) fn publish_ui_runtime(
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig, collisions): (
-        Res<WorldStreamFramePoll>,
-        Res<crate::menu::MenuRuntime>,
-        Res<render::HandRigScene>,
-        Option<Res<crate::movement::PhysicsCollisionRegistries>>,
-    ),
+    (frame_poll, menu_runtime, hand_rig, collisions, profiler): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
     let Ok(window) = windows.single() else {
         hand.clear();
         return;
@@ -124,7 +131,7 @@ pub(crate) fn publish_ui_runtime(
         let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
             return None;
         };
-        normalize_actor_skin(&ActorSkinPixels {
+        render::normalize_actor_skin_cached(&ActorSkinPixels {
             width: skin.width,
             height: skin.height,
             rgba8: Arc::clone(&skin.rgba8),
@@ -146,7 +153,15 @@ pub(crate) fn publish_ui_runtime(
                 sneaking,
             )
         });
-    presentation.set_player_preview_skin(skin.as_deref(), pose);
+    // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
+    let first_person =
+        camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    presentation.sync_player_preview(
+        skin.as_deref(),
+        pose,
+        runtime.inventory_open() || menu_runtime.is_visible(),
+        first_person && !hand_rig.is_active(),
+    );
     refresh_hud_frame(
         &mut runtime,
         &mut presentation,

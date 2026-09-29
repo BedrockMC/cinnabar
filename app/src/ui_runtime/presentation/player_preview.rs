@@ -14,6 +14,28 @@ impl UiPresentationRuntime {
     pub(crate) fn cpu_empty_hand_fallback(&self) -> Option<IconRef> {
         self.hud_frame.right_hand
     }
+
+    /// [`Self::set_player_preview_skin`] that defers a pose change while no raster showing it is
+    /// on screen; mouse look otherwise re-rasterizes and re-uploads the page every frame.
+    pub(crate) fn sync_player_preview(
+        &mut self,
+        skin: Option<&[u8]>,
+        pose: PlayerPreviewPose,
+        preview_shown: bool,
+        hands_shown: bool,
+    ) {
+        let hands_changed = self.player_preview_pose.is_none_or(|drawn| {
+            drawn.pitch_degrees != pose.pitch_degrees || drawn.sneaking != pose.sneaking
+        });
+        let wanted =
+            preview_shown || (hands_shown && hands_changed) || self.player_preview_pixels.is_none();
+        // A skin change still redraws, at the pose already drawn.
+        let pose = match self.player_preview_pose {
+            Some(drawn) if !wanted => drawn,
+            _ => pose,
+        };
+        self.set_player_preview_skin(skin, pose);
+    }
 }
 
 pub(crate) const PREVIEW_WIDTH: u32 = 96;
