@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::play_screen;
 use crate::menu::{
-    MenuAction, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
+    MenuAction, MenuDialog, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
 };
 
 /// Settings selector indices, fed to the screen as its `$*_forced_index` vars.
@@ -185,6 +185,45 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
         AuthState::Authenticated => flags(data, &["#gamertag_pic_and_label_visible"]),
         AuthState::AwaitingCode { .. } => {}
     }
+}
+
+/// The vanilla two-button popup a launcher dialog opens, and the action its
+/// left (confirm) button takes; the right button dismisses.
+pub(super) fn dialog_model(
+    view: &MenuView,
+    dialog: MenuDialog,
+    translate: Translate<'_>,
+) -> (json_ui::FormModel, MenuAction) {
+    let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::Exit => (
+            translated(translate, "menu.quit", "Quit Game"),
+            String::new(),
+            translated(translate, "gui.yes", "Yes"),
+            translated(translate, "gui.no", "No"),
+            MenuAction::ConfirmExit,
+        ),
+        MenuDialog::RemoveSaved(index) => (
+            translated(
+                translate,
+                "selectServer.deleteQuestion",
+                "Are you sure you want to remove this server?",
+            ),
+            view.servers
+                .get(index)
+                .map(|server| server.name.clone())
+                .unwrap_or_default(),
+            translated(translate, "selectServer.deleteButton", "Delete"),
+            translated(translate, "gui.cancel", "Cancel"),
+            MenuAction::ConfirmRemoveSaved(index),
+        ),
+    };
+    let model = json_ui::FormModel::Modal(json_ui::ModalForm {
+        title,
+        body,
+        button1,
+        button2,
+    });
+    (model, confirm)
 }
 
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {

@@ -11,6 +11,7 @@ use super::{engine, menu_screens, panorama};
 use crate::menu::{MenuAction, MenuScreen, MenuView};
 use crate::ui_runtime::UiRuntime;
 
+const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
 /// Backdrop behind launcher screens when the carrier lacks the panorama.
 const LAUNCHER_BACKDROP: [u8; 4] = [8, 10, 14, 255];
 
@@ -163,6 +164,54 @@ impl UiPresentationRuntime {
             if let Some(bounds) = window_rect(region, frame.scale, origin) {
                 hits.push((action, bounds));
                 keys.push((action, region.key.clone()));
+            }
+        }
+        // A launcher dialog opens the vanilla popup and takes over the input.
+        if let Some(dialog) = view.dialog {
+            let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
+            let context = json_ui::form_context(&model, &json_ui::Context::desktop());
+            let data = json_ui::form_data_source(&model);
+            let inputs = engine::EngineInputs {
+                layouts: &mut self.layouts,
+                font: &self.font,
+                metrics,
+                solid_page: self.solid_texture_page,
+                safe_area: self.safe_area,
+                content: [width, height],
+                translate: &translate,
+            };
+            let out = engine::EngineOutput {
+                nodes: &mut *nodes,
+                next: &mut *next,
+                overlay: &[],
+            };
+            if let Ok(Some(popup)) = renderer.render_screen(
+                MODAL_POPUP,
+                &data,
+                &context,
+                &state,
+                engine::ScreenArt::default(),
+                inputs,
+                out,
+            ) {
+                let origin = [self.safe_area.left(), self.safe_area.top()];
+                hits.clear();
+                keys.clear();
+                for region in popup.hits.iter().filter(|region| region.enabled) {
+                    let action = match region.pressed.as_deref() {
+                        Some("popup_dialog.left_button") => confirm,
+                        Some(
+                            "popup_dialog.rightcancel_button"
+                            | "popup_dialog.escape"
+                            | "button.menu_exit",
+                        ) => MenuAction::DismissDialog,
+                        _ => continue,
+                    };
+                    if let Some(bounds) = window_rect(region, popup.scale, origin) {
+                        hits.push((action, bounds));
+                        keys.push((action, region.key.clone()));
+                    }
+                }
             }
         }
         self.form_presentation.menu_keys = keys;
