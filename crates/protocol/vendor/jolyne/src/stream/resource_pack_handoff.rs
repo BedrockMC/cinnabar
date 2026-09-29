@@ -60,6 +60,23 @@ impl ResourcePackArchive {
             content_key: ResourcePackContentKey(Vec::new()),
         }
     }
+
+    /// Builds an archive from a locally cached pack and its content key.
+    pub fn with_content_key(
+        pack_id: uuid::Uuid,
+        version: String,
+        sub_pack_name: String,
+        archive: Vec<u8>,
+        key: Vec<u8>,
+    ) -> Self {
+        Self {
+            pack_id,
+            version,
+            sub_pack_name,
+            archive,
+            content_key: ResourcePackContentKey(key),
+        }
+    }
 }
 
 /// One-shot login handoff. Archives are captured but never parsed or applied.

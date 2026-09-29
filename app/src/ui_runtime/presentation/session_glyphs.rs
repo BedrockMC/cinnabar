@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use assets::{GlyphSheet, pack_glyph_sheets};
+use assets::{CellGlyph, pack_cells};
 use render::UiTexturePage;
 
 use super::{UiPresentationRuntime, dynamic_textures};
@@ -12,10 +12,10 @@ const PAGE_SIDE: u32 = 256;
 /// Dynamic-page offset of the first glyph page, after the ten general pages.
 const FIRST_GLYPH_PAGE: usize = 10;
 
-/// The session's decoded sheets, lowest-precedence pack already resolved.
+/// The session's glyph cells, cropped from the winning sheets.
 #[derive(Debug, Default)]
 pub(crate) struct SessionGlyphSheets {
-    pub(crate) sheets: Vec<GlyphSheet>,
+    pub(crate) cells: Vec<CellGlyph>,
 }
 
 /// The packed pages for the sheets last seen on the UI runtime.
@@ -40,8 +40,8 @@ pub(super) fn observe(
     }
     let first_page = runtime.textures.dynamic_start() + FIRST_GLYPH_PAGE;
     let atlas = sheets.map(|sheets| {
-        pack_glyph_sheets(
-            &sheets.sheets,
+        pack_cells(
+            &sheets.cells,
             first_page as u16,
             PAGE_SIDE,
             dynamic_textures::GLYPH_PAGES,

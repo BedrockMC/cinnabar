@@ -965,6 +965,8 @@ mod glyph_sheets;
 mod hud_overrides;
 mod inventory;
 mod item_icons;
+#[cfg(test)]
+mod local_pack;
 mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;

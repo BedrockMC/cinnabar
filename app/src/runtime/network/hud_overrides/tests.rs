@@ -83,17 +83,9 @@ fn higher_packs_win_per_property_and_base_suffixes_are_ignored() {
 // Local-only: set CINNABAR_SERVER_PACK to a cached server `.mcpack` and print what it overrides.
 #[test]
 fn a_real_server_pack_is_read() {
-    let Some(path) = std::env::var_os("CINNABAR_SERVER_PACK") else {
+    let Some(view) = crate::runtime::network::local_pack::local_pack_view("CINNABAR_SERVER_PACK")
+    else {
         return;
     };
-    let archive = protocol::ResourcePackArchive::unencrypted(
-        "00000000-0000-0000-0000-000000000009".parse().unwrap(),
-        "1.0.0".into(),
-        String::new(),
-        std::fs::read(path).unwrap(),
-    );
-    let view = LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![archive]),
-    ));
     eprintln!("{:?}", compile_hud_overrides(&view));
 }

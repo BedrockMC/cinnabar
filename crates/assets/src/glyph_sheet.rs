@@ -1,14 +1,16 @@
-//! Bedrock `font/glyph_XX.png` sheets: a 16x16 grid of cells per high byte, packed as
-//! column-trimmed glyphs into atlas pages. Private-use sheets (E0-F8) draw at one unscaled
-//! px per texel; every other sheet is normalised so a cell is 8 px wide.
+//! Bedrock `font/glyph_XX.png` sheets: a 16x16 grid of cells per high byte. Each cell is
+//! trimmed to its opaque box and packed into atlas pages. Private-use sheets (E0-F8) draw at
+//! one unscaled px per texel; every other sheet is normalised so a cell is 8 px wide. Cells
+//! are centred vertically on the 8 px text line.
 
 use crate::GlyphMetrics;
 
 pub const SHEET_GRID: u32 = 16;
 /// Width in unscaled px of a normalised (non-private-use) cell.
 const NORMALISED_CELL_PX: u32 = 8;
-/// Pixels from the line's baseline up to the top of a sheet cell.
-const ASCENT_PX: i16 = 7;
+/// Pixels from the line's baseline up to the top of the 8 px text line.
+const ASCENT_PX: i64 = 7;
+const LINE_PX: i64 = 8;
 const GUTTER: u32 = 1;
 const PRIVATE_USE_SHEETS: std::ops::RangeInclusive<u8> = 0xe0..=0xf8;
 
@@ -19,6 +21,19 @@ pub struct GlyphSheet {
     pub width: u32,
     pub height: u32,
     pub rgba8: Box<[u8]>,
+}
+
+/// One cell cropped to its opaque box, with the metrics it draws with; `size` is `[0, 0]`
+/// for a blank cell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CellGlyph {
+    pub codepoint: char,
+    pub size: [u32; 2],
+    pub rgba8: Box<[u8]>,
+    pub bearing: [i16; 2],
+    pub advance_64: i16,
+    /// Drawn size in 1/64 unscaled px.
+    pub draw_size_64: [u32; 2],
 }
 
 /// A packed glyph plus the size it is drawn at, in 1/64 unscaled px.
@@ -34,21 +49,6 @@ pub struct GlyphAtlas {
     pub glyphs: Vec<SheetGlyph>,
 }
 
-/// Opaque column span `[left, right)` of a cell, or `None` when it is blank.
-pub fn opaque_columns(sheet: &GlyphSheet, cell_x: u32, cell_y: u32) -> Option<[u32; 2]> {
-    let (cell_w, cell_h) = (sheet.width / SHEET_GRID, sheet.height / SHEET_GRID);
-    let opaque = |x: u32| {
-        (0..cell_h).any(|y| {
-            let index =
-                (((cell_y * cell_h + y) * sheet.width + cell_x * cell_w + x) * 4 + 3) as usize;
-            sheet.rgba8[index] != 0
-        })
-    };
-    let left = (0..cell_w).find(|&x| opaque(x))?;
-    let right = (left..cell_w).rev().find(|&x| opaque(x))? + 1;
-    Some([left, right])
-}
-
 /// 1/64 unscaled px drawn per texel for a sheet whose cells are `cell_width` texels wide.
 pub fn texel_size_64(high_byte: u8, cell_width: u32) -> u32 {
     if PRIVATE_USE_SHEETS.contains(&high_byte) {
@@ -56,11 +56,6 @@ pub fn texel_size_64(high_byte: u8, cell_width: u32) -> u32 {
     } else {
         NORMALISED_CELL_PX * 64 / cell_width
     }
-}
-
-/// Advance in 1/64 px for a trimmed cell `columns` wide: its drawn width plus one pixel.
-pub const fn advance_64(columns: u32, texel_64: u32) -> u32 {
-    columns * texel_64 + 64
 }
 
 fn valid(sheet: &GlyphSheet) -> bool {
@@ -71,101 +66,140 @@ fn valid(sheet: &GlyphSheet) -> bool {
         && sheet.height != 0
         && sheet.width.is_multiple_of(SHEET_GRID)
         && sheet.height.is_multiple_of(SHEET_GRID)
+        && sheet.width / SHEET_GRID <= 512
         && bytes == Some(sheet.rgba8.len())
 }
 
-/// Shelf-packs every cell of `sheets` into `side`-px square pages (at most `max_pages`),
-/// private-use sheets first; glyph pages are numbered from `first_page`. Cells that do not
-/// fit are dropped, invalid sheets skipped.
-pub fn pack_glyph_sheets(
-    sheets: &[GlyphSheet],
-    first_page: u16,
-    side: u32,
-    max_pages: usize,
-) -> GlyphAtlas {
-    let mut ordered: Vec<&GlyphSheet> = sheets.iter().filter(|sheet| valid(sheet)).collect();
-    ordered.sort_by_key(|sheet| {
-        (
-            !PRIVATE_USE_SHEETS.contains(&sheet.high_byte),
-            sheet.high_byte,
-        )
+/// Every cell of `sheet` cropped to its opaque box; empty for a malformed sheet.
+pub fn extract_cells(sheet: &GlyphSheet) -> Vec<CellGlyph> {
+    if !valid(sheet) {
+        return Vec::new();
+    }
+    let (cell_w, cell_h) = (sheet.width / SHEET_GRID, sheet.height / SHEET_GRID);
+    let texel_64 = i64::from(texel_size_64(sheet.high_byte, cell_w));
+    let bearing_x = i16::from(PRIVATE_USE_SHEETS.contains(&sheet.high_byte));
+    let pixel = |x: u32, y: u32| ((y * sheet.width + x) * 4) as usize;
+    let mut cells = Vec::new();
+    for index in 0..SHEET_GRID * SHEET_GRID {
+        let Some(codepoint) = char::from_u32(u32::from(sheet.high_byte) << 8 | index) else {
+            continue;
+        };
+        let (origin_x, origin_y) = (index % SHEET_GRID * cell_w, index / SHEET_GRID * cell_h);
+        let (mut left, mut right, mut top, mut bottom) = (cell_w, 0, cell_h, 0);
+        for y in 0..cell_h {
+            for x in 0..cell_w {
+                if sheet.rgba8[pixel(origin_x + x, origin_y + y) + 3] != 0 {
+                    left = left.min(x);
+                    right = right.max(x + 1);
+                    top = top.min(y);
+                    bottom = bottom.max(y + 1);
+                }
+            }
+        }
+        if right == 0 {
+            cells.push(CellGlyph {
+                codepoint,
+                size: [0, 0],
+                rgba8: Box::default(),
+                bearing: [0, 0],
+                advance_64: 0,
+                draw_size_64: [0, 0],
+            });
+            continue;
+        }
+        let (width, height) = (right - left, bottom - top);
+        let mut rgba8 = Vec::with_capacity((width * height * 4) as usize);
+        for y in top..bottom {
+            let start = pixel(origin_x + left, origin_y + y);
+            rgba8.extend_from_slice(&sheet.rgba8[start..start + (width * 4) as usize]);
+        }
+        // Cell centre on the text line's centre, then down to the cropped top row.
+        let offset_64 =
+            (LINE_PX * 64 - i64::from(cell_h) * texel_64) / 2 + i64::from(top) * texel_64;
+        let bearing_y = ((-ASCENT_PX * 64 + offset_64 + 32).div_euclid(64)) as i16;
+        cells.push(CellGlyph {
+            codepoint,
+            size: [width, height],
+            rgba8: rgba8.into(),
+            bearing: [bearing_x, bearing_y],
+            advance_64: (i64::from(width) * texel_64 + 64).min(i64::from(i16::MAX)) as i16,
+            draw_size_64: [
+                (i64::from(width) * texel_64) as u32,
+                (i64::from(height) * texel_64) as u32,
+            ],
+        });
+    }
+    cells
+}
+
+/// Shelf-packs `cells` into `side`-px square pages (at most `max_pages`), private-use code
+/// points first; glyph pages are numbered from `first_page`. Cells that do not fit are dropped.
+pub fn pack_cells(cells: &[CellGlyph], first_page: u16, side: u32, max_pages: usize) -> GlyphAtlas {
+    let mut ordered: Vec<&CellGlyph> = cells.iter().collect();
+    ordered.sort_by_key(|cell| {
+        let private_use = ('\u{e000}'..='\u{f8ff}').contains(&cell.codepoint);
+        (!private_use, cell.codepoint)
     });
     let mut atlas = GlyphAtlas::default();
     let mut cursor = [0u32; 2];
     let mut row_height = 0u32;
     let page_bytes = (side * side * 4) as usize;
-    for sheet in ordered {
-        let (cell_w, cell_h) = (sheet.width / SHEET_GRID, sheet.height / SHEET_GRID);
-        let texel_64 = texel_size_64(sheet.high_byte, cell_w);
-        let bearing_x = i16::from(PRIVATE_USE_SHEETS.contains(&sheet.high_byte));
-        for index in 0..SHEET_GRID * SHEET_GRID {
-            let (cell_x, cell_y) = (index % SHEET_GRID, index / SHEET_GRID);
-            let Some(codepoint) = char::from_u32(u32::from(sheet.high_byte) << 8 | index) else {
-                continue;
-            };
-            let Some([left, right]) = opaque_columns(sheet, cell_x, cell_y) else {
-                atlas.glyphs.push(SheetGlyph {
-                    metrics: GlyphMetrics {
-                        codepoint,
-                        page: first_page,
-                        uv: [0; 4],
-                        bearing: [0, 0],
-                        advance_64: 0,
-                    },
-                    draw_size_64: [0, 0],
-                });
-                continue;
-            };
-            let width = right - left;
-            let padded = [width + GUTTER * 2, cell_h + GUTTER * 2];
-            if padded[0] > side || padded[1] > side {
+    for cell in ordered {
+        let metrics = |page: u16, uv: [u16; 4]| SheetGlyph {
+            metrics: GlyphMetrics {
+                codepoint: cell.codepoint,
+                page,
+                uv,
+                bearing: cell.bearing,
+                advance_64: cell.advance_64,
+            },
+            draw_size_64: cell.draw_size_64,
+        };
+        let [width, height] = cell.size;
+        if width == 0 || height == 0 {
+            atlas.glyphs.push(metrics(first_page, [0; 4]));
+            continue;
+        }
+        let padded = [width + GUTTER * 2, height + GUTTER * 2];
+        if padded[0] > side || padded[1] > side {
+            continue;
+        }
+        if cursor[0] + padded[0] > side {
+            cursor = [0, cursor[1] + row_height];
+            row_height = 0;
+        }
+        if atlas.pages.is_empty() || cursor[1] + padded[1] > side {
+            if atlas.pages.len() >= max_pages {
                 continue;
             }
-            if cursor[0] + padded[0] > side {
-                cursor = [0, cursor[1] + row_height];
+            if !atlas.pages.is_empty() {
+                cursor = [0, 0];
                 row_height = 0;
             }
-            if atlas.pages.is_empty() || cursor[1] + padded[1] > side {
-                if atlas.pages.len() >= max_pages {
-                    return atlas;
-                }
-                if !atlas.pages.is_empty() {
-                    cursor = [0, 0];
-                    row_height = 0;
-                }
-                atlas.pages.push(vec![0; page_bytes].into());
-            }
-            let page = atlas.pages.last_mut().expect("page just ensured");
-            for y in 0..padded[1] {
-                let source_y = y.saturating_sub(GUTTER).min(cell_h - 1);
-                for x in 0..padded[0] {
-                    let source_x = left + x.saturating_sub(GUTTER).min(width - 1);
-                    let source =
-                        (((cell_y * cell_h + source_y) * sheet.width + cell_x * cell_w + source_x)
-                            * 4) as usize;
-                    let target = (((cursor[1] + y) * side + cursor[0] + x) * 4) as usize;
-                    page[target..target + 4].copy_from_slice(&sheet.rgba8[source..source + 4]);
-                }
-            }
-            let [uv_left, uv_top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
-            atlas.glyphs.push(SheetGlyph {
-                metrics: GlyphMetrics {
-                    codepoint,
-                    page: first_page + (atlas.pages.len() - 1) as u16,
-                    uv: [
-                        uv_left as u16,
-                        uv_top as u16,
-                        (uv_left + width) as u16,
-                        (uv_top + cell_h) as u16,
-                    ],
-                    bearing: [bearing_x, -ASCENT_PX],
-                    advance_64: advance_64(width, texel_64).min(i16::MAX as u32) as i16,
-                },
-                draw_size_64: [width * texel_64, cell_h * texel_64],
-            });
-            cursor[0] += padded[0];
-            row_height = row_height.max(padded[1]);
+            atlas.pages.push(vec![0; page_bytes].into());
         }
+        let page = atlas.pages.last_mut().expect("page just ensured");
+        for y in 0..padded[1] {
+            let source_y = y.saturating_sub(GUTTER).min(height - 1);
+            for x in 0..padded[0] {
+                let source_x = x.saturating_sub(GUTTER).min(width - 1);
+                let source = ((source_y * width + source_x) * 4) as usize;
+                let target = (((cursor[1] + y) * side + cursor[0] + x) * 4) as usize;
+                page[target..target + 4].copy_from_slice(&cell.rgba8[source..source + 4]);
+            }
+        }
+        let [left, top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
+        atlas.glyphs.push(metrics(
+            first_page + (atlas.pages.len() - 1) as u16,
+            [
+                left as u16,
+                top as u16,
+                (left + width) as u16,
+                (top + height) as u16,
+            ],
+        ));
+        cursor[0] += padded[0];
+        row_height = row_height.max(padded[1]);
     }
     atlas
 }
@@ -174,13 +208,13 @@ pub fn pack_glyph_sheets(
 mod tests {
     use super::*;
 
-    /// A 16-cell-wide sheet of `cell`-px cells with the given `(index, columns)` filled solid.
-    fn sheet(high_byte: u8, cell: u32, filled: &[(u32, [u32; 2])]) -> GlyphSheet {
+    /// A sheet of `cell`-px cells with each `(index, [left, right), [top, bottom))` filled solid.
+    fn sheet(high_byte: u8, cell: u32, filled: &[(u32, [u32; 2], [u32; 2])]) -> GlyphSheet {
         let side = cell * SHEET_GRID;
         let mut rgba8 = vec![0u8; (side * side * 4) as usize];
-        for &(index, [left, right]) in filled {
+        for &(index, [left, right], [top, bottom]) in filled {
             let (cell_x, cell_y) = (index % SHEET_GRID, index / SHEET_GRID);
-            for y in 0..cell {
+            for y in top..bottom {
                 for x in left..right {
                     let at = (((cell_y * cell + y) * side + cell_x * cell + x) * 4) as usize;
                     rgba8[at..at + 4].copy_from_slice(&[255, 255, 255, 255]);
@@ -195,67 +229,97 @@ mod tests {
         }
     }
 
-    #[test]
-    fn opaque_columns_follow_the_cell_content() {
-        let sheet = sheet(0xe0, 16, &[(0, [2, 10]), (17, [0, 16])]);
-        assert_eq!(opaque_columns(&sheet, 0, 0), Some([2, 10]));
-        assert_eq!(opaque_columns(&sheet, 1, 1), Some([0, 16]));
-        assert_eq!(opaque_columns(&sheet, 5, 5), None);
+    fn cell(cells: &[CellGlyph], c: char) -> &CellGlyph {
+        cells.iter().find(|cell| cell.codepoint == c).unwrap()
     }
 
     #[test]
-    fn private_use_sheets_draw_one_px_per_texel() {
-        let atlas = pack_glyph_sheets(&[sheet(0xe1, 8, &[(3, [0, 8]), (0xff, [2, 4])])], 7, 256, 4);
-        let by_char = |c: char| {
-            atlas
-                .glyphs
-                .iter()
-                .find(|g| g.metrics.codepoint == c)
-                .unwrap()
-        };
-        let full = by_char('\u{e103}');
-        assert_eq!(full.metrics.page, 7);
+    fn cells_crop_to_their_opaque_box() {
+        let cells = extract_cells(&sheet(
+            0xe0,
+            16,
+            &[(0, [2, 10], [3, 12]), (17, [0, 16], [0, 16])],
+        ));
+        assert_eq!(cells.len(), 256);
+        assert_eq!(cell(&cells, '\u{e000}').size, [8, 9]);
+        assert_eq!(cell(&cells, '\u{e011}').size, [16, 16]);
+        assert_eq!(cell(&cells, '\u{e005}').size, [0, 0]);
+    }
+
+    #[test]
+    fn private_use_cells_draw_one_px_per_texel_centred_on_the_line() {
+        let cells = extract_cells(&sheet(
+            0xe1,
+            8,
+            &[(3, [0, 8], [0, 8]), (0xff, [2, 4], [3, 4])],
+        ));
+        let full = cell(&cells, '\u{e103}');
         assert_eq!(full.draw_size_64, [8 * 64, 8 * 64]);
-        assert_eq!(full.metrics.advance_64, 9 * 64);
-        assert_eq!(full.metrics.bearing, [1, -7]);
-        let narrow = by_char('\u{e1ff}');
-        assert_eq!(narrow.draw_size_64[0], 2 * 64);
-        assert_eq!(narrow.metrics.advance_64, 3 * 64);
-        assert_eq!(by_char('\u{e100}').metrics.advance_64, 0);
-        assert_eq!(atlas.glyphs.len(), 256);
-        assert_eq!(atlas.pages.len(), 1);
+        assert_eq!(full.advance_64, 9 * 64);
+        assert_eq!(full.bearing, [1, -7]);
+        let narrow = cell(&cells, '\u{e1ff}');
+        assert_eq!(narrow.draw_size_64, [2 * 64, 64]);
+        assert_eq!(narrow.advance_64, 3 * 64);
+        // Row 3 of an 8 px cell on an 8 px line sits 3 px below the line top.
+        assert_eq!(narrow.bearing[1], -7 + 3);
+        assert_eq!(cell(&cells, '\u{e100}').advance_64, 0);
+    }
+
+    #[test]
+    fn tall_cells_centre_their_content_on_the_line() {
+        // A 64 px cell whose art is rows 28..35 lands on the 8 px line's centre.
+        let cells = extract_cells(&sheet(0xe0, 64, &[(1, [0, 33], [28, 35])]));
+        let glyph = cell(&cells, '\u{e001}');
+        assert_eq!(glyph.size, [33, 7]);
+        assert_eq!(glyph.draw_size_64, [33 * 64, 7 * 64]);
+        // Line centre is baseline-3; art centre is 3.5 rows below the cell centre offset of zero.
+        assert_eq!(glyph.bearing[1], -7 + (8 - 64) / 2 + 28);
     }
 
     #[test]
     fn other_sheets_normalise_cells_to_eight_px() {
-        let atlas = pack_glyph_sheets(&[sheet(0x4e, 16, &[(1, [0, 16])])], 0, 256, 1);
+        let cells = extract_cells(&sheet(0x4e, 16, &[(1, [0, 16], [0, 16])]));
+        let glyph = cell(&cells, '\u{4e01}');
+        assert_eq!(glyph.draw_size_64, [8 * 64, 8 * 64]);
+        assert_eq!(glyph.advance_64, 9 * 64);
+    }
+
+    #[test]
+    fn packing_places_cropped_cells_and_orders_private_use_first() {
+        let mut cells = extract_cells(&sheet(0x00, 16, &[(1, [0, 16], [0, 16])]));
+        cells.extend(extract_cells(&sheet(0xe0, 16, &[(1, [0, 16], [0, 16])])));
+        let atlas = pack_cells(&cells, 7, 256, 1);
+        assert_eq!(atlas.glyphs[0].metrics.codepoint, '\u{e000}');
         let glyph = atlas
             .glyphs
             .iter()
-            .find(|g| g.metrics.codepoint == '\u{4e01}')
+            .find(|g| g.metrics.codepoint == '\u{e001}')
             .unwrap();
+        assert_eq!(glyph.metrics.page, 7);
         assert_eq!(glyph.metrics.uv[2] - glyph.metrics.uv[0], 16);
-        assert_eq!(glyph.draw_size_64, [8 * 64, 8 * 64]);
-        assert_eq!(glyph.metrics.advance_64, 9 * 64);
+        assert_eq!(atlas.pages.len(), 1);
     }
 
     #[test]
-    fn private_use_sheets_pack_first_and_overflow_is_dropped() {
-        let sheets = [
-            sheet(0x00, 16, &[(1, [0, 16])]),
-            sheet(0xe0, 16, &[(1, [0, 16])]),
-        ];
-        let atlas = pack_glyph_sheets(&sheets, 0, 256, 1);
-        assert_eq!(atlas.glyphs[0].metrics.codepoint, '\u{e000}');
-        let full: Vec<_> = (0..256).map(|i| (i, [0, 16])).collect();
-        let many: Vec<_> = (0xe0..0xf0).map(|b| sheet(b, 16, &full)).collect();
-        let capped = pack_glyph_sheets(&many, 0, 256, 2);
+    fn oversized_cells_are_dropped_and_page_overflow_is_capped() {
+        let huge = extract_cells(&sheet(0xe0, 64, &[(0, [0, 64], [0, 64])]));
+        let none = pack_cells(&huge, 0, 32, 1);
+        assert!(
+            none.glyphs
+                .iter()
+                .all(|g| g.metrics.codepoint != '\u{e000}')
+        );
+        let full: Vec<_> = (0..256).map(|i| (i, [0, 16], [0, 16])).collect();
+        let many: Vec<CellGlyph> = (0xe0..0xf0)
+            .flat_map(|b| extract_cells(&sheet(b, 16, &full)))
+            .collect();
+        let capped = pack_cells(&many, 0, 256, 2);
         assert_eq!(capped.pages.len(), 2);
-        assert!(capped.glyphs.len() < many.len() * 256);
+        assert!(capped.glyphs.len() < many.len());
     }
 
     #[test]
-    fn malformed_sheets_are_skipped() {
+    fn malformed_sheets_yield_no_cells() {
         let bad = GlyphSheet {
             high_byte: 0xe0,
             width: 17,
@@ -268,10 +332,6 @@ mod tests {
             height: 16,
             rgba8: vec![0; 4].into(),
         };
-        assert!(
-            pack_glyph_sheets(&[bad, short], 0, 256, 4)
-                .glyphs
-                .is_empty()
-        );
+        assert!(extract_cells(&bad).is_empty() && extract_cells(&short).is_empty());
     }
 }

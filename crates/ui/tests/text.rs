@@ -615,7 +615,7 @@ fn private_use_codepoints_hit_the_replacement_until_a_sheet_supplies_them() {
         height: 32,
         rgba8: vec![255; 32 * 32 * 4].into(),
     };
-    let atlas = assets::pack_glyph_sheets(&[sheet], 5, 256, 1);
+    let atlas = assets::pack_cells(&assets::extract_cells(&sheet), 5, 256, 1);
     let with_sheet = base.with_glyphs(&atlas.glyphs, |c| ('\u{e000}'..='\u{f8ff}').contains(&c));
     assert_ne!(
         with_sheet.identity().carrier_sha256,

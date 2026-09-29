@@ -62,37 +62,36 @@ fn the_last_applied_pack_wins_per_sheet() {
         archive(2, &[("font/glyph_E0.png", sheet_png(16, 3))]),
     ]))
     .expect("sheets");
-    let by_byte = |byte: u8| {
+    let cell = |c: char| {
         sheets
-            .sheets
+            .cells
             .iter()
-            .find(|sheet| sheet.high_byte == byte)
+            .find(|cell| cell.codepoint == c)
             .unwrap()
     };
-    assert_eq!(sheets.sheets.len(), 2);
-    assert_eq!(by_byte(0xe0).width, 256);
-    assert_eq!(by_byte(0xe1).width, 128);
+    assert_eq!(sheets.cells.len(), 512);
+    // E0 comes from the top pack (16 px cells, cell 3 opaque); E1 falls through to the lower one.
+    assert_eq!(cell('\u{e003}').size, [16, 16]);
+    assert_eq!(cell('\u{e002}').size, [0, 0]);
+    assert_eq!(cell('\u{e102}').size, [8, 8]);
 }
 
 // Local-only: set CINNABAR_SERVER_PACK to a cached server `.mcpack` to check its sheets decode and pack.
 #[test]
 fn a_real_server_pack_decodes_and_packs() {
-    let Some(path) = std::env::var_os("CINNABAR_SERVER_PACK") else {
+    let Some(view) = crate::runtime::network::local_pack::local_pack_view("CINNABAR_SERVER_PACK")
+    else {
         return;
     };
-    let bytes = std::fs::read(path).unwrap();
-    let archive = protocol::ResourcePackArchive::unencrypted(
-        "00000000-0000-0000-0000-000000000009".parse().unwrap(),
-        "1.0.0".into(),
-        String::new(),
-        bytes,
-    );
-    let sheets = compile_session_glyphs(&view(vec![archive])).expect("pack has glyph sheets");
-    let atlas = assets::pack_glyph_sheets(&sheets.sheets, 0, 256, 8);
+    let Some(sheets) = compile_session_glyphs(&view) else {
+        eprintln!("no glyph sheets");
+        return;
+    };
+    let atlas = assets::pack_cells(&sheets.cells, 0, 256, 8);
     assert!(!atlas.glyphs.is_empty());
     eprintln!(
-        "{} sheets, {} glyphs, {} pages",
-        sheets.sheets.len(),
+        "{} cells, {} glyphs, {} pages",
+        sheets.cells.len(),
         atlas.glyphs.len(),
         atlas.pages.len()
     );
