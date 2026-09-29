@@ -36,6 +36,19 @@ impl Cell {
     }
 }
 
+/// The hotbar cells' background art, by cell index.
+const SLOT_ART: [&str; 9] = [
+    "textures/ui/hotbar_0",
+    "textures/ui/hotbar_1",
+    "textures/ui/hotbar_2",
+    "textures/ui/hotbar_3",
+    "textures/ui/hotbar_4",
+    "textures/ui/hotbar_5",
+    "textures/ui/hotbar_6",
+    "textures/ui/hotbar_7",
+    "textures/ui/hotbar_8",
+];
+
 /// A sprite from the HUD carrier's own page (art the pack's `textures/ui` lacks).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SheetSprite {
@@ -59,6 +72,24 @@ pub(crate) struct HudPaint {
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub(crate) mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub(crate) crosshair: Option<SheetSprite>,
+}
+
+impl HudPaint {
+    /// Every texture path the renderers may draw this frame, pack overrides included.
+    pub(crate) fn textures(&self) -> impl Iterator<Item = &str> {
+        [
+            &self.hearts,
+            &self.armor,
+            &self.hunger,
+            &self.bubbles,
+            &self.mount_hearts,
+            &self.effects,
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
+        .chain(SLOT_ART)
+    }
 }
 
 /// Draw `renderer` at `dest` when it is one of the HUD's; `false` otherwise.
@@ -146,22 +177,12 @@ fn slot_art(
     dest: [f32; 4],
     alpha: &dyn Fn([u8; 4]) -> [u8; 4],
 ) {
-    const SLOTS: [&str; 9] = [
-        "textures/ui/hotbar_0",
-        "textures/ui/hotbar_1",
-        "textures/ui/hotbar_2",
-        "textures/ui/hotbar_3",
-        "textures/ui/hotbar_4",
-        "textures/ui/hotbar_5",
-        "textures/ui/hotbar_6",
-        "textures/ui/hotbar_7",
-        "textures/ui/hotbar_8",
-    ];
     let index = data
         .get("#collection_index")
         .and_then(Value::as_f64)
         .map_or(0, |index| index.clamp(0.0, 8.0) as usize);
-    if let Some(visual) = painter.sprite(SLOTS[index], json_ui::UvRect::full(), alpha([255; 4])) {
+    if let Some(visual) = painter.sprite(SLOT_ART[index], json_ui::UvRect::full(), alpha([255; 4]))
+    {
         let _ = painter.push(visual, dest);
     }
 }

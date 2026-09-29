@@ -382,6 +382,32 @@ impl UiPresentationRuntime {
         self.form_presentation.hud.hud.passes
     }
 
+    /// The engine HUD's painted sprite paths that resolve to no texture source.
+    pub(crate) fn hud_unresolved_sprites(&self) -> Vec<String> {
+        let Some(engine) = self.form_presentation.engine.as_deref() else {
+            return Vec::new();
+        };
+        let atlas = engine.textures.lock();
+        let view = super::textures::Textures {
+            assets: engine.assets(),
+            set: &engine.textures,
+            atlas: &atlas,
+        };
+        let mut missing: Vec<String> = self
+            .hud_draw_nodes()
+            .iter()
+            .filter(|node| node.alpha > 0.0)
+            .filter_map(|node| match &node.draw {
+                json_ui::Draw::Sprite { texture, .. } => Some(texture.clone()),
+                _ => None,
+            })
+            .filter(|texture| view.sprite(texture).is_none())
+            .collect();
+        missing.sort();
+        missing.dedup();
+        missing
+    }
+
     /// A draw node's fade multiplier at `now`, under this frame's clocks.
     pub(crate) fn hud_fade(&self, node: &json_ui::DrawNode, now: f64) -> f32 {
         json_ui::fade_factor_at(&node.fades, now, &self.form_presentation.hud.clocks)
