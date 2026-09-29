@@ -107,7 +107,8 @@ func offersOf(row map[string]any) []Offer {
 }
 
 func offerFromLayout(obj map[string]any, rowStore string) (Offer, bool) {
-	id := firstString(obj, idKeys...)
+	// Offer ids are GUIDs; the inventory keys them lowercase.
+	id := strings.ToLower(firstString(obj, idKeys...))
 	title := firstText(obj, titleKeys...)
 	if id == "" || !ValidOfferID(id) || title == "" {
 		return Offer{}, false

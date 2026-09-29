@@ -82,6 +82,7 @@ impl CreateForm {
             game_mode: self.game_mode,
             generator: self.generator,
             difficulty: self.difficulty,
+            backend: None,
             seed: seed_from_text(&self.seed_text),
         })
     }
