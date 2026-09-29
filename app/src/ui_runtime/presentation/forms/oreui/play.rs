@@ -32,7 +32,7 @@ pub(super) fn draw(
         width,
         Some(MenuAction::Navigate(MenuScreen::Home)),
     )?;
-    let grid = Grid::new(canvas, width);
+    let grid = Grid::new(canvas.r(1.0), width);
     let [left, right] = grid.span(0, if grid.narrow { 8 } else { 12 });
     let tab_top = top + space(canvas, 1);
     let tab_bottom = tab_top + canvas.r(4.8);
@@ -239,4 +239,16 @@ fn world_row(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_tags_name_the_game_mode() {
+        assert_eq!(game_mode_tag("Creative"), "Creative");
+        assert_eq!(game_mode_tag("adventure"), "Adventure");
+        assert_eq!(game_mode_tag("anything"), "Survival");
+    }
 }
