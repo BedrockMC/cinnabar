@@ -50,6 +50,8 @@ HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json
 HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json
 LANG_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbelang
 LANG_ASSET_REPORT ?= .local/assets/compiled/lang-assets.json
+LANGUAGE_ASSET_DIR ?= .local/assets/compiled/lang
+LANGUAGE_ASSET_STAMP = $(LANGUAGE_ASSET_DIR)/.compiled
 AUDIO_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeaud
 AUDIO_ASSET_REPORT ?= .local/assets/compiled/audio-assets.json
 AUDIO_BANK_BLOB ?= .local/assets/compiled/vanilla-v1.mcbesnd
@@ -83,6 +85,7 @@ FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- out
 LOCAL_FONT_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- font-assets --pack "$(FONT_PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LOCAL_FONT_ASSET_BLOB)" --report "$(LOCAL_FONT_ASSET_REPORT)"
 HUD_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(HUD_ASSET_BLOB)" --report "$(HUD_ASSET_REPORT)"
 LANG_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- lang-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(LANG_ASSET_BLOB)" --report "$(LANG_ASSET_REPORT)"
+LANGUAGE_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- language-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out-dir "$(LANGUAGE_ASSET_DIR)"
 AUDIO_ASSET_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-assets --pack "$(PACK_DIR)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_ASSET_BLOB)" --report "$(AUDIO_ASSET_REPORT)"
 AUDIO_BANK_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-bank --pack "$(PACK_DIR)" --out "$(AUDIO_BANK_BLOB)" --report "$(AUDIO_BANK_REPORT)"
 AUDIO_PCM_COMPILE = $(CARGO) run --locked -p asset-compiler --bin assetc -- audio-pcm-assets --pack "$(PACK_DIR)" --catalog "$(AUDIO_ASSET_BLOB)" --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --out "$(AUDIO_PCM_BLOB)" --report "$(AUDIO_PCM_REPORT)"
@@ -113,7 +116,7 @@ else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
 
-.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets audio-assets audio-bank icon-assets physics-assets core local-server client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets language-assets audio-assets audio-bank icon-assets physics-assets core local-server client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
@@ -158,6 +161,7 @@ assets: $(ACTOR_ASSET_BLOB) $(ACTOR_ASSET_REPORT)
 assets: $(EQUIPMENT_ASSET_BLOB) $(EQUIPMENT_ASSET_REPORT)
 assets: $(UI_ASSET_BLOB) $(UI_ASSET_REPORT)
 assets: $(WEATHER_ASSET_BLOB)
+assets: $(LANGUAGE_ASSET_STAMP)
 assets: $(HUD_EXTRAS_ASSET_BLOB)
 assets: $(PARTICLE_ASSET_BLOB) $(PARTICLE_ASSET_REPORT)
 assets: $(BLOCK_ENTITY_ASSET_BLOB) $(BLOCK_ENTITY_ASSET_REPORT)
@@ -219,6 +223,9 @@ hud-assets-local:
 	$(HUD_ASSET_COMPILE)
 
 lang-assets: $(LANG_ASSET_BLOB) $(LANG_ASSET_REPORT)
+
+# Optional: other languages; the client falls back to en_US without them.
+language-assets: $(LANGUAGE_ASSET_STAMP)
 
 audio-assets: $(AUDIO_ASSET_BLOB) $(AUDIO_ASSET_REPORT)
 
@@ -290,6 +297,9 @@ $(ICON_ASSET_REPORT): $(ICON_ASSET_BLOB)
 
 $(LANG_ASSET_REPORT): $(LANG_ASSET_BLOB)
 	@if [ ! -f "$@" ] || [ "$@" -ot "$<" ]; then $(LANG_ASSET_COMPILE); fi
+
+$(LANGUAGE_ASSET_STAMP): $(ASSET_BLOB) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
+	$(LANGUAGE_ASSET_COMPILE)
 
 $(AUDIO_ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS) $(VANILLA_SOURCE_MANIFEST)
 	$(AUDIO_ASSET_COMPILE)

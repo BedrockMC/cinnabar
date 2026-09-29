@@ -167,6 +167,15 @@ pub(crate) fn set_base_material_keys(keys: assets::MaterialKeys) {
     let _ = BASE_MATERIAL_KEYS.set(keys);
 }
 
+/// The UI language's `texts/<code>.lang`, set once at startup; unset means en_US only.
+static ACTIVE_LANG_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub(crate) fn set_active_language(code: &str) {
+    if code != "en_US" {
+        let _ = ACTIVE_LANG_PATH.set(format!("texts/{code}.lang"));
+    }
+}
+
 pub(super) type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
 
 struct CachedOverlay {
@@ -411,16 +420,20 @@ fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedTexture> {
     })
 }
 
-/// The client requests `en_US` at login, so that is the only locale merged.
 const SERVER_LANG_PATH: &str = "texts/en_US.lang";
 
 /// Merges every pack's language file so a higher-precedence pack overrides a
-/// key and keys it does not define still come from lower packs. Lowest layers
-/// are dropped first if the merged text would exceed the overlay input bound.
+/// key and keys it does not define still come from lower packs; the UI
+/// language's files override en_US. Lowest layers are dropped first if the
+/// merged text would exceed the overlay input bound.
 fn merged_server_lang(view: &LayeredPackView) -> Option<Arc<assets::ServerLangOverlay>> {
     let mut kept = Vec::new();
     let mut total = 0usize;
-    for layer in view.read_layers(SERVER_LANG_PATH).into_iter().rev() {
+    let mut layers = view.read_layers(SERVER_LANG_PATH);
+    if let Some(active) = ACTIVE_LANG_PATH.get() {
+        layers.extend(view.read_layers(active));
+    }
+    for layer in layers.into_iter().rev() {
         let text = layer
             .strip_prefix(b"\xef\xbb\xbf")
             .unwrap_or(&layer)

@@ -3,7 +3,7 @@
 
 use std::{fs, path::Path};
 
-use asset_compiler::compile_lang_assets;
+use asset_compiler::{compile_lang_assets, compile_language, vanilla_language_codes};
 use assets::AssetError;
 use serde::Serialize;
 
@@ -78,6 +78,36 @@ pub(super) fn compile_lang_assets_command(
         report_data.counts.entries,
         out.display(),
         report.display()
+    );
+    Ok(())
+}
+
+/// Writes every other language the pack lists as `<dir>/<code>.mcbelang`, then
+/// the `.compiled` stamp make tracks; a listed language without a file is skipped.
+pub(super) fn compile_languages_command(
+    pack: &Path,
+    source_manifest: &Path,
+    dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest_bytes = read_bounded_with_limit(
+        source_manifest,
+        MAX_SOURCE_MANIFEST_BYTES,
+        "language source manifest",
+    )?;
+    fs::create_dir_all(dir)?;
+    let mut written = 0usize;
+    for code in vanilla_language_codes(pack)? {
+        if !pack.join(format!("texts/{code}.lang")).is_file() {
+            continue;
+        }
+        let compiled = compile_language(pack, &code, &manifest_bytes)?;
+        write_blob_atomic(&dir.join(format!("{code}.mcbelang")), &compiled.bytes)?;
+        written += 1;
+    }
+    write_blob_atomic(&dir.join(".compiled"), format!("{written}\n").as_bytes())?;
+    println!(
+        "compiled {written} optional language carriers to {}",
+        dir.display()
     );
     Ok(())
 }

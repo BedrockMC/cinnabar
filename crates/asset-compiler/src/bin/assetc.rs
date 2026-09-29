@@ -56,7 +56,7 @@ use cli::{Cli, Command};
 use equipment_command::compile_equipment_assets_command;
 use hud_command::compile_hud_assets_command;
 use icon_command::compile_icon_assets_command;
-use lang_command::compile_lang_assets_command;
+use lang_command::{compile_lang_assets_command, compile_languages_command};
 use output_validation::validate_output_bundle;
 use particle_command::compile_particle_assets_command;
 use ui_command::compile_ui_assets_command;
@@ -287,6 +287,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
         } => {
             compile_lang_assets_command(&pack, &source_manifest, &out, &report)?;
+        }
+        Command::LanguageAssets {
+            pack,
+            source_manifest,
+            out_dir,
+        } => {
+            compile_languages_command(&pack, &source_manifest, &out_dir)?;
         }
         Command::AudioAssets {
             pack,

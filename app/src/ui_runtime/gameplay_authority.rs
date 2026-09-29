@@ -595,6 +595,11 @@ impl UiRuntime {
         self.lang_catalog = Some(catalog);
     }
 
+    /// The UI language's table, consulted before en_US.
+    pub fn set_active_language(&mut self, catalog: Option<Arc<assets::RuntimeLangCatalog>>) {
+        self.active_lang = catalog;
+    }
+
     pub(crate) fn set_server_lang(&mut self, overlay: Option<Arc<assets::ServerLangOverlay>>) {
         self.server_lang = overlay;
     }
@@ -634,6 +639,11 @@ impl UiRuntime {
             .as_ref()
             .and_then(|overlay| overlay.lookup(key))
             .map(Arc::from)
+            .or_else(|| {
+                self.active_lang
+                    .as_ref()
+                    .and_then(|active| active.lookup(key))
+            })
             .or_else(|| self.lang_catalog.as_ref().and_then(|base| base.lookup(key)))
     }
 

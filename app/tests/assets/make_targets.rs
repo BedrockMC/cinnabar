@@ -485,6 +485,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let particle_report = temporary.join("particle.json");
     let block_entity = temporary.join("block-entity.mcbeben");
     let block_entity_report = temporary.join("block-entity.json");
+    let languages = temporary.join(".compiled");
 
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
@@ -532,6 +533,8 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
         format!("BLOCK_ENTITY_ASSET_BLOB={}", make_path(&block_entity)),
         format!("BLOCK_ENTITY_ASSET_REPORT={}", make_path(&block_entity_report)),
         format!("PHYSICS_REGISTRY={}", make_path(&physics)),
+        format!("LANGUAGE_ASSET_DIR={}", make_path(&temporary)),
+        producer_assignment("LANGUAGE_ASSET_COMPILE", "language", &log, &[&languages]),
         producer_assignment("VANILLA_ASSET_FETCH", "acquire", &log, &[&sentinel]),
         producer_assignment("WORLD_ASSET_COMPILE", "world", &log, &[&world]),
         producer_assignment(
@@ -660,6 +663,7 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
             "equipment",
             "ui",
             "weather",
+            "language",
             "hud-extras",
             "particle",
             "block-entity",

@@ -186,6 +186,18 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
             true,
         ),
         step(
+            "Compiling other languages",
+            assetc(
+                "language-assets",
+                vec![
+                    ("pack", pack.clone()),
+                    ("source-manifest", VANILLA_MANIFEST.to_owned()),
+                    ("out-dir", out("lang")),
+                ],
+            ),
+            false,
+        ),
+        step(
             "Compiling item icons",
             assetc(
                 "icon-assets",

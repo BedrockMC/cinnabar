@@ -164,7 +164,7 @@ pub use item::{
 pub use lang::{
     LANG_CARRIER_MAGIC, LANG_CARRIER_VERSION, LangCatalogError, LangEntry, MAX_LANG_CARRIER_BYTES,
     MAX_LANG_ENTRIES, MAX_LANG_KEY_BYTES, MAX_LANG_VALUE_BYTES, RuntimeLangCatalog,
-    VANILLA_EN_US_LANG_SHA256, encode_lang_catalog,
+    VANILLA_EN_US_LANG_SHA256, encode_lang_catalog, is_language_code,
 };
 pub use light_registry::{LightProperties, read_light_registry, read_light_registry_for_protocol};
 pub use material_keys::{MAX_MATERIAL_KEYS_BYTES, MaterialKeys};
