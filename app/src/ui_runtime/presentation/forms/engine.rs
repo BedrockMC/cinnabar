@@ -279,6 +279,11 @@ impl FormEngine {
         }))
     }
 
+    #[cfg(test)]
+    pub(super) fn assets(&self) -> &RuntimeUiAssets {
+        &self.assets
+    }
+
     pub(super) fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
     }
@@ -372,18 +377,26 @@ fn render_with<R: Borrow<FormRender>>(
     let layouts = cache.into_inner();
     let mut atlas = textures.set.lock();
     // Only what this screen draws needs to be resident.
-    let drawn =
-        Textures {
-            assets: textures.assets,
-            set: textures.set,
-            atlas: &atlas,
-        }
-        .atlas_keys(render.nodes.iter().chain(out.overlay).filter_map(|node| {
-            match &node.draw {
+    let drawn = Textures {
+        assets: textures.assets,
+        set: textures.set,
+        atlas: &atlas,
+    }
+    .atlas_keys(
+        render
+            .nodes
+            .iter()
+            .chain(out.overlay)
+            .filter_map(|node| match &node.draw {
                 Draw::Sprite { texture, .. } => Some(texture.as_str()),
                 _ => None,
-            }
-        }));
+            })
+            .chain(
+                art.hud
+                    .into_iter()
+                    .flat_map(hud_renderers::HudPaint::textures),
+            ),
+    );
     atlas.require(drawn.iter().map(String::as_str));
     let mut painter = Painter {
         textures: Textures {

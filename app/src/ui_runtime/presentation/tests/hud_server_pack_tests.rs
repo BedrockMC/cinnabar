@@ -96,6 +96,10 @@ fn textures(nodes: &[DrawNode]) -> std::collections::BTreeSet<&str> {
         .collect()
 }
 
+fn drawn_contains(nodes: &[DrawNode], wanted: &str) -> bool {
+    textures(nodes).contains(wanted)
+}
+
 fn texts(nodes: &[DrawNode]) -> Vec<&str> {
     nodes
         .iter()
@@ -131,30 +135,46 @@ fn server_packs_restyle_the_engine_hud() {
             .build(&runtime, 500, [1920, 1080], DpiScale::new(1.0).unwrap())
             .unwrap();
         let first = started.elapsed();
+        // The next frame draws what the first asked the server atlas for.
+        presentation
+            .build(&runtime, 516, [1920, 1080], DpiScale::new(1.0).unwrap())
+            .unwrap();
+        // Oversized pack art (a 5142x706 watermark) stays out of the atlas.
+        let missing = presentation.hud_unresolved_sprites();
         let nodes = presentation.hud_draw_nodes();
         eprintln!(
-            "== {name}: {} nodes, first frame {first:?}\n   textures {:?}\n   texts {:?}",
+            "== {name}: {} nodes, first frame {first:?}\n   textures {:?}\n   texts {:?}\n   unresolved {missing:?}",
             nodes.len(),
             textures(nodes),
             texts(nodes)
         );
-        let drawn = textures(nodes);
+        let resolved = |texture: &str| {
+            drawn_contains(nodes, texture) && !missing.iter().any(|gap| gap == texture)
+        };
         let written = texts(nodes);
         match name.get(..8).unwrap_or_default() {
             // Zeqa: its own sidebar art, no score column or title band, and
             // `toast.` chat lines drawn as its toasts instead of chat.
             "52e0000e" => {
-                assert!(drawn.contains("textures/ui/zeqa/scoreboard/Black_sb"));
+                assert!(resolved("textures/ui/zeqa/scoreboard/Black_sb"));
                 assert!(!written.contains(&"3") && !written.contains(&"2"));
                 assert!(written.contains(&"Kills: 4"));
-                assert!(drawn.contains("textures/ui/zeqa/common/toastBorder"));
-                assert!(drawn.contains("textures/ui/zeqa/common/scrollbar"));
+                assert!(resolved("textures/ui/zeqa/common/toastBorder"));
+                assert!(resolved("textures/ui/zeqa/common/scrollbar"));
             }
             // Hive: the flagged objective turns the sidebar into its entries.
             "eba25239" => {
-                assert!(drawn.contains("textures/ui/hive/hive_scoreboard_entry"));
+                assert!(resolved("textures/ui/hive/hive_scoreboard_entry"));
                 assert!(written.contains(&"Kills: 4"));
             }
+            // CubeCraft restyles its sidebar; NetherGames its boss bar and sidebar.
+            "ac72a01d" => assert!(resolved("textures/ui/Black_sb")),
+            "051c1187" => {
+                assert!(resolved("textures/ui/ng/bossbar/filled_progress_bar"));
+                assert!(resolved("textures/ui/ng/scoreboard/scoreboard"));
+            }
+            // Galaxite replaces the boss bar with its own art.
+            "5e2431e9" => assert!(resolved("textures/ui/galaxite/boss/left")),
             _ => assert!(!nodes.is_empty()),
         }
     }
