@@ -42,6 +42,83 @@ pub fn item_display(extra_data: &[u8]) -> ItemDisplay {
     display
 }
 
+const TAG_INT: u8 = 3;
+/// Pages a book keeps.
+pub const MAX_BOOK_PAGES: usize = 50;
+
+/// A written or writable book's text.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemBook {
+    pub pages: Vec<Arc<str>>,
+    pub title: Option<Arc<str>>,
+    pub author: Option<Arc<str>>,
+}
+
+/// Reads a book's pages, title and author from its user data.
+#[must_use]
+pub fn item_book(extra_data: &[u8]) -> ItemBook {
+    let mut book = ItemBook::default();
+    let Some(nbt) = decode_extra_nbt(extra_data) else {
+        return book;
+    };
+    for (name, target) in [(&b"title"[..], 0), (&b"author"[..], 1)] {
+        let mut cursor = &nbt[..];
+        if let Some(mut payload) = root_tag(&mut cursor, TAG_STRING, name)
+            && let Some(text) = read_text(&mut payload)
+        {
+            if target == 0 {
+                book.title = Some(text);
+            } else {
+                book.author = Some(text);
+            }
+        }
+    }
+    let mut cursor = &nbt[..];
+    if let Some(payload) = root_tag(&mut cursor, TAG_LIST, b"pages") {
+        read_pages(payload, &mut book);
+    }
+    book
+}
+
+fn read_pages(mut list: &[u8], book: &mut ItemBook) {
+    let _ = (|| -> Option<()> {
+        if read_u8(&mut list)? != TAG_COMPOUND {
+            return None;
+        }
+        let count = usize::try_from(read_i32_le(&mut list)?).ok()?;
+        for _ in 0..count {
+            let mut text = None;
+            loop {
+                let tag = read_u8(&mut list)?;
+                if tag == 0 {
+                    break;
+                }
+                let name_len = usize::from(read_u16_le(&mut list)?);
+                let name = list.get(..name_len)?;
+                list = list.get(name_len..)?;
+                if tag == TAG_STRING && name == b"text" {
+                    text = Some(read_text(&mut list)?);
+                } else {
+                    skip_le_payload(&mut list, tag, 1)?;
+                }
+            }
+            if book.pages.len() < MAX_BOOK_PAGES {
+                book.pages.push(text.unwrap_or_else(|| Arc::from("")));
+            }
+        }
+        Some(())
+    })();
+}
+
+/// Reads the `bundle_id` int that ties a bundle item to its dynamic container.
+#[must_use]
+pub fn item_bundle_id(extra_data: &[u8]) -> Option<u32> {
+    let nbt = decode_extra_nbt(extra_data)?;
+    let mut cursor = &nbt[..];
+    let mut payload = root_tag(&mut cursor, TAG_INT, b"bundle_id")?;
+    u32::try_from(read_i32_le(&mut payload)?).ok()
+}
+
 fn read_text(cursor: &mut &[u8]) -> Option<Arc<str>> {
     let length = usize::from(read_u16_le(cursor)?);
     let bytes = cursor.get(..length)?;
@@ -170,6 +247,38 @@ mod tests {
         assert_eq!(display.name.as_deref(), Some("Blade"));
         assert_eq!(display.lore.len(), 2);
         assert_eq!(display.enchantments, vec![(9, 3)]);
+    }
+
+    #[test]
+    fn reads_book_pages_and_title() {
+        let data = extra(|nbt| {
+            string_tag(nbt, "title", "Log");
+            nbt.push(TAG_LIST);
+            nbt.extend(5_u16.to_le_bytes());
+            nbt.extend(b"pages");
+            nbt.push(TAG_COMPOUND);
+            nbt.extend(2_i32.to_le_bytes());
+            for page in ["one", "two"] {
+                string_tag(nbt, "text", page);
+                nbt.push(0);
+            }
+        });
+        let book = item_book(&data);
+        assert_eq!(book.title.as_deref(), Some("Log"));
+        assert_eq!(book.pages.len(), 2);
+        assert_eq!(&*book.pages[1], "two");
+    }
+
+    #[test]
+    fn reads_the_bundle_id() {
+        let data = extra(|nbt| {
+            nbt.push(TAG_INT);
+            nbt.extend(9_u16.to_le_bytes());
+            nbt.extend(b"bundle_id");
+            nbt.extend(42_i32.to_le_bytes());
+        });
+        assert_eq!(item_bundle_id(&data), Some(42));
+        assert_eq!(item_bundle_id(&[]), None);
     }
 
     #[test]

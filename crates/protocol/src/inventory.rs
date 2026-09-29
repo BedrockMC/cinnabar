@@ -37,7 +37,7 @@ mod windows;
 pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use address::{
     ARMOR_WINDOW_ID, CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
-    CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_INVENTORY,
+    CONTAINER_NAME_CRAFT_INPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, OFFHAND_WINDOW_ID,
     PLAYER_INVENTORY_WINDOW_ID, is_personal_ui_inventory, personal_craft_content_indices,
     personal_craft_slot_index, project_container_cell,

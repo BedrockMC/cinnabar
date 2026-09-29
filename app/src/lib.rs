@@ -25,6 +25,7 @@ pub mod movement;
 mod named_audio;
 mod native_dialog;
 mod particles;
+mod pick_block;
 mod player_skin;
 mod present_mode;
 pub mod semantic_controls;

@@ -344,6 +344,18 @@ pub(crate) fn refresh_hud_frame(
     };
     let mut durability = super::hud_layout::Durability::default();
     let mut window_icons = super::hud_layout::WindowIcons::default();
+    if runtime.inventory_open() {
+        for (row, name) in ["helmet", "chestplate", "leggings", "boots"]
+            .iter()
+            .enumerate()
+        {
+            window_icons.ghost_armor[row] =
+                presentation.item_icon(&format!("minecraft:empty_armor_slot_{name}"), 0);
+        }
+        window_icons.ghost_shield = presentation.item_icon("minecraft:empty_armor_slot_shield", 0);
+        window_icons.ghost_template =
+            presentation.item_icon("minecraft:empty_slot_smithing_template", 0);
+    }
     {
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger();
@@ -379,6 +391,41 @@ pub(crate) fn refresh_hud_frame(
                     .and_then(|id| presentation.item_icon(id, stack.metadata));
             }
         }
+    }
+    if runtime.inventory_open()
+        && runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Lectern)
+        && runtime.screen_state().book.is_none()
+        && let Some(position) = runtime.inventory_ledger().window_position()
+        && let Some(nbt) = stream.and_then(|stream| stream.block_entity_compound(position))
+    {
+        let pages: Vec<String> = nbt
+            .compound("book")
+            .and_then(|book| book.compound("tag"))
+            .and_then(|tag| tag.list("pages"))
+            .map(|pages| {
+                pages
+                    .iter()
+                    .map(|page| match page {
+                        world::NbtValue::Compound(page) => {
+                            page.string("text").unwrap_or_default().to_owned()
+                        }
+                        _ => String::new(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut state = crate::ui_runtime::book_screen::BookState::new(
+            crate::ui_runtime::book_screen::BookSource::Lectern(position),
+            pages,
+            false,
+            String::new(),
+            String::new(),
+        );
+        state.page = nbt
+            .integer("page")
+            .and_then(|page| usize::try_from(page).ok())
+            .map_or(0, |page| page.min(state.pages.len() - 1));
+        runtime.open_book(state);
     }
     let inventory_screen = super::inventory_pointer::InventoryScreen::of_runtime(runtime);
     let mut window_text = super::hud_layout::WindowText::default();
@@ -424,7 +471,8 @@ pub(crate) fn refresh_hud_frame(
                 };
                 runtime.translation(key).map(|text| text.to_string())
             }
-            super::inventory_pointer::InventoryScreen::Personal => None,
+            super::inventory_pointer::InventoryScreen::Personal
+            | super::inventory_pointer::InventoryScreen::Book => None,
         };
         if matches!(
             inventory_screen,
@@ -476,6 +524,84 @@ pub(crate) fn refresh_hud_frame(
                 window_icons.creative_tabs[tab] = presentation.item_icon(id, 0);
             }
         }
+        if runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Beacon) {
+            let level = runtime
+                .inventory_ledger()
+                .window_position()
+                .and_then(|position| stream?.block_entity_compound(position))
+                .and_then(|nbt| nbt.integer("Levels"))
+                .and_then(|levels| u8::try_from(levels).ok());
+            runtime.screen_state_mut().beacon_level = level;
+        }
+        if let Some(kind) = runtime.inventory_ledger().window_kind() {
+            let output_stack = |output: protocol::RecipeOutput| protocol::NetworkItemStack {
+                network_id: output.network_id,
+                metadata: u32::from(output.aux),
+                count: u16::from(output.count),
+                block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                ..protocol::NetworkItemStack::empty()
+            };
+            if kind == protocol::WindowKind::Stonecutter {
+                let outputs: Vec<_> = runtime
+                    .stonecutter_options()
+                    .iter()
+                    .take(super::screens::STONECUTTER_CELLS)
+                    .map(|recipe| recipe.output)
+                    .collect();
+                for (cell, output) in outputs.into_iter().enumerate() {
+                    if let Some(output) = output {
+                        let stack = output_stack(output);
+                        window_icons.recipe[cell] = resolve_identifier(&stack)
+                            .as_deref()
+                            .and_then(|id| presentation.item_icon(id, stack.metadata));
+                    }
+                }
+            }
+            if matches!(
+                kind,
+                protocol::WindowKind::Stonecutter
+                    | protocol::WindowKind::Smithing
+                    | protocol::WindowKind::Cartography
+            ) && runtime.inventory_ledger().created_output_stack().is_none()
+                && let Some(output) = runtime
+                    .active_screen_recipe()
+                    .and_then(|recipe| recipe.output)
+            {
+                let stack = output_stack(output);
+                let icon = resolve_identifier(&stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata));
+                window_icons.recipe_output = Some((icon, stack));
+            }
+        }
+        if matches!(
+            inventory_screen,
+            super::inventory_pointer::InventoryScreen::Personal
+                | super::inventory_pointer::InventoryScreen::Workbench
+        ) {
+            window_icons.book_button = presentation.item_icon("minecraft:book", 0);
+            window_text.book_title = runtime
+                .translation("recipe.book.title")
+                .map(|text| text.to_string());
+            if runtime.screen_state().book_open {
+                let first = runtime.screen_state().book_page * super::screens::BOOK_CELLS;
+                let page = runtime.book_recipes(first, super::screens::BOOK_CELLS + 1);
+                window_icons.book_more = page.len() > super::screens::BOOK_CELLS;
+                for (cell, recipe) in page.iter().take(super::screens::BOOK_CELLS).enumerate() {
+                    let output = recipe.output();
+                    let stack = protocol::NetworkItemStack {
+                        network_id: output.network_id,
+                        metadata: u32::from(output.aux),
+                        count: u16::from(output.count),
+                        block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                        ..protocol::NetworkItemStack::empty()
+                    };
+                    window_icons.book[cell] = resolve_identifier(&stack)
+                        .as_deref()
+                        .and_then(|id| presentation.item_icon(id, stack.metadata));
+                }
+            }
+        }
         // The tooltip follows the hovered cell's stack.
         let hovered = runtime.screen_state().hover.and_then(|hit| {
             use super::inventory_pointer::InventoryCellHit as Hit;
@@ -517,18 +643,48 @@ pub(crate) fn refresh_hud_frame(
                     );
                     (entries.get(position).copied().map(|item| &item.stack), None)
                 }
+                Hit::Widget(super::screens::Widget::BookRecipe(index)) => {
+                    let skip = runtime.screen_state().book_page * super::screens::BOOK_CELLS
+                        + usize::from(index);
+                    let output = runtime
+                        .book_recipes(skip, 1)
+                        .first()
+                        .map(protocol::RecipeHandle::output);
+                    return output.map(|output| {
+                        let stack = protocol::NetworkItemStack {
+                            network_id: output.network_id,
+                            metadata: u32::from(output.aux),
+                            count: u16::from(output.count),
+                            block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
+                            ..protocol::NetworkItemStack::empty()
+                        };
+                        (stack, None)
+                    });
+                }
                 Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
             };
-            stack.map(|stack| (stack, name))
+            stack.map(|stack| (stack.clone(), name))
         });
         if let Some((stack, name)) = hovered {
-            let identifier = resolve_identifier(stack);
+            let identifier = resolve_identifier(&stack);
             window_text.tooltip = super::inventory_tooltip::tooltip_lines(
                 runtime,
-                stack,
+                &stack,
                 identifier.as_deref(),
                 name.as_deref(),
             );
+            if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
+                .and_then(|id| runtime.inventory_ledger().bundle_contents(id))
+            {
+                for held in contents.iter().filter(|held| !held.is_empty()).take(8) {
+                    let item_name = resolve_identifier(held)
+                        .map_or_else(|| "?".to_owned(), |id| runtime.localized_item_name(&id));
+                    window_text.tooltip.push(super::hud_layout::TooltipLine {
+                        text: format!("{}x {item_name}", held.count),
+                        color: [200, 200, 200, 255],
+                    });
+                }
+            }
         }
     }
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {

@@ -39,7 +39,72 @@ pub struct RecipeOutput {
     pub empty_envelope: bool,
 }
 
+/// One ingredient of a crafting recipe as callers may read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecipeIngredientView {
+    pub name: std::sync::Arc<str>,
+    pub tag: bool,
+    pub aux: u16,
+    pub count: u8,
+}
+
+impl RecipeIngredientView {
+    /// Whether an item with `identifier`, `metadata` and the registry's `tags` fits.
+    #[must_use]
+    pub fn accepts(&self, identifier: &str, metadata: u32, tags: &[std::sync::Arc<str>]) -> bool {
+        if self.tag {
+            tags.iter().any(|tag| **tag == *self.name)
+                || vanilla_tag_contains(&self.name, identifier) == Some(true)
+        } else {
+            *self.name == *identifier && (self.aux == 32767 || u32::from(self.aux) == metadata)
+        }
+    }
+}
+
+impl RecipeCatalog {
+    /// Every retained crafting-table recipe, any shape.
+    #[must_use]
+    pub fn crafting_handles(&self) -> Vec<RecipeHandle> {
+        self.crafting_recipes().cloned().collect()
+    }
+}
+
 impl RecipeHandle {
+    /// The recipe's ingredients: shaped recipes in row-major order with `None`
+    /// for empty cells, shapeless ones without gaps.
+    #[must_use]
+    pub fn ingredient_views(&self) -> Vec<Option<RecipeIngredientView>> {
+        let recipe = self.recipe();
+        let view = |ingredient: &Ingredient| RecipeIngredientView {
+            name: std::sync::Arc::from(ingredient.name.as_str()),
+            tag: ingredient.tag,
+            aux: ingredient.aux,
+            count: ingredient.count,
+        };
+        if recipe.shapeless {
+            recipe
+                .ingredients
+                .iter()
+                .flatten()
+                .map(|i| Some(view(i)))
+                .collect()
+        } else {
+            let cells = usize::from(recipe.width) * usize::from(recipe.height);
+            recipe
+                .ingredients
+                .iter()
+                .take(cells)
+                .map(|slot| slot.as_ref().map(view))
+                .collect()
+        }
+    }
+
+    /// Whether the recipe is a shapeless one.
+    #[must_use]
+    pub fn is_shapeless(&self) -> bool {
+        self.recipe().shapeless
+    }
+
     #[must_use]
     pub fn output(&self) -> RecipeOutput {
         let output = self.recipe().output;

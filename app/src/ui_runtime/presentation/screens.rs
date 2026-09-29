@@ -7,15 +7,30 @@ use protocol::WindowKind;
 
 use super::inventory_pointer::{InventoryCellHit, InventoryScreen};
 
+mod book;
 mod creative;
+mod reader;
 mod window;
+
+pub(crate) use reader::{
+    PAGE_TEXT_ORIGIN, PAGE_TEXT_WIDTH, READER_PANEL, ReaderButton, reader_buttons, reader_hit,
+};
+
+pub(crate) use book::{
+    BOOK_CELL_SIZE, BOOK_CELLS, BOOK_PANEL, book_hit, book_origin, cell_origin as book_cell_origin,
+    page_origin as book_page_origin, page_size as book_page_size,
+    toggle_origin as book_toggle_origin, toggle_size as book_toggle_size,
+};
 
 pub(crate) use creative::{
     CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, SEARCH_TAB, TAB_COUNT, creative_slots,
     tab_at, tab_origin, tab_size,
 };
 
-pub(crate) use window::{Widget, WindowLayout, widget_rects, window_layout};
+pub(crate) use window::{
+    BEACON_LEVEL_FOR, LOOM_CELLS, LOOM_COLUMNS, STONECUTTER_CELLS, Widget, WindowLayout,
+    widget_rects, window_layout,
+};
 
 pub(crate) const SLOT_SIZE: f32 = 18.0;
 const PERSONAL_PANEL: [f32; 2] = [176.0, 166.0];
@@ -39,6 +54,7 @@ pub(crate) fn panel_size(screen: InventoryScreen) -> [f32; 2] {
             window_layout(kind, cells).map_or(PERSONAL_PANEL, |layout| layout.panel)
         }
         InventoryScreen::Creative => CREATIVE_PANEL,
+        InventoryScreen::Book => READER_PANEL,
         _ => PERSONAL_PANEL,
     }
 }
@@ -89,9 +105,9 @@ pub(crate) fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
         InventoryScreen::Personal => {
             let mut slots: Vec<PlacedSlot> = grid(28, 2, [98.0, 18.0]).collect();
             slots.push(PlacedSlot {
-                pos: [152.0, 28.0],
+                pos: [148.0, 24.0],
                 hit: InventoryCellHit::CraftOutput,
-                output: false,
+                output: true,
             });
             slots.extend((0..4u8).map(|row| PlacedSlot {
                 pos: [8.0, 8.0 + f32::from(row) * SLOT_SIZE],
@@ -109,9 +125,9 @@ pub(crate) fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
         InventoryScreen::Workbench => {
             let mut slots: Vec<PlacedSlot> = grid(32, 3, WORKBENCH_GRID).collect();
             slots.push(PlacedSlot {
-                pos: WORKBENCH_OUTPUT,
+                pos: [WORKBENCH_OUTPUT[0] - 4.0, WORKBENCH_OUTPUT[1] - 4.0],
                 hit: InventoryCellHit::CraftOutput,
-                output: false,
+                output: true,
             });
             slots.extend(player_slots(8.0, 84.0));
             slots
@@ -139,6 +155,7 @@ pub(crate) fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
             })
             .unwrap_or_default(),
         InventoryScreen::Creative => creative_slots(),
+        InventoryScreen::Book => Vec::new(),
     }
 }
 
