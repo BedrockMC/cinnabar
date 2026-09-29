@@ -409,10 +409,18 @@ impl Parser<'_> {
             let right = self.parse_atom()?;
             left = match (operator, &left, &right) {
                 (Token::Times, Operand::Num(a), Operand::Num(b)) => Operand::Num(a * b),
-                (Token::Times, Operand::Str(format), _) => match truncation(format) {
-                    Some(count) => reparse(right.as_str().chars().take(count).collect()),
-                    None => right,
-                },
+                // A string times anything yields the right side as text (a
+                // number reads as empty), cut to N characters by `'%.Ns'`.
+                (Token::Times, Operand::Str(format), _) => {
+                    let text = match &right {
+                        Operand::Num(_) => String::new(),
+                        other => other.as_str(),
+                    };
+                    reparse(match truncation(format) {
+                        Some(count) => text.chars().take(count).collect(),
+                        None => text,
+                    })
+                }
                 (Token::Divide, Operand::Str(a), Operand::Str(b)) => {
                     Operand::Num(if b.is_empty() {
                         1.0
