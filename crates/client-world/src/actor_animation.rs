@@ -405,6 +405,16 @@ impl ActorAnimationStore {
             } else {
                 (&assets, &self.layout)
             };
+            if state.fallback != EntityRigFallback::GeometryOnly {
+                geometry::reselect_geometry(
+                    state_assets,
+                    state_layout,
+                    state,
+                    actor,
+                    &context,
+                    &mut budget,
+                );
+            }
             let result = evaluate_state(
                 state_assets,
                 state_layout,
@@ -785,6 +795,7 @@ fn scalars(values: Option<&[assets::EntityGeometryScalar; 3]>) -> [f32; 3] {
 }
 
 mod evaluation;
+mod geometry;
 mod motion;
 mod pose;
 mod query;
