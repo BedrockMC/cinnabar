@@ -41,13 +41,25 @@ pub use address::{
     OFFHAND_WINDOW_ID, PLAYER_INVENTORY_WINDOW_ID, is_personal_ui_inventory,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
 };
-pub use client_packets::*;
+pub use client_packets::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
+    lectern_update_packet,
+};
 pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use request::manual_craft::{
     ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet,
 };
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};
-pub use windows::*;
+pub use windows::{
+    OpenCells, UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
+    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
+    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
+    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
+    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
+    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
+    is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
+    ui_slot_for_name, ui_slot_request_container,
+};
 mod registry_snapshot;
 pub use recipes::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,

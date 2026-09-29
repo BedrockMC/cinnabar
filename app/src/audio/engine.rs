@@ -542,7 +542,7 @@ mod tests {
         let prefix = assets::sound_bank_prefix_len(&bytes).expect("prefix");
         let index = SoundBankIndex::decode_prefix(&bytes[..prefix]).expect("index");
         let mut bank =
-            SoundBank::for_test(index, SoundEventTables::default(), Some(Arc::new(catalog)));
+            SoundBank::from_parts(index, SoundEventTables::default(), Some(Arc::new(catalog)));
         for (name, _) in names {
             bank.insert_test_pcm(
                 &format!("sounds/{name}"),
