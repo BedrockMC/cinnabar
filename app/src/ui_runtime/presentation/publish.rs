@@ -34,14 +34,18 @@ pub(crate) fn publish_ui_runtime(
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig, collisions): (
+    (frame_poll, menu_runtime, hand_rig, collisions, profiler): (
         Res<WorldStreamFramePoll>,
         Res<crate::menu::MenuRuntime>,
         Res<render::HandRigScene>,
         Option<Res<crate::movement::PhysicsCollisionRegistries>>,
+        Option<Res<render::RuntimeStageProfiler>>,
     ),
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::UiPublication));
     let Ok(window) = windows.single() else {
         hand.clear();
         return;
