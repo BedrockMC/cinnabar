@@ -398,7 +398,7 @@ impl EquipmentRuntime {
                 view_space: false,
             });
         }
-        let (mesh, location, block) = self.held_mesh(item)?;
+        let (mesh, location, block) = self.held_mesh(item, true)?;
         let shape = if block {
             FirstPersonShape::Block
         } else {

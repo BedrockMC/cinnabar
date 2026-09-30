@@ -106,10 +106,12 @@ impl EquipmentRuntime {
     }
 
     /// The held item's generated mesh and artwork, and whether the mesh is a block cube. A
-    /// server pack's icon replaces the vanilla one, as it does in the inventory.
+    /// server pack's icon replaces the vanilla one, as it does in the inventory. With
+    /// `icon_fallback`, a block with no plain cube sheet takes its icon sprite instead.
     pub(super) fn held_mesh(
         &mut self,
         item: &WornItem,
+        icon_fallback: bool,
     ) -> Option<(EntityRigId, ActorArtworkLocation, bool)> {
         let session = match item.kind {
             HeldKind::Sprite | HeldKind::Other => self.session_sprite(&item.identifier),
@@ -128,7 +130,8 @@ impl EquipmentRuntime {
             };
             let (index, key) = match (sheet, item.kind) {
                 (Some(sheet), _) => sheet,
-                (None, HeldKind::Other | HeldKind::Block(_)) => return None,
+                (None, HeldKind::Other) => return None,
+                (None, HeldKind::Block(_)) if !icon_fallback => return None,
                 (None, _) => {
                     let index = self.icons.lookup_index(&item.identifier, item.metadata)?;
                     (index, MeshKey::Sprite(index))
@@ -159,7 +162,7 @@ impl EquipmentRuntime {
         let Some(hand) = bone else {
             return;
         };
-        let Some((mesh, location, block)) = self.held_mesh(item) else {
+        let Some((mesh, location, block)) = self.held_mesh(item, override_display.is_none()) else {
             return;
         };
         let display = override_display.unwrap_or_else(|| {

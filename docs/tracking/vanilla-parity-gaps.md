@@ -125,7 +125,7 @@ T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane 
   actor pass. Sprites use vanilla's held tessellation layout. Provisional: the hand-equipped and
   mirrored-art lists mirror vanilla by identifier; first-person bow, crossbow, spyglass, spear and
   map use poses, the narrow-aspect offset, the eat-raise aspect term and data-driven block display
-  transforms are not applied.
+  transforms are not applied; a block with no plain cube sheet shows its icon sprite.
 - **Block items:** plain opaque cubes in hand (third and first person) and on the head
   (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
 - **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
