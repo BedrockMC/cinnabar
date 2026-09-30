@@ -343,6 +343,38 @@ fn label_default_width_is_text_extent() {
     assert_eq!(child_named(&placed, "label").rect.w, 30.0);
 }
 
+// A form-fitting button: the panel sizes to a label capped at `100%`/`100%c`,
+// which must not collapse it to zero before the panel's width is known.
+#[test]
+fn a_child_sized_panel_fits_a_label_capped_by_percent_bounds() {
+    let env = LayoutEnv {
+        text: &MonoText,
+        textures: &NoTextures,
+    };
+    for max in [json!(["100%", 10]), json!(["100%c", 10])] {
+        let label = ctrl(
+            "label",
+            Some("label"),
+            json!({ "size": ["default", 10], "max_size": max, "text": "Dressing" }),
+            vec![],
+        );
+        let panel = ctrl(
+            "panel",
+            Some("panel"),
+            json!({ "size": ["100%c + 6px", 16], "anchor_from": "top_left", "anchor_to": "top_left" }),
+            vec![label],
+        );
+        let root = ctrl(
+            "root",
+            Some("panel"),
+            json!({ "size": [200, 50] }),
+            vec![panel],
+        );
+        let placed = layout(&root, [200.0, 50.0], &env);
+        assert_eq!(child_named(&placed, "panel").rect.w, 54.0, "{max}");
+    }
+}
+
 // --- nine-slice -------------------------------------------------------------
 
 #[test]
@@ -440,6 +472,77 @@ fn nine_slice_image_emits_nine_sprites() {
     assert_eq!(sprites, 9);
 }
 
+// A grid listing its cells splits its rect into equal cells, each child sized
+// and offset within its own cell (the brewing stand's bottle row).
+#[test]
+fn listed_grid_cells_share_the_grid_rect() {
+    let panel = |name: &str, position: [u64; 2], offset: [f64; 2]| {
+        ctrl(
+            name,
+            Some("panel"),
+            json!({ "grid_position": position }),
+            vec![ctrl(
+                "item",
+                Some("panel"),
+                json!({ "size": [18, 18], "offset": offset }),
+                vec![],
+            )],
+        )
+    };
+    let grid = ctrl(
+        "grid",
+        Some("grid"),
+        json!({ "size": [54, 18], "grid_dimensions": [3, 1] }),
+        vec![
+            panel("right", [2, 0], [5.0, -7.0]),
+            panel("left", [0, 0], [-5.0, -7.0]),
+        ],
+    );
+    let env = LayoutEnv {
+        text: &ZeroText,
+        textures: &NoTextures,
+    };
+    let laid = layout(&grid, [54.0, 18.0], &env);
+    let rects: Vec<(f64, f64, f64)> = laid
+        .children
+        .iter()
+        .map(|cell| (cell.rect.x, cell.rect.w, cell.children[0].rect.x))
+        .collect();
+    assert_eq!(rects, [(36.0, 18.0, 41.0), (0.0, 18.0, -5.0)]);
+}
+
+// A stack child that inherits the tallest sibling's height spans the row, so a
+// toolbar anchored to its top sits above the panel (the furnace's toolbar).
+#[test]
+fn stack_children_inherit_the_largest_sibling_cross_size() {
+    let stack = ctrl(
+        "stack",
+        Some("stack_panel"),
+        json!({ "orientation": "horizontal", "size": ["100%c", "100%cm"] }),
+        vec![
+            ctrl(
+                "panel",
+                Some("panel"),
+                json!({ "size": [176, 166] }),
+                vec![],
+            ),
+            ctrl(
+                "anchor",
+                Some("panel"),
+                json!({ "size": [0, 0], "inherit_max_sibling_height": true }),
+                vec![],
+            ),
+        ],
+    );
+    let env = LayoutEnv {
+        text: &ZeroText,
+        textures: &NoTextures,
+    };
+    let laid = layout(&stack, [400.0, 300.0], &env);
+    let anchor = &laid.children[1];
+    assert_eq!((anchor.rect.y, anchor.rect.h), (laid.rect.y, 166.0));
+}
+
 // --- end to end -------------------------------------------------------------
 
 fn pack_root() -> Option<PathBuf> {
@@ -505,4 +608,29 @@ fn main_panel_no_buttons_lays_out_with_nine_slice_background() {
     // Deterministic: a second run produces an identical draw list.
     let again = emit(&layout(&control, [225.0, 200.0], &env), &env);
     assert_eq!(draws, again);
+}
+
+// A flip-book `uv` draws its first frame rather than the whole strip.
+#[test]
+fn a_flip_book_uv_resolves_to_its_first_frame() {
+    let screen = br#"{
+        "namespace": "s",
+        "bell": { "anim_type": "flip_book", "initial_uv": [0, 0], "frame_count": 28,
+            "frame_step": 8, "fps": 10 },
+        "icon": { "type": "image", "texture": "textures/ui/bell_ringing",
+            "uv_size": [16, 16], "uv": "@s.bell", "size": [16, 16] }
+    }"#;
+    let catalog = json_ui::Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/s.json"]}"#.as_slice(),
+        ),
+        ("ui/s.json", screen.as_slice()),
+    ])
+    .unwrap();
+    let icon = resolve(&catalog, "s.icon", &Context::desktop())
+        .control
+        .unwrap();
+    assert_eq!(icon.properties.get("uv"), Some(&json!([0, 0])));
 }

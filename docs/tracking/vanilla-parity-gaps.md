@@ -45,14 +45,18 @@ views and scrollbar box, slider travel and progress clipping), relative layers, 
 labels, grids, hit regions/modal blocking/global mappings, `dropdown_area` re-parenting,
 focus auto-scroll, server-pack ui json (with `modifications`) and textures. The optional
 `.mcbeui` carrier loads at startup (absent: fallback dialog); action/element/modal/custom
-forms always draw through the engine with vanilla input. Container screens route through
-the engine only with `--json-ui-containers` (default: the Java-styled screens, pending the
-owner's choice): personal inventory and workbench (survival layout, preview raster for
-the live player renderer), storage windows by container type, item tooltips. Open: the
-ledger admits only generic storage and workbench windows, so furnace/anvil/enchanting/
-brewing/grindstone/loom/smithing/cartography/stonecutter/beacon/hopper/dispenser/dropper/
-horse screens are mapped but dormant; creative tabs need a creative catalog; per-stack
-custom names and lore in tooltips. Needs native measurement: the virtual UI scale (engine
+forms always draw through the engine with vanilla input. Container screens draw through
+the engine by default (owner decision; the Java-styled screens remain only for a failed
+render): survival inventory (paper doll, 2x2 grid, recipe book toggle and panel), crafting
+table, chest/large chest/barrel/shulker/ender chest by block entity, every station
+(furnace family and brewing progress, anvil name, enchanting options, grindstone, loom
+patterns, smithing, cartography, stonecutter recipes, beacon powers, hopper, dispenser,
+dropper, crafter, horse), the creative inventory (tabs, search, collapsible groups) and the
+two-page book/lectern screen, with full item tooltips. Incomplete: the enchanting book
+model, rune font, horse/player live renderers in tests, banner pattern previews, anvil
+repair cost, crafter slot toggles, the survival book's filter toggle (fixed on), the wide
+creative layout; a hover change re-lays out the screen (about 14 ms dev profile at 300
+catalog entries). Needs native measurement: the virtual UI scale (engine
 pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label: value`
 text, tooltip and durability placement/colours, the preview's size in its box, layer
 relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point). Menus (landed, uncompiled): start, play (worlds/friends/servers tabs), add/edit server,

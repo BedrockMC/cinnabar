@@ -132,8 +132,17 @@ impl<'a> Resolver<'a> {
         )
     }
 
-    /// Replace `@anim` references in `alpha`/`anims` with their resolved chains.
+    /// Replace `@anim` references in `alpha`/`anims` with their resolved chains,
+    /// and an animated `uv` with its first frame.
     fn resolve_anims(&self, properties: &mut std::collections::BTreeMap<String, Value>, env: &Env) {
+        if let Some(Value::String(reference)) = properties.get("uv")
+            && reference.starts_with('@')
+        {
+            match anim::flip_book_first_frame(self.catalog, reference, env) {
+                Some(first) => properties.insert("uv".to_owned(), first),
+                None => properties.remove("uv"),
+            };
+        }
         let mut chains = Vec::new();
         if let Some(Value::String(reference)) = properties.get("alpha")
             && reference.starts_with('@')

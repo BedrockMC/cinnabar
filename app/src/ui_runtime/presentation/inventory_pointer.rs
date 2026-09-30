@@ -19,6 +19,9 @@ pub(crate) enum InventoryCellHit {
     CreativeGrid(u8),
     CreativeTab(u8),
     CreativeSearch,
+    /// An entry of the engine-drawn recipe book (the creative catalog in
+    /// creative) by position in its list.
+    RecipeBook(u16),
 }
 
 /// Which inventory screen is drawn.
@@ -114,6 +117,10 @@ impl UiPresentationRuntime {
         screen: InventoryScreen,
         book_open: bool,
     ) -> Option<InventoryCellHit> {
+        // An engine-drawn screen carries its own recipe book controls.
+        if self.engine_container_frame().is_some() {
+            return None;
+        }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
         let origin = screens::panel_origin(screen, [geometry.gui_width, geometry.gui_height]);
         screens::book_hit(screen, origin, gui, book_open).map(InventoryCellHit::Widget)
@@ -128,6 +135,10 @@ impl UiPresentationRuntime {
         editable: bool,
         signing: bool,
     ) -> Option<InventoryCellHit> {
+        // The vanilla book screen answers from its own hit regions.
+        if self.engine_container_frame().is_some() {
+            return self.engine_container_hit(gui);
+        }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
         let origin = screens::panel_origin(
             InventoryScreen::Book,

@@ -138,17 +138,25 @@ pub(crate) fn publish_ui_runtime(
         });
     }
     runtime.expire_gameplay_effects(now_millis);
-    let skin = client_world.stream.as_ref().and_then(|stream| {
-        let profile = stream.actor_player_profile(stream.local_player_runtime_id())?;
-        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
-            return None;
-        };
-        render::normalize_actor_skin_cached(&ActorSkinPixels {
-            width: skin.width,
-            height: skin.height,
-            rgba8: Arc::clone(&skin.rgba8),
-        })
-    });
+    // Off-world the launcher's paper doll wears the local skin.
+    let skin = match client_world.stream.as_ref() {
+        Some(stream) => stream
+            .actor_player_profile(stream.local_player_runtime_id())
+            .and_then(|profile| match &profile.skin {
+                protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
+                    width: skin.width,
+                    height: skin.height,
+                    rgba8: Arc::clone(&skin.rgba8),
+                }),
+                _ => None,
+            }),
+        None => Some(ActorSkinPixels {
+            width: menu_runtime.player_skin().width,
+            height: menu_runtime.player_skin().height,
+            rgba8: Arc::clone(&menu_runtime.player_skin().rgba8),
+        }),
+    }
+    .and_then(|pixels| render::normalize_actor_skin_cached(&pixels));
     let pose = client_world
         .stream
         .as_ref()
@@ -492,6 +500,12 @@ pub(crate) fn refresh_hud_frame(
             .inventory_ledger()
             .window_position()
             .and_then(|position| stream?.block_entity_custom_name(position));
+        window_text.custom_title.clone_from(&stated_title);
+        window_text.block_entity = runtime
+            .inventory_ledger()
+            .window_position()
+            .and_then(|position| stream?.block_entity_compound(position))
+            .and_then(|nbt| nbt.string("id").map(str::to_owned));
         window_text.inventory_label = runtime
             .translation("container.inventory")
             .map(|text| text.to_string());
@@ -552,6 +566,19 @@ pub(crate) fn refresh_hud_frame(
                 (*id, name)
             })
             .collect();
+        }
+        if matches!(
+            inventory_screen,
+            super::inventory_pointer::InventoryScreen::Personal
+                | super::inventory_pointer::InventoryScreen::Workbench
+                | super::inventory_pointer::InventoryScreen::Creative
+        ) && super::forms::recipe_book_shown(runtime)
+        {
+            window_icons.book_entries = super::forms::recipe_book_icons(runtime, |stack| {
+                resolve_identifier(stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata))
+            });
         }
         if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
             let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
@@ -719,6 +746,7 @@ pub(crate) fn refresh_hud_frame(
                         (stack, None)
                     });
                 }
+                Hit::RecipeBook(index) => return super::forms::recipe_book_hover(runtime, index),
                 Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
             };
             stack.map(|stack| (stack.clone(), name))

@@ -2,12 +2,7 @@ use std::{ffi::OsString, path::PathBuf};
 
 use thiserror::Error;
 
-/// The compact classic/Java-style HUD scale used by the normal desktop client.
-///
-/// The Java auto rule selects scale 3 at 1280x720, which makes the fixed 182px
-/// hotbar 546 physical pixels wide while the compact Monocraft text remains at
-/// its scale-2 equivalent. Scale 2 keeps the gameplay HUD and chat visually
-/// coherent; `--gui-scale auto` remains available for reference captures.
+/// The settings screen's GUI-scale step when `--gui-scale` is auto.
 pub const DEFAULT_GUI_SCALE: u8 = 2;
 
 pub const HELP: &str = "\
@@ -29,8 +24,7 @@ Options:
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
-  --gui-scale <1-4|auto>       Fix the Java HUD GUI scale (default: 2)
-  --json-ui-containers         Draw container screens through JSON-UI (default: Java-styled)
+  --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
   --dev-debug-overlay          Enable the non-vanilla F3 developer overlay (default: off)
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
@@ -103,8 +97,6 @@ pub struct ClientArgs {
     /// Fixed Java GUI scale (1..=4) for the pinned capture matrix. `None`
     /// selects the Java auto rule; the normal client default is scale 2.
     pub gui_scale: Option<u8>,
-    /// Route container screens through the JSON-UI engine; off keeps the Java path.
-    pub json_ui_containers: bool,
     /// F3 developer overlay; not a vanilla surface.
     pub dev_debug_overlay: bool,
     /// Requested UI language code; `None` follows the environment locale.
@@ -134,8 +126,7 @@ impl Default for ClientArgs {
             force_vsync: false,
             no_vsync: false,
             frame_cap: None,
-            gui_scale: Some(DEFAULT_GUI_SCALE),
-            json_ui_containers: false,
+            gui_scale: None,
             dev_debug_overlay: false,
             language: None,
             full_view_teleport_gate: false,
@@ -222,7 +213,6 @@ impl ClientArgs {
                 Some("-h" | "--help") => return Ok(ParseOutcome::Help),
                 Some("--auto-fly") => parsed.auto_fly = true,
                 Some("--freecam") => parsed.freecam = true,
-                Some("--json-ui-containers") => parsed.json_ui_containers = true,
                 Some("--dev-debug-overlay") => parsed.dev_debug_overlay = true,
                 Some("--vsync") => parsed.force_vsync = true,
                 Some("--no-vsync") => parsed.no_vsync = true,
@@ -539,7 +529,6 @@ mod tests {
             "--model-witness-request",
             "--phase3-evidence-target",
             "--phase3-candidate-physics",
-            "--json-ui-containers",
             "--dev-debug-overlay",
         ] {
             assert!(HELP.contains(flag));
@@ -576,14 +565,6 @@ mod tests {
             panic!("--gui-scale must parse into a run outcome");
         };
         assert_eq!(parsed.gui_scale, Some(3));
-        // Container routing defaults to the Java-styled screens.
-        assert!(!parsed.json_ui_containers);
-        let ParseOutcome::Run(parsed) =
-            ClientArgs::parse_from(["client", "--json-ui-containers"]).unwrap()
-        else {
-            panic!("--json-ui-containers must parse into a run outcome");
-        };
-        assert!(parsed.json_ui_containers);
         assert!(!parsed.dev_debug_overlay);
         let ParseOutcome::Run(parsed) =
             ClientArgs::parse_from(["client", "--dev-debug-overlay"]).unwrap()

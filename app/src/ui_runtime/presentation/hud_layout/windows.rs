@@ -53,6 +53,8 @@ pub(crate) struct WindowIcons {
     pub(crate) book_button: Option<IconRef>,
     /// Whether a further recipe-book page exists.
     pub(crate) book_more: bool,
+    /// Icons of the engine-drawn recipe book's entries, in list order.
+    pub(crate) book_entries: Vec<Option<IconRef>>,
 }
 
 impl Default for WindowIcons {
@@ -69,6 +71,7 @@ impl Default for WindowIcons {
             book: [None; screens::BOOK_CELLS],
             book_button: None,
             book_more: false,
+            book_entries: Vec::new(),
         }
     }
 }
@@ -95,6 +98,10 @@ impl Default for Durability {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct WindowText {
     pub(crate) title: Option<String>,
+    /// The block entity's custom name, which vanilla shows unlocalized.
+    pub(crate) custom_title: Option<String>,
+    /// The open block entity's NBT `id` (`Chest`, `Barrel`, …).
+    pub(crate) block_entity: Option<String>,
     pub(crate) inventory_label: Option<String>,
     pub(crate) tooltip: Vec<TooltipLine>,
     /// Beacon effect names by effect id.
@@ -648,6 +655,7 @@ impl HudLayout<'_> {
                 }
                 // Book controls draw with their own panels.
                 Widget::BookToggle
+                | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }
                 | Widget::Reader(_) => {}
