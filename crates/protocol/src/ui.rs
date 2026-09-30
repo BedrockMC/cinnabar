@@ -717,17 +717,16 @@ pub(crate) fn normalize_block_crack(
     packet: LevelEventPacket,
 ) -> Result<BlockCrackEvent, UiPacketError> {
     let position = [
-        exact_block_coordinate(packet.position.x, "x")?,
-        exact_block_coordinate(packet.position.y, "y")?,
-        exact_block_coordinate(packet.position.z, "z")?,
+        floored_block_coordinate(packet.position.x, "x")?,
+        floored_block_coordinate(packet.position.y, "y")?,
+        floored_block_coordinate(packet.position.z, "z")?,
     ];
     let action = match packet.event_id {
         LEVEL_EVENT_STOP_BLOCK_CRACKING => BlockCrackAction::Stop,
         LEVEL_EVENT_START_BLOCK_CRACKING | LEVEL_EVENT_UPDATE_BLOCK_CRACKING => {
+            // Zero is a stationary crack, which vanilla stores as sent.
             let progress_per_tick = u16::try_from(packet.data)
-                .ok()
-                .filter(|value| *value != 0)
-                .ok_or(UiPacketError::InvalidBlockCrackSpeed { value: packet.data })?;
+                .map_err(|_| UiPacketError::InvalidBlockCrackSpeed { value: packet.data })?;
             if packet.event_id == LEVEL_EVENT_START_BLOCK_CRACKING {
                 BlockCrackAction::Start { progress_per_tick }
             } else {
@@ -739,17 +738,16 @@ pub(crate) fn normalize_block_crack(
     Ok(BlockCrackEvent { position, action })
 }
 
-fn exact_block_coordinate(value: f32, field: &'static str) -> Result<i32, UiPacketError> {
-    if !value.is_finite() || value.fract() != 0.0 {
-        return Err(UiPacketError::InvalidBlockCrackPosition {
-            field,
-            bits: value.to_bits(),
-        });
-    }
-    i32::try_from(value as i64).map_err(|_| UiPacketError::InvalidBlockCrackPosition {
+/// Floors a coordinate as `LevelRendererPlayer::levelEvent` does.
+fn floored_block_coordinate(value: f32, field: &'static str) -> Result<i32, UiPacketError> {
+    let error = UiPacketError::InvalidBlockCrackPosition {
         field,
         bits: value.to_bits(),
-    })
+    };
+    if !value.is_finite() {
+        return Err(error);
+    }
+    i32::try_from(value.floor() as i64).map_err(|_| error)
 }
 
 /// Length-only check for a string the borrowed view already materialized.
