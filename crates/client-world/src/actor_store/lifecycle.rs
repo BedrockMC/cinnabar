@@ -98,20 +98,6 @@ impl ActorStore {
         }
     }
 
-    /// Records the view's `[pitch, yaw]` (degrees) for camera-facing animations.
-    pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
-        if rotation.iter().all(|value| value.is_finite()) {
-            self.camera_rotation = rotation;
-        }
-    }
-
-    /// Records the view's world position for camera-relative animation queries.
-    pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
-        if position.iter().all(|value| value.is_finite()) {
-            self.camera_position = position;
-        }
-    }
-
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
         self.remote_state_excluded_runtime_id = Some(runtime_id);
         self.items.set_persistent_armor_runtime(runtime_id);
