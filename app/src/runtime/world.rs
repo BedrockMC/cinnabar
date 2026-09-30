@@ -356,19 +356,13 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 && movement.physics_is_authorized()
                 && let Some(rewind) = local_physics.retime_movement_speed(tick, current)
             {
-                let world = sim::PaletteWorld::new(
-                    stream.collision_store(),
-                    collisions.registry(stream.network_id_mode()),
-                    stream.current_dimension(),
-                );
-                if let Err(fault) = crate::movement::reconcile_timeline_rewind(
+                control_apply::replay_timeline_edit(
                     &mut movement,
                     &mut local_physics,
+                    stream,
+                    &collisions,
                     rewind,
-                    &world,
-                ) {
-                    debug!(?fault, tick, "movement speed replay failed; applied live");
-                }
+                );
             }
             continue;
         }
@@ -376,19 +370,13 @@ pub(crate) fn reconcile_world_stream_before_physics(
             if movement.physics_is_authorized()
                 && let Some(rewind) = local_physics.apply_server_movement_flags(tick, flags)
             {
-                let world = sim::PaletteWorld::new(
-                    stream.collision_store(),
-                    collisions.registry(stream.network_id_mode()),
-                    stream.current_dimension(),
-                );
-                if let Err(fault) = crate::movement::reconcile_timeline_rewind(
+                control_apply::replay_timeline_edit(
                     &mut movement,
                     &mut local_physics,
+                    stream,
+                    &collisions,
                     rewind,
-                    &world,
-                ) {
-                    debug!(?fault, tick, "movement flag replay failed; applied live");
-                }
+                );
             }
             continue;
         }
@@ -405,25 +393,16 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             if movement.physics_is_authorized() {
                 crate::movement::note_motion(event.tick, event.motion);
-                if let Some(rewind) = local_physics.queue_server_motion(event.motion, event.tick) {
-                    let world = sim::PaletteWorld::new(
-                        stream.collision_store(),
-                        collisions.registry(stream.network_id_mode()),
-                        stream.current_dimension(),
-                    );
-                    if let Err(fault) = crate::movement::reconcile_timeline_rewind(
+                if let Some(rewind) = local_physics.queue_server_motion(event.motion, event.tick)
+                    && !control_apply::replay_timeline_edit(
                         &mut movement,
                         &mut local_physics,
+                        stream,
+                        &collisions,
                         rewind,
-                        &world,
-                    ) {
-                        debug!(
-                            ?fault,
-                            tick = event.tick,
-                            "server motion replay failed; applied live"
-                        );
-                        local_physics.replace_live_velocity(event.motion);
-                    }
+                    )
+                {
+                    local_physics.replace_live_velocity(event.motion);
                 }
             }
             continue;
