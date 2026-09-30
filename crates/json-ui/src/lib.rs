@@ -99,35 +99,56 @@ impl Context {
             .with_flag("touch", false)
     }
 
-    /// The desktop context plus the globals a retail, full-game, non-edu client
-    /// computes in code (`VanillaSceneFactory::createGlobalVars`).
     pub fn retail(macos: bool) -> Self {
-        Self::desktop()
-            .with_flag("win10_edition", !macos)
-            .with_flag("osx_edition", macos)
-            .with_flag("pocket_edition", false)
-            .with_flag("console_edition", false)
-            .with_flag("trial", false)
-            .with_flag("education_edition", false)
-            .with_flag("store_disabled", false)
-            .with_flag("is_ios", false)
-            .with_flag("nx_os", false)
-            .with_flag("is_ps4", false)
-            .with_flag("is_publish", true)
-            .with_flag("test_infrastructure_disabled", true)
-            .with_flag("creator_build", false)
-            .with_flag("new_video_settings", false)
-            .with_flag("built_with_ore_ui_docs_and_tests", false)
-            .with_flag("is_preview_app", false)
-            .with_flag("is_desktop", true)
-            .with_flag("is_console", false)
-            .with_flag("mouse", true)
-            .with_flag("game_pad", false)
-            .with_flag("microsoft_os", !macos)
-            .with_flag("apple_os", macos)
-            .with_flag("google_os", false)
-            .with_flag("is_android", false)
-            .with_flag("is_editor_mode_enabled", false)
+        let platform: &[(&str, bool)] = &[
+            ("win10_edition", !macos),
+            ("microsoft_os", !macos),
+            ("ms_platform", !macos),
+            ("osx_edition", macos),
+            ("apple_os", macos),
+        ];
+        let constant: &[(&str, bool)] = &[
+            ("is_desktop", true),
+            ("mouse", true),
+            ("is_publish", true),
+            ("test_infrastructure_disabled", true),
+            ("new_video_settings", true),
+            ("is_improve_input_response_platform_supported", true),
+            ("is_xboxlive_enabled", true),
+            ("is_realms_enabled", true),
+            ("is_seeds_enabled", true),
+            ("is_creative_enabled", true),
+            ("is_multiplayer_enabled", true),
+            ("is_packs_enabled", true),
+            ("is_server_enabled", true),
+            ("is_store_enabled", true),
+            ("file_picking_supported", true),
+            ("supports_clipboard_set", true),
+            ("supports_add_friend", true),
+            ("supports_xbl_achievements", true),
+            // Channel flags: this is the release app, not Preview.
+            ("pre_release", false),
+            ("beta_build", false),
+            ("is_preview_app", false),
+            ("trial", false),
+            ("education_edition", false),
+            ("store_disabled", false),
+            ("creator_build", false),
+            ("pocket_edition", false),
+            ("console_edition", false),
+            ("is_console", false),
+            ("game_pad", false),
+            ("can_splitscreen", false),
+            ("is_secondary_client", false),
+            ("requires_xbl_signin_to_play", false),
+            ("is_editor_mode_enabled", false),
+        ];
+        platform
+            .iter()
+            .chain(constant)
+            .fold(Self::desktop(), |context, (name, value)| {
+                context.with_flag(name, *value)
+            })
     }
 
     /// The variables set so far, keyed without `$`.

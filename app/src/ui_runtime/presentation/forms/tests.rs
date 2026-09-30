@@ -378,8 +378,8 @@ fn connecting_screen_reports_the_pack_download() {
     }
 }
 
-// Retail settings drop the debug, edu and automation sections their `ignored`
-// gates hide once unbound variables read as null.
+// Retail desktop settings show vanilla's section set; debug, edu, touch and
+// automation sections stay hidden.
 #[test]
 fn retail_settings_hide_debug_and_automation_sections() {
     let Some(carrier) = super::pack_harness::carrier() else {
@@ -398,8 +398,33 @@ fn retail_settings_hide_debug_and_automation_sections() {
         names.push(control.name.as_str());
         stack.extend(&control.children);
     }
-    assert!(names.contains(&"video_button"), "{names:?}");
-    for hidden in ["edu_debug_button", "automation_button", "ui_debug_button"] {
+    for shown in [
+        "accessibility_button",
+        "keyboard_and_mouse_button",
+        "controller_button",
+        "general_button",
+        "video_button",
+        "sound_button",
+        "account_button",
+        "view_subscriptions_button",
+        "global_texture_pack_button",
+        "storage_management_button",
+        "language_button",
+        "creator_button",
+    ] {
+        assert!(names.contains(&shown), "{shown} missing");
+    }
+    for hidden in [
+        "touch_button",
+        "switch_controller_button",
+        "party_button",
+        "preview_button",
+        "debug_button",
+        "ui_debug_button",
+        "edu_debug_button",
+        "edu_cloud_storage_button",
+        "automation_button",
+    ] {
         assert!(!names.contains(&hidden), "{hidden} shown");
     }
 }
