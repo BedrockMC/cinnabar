@@ -40,6 +40,15 @@ bedrock-client (Rust)  ── local socket ──  bedrock-core (Go, gophertunne
 Rust never implements Xbox authentication, encryption, RakNet or NetherNet; the core owns those
 and relays packets over a local stream.
 
+| Go library | Used for |
+| --- | --- |
+| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
+| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
+| [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
+| [go-xsapi](https://github.com/df-mc/go-xsapi) | Xbox Live identity, friends, presence and signaling. |
+| [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers, marketplace). |
+| [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
+
 Mojang assets are never committed or embedded. `make assets` fetches Mojang's official
 `bedrock-samples` pack (EULA-gated) and compiles it into carriers under the ignored `.local/`.
 
