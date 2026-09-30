@@ -290,6 +290,7 @@ pub(crate) fn receive_network_events(
                 player_game_mode_uses_world_default,
                 server_authoritative_block_breaking,
                 hardcore,
+                hud_rules,
                 packs,
             } => {
                 match classify_bootstrap_generation(
@@ -351,6 +352,7 @@ pub(crate) fn receive_network_events(
                     player_game_mode_uses_world_default,
                 );
                 ui_runtime.set_hardcore(hardcore);
+                ui_runtime.apply_hud_rules(hud_rules);
                 if replacing_session {
                     debug!("replaced StartGame environment session");
                 }

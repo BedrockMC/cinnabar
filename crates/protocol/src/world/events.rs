@@ -277,6 +277,13 @@ pub struct DaylightCycleUpdateEvent {
     pub enabled: bool,
 }
 
+/// The rules a GameRulesChanged packet updates that the client reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameRulesEvent {
+    pub daylight_cycle: Option<DaylightCycleUpdateEvent>,
+    pub hud: crate::HudRules,
+}
+
 /// Weather channel targeted by a normalized level event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeatherChannel {
@@ -418,7 +425,7 @@ pub enum WorldEvent {
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
     ActorMotion(ActorMotionEvent),
     SetTime(SetTimeEvent),
-    DaylightCycle(DaylightCycleUpdateEvent),
+    GameRules(GameRulesEvent),
     Weather(WeatherUpdateEvent),
     Audio(AudioEvent),
     Camera(CameraEvent),

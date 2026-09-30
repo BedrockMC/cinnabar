@@ -300,7 +300,13 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
     stream
         .submit(
             2,
-            WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled: false }),
+            WorldEvent::GameRules(protocol::GameRulesEvent {
+                daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
+                hud: protocol::HudRules {
+                    show_coordinates: Some(true),
+                    show_days_played: None,
+                },
+            }),
         )
         .unwrap();
     stream
@@ -349,6 +355,14 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
             },
         ]
     );
+    // The same packet's HUD rules commit to the UI queue.
+    assert!(stream.committed_ui.iter().any(|event| matches!(
+        event,
+        super::CommittedUiEvent::Ui {
+            sequence: 2,
+            event: protocol::UiEvent::HudRules(_),
+        }
+    )));
     assert_eq!(stream.pending_mesh.len(), pending_mesh_count);
     assert_eq!(stream.mesh_changes.len(), mesh_change_count);
     assert_eq!(stream.connectivity_generation, connectivity_generation);
