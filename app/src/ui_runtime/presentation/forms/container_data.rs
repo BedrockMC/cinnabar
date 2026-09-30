@@ -62,6 +62,7 @@ pub(super) fn station_globals(data: &mut DataSource, runtime: &UiRuntime, kind: 
             data.set_grid_dimensions("#inv_grid_dimensions", [(chest / 3) as u32, 3]);
             data.set_global("#is_chested", Scalar::Bool(chest > 0));
             // The mount's kind is not tracked; every mount shows the horse's slots.
+            data.set_global("#has_saddle_slot", Scalar::Bool(true));
             data.set_global("#has_horse_armor_and_saddle_slot", Scalar::Bool(true));
         }
         _ => {}

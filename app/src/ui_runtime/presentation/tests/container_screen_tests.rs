@@ -66,6 +66,20 @@ fn opened(window_type: i8, cells: usize) -> UiRuntime {
     runtime
 }
 
+/// `runtime` with the open window's `ContainerSetData` properties applied.
+fn with_data(mut runtime: UiRuntime, properties: &[(i32, i32)]) -> UiRuntime {
+    for &(property, value) in properties {
+        runtime
+            .inventory_ledger_mut()
+            .apply(&InventoryEvent::Data(protocol::ContainerDataEvent {
+                container: ContainerIdentity::window(7),
+                property,
+                value,
+            }));
+    }
+    runtime
+}
+
 fn personal() -> UiRuntime {
     let mut runtime = session();
     runtime.toggle_inventory();
@@ -95,16 +109,28 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
             opened(WINDOW_TYPE_CONTAINER, 54),
             storage(54),
         ),
-        ("furnace", opened(WINDOW_TYPE_FURNACE, 3), storage(3)),
+        // Half cooked, fuel half burnt.
+        (
+            "furnace",
+            with_data(
+                opened(WINDOW_TYPE_FURNACE, 3),
+                &[(0, 100), (1, 50), (2, 100)],
+            ),
+            storage(3),
+        ),
         (
             "blast_furnace",
             opened(WINDOW_TYPE_BLAST_FURNACE, 3),
             storage(3),
         ),
         ("smoker", opened(WINDOW_TYPE_SMOKER, 3), storage(3)),
+        // Half brewed, half the fuel left.
         (
             "brewing_stand",
-            opened(WINDOW_TYPE_BREWING_STAND, 5),
+            with_data(
+                opened(WINDOW_TYPE_BREWING_STAND, 5),
+                &[(0, 200), (1, 10), (2, 20)],
+            ),
             storage(5),
         ),
         (
