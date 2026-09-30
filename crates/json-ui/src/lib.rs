@@ -29,6 +29,7 @@ mod merge;
 mod pack;
 mod predicate;
 mod resolve;
+mod scene;
 mod screens;
 mod sidecar;
 mod state;
@@ -73,8 +74,10 @@ pub use layout::{
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
+pub use scene::{SceneEntry, SceneStack, ScreenNav, ScreenSettings};
 pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
+    screen_settings,
 };
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
 pub use state::{LayoutReport, ScrollMetrics, ViewState};

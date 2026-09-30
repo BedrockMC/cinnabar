@@ -73,6 +73,29 @@ impl<'a> Resolver<'a> {
         Some(self.resolve_with_env(&control, provenance, None, &env, 0))
     }
 
+    /// The root's `type` and substituted properties without resolving its
+    /// children; `None` when the reference is unknown or ignored.
+    pub(crate) fn resolve_root_properties(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        root_env: &Env,
+    ) -> Option<(Option<String>, std::collections::BTreeMap<String, Value>)> {
+        let (control, _) = flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
+        let env = self.build_env(root_env, &control.props);
+        if self.is_ignored(&control, &env) {
+            return None;
+        }
+        let mut missing = Vec::new();
+        let control_type = control
+            .props
+            .get("type")
+            .map(|value| substitute(value, &env, &mut missing))
+            .and_then(value_string);
+        let properties = build_properties(&control, &env, false, &mut missing);
+        Some((control_type, properties))
+    }
+
     fn resolve_with_env(
         &mut self,
         control: &RawControl,
