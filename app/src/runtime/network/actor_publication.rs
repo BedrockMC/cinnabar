@@ -261,11 +261,8 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             stream.sync_local_player_pose(feed);
         }
         // Attacks, mining and use swing the local arm at once; the server echoes no swing.
-        if swings
-            .as_deref_mut()
-            .is_some_and(SwingTracker::take_started)
-        {
-            stream.start_local_player_swing();
+        if let Some(ticks) = swings.as_deref_mut().and_then(SwingTracker::take_started) {
+            stream.start_local_player_swing(ticks);
         }
         let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
         stream.set_actor_camera_rotation([

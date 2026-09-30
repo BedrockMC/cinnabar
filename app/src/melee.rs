@@ -197,8 +197,8 @@ pub(crate) fn swing_duration(effects: MiningEffects) -> i32 {
 #[derive(Resource, Debug, Default, Clone)]
 pub(crate) struct SwingTracker {
     last_swing_tick: Option<u64>,
-    /// A swing started since the local rig last took it.
-    started: bool,
+    /// Duration of a swing started since the local rig last took it.
+    started: Option<i32>,
 }
 
 impl SwingTracker {
@@ -209,14 +209,14 @@ impl SwingTracker {
             .is_none_or(|last| tick < last || tick - last >= half);
         if allowed {
             self.last_swing_tick = Some(tick);
-            self.started = true;
+            self.started = Some(duration);
         }
         allowed
     }
 
-    /// Whether a swing started since the last call; the local rig plays it.
-    pub(crate) fn take_started(&mut self) -> bool {
-        std::mem::take(&mut self.started)
+    /// The duration of a swing started since the last call; the local rig plays it.
+    pub(crate) fn take_started(&mut self) -> Option<i32> {
+        self.started.take()
     }
 }
 

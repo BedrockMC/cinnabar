@@ -572,7 +572,7 @@ fn a_local_swing_animates_the_first_and_third_person_arm() {
             !turned(arm(&mut world)),
             "first person {first_person}: rests"
         );
-        world.start_local_player_swing();
+        world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
         let swing = (0..3).map(|_| turned(arm(&mut world))).collect::<Vec<_>>();
         assert!(
             swing.contains(&true),
