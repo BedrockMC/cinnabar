@@ -191,3 +191,68 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         "{report:#?}"
     );
 }
+
+// Armor sent on window 120 (named as zeqa.net names it) is the local player's:
+// it fills the inventory's armor cells, the HUD armor points and icons, and the
+// local rig's worn items.
+#[test]
+fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
+    let Some(Harness {
+        mut presentation,
+        mut stream,
+    }) = harness()
+    else {
+        return;
+    };
+    assert!(stream.seed_item_registry(registry_with_custom_item()));
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_local_runtime_id(1, 1).unwrap();
+    runtime.publish_player_game_mode(PlayerGameMode::Survival);
+    let worn = [
+        "minecraft:diamond_helmet",
+        "minecraft:diamond_chestplate",
+        "minecraft:iron_leggings",
+        "minecraft:iron_boots",
+    ];
+    runtime
+        .enqueue_inventory_event(
+            1,
+            1,
+            InventoryEvent::Content(InventoryContentEvent {
+                container: ContainerIdentity {
+                    window_id: Some(protocol::ARMOR_WINDOW_ID),
+                    slot_type: Some(1),
+                    dynamic_id: None,
+                },
+                slots: worn.map(|id| stack(id, 0, 1)).to_vec().into(),
+                storage_item: NetworkItemStack::empty(),
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory();
+    assert_eq!(
+        runtime.local_armor().chestplate.network_id,
+        network_id("minecraft:diamond_chestplate")
+    );
+    refresh_hud_frame(
+        &mut runtime,
+        &mut presentation,
+        Some(&stream),
+        &Default::default(),
+        1_000,
+    );
+    // Diamond helmet 3, chestplate 8, iron leggings 5, boots 2.
+    assert_eq!(runtime.hud().armor().map(|armor| armor.current()), Some(18));
+    assert!(
+        presentation
+            .hud_frame()
+            .armor_icons
+            .iter()
+            .all(Option::is_some)
+    );
+    let rig = crate::presentation::equipment::local_input(&stream, Some(&runtime), 1);
+    let rig_worn = rig
+        .armor
+        .map(|item| item.map(|item| item.identifier.to_string()));
+    assert_eq!(rig_worn, worn.map(|id| Some(id.to_owned())));
+}
