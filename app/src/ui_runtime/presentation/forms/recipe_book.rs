@@ -99,12 +99,18 @@ pub(super) fn book_data(
     let creative = runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     let state = runtime.screen_state();
     let tab = state.creative_tab;
+    let wide = shown && creative && state.creative_wide;
     for (name, value) in [
         ("#is_survival_layout", !shown),
-        ("#is_recipe_book_layout", shown),
+        ("#is_recipe_book_layout", shown && !wide),
+        ("#is_creative_layout", wide),
         ("#is_creative_mode", creative),
         ("#is_creative_layout_button_visible", creative),
-        ("#is_creative_and_recipe_book_layout", creative && shown),
+        (
+            "#is_creative_and_recipe_book_layout",
+            creative && shown && !wide,
+        ),
+        ("#is_creative_and_creative_layout", wide),
         ("#filtering_enabled", runtime.recipe_filtering()),
         ("#is_left_tab_inventory", !shown),
         ("#construction_tab_visible", true),
@@ -119,7 +125,11 @@ pub(super) fn book_data(
     ] {
         data.set_global(name, Scalar::Bool(value));
     }
-    let layout = if shown { 2 } else { 1 };
+    let layout = match (shown, wide) {
+        (false, _) => 1,
+        (true, false) => 2,
+        (true, true) => 3,
+    };
     data.select_radio("layout_toggle", layout);
     if let Some((index, _)) = TABS.iter().find(|(_, java)| *java == tab) {
         data.select_radio("navigation_tab", *index as usize);
@@ -209,10 +219,9 @@ pub(super) fn book_hit(region: &HitRegion, shown: bool) -> Option<InventoryCellH
                 InventoryCellHit::CreativeTab(*tab)
             })
         }
-        // The recipe book toggle opens the panel, the survival toggle closes it.
-        "layout_toggle" if (group == 2) != shown && group != 3 => {
-            Some(InventoryCellHit::Widget(Widget::BookToggle))
-        }
+        "layout_toggle" => Some(InventoryCellHit::Widget(Widget::InventoryLayout(
+            u8::try_from(group).ok()?,
+        ))),
         _ => None,
     }
 }

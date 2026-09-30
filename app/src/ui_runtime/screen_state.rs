@@ -34,6 +34,8 @@ pub(crate) struct ScreenState {
     pub(crate) beacon_level: Option<u8>,
     pub(crate) crafter: CrafterView,
     pub(crate) book_open: bool,
+    /// Creative's wide list stands in for its recipe book layout.
+    pub(crate) creative_wide: bool,
     /// The recipe book's filter toggle, once flipped on this screen.
     pub(crate) recipe_filtering: Option<bool>,
     /// The book, sign-off or lectern reader being shown, if any.
