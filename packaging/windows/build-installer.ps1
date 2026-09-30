@@ -26,7 +26,7 @@ Copy-Item $font (Join-Path $resources "fonts")
 foreach ($name in "fetch-vanilla-assets.ps1", "fetch-ui-font.ps1") { Copy-Item (Join-Path $root "scripts/$name") (Join-Path $kit "scripts") }
 Copy-Item (Join-Path $root "assets/*.json") (Join-Path $kit "assets")
 foreach ($stem in "block-registry", "block-light-registry", "biome-registry") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2193.*") (Join-Path $kit "data") }
-if ($env:CINNABAR_UPDATE_URL) { Set-Content -NoNewline (Join-Path $resources "update-url") $env:CINNABAR_UPDATE_URL }
+if ($env:CINNABAR_UPDATE_URL) { [System.IO.File]::WriteAllText((Join-Path $resources "update-url"), $env:CINNABAR_UPDATE_URL) }
 
 $icon = Join-Path $Out "cinnabar.ico"
 magick -background none -density 384 (Join-Path $PSScriptRoot "../icons/cinnabar.svg") -define icon:auto-resize=256,128,64,48,32,16 $icon
