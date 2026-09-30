@@ -10,7 +10,7 @@
 //! a pure movement record.
 
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     BlockPos, EnumsItemUseInventoryTransactionActionType, EnumsPlayerActionType,
     PackedItemUseLegacyInventoryTransaction, PlayerBlockActionData,
     TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0,
@@ -62,12 +62,12 @@ impl BlockActionKind {
 
     const fn vendor(self) -> EnumsPlayerActionType {
         match self {
-            Self::StartDestroy => EnumsPlayerActionType::StartDestroyBlock,
-            Self::AbortDestroy => EnumsPlayerActionType::AbortDestroyBlock,
-            Self::StopDestroy => EnumsPlayerActionType::StopDestroyBlock,
-            Self::CrackBlock => EnumsPlayerActionType::CrackBlock,
-            Self::PredictDestroy => EnumsPlayerActionType::PredictDestroyBlock,
-            Self::ContinueDestroy => EnumsPlayerActionType::ContinueDestroyBlock,
+            Self::StartDestroy => EnumsPlayerActionType::Startdestroyblock,
+            Self::AbortDestroy => EnumsPlayerActionType::Abortdestroyblock,
+            Self::StopDestroy => EnumsPlayerActionType::Stopdestroyblock,
+            Self::CrackBlock => EnumsPlayerActionType::Crackblock,
+            Self::PredictDestroy => EnumsPlayerActionType::Predictdestroyblock,
+            Self::ContinueDestroy => EnumsPlayerActionType::Continuedestroyblock,
         }
     }
 }
@@ -213,28 +213,22 @@ pub enum InteractionEncodeError {
 pub(super) fn packed_block_interaction(
     interaction: BlockItemInteraction,
 ) -> Result<PackedItemUseLegacyInventoryTransaction, InteractionEncodeError> {
-    // The embedded carrier writes the action list through a second optional
-    // layer. These bounded block interactions carry no inventory actions, so
-    // the inner layer is absent; destroy retains its pinned bytes while
-    // empty-hand use remains explicitly provisional.
     let transaction = match interaction {
         BlockItemInteraction::Use(request) => item_use_transaction(
             request,
             EnumsItemUseInventoryTransactionActionType::Place,
-            None,
         )
         .map_err(InteractionEncodeError::InvalidBlockUse)?,
         BlockItemInteraction::Destroy(request) => item_use_transaction(
             request,
             EnumsItemUseInventoryTransactionActionType::Destroy,
-            None,
         )
         .map_err(InteractionEncodeError::InvalidBlockDestroy)?,
     };
     Ok(PackedItemUseLegacyInventoryTransaction {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
-        item_use_transaction: Some(transaction),
+        item_use_transaction: transaction,
     })
 }
 

@@ -6,7 +6,7 @@ use protocol::{
     TitleAction, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
     parse_raw_text,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsSetTitlePacketPayloadTitleType, SetTitlePacket, TextPacket, TextPacketBody,
     TextPacketPayloadMessageOnly,
 };
@@ -428,15 +428,15 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
 fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
     for (wire, expected) in [
         (
-            EnumsSetTitlePacketPayloadTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject,
             TitleAction::SetTitleJson,
         ),
         (
-            EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Subtitletextobject,
             TitleAction::SetSubtitleJson,
         ),
         (
-            EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Actionbartextobject,
             TitleAction::ActionBarJson,
         ),
     ] {
@@ -474,7 +474,7 @@ fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
 fn malformed_title_object_raw_text_fails_closed() {
     assert!(matches!(
         normalize_title_object(
-            EnumsSetTitlePacketPayloadTitleType::TitleTextObject,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject,
             r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
         ),
         Err(UiPacketError::InvalidRawText)

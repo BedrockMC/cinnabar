@@ -258,6 +258,8 @@ pub enum McpePacketName {
     ClientboundUpdateSoundDataPacket = 348u32,
     SendPartyDestinationCookiePacket = 349u32,
     PartyDestinationCookieResponsePacket = 350u32,
+    SetPlayerFurnaceOptionsPacket = 351u32,
+    RecordStartedPacket = 352u32,
 }
 impl McpePacketName {
     /// Creates an `McpePacketName` from its raw numeric identifier.
@@ -495,6 +497,8 @@ impl McpePacketName {
             348u32 => Ok(McpePacketName::ClientboundUpdateSoundDataPacket),
             349u32 => Ok(McpePacketName::SendPartyDestinationCookiePacket),
             350u32 => Ok(McpePacketName::PartyDestinationCookieResponsePacket),
+            351u32 => Ok(McpePacketName::SetPlayerFurnaceOptionsPacket),
+            352u32 => Ok(McpePacketName::RecordStartedPacket),
             _ => Err(crate::bedrock::error::DecodeError::InvalidPacketId { id }),
         }
     }
@@ -2803,6 +2807,26 @@ impl From<PartyDestinationCookieResponsePacket> for McpePacket {
         McpePacket::from(McpePacketData::from(packet))
     }
 }
+impl From<SetPlayerFurnaceOptionsPacket> for McpePacketData {
+    fn from(packet: SetPlayerFurnaceOptionsPacket) -> Self {
+        McpePacketData::SetPlayerFurnaceOptionsPacket(packet)
+    }
+}
+impl From<SetPlayerFurnaceOptionsPacket> for McpePacket {
+    fn from(packet: SetPlayerFurnaceOptionsPacket) -> Self {
+        McpePacket::from(McpePacketData::from(packet))
+    }
+}
+impl From<RecordStartedPacket> for McpePacketData {
+    fn from(packet: RecordStartedPacket) -> Self {
+        McpePacketData::RecordStartedPacket(packet)
+    }
+}
+impl From<RecordStartedPacket> for McpePacket {
+    fn from(packet: RecordStartedPacket) -> Self {
+        McpePacket::from(McpePacketData::from(packet))
+    }
+}
 /// Represents the header information extracted from a Minecraft Bedrock Edition game packet.
 ///
 /// This includes the packet's unique ID and the source/destination subclient IDs.
@@ -3048,6 +3072,8 @@ pub enum McpePacketData {
     ClientboundUpdateSoundDataPacket(Box<ClientboundUpdateSoundDataPacket>),
     SendPartyDestinationCookiePacket(SendPartyDestinationCookiePacket),
     PartyDestinationCookieResponsePacket(PartyDestinationCookieResponsePacket),
+    SetPlayerFurnaceOptionsPacket(SetPlayerFurnaceOptionsPacket),
+    RecordStartedPacket(RecordStartedPacket),
 }
 impl McpePacketData {
     /// Returns the `McpePacketName` (ID) for the current packet variant.
@@ -3428,6 +3454,10 @@ impl McpePacketData {
             McpePacketData::PartyDestinationCookieResponsePacket(_) => {
                 McpePacketName::PartyDestinationCookieResponsePacket
             }
+            McpePacketData::SetPlayerFurnaceOptionsPacket(_) => {
+                McpePacketName::SetPlayerFurnaceOptionsPacket
+            }
+            McpePacketData::RecordStartedPacket(_) => McpePacketName::RecordStartedPacket,
         }
     }
     /// Encodes the packet payload as a batch entry: `[Length] [Header] [Body]`.
@@ -4133,6 +4163,12 @@ impl McpePacketData {
             McpePacketData::PartyDestinationCookieResponsePacket(v) => {
                 v.encode(buf)?;
             }
+            McpePacketData::SetPlayerFurnaceOptionsPacket(v) => {
+                v.encode(buf)?;
+            }
+            McpePacketData::RecordStartedPacket(v) => {
+                v.encode(buf)?;
+            }
         }
         Ok(())
     }
@@ -4836,6 +4872,12 @@ impl McpePacketData {
                 v.encode(buf)?;
             }
             McpePacketData::PartyDestinationCookieResponsePacket(v) => {
+                v.encode(buf)?;
+            }
+            McpePacketData::SetPlayerFurnaceOptionsPacket(v) => {
+                v.encode(buf)?;
+            }
+            McpePacketData::RecordStartedPacket(v) => {
                 v.encode(buf)?;
             }
         }
@@ -6982,6 +7024,24 @@ impl McpePacketData {
                 );
                 packet
             }
+            McpePacketName::SetPlayerFurnaceOptionsPacket => {
+                let packet = McpePacketData::SetPlayerFurnaceOptionsPacket(
+                    <SetPlayerFurnaceOptionsPacket as crate::bedrock::codec::BedrockCodec>::decode(
+                        &mut payload_buf,
+                        (),
+                    )?,
+                );
+                packet
+            }
+            McpePacketName::RecordStartedPacket => {
+                let packet = McpePacketData::RecordStartedPacket(
+                    <RecordStartedPacket as crate::bedrock::codec::BedrockCodec>::decode(
+                        &mut payload_buf,
+                        (),
+                    )?,
+                );
+                packet
+            }
         };
         Ok((
             GameHeader {
@@ -7691,6 +7751,12 @@ impl crate::bedrock::codec::BedrockSized for McpePacketData {
                 crate::bedrock::codec::BedrockSized::encoded_size(v)
             }
             McpePacketData::PartyDestinationCookieResponsePacket(v) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(v)
+            }
+            McpePacketData::SetPlayerFurnaceOptionsPacket(v) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(v)
+            }
+            McpePacketData::RecordStartedPacket(v) => {
                 crate::bedrock::codec::BedrockSized::encoded_size(v)
             }
         }

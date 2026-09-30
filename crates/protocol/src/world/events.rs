@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
+use valentine::bedrock::version::v1_26_51::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
 
 use crate::{
     ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,
@@ -256,7 +256,7 @@ impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
             MovePlayerPacketPositionMode::Normal => Self::Normal,
             MovePlayerPacketPositionMode::Respawn => Self::Reset,
             MovePlayerPacketPositionMode::Teleport => Self::Teleport,
-            MovePlayerPacketPositionMode::OnlyHeadRot => Self::Rotation,
+            MovePlayerPacketPositionMode::Onlyheadrot => Self::Rotation,
             MovePlayerPacketPositionMode::Unknown(value) => Self::Unknown(value),
         }
     }
@@ -327,12 +327,12 @@ impl MovementCorrectionSubject {
     }
 }
 
-impl From<valentine::bedrock::version::v1_26_44::EnumsRewindType> for MovementCorrectionSubject {
-    fn from(subject: valentine::bedrock::version::v1_26_44::EnumsRewindType) -> Self {
+impl From<valentine::bedrock::version::v1_26_51::EnumsRewindType> for MovementCorrectionSubject {
+    fn from(subject: valentine::bedrock::version::v1_26_51::EnumsRewindType) -> Self {
         match subject {
-            valentine::bedrock::version::v1_26_44::EnumsRewindType::Player => Self::Player,
-            valentine::bedrock::version::v1_26_44::EnumsRewindType::Vehicle => Self::Vehicle,
-            valentine::bedrock::version::v1_26_44::EnumsRewindType::Unknown(value) => {
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Player => Self::Player,
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Vehicle => Self::Vehicle,
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Unknown(value) => {
                 Self::Unknown(value)
             }
         }

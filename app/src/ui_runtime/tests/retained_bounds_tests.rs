@@ -88,7 +88,6 @@ fn saturated_runtime() -> UiRuntime {
                 next(),
                 UiEvent::Boss(BossEvent {
                     target_entity_id: boss + 10,
-                    player_id: 0,
                     action: ProtocolBossAction::Show,
                     title: Arc::from(format!("Boss {boss}")),
                     filtered_title: Arc::from(""),

@@ -11,7 +11,7 @@ use protocol::{
     BedrockSession, GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags,
     PlayerInputMode, ProtocolError, decode_batch, encode, player_auth_input,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType, EnumsGameType,
     EnumsInputMode, EnumsNewInteractionModel, EnumsPacketCompressionAlgorithm,
     EnumsPlayerAuthInputPacketPayloadInputData, EnumsPlayerPermissionLevel,
@@ -77,7 +77,7 @@ fn network_settings_fixture_decodes_and_round_trips_exactly() {
             // the same discriminant from `Deflate` to `ZLib`.
             assert_eq!(
                 settings.compression_algorithm,
-                EnumsPacketCompressionAlgorithm::ZLib
+                EnumsPacketCompressionAlgorithm::Zlib
             );
             // `client_throttle` is `client_throttle_enabled` in 1.26.40.
             assert!(settings.client_throttle_enabled);
@@ -582,7 +582,7 @@ fn fixture_block_actions() -> protocol::BlockActions {
 
 #[test]
 fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
-    use valentine::bedrock::version::v1_26_44::{EnumsPlayerActionType, PlayerBlockActionData};
+    use valentine::bedrock::version::v1_26_51::{EnumsPlayerActionType, PlayerBlockActionData};
 
     let fixture = decode_one(
         PLAYER_AUTH_INPUT_BLOCK_ACTIONS,
@@ -600,7 +600,7 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformBlockActions,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions,
         ])
     );
     // Every action writes its action id, block position, and face; the outer
@@ -609,7 +609,7 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
         input.player_block_actions,
         Some(Some(vec![
             PlayerBlockActionData {
-                player_action_type: EnumsPlayerActionType::StartDestroyBlock,
+                player_action_type: EnumsPlayerActionType::Startdestroyblock,
                 position: BlockPos {
                     x: 13,
                     y: 71,
@@ -618,7 +618,7 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
                 facing: 5,
             },
             PlayerBlockActionData {
-                player_action_type: EnumsPlayerActionType::PredictDestroyBlock,
+                player_action_type: EnumsPlayerActionType::Predictdestroyblock,
                 position: BlockPos {
                     x: -8,
                     y: 63,
@@ -655,7 +655,7 @@ fn player_auth_input_builder_embeds_block_actions_byte_exactly() {
 
 #[test]
 fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
-    use valentine::bedrock::version::v1_26_44::{
+    use valentine::bedrock::version::v1_26_51::{
         EnumsItemUseInventoryTransactionActionType,
         EnumsItemUseInventoryTransactionClientCooldownState,
         EnumsItemUseInventoryTransactionPredictedResult,
@@ -676,7 +676,7 @@ fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemInteraction,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction,
         ])
     );
     assert_eq!(input.player_block_actions, Some(None));
@@ -698,7 +698,7 @@ fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
     );
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::PlayerInput
+        EnumsItemUseInventoryTransactionTriggerType::Playerinput
     );
     assert_eq!(
         transaction.position,
@@ -888,8 +888,8 @@ fn player_auth_input_combined_interactions_fixture_and_builder_match_byte_exactl
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemInteraction,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformBlockActions,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions,
         ])
     );
     assert!(matches!(input.item_use_transaction, Some(Some(_))));

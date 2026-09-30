@@ -2,7 +2,7 @@ use protocol::{
     BedrockSession, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch,
     encode, player_auth_input,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
     EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData, McpePacketName,
 };
@@ -119,12 +119,12 @@ fn movement_hints_map_to_their_protocol_2168_list_ids() {
     assert_eq!(
         input.input_data,
         Some(vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::UpLeft,
-            EnumsPlayerAuthInputPacketPayloadInputData::UpRight,
-            EnumsPlayerAuthInputPacketPayloadInputData::HorizontalCollision,
-            EnumsPlayerAuthInputPacketPayloadInputData::VerticalCollision,
-            EnumsPlayerAuthInputPacketPayloadInputData::DownLeft,
-            EnumsPlayerAuthInputPacketPayloadInputData::DownRight,
+            EnumsPlayerAuthInputPacketPayloadInputData::Upleft,
+            EnumsPlayerAuthInputPacketPayloadInputData::Upright,
+            EnumsPlayerAuthInputPacketPayloadInputData::Horizontalcollision,
+            EnumsPlayerAuthInputPacketPayloadInputData::Verticalcollision,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downleft,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downright,
         ])
     );
 }
@@ -203,7 +203,7 @@ fn handled_teleport_flag_serializes_in_ascending_list_position() {
         Some(vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport,
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
         ])
     );
 }
@@ -219,8 +219,8 @@ fn missed_swing_flag_serializes_as_its_wire_ordinal() {
     assert_eq!(
         input.input_data,
         Some(vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport,
-            EnumsPlayerAuthInputPacketPayloadInputData::MissedSwing,
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
+            EnumsPlayerAuthInputPacketPayloadInputData::Missedswing,
         ])
     );
 }
@@ -252,7 +252,7 @@ fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
         input.input_data,
         Some(vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
-            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport,
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
         ])
     );
 }

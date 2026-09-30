@@ -7,7 +7,7 @@ use jolyne::raw::RawPacket;
 use jolyne::stream::client::ClientHandshakeConfig;
 use jolyne::stream::transport::{BedrockTransport, Transport};
 use jolyne::stream::{BedrockStream, Client, Handshake, Play};
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     McpePacketData, McpePacketName, NetworkStackLatencyPacket,
 };
 use valentine::protocol::wire;
@@ -273,7 +273,7 @@ impl<T: Transport> PlaySession<T> {
                 let borrowed = raw
                     .decode_borrowed()
                     .map_err(|error| self.fail_session(error))?;
-                let valentine::bedrock::version::v1_26_44::BorrowedMcpePacketData::LevelChunkPacket(
+                let valentine::bedrock::version::v1_26_51::BorrowedMcpePacketData::LevelChunkPacket(
                     packet,
                 ) = borrowed.data
                 else {
@@ -536,7 +536,7 @@ impl<T: Transport> PlaySession<T> {
                         Ok(packet) => packet,
                         Err(error) => return Err(self.fail_session(error)),
                     };
-                    let valentine::bedrock::version::v1_26_44::BorrowedMcpePacketData::LevelChunkPacket(view) = borrowed.data else {
+                    let valentine::bedrock::version::v1_26_51::BorrowedMcpePacketData::LevelChunkPacket(view) = borrowed.data else {
                         unreachable!("LevelChunk packet ID decoded to another borrowed variant")
                     };
                     if !view.cache_enabled {

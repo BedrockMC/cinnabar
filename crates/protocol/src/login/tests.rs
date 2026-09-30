@@ -67,7 +67,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::codec::Nbt;
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket,
     AnimatePacket, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockActorDataPacket,
@@ -839,7 +839,7 @@ fn allowlisted_respawn_is_materialized_and_normalized() {
             y: 71.620_01,
             z: -4.25,
         },
-        state: RespawnPacketState::ReadyToSpawn,
+        state: RespawnPacketState::Readytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: 42,
         },

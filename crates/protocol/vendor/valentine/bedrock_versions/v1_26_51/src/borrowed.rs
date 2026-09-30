@@ -1994,7 +1994,7 @@ impl From<BedrockProfileWhiskerDiagnosticsScopeDataSummaryView>
 #[derive(Debug, Clone, PartialEq)]
 pub struct BedrockSafetyRedactableStringView {
     pub unredacted: crate::bedrock::borrowed::BorrowedStr,
-    pub redacted: crate::bedrock::borrowed::BorrowedStr,
+    pub redacted: Option<crate::bedrock::borrowed::BorrowedStr>,
 }
 impl crate::bedrock::codec::BedrockSized for BedrockSafetyRedactableStringView {
     fn encoded_size(&self) -> usize {
@@ -2003,10 +2003,12 @@ impl crate::bedrock::codec::BedrockSized for BedrockSafetyRedactableStringView {
                 ((&self.unredacted).as_bytes().len()) as u32,
             ))
             + (&self.unredacted).as_bytes().len()
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                ((&self.redacted).as_bytes().len()) as u32,
-            ))
-            + (&self.redacted).as_bytes().len()
+            + 1usize
+            + (&self.redacted).as_ref().map_or(0usize, |_value| {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    ((_value).as_bytes().len()) as u32,
+                )) + (_value).as_bytes().len()
+            })
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for BedrockSafetyRedactableStringView {
@@ -2018,7 +2020,11 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BedrockSafetyRedactableSt
         let _ = &buf;
         let _ = _args;
         let unredacted = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let redacted = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        let redacted = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+            Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
+        } else {
+            None
+        };
         Ok(Self {
             unredacted,
             redacted,
@@ -2033,8 +2039,11 @@ impl BedrockSafetyRedactableStringView {
         let _ = buf;
         crate::bedrock::codec::VarUInt(((&self.unredacted).as_bytes().len()) as u32).encode(buf)?;
         buf.put_slice((&self.unredacted).as_bytes());
-        crate::bedrock::codec::VarUInt(((&self.redacted).as_bytes().len()) as u32).encode(buf)?;
-        buf.put_slice((&self.redacted).as_bytes());
+        (&self.redacted).is_some().encode(buf)?;
+        if let Some(value) = &self.redacted {
+            crate::bedrock::codec::VarUInt(((value).as_bytes().len()) as u32).encode(buf)?;
+            buf.put_slice((value).as_bytes());
+        }
         Ok(())
     }
 }
@@ -2043,7 +2052,7 @@ impl From<BedrockSafetyRedactableStringView> for BedrockSafetyRedactableString {
         let _ = &value;
         Self {
             unredacted: (value.unredacted).to_string_lossy().into_owned(),
-            redacted: (value.redacted).to_string_lossy().into_owned(),
+            redacted: (value.redacted).map(|value| (value).to_string_lossy().into_owned()),
         }
     }
 }
@@ -5320,6 +5329,55 @@ impl From<BookEditActionSwapPagesView> for BookEditActionSwapPages {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct BoolAttributeDatajsonView {
+    pub value: bool,
+    pub operation: crate::bedrock::borrowed::BorrowedStr,
+}
+impl crate::bedrock::codec::BedrockSized for BoolAttributeDatajsonView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.value)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.operation).as_bytes().len()) as u32,
+            ))
+            + (&self.operation).as_bytes().len()
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for BoolAttributeDatajsonView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let value = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let operation = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        Ok(Self { value, operation })
+    }
+}
+impl BoolAttributeDatajsonView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        (&self.value).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.operation).as_bytes().len()) as u32).encode(buf)?;
+        buf.put_slice((&self.operation).as_bytes());
+        Ok(())
+    }
+}
+impl From<BoolAttributeDatajsonView> for BoolAttributeDatajson {
+    fn from(value: BoolAttributeDatajsonView) -> Self {
+        let _ = &value;
+        Self {
+            value: value.value,
+            operation: (value.operation).to_string_lossy().into_owned(),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct BoxDataPayloadView {
     pub box_bound: Vec3View,
 }
@@ -7026,7 +7084,7 @@ impl From<SharedTypesv12150CameraAimAssistCommandPresetDefinitionView>
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct SharedTypesv12190CameraPresetView {
+pub struct SharedTypesv12650CameraPresetView {
     pub name: crate::bedrock::borrowed::BorrowedStr,
     pub inherit_from: crate::bedrock::borrowed::BorrowedStr,
     pub pos_x: Option<f32>,
@@ -7049,8 +7107,10 @@ pub struct SharedTypesv12190CameraPresetView {
     pub player_effects: Option<bool>,
     pub aim_assist: Option<SharedTypesv12150CameraAimAssistCommandPresetDefinitionView>,
     pub control_scheme: Option<EnumsControlSchemeScheme>,
+    pub apply_inherited_starting_rotation: bool,
+    pub starting_rotation: Option<Vec2View>,
 }
-impl crate::bedrock::codec::BedrockSized for SharedTypesv12190CameraPresetView {
+impl crate::bedrock::codec::BedrockSized for SharedTypesv12650CameraPresetView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -7135,9 +7195,16 @@ impl crate::bedrock::codec::BedrockSized for SharedTypesv12190CameraPresetView {
             + (&self.control_scheme).as_ref().map_or(0usize, |_value| {
                 crate::bedrock::codec::BedrockSized::encoded_size(_value)
             })
+            + crate::bedrock::codec::BedrockSized::encoded_size(
+                &self.apply_inherited_starting_rotation,
+            )
+            + 1usize
+            + (&self.starting_rotation).as_ref().map_or(0usize, |_value| {
+                crate::bedrock::codec::BedrockSized::encoded_size(_value)
+            })
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesv12190CameraPresetView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesv12650CameraPresetView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -7352,6 +7419,18 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesv12190CameraPr
         } else {
             None
         };
+        let apply_inherited_starting_rotation =
+            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let starting_rotation = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+            Some(
+                <Vec2View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                    buf,
+                    (),
+                )?,
+            )
+        } else {
+            None
+        };
         Ok(Self {
             name,
             inherit_from,
@@ -7375,10 +7454,12 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for SharedTypesv12190CameraPr
             player_effects,
             aim_assist,
             control_scheme,
+            apply_inherited_starting_rotation,
+            starting_rotation,
         })
     }
 }
-impl SharedTypesv12190CameraPresetView {
+impl SharedTypesv12650CameraPresetView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -7469,11 +7550,16 @@ impl SharedTypesv12190CameraPresetView {
         if let Some(value) = &self.control_scheme {
             (value).encode(buf)?;
         }
+        (&self.apply_inherited_starting_rotation).encode(buf)?;
+        (&self.starting_rotation).is_some().encode(buf)?;
+        if let Some(value) = &self.starting_rotation {
+            (value).encode(buf)?;
+        }
         Ok(())
     }
 }
-impl From<SharedTypesv12190CameraPresetView> for SharedTypesv12190CameraPreset {
-    fn from(value: SharedTypesv12190CameraPresetView) -> Self {
+impl From<SharedTypesv12650CameraPresetView> for SharedTypesv12650CameraPreset {
+    fn from(value: SharedTypesv12650CameraPresetView) -> Self {
         let _ = &value;
         Self {
             name: (value.name).to_string_lossy().into_owned(),
@@ -7499,12 +7585,14 @@ impl From<SharedTypesv12190CameraPresetView> for SharedTypesv12190CameraPreset {
             player_effects: (value.player_effects).map(|value| value),
             aim_assist: (value.aim_assist).map(|value| (value).into()),
             control_scheme: (value.control_scheme).map(|value| value),
+            apply_inherited_starting_rotation: value.apply_inherited_starting_rotation,
+            starting_rotation: (value.starting_rotation).map(|value| (value).into()),
         }
     }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct CameraPresetsView {
-    pub presets: Vec<SharedTypesv12190CameraPresetView>,
+    pub presets: Vec<SharedTypesv12650CameraPresetView>,
 }
 impl crate::bedrock::codec::BedrockSized for CameraPresetsView {
     fn encoded_size(&self) -> usize {
@@ -7539,7 +7627,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CameraPresetsView {
                 crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
-                        <SharedTypesv12190CameraPresetView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        <SharedTypesv12650CameraPresetView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                             buf,
                             (),
                         )?,
@@ -7622,14 +7710,14 @@ impl From<ScoreboardIdView> for ScoreboardId {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct ChangeEntityScoreView {
+pub struct ChangeEntityScorejsonView {
     pub action: crate::bedrock::borrowed::BorrowedStr,
     pub scoreboard_id: ScoreboardIdView,
     pub objective_name: crate::bedrock::borrowed::BorrowedStr,
     pub score_value: i32,
     pub actor_id: ActorUniqueIdView,
 }
-impl crate::bedrock::codec::BedrockSized for ChangeEntityScoreView {
+impl crate::bedrock::codec::BedrockSized for ChangeEntityScorejsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -7645,7 +7733,7 @@ impl crate::bedrock::codec::BedrockSized for ChangeEntityScoreView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.actor_id)
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangeEntityScoreView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangeEntityScorejsonView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -7677,7 +7765,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangeEntityScoreView {
         })
     }
 }
-impl ChangeEntityScoreView {
+impl ChangeEntityScorejsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -7694,8 +7782,8 @@ impl ChangeEntityScoreView {
         Ok(())
     }
 }
-impl From<ChangeEntityScoreView> for ChangeEntityScore {
-    fn from(value: ChangeEntityScoreView) -> Self {
+impl From<ChangeEntityScorejsonView> for ChangeEntityScorejson {
+    fn from(value: ChangeEntityScorejsonView) -> Self {
         let _ = &value;
         Self {
             action: (value.action).to_string_lossy().into_owned(),
@@ -7707,14 +7795,14 @@ impl From<ChangeEntityScoreView> for ChangeEntityScore {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct ChangeFakePlayerScoreView {
+pub struct ChangeFakePlayerScorejsonView {
     pub action: crate::bedrock::borrowed::BorrowedStr,
     pub scoreboard_id: ScoreboardIdView,
     pub objective_name: crate::bedrock::borrowed::BorrowedStr,
     pub score_value: i32,
     pub fake_player_name: crate::bedrock::borrowed::BorrowedStr,
 }
-impl crate::bedrock::codec::BedrockSized for ChangeFakePlayerScoreView {
+impl crate::bedrock::codec::BedrockSized for ChangeFakePlayerScorejsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -7733,7 +7821,7 @@ impl crate::bedrock::codec::BedrockSized for ChangeFakePlayerScoreView {
             + (&self.fake_player_name).as_bytes().len()
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangeFakePlayerScoreView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangeFakePlayerScorejsonView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -7761,7 +7849,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangeFakePlayerScoreView
         })
     }
 }
-impl ChangeFakePlayerScoreView {
+impl ChangeFakePlayerScorejsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -7780,8 +7868,8 @@ impl ChangeFakePlayerScoreView {
         Ok(())
     }
 }
-impl From<ChangeFakePlayerScoreView> for ChangeFakePlayerScore {
-    fn from(value: ChangeFakePlayerScoreView) -> Self {
+impl From<ChangeFakePlayerScorejsonView> for ChangeFakePlayerScorejson {
+    fn from(value: ChangeFakePlayerScorejsonView) -> Self {
         let _ = &value;
         Self {
             action: (value.action).to_string_lossy().into_owned(),
@@ -7840,14 +7928,14 @@ impl From<PlayerScoreboardIdView> for PlayerScoreboardId {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct ChangePlayerScoreView {
+pub struct ChangePlayerScorejsonView {
     pub action: crate::bedrock::borrowed::BorrowedStr,
     pub scoreboard_id: ScoreboardIdView,
     pub objective_name: crate::bedrock::borrowed::BorrowedStr,
     pub score_value: i32,
     pub player_unique_id: PlayerScoreboardIdView,
 }
-impl crate::bedrock::codec::BedrockSized for ChangePlayerScoreView {
+impl crate::bedrock::codec::BedrockSized for ChangePlayerScorejsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -7863,7 +7951,7 @@ impl crate::bedrock::codec::BedrockSized for ChangePlayerScoreView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.player_unique_id)
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangePlayerScoreView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangePlayerScorejsonView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -7894,7 +7982,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ChangePlayerScoreView {
         })
     }
 }
-impl ChangePlayerScoreView {
+impl ChangePlayerScorejsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -7911,8 +7999,8 @@ impl ChangePlayerScoreView {
         Ok(())
     }
 }
-impl From<ChangePlayerScoreView> for ChangePlayerScore {
-    fn from(value: ChangePlayerScoreView) -> Self {
+impl From<ChangePlayerScorejsonView> for ChangePlayerScorejson {
+    fn from(value: ChangePlayerScorejsonView) -> Self {
         let _ = &value;
         Self {
             action: (value.action).to_string_lossy().into_owned(),
@@ -7977,6 +8065,50 @@ impl From<ChunkPosView> for ChunkPos {
         Self {
             x: value.x,
             z: value.z,
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClearOverridejsonView {
+    pub type_: crate::bedrock::borrowed::BorrowedStr,
+}
+impl crate::bedrock::codec::BedrockSized for ClearOverridejsonView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.type_).as_bytes().len()) as u32,
+            ))
+            + (&self.type_).as_bytes().len()
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ClearOverridejsonView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        Ok(Self { type_ })
+    }
+}
+impl ClearOverridejsonView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
+        buf.put_slice((&self.type_).as_bytes());
+        Ok(())
+    }
+}
+impl From<ClearOverridejsonView> for ClearOverridejson {
+    fn from(value: ClearOverridejsonView) -> Self {
+        let _ = &value;
+        Self {
+            type_: (value.type_).to_string_lossy().into_owned(),
         }
     }
 }
@@ -8290,12 +8422,12 @@ impl From<CommandOriginDatajsonView> for CommandOriginDatajson {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct CommandOutputMessageView {
+pub struct CommandOutputMessagejsonView {
     pub message_id: crate::bedrock::borrowed::BorrowedStr,
     pub successful: bool,
     pub parameters: Vec<crate::bedrock::borrowed::BorrowedStr>,
 }
-impl crate::bedrock::codec::BedrockSized for CommandOutputMessageView {
+impl crate::bedrock::codec::BedrockSized for CommandOutputMessagejsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -8316,7 +8448,7 @@ impl crate::bedrock::codec::BedrockSized for CommandOutputMessageView {
                 .sum::<usize>()
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputMessageView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputMessagejsonView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -8348,7 +8480,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputMessageView 
         })
     }
 }
-impl CommandOutputMessageView {
+impl CommandOutputMessagejsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -8365,8 +8497,8 @@ impl CommandOutputMessageView {
         Ok(())
     }
 }
-impl From<CommandOutputMessageView> for CommandOutputMessage {
-    fn from(value: CommandOutputMessageView) -> Self {
+impl From<CommandOutputMessagejsonView> for CommandOutputMessagejson {
+    fn from(value: CommandOutputMessagejsonView) -> Self {
         let _ = &value;
         Self {
             message_id: (value.message_id).to_string_lossy().into_owned(),
@@ -8379,13 +8511,13 @@ impl From<CommandOutputMessageView> for CommandOutputMessage {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct CommandOutputView {
+pub struct CommandOutputjsonView {
     pub output_type: crate::bedrock::borrowed::BorrowedStr,
     pub success_count: u32,
-    pub output_messages: Vec<CommandOutputMessageView>,
+    pub output_messages: Vec<CommandOutputMessagejsonView>,
     pub data_set: Option<crate::bedrock::borrowed::BorrowedStr>,
 }
-impl crate::bedrock::codec::BedrockSized for CommandOutputView {
+impl crate::bedrock::codec::BedrockSized for CommandOutputjsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -8408,7 +8540,7 @@ impl crate::bedrock::codec::BedrockSized for CommandOutputView {
             })
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputjsonView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -8433,7 +8565,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputView {
                 crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
                     .push(
-                        <CommandOutputMessageView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        <CommandOutputMessagejsonView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                             buf,
                             (),
                         )?,
@@ -8454,7 +8586,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputView {
         })
     }
 }
-impl CommandOutputView {
+impl CommandOutputjsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -8476,8 +8608,8 @@ impl CommandOutputView {
         Ok(())
     }
 }
-impl From<CommandOutputView> for CommandOutput {
-    fn from(value: CommandOutputView) -> Self {
+impl From<CommandOutputjsonView> for CommandOutputjson {
+    fn from(value: CommandOutputjsonView) -> Self {
         let _ = &value;
         Self {
             output_type: (value.output_type).to_string_lossy().into_owned(),
@@ -9438,24 +9570,29 @@ impl From<DataItemVec3PayloadView> for DataItemVec3Payload {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct DimensionDefinitionGroupDimensionDefinitionView {
-    pub height_maximum: i32,
-    pub height_minimum: i32,
+    pub minimum_y: i32,
+    pub height_range: i32,
     pub generator_type: EnumsGeneratorType,
     pub dimension_type: DimensionTypeView,
     pub pack_id: uuid::Uuid,
+    pub default_biome: crate::bedrock::borrowed::BorrowedStr,
 }
 impl crate::bedrock::codec::BedrockSized for DimensionDefinitionGroupDimensionDefinitionView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.height_maximum,
+                *&self.minimum_y,
             ))
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
-                *&self.height_minimum,
+                *&self.height_range,
             ))
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.generator_type)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.dimension_type)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.pack_id)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.default_biome).as_bytes().len()) as u32,
+            ))
+            + (&self.default_biome).as_bytes().len()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode
@@ -9468,13 +9605,13 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let height_maximum =
+        let minimum_y =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
-        let height_minimum =
+        let height_range =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
@@ -9488,12 +9625,14 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
                 (),
             )?;
         let pack_id = <uuid::Uuid as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let default_biome = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         Ok(Self {
-            height_maximum,
-            height_minimum,
+            minimum_y,
+            height_range,
             generator_type,
             dimension_type,
             pack_id,
+            default_biome,
         })
     }
 }
@@ -9503,11 +9642,14 @@ impl DimensionDefinitionGroupDimensionDefinitionView {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::ZigZag32(*&self.height_maximum).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(*&self.height_minimum).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(*&self.minimum_y).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(*&self.height_range).encode(buf)?;
         (&self.generator_type).encode(buf)?;
         (&self.dimension_type).encode(buf)?;
         (&self.pack_id).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.default_biome).as_bytes().len()) as u32)
+            .encode(buf)?;
+        buf.put_slice((&self.default_biome).as_bytes());
         Ok(())
     }
 }
@@ -9517,11 +9659,12 @@ impl From<DimensionDefinitionGroupDimensionDefinitionView>
     fn from(value: DimensionDefinitionGroupDimensionDefinitionView) -> Self {
         let _ = &value;
         Self {
-            height_maximum: value.height_maximum,
-            height_minimum: value.height_minimum,
+            minimum_y: value.minimum_y,
+            height_range: value.height_range,
             generator_type: value.generator_type,
             dimension_type: (value.dimension_type).into(),
             pack_id: value.pack_id,
+            default_biome: (value.default_biome).to_string_lossy().into_owned(),
         }
     }
 }
@@ -9583,21 +9726,20 @@ impl From<DisconnectPacketMessagesView> for DisconnectPacketMessages {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct EasBoolAttributeDataView {
-    pub value: bool,
-    pub operation: crate::bedrock::borrowed::BorrowedStr,
+pub struct EasNoiseAlignmentView {
+    pub type_: EnumsEasNoiseAlignmentType,
+    pub value: u32,
 }
-impl crate::bedrock::codec::BedrockSized for EasBoolAttributeDataView {
+impl crate::bedrock::codec::BedrockSized for EasNoiseAlignmentView {
     fn encoded_size(&self) -> usize {
         0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.value)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.type_)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                ((&self.operation).as_bytes().len()) as u32,
+                *&self.value,
             ))
-            + (&self.operation).as_bytes().len()
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for EasBoolAttributeDataView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for EasNoiseAlignmentView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -9605,127 +9747,34 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for EasBoolAttributeDataView 
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let value = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let operation = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        Ok(Self { value, operation })
-    }
-}
-impl EasBoolAttributeDataView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        (&self.value).encode(buf)?;
-        crate::bedrock::codec::VarUInt(((&self.operation).as_bytes().len()) as u32).encode(buf)?;
-        buf.put_slice((&self.operation).as_bytes());
-        Ok(())
-    }
-}
-impl From<EasBoolAttributeDataView> for EasBoolAttributeData {
-    fn from(value: EasBoolAttributeDataView) -> Self {
-        let _ = &value;
-        Self {
-            value: value.value,
-            operation: (value.operation).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct EasFloatAttributeDataView {
-    pub value: f32,
-    pub operation: crate::bedrock::borrowed::BorrowedStr,
-    pub constraint_min: Option<f32>,
-    pub constraint_max: Option<f32>,
-}
-impl crate::bedrock::codec::BedrockSized for EasFloatAttributeDataView {
-    fn encoded_size(&self) -> usize {
-        0usize
-            + 4usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                ((&self.operation).as_bytes().len()) as u32,
-            ))
-            + (&self.operation).as_bytes().len()
-            + 1usize
-            + (&self.constraint_min)
-                .as_ref()
-                .map_or(0usize, |_value| 4usize)
-            + 1usize
-            + (&self.constraint_max)
-                .as_ref()
-                .map_or(0usize, |_value| 4usize)
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode for EasFloatAttributeDataView {
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
+        let type_ =
+            <EnumsEasNoiseAlignmentType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let value =
-            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        let operation = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let constraint_min = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(
-                <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0,
-            )
-        } else {
-            None
-        };
-        let constraint_max = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(
-                <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0,
-            )
-        } else {
-            None
-        };
-        Ok(Self {
-            value,
-            operation,
-            constraint_min,
-            constraint_max,
-        })
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0;
+        Ok(Self { type_, value })
     }
 }
-impl EasFloatAttributeDataView {
+impl EasNoiseAlignmentView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::F32LE(*&self.value).encode(buf)?;
-        crate::bedrock::codec::VarUInt(((&self.operation).as_bytes().len()) as u32).encode(buf)?;
-        buf.put_slice((&self.operation).as_bytes());
-        (&self.constraint_min).is_some().encode(buf)?;
-        if let Some(value) = &self.constraint_min {
-            crate::bedrock::codec::F32LE(*value).encode(buf)?;
-        }
-        (&self.constraint_max).is_some().encode(buf)?;
-        if let Some(value) = &self.constraint_max {
-            crate::bedrock::codec::F32LE(*value).encode(buf)?;
-        }
+        (&self.type_).encode(buf)?;
+        crate::bedrock::codec::VarUInt(*&self.value).encode(buf)?;
         Ok(())
     }
 }
-impl From<EasFloatAttributeDataView> for EasFloatAttributeData {
-    fn from(value: EasFloatAttributeDataView) -> Self {
+impl From<EasNoiseAlignmentView> for EasNoiseAlignment {
+    fn from(value: EasNoiseAlignmentView) -> Self {
         let _ = &value;
         Self {
+            type_: value.type_,
             value: value.value,
-            operation: (value.operation).to_string_lossy().into_owned(),
-            constraint_min: (value.constraint_min).map(|value| value),
-            constraint_max: (value.constraint_max).map(|value| value),
         }
     }
 }
@@ -9735,6 +9784,8 @@ pub struct EcsProfilingDiagnosticsEntityDiagnosticTimingInfoView {
     pub entity: crate::bedrock::borrowed::BorrowedStr,
     pub timein_ns: u64,
     pub percentof_total: u8,
+    pub position: Option<Vec3View>,
+    pub dimension: Option<crate::bedrock::borrowed::BorrowedStr>,
 }
 impl crate::bedrock::codec::BedrockSized for EcsProfilingDiagnosticsEntityDiagnosticTimingInfoView {
     fn encoded_size(&self) -> usize {
@@ -9749,6 +9800,16 @@ impl crate::bedrock::codec::BedrockSized for EcsProfilingDiagnosticsEntityDiagno
             + (&self.entity).as_bytes().len()
             + 8usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.percentof_total)
+            + 1usize
+            + (&self.position).as_ref().map_or(0usize, |_value| {
+                crate::bedrock::codec::BedrockSized::encoded_size(_value)
+            })
+            + 1usize
+            + (&self.dimension).as_ref().map_or(0usize, |_value| {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    ((_value).as_bytes().len()) as u32,
+                )) + (_value).as_bytes().len()
+            })
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode
@@ -9767,11 +9828,28 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
         let percentof_total = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let position = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+            Some(
+                <Vec3View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                    buf,
+                    (),
+                )?,
+            )
+        } else {
+            None
+        };
+        let dimension = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+            Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
+        } else {
+            None
+        };
         Ok(Self {
             display_name,
             entity,
             timein_ns,
             percentof_total,
+            position,
+            dimension,
         })
     }
 }
@@ -9788,6 +9866,15 @@ impl EcsProfilingDiagnosticsEntityDiagnosticTimingInfoView {
         buf.put_slice((&self.entity).as_bytes());
         crate::bedrock::codec::U64LE(*&self.timein_ns).encode(buf)?;
         (&self.percentof_total).encode(buf)?;
+        (&self.position).is_some().encode(buf)?;
+        if let Some(value) = &self.position {
+            (value).encode(buf)?;
+        }
+        (&self.dimension).is_some().encode(buf)?;
+        if let Some(value) = &self.dimension {
+            crate::bedrock::codec::VarUInt(((value).as_bytes().len()) as u32).encode(buf)?;
+            buf.put_slice((value).as_bytes());
+        }
         Ok(())
     }
 }
@@ -9801,6 +9888,8 @@ impl From<EcsProfilingDiagnosticsEntityDiagnosticTimingInfoView>
             entity: (value.entity).to_string_lossy().into_owned(),
             timein_ns: value.timein_ns,
             percentof_total: value.percentof_total,
+            position: (value.position).map(|value| (value).into()),
+            dimension: (value.dimension).map(|value| (value).to_string_lossy().into_owned()),
         }
     }
 }
@@ -10583,6 +10672,155 @@ impl From<FeatureRegistryFeatureBinaryJsonFormatView> for FeatureRegistryFeature
     }
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct FloatAttributeDatajsonView {
+    pub value: f32,
+    pub operation: crate::bedrock::borrowed::BorrowedStr,
+    pub constraint_min: Option<f32>,
+    pub constraint_max: Option<f32>,
+}
+impl crate::bedrock::codec::BedrockSized for FloatAttributeDatajsonView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + 4usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.operation).as_bytes().len()) as u32,
+            ))
+            + (&self.operation).as_bytes().len()
+            + 1usize
+            + (&self.constraint_min)
+                .as_ref()
+                .map_or(0usize, |_value| 4usize)
+            + 1usize
+            + (&self.constraint_max)
+                .as_ref()
+                .map_or(0usize, |_value| 4usize)
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for FloatAttributeDatajsonView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let value =
+            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+                .0;
+        let operation = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        let constraint_min = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+            Some(
+                <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0,
+            )
+        } else {
+            None
+        };
+        let constraint_max = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+            Some(
+                <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0,
+            )
+        } else {
+            None
+        };
+        Ok(Self {
+            value,
+            operation,
+            constraint_min,
+            constraint_max,
+        })
+    }
+}
+impl FloatAttributeDatajsonView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        crate::bedrock::codec::F32LE(*&self.value).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.operation).as_bytes().len()) as u32).encode(buf)?;
+        buf.put_slice((&self.operation).as_bytes());
+        (&self.constraint_min).is_some().encode(buf)?;
+        if let Some(value) = &self.constraint_min {
+            crate::bedrock::codec::F32LE(*value).encode(buf)?;
+        }
+        (&self.constraint_max).is_some().encode(buf)?;
+        if let Some(value) = &self.constraint_max {
+            crate::bedrock::codec::F32LE(*value).encode(buf)?;
+        }
+        Ok(())
+    }
+}
+impl From<FloatAttributeDatajsonView> for FloatAttributeDatajson {
+    fn from(value: FloatAttributeDatajsonView) -> Self {
+        let _ = &value;
+        Self {
+            value: value.value,
+            operation: (value.operation).to_string_lossy().into_owned(),
+            constraint_min: (value.constraint_min).map(|value| value),
+            constraint_max: (value.constraint_max).map(|value| value),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct FloatOverridejsonView {
+    pub type_: crate::bedrock::borrowed::BorrowedStr,
+    pub value: f32,
+}
+impl crate::bedrock::codec::BedrockSized for FloatOverridejsonView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.type_).as_bytes().len()) as u32,
+            ))
+            + (&self.type_).as_bytes().len()
+            + 4usize
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for FloatOverridejsonView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        let value =
+            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+                .0;
+        Ok(Self { type_, value })
+    }
+}
+impl FloatOverridejsonView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
+        buf.put_slice((&self.type_).as_bytes());
+        crate::bedrock::codec::F32LE(*&self.value).encode(buf)?;
+        Ok(())
+    }
+}
+impl From<FloatOverridejsonView> for FloatOverridejson {
+    fn from(value: FloatOverridejsonView) -> Self {
+        let _ = &value;
+        Self {
+            type_: (value.type_).to_string_lossy().into_owned(),
+            value: value.value,
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct FullContainerNameView {
     pub container_name: EnumsContainerEnumName,
     pub dynamic_id: Option<u32>,
@@ -10646,10 +10884,116 @@ impl From<FullContainerNameView> for FullContainerName {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct FurnaceOptionsView {
+    pub left_furnace_tab: EnumsFurnaceLeftTabIndex,
+    pub filtering: bool,
+    pub layout: EnumsFurnaceLayout,
+}
+impl crate::bedrock::codec::BedrockSized for FurnaceOptionsView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.left_furnace_tab)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.filtering)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.layout)
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for FurnaceOptionsView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let left_furnace_tab =
+            <EnumsFurnaceLeftTabIndex as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let filtering = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let layout = <EnumsFurnaceLayout as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        Ok(Self {
+            left_furnace_tab,
+            filtering,
+            layout,
+        })
+    }
+}
+impl FurnaceOptionsView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        (&self.left_furnace_tab).encode(buf)?;
+        (&self.filtering).encode(buf)?;
+        (&self.layout).encode(buf)?;
+        Ok(())
+    }
+}
+impl From<FurnaceOptionsView> for FurnaceOptions {
+    fn from(value: FurnaceOptionsView) -> Self {
+        let _ = &value;
+        Self {
+            left_furnace_tab: value.left_furnace_tab,
+            filtering: value.filtering,
+            layout: value.layout,
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntOverridejsonView {
+    pub type_: crate::bedrock::borrowed::BorrowedStr,
+    pub value: i32,
+}
+impl crate::bedrock::codec::BedrockSized for IntOverridejsonView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.type_).as_bytes().len()) as u32,
+            ))
+            + (&self.type_).as_bytes().len()
+            + 4usize
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for IntOverridejsonView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        let value =
+            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+                .0;
+        Ok(Self { type_, value })
+    }
+}
+impl IntOverridejsonView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
+        buf.put_slice((&self.type_).as_bytes());
+        crate::bedrock::codec::I32LE(*&self.value).encode(buf)?;
+        Ok(())
+    }
+}
+impl From<IntOverridejsonView> for IntOverridejson {
+    fn from(value: IntOverridejsonView) -> Self {
+        let _ = &value;
+        Self {
+            type_: (value.type_).to_string_lossy().into_owned(),
+            value: value.value,
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct InventorySourceView {
     pub source_type: EnumsInventorySourceType,
-    pub container_id: Option<Option<i8>>,
-    pub bit_flags: Option<Option<EnumsInventorySourceInventorySourceFlags>>,
+    pub container_id: Option<i8>,
+    pub bit_flags: Option<EnumsInventorySourceInventorySourceFlags>,
 }
 impl crate::bedrock::codec::BedrockSized for InventorySourceView {
     fn encoded_size(&self) -> usize {
@@ -10657,17 +11001,11 @@ impl crate::bedrock::codec::BedrockSized for InventorySourceView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.source_type)
             + 1usize
             + (&self.container_id).as_ref().map_or(0usize, |_value| {
-                1usize
-                    + (_value).as_ref().map_or(0usize, |_value| {
-                        crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                    })
+                crate::bedrock::codec::BedrockSized::encoded_size(_value)
             })
             + 1usize
             + (&self.bit_flags).as_ref().map_or(0usize, |_value| {
-                1usize
-                    + (_value).as_ref().map_or(0usize, |_value| {
-                        crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                    })
+                crate::bedrock::codec::BedrockSized::encoded_size(_value)
             })
     }
 }
@@ -10682,31 +11020,19 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for InventorySourceView {
         let source_type =
             <EnumsInventorySourceType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let container_id = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(
-                if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                    Some(<i8 as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?)
-                } else {
-                    None
-                },
-            )
+            Some(<i8 as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?)
         } else {
             None
         };
         let bit_flags = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
             Some(
-                if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                    Some(
-                        <EnumsInventorySourceInventorySourceFlags as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    )
-                } else {
-                    None
-                },
+                <EnumsInventorySourceInventorySourceFlags as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?,
             )
         } else {
             None
@@ -10727,17 +11053,11 @@ impl InventorySourceView {
         (&self.source_type).encode(buf)?;
         (&self.container_id).is_some().encode(buf)?;
         if let Some(value) = &self.container_id {
-            (value).is_some().encode(buf)?;
-            if let Some(value) = value {
-                (value).encode(buf)?;
-            }
+            (value).encode(buf)?;
         }
         (&self.bit_flags).is_some().encode(buf)?;
         if let Some(value) = &self.bit_flags {
-            (value).is_some().encode(buf)?;
-            if let Some(value) = value {
-                (value).encode(buf)?;
-            }
+            (value).encode(buf)?;
         }
         Ok(())
     }
@@ -10747,8 +11067,8 @@ impl From<InventorySourceView> for InventorySource {
         let _ = &value;
         Self {
             source_type: value.source_type,
-            container_id: (value.container_id).map(|value| (value).map(|value| value)),
-            bit_flags: (value.bit_flags).map(|value| (value).map(|value| value)),
+            container_id: (value.container_id).map(|value| value),
+            bit_flags: (value.bit_flags).map(|value| value),
         }
     }
 }
@@ -10948,20 +11268,18 @@ impl From<InventoryActionView> for InventoryAction {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct InventoryTransactionView {
-    pub actions: Option<Vec<InventoryActionView>>,
+    pub actions: Vec<InventoryActionView>,
 }
 impl crate::bedrock::codec::BedrockSized for InventoryTransactionView {
     fn encoded_size(&self) -> usize {
         0usize
-            + 1usize
-            + (&self.actions).as_ref().map_or(0usize, |_value| {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                    ((_value).len()) as u32,
-                )) + (_value)
-                    .iter()
-                    .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
-                    .sum::<usize>()
-            })
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.actions).len()) as u32,
+            ))
+            + (&self.actions)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for InventoryTransactionView {
@@ -10972,33 +11290,26 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for InventoryTransactionView 
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let actions = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some({
-                let len =
-                    <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?
-                    .0 as usize;
-                let mut values = crate::bedrock::codec::prepare_decode_vec(
-                    len,
-                    bytes::Buf::remaining(&*buf),
-                    None,
-                )?;
-                for _ in 0..len {
-                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
-                    values
-                        .push(
-                            <InventoryActionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                                buf,
-                                (),
-                            )?,
-                        );
-                }
+        let actions = {
+            let len =
+                <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0 as usize;
+            let mut values =
+                crate::bedrock::codec::prepare_decode_vec(len, bytes::Buf::remaining(&*buf), None)?;
+            for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut values)?;
                 values
-            })
-        } else {
-            None
+                    .push(
+                        <InventoryActionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                            buf,
+                            (),
+                        )?,
+                    );
+            }
+            values
         };
         Ok(Self { actions })
     }
@@ -11009,12 +11320,9 @@ impl InventoryTransactionView {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        (&self.actions).is_some().encode(buf)?;
-        if let Some(value) = &self.actions {
-            crate::bedrock::codec::VarUInt(((value).len()) as u32).encode(buf)?;
-            for item in value {
-                (item).encode(buf)?;
-            }
+        crate::bedrock::codec::VarUInt(((&self.actions).len()) as u32).encode(buf)?;
+        for item in &self.actions {
+            (item).encode(buf)?;
         }
         Ok(())
     }
@@ -11024,7 +11332,9 @@ impl From<InventoryTransactionView> for InventoryTransaction {
         let _ = &value;
         Self {
             actions: (value.actions)
-                .map(|value| (value).into_iter().map(|item| (item).into()).collect()),
+                .into_iter()
+                .map(|item| (item).into())
+                .collect(),
         }
     }
 }
@@ -12746,9 +13056,8 @@ pub struct ItemStackResponseSlotInfoView {
     pub requested_slot: u8,
     pub slot: u8,
     pub amount: u8,
-    pub item_stack_net_id: Option<Option<TypedServerNetIdstructItemStackNetIdTagint32T0View>>,
-    pub custom_name: crate::bedrock::borrowed::BorrowedStr,
-    pub filtered_custom_name: Option<crate::bedrock::borrowed::BorrowedStr>,
+    pub item_stack_net_id: Option<TypedServerNetIdstructItemStackNetIdTagint32T0View>,
+    pub custom_name: BedrockSafetyRedactableStringView,
     pub durability_correction: i32,
 }
 impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfoView {
@@ -12759,21 +13068,9 @@ impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfoView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.amount)
             + 1usize
             + (&self.item_stack_net_id).as_ref().map_or(0usize, |_value| {
-                1usize
-                    + (_value).as_ref().map_or(0usize, |_value| {
-                        crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                    })
+                crate::bedrock::codec::BedrockSized::encoded_size(_value)
             })
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                self.custom_name.as_bytes().len() as u32,
-            ))
-            + self.custom_name.as_bytes().len()
-            + 1
-            + self.filtered_custom_name.as_ref().map_or(0, |name| {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                    name.as_bytes().len() as u32,
-                )) + name.as_bytes().len()
-            })
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.custom_name)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
                 *&self.durability_correction,
             ))
@@ -12792,27 +13089,18 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponseSlotInfo
         let amount = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let item_stack_net_id = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
             Some(
-                if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                    Some(
-                        <TypedServerNetIdstructItemStackNetIdTagint32T0View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                            buf,
-                            (),
-                        )?,
-                    )
-                } else {
-                    None
-                },
+                <TypedServerNetIdstructItemStackNetIdTagint32T0View as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                    buf,
+                    (),
+                )?,
             )
         } else {
             None
         };
-        let custom_name = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let filtered_custom_name =
-            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
-            } else {
-                None
-            };
+        let custom_name = <BedrockSafetyRedactableStringView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+            buf,
+            (),
+        )?;
         let durability_correction =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
@@ -12825,7 +13113,6 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponseSlotInfo
             amount,
             item_stack_net_id,
             custom_name,
-            filtered_custom_name,
             durability_correction,
         })
     }
@@ -12841,18 +13128,9 @@ impl ItemStackResponseSlotInfoView {
         (&self.amount).encode(buf)?;
         (&self.item_stack_net_id).is_some().encode(buf)?;
         if let Some(value) = &self.item_stack_net_id {
-            (value).is_some().encode(buf)?;
-            if let Some(value) = value {
-                (value).encode(buf)?;
-            }
+            (value).encode(buf)?;
         }
-        crate::bedrock::codec::VarUInt(self.custom_name.as_bytes().len() as u32).encode(buf)?;
-        buf.put_slice(self.custom_name.as_bytes());
-        self.filtered_custom_name.is_some().encode(buf)?;
-        if let Some(name) = &self.filtered_custom_name {
-            crate::bedrock::codec::VarUInt(name.as_bytes().len() as u32).encode(buf)?;
-            buf.put_slice(name.as_bytes());
-        }
+        (&self.custom_name).encode(buf)?;
         crate::bedrock::codec::ZigZag32(*&self.durability_correction).encode(buf)?;
         Ok(())
     }
@@ -12864,12 +13142,8 @@ impl From<ItemStackResponseSlotInfoView> for ItemStackResponseSlotInfo {
             requested_slot: value.requested_slot,
             slot: value.slot,
             amount: value.amount,
-            item_stack_net_id: (value.item_stack_net_id)
-                .map(|value| (value).map(|value| (value).into())),
-            custom_name: value.custom_name.to_string_lossy().into_owned(),
-            filtered_custom_name: value
-                .filtered_custom_name
-                .map(|name| name.to_string_lossy().into_owned()),
+            item_stack_net_id: (value.item_stack_net_id).map(|value| (value).into()),
+            custom_name: (value.custom_name).into(),
             durability_correction: value.durability_correction,
         }
     }
@@ -13011,7 +13285,7 @@ impl From<TypedClientNetIdstructItemStackRequestIdTagint32T0View>
 pub struct ItemStackResponseInfoView {
     pub result: EnumsItemStackNetResult,
     pub client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0View,
-    pub containers: Option<Option<Vec<ItemStackResponseContainerInfoView>>>,
+    pub containers: Option<Vec<ItemStackResponseContainerInfoView>>,
 }
 impl crate::bedrock::codec::BedrockSized for ItemStackResponseInfoView {
     fn encoded_size(&self) -> usize {
@@ -13020,15 +13294,12 @@ impl crate::bedrock::codec::BedrockSized for ItemStackResponseInfoView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.client_request_id)
             + 1usize
             + (&self.containers).as_ref().map_or(0usize, |_value| {
-                1usize
-                    + (_value).as_ref().map_or(0usize, |_value| {
-                        crate::bedrock::codec::BedrockSized::encoded_size(
-                            &crate::bedrock::codec::VarUInt(((_value).len()) as u32),
-                        ) + (_value)
-                            .iter()
-                            .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
-                            .sum::<usize>()
-                    })
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    ((_value).len()) as u32,
+                )) + (_value)
+                    .iter()
+                    .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                    .sum::<usize>()
             })
     }
 }
@@ -13047,35 +13318,30 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemStackResponseInfoView
             (),
         )?;
         let containers = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(
-                if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                    Some({
-                        let len = <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+            Some({
+                let len =
+                    <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0 as usize;
+                let mut values = crate::bedrock::codec::prepare_decode_vec(
+                    len,
+                    bytes::Buf::remaining(&*buf),
+                    None,
+                )?;
+                for _ in 0..len {
+                    crate::bedrock::codec::reserve_decode_item(&mut values)?;
+                    values
+                        .push(
+                            <ItemStackResponseContainerInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
                                 buf,
                                 (),
-                            )?
-                            .0 as usize;
-                        let mut values = crate::bedrock::codec::prepare_decode_vec(
-                            len,
-                            bytes::Buf::remaining(&*buf),
-                            None,
-                        )?;
-                        for _ in 0..len {
-                            crate::bedrock::codec::reserve_decode_item(&mut values)?;
-                            values
-                                .push(
-                                    <ItemStackResponseContainerInfoView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                                        buf,
-                                        (),
-                                    )?,
-                                );
-                        }
-                        values
-                    })
-                } else {
-                    None
-                },
-            )
+                            )?,
+                        );
+                }
+                values
+            })
         } else {
             None
         };
@@ -13096,12 +13362,9 @@ impl ItemStackResponseInfoView {
         (&self.client_request_id).encode(buf)?;
         (&self.containers).is_some().encode(buf)?;
         if let Some(value) = &self.containers {
-            (value).is_some().encode(buf)?;
-            if let Some(value) = value {
-                crate::bedrock::codec::VarUInt(((value).len()) as u32).encode(buf)?;
-                for item in value {
-                    (item).encode(buf)?;
-                }
+            crate::bedrock::codec::VarUInt(((value).len()) as u32).encode(buf)?;
+            for item in value {
+                (item).encode(buf)?;
             }
         }
         Ok(())
@@ -13113,9 +13376,8 @@ impl From<ItemStackResponseInfoView> for ItemStackResponseInfo {
         Self {
             result: value.result,
             client_request_id: (value.client_request_id).into(),
-            containers: (value.containers).map(|value| {
-                (value).map(|value| (value).into_iter().map(|item| (item).into()).collect())
-            }),
+            containers: (value.containers)
+                .map(|value| (value).into_iter().map(|item| (item).into()).collect()),
         }
     }
 }
@@ -13127,6 +13389,7 @@ pub struct ItemUseInventoryTransactionView {
     pub position: BlockPosView,
     pub face: u8,
     pub slot: i32,
+    pub hand: EnumsHandSlot,
     pub item: CerealizerNetworkItemStackDescriptorSerializedDataView,
     pub from_position: Vec3View,
     pub click_position: Vec3View,
@@ -13145,6 +13408,7 @@ impl crate::bedrock::codec::BedrockSized for ItemUseInventoryTransactionView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
                 *&self.slot,
             ))
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.hand)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.item)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.from_position)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.click_position)
@@ -13187,6 +13451,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemUseInventoryTransacti
                 (),
             )?
             .0;
+        let hand = <EnumsHandSlot as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let item = <CerealizerNetworkItemStackDescriptorSerializedDataView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
             buf,
             (),
@@ -13216,6 +13481,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for ItemUseInventoryTransacti
             position,
             face,
             slot,
+            hand,
             item,
             from_position,
             click_position,
@@ -13237,6 +13503,7 @@ impl ItemUseInventoryTransactionView {
         (&self.position).encode(buf)?;
         (&self.face).encode(buf)?;
         crate::bedrock::codec::ZigZag32(*&self.slot).encode(buf)?;
+        (&self.hand).encode(buf)?;
         (&self.item).encode(buf)?;
         (&self.from_position).encode(buf)?;
         (&self.click_position).encode(buf)?;
@@ -13256,6 +13523,7 @@ impl From<ItemUseInventoryTransactionView> for ItemUseInventoryTransaction {
             position: (value.position).into(),
             face: value.face,
             slot: value.slot,
+            hand: value.hand,
             item: (value.item).into(),
             from_position: (value.from_position).into(),
             click_position: (value.click_position).into(),
@@ -15859,6 +16127,7 @@ pub struct MoveActorDeltaDataView {
     pub force_move: bool,
     pub force_move_local_entity: bool,
     pub force_completion: bool,
+    pub ticks: u64,
 }
 impl crate::bedrock::codec::BedrockSized for MoveActorDeltaDataView {
     fn encoded_size(&self) -> usize {
@@ -15892,6 +16161,9 @@ impl crate::bedrock::codec::BedrockSized for MoveActorDeltaDataView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.force_move)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.force_move_local_entity)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.force_completion)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarULong(
+                *&self.ticks,
+            ))
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for MoveActorDeltaDataView {
@@ -15969,6 +16241,12 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MoveActorDeltaDataView {
         let force_move_local_entity =
             <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let force_completion = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let ticks =
+            <crate::bedrock::codec::VarULong as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0;
         Ok(Self {
             actor_runtime_id,
             new_position_x,
@@ -15981,6 +16259,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for MoveActorDeltaDataView {
             force_move,
             force_move_local_entity,
             force_completion,
+            ticks,
         })
     }
 }
@@ -16019,6 +16298,7 @@ impl MoveActorDeltaDataView {
         (&self.force_move).encode(buf)?;
         (&self.force_move_local_entity).encode(buf)?;
         (&self.force_completion).encode(buf)?;
+        crate::bedrock::codec::VarULong(*&self.ticks).encode(buf)?;
         Ok(())
     }
 }
@@ -16037,6 +16317,7 @@ impl From<MoveActorDeltaDataView> for MoveActorDeltaData {
             force_move: value.force_move,
             force_move_local_entity: value.force_move_local_entity,
             force_completion: value.force_completion,
+            ticks: value.ticks,
         }
     }
 }
@@ -16654,7 +16935,7 @@ impl From<TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0View>
 pub struct PackedItemUseLegacyInventoryTransactionView {
     pub legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0View,
     pub legacy_set_item_slots: Option<Vec<LegacySetSlotView>>,
-    pub item_use_transaction: Option<ItemUseInventoryTransactionView>,
+    pub item_use_transaction: ItemUseInventoryTransactionView,
 }
 impl crate::bedrock::codec::BedrockSized for PackedItemUseLegacyInventoryTransactionView {
     fn encoded_size(&self) -> usize {
@@ -16671,12 +16952,7 @@ impl crate::bedrock::codec::BedrockSized for PackedItemUseLegacyInventoryTransac
                         .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
                         .sum::<usize>()
                 })
-            + 1usize
-            + (&self.item_use_transaction)
-                .as_ref()
-                .map_or(0usize, |_value| {
-                    crate::bedrock::codec::BedrockSized::encoded_size(_value)
-                })
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.item_use_transaction)
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for PackedItemUseLegacyInventoryTransactionView {
@@ -16722,19 +16998,10 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PackedItemUseLegacyInvent
         } else {
             None
         };
-        let item_use_transaction = if <bool as crate::bedrock::codec::BedrockCodec>::decode(
+        let item_use_transaction = <ItemUseInventoryTransactionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
             buf,
             (),
-        )? {
-            Some(
-                <ItemUseInventoryTransactionView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                    buf,
-                    (),
-                )?,
-            )
-        } else {
-            None
-        };
+        )?;
         Ok(Self {
             legacy_request_id,
             legacy_set_item_slots,
@@ -16756,10 +17023,7 @@ impl PackedItemUseLegacyInventoryTransactionView {
                 (item).encode(buf)?;
             }
         }
-        (&self.item_use_transaction).is_some().encode(buf)?;
-        if let Some(value) = &self.item_use_transaction {
-            (value).encode(buf)?;
-        }
+        (&self.item_use_transaction).encode(buf)?;
         Ok(())
     }
 }
@@ -16770,7 +17034,7 @@ impl From<PackedItemUseLegacyInventoryTransactionView> for PackedItemUseLegacyIn
             legacy_request_id: (value.legacy_request_id).into(),
             legacy_set_item_slots: (value.legacy_set_item_slots)
                 .map(|value| (value).into_iter().map(|item| (item).into()).collect()),
-            item_use_transaction: (value.item_use_transaction).map(|value| (value).into()),
+            item_use_transaction: (value.item_use_transaction).into(),
         }
     }
 }
@@ -17085,220 +17349,6 @@ impl From<PlayerPartyInfoView> for PlayerPartyInfo {
         Self {
             party_id: (value.party_id).to_string_lossy().into_owned(),
             is_party_leader: value.is_party_leader,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadClearOverrideView {
-    pub type_: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized
-    for PlayerUpdateEntityOverridesPacketPayloadClearOverrideView
-{
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                ((&self.type_).as_bytes().len()) as u32,
-            ))
-            + (&self.type_).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for PlayerUpdateEntityOverridesPacketPayloadClearOverrideView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        Ok(Self { type_ })
-    }
-}
-impl PlayerUpdateEntityOverridesPacketPayloadClearOverrideView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
-        buf.put_slice((&self.type_).as_bytes());
-        Ok(())
-    }
-}
-impl From<PlayerUpdateEntityOverridesPacketPayloadClearOverrideView>
-    for PlayerUpdateEntityOverridesPacketPayloadClearOverride
-{
-    fn from(value: PlayerUpdateEntityOverridesPacketPayloadClearOverrideView) -> Self {
-        let _ = &value;
-        Self {
-            type_: (value.type_).to_string_lossy().into_owned(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadFloatOverrideView {
-    pub type_: crate::bedrock::borrowed::BorrowedStr,
-    pub value: f32,
-}
-impl crate::bedrock::codec::BedrockSized
-    for PlayerUpdateEntityOverridesPacketPayloadFloatOverrideView
-{
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                ((&self.type_).as_bytes().len()) as u32,
-            ))
-            + (&self.type_).as_bytes().len()
-            + 4usize
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for PlayerUpdateEntityOverridesPacketPayloadFloatOverrideView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let value =
-            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        Ok(Self { type_, value })
-    }
-}
-impl PlayerUpdateEntityOverridesPacketPayloadFloatOverrideView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
-        buf.put_slice((&self.type_).as_bytes());
-        crate::bedrock::codec::F32LE(*&self.value).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<PlayerUpdateEntityOverridesPacketPayloadFloatOverrideView>
-    for PlayerUpdateEntityOverridesPacketPayloadFloatOverride
-{
-    fn from(value: PlayerUpdateEntityOverridesPacketPayloadFloatOverrideView) -> Self {
-        let _ = &value;
-        Self {
-            type_: (value.type_).to_string_lossy().into_owned(),
-            value: value.value,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadIntOverrideView {
-    pub type_: crate::bedrock::borrowed::BorrowedStr,
-    pub value: i32,
-}
-impl crate::bedrock::codec::BedrockSized
-    for PlayerUpdateEntityOverridesPacketPayloadIntOverrideView
-{
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                ((&self.type_).as_bytes().len()) as u32,
-            ))
-            + (&self.type_).as_bytes().len()
-            + 4usize
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for PlayerUpdateEntityOverridesPacketPayloadIntOverrideView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        let value =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        Ok(Self { type_, value })
-    }
-}
-impl PlayerUpdateEntityOverridesPacketPayloadIntOverrideView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
-        buf.put_slice((&self.type_).as_bytes());
-        crate::bedrock::codec::I32LE(*&self.value).encode(buf)?;
-        Ok(())
-    }
-}
-impl From<PlayerUpdateEntityOverridesPacketPayloadIntOverrideView>
-    for PlayerUpdateEntityOverridesPacketPayloadIntOverride
-{
-    fn from(value: PlayerUpdateEntityOverridesPacketPayloadIntOverrideView) -> Self {
-        let _ = &value;
-        Self {
-            type_: (value.type_).to_string_lossy().into_owned(),
-            value: value.value,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadRemoveOverrideView {
-    pub type_: crate::bedrock::borrowed::BorrowedStr,
-}
-impl crate::bedrock::codec::BedrockSized
-    for PlayerUpdateEntityOverridesPacketPayloadRemoveOverrideView
-{
-    fn encoded_size(&self) -> usize {
-        0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                ((&self.type_).as_bytes().len()) as u32,
-            ))
-            + (&self.type_).as_bytes().len()
-    }
-}
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for PlayerUpdateEntityOverridesPacketPayloadRemoveOverrideView
-{
-    type Args = ();
-    fn borrow_decode(
-        buf: &mut bytes::Bytes,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = &buf;
-        let _ = _args;
-        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        Ok(Self { type_ })
-    }
-}
-impl PlayerUpdateEntityOverridesPacketPayloadRemoveOverrideView {
-    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
-        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
-    }
-    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
-        buf.put_slice((&self.type_).as_bytes());
-        Ok(())
-    }
-}
-impl From<PlayerUpdateEntityOverridesPacketPayloadRemoveOverrideView>
-    for PlayerUpdateEntityOverridesPacketPayloadRemoveOverride
-{
-    fn from(value: PlayerUpdateEntityOverridesPacketPayloadRemoveOverrideView) -> Self {
-        let _ = &value;
-        Self {
-            type_: (value.type_).to_string_lossy().into_owned(),
         }
     }
 }
@@ -17857,12 +17907,56 @@ impl From<PyramidDataPayloadView> for PyramidDataPayload {
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct RemoveScoreView {
+pub struct RemoveOverridejsonView {
+    pub type_: crate::bedrock::borrowed::BorrowedStr,
+}
+impl crate::bedrock::codec::BedrockSized for RemoveOverridejsonView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.type_).as_bytes().len()) as u32,
+            ))
+            + (&self.type_).as_bytes().len()
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for RemoveOverridejsonView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let type_ = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        Ok(Self { type_ })
+    }
+}
+impl RemoveOverridejsonView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        crate::bedrock::codec::VarUInt(((&self.type_).as_bytes().len()) as u32).encode(buf)?;
+        buf.put_slice((&self.type_).as_bytes());
+        Ok(())
+    }
+}
+impl From<RemoveOverridejsonView> for RemoveOverridejson {
+    fn from(value: RemoveOverridejsonView) -> Self {
+        let _ = &value;
+        Self {
+            type_: (value.type_).to_string_lossy().into_owned(),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveScorejsonView {
     pub action: crate::bedrock::borrowed::BorrowedStr,
     pub scoreboard_id: ScoreboardIdView,
-    pub objective_name: Option<Option<crate::bedrock::borrowed::BorrowedStr>>,
+    pub objective_name: Option<crate::bedrock::borrowed::BorrowedStr>,
 }
-impl crate::bedrock::codec::BedrockSized for RemoveScoreView {
+impl crate::bedrock::codec::BedrockSized for RemoveScorejsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -17872,16 +17966,13 @@ impl crate::bedrock::codec::BedrockSized for RemoveScoreView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.scoreboard_id)
             + 1usize
             + (&self.objective_name).as_ref().map_or(0usize, |_value| {
-                1usize
-                    + (_value).as_ref().map_or(0usize, |_value| {
-                        crate::bedrock::codec::BedrockSized::encoded_size(
-                            &crate::bedrock::codec::VarUInt(((_value).as_bytes().len()) as u32),
-                        ) + (_value).as_bytes().len()
-                    })
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    ((_value).as_bytes().len()) as u32,
+                )) + (_value).as_bytes().len()
             })
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode for RemoveScoreView {
+impl crate::bedrock::borrowed::BedrockBorrowDecode for RemoveScorejsonView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -17896,13 +17987,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for RemoveScoreView {
                 (),
             )?;
         let objective_name = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-            Some(
-                if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                    Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
-                } else {
-                    None
-                },
-            )
+            Some(crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?)
         } else {
             None
         };
@@ -17913,7 +17998,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for RemoveScoreView {
         })
     }
 }
-impl RemoveScoreView {
+impl RemoveScorejsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -17924,31 +18009,28 @@ impl RemoveScoreView {
         (&self.scoreboard_id).encode(buf)?;
         (&self.objective_name).is_some().encode(buf)?;
         if let Some(value) = &self.objective_name {
-            (value).is_some().encode(buf)?;
-            if let Some(value) = value {
-                crate::bedrock::codec::VarUInt(((value).as_bytes().len()) as u32).encode(buf)?;
-                buf.put_slice((value).as_bytes());
-            }
+            crate::bedrock::codec::VarUInt(((value).as_bytes().len()) as u32).encode(buf)?;
+            buf.put_slice((value).as_bytes());
         }
         Ok(())
     }
 }
-impl From<RemoveScoreView> for RemoveScore {
-    fn from(value: RemoveScoreView) -> Self {
+impl From<RemoveScorejsonView> for RemoveScorejson {
+    fn from(value: RemoveScorejsonView) -> Self {
         let _ = &value;
         Self {
             action: (value.action).to_string_lossy().into_owned(),
             scoreboard_id: (value.scoreboard_id).into(),
             objective_name: (value.objective_name)
-                .map(|value| (value).map(|value| (value).to_string_lossy().into_owned())),
+                .map(|value| (value).to_string_lossy().into_owned()),
         }
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResourcePackClientResponsePacketPayloadCancelView {
+pub struct ResourcePackClientResponseCanceljsonView {
     pub response_type: crate::bedrock::borrowed::BorrowedStr,
 }
-impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponsePacketPayloadCancelView {
+impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponseCanceljsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -17957,9 +18039,7 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponsePacketPay
             + (&self.response_type).as_bytes().len()
     }
 }
-impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ResourcePackClientResponsePacketPayloadCancelView
-{
+impl crate::bedrock::borrowed::BedrockBorrowDecode for ResourcePackClientResponseCanceljsonView {
     type Args = ();
     fn borrow_decode(
         buf: &mut bytes::Bytes,
@@ -17971,7 +18051,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
         Ok(Self { response_type })
     }
 }
-impl ResourcePackClientResponsePacketPayloadCancelView {
+impl ResourcePackClientResponseCanceljsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -17983,10 +18063,8 @@ impl ResourcePackClientResponsePacketPayloadCancelView {
         Ok(())
     }
 }
-impl From<ResourcePackClientResponsePacketPayloadCancelView>
-    for ResourcePackClientResponsePacketPayloadCancel
-{
-    fn from(value: ResourcePackClientResponsePacketPayloadCancelView) -> Self {
+impl From<ResourcePackClientResponseCanceljsonView> for ResourcePackClientResponseCanceljson {
+    fn from(value: ResourcePackClientResponseCanceljsonView) -> Self {
         let _ = &value;
         Self {
             response_type: (value.response_type).to_string_lossy().into_owned(),
@@ -17994,13 +18072,11 @@ impl From<ResourcePackClientResponsePacketPayloadCancelView>
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResourcePackClientResponsePacketPayloadDownloadingView {
+pub struct ResourcePackClientResponseDownloadingjsonView {
     pub response_type: crate::bedrock::borrowed::BorrowedStr,
     pub downloading_packs: Vec<crate::bedrock::borrowed::BorrowedStr>,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ResourcePackClientResponsePacketPayloadDownloadingView
-{
+impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponseDownloadingjsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -18021,7 +18097,7 @@ impl crate::bedrock::codec::BedrockSized
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ResourcePackClientResponsePacketPayloadDownloadingView
+    for ResourcePackClientResponseDownloadingjsonView
 {
     type Args = ();
     fn borrow_decode(
@@ -18052,7 +18128,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
         })
     }
 }
-impl ResourcePackClientResponsePacketPayloadDownloadingView {
+impl ResourcePackClientResponseDownloadingjsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -18069,10 +18145,10 @@ impl ResourcePackClientResponsePacketPayloadDownloadingView {
         Ok(())
     }
 }
-impl From<ResourcePackClientResponsePacketPayloadDownloadingView>
-    for ResourcePackClientResponsePacketPayloadDownloading
+impl From<ResourcePackClientResponseDownloadingjsonView>
+    for ResourcePackClientResponseDownloadingjson
 {
-    fn from(value: ResourcePackClientResponsePacketPayloadDownloadingView) -> Self {
+    fn from(value: ResourcePackClientResponseDownloadingjsonView) -> Self {
         let _ = &value;
         Self {
             response_type: (value.response_type).to_string_lossy().into_owned(),
@@ -18084,12 +18160,10 @@ impl From<ResourcePackClientResponsePacketPayloadDownloadingView>
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResourcePackClientResponsePacketPayloadDownloadingFinishedView {
+pub struct ResourcePackClientResponseDownloadingFinishedjsonView {
     pub response_type: crate::bedrock::borrowed::BorrowedStr,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ResourcePackClientResponsePacketPayloadDownloadingFinishedView
-{
+impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponseDownloadingFinishedjsonView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -18099,7 +18173,7 @@ impl crate::bedrock::codec::BedrockSized
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ResourcePackClientResponsePacketPayloadDownloadingFinishedView
+    for ResourcePackClientResponseDownloadingFinishedjsonView
 {
     type Args = ();
     fn borrow_decode(
@@ -18112,7 +18186,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
         Ok(Self { response_type })
     }
 }
-impl ResourcePackClientResponsePacketPayloadDownloadingFinishedView {
+impl ResourcePackClientResponseDownloadingFinishedjsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -18124,10 +18198,10 @@ impl ResourcePackClientResponsePacketPayloadDownloadingFinishedView {
         Ok(())
     }
 }
-impl From<ResourcePackClientResponsePacketPayloadDownloadingFinishedView>
-    for ResourcePackClientResponsePacketPayloadDownloadingFinished
+impl From<ResourcePackClientResponseDownloadingFinishedjsonView>
+    for ResourcePackClientResponseDownloadingFinishedjson
 {
-    fn from(value: ResourcePackClientResponsePacketPayloadDownloadingFinishedView) -> Self {
+    fn from(value: ResourcePackClientResponseDownloadingFinishedjsonView) -> Self {
         let _ = &value;
         Self {
             response_type: (value.response_type).to_string_lossy().into_owned(),
@@ -18135,11 +18209,11 @@ impl From<ResourcePackClientResponsePacketPayloadDownloadingFinishedView>
     }
 }
 #[derive(Debug, Clone, PartialEq)]
-pub struct ResourcePackClientResponsePacketPayloadResourcePackStackFinishedView {
+pub struct ResourcePackClientResponseResourcePackStackFinishedjsonView {
     pub response_type: crate::bedrock::borrowed::BorrowedStr,
 }
 impl crate::bedrock::codec::BedrockSized
-    for ResourcePackClientResponsePacketPayloadResourcePackStackFinishedView
+    for ResourcePackClientResponseResourcePackStackFinishedjsonView
 {
     fn encoded_size(&self) -> usize {
         0usize
@@ -18150,7 +18224,7 @@ impl crate::bedrock::codec::BedrockSized
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode
-    for ResourcePackClientResponsePacketPayloadResourcePackStackFinishedView
+    for ResourcePackClientResponseResourcePackStackFinishedjsonView
 {
     type Args = ();
     fn borrow_decode(
@@ -18163,7 +18237,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode
         Ok(Self { response_type })
     }
 }
-impl ResourcePackClientResponsePacketPayloadResourcePackStackFinishedView {
+impl ResourcePackClientResponseResourcePackStackFinishedjsonView {
     pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
         <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
     }
@@ -18175,10 +18249,10 @@ impl ResourcePackClientResponsePacketPayloadResourcePackStackFinishedView {
         Ok(())
     }
 }
-impl From<ResourcePackClientResponsePacketPayloadResourcePackStackFinishedView>
-    for ResourcePackClientResponsePacketPayloadResourcePackStackFinished
+impl From<ResourcePackClientResponseResourcePackStackFinishedjsonView>
+    for ResourcePackClientResponseResourcePackStackFinishedjson
 {
-    fn from(value: ResourcePackClientResponsePacketPayloadResourcePackStackFinishedView) -> Self {
+    fn from(value: ResourcePackClientResponseResourcePackStackFinishedjsonView) -> Self {
         let _ = &value;
         Self {
             response_type: (value.response_type).to_string_lossy().into_owned(),
@@ -21560,7 +21634,8 @@ impl From<StructureSettingsView> for StructureSettings {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructureEditorDataView {
-    pub structure_name: BedrockSafetyRedactableStringView,
+    pub structure_name: crate::bedrock::borrowed::BorrowedStr,
+    pub filtered_structure_name: crate::bedrock::borrowed::BorrowedStr,
     pub data_field: crate::bedrock::borrowed::BorrowedStr,
     pub shouldincludeplayers: bool,
     pub shouldshowboundingbox: bool,
@@ -21571,7 +21646,14 @@ pub struct StructureEditorDataView {
 impl crate::bedrock::codec::BedrockSized for StructureEditorDataView {
     fn encoded_size(&self) -> usize {
         0usize
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.structure_name)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.structure_name).as_bytes().len()) as u32,
+            ))
+            + (&self.structure_name).as_bytes().len()
+            + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                ((&self.filtered_structure_name).as_bytes().len()) as u32,
+            ))
+            + (&self.filtered_structure_name).as_bytes().len()
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
                 ((&self.data_field).as_bytes().len()) as u32,
             ))
@@ -21591,10 +21673,8 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for StructureEditorDataView {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
-        let structure_name = <BedrockSafetyRedactableStringView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-            buf,
-            (),
-        )?;
+        let structure_name = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
+        let filtered_structure_name = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         let data_field = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         let shouldincludeplayers = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let shouldshowboundingbox = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -21611,6 +21691,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for StructureEditorDataView {
             )?;
         Ok(Self {
             structure_name,
+            filtered_structure_name,
             data_field,
             shouldincludeplayers,
             shouldshowboundingbox,
@@ -21626,7 +21707,12 @@ impl StructureEditorDataView {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        (&self.structure_name).encode(buf)?;
+        crate::bedrock::codec::VarUInt(((&self.structure_name).as_bytes().len()) as u32)
+            .encode(buf)?;
+        buf.put_slice((&self.structure_name).as_bytes());
+        crate::bedrock::codec::VarUInt(((&self.filtered_structure_name).as_bytes().len()) as u32)
+            .encode(buf)?;
+        buf.put_slice((&self.filtered_structure_name).as_bytes());
         crate::bedrock::codec::VarUInt(((&self.data_field).as_bytes().len()) as u32).encode(buf)?;
         buf.put_slice((&self.data_field).as_bytes());
         (&self.shouldincludeplayers).encode(buf)?;
@@ -21641,7 +21727,10 @@ impl From<StructureEditorDataView> for StructureEditorData {
     fn from(value: StructureEditorDataView) -> Self {
         let _ = &value;
         Self {
-            structure_name: (value.structure_name).into(),
+            structure_name: (value.structure_name).to_string_lossy().into_owned(),
+            filtered_structure_name: (value.filtered_structure_name)
+                .to_string_lossy()
+                .into_owned(),
             data_field: (value.data_field).to_string_lossy().into_owned(),
             shouldincludeplayers: value.shouldincludeplayers,
             shouldshowboundingbox: value.shouldshowboundingbox,
@@ -22511,6 +22600,7 @@ pub struct TextDataPayloadView {
     pub text: crate::bedrock::borrowed::BorrowedStr,
     pub use_rotation: bool,
     pub background_color: Option<MceColorView>,
+    pub line_gap_height: f32,
     pub depth_test: bool,
     pub show_backface: bool,
     pub show_text_backface: bool,
@@ -22527,6 +22617,7 @@ impl crate::bedrock::codec::BedrockSized for TextDataPayloadView {
             + (&self.background_color).as_ref().map_or(0usize, |_value| {
                 crate::bedrock::codec::BedrockSized::encoded_size(_value)
             })
+            + 4usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.depth_test)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.show_backface)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.show_text_backface)
@@ -22552,6 +22643,9 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextDataPayloadView {
         } else {
             None
         };
+        let line_gap_height =
+            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+                .0;
         let depth_test = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let show_backface = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let show_text_backface = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -22559,6 +22653,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextDataPayloadView {
             text,
             use_rotation,
             background_color,
+            line_gap_height,
             depth_test,
             show_backface,
             show_text_backface,
@@ -22578,6 +22673,7 @@ impl TextDataPayloadView {
         if let Some(value) = &self.background_color {
             (value).encode(buf)?;
         }
+        crate::bedrock::codec::F32LE(*&self.line_gap_height).encode(buf)?;
         (&self.depth_test).encode(buf)?;
         (&self.show_backface).encode(buf)?;
         (&self.show_text_backface).encode(buf)?;
@@ -22591,6 +22687,7 @@ impl From<TextDataPayloadView> for TextDataPayload {
             text: (value.text).to_string_lossy().into_owned(),
             use_rotation: value.use_rotation,
             background_color: (value.background_color).map(|value| (value).into()),
+            line_gap_height: value.line_gap_height,
             depth_test: value.depth_test,
             show_backface: value.show_backface,
             show_text_backface: value.show_text_backface,
@@ -22599,12 +22696,14 @@ impl From<TextDataPayloadView> for TextDataPayload {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextPacketPayloadAuthorAndMessageView {
+    pub message_type: TextPacketPayloadAuthorAndMessageMessageType,
     pub player_name: crate::bedrock::borrowed::BorrowedStr,
     pub message: crate::bedrock::borrowed::BorrowedStr,
 }
 impl crate::bedrock::codec::BedrockSized for TextPacketPayloadAuthorAndMessageView {
     fn encoded_size(&self) -> usize {
         0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.message_type)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
                 ((&self.player_name).as_bytes().len()) as u32,
             ))
@@ -22623,9 +22722,14 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextPacketPayloadAuthorAn
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
+        let message_type = <TextPacketPayloadAuthorAndMessageMessageType as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?;
         let player_name = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         let message = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         Ok(Self {
+            message_type,
             player_name,
             message,
         })
@@ -22637,6 +22741,7 @@ impl TextPacketPayloadAuthorAndMessageView {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
+        (&self.message_type).encode(buf)?;
         crate::bedrock::codec::VarUInt(((&self.player_name).as_bytes().len()) as u32)
             .encode(buf)?;
         buf.put_slice((&self.player_name).as_bytes());
@@ -22649,6 +22754,7 @@ impl From<TextPacketPayloadAuthorAndMessageView> for TextPacketPayloadAuthorAndM
     fn from(value: TextPacketPayloadAuthorAndMessageView) -> Self {
         let _ = &value;
         Self {
+            message_type: value.message_type,
             player_name: (value.player_name).to_string_lossy().into_owned(),
             message: (value.message).to_string_lossy().into_owned(),
         }
@@ -22656,12 +22762,14 @@ impl From<TextPacketPayloadAuthorAndMessageView> for TextPacketPayloadAuthorAndM
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextPacketPayloadMessageAndParamsView {
+    pub message_type: TextPacketPayloadMessageAndParamsMessageType,
     pub message: crate::bedrock::borrowed::BorrowedStr,
     pub parameter_list: Vec<crate::bedrock::borrowed::BorrowedStr>,
 }
 impl crate::bedrock::codec::BedrockSized for TextPacketPayloadMessageAndParamsView {
     fn encoded_size(&self) -> usize {
         0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.message_type)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
                 ((&self.message).as_bytes().len()) as u32,
             ))
@@ -22687,6 +22795,10 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextPacketPayloadMessageA
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
+        let message_type = <TextPacketPayloadMessageAndParamsMessageType as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?;
         let message = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         let parameter_list = {
             let len =
@@ -22704,6 +22816,7 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextPacketPayloadMessageA
             values
         };
         Ok(Self {
+            message_type,
             message,
             parameter_list,
         })
@@ -22715,6 +22828,7 @@ impl TextPacketPayloadMessageAndParamsView {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
+        (&self.message_type).encode(buf)?;
         crate::bedrock::codec::VarUInt(((&self.message).as_bytes().len()) as u32).encode(buf)?;
         buf.put_slice((&self.message).as_bytes());
         crate::bedrock::codec::VarUInt(((&self.parameter_list).len()) as u32).encode(buf)?;
@@ -22729,6 +22843,7 @@ impl From<TextPacketPayloadMessageAndParamsView> for TextPacketPayloadMessageAnd
     fn from(value: TextPacketPayloadMessageAndParamsView) -> Self {
         let _ = &value;
         Self {
+            message_type: value.message_type,
             message: (value.message).to_string_lossy().into_owned(),
             parameter_list: (value.parameter_list)
                 .into_iter()
@@ -22739,11 +22854,13 @@ impl From<TextPacketPayloadMessageAndParamsView> for TextPacketPayloadMessageAnd
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextPacketPayloadMessageOnlyView {
+    pub message_type: EnumsTextPacketType,
     pub message: crate::bedrock::borrowed::BorrowedStr,
 }
 impl crate::bedrock::codec::BedrockSized for TextPacketPayloadMessageOnlyView {
     fn encoded_size(&self) -> usize {
         0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.message_type)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
                 ((&self.message).as_bytes().len()) as u32,
             ))
@@ -22758,8 +22875,13 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextPacketPayloadMessageO
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = &buf;
         let _ = _args;
+        let message_type =
+            <EnumsTextPacketType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let message = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
-        Ok(Self { message })
+        Ok(Self {
+            message_type,
+            message,
+        })
     }
 }
 impl TextPacketPayloadMessageOnlyView {
@@ -22768,6 +22890,7 @@ impl TextPacketPayloadMessageOnlyView {
     }
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
+        (&self.message_type).encode(buf)?;
         crate::bedrock::codec::VarUInt(((&self.message).as_bytes().len()) as u32).encode(buf)?;
         buf.put_slice((&self.message).as_bytes());
         Ok(())
@@ -22777,6 +22900,7 @@ impl From<TextPacketPayloadMessageOnlyView> for TextPacketPayloadMessageOnly {
     fn from(value: TextPacketPayloadMessageOnlyView) -> Self {
         let _ = &value;
         Self {
+            message_type: value.message_type,
             message: (value.message).to_string_lossy().into_owned(),
         }
     }
@@ -23826,7 +23950,6 @@ impl From<ResourcePackStackPacketView> for ResourcePackStackPacket {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextPacketView {
     pub localize: bool,
-    pub message_category: u8,
     pub body: TextPacketBody,
     pub senders_xuid: crate::bedrock::borrowed::BorrowedStr,
     pub platform_id: crate::bedrock::borrowed::BorrowedStr,
@@ -23836,7 +23959,6 @@ impl crate::bedrock::codec::BedrockSized for TextPacketView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.localize)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.message_category)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.body)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
                 ((&self.senders_xuid).as_bytes().len()) as u32,
@@ -23863,7 +23985,6 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextPacketView {
         let _ = &buf;
         let _ = _args;
         let localize = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let message_category = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let body = <TextPacketBody as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let senders_xuid = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
         let platform_id = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
@@ -23874,7 +23995,6 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for TextPacketView {
         };
         Ok(Self {
             localize,
-            message_category,
             body,
             senders_xuid,
             platform_id,
@@ -23889,7 +24009,6 @@ impl TextPacketView {
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         (&self.localize).encode(buf)?;
-        (&self.message_category).encode(buf)?;
         (&self.body).encode(buf)?;
         crate::bedrock::codec::VarUInt(((&self.senders_xuid).as_bytes().len()) as u32)
             .encode(buf)?;
@@ -23910,7 +24029,6 @@ impl From<TextPacketView> for TextPacket {
         let _ = &value;
         Self {
             localize: value.localize,
-            message_category: value.message_category,
             body: value.body,
             senders_xuid: (value.senders_xuid).to_string_lossy().into_owned(),
             platform_id: (value.platform_id).to_string_lossy().into_owned(),
@@ -27877,7 +27995,6 @@ impl From<CameraPacketView> for CameraPacket {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BossEventPacketView {
     pub target_actor_id: ActorUniqueIdView,
-    pub player_id: ActorUniqueIdView,
     pub event_type: EnumsBossEventUpdateType,
     pub name: crate::bedrock::borrowed::BorrowedStr,
     pub filtered_name: crate::bedrock::borrowed::BorrowedStr,
@@ -27889,7 +28006,6 @@ impl crate::bedrock::codec::BedrockSized for BossEventPacketView {
     fn encoded_size(&self) -> usize {
         0usize
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.target_actor_id)
-            + crate::bedrock::codec::BedrockSized::encoded_size(&self.player_id)
             + crate::bedrock::codec::BedrockSized::encoded_size(&self.event_type)
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
                 ((&self.name).as_bytes().len()) as u32,
@@ -27917,11 +28033,6 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BossEventPacketView {
                 buf,
                 (),
             )?;
-        let player_id =
-            <ActorUniqueIdView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                buf,
-                (),
-            )?;
         let event_type =
             <EnumsBossEventUpdateType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let name = crate::bedrock::borrowed::take_var_u32_prefixed_string(buf)?;
@@ -27934,7 +28045,6 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for BossEventPacketView {
             <EnumsBossBarOverlay as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
             target_actor_id,
-            player_id,
             event_type,
             name,
             filtered_name,
@@ -27951,7 +28061,6 @@ impl BossEventPacketView {
     pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
         (&self.target_actor_id).encode(buf)?;
-        (&self.player_id).encode(buf)?;
         (&self.event_type).encode(buf)?;
         crate::bedrock::codec::VarUInt(((&self.name).as_bytes().len()) as u32).encode(buf)?;
         buf.put_slice((&self.name).as_bytes());
@@ -27969,7 +28078,6 @@ impl From<BossEventPacketView> for BossEventPacket {
         let _ = &value;
         Self {
             target_actor_id: (value.target_actor_id).into(),
-            player_id: (value.player_id).into(),
             event_type: value.event_type,
             name: (value.name).to_string_lossy().into_owned(),
             filtered_name: (value.filtered_name).to_string_lossy().into_owned(),
@@ -28451,7 +28559,7 @@ impl From<CommandRequestPacketView> for CommandRequestPacket {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandOutputPacketView {
     pub origin_data: CommandOriginDatajsonView,
-    pub output: CommandOutputView,
+    pub output: CommandOutputjsonView,
 }
 impl crate::bedrock::codec::BedrockSized for CommandOutputPacketView {
     fn encoded_size(&self) -> usize {
@@ -28472,11 +28580,10 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for CommandOutputPacketView {
             buf,
             (),
         )?;
-        let output =
-            <CommandOutputView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
-                buf,
-                (),
-            )?;
+        let output = <CommandOutputjsonView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+            buf,
+            (),
+        )?;
         Ok(Self {
             origin_data,
             output,
@@ -29020,7 +29127,9 @@ pub struct PlaySoundPacketView {
     pub volume: f32,
     pub pitch: f32,
     pub loop_count: i32,
+    pub bypass_listener_range_check: bool,
     pub server_sound_handle: Option<ServerSoundHandleView>,
+    pub playback_position_seconds: Option<f32>,
 }
 impl crate::bedrock::codec::BedrockSized for PlaySoundPacketView {
     fn encoded_size(&self) -> usize {
@@ -29035,12 +29144,17 @@ impl crate::bedrock::codec::BedrockSized for PlaySoundPacketView {
             + crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
                 *&self.loop_count,
             ))
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.bypass_listener_range_check)
             + 1usize
             + (&self.server_sound_handle)
                 .as_ref()
                 .map_or(0usize, |_value| {
                     crate::bedrock::codec::BedrockSized::encoded_size(_value)
                 })
+            + 1usize
+            + (&self.playback_position_seconds)
+                .as_ref()
+                .map_or(0usize, |_value| 4usize)
     }
 }
 impl crate::bedrock::borrowed::BedrockBorrowDecode for PlaySoundPacketView {
@@ -29069,6 +29183,8 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PlaySoundPacketView {
                 (),
             )?
             .0;
+        let bypass_listener_range_check =
+            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let server_sound_handle = if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
         {
             Some(
@@ -29080,13 +29196,27 @@ impl crate::bedrock::borrowed::BedrockBorrowDecode for PlaySoundPacketView {
         } else {
             None
         };
+        let playback_position_seconds =
+            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
+                Some(
+                    <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0,
+                )
+            } else {
+                None
+            };
         Ok(Self {
             name,
             position,
             volume,
             pitch,
             loop_count,
+            bypass_listener_range_check,
             server_sound_handle,
+            playback_position_seconds,
         })
     }
 }
@@ -29102,9 +29232,14 @@ impl PlaySoundPacketView {
         crate::bedrock::codec::F32LE(*&self.volume).encode(buf)?;
         crate::bedrock::codec::F32LE(*&self.pitch).encode(buf)?;
         crate::bedrock::codec::ZigZag32(*&self.loop_count).encode(buf)?;
+        (&self.bypass_listener_range_check).encode(buf)?;
         (&self.server_sound_handle).is_some().encode(buf)?;
         if let Some(value) = &self.server_sound_handle {
             (value).encode(buf)?;
+        }
+        (&self.playback_position_seconds).is_some().encode(buf)?;
+        if let Some(value) = &self.playback_position_seconds {
+            crate::bedrock::codec::F32LE(*value).encode(buf)?;
         }
         Ok(())
     }
@@ -29118,7 +29253,9 @@ impl From<PlaySoundPacketView> for PlaySoundPacket {
             volume: value.volume,
             pitch: value.pitch,
             loop_count: value.loop_count,
+            bypass_listener_range_check: value.bypass_listener_range_check,
             server_sound_handle: (value.server_sound_handle).map(|value| (value).into()),
+            playback_position_seconds: (value.playback_position_seconds).map(|value| value),
         }
     }
 }
@@ -38462,6 +38599,116 @@ impl From<PartyDestinationCookieResponsePacketView> for PartyDestinationCookieRe
     }
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct SetPlayerFurnaceOptionsPacketView {
+    pub furnace_type: EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType,
+    pub furnace_options: FurnaceOptionsView,
+}
+impl crate::bedrock::codec::BedrockSized for SetPlayerFurnaceOptionsPacketView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.furnace_type)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.furnace_options)
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for SetPlayerFurnaceOptionsPacketView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let furnace_type = <EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?;
+        let furnace_options =
+            <FurnaceOptionsView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                buf,
+                (),
+            )?;
+        Ok(Self {
+            furnace_type,
+            furnace_options,
+        })
+    }
+}
+impl SetPlayerFurnaceOptionsPacketView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        (&self.furnace_type).encode(buf)?;
+        (&self.furnace_options).encode(buf)?;
+        Ok(())
+    }
+}
+impl From<SetPlayerFurnaceOptionsPacketView> for SetPlayerFurnaceOptionsPacket {
+    fn from(value: SetPlayerFurnaceOptionsPacketView) -> Self {
+        let _ = &value;
+        Self {
+            furnace_type: value.furnace_type,
+            furnace_options: (value.furnace_options).into(),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordStartedPacketView {
+    pub block_position: BlockPosView,
+    pub server_sound_handle: ServerSoundHandleView,
+}
+impl crate::bedrock::codec::BedrockSized for RecordStartedPacketView {
+    fn encoded_size(&self) -> usize {
+        0usize
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.block_position)
+            + crate::bedrock::codec::BedrockSized::encoded_size(&self.server_sound_handle)
+    }
+}
+impl crate::bedrock::borrowed::BedrockBorrowDecode for RecordStartedPacketView {
+    type Args = ();
+    fn borrow_decode(
+        buf: &mut bytes::Bytes,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = &buf;
+        let _ = _args;
+        let block_position =
+            <BlockPosView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                buf,
+                (),
+            )?;
+        let server_sound_handle = <ServerSoundHandleView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+            buf,
+            (),
+        )?;
+        Ok(Self {
+            block_position,
+            server_sound_handle,
+        })
+    }
+}
+impl RecordStartedPacketView {
+    pub fn decode(buf: &mut bytes::Bytes) -> Result<Self, crate::bedrock::error::DecodeError> {
+        <Self as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(buf, ())
+    }
+    pub fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        (&self.block_position).encode(buf)?;
+        (&self.server_sound_handle).encode(buf)?;
+        Ok(())
+    }
+}
+impl From<RecordStartedPacketView> for RecordStartedPacket {
+    fn from(value: RecordStartedPacketView) -> Self {
+        let _ = &value;
+        Self {
+            block_position: (value.block_position).into(),
+            server_sound_handle: (value.server_sound_handle).into(),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
 pub enum BorrowedMcpePacketData {
     LoginPacket(LoginPacketView),
     PlayStatusPacket(PlayStatusPacketView),
@@ -38662,6 +38909,8 @@ pub enum BorrowedMcpePacketData {
     ServerPresenceInfoPacket(ServerPresenceInfoPacketView),
     SendPartyDestinationCookiePacket(SendPartyDestinationCookiePacketView),
     PartyDestinationCookieResponsePacket(PartyDestinationCookieResponsePacketView),
+    SetPlayerFurnaceOptionsPacket(SetPlayerFurnaceOptionsPacketView),
+    RecordStartedPacket(RecordStartedPacketView),
     Raw {
         name: crate::McpePacketName,
         payload: bytes::Bytes,
@@ -38975,6 +39224,10 @@ impl BorrowedMcpePacketData {
             Self::PartyDestinationCookieResponsePacket(_) => {
                 crate::McpePacketName::PartyDestinationCookieResponsePacket
             }
+            Self::SetPlayerFurnaceOptionsPacket(_) => {
+                crate::McpePacketName::SetPlayerFurnaceOptionsPacket
+            }
+            Self::RecordStartedPacket(_) => crate::McpePacketName::RecordStartedPacket,
             Self::Raw { name, .. } => *name,
         }
     }
@@ -39554,6 +39807,12 @@ impl BorrowedMcpePacketData {
             Self::PartyDestinationCookieResponsePacket(view) => Ok(
                 crate::McpePacketData::PartyDestinationCookieResponsePacket(view.into()),
             ),
+            Self::SetPlayerFurnaceOptionsPacket(view) => Ok(
+                crate::McpePacketData::SetPlayerFurnaceOptionsPacket(view.into()),
+            ),
+            Self::RecordStartedPacket(view) => {
+                Ok(crate::McpePacketData::RecordStartedPacket(view.into()))
+            }
             Self::Raw { name, payload } => {
                 let mut payload = payload;
                 let owned = match name {
@@ -41565,6 +41824,22 @@ impl BorrowedMcpePacketData {
                             )?,
                         )
                     }
+                    crate::McpePacketName::SetPlayerFurnaceOptionsPacket => {
+                        crate::McpePacketData::SetPlayerFurnaceOptionsPacket(
+                            <SetPlayerFurnaceOptionsPacket as crate::bedrock::codec::BedrockCodec>::decode(
+                                &mut payload,
+                                (),
+                            )?,
+                        )
+                    }
+                    crate::McpePacketName::RecordStartedPacket => {
+                        crate::McpePacketData::RecordStartedPacket(
+                            <RecordStartedPacket as crate::bedrock::codec::BedrockCodec>::decode(
+                                &mut payload,
+                                (),
+                            )?,
+                        )
+                    }
                 };
                 Ok(owned)
             }
@@ -43175,6 +43450,22 @@ impl BorrowedMcpePacketData {
                     )?,
                 )
             }
+            crate::McpePacketName::SetPlayerFurnaceOptionsPacket => {
+                Self::SetPlayerFurnaceOptionsPacket(
+                    <SetPlayerFurnaceOptionsPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
+            }
+            crate::McpePacketName::RecordStartedPacket => {
+                Self::RecordStartedPacket(
+                    <RecordStartedPacketView as crate::bedrock::borrowed::BedrockBorrowDecode>::borrow_decode(
+                        &mut payload,
+                        (),
+                    )?,
+                )
+            }
             _ => return Ok((Self::Raw { name, payload }, 0)),
         };
         let remaining = bytes::Buf::remaining(&payload);
@@ -43457,6 +43748,8 @@ impl BorrowedMcpePacket {
             348u32 => crate::McpePacketName::ClientboundUpdateSoundDataPacket,
             349u32 => crate::McpePacketName::SendPartyDestinationCookiePacket,
             350u32 => crate::McpePacketName::PartyDestinationCookieResponsePacket,
+            351u32 => crate::McpePacketName::SetPlayerFurnaceOptionsPacket,
+            352u32 => crate::McpePacketName::RecordStartedPacket,
             id => {
                 return Err(crate::bedrock::error::DecodeError::InvalidPacketId { id });
             }
@@ -43691,3 +43984,5 @@ pub type BorrowedServerStoreInfoPacket = ServerStoreInfoPacketView;
 pub type BorrowedServerPresenceInfoPacket = ServerPresenceInfoPacketView;
 pub type BorrowedSendPartyDestinationCookiePacket = SendPartyDestinationCookiePacketView;
 pub type BorrowedPartyDestinationCookieResponsePacket = PartyDestinationCookieResponsePacketView;
+pub type BorrowedSetPlayerFurnaceOptionsPacket = SetPlayerFurnaceOptionsPacketView;
+pub type BorrowedRecordStartedPacket = RecordStartedPacketView;

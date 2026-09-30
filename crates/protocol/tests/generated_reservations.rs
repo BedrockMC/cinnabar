@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use valentine::bedrock::{
     borrowed::BedrockBorrowDecode,
     codec::{BedrockCodec, BedrockSized},
-    version::v1_26_44::{
+    version::v1_26_51::{
         EnumsContainerEnumName, EnumsItemStackRequestActionType,
         EnumsLegacyTelemetryEventPacketPayloadType, ItemStackRequestCerealRequestDataActionsItem,
         ItemStackRequestPacketDataRequestDataActionsItem, LegacyTelemetryEventPacketEventData,
@@ -15,23 +15,23 @@ const MANIFEST: &str = include_str!("../../../tools/protocol-normalize/manifest.
 const SOURCES: [(&str, &[u8]); 5] = [
     (
         "common.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_44/src/common.rs"),
+        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/common.rs"),
     ),
     (
         "mcpe.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_44/src/mcpe.rs"),
+        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/mcpe.rs"),
     ),
     (
         "proto.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_44/src/proto.rs"),
+        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/proto.rs"),
     ),
     (
         "types.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_44/src/types.rs"),
+        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/types.rs"),
     ),
     (
         "borrowed.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_44/src/borrowed.rs"),
+        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/borrowed.rs"),
     ),
 ];
 

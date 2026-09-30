@@ -7,7 +7,7 @@ use protocol::{
 };
 use valentine::bedrock::{
     codec::BedrockCodec,
-    version::v1_26_44::{
+    version::v1_26_51::{
         EnumsItemStackRequestActionType, EnumsPlayerAuthInputPacketPayloadInputData as InputData,
         ItemStackRequestCerealRequestDataActionsItem, McpePacketData,
     },
@@ -103,9 +103,9 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
             InputData::Sprinting,
         ];
         if predict {
-            canonical_flags.push(InputData::PerformBlockActions);
+            canonical_flags.push(InputData::Performblockactions);
         }
-        canonical_flags.push(InputData::PerformItemStackRequest);
+        canonical_flags.push(InputData::Performitemstackrequest);
         let McpePacketData::PlayerAuthInputPacket(built_input) = &built.data else {
             panic!("expected input")
         };
@@ -144,9 +144,9 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
             encode(&fixture_order_built, &session).unwrap().as_ref(),
             fixture
         );
-        assert!(flags.contains(&InputData::PerformItemStackRequest));
-        assert_eq!(flags.contains(&InputData::PerformBlockActions), predict);
-        assert!(!flags.contains(&InputData::PerformItemInteraction));
+        assert!(flags.contains(&InputData::Performitemstackrequest));
+        assert_eq!(flags.contains(&InputData::Performblockactions), predict);
+        assert!(!flags.contains(&InputData::Performiteminteraction));
         assert_eq!(input.item_use_transaction, Some(None));
         let request = input.item_stack_request.as_ref().unwrap().as_ref().unwrap();
         assert_eq!(request.client_request_id.id, -3);
@@ -159,7 +159,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         };
         assert_eq!(
             action.actiontype,
-            EnumsItemStackRequestActionType::ScreenHudMineBlock
+            EnumsItemStackRequestActionType::Screenhudmineblock
         );
         assert_eq!(
             (
@@ -194,7 +194,7 @@ fn absent_mining_request_preserves_existing_input_and_prediction_bytes() {
             !input
                 .input_data
                 .unwrap()
-                .contains(&InputData::PerformItemStackRequest)
+                .contains(&InputData::Performitemstackrequest)
         );
     }
     let mut absent =

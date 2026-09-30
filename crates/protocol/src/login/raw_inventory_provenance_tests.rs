@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use bytes::{BufMut, BytesMut};
 use jolyne::raw::{RawPacket, decode_packet_raw};
-use valentine::bedrock::version::v1_26_44::McpePacketName;
+use valentine::bedrock::version::v1_26_51::McpePacketName;
 use valentine::protocol::wire;
 
 use super::decode_world_raw_with;

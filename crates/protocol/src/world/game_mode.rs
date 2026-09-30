@@ -1,6 +1,6 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsGameType, SetDefaultGameTypePacketDefaultGameType,
 };
 

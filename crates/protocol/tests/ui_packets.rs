@@ -9,7 +9,7 @@ use protocol::{
     modal_form_cancel_response, modal_form_submit_response,
 };
 use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, BossEventPacket, CommandOutput, CommandOutputMessage, CommandOutputPacket,
     EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType, EnumsModalFormCancelReason,
     EnumsPlayStatus, EnumsSetTitlePacketPayloadTitleType, EnumsSoftEnumUpdateType,
@@ -123,7 +123,7 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     ));
     assert!(matches!(
         ui(PlayStatusPacket {
-            status: EnumsPlayStatus::PlayerSpawn,
+            status: EnumsPlayStatus::Playerspawn,
         })
         .unwrap(),
         UiEvent::Hud(protocol::HudEvent::PlayerStatus(
@@ -191,7 +191,7 @@ fn command_output_is_bounded_and_normalized_for_chat_presentation() {
 
 #[test]
 fn score_entries_carry_their_own_verb() {
-    use valentine::bedrock::version::v1_26_44::{ChangeFakePlayerScore, RemoveScore, ScoreboardId};
+    use valentine::bedrock::version::v1_26_51::{ChangeFakePlayerScore, RemoveScore, ScoreboardId};
 
     // Protocol 2168 moved the add/remove verb into each entry, so one packet may mix
     // removals with changes (gophertunnel `ScoreboardEntry.Marshal`).
@@ -232,7 +232,7 @@ fn score_entries_carry_their_own_verb() {
 
 #[test]
 fn remove_score_preserves_both_1_26_44_optional_markers() {
-    use valentine::bedrock::version::v1_26_44::{RemoveScore, ScoreboardId};
+    use valentine::bedrock::version::v1_26_51::{RemoveScore, ScoreboardId};
 
     let cases = [
         (None, vec![6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 0]),
@@ -308,7 +308,7 @@ fn gophertunnel_1_26_44_named_removal_is_followed_by_the_next_entry() {
 // so an absent name must stay distinguishable from a present empty one.
 #[test]
 fn absent_removal_objective_differs_from_an_empty_name() {
-    use valentine::bedrock::version::v1_26_44::{RemoveScore, ScoreboardId};
+    use valentine::bedrock::version::v1_26_51::{RemoveScore, ScoreboardId};
     let removal = |objective_name| {
         let packet = SetScorePacket {
             score_info: vec![SetScorePacketScoreInfoItem::RemoveScore(RemoveScore {
@@ -902,7 +902,7 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
     let direct_cancel = ModalFormResponsePacket {
         form_id: 7,
         json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::UserClosed),
+        form_cancel_reason: Some(EnumsModalFormCancelReason::Userclosed),
     };
     assert_eq!(
         protocol::encode(&cancel, &session).unwrap(),

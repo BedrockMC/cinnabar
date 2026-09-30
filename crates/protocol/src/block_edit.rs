@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use valentine::bedrock::{
     codec::Nbt,
-    version::v1_26_44::{BlockActorDataPacket, BlockPos, MapInfoRequestPacket},
+    version::v1_26_51::{BlockActorDataPacket, BlockPos, MapInfoRequestPacket},
 };
 
 use crate::Packet;
@@ -27,7 +27,7 @@ pub fn sign_edit_packet(position: [i32; 3], nbt: &[u8]) -> Packet {
 #[must_use]
 pub fn map_info_request_packet(map_id: i64) -> Packet {
     MapInfoRequestPacket {
-        map_unique_id: valentine::bedrock::version::v1_26_44::ActorUniqueId {
+        map_unique_id: valentine::bedrock::version::v1_26_51::ActorUniqueId {
             actor_unique_id: map_id,
         },
         client_pixels_list: Vec::new(),

@@ -7,7 +7,7 @@ use bytes::Buf;
 use valentine::bedrock::{
     codec::{BedrockCodec, VarUInt},
     error::DecodeError,
-    version::v1_26_44::{
+    version::v1_26_51::{
         EnumsCommandPermissionLevel, EnumsPlayerPermissionLevel, SerializedAbilitiesData,
     },
 };
@@ -111,7 +111,7 @@ pub(crate) fn normalize_abilities(data: SerializedAbilitiesData) -> AbilitiesUpd
     };
     let command_permission = match data.command_permissions {
         EnumsCommandPermissionLevel::Any => 0,
-        EnumsCommandPermissionLevel::GameDirectors => 1,
+        EnumsCommandPermissionLevel::Gamedirectors => 1,
         EnumsCommandPermissionLevel::Admin => 2,
         EnumsCommandPermissionLevel::Host => 3,
         EnumsCommandPermissionLevel::Owner => 4,

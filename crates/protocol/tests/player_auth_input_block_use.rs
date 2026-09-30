@@ -3,7 +3,7 @@ use protocol::{
     PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, VerifiedNetworkItemStack,
     player_auth_input_with_interactions,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
@@ -58,8 +58,8 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
         panic!("block use must not produce a standalone InventoryTransaction");
     };
     let input_data = input.input_data.unwrap();
-    assert!(input_data.contains(&InputData::PerformItemInteraction));
-    assert!(!input_data.contains(&InputData::PerformBlockActions));
+    assert!(input_data.contains(&InputData::Performiteminteraction));
+    assert!(!input_data.contains(&InputData::Performblockactions));
     let packed = input
         .item_use_transaction
         .and_then(|outer| outer)
@@ -74,7 +74,7 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
     );
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::PlayerInput
+        EnumsItemUseInventoryTransactionTriggerType::Playerinput
     );
     assert_eq!(transaction.position.x, 0);
     assert_eq!(transaction.position.y, 64);

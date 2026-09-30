@@ -8,7 +8,7 @@ use bytes::{Bytes, BytesMut};
 use valentine::bedrock::{
     codec::{BedrockCodec, U32LE, VarInt},
     error::DecodeError,
-    version::v1_26_44::{
+    version::v1_26_51::{
         ChunkPos, DimensionDataPacket, DimensionDataPacketDefinitionsItem,
         EnumsSubChunkPacketPayloadSubChunkRequestResult, LevelChunkPacket,
         LevelChunkPacketPayloadSubChunkMetadata, NetworkChunkPublisherUpdatePacket, SubChunkPacket,
