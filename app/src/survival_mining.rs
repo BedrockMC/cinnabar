@@ -1,8 +1,8 @@
 //! Survival hold-to-mine: one destroy state-machine step per completed physics tick.
 //!
-//! Completion is only predicted from the provisional destroy table; inbound block
-//! updates remain the sole block-change authority. Unknown blocks keep cracking
-//! without a prediction so the server decides when they break.
+//! Completion, timed from the provisional destroy table, removes the block locally
+//! as vanilla's local destroy does; inbound block updates stay authoritative and
+//! replace the prediction. Unknown blocks keep cracking until the server breaks them.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -39,8 +39,6 @@ const COMPLETION_THRESHOLD: f64 = 0.99999;
 /// Bedrock enchantment ids.
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;
 const EFFICIENCY_ENCHANTMENT_ID: i16 = 15;
-/// How long a predicted break suppresses restarting on the unchanged block.
-const PREDICTED_BREAK_HOLD_TICKS: u8 = 20;
 
 /// Which side StartGame's negotiation makes authoritative for block destruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +105,8 @@ pub(crate) struct SurvivalTickPayload {
     pub(crate) wear: Option<(u8, i32, i32)>,
     /// The request carrying `wear`, once a request id is allocated.
     pub(crate) mine_block: Option<protocol::MineBlockRequest>,
+    /// The block this tick's completion removes locally once the tick carries it.
+    pub(crate) broken: Option<[i32; 3]>,
 }
 
 impl SurvivalTickPayload {
@@ -183,8 +183,6 @@ pub(crate) struct DestroyMachine {
     destroying: Option<Destroying>,
     delay: u8,
     pending_abort: Option<([i32; 3], u8)>,
-    /// A predicted break whose block update has not arrived yet.
-    predicted_break: Option<([i32; 3], u32, u8)>,
 }
 
 impl DestroyMachine {
@@ -211,12 +209,6 @@ impl DestroyMachine {
         if let Some((position, percent)) = self.pending_abort.take() {
             payload.push(BlockActionKind::AbortDestroy, position, percent);
         }
-        if let Some((_, _, remaining)) = &mut self.predicted_break {
-            *remaining = remaining.saturating_sub(1);
-        }
-        self.predicted_break = self
-            .predicted_break
-            .filter(|(_, _, remaining)| *remaining > 0);
         let delayed = self.delay > 0;
         self.delay = self.delay.saturating_sub(1);
         let target = match input {
@@ -235,8 +227,7 @@ impl DestroyMachine {
                 return payload;
             }
         };
-        // Locally the block is already gone; wait for its update or the hold.
-        if delayed || self.awaiting_update(target) {
+        if delayed {
             return payload;
         }
         match self.destroying {
@@ -298,13 +289,6 @@ impl DestroyMachine {
         payload
     }
 
-    fn awaiting_update(&self, target: &DestroyTarget) -> bool {
-        self.predicted_break
-            .is_some_and(|(position, runtime_id, _)| {
-                position == target.position && runtime_id == target.runtime_id
-            })
-    }
-
     /// The destroy stays active on the broken block, so the next target continues it.
     /// A server-authoritative destroy of a block with hardness wears the tool.
     fn complete(
@@ -347,11 +331,7 @@ impl DestroyMachine {
             face: target.face,
             progress: 0.0,
         });
-        self.predicted_break = Some((
-            target.position,
-            target.runtime_id,
-            PREDICTED_BREAK_HOLD_TICKS,
-        ));
+        payload.broken = Some(target.position);
     }
 }
 
@@ -375,7 +355,8 @@ impl SurvivalMiningRuntime {
     }
 
     /// Steps every unsent tick once, attaching nonempty payloads to their
-    /// samples, and returns the mining request ids no tick carried.
+    /// samples, and returns the mining request ids no tick carried. A break is
+    /// predicted only once its tick carries it.
     pub(crate) fn step_ticks(
         &mut self,
         ticker: &mut MovementTicker,
@@ -383,6 +364,7 @@ impl SurvivalMiningRuntime {
         authority: BlockBreakingAuthority,
         mut swing: impl FnMut(u64),
         mut request_id: impl FnMut(u8, i32) -> Option<i32>,
+        mut predict_break: impl FnMut([i32; 3]),
     ) -> Vec<i32> {
         let mut unsent = Vec::new();
         let identity = ticker.interaction_authority_identity();
@@ -433,7 +415,13 @@ impl SurvivalMiningRuntime {
                 .mine_block
                 .as_ref()
                 .map(|request| request.request_id());
-            if !payload.is_empty() && !ticker.attach_survival_mining(tick, payload) {
+            let broken = payload.broken;
+            if payload.is_empty() {
+                continue;
+            }
+            if ticker.attach_survival_mining(tick, payload) {
+                broken.into_iter().for_each(&mut predict_break);
+            } else {
                 // A tick that cannot carry its actions desynchronizes the server's view.
                 self.machine.interrupt();
                 unsent.extend(mine_block);
@@ -476,7 +464,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     ui: ResMut<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
-    client_world: Res<'w, ClientWorld>,
+    client_world: ResMut<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
     melee: Res<'w, MeleeRuntime>,
@@ -551,6 +539,7 @@ pub(crate) fn produce_survival_mining(
         .map(|stream| stream.local_player_runtime_id());
     let network = &context.network;
     let ui = &mut context.ui;
+    let client_world = &mut context.client_world;
     let unsent = runtime.step_ticks(
         &mut movement,
         input,
@@ -566,6 +555,12 @@ pub(crate) fn produce_survival_mining(
             }
         },
         |slot, damage| ui.begin_mining_request(slot, damage),
+        |position| {
+            if let Some(stream) = client_world.stream.as_mut() {
+                let air = stream.air_block_id();
+                stream.predict_block(position, 0, air);
+            }
+        },
     );
     for request_id in unsent {
         ui.cancel_mining_request(request_id);

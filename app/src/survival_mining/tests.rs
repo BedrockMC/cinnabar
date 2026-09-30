@@ -300,8 +300,9 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
     }
 }
 
+/// Completion removes the block locally; a server rollback is mined afresh after the delay.
 #[test]
-fn a_predicted_break_waits_for_its_block_update() {
+fn a_completion_predicts_the_break_and_a_rolled_back_block_is_mined_again() {
     // A golden shovel removes 0.8 of dirt per tick: two held ticks after the start.
     let dirt = target([0, 3, 0], "minecraft:dirt", Some("minecraft:golden_shovel"));
     let completion = [
@@ -309,16 +310,24 @@ fn a_predicted_break_waits_for_its_block_update() {
         (PredictDestroy, [0, 3, 0], 1),
     ];
     let mut machine = DestroyMachine::default();
-    held(&mut machine, &dirt, Server);
+    assert_eq!(held(&mut machine, &dirt, Server).broken, None);
     assert!(held(&mut machine, &dirt, Server).is_empty());
-    assert_eq!(kinds(&held(&mut machine, &dirt, Server)), completion);
-    // The unchanged block is locally gone: no restart and no abort while held.
-    for _ in 0..PREDICTED_BREAK_HOLD_TICKS - 1 {
+    let done = held(&mut machine, &dirt, Server);
+    assert_eq!(kinds(&done), completion);
+    assert_eq!(done.broken, Some([0, 3, 0]));
+    for _ in 0..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &dirt, Server).is_empty());
     }
-    // Without an update the hold expires and destroying resumes on it.
+    // The server restated the block: no hold, destroying resumes at once.
     assert!(held(&mut machine, &dirt, Server).is_empty());
     assert_eq!(kinds(&held(&mut machine, &dirt, Server)), completion);
+    let torch = target([1, 1, 1], "minecraft:torch", None);
+    let client = held(&mut DestroyMachine::default(), &torch, Client);
+    assert_eq!(
+        client.broken,
+        Some([1, 1, 1]),
+        "client authority predicts too"
+    );
 }
 
 #[test]
@@ -411,6 +420,7 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         Server,
         |tick| swings.push(tick),
         |_, _| None,
+        |_| {},
     );
     // Re-running the frame must not step the same ticks again.
     runtime.step_ticks(
@@ -419,6 +429,7 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         Server,
         |_| {},
         |_, _| None,
+        |_| {},
     );
     ticker.retain_creative_mining(None);
     ticker.enqueue_completed_physics(completed(103)).unwrap();
@@ -428,6 +439,7 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         Server,
         |tick| swings.push(tick),
         |_, _| None,
+        |_| {},
     );
     assert_eq!(
         swings,
@@ -482,6 +494,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
     };
     let mut runtime = SurvivalMiningRuntime::default();
     let mut ids = [-7, -9].into_iter();
+    let mut broken = Vec::new();
     for tick in 101..=103 {
         ticker.enqueue_completed_physics(completed(tick)).unwrap();
         runtime.step_ticks(
@@ -490,6 +503,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
             Server,
             |_| {},
             |_, _| ids.next(),
+            |position| broken.push(position),
         );
     }
     let mut packets = Vec::new();
@@ -510,6 +524,11 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
     // Start, crack, then completion with the first allocated id.
     assert_eq!(requests, [false, false, true]);
     assert_eq!(ids.next(), Some(-9), "only the completion allocates an id");
+    assert_eq!(
+        broken,
+        [[0, 1, -3]],
+        "the carried completion is predicted once"
+    );
 }
 
 mod gate {

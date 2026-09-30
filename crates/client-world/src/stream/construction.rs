@@ -132,6 +132,7 @@ impl WorldStream {
             pending_decode: VecDeque::new(),
             in_flight_decode_jobs: 0,
             blocking_block_updates: None,
+            predictions: prediction::DeferredPredictions::default(),
             decode_tx,
             decode_rx,
             light_tx,
