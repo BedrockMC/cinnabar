@@ -118,7 +118,12 @@ impl Simulator {
         }
         let grounded_at_start = next.on_ground;
         let retained_collisions = next.collisions;
-        let sampled = sample(world, next.position, next.velocity)?;
+        let sampled = sample(
+            world,
+            next.position,
+            next.velocity,
+            input.mode.hitbox_height(input.sneaking),
+        )?;
         if matches!(
             input.mode,
             MovementMode::Swimming
