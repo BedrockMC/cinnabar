@@ -38,6 +38,8 @@ pub(crate) use view::{
     MenuView, PingInfo, SavedServer,
 };
 use view::{CatalogFile, MenuFeeds};
+#[cfg(test)]
+pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
 
 use std::{
     fs,

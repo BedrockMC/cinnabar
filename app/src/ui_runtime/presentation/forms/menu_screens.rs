@@ -181,6 +181,8 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
             }
             MenuScreen::AddServer => {
                 add_server_screen(view, &mut data, translate);
+                // The controller's edit mode swaps Play for Remove.
+                context = context.with_flag("edit_mode", view.editing.is_some());
                 "add_external_server.add_external_server_screen_new"
             }
             MenuScreen::Settings => {
