@@ -18,7 +18,10 @@ pub(crate) struct ActorRigPresentation {
     pub(crate) submission: ActorRigSubmission,
     pub(crate) skin_rgba8: Option<Arc<[u8]>>,
     pub(crate) artwork: Option<ActorArtworkLocation>,
+    /// Authored model scale times the metadata scale.
     pub(crate) model_scale: f32,
+    /// Authored model scale alone; the eye-anchored first-person hand ignores the metadata scale.
+    pub(crate) authored_scale: f32,
     /// Head yaw minus the rendered body yaw, in degrees.
     pub(crate) head_over_body: f32,
 }
@@ -197,6 +200,7 @@ fn actor_rig_presentation_inner(
         skin_rgba8,
         artwork: None,
         model_scale: scale,
+        authored_scale: rig.scale,
         head_over_body: wrap_degrees(
             lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw,
         ),
@@ -266,6 +270,7 @@ pub(crate) fn local_diagnostic_presentation(
         skin_rgba8: Some(default_actor_skin_rgba8()),
         artwork: None,
         model_scale: 1.0,
+        authored_scale: 1.0,
         head_over_body: 0.0,
     })
 }

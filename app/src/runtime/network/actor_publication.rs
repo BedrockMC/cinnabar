@@ -599,7 +599,7 @@ fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let placement = hand_camera_from_rig(source.presentation.model_scale, source.motion);
+    let placement = hand_camera_from_rig(source.presentation.authored_scale, source.motion);
     let mut submissions = Vec::new();
     if let Some(mut body) = source.body {
         body.world_from_actor = placement;
