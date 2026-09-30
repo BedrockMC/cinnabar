@@ -45,7 +45,9 @@ pub use bind::{
     scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
-pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};
+pub use emit::{
+    Draw, DrawNode, RectOut, SpriteQuad, StateGate, TextAlign, UvRect, emit, emit_gated, nine_slice,
+};
 pub use env::Env;
 pub use expr::{
     AxisContext, ExprError, Length, Resolved, Term, Unit, length_from_value, parse_length,
@@ -53,8 +55,8 @@ pub use expr::{
 pub use form::{
     ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
     CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
-    form_context, form_data_source, form_screen_cancel, form_template, render_bound, render_form,
-    render_form_with,
+    form_context, form_data_source, form_screen_cancel, form_template, render_bound,
+    render_bound_gated, render_form, render_form_with,
 };
 pub use hud::{
     BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
