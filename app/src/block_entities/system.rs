@@ -239,6 +239,7 @@ pub(crate) fn update_block_entity_scene(
     };
     let Some(stream) = client_world.stream.as_ref() else {
         runtime.described.clear();
+        runtime.bell_rings.clear();
         placements.0.clear();
         *frame = scene.update(clock, &[], &[]).clone();
         return;
@@ -371,6 +372,7 @@ pub(crate) fn update_block_entity_scene(
     }
     runtime.lids.finish();
     runtime.described.retain(|key, _| seen.contains(key));
+    prune_bell_rings(&mut runtime.bell_rings, now_seconds);
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
 }
@@ -614,6 +616,13 @@ fn resolve(
 
 /// The `BlockEventPacket` type a bell ring arrives as.
 const BELL_RING_EVENT_TYPE: i32 = 1;
+/// Seconds after a ring when the swing has visibly settled and its state can go.
+const BELL_RING_RETAIN_SECONDS: f64 = 10.0;
+
+/// Drops rings whose swing has settled; a still-latched cue re-enters at rest.
+fn prune_bell_rings(rings: &mut HashMap<[i32; 3], (u64, f64)>, now_seconds: f64) {
+    rings.retain(|_, (_, start)| now_seconds - *start < BELL_RING_RETAIN_SECONDS);
+}
 /// Highest world Y a beacon beam is drawn to; the beam stops at the build limit.
 const BEAM_TOP: i32 = 320;
 
@@ -741,5 +750,17 @@ mod tests {
         assert_ne!(map_cache_key(1, 1), map_cache_key(1, 2));
         assert_ne!(map_cache_key(1, 1), map_cache_key(2, 1));
         assert_eq!(map_cache_key(5, 9), map_cache_key(5, 9));
+    }
+
+    /// Bell state must not accumulate for every bell ever seen.
+    #[test]
+    fn bell_ring_state_expires_once_the_swing_settles() {
+        let mut rings = HashMap::from([
+            ([0, 0, 0], (1, 100.0)),
+            ([1, 0, 0], (2, f64::NEG_INFINITY)),
+            ([2, 0, 0], (3, 80.0)),
+        ]);
+        prune_bell_rings(&mut rings, 101.0);
+        assert_eq!(rings.keys().copied().collect::<Vec<_>>(), vec![[0, 0, 0]]);
     }
 }
