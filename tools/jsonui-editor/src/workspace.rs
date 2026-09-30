@@ -13,6 +13,25 @@ use json_ui::Catalog;
 const UI_DEFS: &str = "ui/_ui_defs.json";
 const GLOBALS: &str = "ui/_global_variables.json";
 const LANG: &str = "texts/en_US.lang";
+const SCRATCH: &str = "scratch";
+/// What "New file" starts from; `{namespace}` becomes the file's stem.
+const SCRATCH_TEMPLATE: &str = r#"{
+  "namespace": "{namespace}",
+
+  "main_screen": {
+    "type": "screen",
+    "controls": [
+      {
+        "hello": {
+          "type": "label",
+          "text": "Hello, JSON-UI",
+          "shadow": true
+        }
+      }
+    ]
+  }
+}
+"#;
 /// Largest single file read out of an archive.
 const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -27,6 +46,8 @@ pub struct Layer {
     archive: Option<zip::ZipArchive<Cursor<Arc<[u8]>>>>,
     archive_paths: BTreeMap<String, String>,
     generation: u64,
+    /// The in-memory layer pasted and new files go to; it stays on top.
+    scratch: bool,
 }
 
 impl Layer {
@@ -46,6 +67,10 @@ impl Layer {
             .keys()
             .map(String::as_str)
             .filter(|path| is_ui_json(path))
+    }
+
+    pub fn is_scratch(&self) -> bool {
+        self.scratch
     }
 
     pub fn is_edited(&self, path: &str) -> bool {
@@ -121,13 +146,72 @@ impl Workspace {
         self.layers.get(index)
     }
 
+    /// Add an empty layer on top, below the scratch layer if there is one;
+    /// returns its index.
     pub fn add_layer(&mut self, name: &str) -> usize {
-        self.layers.push(Layer {
-            name: name.to_owned(),
-            ..Layer::default()
-        });
-        self.prefix.push(None);
-        self.layers.len() - 1
+        let index = self.scratch_index().unwrap_or(self.layers.len());
+        self.layers.insert(
+            index,
+            Layer {
+                name: name.to_owned(),
+                ..Layer::default()
+            },
+        );
+        self.prefix = vec![None; self.layers.len()];
+        self.lang = None;
+        index
+    }
+
+    pub fn scratch_index(&self) -> Option<usize> {
+        self.layers.iter().position(|layer| layer.scratch)
+    }
+
+    /// Create `ui/<stem>.json` (the first free `scratch`, `scratch_2`, ...) in
+    /// the scratch layer, making that layer on top if needed, and list it in
+    /// the layer's `_ui_defs.json`. Empty `text` writes a starter screen.
+    /// Returns the scratch layer and the new path.
+    pub fn new_scratch_file(&mut self, text: &str) -> (usize, String) {
+        let layer = match self.scratch_index() {
+            Some(layer) => layer,
+            None => {
+                self.layers.push(Layer {
+                    name: SCRATCH.to_owned(),
+                    scratch: true,
+                    ..Layer::default()
+                });
+                self.prefix.push(None);
+                let layer = self.layers.len() - 1;
+                self.edit(layer, GLOBALS, "{}\n");
+                layer
+            }
+        };
+        let taken = |stem: &str| {
+            self.layers[layer]
+                .files
+                .contains_key(&format!("ui/{stem}.json"))
+        };
+        let stem = (1..)
+            .map(|n| match n {
+                1 => SCRATCH.to_owned(),
+                n => format!("{SCRATCH}_{n}"),
+            })
+            .find(|stem| !taken(stem))
+            .expect("an unbounded range has a free name");
+        let path = format!("ui/{stem}.json");
+        let text = if text.trim().is_empty() {
+            SCRATCH_TEMPLATE.replace("{namespace}", &stem)
+        } else {
+            text.to_owned()
+        };
+        self.edit(layer, &path, &text);
+        let listed: Vec<String> = self.layers[layer]
+            .ui_paths()
+            .filter(|p| !p.starts_with("ui/_"))
+            .map(str::to_owned)
+            .collect();
+        let defs = serde_json::json!({ "ui_defs": listed });
+        self.edit(layer, UI_DEFS, &format!("{defs:#}\n"));
+        (layer, path)
     }
 
     pub fn remove_layer(&mut self, index: usize) {

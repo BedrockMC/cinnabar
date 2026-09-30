@@ -3,6 +3,7 @@
 import init, { Editor } from "./pkg/jsonui_editor.js";
 import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
 import { EditorState } from "https://esm.sh/@codemirror/state@^6";
+import { placeholder } from "https://esm.sh/@codemirror/view@^6";
 import { javascript } from "https://esm.sh/@codemirror/lang-javascript@^6";
 import { forceLinting, linter, lintGutter } from "https://esm.sh/@codemirror/lint@^6";
 import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@^6";
@@ -71,11 +72,13 @@ function loadPrefs() {
 
 // ---------- CodeMirror ----------
 
+const PLACEHOLDER = "Open a ui/*.json file from the list, or type or paste a JSON-UI file here to start a scratch file.";
+
 function makeState(text) {
   return EditorState.create({
     doc: text,
     extensions: [
-      basicSetup, javascript(), oneDark, lintGutter(),
+      basicSetup, javascript(), oneDark, lintGutter(), placeholder(PLACEHOLDER),
       linter(lintBuffer, { delay: 300 }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && !loadingDoc) onEdit();
@@ -130,11 +133,49 @@ function openFile(layer, path, select) {
 }
 
 function onEdit() {
-  if (!state.open) return;
+  if (!state.open) { startScratch(); return; }
   state.editor.edit(state.open.layer, state.open.path, code.state.doc.toString());
   $("file-state").textContent = "edited";
   $("export").disabled = false;
   scheduleRender();
+}
+
+// Text typed or pasted with no file open becomes a scratch-layer file, on top
+// of whatever is loaded (the example when nothing is).
+let scratchPending = null;
+function startScratch() {
+  if (scratchPending) return;
+  scratchPending = (async () => {
+    if (!state.layers.length) await loadExample({ keepBuffer: true });
+    const text = code.state.doc.toString();
+    await createScratch(text);
+  })().catch((error) => setStatus(String(error))).finally(() => { scratchPending = null; });
+}
+
+async function createScratch(text) {
+  const created = JSON.parse(state.editor.new_scratch_file(text));
+  if (!state.layers[created.layer]?.scratch) {
+    state.layers.splice(created.layer, 0, { name: "scratch", scratch: true, files: new Map() });
+  }
+  state.open = null;
+  openFile(created.layer, created.path);
+  $("export").disabled = false;
+  $("file-state").textContent = "scratch";
+  afterLoad();
+  const picked = state.editor.pick_screen(created.layer, created.path);
+  if (picked) { $("screen").value = picked; state.selected = -1; }
+  scheduleRender(0);
+}
+
+async function newFile() {
+  if (!state.layers.length) await loadExample({ keepBuffer: true });
+  await createScratch("");
+}
+
+// A new layer goes below the scratch layer; keep our mirror and open file in step.
+function insertLayer(index, entry) {
+  state.layers.splice(index, 0, entry);
+  if (state.open && state.open.layer >= index) state.open.layer++;
 }
 
 // ---------- loading packs ----------
@@ -151,7 +192,7 @@ async function addLayer(name, entries) {
     }
   }
   state.editor.commit_files(index);
-  state.layers.push({ name, files });
+  insertLayer(index, { name, files });
 }
 
 async function addZip(name, file) {
@@ -162,7 +203,7 @@ async function addZip(name, file) {
     state.editor.remove_layer(index);
     throw new Error(`${name}: ${error}`);
   }
-  state.layers.push({ name, files: new Map() });
+  insertLayer(index, { name, files: new Map() });
 }
 
 async function loadEntries(groups) {
@@ -184,11 +225,29 @@ function afterLoad() {
   renderLayers();
   renderFiles();
   refreshScreens();
-  if (!$("screen").value && state.screens.length) {
-    const preferred = state.screens.find((s) => s.reference === "start.start_screen") ?? state.screens[0];
-    $("screen").value = preferred.reference;
-  }
   scheduleRender(0);
+}
+
+// When the screen box is empty or names nothing, preview the open file's
+// screen, else a loaded screen. Returns whether it changed the box.
+function autoPickScreen() {
+  const current = $("screen").value.trim();
+  if (current && state.editor.has_control(current)) return false;
+  let picked = state.open ? state.editor.pick_screen(state.open.layer, state.open.path) : undefined;
+  if (!picked && !current) {
+    picked = (state.screens.find((s) => s.reference === "start.start_screen") ?? state.screens.find((s) => s.screen))?.reference;
+  }
+  if (!picked || picked === current) return false;
+  $("screen").value = picked;
+  state.selected = -1;
+  setStatus(`Previewing ${picked} (picked automatically)`);
+  return true;
+}
+
+function showEmpty(message) {
+  $("empty").textContent = message;
+  $("empty").hidden = !message;
+  $("canvas").hidden = $("overlay").hidden = Boolean(message);
 }
 
 function folderGroups(fileList) {
@@ -239,7 +298,7 @@ async function onDrop(event) {
   if (groups.length) await loadEntries(groups);
 }
 
-async function loadExample() {
+async function loadExample(options = {}) {
   const listing = await (await fetch("examples/files.json")).json();
   const groups = [];
   for (const [name, paths] of Object.entries(listing.layers)) {
@@ -250,10 +309,16 @@ async function loadExample() {
     }
     groups.push({ name: `example ${name}`, entries });
   }
+  const buffer = options.keepBuffer ? code.state.doc.toString() : null;
   await loadEntries(groups);
   $("screen").value = listing.screen;
   $("mock-preset").value = "Example rows";
   applyMockPreset();
+  if (buffer !== null && !state.open) {
+    loadingDoc = true;
+    code.setState(makeState(buffer));
+    loadingDoc = false;
+  }
 }
 
 // Supply texture images the last render asked for, then render again.
@@ -302,9 +367,19 @@ function scheduleRender(delay = RENDER_DELAY) {
 }
 
 async function render() {
-  if (!state.editor || !state.layers.length) return;
+  if (!state.editor) return;
+  if (!state.layers.length) {
+    showEmpty("Nothing loaded: open a resource pack folder or zip, load the example, or paste a JSON-UI file into the editor.");
+    return;
+  }
+  autoPickScreen();
   const view = currentView();
-  if (!view.reference) return;
+  if (!view.reference) {
+    state.frame = null;
+    renderTree();
+    showEmpty("No screen selected: type namespace.control above, or click a file with a screen in it.");
+    return;
+  }
   try {
     state.editor.set_view(JSON.stringify(view));
   } catch (error) {
@@ -319,6 +394,13 @@ async function render() {
   }
   const laid = performance.now() - started;
   state.frame = frame;
+  if (!frame.boxes.length) {
+    renderTree();
+    renderDiagnostics();
+    showEmpty(`${view.reference} did not resolve. Check the name, or see Diagnostics.`);
+    return;
+  }
+  showEmpty("");
   if (state.selected >= frame.boxes.length) state.selected = -1;
   paint();
   const total = performance.now() - started;
@@ -671,7 +753,7 @@ function tick() {
 async function main() {
   await init();
   state.editor = new Editor();
-  code = new EditorView({ state: makeState("// Open a ui/*.json file from the list.\n"), parent: $("editor") });
+  code = new EditorView({ state: makeState(""), parent: $("editor") });
   try {
     const response = await fetch("monocraft.mcbefont");
     if (response.ok) state.editor.load_font(new Uint8Array(await response.arrayBuffer()));
@@ -696,6 +778,7 @@ async function main() {
     e.target.value = "";
   };
   $("load-example").onclick = () => loadExample().catch((error) => setStatus(String(error)));
+  $("new-file").onclick = () => newFile().catch((error) => setStatus(String(error)));
   $("export").onclick = () => {
     const bytes = state.editor.export_edits();
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
@@ -756,6 +839,7 @@ async function main() {
   window.addEventListener("dragover", (e) => e.preventDefault());
   window.addEventListener("drop", (e) => { dragDepth = 0; onDrop(e); });
   setStatus(state.editor.has_font() ? "Ready" : $("status").textContent);
+  render();
 }
 
 main().catch((error) => setStatus(`Failed to start: ${error}`));

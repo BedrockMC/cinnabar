@@ -68,6 +68,9 @@ small { text-transform: none; letter-spacing: 0; }
 .stage.light { background: #c8ccd4; }
 .stage canvas { grid-area: 1 / 1; image-rendering: pixelated; }
 #overlay { pointer-events: auto; cursor: crosshair; }
+.stage canvas[hidden] { display: none; }
+.empty { grid-area: 1 / 1; max-width: 420px; padding: 14px 18px; text-align: center; color: var(--text); background: rgba(21, 23, 28, .88); border: 1px solid var(--line); border-radius: 6px; }
+.empty[hidden] { display: none; }
 
 .tabs { display: flex; gap: 2px; padding: 0 8px; background: var(--panel); border-top: 1px solid var(--line); }
 .tabs button { border: 0; border-radius: 0; background: none; padding: 6px 10px; color: var(--muted); }

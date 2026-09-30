@@ -112,10 +112,27 @@ impl Editor {
                     .ui_paths()
                     .map(|path| json!({ "path": path, "edited": layer.is_edited(path) }))
                     .collect();
-                json!({ "layer": index, "name": layer.name, "files": files })
+                json!({ "layer": index, "name": layer.name, "scratch": layer.is_scratch(), "files": files })
             })
             .collect();
         Value::Array(layers).to_string()
+    }
+
+    /// A new scratch-layer file holding `text` (a starter screen when empty):
+    /// `{layer, path}`.
+    pub fn new_scratch_file(&mut self, text: &str) -> String {
+        self.frame = None;
+        let (layer, path) = self.session.workspace.new_scratch_file(text);
+        json!({ "layer": layer, "path": path }).to_string()
+    }
+
+    /// The control to preview for a file, if it has one.
+    pub fn pick_screen(&mut self, layer: usize, path: &str) -> Option<String> {
+        api::pick_screen(&mut self.session, layer, path)
+    }
+
+    pub fn has_control(&mut self, reference: &str) -> bool {
+        api::has_control(&mut self.session, reference)
     }
 
     pub fn file_text(&self, layer: usize, path: &str) -> Option<String> {

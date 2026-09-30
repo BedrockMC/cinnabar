@@ -43,6 +43,55 @@ pub fn screens(session: &mut Session) -> Vec<ScreenEntry> {
     out
 }
 
+/// Whether `reference` names a top-level control the catalog holds.
+pub fn has_control(session: &mut Session, reference: &str) -> bool {
+    let catalog = session.catalog();
+    reference
+        .split_once('.')
+        .is_some_and(|(namespace, name)| catalog.lookup(namespace, name).is_some())
+}
+
+/// The control to preview for a file: its first top-level control whose type
+/// resolves to `screen`, else its first top-level control. Nested overlays
+/// (`a/b`) and animations are not previewable.
+pub fn pick_screen(session: &mut Session, layer: usize, path: &str) -> Option<String> {
+    let catalog = session.catalog();
+    let text = session.workspace.layer(layer)?.text(path)?;
+    let root = crate::outline::parse(&text).ok()?;
+    let namespace = match root
+        .get("namespace")
+        .and_then(crate::outline::Spanned::as_str)
+    {
+        Some(namespace) => namespace.to_owned(),
+        None => session
+            .index()
+            .file_namespace(layer, path)
+            .map(str::to_owned)?,
+    };
+    let candidates: Vec<String> = root
+        .members()
+        .iter()
+        .filter(|member| member.key != "namespace" && !member.key.contains('/'))
+        .filter(|member| member.value.get("anim_type").is_none())
+        .map(|member| {
+            let name = member
+                .key
+                .split_once('@')
+                .map_or(member.key.as_str(), |(name, _)| name);
+            format!("{namespace}.{name}")
+        })
+        .filter(|reference| {
+            let (namespace, name) = reference.split_once('.').unwrap_or_default();
+            catalog.lookup(namespace, name).is_some()
+        })
+        .collect();
+    candidates
+        .iter()
+        .find(|reference| resolved_type(&catalog, reference).as_deref() == Some("screen"))
+        .or_else(|| candidates.first())
+        .cloned()
+}
+
 /// The first `type` along `reference`'s literal base chain.
 fn resolved_type(catalog: &Catalog, reference: &str) -> Option<String> {
     let (namespace, name) = reference.split_once('.')?;
