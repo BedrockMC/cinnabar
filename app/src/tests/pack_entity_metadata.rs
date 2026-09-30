@@ -68,6 +68,30 @@ const TITLE_RENDER: &str = r#"{"format_version":"1.8.0","render_controllers":{
  "controller.render.title.background":{"geometry":"Geometry.background",
   "materials":[{"*":"Material.default"}],"textures":["Texture.zero"]}}}"#;
 
+// A one-shot lift and a held one on the same model.
+const ONCE: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:once",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"default":"textures/entity/counter_zero"},
+ "geometry":{"default":"geometry.counter"},
+ "animations":{"lift":"animation.test.lift_once","hold":"animation.test.lift_hold"},
+ "scripts":{"animate":["lift"]},
+ "render_controllers":["controller.render.logo"]}}}"#;
+
+const HOLD: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:hold",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"default":"textures/entity/counter_zero"},
+ "geometry":{"default":"geometry.counter"},
+ "animations":{"hold":"animation.test.lift_hold"},
+ "scripts":{"animate":["hold"]},
+ "render_controllers":["controller.render.logo"]}}}"#;
+
+const LIFT_ANIMATION: &str = r#"{"format_version":"1.8.0","animations":{
+ "animation.test.lift_once":{"animation_length":0.25,"bones":{"root":{"position":[0,8,0]}}},
+ "animation.test.lift_hold":{"loop":"hold_on_last_frame","animation_length":0.25,
+  "bones":{"root":{"position":[0,8,0]}}}}}"#;
+
 const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[
  {"description":{"identifier":"geometry.counter","texture_width":16,"texture_height":16},"bones":[
  {"name":"root","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,16,8],"uv":[0,0]}]}]},
@@ -109,6 +133,12 @@ fn pack() -> (Pack, ActorArtworkPages) {
         ("entity/hologram.entity.json".into(), HOLOGRAM.into()),
         ("entity/logo.entity.json".into(), LOGO.into()),
         ("entity/title.entity.json".into(), TITLE.into()),
+        ("entity/once.entity.json".into(), ONCE.into()),
+        ("entity/hold.entity.json".into(), HOLD.into()),
+        (
+            "animations/lift.animation.json".into(),
+            LIFT_ANIMATION.into(),
+        ),
         ("entity/title_still.entity.json".into(), TITLE_STILL.into()),
         ("models/entity/title.geo.json".into(), TITLE_GEOMETRY.into()),
         (
@@ -363,4 +393,19 @@ fn array_indices_past_the_end_wrap_to_the_first_member() {
     let zero = drawn(&world, &artwork).texture_layer;
     update(&mut world, 2, ActorMetadataValue::Int(2));
     assert_eq!(drawn(&world, &artwork).texture_layer, zero);
+}
+
+// A finished one-shot animation stops posing the model; a hold keeps its last frame.
+#[test]
+fn a_finished_once_animation_releases_the_pose_while_hold_keeps_it() {
+    let (pack, _) = pack();
+    let lift = |identifier: &str| {
+        let mut world = world(pack.clone(), identifier);
+        world.advance_actor_interpolation_ticks(20);
+        let rig = world.actor_rig(42).unwrap();
+        rig.current[0].translation_scale[1] - rig.rest[0].translation_scale[1]
+    };
+    assert!(lift("test:once").abs() < 1e-6);
+    let held = lift("test:hold");
+    assert!((held - 8.0).abs() < 1e-4, "{held}");
 }
