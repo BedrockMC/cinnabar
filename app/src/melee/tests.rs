@@ -110,13 +110,14 @@ fn survival_reach_and_block_occlusion_decide_the_press() {
 #[test]
 fn a_new_swing_waits_for_half_the_current_one() {
     let mut swings = SwingTracker::default();
-    assert!(!swings.take_started());
+    assert_eq!(swings.take_started(), None);
     assert!(swings.try_swing(10, 6));
-    assert!(
+    assert_eq!(
         swings.take_started(),
-        "an accepted swing is handed to the local rig once"
+        Some(6),
+        "an accepted swing is handed to the local rig once, with its duration"
     );
-    assert!(!swings.take_started());
+    assert_eq!(swings.take_started(), None);
     assert!(!swings.try_swing(10, 6));
     assert!(!swings.try_swing(12, 6));
     assert!(swings.try_swing(13, 6));
@@ -333,7 +334,11 @@ fn a_full_queue_rolls_back_the_press_and_the_swing_together() {
         network.send_inventory_packets(packets)
     });
     assert!(!missed);
-    assert!(!swings.take_started(), "no swing without its transaction");
+    assert_eq!(
+        swings.take_started(),
+        None,
+        "no swing without its transaction"
+    );
     assert!(!runtime.blocks_use_at(press.now_millis));
 
     let mut sent = Vec::new();
