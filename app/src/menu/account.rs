@@ -133,7 +133,8 @@ impl MenuRuntime {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
                 self.auth_process = None;
-                self.message = Some(session_failure_message(&error.to_string()));
+                bevy::log::warn!(%error, "sign-in could not start");
+                self.message = Some("Sign-in could not start.".to_owned());
             }
         }
     }

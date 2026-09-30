@@ -469,11 +469,12 @@ fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
 
     assert!(!menu.is_connecting());
     assert!(menu.is_visible(), "a failed join must land back on the menu");
-    let message = menu
+    let error = menu
         .view()
-        .message
+        .disconnect_message
         .expect("the launcher must explain the failure");
-    assert!(message.contains("Connection refused"), "got {message:?}");
+    let words = crate::menu::disconnect::describe(&error);
+    assert_eq!(words.title, "connect.failed", "got {words:?}");
 }
 
 #[test]
@@ -488,22 +489,18 @@ fn a_direct_address_session_failure_still_exits_the_process() {
     assert!(fatal_runtime_exit("network session failed: bridge closed").is_some());
 }
 
+// The raw chain, however long, never reaches the screen: it reads as vanilla's line.
 #[test]
-fn a_long_session_failure_is_condensed_for_the_menu() {
+fn a_long_session_failure_shows_vanilla_text() {
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Tester".to_owned());
 
     assert!(menu.absorb_session_failure(&"boundless detail ".repeat(40)));
 
-    let message = menu
-        .view()
-        .message
-        .expect("the launcher must explain the failure");
-    assert!(
-        message.chars().count() < 200,
-        "message must stay inside the menu message area, got {} chars",
-        message.chars().count()
+    let error = menu.view().disconnect_message.unwrap();
+    assert_eq!(
+        crate::menu::disconnect::describe(&error).body,
+        crate::menu::disconnect::DisconnectBody::Key("disconnectionScreen.noReason")
     );
-    assert!(message.ends_with('…'), "got {message:?}");
 }
 
 #[test]

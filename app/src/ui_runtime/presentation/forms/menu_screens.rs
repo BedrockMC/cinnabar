@@ -139,91 +139,97 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
     let mut data = DataSource::new();
     data.set_strict(true);
     let mut context = base_context();
-    let reference =
-        if let Some((received, total)) = view.feeds.pack_download.filter(|_| view.connecting) {
-            pack_download(&mut data, translate, received, total);
-            JOIN_PROGRESS_SCREEN
-        } else if view.connecting {
-            data.set_global(
-                "#title_text",
-                text(translated(translate, "connect.connecting", "Connecting")),
-            );
-            data.set_global(
-                "#progress_text",
-                text(view.message.clone().unwrap_or_default()),
-            );
-            flags(&mut data, &["#bar_animation_visible"]);
-            JOIN_PROGRESS_SCREEN
-        } else if let Some(reason) = &view.disconnect_message {
-            data.set_global(
-                "#title_text",
-                text(translated(translate, "disconnect.lost", "Connection Lost")),
-            );
-            data.set_global("#disconnect_text", text(reason.clone()));
-            "disconnect.disconnect_screen"
-        } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
-            data.set_global("#url", text(uri.clone()));
-            data.set_global("#code", text(code.clone()));
-            "xbl_console_signin.xbl_console_signin"
-        } else {
-            match view.screen {
-                MenuScreen::Death => {
-                    flags(
-                        &mut data,
-                        &[
-                            "#buttons_and_deathmessage_visible",
-                            "#respawn_visible",
-                            "#respawn_enabled",
-                            "#quit_visible",
-                            "#quit_enabled",
-                        ],
-                    );
-                    "death.death_screen"
-                }
-                MenuScreen::Pause => {
-                    data.set_global("#playername", text(view.display_name.clone()));
-                    flags(&mut data, &["#playername_visible"]);
-                    data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
-                    // A non-edu client draws the retail pause content, not edu_pause's.
-                    context = unlock_text(context)
-                        .with_flag("ignore_edu_pause", true)
-                        .with_var(
-                            "store_button_text",
-                            Value::String(server_store_text(translate)),
-                        );
-                    "pause.pause_screen"
-                }
-                MenuScreen::Home => {
-                    start_screen(view, &mut data, translate);
-                    context = start_screen_vars(context);
-                    "start.start_screen"
-                }
-                MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-                    super::play_screen::bind(view, &mut data);
-                    "play.play_screen"
-                }
-                MenuScreen::AddServer => {
-                    add_server_screen(view, &mut data, translate);
-                    // The controller's edit mode swaps Play for Remove.
-                    context = context.with_flag("edit_mode", view.editing.is_some());
-                    "add_external_server.add_external_server_screen_new"
-                }
-                MenuScreen::Settings => {
-                    settings_screen(view, &mut data);
-                    super::settings_defaults::bind(&mut data, &|key: &str| {
-                        translated(translate, key, key)
-                    });
-                    return Some(MenuScreenData {
-                        reference: SETTINGS_SCREEN,
-                        context: settings_context(context),
-                        data,
-                        overlay: None,
-                    });
-                }
-                MenuScreen::Store => return store_screen(view, &context, translate),
-                MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
-            }
+    let reference = if let Some((received, total)) =
+        view.feeds.pack_download.filter(|_| view.connecting)
+    {
+        pack_download(&mut data, translate, received, total);
+        JOIN_PROGRESS_SCREEN
+    } else if view.connecting {
+        data.set_global(
+            "#title_text",
+            text(translated(translate, "connect.connecting", "Connecting")),
+        );
+        data.set_global(
+            "#progress_text",
+            text(view.message.clone().unwrap_or_default()),
+        );
+        flags(&mut data, &["#bar_animation_visible"]);
+        JOIN_PROGRESS_SCREEN
+    } else if let Some(error) = &view.disconnect_message {
+        let words = crate::menu::disconnect::describe(error);
+        data.set_global(
+            "#title_text",
+            text(translated(translate, words.title, words.title)),
+        );
+        let body = match words.body {
+            crate::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
+            crate::menu::disconnect::DisconnectBody::Server(message) => message,
         };
+        data.set_global("#disconnect_text", text(body));
+        "disconnect.disconnect_screen"
+    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
+        data.set_global("#url", text(uri.clone()));
+        data.set_global("#code", text(code.clone()));
+        "xbl_console_signin.xbl_console_signin"
+    } else {
+        match view.screen {
+            MenuScreen::Death => {
+                flags(
+                    &mut data,
+                    &[
+                        "#buttons_and_deathmessage_visible",
+                        "#respawn_visible",
+                        "#respawn_enabled",
+                        "#quit_visible",
+                        "#quit_enabled",
+                    ],
+                );
+                "death.death_screen"
+            }
+            MenuScreen::Pause => {
+                data.set_global("#playername", text(view.display_name.clone()));
+                flags(&mut data, &["#playername_visible"]);
+                data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
+                // A non-edu client draws the retail pause content, not edu_pause's.
+                context = unlock_text(context)
+                    .with_flag("ignore_edu_pause", true)
+                    .with_var(
+                        "store_button_text",
+                        Value::String(server_store_text(translate)),
+                    );
+                "pause.pause_screen"
+            }
+            MenuScreen::Home => {
+                start_screen(view, &mut data, translate);
+                context = start_screen_vars(context);
+                "start.start_screen"
+            }
+            MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
+                super::play_screen::bind(view, &mut data);
+                "play.play_screen"
+            }
+            MenuScreen::AddServer => {
+                add_server_screen(view, &mut data, translate);
+                // The controller's edit mode swaps Play for Remove.
+                context = context.with_flag("edit_mode", view.editing.is_some());
+                "add_external_server.add_external_server_screen_new"
+            }
+            MenuScreen::Settings => {
+                settings_screen(view, &mut data);
+                super::settings_defaults::bind(&mut data, &|key: &str| {
+                    translated(translate, key, key)
+                });
+                return Some(MenuScreenData {
+                    reference: SETTINGS_SCREEN,
+                    context: settings_context(context),
+                    data,
+                    overlay: None,
+                });
+            }
+            MenuScreen::Store => return store_screen(view, &context, translate),
+            MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+        }
+    };
     Some(MenuScreenData {
         reference,
         context,
