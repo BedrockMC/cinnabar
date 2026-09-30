@@ -7,7 +7,7 @@ use super::{
     PhysicsAuthorityGate, PhysicsCollisionRegistries, PhysicsCorrectionMode,
     PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
     PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
-    physics_movement_input, reconcile_candidate_physics_correction,
+    physics_movement_input, reconcile_candidate_physics_correction, reconcile_timeline_rewind,
 };
 use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry_for_protocol};
 use protocol::{PlayerInputFlags, PlayerInputMode};
@@ -150,3 +150,4 @@ include!("integration_tests/replay_retry.rs");
 include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
 include!("integration_tests/vector_carriers.rs");
+include!("integration_tests/timeline.rs");

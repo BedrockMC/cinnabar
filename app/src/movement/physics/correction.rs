@@ -107,6 +107,39 @@ impl LocalPhysicsController {
         if let Some(velocity) = velocity {
             corrected.velocity = velocity;
         }
+        self.replay_from_corrected(tick, corrected, Some(network_position), world)
+    }
+
+    /// Re-simulates every retained tick after `tick` from its unchanged state so
+    /// timeline edits recorded after it (motion, attributes, flags) take effect.
+    pub(in crate::movement) fn replay_retained_from(
+        &mut self,
+        tick: u64,
+        world: &impl CollisionWorld,
+    ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let current_tick = self
+            .state
+            .as_ref()
+            .ok_or(PhysicsCorrectionError::NotRetained { tick })?
+            .tick;
+        if tick > current_tick || !self.sample_history.iter().any(|sample| sample.tick == tick) {
+            return Err(PhysicsCorrectionError::NotRetained { tick });
+        }
+        let Some(corrected) = self.history.state_at(tick).cloned() else {
+            return Err(PhysicsCorrectionError::NotRetained { tick });
+        };
+        self.replay_from_corrected(tick, corrected, None, world)
+    }
+
+    fn replay_from_corrected(
+        &mut self,
+        tick: u64,
+        corrected: PlayerState,
+        corrected_network_position: Option<[f32; 3]>,
+        world: &impl CollisionWorld,
+    ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let on_ground = corrected.on_ground;
+        let feet = corrected.position;
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();
         // The replay starts from this exact anchor state; capture its cooldown
@@ -207,7 +240,9 @@ impl LocalPhysicsController {
                 .iter_mut()
                 .find(|sample| sample.tick == tick)
                 .expect("retained correction sample was checked");
-            corrected_sample.position = network_position;
+            if let Some(position) = corrected_network_position {
+                corrected_sample.position = position;
+            }
             corrected_sample.world_identity.clone()
         };
 

@@ -113,23 +113,6 @@ fn queued_server_motion_replaces_exactly_one_ticks_velocity() {
 }
 
 #[test]
-fn authoritative_server_motion_ticks_preserve_ordered_future_impulses() {
-    let mut physics = LocalPhysicsController::default();
-    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
-    physics.queue_server_motion([0.45, 0.42, -0.35], 102);
-    physics.queue_server_motion([0.6, 0.5, -0.1], 103);
-    physics.queue_server_motion([-0.2, 0.8, 0.3], 103);
-
-    let tick_101 = run_one_tick(&mut physics, &VersionedFloor(1));
-    let tick_102 = run_one_tick(&mut physics, &VersionedFloor(1));
-    let tick_103 = run_one_tick(&mut physics, &VersionedFloor(1));
-
-    assert_eq!([tick_101.tick, tick_102.tick, tick_103.tick], [101, 102, 103]);
-    assert!(tick_102.velocity[0] > 0.0, "the first impulse keeps its wire tick");
-    assert!(tick_103.velocity[0] < 0.0, "the second impulse is not coalesced into the first");
-}
-
-#[test]
 fn untimed_server_motion_replaces_velocity_now_and_applies_once_at_the_next_tick() {
     let mut untimed = LocalPhysicsController::default();
     untimed.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);

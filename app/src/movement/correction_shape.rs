@@ -1,18 +1,15 @@
-//! Correction-shape classification for committed local-player corrections.
+//! Classification and reconciliation of committed local-player corrections and
+//! other tick-stamped timeline edits into prediction and the outbox.
 //!
-//! Protocol 2168's `CorrectPlayerMovePrediction` carries no shape or mode
-//! field, so Cinnabar derives the handling shape from observable field
-//! combinations. Every threshold here is explicit client policy and is labeled
-//! provisional until a version-matched native reference measures real
-//! correction behavior; none of this claims a vanilla contract.
+//! The teleport-displacement snap is Cinnabar policy; vanilla has no such
+//! shape for `CorrectPlayerMovePrediction`.
 
 use protocol::PLAYER_NETWORK_OFFSET;
 use sim::CollisionWorld;
 
-use super::physics::LocalPhysicsController;
+use super::physics::{self, LocalPhysicsController};
 use super::{
-    MovementTicker, PhysicsAnchor, PhysicsAuthorityFault, PhysicsCorrectionMode,
-    PhysicsCorrectionOutcome, reconcile_physics_anchor,
+    MovementTicker, PhysicsAuthorityFault, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
 };
 
 /// Largest per-tick displacement still treated as an ordinary reconcilable
@@ -151,4 +148,158 @@ pub(crate) fn reconcile_committed_correction(
         world,
     )
     .map(Some)
+}
+
+/// Authoritative end-of-tick player state carried by a correction.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhysicsAnchor {
+    pub network_position: [f32; 3],
+    pub tick: u64,
+    pub on_ground: bool,
+    /// Server StateVector motion; `None` keeps the retained velocity.
+    pub velocity: Option<[f32; 3]>,
+}
+
+pub fn reconcile_candidate_physics_correction(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    network_position: [f32; 3],
+    tick: u64,
+    on_ground: bool,
+    mode: PhysicsCorrectionMode,
+    world: &impl CollisionWorld,
+) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    reconcile_physics_anchor(
+        ticker,
+        physics,
+        PhysicsAnchor {
+            network_position,
+            tick,
+            on_ground,
+            velocity: None,
+        },
+        mode,
+        world,
+    )
+}
+
+pub fn reconcile_physics_anchor(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    anchor: PhysicsAnchor,
+    mode: PhysicsCorrectionMode,
+    world: &impl CollisionWorld,
+) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    let PhysicsAnchor {
+        network_position,
+        tick,
+        on_ground,
+        velocity,
+    } = anchor;
+    if !ticker.physics_is_authorized() {
+        return Err(PhysicsAuthorityFault::Unauthorized);
+    }
+
+    let apply_candidate = |mode| {
+        let aligned_tick = match mode {
+            PhysicsCorrectionMode::ReplayIfRetained => tick,
+            PhysicsCorrectionMode::Snap => ticker
+                .next_tick
+                .max(tick.saturating_add(1))
+                .saturating_sub(1),
+        };
+        let mut candidate_physics = physics.clone();
+        let mut candidate_ticker = ticker.clone();
+        let confirmation = candidate_ticker.sent_confirmation(aligned_tick);
+        let plan = candidate_physics
+            .apply_correction(
+                network_position,
+                aligned_tick,
+                on_ground,
+                velocity,
+                mode,
+                confirmation.as_ref(),
+                world,
+            )
+            .map_err(|error| match error {
+                physics::PhysicsCorrectionError::InvalidAnchor
+                | physics::PhysicsCorrectionError::ReplayFailed => {
+                    PhysicsAuthorityFault::CorrectionReplayFailed
+                }
+                physics::PhysicsCorrectionError::NotRetained { tick } => {
+                    PhysicsAuthorityFault::CorrectionNotRetained { tick }
+                }
+                physics::PhysicsCorrectionError::WorldIdentityMismatch { tick } => {
+                    PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
+                }
+            })?;
+        candidate_ticker.apply_correction_plan(&plan)?;
+        Ok((candidate_ticker, candidate_physics, plan.outcome))
+    };
+
+    let mut result = apply_candidate(mode);
+    if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
+        && matches!(
+            result,
+            Err(PhysicsAuthorityFault::CorrectionNotRetained { .. }
+                | PhysicsAuthorityFault::CorrectionReplayFailed
+                | PhysicsAuthorityFault::ReplayWorldIdentityMismatch { .. }
+                | PhysicsAuthorityFault::PendingWorldIdentityMismatch { .. })
+        )
+    {
+        // A delayed correction can outlive local history, and replaying from a
+        // changed anchor or after a newly committed subchunk can legitimately
+        // encounter different immutable chunk revisions. The server position
+        // remains authoritative in each case, so discard speculative history
+        // and continue from a current-tick snap instead of silently restoring
+        // free-camera movement.
+        result = apply_candidate(PhysicsCorrectionMode::Snap);
+    }
+
+    match result {
+        Ok((candidate_ticker, candidate_physics, outcome)) => {
+            *physics = candidate_physics;
+            *ticker = candidate_ticker;
+            Ok(outcome)
+        }
+        Err(fault) => {
+            ticker.fail_physics_authority(&fault);
+            physics.deactivate();
+            Err(fault)
+        }
+    }
+}
+
+/// Replays retained prediction after an authoritative timeline edit at `tick`.
+///
+/// Failure commits nothing; the caller keeps the edit's live effect.
+pub(crate) fn reconcile_timeline_rewind(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    tick: u64,
+    world: &impl CollisionWorld,
+) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    if !ticker.physics_is_authorized() {
+        return Err(PhysicsAuthorityFault::Unauthorized);
+    }
+    let mut candidate_physics = physics.clone();
+    let mut candidate_ticker = ticker.clone();
+    let plan = candidate_physics
+        .replay_retained_from(tick, world)
+        .map_err(|error| match error {
+            physics::PhysicsCorrectionError::NotRetained { tick } => {
+                PhysicsAuthorityFault::CorrectionNotRetained { tick }
+            }
+            physics::PhysicsCorrectionError::WorldIdentityMismatch { tick } => {
+                PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
+            }
+            physics::PhysicsCorrectionError::InvalidAnchor
+            | physics::PhysicsCorrectionError::ReplayFailed => {
+                PhysicsAuthorityFault::CorrectionReplayFailed
+            }
+        })?;
+    candidate_ticker.apply_correction_plan(&plan)?;
+    *physics = candidate_physics;
+    *ticker = candidate_ticker;
+    Ok(plan.outcome)
 }
