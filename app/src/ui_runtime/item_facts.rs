@@ -27,6 +27,10 @@ impl SessionItemComponents {
     pub(crate) fn get(&self, identifier: &str) -> Option<&ItemComponents> {
         self.0.get(identifier)
     }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&Arc<str>, &ItemComponents)> {
+        self.0.iter()
+    }
 }
 
 impl FromIterator<(Arc<str>, ItemComponents)> for SessionItemComponents {

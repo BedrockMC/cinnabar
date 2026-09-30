@@ -109,6 +109,8 @@ pub(crate) struct ClientWorld {
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
     pub(crate) pack_entities: Option<Arc<crate::runtime::network::entity_pack::SessionEntityPack>>,
+    /// The session's custom item facts and pack icons for held and worn items.
+    pub(crate) session_items: Option<Arc<crate::runtime::network::entity_pack::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) fatal_error: Option<String>,
     pub(crate) transfer_notice: Option<TransferNotice>,
@@ -131,6 +133,7 @@ impl ClientWorld {
             runtime_assets,
             entity_assets: None,
             pack_entities: None,
+            session_items: None,
             pending_surface_spawn: None,
             fatal_error: None,
             transfer_notice: None,
