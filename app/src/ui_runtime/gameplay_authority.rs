@@ -638,6 +638,10 @@ impl UiRuntime {
         self.session_items.as_ref()?.get(identifier)
     }
 
+    pub(crate) fn item_glint(&self, stack: &protocol::NetworkItemStack, identifier: &str) -> bool {
+        super::item_facts::is_glint(stack, identifier, self.item_components(identifier))
+    }
+
     /// A damageable item's maximum: the server's durability component, else the vanilla table.
     pub(crate) fn item_max_durability(&self, identifier: Option<&str>) -> Option<u32> {
         let identifier = identifier?;

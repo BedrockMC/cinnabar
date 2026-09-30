@@ -20,7 +20,10 @@ mod icons;
 mod registry_capacity;
 
 pub use components::{ItemComponents, item_components};
-pub use display::{ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display};
+pub use display::{
+    ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
+    item_has_enchantment_list,
+};
 pub use icons::item_icon_keys;
 
 /// The single item shape 1.26.40 puts on the wire.

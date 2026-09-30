@@ -244,6 +244,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
     let apple = IconRef {
         page: 0,
         uv: [0, 0, 1, 1],
+        glint: false,
     };
     let icons = [("textures/items/apple".to_owned(), apple)].into();
     let engine = presentation.form_presentation.engine.as_mut().unwrap();
