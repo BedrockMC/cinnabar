@@ -1095,3 +1095,35 @@ fn a_sizeless_player_uses_its_definition_collision_box() {
     assert!((max[0] - min[0] - 0.6).abs() < 1e-4 && (max[1] - min[1] - 1.8).abs() < 1e-4);
     assert_eq!(min[1], offset[1]);
 }
+
+/// Remote MovePlayer Rotation turns without moving and Reset snaps without a lerp.
+#[test]
+fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(42, -7, 0.0));
+    let before = store.get(42).unwrap().position;
+    let movement = |mode, x: f32| protocol::MovePlayerEvent {
+        runtime_id: 42,
+        position: [x, 80.0, 0.0],
+        yaw: 90.0,
+        head_yaw: 90.0,
+        mode,
+        ..protocol::MovePlayerEvent::default()
+    };
+    store.apply_player_move(1, 2, 0, movement(protocol::MovePlayerMode::Rotation, 30.0));
+    store.advance_interpolation_ticks(3);
+    let turned = store.get(42).unwrap();
+    assert_eq!(
+        turned.position, before,
+        "rotation mode never moves the player"
+    );
+    assert_eq!(turned.yaw, 90.0);
+
+    store.apply_player_move(1, 3, 0, movement(protocol::MovePlayerMode::Reset, 30.0));
+    let reset = store.get(42).unwrap();
+    assert_eq!(
+        reset.position[0], 30.0,
+        "reset sets the position without a lerp"
+    );
+    assert_eq!(reset.interpolation_ticks_remaining, 0);
+}
