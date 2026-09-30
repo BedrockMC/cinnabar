@@ -170,8 +170,9 @@ impl Painter<'_, '_> {
     }
 
     fn paint(&mut self, node: &DrawNode, now: f64, clocks: &BTreeMap<String, f64>) {
-        let clip = self.logical(&node.clip);
-        let dest = self.logical(&node.dest);
+        let (dest, clip) = node.animated_rects(now, Some(clocks));
+        let clip = self.logical(&clip);
+        let dest = self.logical(&dest);
         if clip[2] <= clip[0]
             || clip[3] <= clip[1]
             || dest[2] <= dest[0]
@@ -381,6 +382,7 @@ mod tests {
             alpha: 0.5,
             fades: Vec::new(),
             flip_book: None,
+            motions: Default::default(),
             draw,
             gates: Vec::new(),
         }
