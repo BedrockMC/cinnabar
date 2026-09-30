@@ -33,20 +33,15 @@ pub(super) fn read(
     let Some(ui) = ui else {
         return LocalMovementFacts::default();
     };
-    let elytra_ready = ui.gameplay_hud().armor().is_some_and(|slots| {
-        !slots.chestplate.is_empty()
-            && stream
-                .canonical_item_stack(&slots.chestplate)
-                .and_then(|stack| stack.identifier)
-                .is_some_and(|identifier| &*identifier == ELYTRA_IDENTIFIER)
-    });
+    let armor = ui.local_armor();
+    let elytra_ready = !armor.chestplate.is_empty()
+        && stream
+            .canonical_item_stack(&armor.chestplate)
+            .and_then(|stack| stack.identifier)
+            .is_some_and(|identifier| &*identifier == ELYTRA_IDENTIFIER);
     let capabilities = ui.game_mode_capabilities();
-    let boots_level = |id| {
-        ui.gameplay_hud()
-            .armor()
-            .and_then(|slots| protocol::item_enchantment_level(&slots.boots.extra_data, id))
-            .unwrap_or(0)
-    };
+    let boots_level =
+        |id| protocol::item_enchantment_level(&armor.boots.extra_data, id).unwrap_or(0);
     let ride = ui.gameplay_hud().mount_unique_id().map(|unique| {
         stream
             .actor_by_unique_id(unique)

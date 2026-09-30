@@ -120,8 +120,9 @@ fn layout_returns_boxes_and_resolve_names_sources() {
     );
 }
 
+// An unset flag reads as null, so the empty context decides `(not $touch)`.
 #[test]
-fn validate_reports_the_undecidable_ignored() {
+fn validate_decides_unset_flags_as_null() {
     let mut server = loaded();
     let report = call(
         &mut server,
@@ -135,7 +136,7 @@ fn validate_reports_the_undecidable_ignored() {
         .map(|d| d["message"].as_str().unwrap())
         .collect();
     assert!(
-        messages.iter().any(|m| m.contains("undecidable `ignored`")),
+        !messages.iter().any(|m| m.contains("undecidable `ignored`")),
         "{messages:?}"
     );
 }

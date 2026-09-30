@@ -36,6 +36,13 @@ pub(crate) enum Widget {
     AnvilName,
     /// Opens or closes the recipe book.
     BookToggle,
+    /// Flips the survival recipe book between craftable-only and every recipe.
+    RecipeFilter,
+    /// Picks the inventory layout by its radio index: survival, recipe book, or
+    /// the creative wide list.
+    InventoryLayout(u8),
+    /// Re-enables one disabled crafter slot.
+    CrafterSlot(u8),
     /// One recipe cell by position on the visible page.
     BookRecipe(u8),
     BookPage {
