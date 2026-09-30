@@ -1059,3 +1059,36 @@ fn full_64_mib_quad_arena_migrates_across_frames_then_publishes_a_positive_uploa
     assert_eq!(allowance.live_permits(), 0);
 }
 
+/// An unchanged visible set must not re-upload identical indirect commands.
+#[test]
+fn identical_indirect_commands_are_not_rewritten() {
+    let mut app = noop_gpu_publication_app(
+        ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    let device = app.world().resource::<RenderDevice>().clone();
+    let queue = app.world().resource::<RenderQueue>().clone();
+    let commands = [DrawIndexedIndirectArgs {
+        index_count: 6,
+        instance_count: 3,
+        first_index: 0,
+        base_vertex: 0,
+        first_instance: 0,
+    }; 4];
+    let mut arena = app.world_mut().resource_mut::<ChunkGpuArena>();
+    let bytes = 4 * INDEXED_INDIRECT_BYTES;
+    assert_eq!(
+        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands),
+        bytes
+    );
+    assert_eq!(
+        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &commands),
+        0
+    );
+    let mut changed = commands;
+    changed[1].instance_count = 4;
+    assert_eq!(
+        upload_indirect_commands_if_changed(&mut arena, &device, &queue, &changed),
+        bytes
+    );
+}
