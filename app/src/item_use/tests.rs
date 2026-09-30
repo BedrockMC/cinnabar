@@ -36,7 +36,7 @@ fn frame(tick: u64, held: bool) -> UseFrame {
     }
 }
 
-/// Each packet as "use", "release" or "complete".
+/// Each packet as "use" or "release".
 fn kinds(outcome: &UseOutcome) -> Vec<&'static str> {
     outcome
         .packets
@@ -47,8 +47,6 @@ fn kinds(outcome: &UseOutcome) -> Vec<&'static str> {
                 "use"
             } else if debug.contains("action_type: Release") {
                 "release"
-            } else if debug.contains("ItemReleaseInventoryTransaction(") {
-                "complete"
             } else {
                 "other"
             }
@@ -90,9 +88,9 @@ fn bow_press_starts_a_use_and_button_up_releases_it() {
     assert!(runtime.step(&frame(131, false)).packets.is_empty());
 }
 
-/// An uncharged crossbow completes on its own once its charge duration runs out.
+/// A depleted charge completes locally: the client sends nothing (`Player::completeUsingItem`).
 #[test]
-fn crossbow_completes_when_its_charge_duration_depletes() {
+fn a_depleted_crossbow_charge_ends_without_a_packet() {
     let crossbow = |tick| UseFrame {
         air_use: classify("minecraft:crossbow", false, 0),
         ..frame(tick, true)
@@ -101,7 +99,7 @@ fn crossbow_completes_when_its_charge_duration_depletes() {
     runtime.observe_press(true);
     assert!(runtime.step(&crossbow(10)).started);
     assert!(runtime.step(&crossbow(34)).packets.is_empty());
-    assert_eq!(kinds(&runtime.step(&crossbow(35))), ["complete"]);
+    assert!(runtime.step(&crossbow(35)).packets.is_empty());
     assert!(!runtime.is_using());
 }
 

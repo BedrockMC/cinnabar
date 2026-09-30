@@ -1,7 +1,8 @@
 //! Air item use: starting, holding, completing and releasing held-use items.
 //!
 //! Follows `GameMode::baseUseItem`, `GameMode::releaseUsingItem` and
-//! `Player::completeUsingItem`; projectiles, ammunition and damage stay server-owned.
+//! `Player::completeUsingItem` (which sends nothing from the client); projectiles, ammunition
+//! and damage stay server-owned.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -9,7 +10,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 use client_world::{LocalItemUse, WorldStream};
-use protocol::{HeldItemRequest, ItemReleaseKind, PlayerGameMode};
+use protocol::{HeldItemRequest, PlayerGameMode};
 use semantic_input::Action;
 
 use crate::{
@@ -165,15 +166,15 @@ impl ItemUseRuntime {
             // An in-flight inventory request hides the stack; keep the one the use began with.
             None => active.selection.clone(),
         };
-        let kind = if !frame.held {
-            ItemReleaseKind::Release
-        } else if frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks) {
-            ItemReleaseKind::Complete
-        } else {
+        if frame.held {
+            // A depleted use completes locally; the client sends nothing for it.
+            if frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks) {
+                self.active = None;
+            }
             return outcome;
-        };
+        }
         self.active = None;
-        if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame), kind) {
+        if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
             outcome.packets.push(packet);
         }
         outcome
@@ -186,7 +187,7 @@ impl ItemUseRuntime {
         if frame.press_consumed {
             return;
         }
-        if let Ok(packet) = protocol::click_air_packet(held_request(selection, frame)) {
+        if let Ok(packet) = protocol::click_air_packet(held_request(selection, frame), None) {
             outcome.packets.push(packet);
         }
         if let AirUse::Hold { max_ticks, .. } = air_use
