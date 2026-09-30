@@ -367,7 +367,7 @@ pub(crate) fn produce_melee(
         focused
             && caps.is_some_and(|caps| caps.can_attack)
             && !context.ui.ui_focused()
-            && movement.accepts_creative_mining()
+            && movement.accepts_block_interactions()
     }) else {
         runtime.cancel();
         return;

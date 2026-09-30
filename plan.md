@@ -25,17 +25,29 @@ transitions, render-controller part visibility and per-axis rotation objects are
 missing; queries without retained data read idle values; held items and most mob
 artwork are deferred.
 
+2026-09-30 block interaction: breaks (every game mode, both block-breaking
+authorities; Creative repeats while held), stateless full-cube placements and
+trapdoor/lever/button uses are predicted locally and replaced by the server's
+block updates; Build, Mine and DoorsAndSwitches/OpenContainers gate separately.
+Not live-accepted. Provisional, labeled incomplete: oriented, sized and merging
+placements and door/fence-gate uses are not predicted; the pick ray uses
+collision boxes, not vanilla selection shapes, so non-colliding plants cannot be
+targeted; Adventure CanDestroy/CanPlaceOn are not modelled; MineBlock requests
+cover recognized tools only; the standalone CreativeDestroyBlock and
+DenyDestroyBlock PlayerActionPackets the reference appears to send are not sent
+until a capture confirms their routing.
+
 2026-09-28 survival interaction: hold-to-mine (both block-breaking authority
 modes), MineBlock wear with reconciled responses, standalone ClickBlock
 placement, and melee with swings and missed-swing reporting are implemented but
 not live-accepted. Provisional, labeled incomplete: tool/harvest classes are
 Java-derived (PrismarineJS) and may predict early on Bedrock-specific tool rules;
-unresolved rows use the slowest rate; hardness is 1.26.30 data; flying is never
-detected; Unbreaking is not modelled; the destroy delay, completion threshold,
-pick ranges, server pick slack, entity pick radius, swing adjustments, placement
-repeat timings, attack-to-use block and bridging rule need independent
-measurement; replaceable, interactive and unpickable-entity lists are local
-choices. A vanilla packet capture must still confirm the attack swing count.
+unresolved rows use the slowest rate; hardness is 1.26.30 data; the completion
+threshold, pick ranges, server pick slack, entity pick radius, swing
+adjustments, placement repeat timings, attack-to-use block and bridging rule
+need independent measurement; replaceable, interactive and unpickable-entity
+lists are local choices. A vanilla packet capture must still confirm the attack
+swing count.
 
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
 lenient stream decode (palette clamp and index zeroing, zero-fill past the end,

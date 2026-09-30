@@ -1,6 +1,6 @@
 //! Turns the server's cracking speeds into destroy stages against the client clock.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use client_world::ActiveBlockCrack;
 use render::{CrackInstance, CrackShape};
@@ -45,11 +45,14 @@ impl CrackClock {
         now_seconds: f64,
         mut shape_of: impl FnMut(&ActiveBlockCrack) -> CrackShape,
     ) -> Vec<CrackInstance> {
-        self.tracks
-            .retain(|position, _| entries.iter().any(|entry| entry.position == *position));
+        let live = entries
+            .iter()
+            .map(|entry| entry.position)
+            .collect::<HashSet<_>>();
+        self.tracks.retain(|position, _| live.contains(position));
         entries
             .iter()
-            .map(|entry| {
+            .filter_map(|entry| {
                 let track = self.tracks.entry(entry.position).or_insert(Track {
                     start_sequence: entry.start_sequence,
                     rate_per_tick: entry.server_value,
@@ -68,11 +71,13 @@ impl CrackClock {
                     track.rate_per_tick = entry.server_value;
                     track.rate_since_seconds = now_seconds;
                 }
-                CrackInstance {
+                // Vanilla drops a crack once its progress completes.
+                let progress = track.progress(now_seconds);
+                (progress < 1.0).then(|| CrackInstance {
                     block: entry.position,
-                    stage: stage_for_progress(track.progress(now_seconds)),
+                    stage: stage_for_progress(progress),
                     shape: shape_of(entry),
-                }
+                })
             })
             .collect()
     }
@@ -105,8 +110,28 @@ mod tests {
             5
         );
         assert_eq!(
-            clock.instances(&entries, 100.0, |_| CrackShape::Cube)[0].stage,
+            clock.instances(&entries, 0.95, |_| CrackShape::Cube)[0].stage,
             9
+        );
+    }
+
+    /// A completed crack stops rendering instead of holding stage 9 indefinitely.
+    #[test]
+    fn completed_cracks_stop_rendering_until_restarted() {
+        let mut clock = CrackClock::default();
+        let entries = [crack([1, 2, 3], 7, 3_277)];
+        clock.instances(&entries, 0.0, |_| CrackShape::Cube);
+        assert!(
+            clock
+                .instances(&entries, 100.0, |_| CrackShape::Cube)
+                .is_empty()
+        );
+        let restarted = [crack([1, 2, 3], 8, 3_277)];
+        assert_eq!(
+            clock
+                .instances(&restarted, 100.0, |_| CrackShape::Cube)
+                .len(),
+            1
         );
     }
 

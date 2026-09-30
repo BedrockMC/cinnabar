@@ -15,7 +15,6 @@ use crate::local_player::{
 };
 use crate::melee::produce_melee;
 use crate::menu::recover_menu_session_failure;
-use crate::mining::produce_creative_mining;
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{publish_actor_render_frame, receive_network_events};
 use crate::runtime::phase3_evidence::emit_phase3_evidence;
@@ -154,16 +153,9 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     assert!(
         graph.dependency().graph().contains_edge(
             system_node(graph, produce_melee, "produce_melee"),
-            system_node(graph, produce_creative_mining, "produce_creative_mining"),
-        ),
-        "an attacked actor must veto mining the block behind it",
-    );
-    assert!(
-        graph.dependency().graph().contains_edge(
-            system_node(graph, produce_creative_mining, "produce_creative_mining"),
             system_node(graph, produce_survival_mining, "produce_survival_mining"),
         ),
-        "creative arbitration must precede survival destroy stepping",
+        "an attacked actor must veto mining the block behind it",
     );
     assert!(
         graph.dependency().graph().contains_edge(
@@ -181,8 +173,8 @@ fn production_client_systems_are_members_of_the_eleven_behavioral_sets() {
     );
     assert_system_in_stage(
         graph,
-        produce_creative_mining,
-        "produce_creative_mining",
+        produce_survival_mining,
+        "produce_survival_mining",
         ClientFrameSet::NetworkSend,
     );
     assert_system_in_stage(
