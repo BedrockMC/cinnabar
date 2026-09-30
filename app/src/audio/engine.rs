@@ -40,6 +40,8 @@ pub(crate) struct SoundRequest {
     pub volume: FloatRange,
     pub pitch: FloatRange,
     pub looping: bool,
+    /// Jukebox cell that owns this record, so its stop silences only this voice.
+    pub jukebox: Option<[i32; 3]>,
 }
 
 impl SoundRequest {
@@ -50,6 +52,7 @@ impl SoundRequest {
             volume: FloatRange::ONE,
             pitch: FloatRange::ONE,
             looping: false,
+            jukebox: None,
         }
     }
 
@@ -113,6 +116,7 @@ struct Voice {
     min: f32,
     max: f32,
     key: Option<&'static str>,
+    jukebox: Option<[i32; 3]>,
     priority: u8,
     gain: f32,
 }
@@ -232,16 +236,6 @@ impl AudioEngine {
             || self.pending.iter().any(|start| start.category == category)
     }
 
-    /// Whether `name` is queued, waiting on a decode, or playing.
-    pub(crate) fn is_active(&self, name: &str) -> bool {
-        self.queue.iter().any(|request| &*request.name == name)
-            || self
-                .pending
-                .iter()
-                .any(|start| &*start.request.name == name)
-            || (self.voices.iter()).any(|voice| &*voice.name == name && !voice.shared.finished())
-    }
-
     /// Cancels every voice playing `name`, and starts of it requested earlier but not yet begun.
     pub(crate) fn stop_named(&mut self, name: &str) {
         for voice in self.voices.iter().filter(|voice| &*voice.name == name) {
@@ -249,6 +243,30 @@ impl AudioEngine {
         }
         self.queue.retain(|request| &*request.name != name);
         self.pending.retain(|start| &*start.request.name != name);
+    }
+
+    /// Cancels the record owned by the jukebox at `cell`, playing or not yet started.
+    pub(crate) fn stop_jukebox(&mut self, cell: [i32; 3]) {
+        for voice in self
+            .voices
+            .iter()
+            .filter(|voice| voice.jukebox == Some(cell))
+        {
+            voice.shared.cancel();
+        }
+        self.queue.retain(|request| request.jukebox != Some(cell));
+        self.pending
+            .retain(|start| start.request.jukebox != Some(cell));
+    }
+
+    /// Whether the jukebox at `cell` has a record queued, decoding, or playing.
+    pub(crate) fn is_jukebox_active(&self, cell: [i32; 3]) -> bool {
+        self.queue
+            .iter()
+            .any(|request| request.jukebox == Some(cell))
+            || (self.pending.iter()).any(|start| start.request.jukebox == Some(cell))
+            || (self.voices.iter())
+                .any(|voice| voice.jukebox == Some(cell) && !voice.shared.finished())
     }
 
     /// Cancels every voice and not-yet-started sound of `category`.
@@ -633,6 +651,7 @@ impl AudioEngine {
             min,
             max,
             key,
+            jukebox: request.jukebox,
             priority: new_priority,
             gain: new_gain,
         });
@@ -642,7 +661,7 @@ impl AudioEngine {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::audio::voice::Pcm;
     use assets::{
@@ -672,7 +691,7 @@ mod tests {
         }
     }
 
-    fn engine(names: &[(&str, &str)]) -> AudioEngine {
+    pub(crate) fn engine(names: &[(&str, &str)]) -> AudioEngine {
         let defs: Vec<_> = names
             .iter()
             .map(|(name, category)| definition(name, category))
