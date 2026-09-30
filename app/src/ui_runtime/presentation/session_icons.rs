@@ -176,6 +176,7 @@ fn pack(
                     (left + icon.width) as u16,
                     (top + icon.height) as u16,
                 ],
+                glint: false,
             },
         );
         cursor[0] += padded[0];

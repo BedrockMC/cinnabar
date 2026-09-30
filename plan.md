@@ -3215,6 +3215,13 @@ leftovers: block-entity items (chests, shulkers, beds, banners, pots, statues),
 world-diagnostic cubes, grass (overlay tint), and seeds without a sprite source.
 Shape classification, stair orientation and GUI shading are unverified against
 the retail GUI tessellator.
+Server item components (StartGame registry) drive display names, rarity and
+hover colours, durability maxima, stack-merge capacity, held grip, wearable
+slots and use durations. Item glint (provisional): stacks `Item::isGlint`
+marks (an `ench` list, the glint component, always-glinting vanilla items)
+draw a procedural scrolling purple overlay in HUD and JSON-UI item cells, not
+the retail glint texture; held items and the item viewmodel do not glint.
+`minecraft:render_offsets` is not applied.
 Initial negotiated item-registry binding for world item visuals is also separate
 from the inventory-ledger bootstrap fix. The visual resolver still starts from
 built-in mappings and only replaces them on a later registry event. Preserve

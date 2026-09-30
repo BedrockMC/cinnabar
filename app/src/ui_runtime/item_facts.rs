@@ -184,6 +184,26 @@ fn fraction_from_damage(maximum: u32, damage: u32) -> Option<f32> {
     Some(remaining as f32 / maximum as f32)
 }
 
+/// Whether a stack glints as `Item::isGlint` decides: an `ench` list, the item's glint
+/// component, or a vanilla item that always glints.
+#[must_use]
+pub(crate) fn is_glint(
+    stack: &NetworkItemStack,
+    identifier: &str,
+    components: Option<&ItemComponents>,
+) -> bool {
+    protocol::item_has_enchantment_list(&stack.extra_data)
+        || components.is_some_and(|components| components.glint)
+        || matches!(
+            identifier,
+            "minecraft:enchanted_book"
+                | "minecraft:experience_bottle"
+                | "minecraft:written_book"
+                | "minecraft:end_crystal"
+                | "minecraft:enchanted_golden_apple"
+        )
+}
+
 /// The format code and colour `Item::getHoverTextColor` gives a component item's name: its
 /// `hover_text_color`, else its rarity's (uncommon yellow, rare aqua, epic light purple).
 #[must_use]
@@ -482,6 +502,25 @@ mod tests {
         );
         runtime.begin_session(2);
         assert_eq!(runtime.localized_item_name("zeqa:gem"), "Gem");
+    }
+
+    // Glint follows an ench list (even empty), the glint component, or an always-glinting item.
+    #[test]
+    fn glint_follows_enchantments_components_and_vanilla_items() {
+        let plain = NetworkItemStack::empty();
+        assert!(!is_glint(&plain, "minecraft:stick", None));
+        assert!(is_glint(&plain, "minecraft:enchanted_book", None));
+        let foil = ItemComponents {
+            glint: true,
+            ..ItemComponents::default()
+        };
+        assert!(is_glint(&plain, "zeqa:blade", Some(&foil)));
+        let mut enchanted = stack_with_damage(0);
+        let mut extra = enchanted.extra_data.to_vec();
+        let end = extra.len() - 1;
+        extra.splice(end..end, [9, 4, 0, b'e', b'n', b'c', b'h', 10, 0, 0, 0, 0]);
+        enchanted.extra_data = Arc::from(extra);
+        assert!(is_glint(&enchanted, "minecraft:stick", None));
     }
 
     // hover_text_color outranks rarity; unknown names and common rarity keep the default.
