@@ -1,7 +1,24 @@
 package proxy
 
 import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"fmt"
+	"log/slog"
+	"net"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/df-mc/go-nethernet"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/sandertv/gophertunnel/minecraft"
 
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 )
@@ -26,3 +43,175 @@ func TestSelectFriendWorldFallsBackToInviteOnlyThenNil(t *testing.T) {
 		t.Fatalf("selected %+v for an absent owner", got)
 	}
 }
+
+// memorySignaling is an in-process NetherNet signaling peer on a shared hub.
+type memorySignaling struct {
+	hub    *memorySignalHub
+	id     string
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	mu        sync.Mutex
+	notifiers map[int]nethernet.Notifier
+	next      int
+}
+
+type memorySignalHub struct {
+	mu    sync.Mutex
+	peers map[string]*memorySignaling
+}
+
+func (hub *memorySignalHub) peer(id string) *memorySignaling {
+	ctx, cancel := context.WithCancel(context.Background())
+	peer := &memorySignaling{hub: hub, id: id, ctx: ctx, cancel: cancel, notifiers: map[int]nethernet.Notifier{}}
+	hub.mu.Lock()
+	hub.peers[id] = peer
+	hub.mu.Unlock()
+	return peer
+}
+
+func (s *memorySignaling) Signal(_ context.Context, signal *nethernet.Signal) error {
+	s.hub.mu.Lock()
+	remote := s.hub.peers[signal.NetworkID]
+	s.hub.mu.Unlock()
+	if remote == nil {
+		return fmt.Errorf("no peer %q", signal.NetworkID)
+	}
+	delivered := *signal
+	delivered.NetworkID = s.id
+	remote.mu.Lock()
+	notifiers := make([]nethernet.Notifier, 0, len(remote.notifiers))
+	for _, n := range remote.notifiers {
+		notifiers = append(notifiers, n)
+	}
+	remote.mu.Unlock()
+	for _, n := range notifiers {
+		n.NotifySignal(&delivered)
+	}
+	return nil
+}
+
+func (s *memorySignaling) Notify(n nethernet.Notifier) func() {
+	s.mu.Lock()
+	id := s.next
+	s.next++
+	s.notifiers[id] = n
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.notifiers, id)
+		s.mu.Unlock()
+	}
+}
+
+func (s *memorySignaling) Context() context.Context { return s.ctx }
+func (s *memorySignaling) Credentials(context.Context) (*nethernet.Credentials, error) {
+	return nil, nil
+}
+func (s *memorySignaling) NetworkID() string { return s.id }
+func (s *memorySignaling) PongData([]byte)   {}
+func (s *memorySignaling) Close() error      { s.cancel(); return nil }
+
+// syntheticMultiplayerToken is an RS256 token shaped like the authorization service's, with cpk bound to key.
+func syntheticMultiplayerToken(t *testing.T, key *ecdsa.PublicKey) string {
+	t.Helper()
+	issuer, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: issuer}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	token, err := jwt.Signed(signer).Claims(map[string]any{
+		"iss": "https://authorization.example/",
+		"iat": now.Unix(),
+		"exp": now.Add(time.Hour).Unix(),
+		"cpk": jose.JSONWebKey{Key: key},
+	}).Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+// dialIdentityListener dials a listener that, like a Realm, refuses anonymous offers (code 37).
+func dialIdentityListener(t *testing.T, dial func(scopedNetherNetNetwork, context.Context, string) (net.Conn, error)) (net.Conn, error, string) {
+	t.Helper()
+	hub := &memorySignalHub{peers: map[string]*memorySignaling{}}
+	server := hub.peer("realm")
+	var seen atomic.Value
+	listener, err := nethernet.ListenConfig{
+		Log: slog.New(slog.DiscardHandler),
+		VerifyClientToken: func(_ context.Context, token string) (*ecdsa.PublicKey, error) {
+			seen.Store(token)
+			return nil, nil
+		},
+	}.Listen(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	network := scopedNetherNetNetwork{signal: func(context.Context, string) (minecraft.SignalingConn, error) {
+		return hub.peer("client"), nil
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	conn, err := dial(network, ctx, "realm")
+	token, _ := seen.Load().(string)
+	return conn, err, token
+}
+
+func TestNetherNetDialPresentsTheLoginTokenBoundToTheLoginKey(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := syntheticMultiplayerToken(t, &key.PublicKey)
+	conn, err, seen := dialIdentityListener(t, func(network scopedNetherNetNetwork, ctx context.Context, address string) (net.Conn, error) {
+		return network.DialContextIdentityProvider(ctx, address, token, key, "https://authorization.example/")
+	})
+	if err != nil {
+		t.Fatalf("identity dial: %v", err)
+	}
+	_ = conn.Close()
+	if seen != token {
+		t.Fatal("listener did not receive the Login's multiplayer token")
+	}
+}
+
+func TestNetherNetDialRejectsATokenBoundToAnotherKey(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	other, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	token := syntheticMultiplayerToken(t, &other.PublicKey)
+	_, err, _ := dialIdentityListener(t, func(network scopedNetherNetNetwork, ctx context.Context, address string) (net.Conn, error) {
+		return network.DialContextIdentityProvider(ctx, address, token, key, "https://authorization.example/")
+	})
+	if !isIdentityNotAllowed(err) {
+		t.Fatalf("mismatched cpk dial error = %v, want code %d", err, nethernet.ErrorCodeIdentityNotAllowed)
+	}
+}
+
+func TestNetherNetAnonymousDialIsRefusedLikeTheRealm(t *testing.T) {
+	_, err, _ := dialIdentityListener(t, func(network scopedNetherNetNetwork, ctx context.Context, address string) (net.Conn, error) {
+		return network.DialContext(ctx, address)
+	})
+	if !isIdentityNotAllowed(err) {
+		t.Fatalf("anonymous dial error = %v, want code %d", err, nethernet.ErrorCodeIdentityNotAllowed)
+	}
+}
+
+func isIdentityNotAllowed(err error) bool {
+	return err != nil && strings.Contains(err.Error(), fmt.Sprintf("(code: %d)", nethernet.ErrorCodeIdentityNotAllowed))
+}
+
+// minecraft.Dialer only passes the identity to networks with this method.
+var _ interface {
+	DialContextIdentityProvider(context.Context, string, string, *ecdsa.PrivateKey, string) (net.Conn, error)
+} = scopedNetherNetNetwork{}
