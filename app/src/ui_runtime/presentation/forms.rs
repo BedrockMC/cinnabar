@@ -1,5 +1,6 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
+mod book_screen;
 mod container_data;
 mod container_kinds;
 mod containers;

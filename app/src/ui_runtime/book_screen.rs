@@ -30,6 +30,8 @@ pub(crate) struct BookState {
     pub(crate) signing: bool,
     pub(crate) title: String,
     pub(crate) author: String,
+    /// The page whose edit controls the vanilla book screen shows.
+    pub(crate) editing: Option<usize>,
 }
 
 impl BookState {
@@ -52,6 +54,7 @@ impl BookState {
             signing: false,
             title,
             author,
+            editing: None,
         }
     }
 
@@ -105,6 +108,60 @@ impl BookState {
         true
     }
 
+    /// The first page of the two-page spread showing the current page.
+    pub(crate) fn spread(&self) -> usize {
+        self.page - self.page % 2
+    }
+
+    /// Shows the next spread, starting a page there in a writable book; whether it moved.
+    pub(crate) fn next_spread(&mut self) -> bool {
+        let target = self.spread() + 2;
+        if target < self.pages.len() {
+            self.page = target;
+            return true;
+        }
+        self.add_page() && {
+            self.page = target.min(self.pages.len() - 1);
+            true
+        }
+    }
+
+    /// Shows the previous spread; whether it moved.
+    pub(crate) fn prev_spread(&mut self) -> bool {
+        let spread = self.spread();
+        self.page = spread.saturating_sub(2);
+        spread > 0
+    }
+
+    /// Inserts a blank page after `at` and types into it.
+    pub(crate) fn insert_page(&mut self, at: usize) {
+        if !self.editable || self.pages.len() >= MAX_BOOK_PAGES || at >= self.pages.len() {
+            return;
+        }
+        self.pages.insert(at + 1, String::new());
+        self.page = at + 1;
+    }
+
+    /// Removes page `at`; the last page left only clears.
+    pub(crate) fn delete_page(&mut self, at: usize) {
+        if !self.editable || at >= self.pages.len() {
+            return;
+        }
+        if self.pages.len() == 1 {
+            self.pages[0].clear();
+            return;
+        }
+        self.pages.remove(at);
+        self.page = self.page.min(self.pages.len() - 1);
+    }
+
+    /// Swaps page `at` with page `with`, both inside the book.
+    pub(crate) fn swap_pages(&mut self, at: usize, with: usize) {
+        if self.editable && at < self.pages.len() && with < self.pages.len() {
+            self.pages.swap(at, with);
+        }
+    }
+
     /// The page edits that bring the server's copy in line, oldest page first.
     pub(crate) fn edits(&self) -> Vec<BookEdit> {
         self.pages
@@ -124,6 +181,16 @@ impl BookState {
                     }),
                 }
             })
+            // Pages deleted past the new end go last page first.
+            .chain(
+                (self.pages.len()..self.baseline.len())
+                    .rev()
+                    .filter_map(|page| {
+                        Some(BookEdit::DeletePage {
+                            page: i32::try_from(page).ok()?,
+                        })
+                    }),
+            )
             .collect()
     }
 }
@@ -273,6 +340,34 @@ mod tests {
             String::new(),
             String::new(),
         )
+    }
+
+    // Spreads turn two pages; deleting past the old end reports the deletions.
+    #[test]
+    fn spreads_turn_by_two_and_deletions_reach_the_edits() {
+        let mut state = BookState::new(
+            BookSource::Held(0),
+            ["a", "b", "c"].map(str::to_owned).to_vec(),
+            true,
+            String::new(),
+            String::new(),
+        );
+        assert!(state.next_spread());
+        assert_eq!((state.page, state.spread()), (2, 2));
+        // At the end a writable book starts a page, here the spread's right one.
+        assert!(state.next_spread());
+        assert_eq!((state.pages.len(), state.page), (4, 3));
+        assert!(state.prev_spread());
+        assert_eq!(state.spread(), 0);
+        state.delete_page(3);
+        state.delete_page(0);
+        state.swap_pages(0, 1);
+        assert_eq!(state.pages, ["c", "b"]);
+        let edits = state.edits();
+        assert!(
+            edits.contains(&BookEdit::DeletePage { page: 2 }),
+            "{edits:?}"
+        );
     }
 
     #[test]

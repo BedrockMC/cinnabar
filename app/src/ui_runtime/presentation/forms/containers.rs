@@ -42,6 +42,8 @@ pub(super) enum ScreenLayout {
     },
     /// A chest-like storage window or a station.
     Station(&'static ContainerKind),
+    /// A book reader or editor, or a lectern's book.
+    Book,
 }
 
 impl ScreenLayout {
@@ -53,8 +55,7 @@ impl ScreenLayout {
             InventoryScreen::Workbench => Self::Workbench { book },
             InventoryScreen::Storage(slots) => Self::Station(storage_kind(slots, block_entity)),
             InventoryScreen::Window(kind, _) => Self::Station(window_kind(kind)?),
-            // Books keep the Java-styled screens.
-            InventoryScreen::Book => return None,
+            InventoryScreen::Book => Self::Book,
         })
     }
 
@@ -63,6 +64,7 @@ impl ScreenLayout {
             Self::Personal { .. } => ("crafting.inventory_screen", "container.crafting"),
             Self::Workbench { .. } => ("crafting.crafting_screen", "container.crafting"),
             Self::Station(kind) => (kind.screen, kind.title_key),
+            Self::Book => (super::book_screen::SCREEN, "book.editTitle"),
         }
     }
 
@@ -114,6 +116,7 @@ impl UiPresentationRuntime {
                     context = context.with_flag(flag, true);
                 }
             }
+            ScreenLayout::Book => context = super::book_screen::context(context),
             _ => context = super::recipe_book::context(context),
         }
         let mut icons = Vec::new();
@@ -126,16 +129,20 @@ impl UiPresentationRuntime {
                     hit_test(&frame.hits, [f64::from(point[0]), f64::from(point[1])])
                 })
                 .map(|region| region.key.clone()),
-            // The anvil's name or the search field shows focused while it takes typing.
-            focused: previous
-                .filter(|_| runtime.screen_state().text_focused())
-                .and_then(|frame| {
-                    frame
-                        .hits
-                        .iter()
-                        .find(|region| region.kind == json_ui::HitKind::EditBox)
-                })
-                .map(|region| region.key.clone()),
+            // The anvil's name, the search field or the book page shows focused
+            // while it takes typing.
+            focused: match (previous, &runtime.screen_state().book) {
+                (Some(frame), Some(book)) => super::book_screen::focused(&frame.hits, book),
+                _ => previous
+                    .filter(|_| runtime.screen_state().text_focused())
+                    .and_then(|frame| {
+                        frame
+                            .hits
+                            .iter()
+                            .find(|region| region.kind == json_ui::HitKind::EditBox)
+                    })
+                    .map(|region| region.key.clone()),
+            },
             scroll: runtime.screen_state().container_scroll.clone(),
             ..ViewState::default()
         };
@@ -209,7 +216,11 @@ impl UiPresentationRuntime {
             ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
                 super::recipe_book::book_hit(region, book)
             }
+            ScreenLayout::Book => super::book_screen::book_hit(region),
         };
+        if matches!(layout, ScreenLayout::Book) {
+            return widget();
+        }
         let (Some(index), Some(collection)) =
             (region.collection_index, region.collection.as_deref())
         else {
@@ -482,6 +493,11 @@ fn screen_data(
             if let Some(window) = ledger.window_kind() {
                 container_data::station_globals(&mut data, runtime, window);
                 container_data::station_controls(&mut data, runtime, frame, window);
+            }
+        }
+        ScreenLayout::Book => {
+            if let Some(book) = &runtime.screen_state().book {
+                super::book_screen::book_data(&mut data, book);
             }
         }
     }

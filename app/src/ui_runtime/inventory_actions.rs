@@ -265,6 +265,38 @@ impl UiRuntime {
             ReaderButton::Sign => book.signing = true,
             ReaderButton::Finalize => self.finish_book(true),
             ReaderButton::Cancel => book.signing = false,
+            ReaderButton::PrevSpread => {
+                if book.prev_spread() {
+                    self.report_lectern_page();
+                }
+            }
+            ReaderButton::NextSpread => {
+                if book.next_spread() {
+                    self.report_lectern_page();
+                }
+            }
+            ReaderButton::EditPage(side) => {
+                let at = book.spread() + usize::from(side);
+                book.editing = (book.editing != Some(at)).then_some(at);
+            }
+            ReaderButton::InsertPage(side) => book.insert_page(book.spread() + usize::from(side)),
+            ReaderButton::DeletePage(side) => book.delete_page(book.spread() + usize::from(side)),
+            ReaderButton::SwapLeft(side) => {
+                let at = book.spread() + usize::from(side);
+                if let Some(with) = at.checked_sub(1) {
+                    book.swap_pages(at, with);
+                }
+            }
+            ReaderButton::SwapRight(side) => {
+                let at = book.spread() + usize::from(side);
+                book.swap_pages(at, at + 1);
+            }
+            ReaderButton::FocusPage(side) => {
+                let at = book.spread() + usize::from(side);
+                if at < book.pages.len() {
+                    book.page = at;
+                }
+            }
         }
     }
 
