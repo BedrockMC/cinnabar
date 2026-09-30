@@ -278,3 +278,15 @@ fn standalone_attack_packets_precede_their_tick_player_auth_input() {
             .unwrap();
     }
 }
+
+/// Players need no size metadata to be picked.
+#[test]
+fn a_sizeless_player_is_picked() {
+    let mut player = actor(6, "", [0.0, 0.0, -2.0], None);
+    player.kind = ActorKind::Player {
+        uuid: [6; 16],
+        username: "p".into(),
+    };
+    let hit = pick_actor([player].iter(), None, EYE, NORTH, 5.7).unwrap();
+    assert_eq!(hit.runtime_id, 6);
+}
