@@ -245,11 +245,7 @@ impl<'a> HudLayout<'a> {
             None,
             rect(x, y, x + 16.0 * g.scale, y + 16.0 * g.scale)?,
         )
-        .with_visual(UiVisual::Sprite {
-            texture_page: icon.page,
-            uv: icon.uv,
-            color: [255; 4],
-        });
+        .with_visual(icon.visual([255; 4]));
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);
         Ok(())

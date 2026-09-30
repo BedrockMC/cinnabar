@@ -98,7 +98,9 @@ fn install_ui_render(app: &mut App) {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct UiViewportUniform {
     viewport_size: [f32; 2],
-    _padding: [f32; 2],
+    /// Seconds since the UI renderer started; animates the item glint.
+    time_seconds: f32,
+    _padding: f32,
 }
 
 #[derive(Resource)]
@@ -113,6 +115,7 @@ pub(crate) struct UiGpu {
     index_arena_id: u64,
     viewport_buffer: Buffer,
     viewport_size: [u32; 2],
+    started: std::time::Instant,
     textures: UiGpuTextures,
     sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
@@ -131,7 +134,8 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         label: Some("shared UI viewport uniform"),
         contents: bytemuck::bytes_of(&UiViewportUniform {
             viewport_size: [1.0, 1.0],
-            _padding: [0.0; 2],
+            time_seconds: 0.0,
+            _padding: 0.0,
         }),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
@@ -156,6 +160,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         index_arena_id: 0,
         viewport_buffer,
         viewport_size: [1, 1],
+        started: std::time::Instant::now(),
         textures: UiGpuTextures::default(),
         sampler,
         batches: Arc::from([]),
@@ -203,6 +208,13 @@ pub(crate) fn prepare_ui_resources(
         );
         return;
     }
+    // Written every frame: the glint animates without a new UI revision.
+    let viewport = UiViewportUniform {
+        viewport_size: [input.viewport_size[0] as f32, input.viewport_size[1] as f32],
+        time_seconds: gpu.started.elapsed().as_secs_f32() % 3600.0,
+        _padding: 0.0,
+    };
+    render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     if let Err(reason) = input.validate() {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
@@ -298,13 +310,6 @@ pub(crate) fn prepare_ui_resources(
             (upload.indices.start * size_of::<u32>()) as u64,
             bytemuck::cast_slice(&input.indices[upload.indices.clone()]),
         );
-    }
-    let viewport = UiViewportUniform {
-        viewport_size: [input.viewport_size[0] as f32, input.viewport_size[1] as f32],
-        _padding: [0.0; 2],
-    };
-    if gpu.viewport_size != input.viewport_size {
-        render_queue.write_buffer(&gpu.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     }
     gpu.viewport_size = input.viewport_size;
 

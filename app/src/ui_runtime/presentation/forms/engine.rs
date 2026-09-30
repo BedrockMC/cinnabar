@@ -606,14 +606,7 @@ impl Painter<'_> {
                     .art
                     .icons
                     .get(number("#item_renderer_data")? as usize)?;
-                Some((
-                    UiVisual::Sprite {
-                        texture_page: icon.page,
-                        uv: icon.uv,
-                        color: alpha([255; 4]),
-                    },
-                    dest,
-                ))
+                Some((icon.visual(alpha([255; 4])), dest))
             }
             "progress_bar_renderer" => {
                 if data.get("#touch_progress_bar_visible") != Some(&serde_json::Value::Bool(true)) {

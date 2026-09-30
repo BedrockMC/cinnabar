@@ -273,6 +273,17 @@ pub(crate) fn publish_ui_runtime(
     }
 }
 
+/// `stack`'s icon, glinting as `Item::isGlint` decides.
+fn stack_icon(
+    runtime: &UiRuntime,
+    presentation: &UiPresentationRuntime,
+    stack: &protocol::NetworkItemStack,
+    identifier: &str,
+) -> Option<super::IconRef> {
+    let icon = presentation.item_icon(identifier, stack.metadata)?;
+    Some(icon.with_glint(runtime.item_glint(stack, identifier)))
+}
+
 pub(crate) fn refresh_hud_frame(
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
@@ -311,7 +322,7 @@ pub(crate) fn refresh_hud_frame(
         if let Some(stack) = runtime.inventory_ledger().displayed_stack(slot as u8) {
             *icon = resolve_identifier(stack)
                 .as_deref()
-                .and_then(|id| presentation.item_icon(id, stack.metadata));
+                .and_then(|id| stack_icon(runtime, presentation, stack, id));
         }
     }
     let mut storage_icons = super::hud_layout::StorageIcons::default();
@@ -319,7 +330,7 @@ pub(crate) fn refresh_hud_frame(
         if let Some(stack) = runtime.inventory_ledger().storage_stack(slot as u8) {
             *icon = resolve_identifier(stack)
                 .as_deref()
-                .and_then(|id| presentation.item_icon(id, stack.metadata));
+                .and_then(|id| stack_icon(runtime, presentation, stack, id));
         }
     }
     let mut crafting = super::hud_layout::CraftingFrame::default();
@@ -334,7 +345,7 @@ pub(crate) fn refresh_hud_frame(
             if let Some(stack) = ledger.target_stack(target) {
                 *icon = resolve_identifier(stack)
                     .as_deref()
-                    .and_then(|id| presentation.item_icon(id, stack.metadata));
+                    .and_then(|id| stack_icon(runtime, presentation, stack, id));
             }
         }
         if let protocol::CraftGridMatch::Unique(recipe) = runtime.crafting_match() {
@@ -348,7 +359,7 @@ pub(crate) fn refresh_hud_frame(
             };
             let icon = resolve_identifier(&stack)
                 .as_deref()
-                .and_then(|id| presentation.item_icon(id, stack.metadata));
+                .and_then(|id| stack_icon(runtime, presentation, &stack, id));
             crafting.output = Some((icon, stack));
         }
     }
@@ -384,8 +395,8 @@ pub(crate) fn refresh_hud_frame(
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger();
         let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
-            let identifier = resolve_identifier(stack);
-            item_facts::cell_durability_fraction(stack, identifier.as_deref(), correction)
+            let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
+            item_facts::cell_durability_fraction(stack, maximum, correction)
         };
         for (slot, bar) in durability.player.iter_mut().enumerate() {
             if let Some(stack) = ledger.displayed_stack(slot as u8) {
@@ -412,7 +423,7 @@ pub(crate) fn refresh_hud_frame(
                 durability.ui[usize::from(slot)] = fraction(stack, None);
                 window_icons.ui[usize::from(slot)] = resolve_identifier(stack)
                     .as_deref()
-                    .and_then(|id| presentation.item_icon(id, stack.metadata));
+                    .and_then(|id| stack_icon(runtime, presentation, stack, id));
             }
         }
     }
@@ -533,7 +544,7 @@ pub(crate) fn refresh_hud_frame(
             {
                 window_icons.creative[cell] = resolve_identifier(&item.stack)
                     .as_deref()
-                    .and_then(|id| presentation.item_icon(id, item.stack.metadata));
+                    .and_then(|id| stack_icon(runtime, presentation, &item.stack, id));
             }
             for (tab, id) in [
                 "minecraft:brick",
@@ -577,7 +588,7 @@ pub(crate) fn refresh_hud_frame(
                         let stack = output_stack(output);
                         window_icons.recipe[cell] = resolve_identifier(&stack)
                             .as_deref()
-                            .and_then(|id| presentation.item_icon(id, stack.metadata));
+                            .and_then(|id| stack_icon(runtime, presentation, &stack, id));
                     }
                 }
             }
@@ -594,7 +605,7 @@ pub(crate) fn refresh_hud_frame(
                 let stack = output_stack(output);
                 let icon = resolve_identifier(&stack)
                     .as_deref()
-                    .and_then(|id| presentation.item_icon(id, stack.metadata));
+                    .and_then(|id| stack_icon(runtime, presentation, &stack, id));
                 window_icons.recipe_output = Some((icon, stack));
             }
         }
@@ -622,7 +633,7 @@ pub(crate) fn refresh_hud_frame(
                     };
                     window_icons.book[cell] = resolve_identifier(&stack)
                         .as_deref()
-                        .and_then(|id| presentation.item_icon(id, stack.metadata));
+                        .and_then(|id| stack_icon(runtime, presentation, &stack, id));
                 }
             }
         }
@@ -714,7 +725,7 @@ pub(crate) fn refresh_hud_frame(
     let cursor_icon = runtime.inventory_ledger().cursor_stack().and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
-            .and_then(|id| presentation.item_icon(id, stack.metadata))
+            .and_then(|id| stack_icon(runtime, presentation, stack, id))
     });
     let selected_snapshot = runtime.selected_stack_snapshot();
     let selected_slot = selected_snapshot.map(|snapshot| snapshot.slot);
@@ -740,12 +751,12 @@ pub(crate) fn refresh_hud_frame(
             let overlay = runtime.inventory_ledger().presented_slot_overlay(slot);
             *durability = item_facts::cell_durability_fraction(
                 stack,
-                identifier.as_deref(),
+                runtime.item_max_durability(identifier.as_deref()),
                 overlay.and_then(|overlay| overlay.durability_correction),
             );
             hotbar_icons[usize::from(slot)] = identifier
                 .as_deref()
-                .and_then(|id| presentation.item_icon(id, stack.metadata));
+                .and_then(|id| stack_icon(runtime, presentation, stack, id));
             hotbar_stacks[usize::from(slot)] = Some(stack.clone());
             logged_hotbar[usize::from(slot)] = Some((
                 identifier
@@ -756,14 +767,14 @@ pub(crate) fn refresh_hud_frame(
     }
     presentation.note_hotbar(logged_hotbar);
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
-        let identifier = resolve_identifier(stack);
-        item_facts::durability_fraction(stack, identifier.as_deref())
+        let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
+        item_facts::durability_fraction(stack, maximum)
     });
     let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let identifier = resolve_identifier(stack);
         identifier
             .as_deref()
-            .and_then(|id| presentation.item_icon(id, stack.metadata))
+            .and_then(|id| stack_icon(runtime, presentation, stack, id))
     });
     let armor_icons = runtime.gameplay_hud().armor().map_or([None; 4], |armor| {
         [
@@ -775,19 +786,27 @@ pub(crate) fn refresh_hud_frame(
         .map(|stack| {
             resolve_identifier(stack)
                 .as_deref()
-                .and_then(|id| presentation.item_icon(id, stack.metadata))
+                .and_then(|id| stack_icon(runtime, presentation, stack, id))
         })
     });
     let held_item_icon = selected_stack.and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
-            .and_then(|id| presentation.item_icon(id, stack.metadata))
+            .and_then(|id| stack_icon(runtime, presentation, stack, id))
     });
     presentation.set_item_viewmodels(held_item_icon, offhand_icon);
     let (held_viewmodel_icon, offhand_viewmodel_icon) = presentation.item_viewmodel_icons();
     let selected_item_name = runtime.selected_stack_custom_name().or_else(|| {
         selected_stack.and_then(|stack| {
-            resolve_identifier(stack).map(|id| Arc::from(runtime.localized_item_name(&id)))
+            let id = resolve_identifier(stack)?;
+            let name = runtime.localized_item_name(&id);
+            let format = runtime
+                .item_components(&id)
+                .and_then(item_facts::name_format);
+            Some(Arc::from(match format {
+                Some((code, _)) => format!("\u{a7}{code}{name}"),
+                None => name,
+            }))
         })
     });
     let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
