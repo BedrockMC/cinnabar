@@ -680,8 +680,11 @@ impl WorldStream {
                 let local_hurt = matches!(
                     &event,
                     ActorEvent::Status(status)
-                        if status.kind == protocol::ActorStatusKind::Hurt
-                            && status.runtime_id == self.local_player_runtime_id
+                        if matches!(
+                            status.kind,
+                            protocol::ActorStatusKind::Hurt
+                                | protocol::ActorStatusKind::HurtWithoutDamage
+                        ) && status.runtime_id == self.local_player_runtime_id
                 );
                 let _ = self.actors.apply(self.actor_session_id, sequence, event);
                 if local_hurt {
