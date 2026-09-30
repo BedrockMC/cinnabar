@@ -1,0 +1,68 @@
+{
+  "namespace": "example",
+
+  "example_screen": {
+    "type": "screen",
+    "size": ["100%", "100%"],
+    "$card_width|default": 240,
+    "variables": [
+      { "requires": "$pocket_screen", "$card_width": 200 }
+    ],
+    "controls": [
+      { "backdrop@example_common.fill": { "$fill": [0.03, 0.04, 0.06, 1] } },
+      {
+        "card@example_common.fill": {
+          "size": ["$card_width", "100%c + 12px"],
+          "controls": [
+            {
+              "content": {
+                "type": "stack_panel",
+                "orientation": "vertical",
+                "size": ["100% - 12px", "100%c"],
+                "controls": [
+                  {
+                    "title@example_common.heading": {
+                      "size": ["100%", "default"],
+                      "text_alignment": "center",
+                      "text": "#title_text",
+                      "bindings": [ { "binding_name": "#title_text" } ]
+                    }
+                  },
+                  { "gap": { "type": "panel", "size": ["100%", 6] } },
+                  {
+                    "rows": {
+                      "type": "stack_panel",
+                      "size": ["100%", "100%c"],
+                      "collection_name": "rows",
+                      "factory": { "name": "rows_factory", "control_ids": { "row": "@example_common.row" } }
+                    }
+                  },
+                  { "gap_2": { "type": "panel", "size": ["100%", 6] } },
+                  {
+                    "status": {
+                      "type": "label",
+                      "size": ["100%", "default"],
+                      "text_alignment": "center",
+                      "color": [0.6, 0.9, 0.6],
+                      "text": "Ready",
+                      "anims": ["@example_common.pulse"]
+                    }
+                  },
+                  {
+                    "touch_hint": {
+                      "type": "label",
+                      "ignored": "(not $touch)",
+                      "size": ["100%", "default"],
+                      "text_alignment": "center",
+                      "text": "Tap a row to open it"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

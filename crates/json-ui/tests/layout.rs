@@ -2,6 +2,8 @@
 //! The `.local` pack is gitignored, so tests that need it skip (not fail) when it is
 //! absent; the synthetic tests always run and pin the deterministic layout maths.
 
+mod support;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -578,8 +580,7 @@ fn stack_children_inherit_the_largest_sibling_cross_size() {
 // --- end to end -------------------------------------------------------------
 
 fn pack_root() -> Option<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack");
+    let dir = support::vanilla_pack();
     dir.join("ui").is_dir().then_some(dir)
 }
 

@@ -21,8 +21,8 @@ use crate::{
 const PLAYER: &str = "minecraft:player";
 /// Height fraction of an actor's box standing in for its head attach point.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
-/// Seconds between block hit sounds while mining; needs native measurement.
-const HIT_INTERVAL: f32 = 0.25;
+/// Seconds between block hit sounds while mining (`GameMode` 200 ms).
+const HIT_INTERVAL: f32 = 0.2;
 /// Seconds between eating/drinking sounds while an item is in use; needs native measurement.
 const CONSUME_INTERVAL: f32 = 0.25;
 const SECONDS_PER_TICK: f32 = 0.05;
@@ -308,7 +308,7 @@ fn status_request(
     notice: &ActorStatusNotice,
 ) -> Option<(&'static str, SoundRequest)> {
     let event = match notice.kind {
-        ActorStatusKind::Hurt => "hurt",
+        ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => "hurt",
         ActorStatusKind::Death => "death",
         _ => return None,
     };
@@ -450,6 +450,12 @@ mod tests {
             &notice(ActorStatusKind::Hurt),
         );
         assert!(silent.is_none());
+    }
+
+    /// `GameMode` spaces mining hit sounds 200 ms apart.
+    #[test]
+    fn mining_hits_follow_the_reference_interval() {
+        assert_eq!(HIT_INTERVAL, 0.2);
     }
 
     #[test]

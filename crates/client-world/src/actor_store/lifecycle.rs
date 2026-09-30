@@ -114,8 +114,8 @@ impl ActorStore {
     }
 
     /// Starts an actor's arm swing from a local cause rather than a server action.
-    pub(crate) fn start_swing(&mut self, runtime_id: u64) {
-        self.animation.start_swing(runtime_id);
+    pub(crate) fn start_swing(&mut self, runtime_id: u64, ticks: i32) {
+        self.animation.start_swing(runtime_id, ticks);
     }
 
     /// Feeds the client-authored local-player pose into the shared actor rig, spawning the
@@ -926,7 +926,10 @@ impl ActorStore {
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
                     if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
-                        self.animation.start_swing(lifetime.runtime_id);
+                        self.animation.start_swing(
+                            lifetime.runtime_id,
+                            crate::actor_animation::ACTOR_SWING_TICKS,
+                        );
                     }
                     accepted |= applied;
                 }

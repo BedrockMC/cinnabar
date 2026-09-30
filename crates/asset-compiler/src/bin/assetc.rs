@@ -318,6 +318,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::OutlineFontAssets {
             font,
             fallback_font,
+            primary_only,
             source_manifest,
             out,
             report,
@@ -325,6 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             compile_outline_font_assets_command(
                 &font,
                 fallback_font.as_deref(),
+                primary_only,
                 &source_manifest,
                 &out,
                 &report,
@@ -494,11 +496,12 @@ fn compile_font_assets_command(
 fn compile_outline_font_assets_command(
     font: &Path,
     fallback: Option<&Path>,
+    primary_only: bool,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    font_command::compile(font, fallback, source_manifest, out, report)
+    font_command::compile(font, fallback, primary_only, source_manifest, out, report)
 }
 
 fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn std::error::Error>> {

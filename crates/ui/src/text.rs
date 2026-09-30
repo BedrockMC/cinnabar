@@ -15,6 +15,24 @@ pub const MAX_TEXT_SPANS: usize = 4_096;
 pub const MAX_GLYPHS_PER_LAYOUT: usize = 16_384;
 pub const MAX_WRAP_LINES: usize = 1_024;
 
+// The compiled Monocraft atlas is rasterized at 18 px/em (see
+// `assets/ui-font-source.json`). Monocraft draws on a 60-font-unit grid against
+// a 1080-unit em, so one design pixel is two texels: ASCII ink is 16 texels
+// tall, 14 of them above the baseline, and the widest advance is 12. That makes
+// `UiScale` 1 already equal to Mojang's GUI scale 2, and only whole numbers of
+// physical pixels per texel keep every design pixel on a pixel boundary.
+pub const FONT_DESIGN_PIXEL_TEXELS: u32 = 2;
+pub const FONT_ASCENT_TEXELS: u32 = 14;
+pub const FONT_INK_TEXELS: u32 = 16;
+/// Mojang pitches chat one design pixel below the font's ink height -- 9 px for
+/// an 8 px font. The same ratio against Monocraft's 16 texels gives 18.
+pub const TEXT_LINE_HEIGHT_64: u32 = (FONT_INK_TEXELS + FONT_DESIGN_PIXEL_TEXELS) * 64;
+/// Distance from the top of a line box down to the baseline, so glyphs sit
+/// inside the box instead of hanging above its origin.
+pub const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
+/// Mojang offsets the shadow by exactly one design pixel on both axes.
+pub const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
+
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const SCALE_DENOMINATOR: i64 = 1_024;
 const REPLACEMENT_CODEPOINT: char = '\u{fffd}';

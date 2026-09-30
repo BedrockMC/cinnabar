@@ -1,8 +1,9 @@
 //! Block use as standalone click-block transactions on the press and while held.
 //!
-//! The local use outcome (interaction, placement or nothing) only decides the
-//! transaction's prediction and swing; every outcome stays server-owned. Air
-//! use and item-use-on start/stop actions are not implemented.
+//! The local use outcome (interaction, placement or nothing) decides the
+//! transaction's prediction and swing. A placement or switch toggle whose state
+//! is certain is also applied locally; the server's block updates stay authoritative. Air
+//! use lives in `item_use`; item-use-on start/stop actions are not implemented.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -17,6 +18,7 @@ use semantic_input::Action;
 use sim::PaletteWorld;
 
 use crate::{
+    game_mode_capabilities::GameModeCapabilities,
     interaction_authority::{FrozenBlockObservation, observe_block, within_pick_range},
     local_player::InteractionOriginSnapshot,
     melee::{MeleeRuntime, SwingTracker, obstructs_placement, swing_duration},
@@ -67,8 +69,18 @@ const REPLACEABLE_BLOCKS: &[&str] = &[
     "minecraft:hanging_roots",
 ];
 
-/// Blocks whose own use succeeds locally. Provisional list; needs independent measurement.
-const INTERACTIVE_BLOCKS: &[&str] = &[
+/// Which ability a block's own use needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Interaction {
+    /// Doors, trapdoors, fence gates, buttons and levers.
+    Switch,
+    Container,
+    /// Uses no ability gates.
+    Other,
+}
+
+/// Container-screen blocks. Provisional list; needs independent measurement.
+const CONTAINER_BLOCKS: &[&str] = &[
     "minecraft:crafting_table",
     "minecraft:furnace",
     "minecraft:lit_furnace",
@@ -77,7 +89,6 @@ const INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:smoker",
     "minecraft:lit_smoker",
     "minecraft:barrel",
-    "minecraft:lever",
     "minecraft:anvil",
     "minecraft:enchanting_table",
     "minecraft:brewing_stand",
@@ -91,6 +102,10 @@ const INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:cartography_table",
     "minecraft:smithing_table",
     "minecraft:beacon",
+];
+
+/// Other blocks whose own use succeeds locally. Provisional list; needs independent measurement.
+const OTHER_INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:noteblock",
     "minecraft:unpowered_repeater",
     "minecraft:powered_repeater",
@@ -99,24 +114,33 @@ const INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:daylight_detector",
     "minecraft:daylight_detector_inverted",
     "minecraft:bell",
+    "minecraft:bed",
 ];
 
-fn is_interactive(identifier: &str) -> bool {
+fn interaction(identifier: &str) -> Option<Interaction> {
     let metal = identifier == "minecraft:iron_door" || identifier == "minecraft:iron_trapdoor";
-    INTERACTIVE_BLOCKS.contains(&identifier)
-        || (!metal
-            && [
-                "_door",
-                "_trapdoor",
-                "_button",
-                "fence_gate",
-                "chest",
-                "shulker_box",
-                "_bed",
-            ]
-            .iter()
-            .any(|suffix| identifier.ends_with(suffix)))
-        || identifier == "minecraft:bed"
+    let ends = |suffixes: &[&str]| suffixes.iter().any(|suffix| identifier.ends_with(suffix));
+    if identifier == "minecraft:lever"
+        || (!metal && ends(&["_door", "_trapdoor", "_button", "fence_gate"]))
+    {
+        Some(Interaction::Switch)
+    } else if CONTAINER_BLOCKS.contains(&identifier) || ends(&["chest", "shulker_box"]) {
+        Some(Interaction::Container)
+    } else if OTHER_INTERACTIVE_BLOCKS.contains(&identifier) || identifier.ends_with("_bed") {
+        Some(Interaction::Other)
+    } else {
+        None
+    }
+}
+
+impl Interaction {
+    const fn permitted(self, caps: &GameModeCapabilities) -> bool {
+        match self {
+            Self::Switch => caps.can_use_switches,
+            Self::Container => caps.can_open_containers,
+            Self::Other => true,
+        }
+    }
 }
 
 /// Milliseconds until the next held-use repeat.
@@ -158,13 +182,16 @@ pub(crate) const fn placement_cell(clicked: [i32; 3], face: u8) -> [i32; 3] {
 /// A feet-anchored box, as `(min, max)`.
 pub(crate) type BoxBounds = ([f64; 3], [f64; 3]);
 
-fn overlaps_cell(cell: [i32; 3], (min, max): BoxBounds) -> bool {
+/// Whether a block-local box placed in `cell` overlaps an actor box.
+fn overlaps(cell: [i32; 3], (local_min, local_max): BoxBounds, (min, max): BoxBounds) -> bool {
     (0..3).all(|axis| {
-        let low = f64::from(cell[axis]) + PLACEMENT_ACTOR_EPSILON;
-        let high = f64::from(cell[axis]) + 1.0 - PLACEMENT_ACTOR_EPSILON;
+        let low = f64::from(cell[axis]) + local_min[axis] + PLACEMENT_ACTOR_EPSILON;
+        let high = f64::from(cell[axis]) + local_max[axis] - PLACEMENT_ACTOR_EPSILON;
         low < max[axis] && min[axis] < high
     })
 }
+
+const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
 /// World facts one local use depends on.
 #[derive(Debug, Clone, PartialEq)]
@@ -176,9 +203,28 @@ pub(crate) struct UseSurroundings {
     /// Boxes of actors that obstruct placement.
     pub(crate) actor_boxes: Vec<BoxBounds>,
     pub(crate) sneaking: bool,
+    /// Block-local collision boxes of the held block; `None` when unknown, which
+    /// tests the whole cell.
+    pub(crate) placed_boxes: Option<Vec<BoxBounds>>,
 }
 
-/// What the local client does with one click, which sets prediction and swing.
+impl UseSurroundings {
+    /// The cell a placement fills: the clicked block when it is replaceable,
+    /// otherwise the neighbor across the clicked face.
+    pub(crate) fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
+        let replaceable = |identifier: Option<&str>| {
+            identifier.is_some_and(|identifier| REPLACEABLE_BLOCKS.contains(&identifier))
+        };
+        if replaceable(self.clicked_identifier.as_deref()) {
+            (clicked, true)
+        } else {
+            let cell = placement_cell(clicked, face);
+            (cell, replaceable(self.neighbor_identifier.as_deref()))
+        }
+    }
+}
+
+/// The local outcome of one click, which sets the prediction flag and swing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LocalUse {
     Interact,
@@ -187,33 +233,35 @@ pub(crate) enum LocalUse {
 }
 
 impl LocalUse {
+    /// A block use the capabilities deny falls through to item use, as vanilla's does.
     pub(crate) fn resolve(
         item: &VerifiedNetworkItemStack,
         clicked: [i32; 3],
         face: u8,
         surroundings: &UseSurroundings,
+        caps: &GameModeCapabilities,
     ) -> Self {
         let clicked_identifier = surroundings.clicked_identifier.as_deref();
         let holding = item.network_id() != 0 && item.count() > 0;
         // Sneaking with an item uses the item instead of the block.
-        if clicked_identifier.is_some_and(is_interactive) && !(surroundings.sneaking && holding) {
+        if clicked_identifier
+            .and_then(interaction)
+            .is_some_and(|interaction| interaction.permitted(caps))
+            && !(surroundings.sneaking && holding)
+        {
             return Self::Interact;
         }
-        if item.block_runtime_id() == 0 || item.count() == 0 {
+        if !caps.can_build || item.block_runtime_id() == 0 || item.count() == 0 {
             return Self::Nothing;
         }
-        let replaceable = |identifier: Option<&str>| {
-            identifier.is_some_and(|identifier| REPLACEABLE_BLOCKS.contains(&identifier))
-        };
-        let (cell, free) = if replaceable(clicked_identifier) {
-            (clicked, true)
-        } else {
-            let neighbor = surroundings.neighbor_identifier.as_deref();
-            (placement_cell(clicked, face), replaceable(neighbor))
-        };
+        let (cell, free) = surroundings.destination(clicked, face);
+        let placed = surroundings
+            .placed_boxes
+            .as_deref()
+            .unwrap_or(std::slice::from_ref(&FULL_CELL));
         let blocked = std::iter::once(&surroundings.player_box)
             .chain(&surroundings.actor_boxes)
-            .any(|bounds| overlaps_cell(cell, *bounds));
+            .any(|bounds| placed.iter().any(|local| overlaps(cell, *local, *bounds)));
         if free && !blocked {
             Self::Place
         } else {
@@ -238,6 +286,8 @@ pub(crate) struct BlockUseRuntime {
     /// The last success was an interaction or a not-yet-lined placement.
     slow_repeat: bool,
     last_attempt_tick: Option<u64>,
+    /// Tick whose use press interacted with a block, which starts no item use.
+    interacted_tick: Option<u64>,
     position_authority: Option<(u64, u64)>,
 }
 
@@ -293,6 +343,11 @@ impl BlockUseRuntime {
         (clock.now_millis > due).then_some((ItemUseTrigger::SimulationTick, due))
     }
 
+    /// Whether the use press resolved on `tick` interacted with a block.
+    pub(crate) fn interacted_at(&self, tick: u64) -> bool {
+        self.interacted_tick == Some(tick)
+    }
+
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
     /// retries (and resends its transaction) on the next tick.
     pub(crate) fn record(
@@ -305,6 +360,9 @@ impl BlockUseRuntime {
     ) {
         self.latched_press = false;
         self.last_attempt_tick = Some(tick);
+        if trigger == ItemUseTrigger::PlayerInput && local_use == LocalUse::Interact {
+            self.interacted_tick = Some(tick);
+        }
         if local_use == LocalUse::Nothing {
             return;
         }
@@ -328,7 +386,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     ui: Res<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
-    client_world: Res<'w, ClientWorld>,
+    client_world: ResMut<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
     melee: Res<'w, MeleeRuntime>,
@@ -348,12 +406,12 @@ pub(crate) fn produce_block_use(
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     let game_mode = context.ui.player_game_mode();
     let caps = context.ui.game_mode_capabilities();
-    let Some(input) = context.input.snapshot().filter(|input| {
+    let Some((input, caps)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
         focused
             && !context.ui.ui_focused()
-            && caps.is_some_and(|caps| caps.can_edit)
+            && caps.can_use_blocks()
             && input.input_mode != semantic_input::InputMode::Touch
-            && movement.accepts_creative_mining()
+            && movement.accepts_block_interactions()
     }) else {
         runtime.clear();
         return;
@@ -407,13 +465,34 @@ pub(crate) fn produce_block_use(
         observed.target.position,
         observed.target.face,
         &surroundings,
+        &caps,
     );
     runtime.record(trigger, due, sample.tick, local_use, clock);
+    let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
+    let predicted = (local_use == LocalUse::Place)
+        .then(|| {
+            predicted_placement(
+                &context.collisions,
+                stream,
+                observed.selection.item.block_runtime_id(),
+                surroundings.clicked_identifier.as_deref(),
+            )
+        })
+        .flatten()
+        .map(|block| (destination, block));
+    let predicted = predicted.or_else(|| {
+        (local_use == LocalUse::Interact)
+            .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
+            .flatten()
+            .map(|block| (observed.target.position, block))
+    });
+    let local_runtime_id = stream.local_player_runtime_id();
     if local_use == LocalUse::Place {
+        let position = destination;
         context
             .audio_cues
             .write(crate::audio::LocalBlockCue::Place {
-                position: placement_cell(observed.target.position, observed.target.face),
+                position,
                 block_runtime_id: observed.selection.item.block_runtime_id(),
             });
     }
@@ -428,13 +507,107 @@ pub(crate) fn produce_block_use(
         sample.position,
         trigger,
         local_use,
-        stream.local_player_runtime_id(),
+        local_runtime_id,
         |tick| swings.try_swing(tick, duration),
         sample.tick,
     );
+    let mut sent = !packets.is_empty();
     for packet in packets {
-        let _ = context.network.send_inventory_packet(packet);
+        sent &= context.network.send_inventory_packet(packet).is_ok();
     }
+    // Vanilla places locally as it sends; a correction replaces the prediction.
+    if let (true, Some((position, block)), Some(stream)) =
+        (sent, predicted, context.client_world.stream.as_mut())
+    {
+        stream.predict_block(position, 0, block);
+    }
+}
+
+/// The state a switch use predicts for the clicked block.
+fn predicted_toggle(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &client_world::WorldStream,
+    clicked: u32,
+) -> Option<u32> {
+    let mode = stream.network_id_mode();
+    let identifier = collisions.block_identifier(mode, clicked)?;
+    let states = toggled_states(identifier, collisions.block_canonical_state(mode, clicked)?)?;
+    collisions.block_state_runtime_id(mode, identifier, &states)
+}
+
+/// Trapdoors and levers flip `open_bit` (`TrapDoorBlock::_useTrapDoor`); an
+/// unpressed button presses. Doors and fence gates also change their other
+/// half or facing, which is not modelled, so they wait for the server.
+fn toggled_states(
+    identifier: &str,
+    canonical_state: &str,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let iron = identifier == "minecraft:iron_trapdoor";
+    let (property, press_only) =
+        if identifier == "minecraft:lever" || (!iron && identifier.ends_with("_trapdoor")) {
+            ("open_bit", false)
+        } else if identifier.ends_with("_button") {
+            ("button_pressed_bit", true)
+        } else {
+            return None;
+        };
+    let mut states =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(canonical_state).ok()?;
+    let entry = states.get_mut(property)?;
+    // Typed values carry the bit in `value`.
+    let bit = match entry {
+        serde_json::Value::Object(typed) => typed.get_mut("value")?,
+        plain => plain,
+    };
+    let set = match bit {
+        serde_json::Value::Bool(value) => *value,
+        serde_json::Value::Number(value) => value.as_u64()? != 0,
+        _ => return None,
+    };
+    if press_only && set {
+        return None;
+    }
+    *bit = match bit {
+        serde_json::Value::Bool(_) => serde_json::Value::Bool(!set),
+        _ => serde_json::Value::from(u8::from(!set)),
+    };
+    Some(states)
+}
+
+/// The store id a placement predicts locally, when its placed state is certain.
+fn predicted_placement(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &client_world::WorldStream,
+    item_block: i32,
+    clicked_identifier: Option<&str>,
+) -> Option<u32> {
+    let block = u32::try_from(item_block).ok().filter(|block| *block != 0)?;
+    let resolved = stream.resolve_block_network_id(block);
+    let mode = stream.network_id_mode();
+    (resolved != stream.air_block_id()
+        && placement_state_is_certain(
+            collisions.block_is_full_cube(mode, resolved),
+            collisions.block_canonical_state(mode, resolved),
+            collisions.block_identifier(mode, resolved),
+            clicked_identifier,
+        ))
+    .then_some(resolved)
+}
+
+/// Only a stateless full cube places as the held state itself: oriented, sized
+/// and merging blocks resolve their state from the click, which is not modelled.
+fn placement_state_is_certain(
+    full_cube: bool,
+    canonical_state: Option<&str>,
+    placed_identifier: Option<&str>,
+    clicked_identifier: Option<&str>,
+) -> bool {
+    let stateless = canonical_state
+        .and_then(|state| {
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(state).ok()
+        })
+        .is_some_and(|states| states.is_empty());
+    full_cube && stateless && placed_identifier.is_some() && placed_identifier != clicked_identifier
 }
 
 /// A successful local use swings before its transaction, which is always sent.
@@ -497,6 +670,30 @@ fn use_surroundings(
         f64::from(network_position[2]),
     ];
     let half_width = sim::PLAYER_WIDTH * 0.5;
+    let height = sim::MovementMode::Walking.hitbox_height(sneaking);
+    let placed_boxes = stream.and_then(|stream| {
+        let block = u32::try_from(observed.selection.item.block_runtime_id())
+            .ok()
+            .filter(|block| *block != 0)?;
+        let shapes = context
+            .collisions
+            .registry(stream.network_id_mode())
+            .collision_shapes(
+                Some(stream.resolve_block_network_id(block))
+                    .filter(|resolved| *resolved != stream.air_block_id())?,
+            )?;
+        Some(
+            shapes
+                .iter()
+                .map(|shape| {
+                    (
+                        [shape.min.x, shape.min.y, shape.min.z],
+                        [shape.max.x, shape.max.y, shape.max.z],
+                    )
+                })
+                .collect(),
+        )
+    });
     UseSurroundings {
         clicked_identifier: context
             .collisions
@@ -513,11 +710,7 @@ fn use_surroundings(
         )),
         player_box: (
             [feet[0] - half_width, feet[1], feet[2] - half_width],
-            [
-                feet[0] + half_width,
-                feet[1] + sim::PLAYER_HEIGHT,
-                feet[2] + half_width,
-            ],
+            [feet[0] + half_width, feet[1] + height, feet[2] + half_width],
         ),
         actor_boxes: stream
             .into_iter()
@@ -527,6 +720,7 @@ fn use_surroundings(
             .map(|(min, max)| (min.map(f64::from), max.map(f64::from)))
             .collect(),
         sneaking,
+        placed_boxes,
     }
 }
 
@@ -559,7 +753,7 @@ fn observe_use_target(
 }
 
 /// The selected stack, only while no inventory request or hotbar change is in flight.
-fn verified_use_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
+pub(crate) fn verified_use_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
     let ledger = ui.inventory_ledger();
     if ledger.pending_request_id().is_some()
         || ledger.resync_required()

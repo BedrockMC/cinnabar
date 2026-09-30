@@ -2,15 +2,16 @@ use std::sync::Arc;
 
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent, ItemUseTrigger,
-    NetworkItemStack, SlotIdentity, VerifiedNetworkItemStack,
+    NetworkItemStack, PlayerGameMode, SlotIdentity, VerifiedNetworkItemStack,
 };
 use sha2::{Digest, Sha256};
 
 use super::{
     BlockUseRuntime, LocalUse, RepeatClock, UseSurroundings, placement_cell,
-    repeat_interval_millis, use_packets, verified_use_selection,
+    placement_state_is_certain, repeat_interval_millis, toggled_states, use_packets,
+    verified_use_selection,
 };
-use crate::ui_runtime::UiRuntime;
+use crate::{game_mode_capabilities::GameModeCapabilities, ui_runtime::UiRuntime};
 
 fn network_item(network_id: i32, block_runtime_id: i32) -> NetworkItemStack {
     let extra_data: Arc<[u8]> = Arc::from([]);
@@ -125,6 +126,7 @@ fn surroundings(clicked: &str, neighbor: &str) -> UseSurroundings {
         player_box: ([0.2, 64.0, 0.2], [0.8, 65.8, 0.8]),
         actor_boxes: Vec::new(),
         sneaking: false,
+        placed_boxes: None,
     }
 }
 
@@ -133,8 +135,9 @@ fn local_use_decides_interaction_placement_or_nothing() {
     let block = verified(network_item(2, 77));
     let stick = verified(network_item(3, 0));
     let empty = verified(NetworkItemStack::empty());
+    let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
     let place = |item, clicked, face, around: &UseSurroundings| {
-        LocalUse::resolve(item, clicked, face, around)
+        LocalUse::resolve(item, clicked, face, around, &survival)
     };
     let stone = surroundings("minecraft:stone", "minecraft:air");
     assert_eq!(place(&block, [2, 63, 0], 1, &stone), LocalUse::Place);
@@ -171,6 +174,143 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &sneaking), LocalUse::Interact);
     let iron = surroundings("minecraft:iron_door", "minecraft:air");
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
+}
+
+/// Obstruction tests the placed block's own shape, and a replaced block is the destination.
+#[test]
+fn placement_obstruction_uses_the_placed_shape_and_resolved_cell() {
+    let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
+    let block = verified(network_item(2, 77));
+    // A sneaking player (1.5 tall) standing at y 64 reaches 65.5.
+    let around = |placed_boxes| UseSurroundings {
+        player_box: ([0.2, 64.0, 0.2], [0.8, 65.5, 0.8]),
+        placed_boxes,
+        sneaking: true,
+        ..surroundings("minecraft:stone", "minecraft:air")
+    };
+    let place =
+        |around: &UseSurroundings| LocalUse::resolve(&block, [0, 66, 0], 0, around, &survival);
+    assert_eq!(
+        place(&around(None)),
+        LocalUse::Nothing,
+        "a full cell overlaps"
+    );
+    let top_slab = vec![([0.0, 0.5, 0.0], [1.0, 1.0, 1.0])];
+    assert_eq!(place(&around(Some(top_slab))), LocalUse::Place);
+    let bottom_slab = vec![([0.0, 0.0, 0.0], [1.0, 0.5, 1.0])];
+    assert_eq!(place(&around(Some(bottom_slab))), LocalUse::Nothing);
+    assert_eq!(
+        place(&around(Some(Vec::new()))),
+        LocalUse::Place,
+        "no collision"
+    );
+    let grass = surroundings("minecraft:short_grass", "minecraft:stone");
+    assert_eq!(grass.destination([2, 64, 0], 4), ([2, 64, 0], true));
+    let stone = surroundings("minecraft:stone", "minecraft:air");
+    assert_eq!(stone.destination([2, 64, 0], 4), ([1, 64, 0], true));
+}
+
+/// Only a stateless full cube that does not merge into the clicked block is predicted.
+#[test]
+fn only_certain_placement_states_are_predicted() {
+    let stone = Some("minecraft:stone");
+    assert!(placement_state_is_certain(
+        true,
+        Some("{}"),
+        stone,
+        Some("minecraft:dirt")
+    ));
+    assert!(!placement_state_is_certain(
+        true,
+        Some(r#"{"pillar_axis":"y"}"#),
+        Some("minecraft:oak_log"),
+        None
+    ));
+    assert!(!placement_state_is_certain(
+        false,
+        Some("{}"),
+        Some("minecraft:glass_pane"),
+        None
+    ));
+    assert!(!placement_state_is_certain(true, Some("{}"), stone, stone));
+    assert!(!placement_state_is_certain(true, None, stone, None));
+    assert!(!placement_state_is_certain(true, Some("{}"), None, None));
+}
+
+/// Trapdoors and levers flip, buttons press once, and two-part switches are left to the server.
+#[test]
+fn switch_uses_predict_their_toggled_state() {
+    let flipped = |identifier, state: &str| {
+        toggled_states(identifier, state)
+            .map(|states| serde_json::Value::Object(states).to_string())
+    };
+    assert_eq!(
+        flipped(
+            "minecraft:spruce_trapdoor",
+            r#"{"direction":2,"open_bit":0,"upside_down_bit":1}"#
+        ),
+        Some(r#"{"direction":2,"open_bit":1,"upside_down_bit":1}"#.to_owned())
+    );
+    assert_eq!(
+        flipped(
+            "minecraft:lever",
+            r#"{"open_bit":{"type":"byte","value":1}}"#
+        ),
+        Some(r#"{"open_bit":{"type":"byte","value":0}}"#.to_owned())
+    );
+    assert_eq!(
+        flipped("minecraft:stone_button", r#"{"button_pressed_bit":false}"#),
+        Some(r#"{"button_pressed_bit":true}"#.to_owned())
+    );
+    assert_eq!(
+        flipped("minecraft:stone_button", r#"{"button_pressed_bit":true}"#),
+        None
+    );
+    assert_eq!(flipped("minecraft:oak_door", r#"{"open_bit":0}"#), None);
+    assert_eq!(
+        flipped("minecraft:iron_trapdoor", r#"{"open_bit":0}"#),
+        None
+    );
+}
+
+/// Adventure uses doors and containers but cannot place; each ability gates only its own use.
+#[test]
+fn interaction_and_placement_follow_their_own_abilities() {
+    let block = verified(network_item(2, 77));
+    let adventure = GameModeCapabilities::for_mode(PlayerGameMode::Adventure);
+    let resolve = |clicked: &str, caps: &GameModeCapabilities| {
+        LocalUse::resolve(
+            &block,
+            [2, 63, 0],
+            1,
+            &surroundings(clicked, "minecraft:air"),
+            caps,
+        )
+    };
+    assert_eq!(
+        resolve("minecraft:oak_door", &adventure),
+        LocalUse::Interact
+    );
+    assert_eq!(resolve("minecraft:chest", &adventure), LocalUse::Interact);
+    assert_eq!(resolve("minecraft:stone", &adventure), LocalUse::Nothing);
+    assert!(adventure.can_use_blocks());
+    let no_switches = GameModeCapabilities {
+        can_use_switches: false,
+        ..GameModeCapabilities::for_mode(PlayerGameMode::Survival)
+    };
+    assert_eq!(
+        resolve("minecraft:stone_button", &no_switches),
+        LocalUse::Place
+    );
+    assert_eq!(
+        resolve("minecraft:barrel", &no_switches),
+        LocalUse::Interact
+    );
+    let mine_only = GameModeCapabilities {
+        can_build: false,
+        ..adventure
+    };
+    assert_eq!(resolve("minecraft:stone", &mine_only), LocalUse::Nothing);
 }
 
 #[test]

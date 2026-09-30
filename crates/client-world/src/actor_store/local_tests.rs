@@ -173,18 +173,35 @@ fn dimension_reset_clears_the_synthetic_profile_then_respawns_it() {
 }
 
 #[test]
-fn predicted_item_use_sets_and_clears_use_and_block_flags_but_unpredicted_leaves_them() {
+fn predicted_item_use_sets_and_clears_use_flag_but_unpredicted_leaves_it() {
     use super::super::LocalItemUse;
     let mut store = ActorStore::new(1, 0);
     store.exclude_remote_state_for(1);
     let mut feed = local_feed(0.0, 0.0);
-    feed.item_use = LocalItemUse::Using { shield: true };
+    feed.item_use = LocalItemUse::Using;
     store.sync_local_player(1, -100, &feed);
-    assert!(store.get(1).unwrap().flag(4) && store.get(1).unwrap().flag(72));
+    assert!(store.get(1).unwrap().flag(4));
     feed.item_use = LocalItemUse::Unpredicted;
     store.sync_local_player(1, -100, &feed);
     assert!(store.get(1).unwrap().flag(4));
     feed.item_use = LocalItemUse::Idle;
     store.sync_local_player(1, -100, &feed);
-    assert!(!store.get(1).unwrap().flag(4) && !store.get(1).unwrap().flag(72));
+    assert!(!store.get(1).unwrap().flag(4));
+}
+
+/// Shield blocking is server metadata; local use prediction must never clear it.
+#[test]
+fn predicted_item_use_leaves_server_blocking_flag() {
+    use super::super::LocalItemUse;
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, -100, &feed);
+    store.actors.get_mut(&1).unwrap().set_flag(72, true);
+    feed.item_use = LocalItemUse::Idle;
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.get(1).unwrap().flag(72));
+    feed.item_use = LocalItemUse::Using;
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.get(1).unwrap().flag(72));
 }

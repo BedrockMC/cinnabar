@@ -1,0 +1,13 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "JSON-UI editor example overlay",
+    "description": "Shows a server-pack-style overlay: property overrides and modifications.",
+    "uuid": "4c2e1d7a-9b3f-4a6e-8d15-7e0f2a9c3b44",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    { "type": "resources", "uuid": "d1a5c7e9-2b4f-4d8a-9c3e-5f7a1b9d2e66", "version": [1, 0, 0] }
+  ]
+}

@@ -356,7 +356,7 @@ impl FormEngine {
 }
 
 /// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
-/// `withdrawn` (restyled by a server pack authored against vanilla).
+/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
 fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
     let mut catalog = vanilla.clone();
     let kept = super::hud::JAVA_HUD_PACK
@@ -364,18 +364,13 @@ fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<Strin
         .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
         .map(|(path, _, bytes)| (*path, *bytes));
     catalog.apply_pack(kept);
-    let disclaimer = menu_renderers::disclaimer_overlays();
     catalog.apply_pack(
         [(
             "ui/cinnabar_title.json",
             menu_renderers::TITLE_PANEL_OVERLAY,
         )]
         .into_iter()
-        .chain(
-            disclaimer
-                .iter()
-                .map(|(path, bytes)| (*path, bytes.as_slice())),
-        ),
+        .chain(menu_renderers::NO_COPYRIGHT_OVERLAYS),
     );
     catalog
 }

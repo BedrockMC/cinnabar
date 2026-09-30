@@ -517,9 +517,9 @@ fn legacy_icon_route_listed(identifier: &str, metadata: u32) -> bool {
         .any(|row| row == (identifier, metadata))
 }
 
-const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.40.json";
+const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.50.json";
 const DEFAULT_SPRITE_BINDINGS: &[u8] =
-    include_bytes!("../../data/default-sprite-bindings-1.26.40.json");
+    include_bytes!("../../data/default-sprite-bindings-1.26.50.json");
 
 #[derive(Deserialize)]
 struct DefaultSpriteBindings {
