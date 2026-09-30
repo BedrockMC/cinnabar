@@ -2,6 +2,7 @@
 
 mod ambient;
 mod bank;
+mod echo;
 mod engine;
 mod local;
 mod predicted;

@@ -20,6 +20,7 @@ use super::{
         ADDITIONS_INTERVAL, IntervalTimer, MOOD_INTERVAL, MusicScheduler, dimension_ambience,
         music_key,
     },
+    echo::{EchoOrigin, EchoSubject},
     engine::{AudioEngine, Listener, LoopSpec, SoundRequest},
     local::{LocalCue, LocalMotion, MotionSample},
     predicted::{LocalBlockCue, drive_actor_audio, drive_block_cues, drive_consume_audio},
@@ -163,8 +164,11 @@ impl IngestState {
     }
 }
 
-/// Level sound events also produced by local prediction; the second copy within the window is dropped.
-const DEDUPED_EVENTS: [&str; 4] = ["place", "break", "hurt", "death"];
+/// Level sound events the client also voices itself: block events by cell, actor events by actor.
+const ECHOED_BLOCK_EVENTS: [&str; 2] = ["place", "break"];
+const ECHOED_ACTOR_EVENTS: [&str; 2] = ["hurt", "death"];
+pub(super) const BLOCK_ECHO_SECONDS: f64 = 0.6;
+pub(super) const ACTOR_ECHO_SECONDS: f64 = 0.4;
 const RECORD_EVENT: i32 = 1006;
 /// Jukebox records tracked at once; entries whose sound is no longer active are pruned first.
 const MAX_RECORDS: usize = 64;
@@ -217,18 +221,16 @@ pub(super) fn ingest_audio_events(
                 continue;
             }
             protocol::AudioEvent::Level(level) => {
-                let name = level.sound_event.as_ref();
-                if DEDUPED_EVENTS.contains(&name) {
-                    if engine.was_recent(name, level.position, 0.6, 3.0) {
-                        continue;
-                    }
-                    engine.note_recent(name, level.position);
-                } else if name == "thunder" {
-                    engine.note_recent(name, level.position);
-                }
-                engine
+                let request = engine
                     .bank()
-                    .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup))
+                    .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup));
+                if request.is_some() && !admit_level_echo(&mut engine, level) {
+                    continue;
+                }
+                if level.sound_event.as_ref() == "thunder" {
+                    engine.note_server_thunder();
+                }
+                request
             }
             protocol::AudioEvent::LevelEvent(level) if level.event_id == RECORD_EVENT => {
                 let name = (level.data != 0)
@@ -251,6 +253,29 @@ pub(super) fn ingest_audio_events(
             Some(request) => engine.enqueue(request),
             None => engine.stats.unrouted += 1,
         }
+    }
+}
+
+/// Whether a server level sound should play, or is the copy of a sound the client already voiced.
+fn admit_level_echo(engine: &mut AudioEngine, level: &protocol::LevelAudioEvent) -> bool {
+    let name = level.sound_event.as_ref();
+    if ECHOED_BLOCK_EVENTS.contains(&name) {
+        let cell = level.position.map(|axis| axis.floor() as i32);
+        engine.admit_echo(
+            EchoOrigin::Packet,
+            name,
+            EchoSubject::Cell(cell),
+            BLOCK_ECHO_SECONDS,
+        )
+    } else if ECHOED_ACTOR_EVENTS.contains(&name) {
+        engine.admit_echo(
+            EchoOrigin::Packet,
+            name,
+            EchoSubject::Actor(level.actor_unique_id),
+            ACTOR_ECHO_SECONDS,
+        )
+    } else {
+        true
     }
 }
 
@@ -534,7 +559,7 @@ pub(super) fn drive_weather_and_particles(
         *remaining > 0.0
     });
     for position in due {
-        if !engine.was_recent("thunder", position, 2.0, f32::MAX.sqrt()) {
+        if !engine.server_thundered_within(2.0) {
             engine.enqueue(SoundRequest::new("ambient.weather.lightning.impact").at(position));
             engine.enqueue(SoundRequest::new("ambient.weather.thunder"));
         }

@@ -7,6 +7,7 @@ use bevy::prelude::Resource;
 
 use super::{
     bank::{PcmLookup, SoundBank},
+    echo::{EchoLedger, EchoOrigin, EchoSubject},
     settings::{AudioCategory, AudioSettings},
     voice::{VoiceShared, VoiceSource, attenuation, pan_for},
 };
@@ -147,7 +148,8 @@ pub(crate) struct AudioEngine {
     pub(crate) stats: EngineStats,
     server_seen: u64,
     clock: f64,
-    recent: Vec<(Box<str>, [f32; 3], f64)>,
+    echoes: EchoLedger,
+    last_server_thunder: f64,
     pending: Vec<PendingStart>,
 }
 
@@ -171,35 +173,31 @@ impl AudioEngine {
             stats: EngineStats::default(),
             server_seen: 0,
             clock: 0.0,
-            recent: Vec::new(),
+            echoes: EchoLedger::default(),
+            last_server_thunder: f64::NEG_INFINITY,
             pending: Vec::new(),
         }
     }
 
-    /// Records that a sound of class `key` was heard at `position`, for duplicate suppression.
-    pub(crate) fn note_recent(&mut self, key: &str, position: [f32; 3]) {
-        if self.recent.len() >= 64 {
-            self.recent.remove(0);
-        }
-        self.recent.push((key.into(), position, self.clock));
+    /// Whether a sound both the client and the server may voice should play; see [`EchoLedger`].
+    pub(crate) fn admit_echo(
+        &mut self,
+        origin: EchoOrigin,
+        event: &str,
+        subject: EchoSubject,
+        window: f64,
+    ) -> bool {
+        self.echoes
+            .admit(origin, event, subject, window, self.clock)
     }
 
-    /// Whether class `key` was noted within `seconds` and `radius` blocks of `position`.
-    pub(crate) fn was_recent(
-        &self,
-        key: &str,
-        position: [f32; 3],
-        seconds: f64,
-        radius: f32,
-    ) -> bool {
-        self.recent.iter().any(|(name, at, time)| {
-            &**name == key
-                && self.clock - time <= seconds
-                && (0..3)
-                    .map(|axis| (at[axis] - position[axis]).powi(2))
-                    .sum::<f32>()
-                    <= radius * radius
-        })
+    pub(crate) fn note_server_thunder(&mut self) {
+        self.last_server_thunder = self.clock;
+    }
+
+    /// Whether the server voiced any thunder within the last `seconds`.
+    pub(crate) fn server_thundered_within(&self, seconds: f64) -> bool {
+        self.clock - self.last_server_thunder <= seconds
     }
 
     pub(crate) fn has_bank(&self) -> bool {
@@ -256,6 +254,7 @@ impl AudioEngine {
         self.queue.clear();
         self.pending.clear();
         self.loops.clear();
+        self.echoes.clear();
         for voice in &self.voices {
             voice.shared.cancel();
         }
@@ -301,8 +300,6 @@ impl AudioEngine {
     ) -> Vec<VoiceSource> {
         self.voices.retain(|voice| !voice.shared.finished());
         self.clock += f64::from(dt.max(0.0));
-        let clock = self.clock;
-        self.recent.retain(|(_, _, time)| clock - time < 5.0);
         let mut started = Vec::new();
         self.resume_decoded(&mut started, listener, settings);
         self.reconcile_loops(&mut started, listener, settings);
@@ -869,17 +866,6 @@ mod tests {
         engine.set_loop("underwater", None);
         engine.pump(None, 5.0, &settings);
         assert!(held[0].next().is_none());
-    }
-
-    #[test]
-    fn recent_sounds_expire_and_respect_radius() {
-        let mut engine = engine(&[("dig.stone", "block")]);
-        engine.note_recent("break", [0.0; 3]);
-        assert!(engine.was_recent("break", [1.0, 0.0, 0.0], 1.0, 2.0));
-        assert!(!engine.was_recent("break", [9.0, 0.0, 0.0], 1.0, 2.0));
-        assert!(!engine.was_recent("hurt", [0.0; 3], 1.0, 2.0));
-        engine.pump(None, 2.0, &AudioSettings::default());
-        assert!(!engine.was_recent("break", [0.0; 3], 1.0, 2.0));
     }
 
     // Admitted server alternatives can sum past u32; the pick must neither panic nor wrap.
