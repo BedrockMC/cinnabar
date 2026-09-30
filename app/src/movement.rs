@@ -842,6 +842,16 @@ impl MovementTicker {
     }
 }
 
+/// Authoritative end-of-tick player state carried by a correction.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhysicsAnchor {
+    pub network_position: [f32; 3],
+    pub tick: u64,
+    pub on_ground: bool,
+    /// Server StateVector motion; `None` keeps the retained velocity.
+    pub velocity: Option<[f32; 3]>,
+}
+
 pub fn reconcile_candidate_physics_correction(
     ticker: &mut MovementTicker,
     physics: &mut LocalPhysicsController,
@@ -851,6 +861,33 @@ pub fn reconcile_candidate_physics_correction(
     mode: PhysicsCorrectionMode,
     world: &impl CollisionWorld,
 ) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    reconcile_physics_anchor(
+        ticker,
+        physics,
+        PhysicsAnchor {
+            network_position,
+            tick,
+            on_ground,
+            velocity: None,
+        },
+        mode,
+        world,
+    )
+}
+
+pub fn reconcile_physics_anchor(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    anchor: PhysicsAnchor,
+    mode: PhysicsCorrectionMode,
+    world: &impl CollisionWorld,
+) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    let PhysicsAnchor {
+        network_position,
+        tick,
+        on_ground,
+        velocity,
+    } = anchor;
     if !ticker.physics_is_authorized() {
         return Err(PhysicsAuthorityFault::Unauthorized);
     }
@@ -871,6 +908,7 @@ pub fn reconcile_candidate_physics_correction(
                 network_position,
                 aligned_tick,
                 on_ground,
+                velocity,
                 mode,
                 confirmation.as_ref(),
                 world,

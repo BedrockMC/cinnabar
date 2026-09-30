@@ -8,6 +8,7 @@ impl LocalPhysicsController {
         network_position: [f32; 3],
         tick: u64,
         on_ground: bool,
+        velocity: Option<[f32; 3]>,
         mode: PhysicsCorrectionMode,
         confirmation: Option<&PhysicsCorrectionConfirmation>,
         world: &impl CollisionWorld,
@@ -15,9 +16,21 @@ impl LocalPhysicsController {
         if !network_position.into_iter().all(f32::is_finite) {
             return Err(PhysicsCorrectionError::InvalidAnchor);
         }
+        let velocity = velocity
+            .filter(|velocity| velocity.iter().all(|axis| axis.is_finite()))
+            .map(|velocity| {
+                Vec3::new(
+                    f64::from(velocity[0]),
+                    f64::from(velocity[1]),
+                    f64::from(velocity[2]),
+                )
+            });
         self.corrections_applied = self.corrections_applied.saturating_add(1);
         if matches!(mode, PhysicsCorrectionMode::Snap) {
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
+            if let (Some(velocity), Some(state)) = (velocity, self.state.as_mut()) {
+                state.velocity = velocity;
+            }
             return Ok(PhysicsCorrectionPlan {
                 outcome: PhysicsCorrectionOutcome::Snapped { tick },
                 corrected_tick: tick,
@@ -51,12 +64,8 @@ impl LocalPhysicsController {
             f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
             f64::from(network_position[2]),
         );
-        // CorrectPlayerMovePrediction replaces the retained position at one
-        // tick, then requires movement after that tick to be replayed from the
-        // corrected anchor. Its wire `pos_delta` record is retained upstream
-        // but deliberately not trusted as a replacement velocity: replay keeps
-        // the simulated dynamic state so a confirmation or small correction
-        // cannot restart acceleration from rest.
+        // Vanilla's correction input writes both position and StateVector
+        // motion into the corrected frame before replaying later inputs.
         corrected.position = feet;
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they
@@ -94,6 +103,9 @@ impl LocalPhysicsController {
                 corrected.velocity.y = 0.0;
             }
             corrected.collisions = sim::AxisCollisions::default();
+        }
+        if let Some(velocity) = velocity {
+            corrected.velocity = velocity;
         }
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();

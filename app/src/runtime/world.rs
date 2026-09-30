@@ -384,6 +384,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         resolved.position,
                         correction.tick,
                         correction.on_ground,
+                        Some(correction.delta),
                         &world,
                     ) {
                         Ok(Some(outcome)) => {
@@ -460,6 +461,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                             resolved.position,
                             tick,
                             correction.on_ground,
+                            None,
                             &world,
                         )
                         .ok()

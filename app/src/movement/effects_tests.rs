@@ -256,6 +256,7 @@ fn replay_and_hard_reanchor_do_not_rewind_authoritative_countdown() {
             corrected.position,
             corrected.tick,
             false,
+            None,
             PhysicsCorrectionMode::ReplayIfRetained,
             None,
             &EmptyWorld,
