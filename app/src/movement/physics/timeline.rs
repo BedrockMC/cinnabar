@@ -53,6 +53,13 @@ impl LocalPhysicsController {
         if !motion.into_iter().all(f32::is_finite) {
             return None;
         }
+        if !motion_is_simulable(motion) {
+            super::super::diagnostics::note_skipped_authority(
+                "motion",
+                motion.into_iter().map(f32::abs).fold(0.0, f32::max).into(),
+            );
+            return None;
+        }
         let velocity = Vec3::new(
             f64::from(motion[0]),
             f64::from(motion[1]),
@@ -234,4 +241,12 @@ fn rewrite_run<'a>(
         edited = true;
     }
     (edited, true)
+}
+
+/// Whether a velocity keeps the next tick's collision sweep inside the query extent.
+pub(super) fn motion_is_simulable(motion: [f32; 3]) -> bool {
+    motion.into_iter().all(|axis| {
+        axis.is_finite()
+            && f64::from(axis.abs()) + sim::PLAYER_HEIGHT < sim::MAX_COLLISION_QUERY_EXTENT
+    })
 }
