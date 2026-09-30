@@ -377,3 +377,29 @@ fn connecting_screen_reports_the_pack_download() {
         );
     }
 }
+
+// Retail settings drop the debug, edu and automation sections their `ignored`
+// gates hide once unbound variables read as null.
+#[test]
+fn retail_settings_hide_debug_and_automation_sections() {
+    let Some(carrier) = super::pack_harness::carrier() else {
+        return;
+    };
+    let files = carrier.ui_files();
+    let catalog =
+        json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
+    let (reference, context) = super::menu_screens::settings_prewarm();
+    let tree = json_ui::resolve(&catalog, reference, &context)
+        .control
+        .unwrap();
+    let mut names = Vec::new();
+    let mut stack = vec![&tree];
+    while let Some(control) = stack.pop() {
+        names.push(control.name.as_str());
+        stack.extend(&control.children);
+    }
+    assert!(names.contains(&"video_button"), "{names:?}");
+    for hidden in ["edu_debug_button", "automation_button", "ui_debug_button"] {
+        assert!(!names.contains(&hidden), "{hidden} shown");
+    }
+}

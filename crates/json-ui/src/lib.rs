@@ -114,6 +114,20 @@ impl Context {
             .with_flag("nx_os", false)
             .with_flag("is_ps4", false)
             .with_flag("is_publish", true)
+            .with_flag("test_infrastructure_disabled", true)
+            .with_flag("creator_build", false)
+            .with_flag("new_video_settings", false)
+            .with_flag("built_with_ore_ui_docs_and_tests", false)
+            .with_flag("is_preview_app", false)
+            .with_flag("is_desktop", true)
+            .with_flag("is_console", false)
+            .with_flag("mouse", true)
+            .with_flag("game_pad", false)
+            .with_flag("microsoft_os", !macos)
+            .with_flag("apple_os", macos)
+            .with_flag("google_os", false)
+            .with_flag("is_android", false)
+            .with_flag("is_editor_mode_enabled", false)
     }
 
     /// The variables set so far, keyed without `$`.
