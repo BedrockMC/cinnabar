@@ -522,7 +522,7 @@ fn resolve_size(
         Axis::Y,
     );
     let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), parent_rect.h);
-    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, env);
+    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, true);
     for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
         .into_iter()
         .enumerate()
@@ -534,20 +534,9 @@ fn resolve_size(
     size
 }
 
-fn clamp_bounds(
-    control: &ResolvedControl,
-    parent_rect: Rect,
-    size: [f64; 2],
-    content: [f64; 2],
-    nat: Option<[f64; 2]>,
-    _env: &LayoutEnv,
-) -> [f64; 2] {
-    clamp_bounds_within(control, parent_rect, size, content, nat, true)
-}
-
 /// Clamp by min/max; while the parent's size is still unknown (it sizes to its
 /// children), a parent-relative bound does not constrain the child.
-fn clamp_bounds_within(
+fn clamp_bounds(
     control: &ResolvedControl,
     parent_rect: Rect,
     size: [f64; 2],
@@ -680,7 +669,7 @@ fn intrinsic_uncached(
     let content = content_extent(control, env, known);
     let parent_rect = Rect::new(0.0, 0.0, parent, 0.0);
     let nat = natural(control, env, known);
-    clamp_bounds_within(
+    clamp_bounds(
         control,
         parent_rect,
         [width, height],
