@@ -8,15 +8,14 @@ use std::{
     sync::Arc,
 };
 
-pub const MAX_ACTOR_TEXTURE_PAGES: usize = 32;
+/// Every page a `u8` page id names: the player page plus 255 generic pages. Vanilla startup
+/// art takes 15 generic pages; a large server pack adds one per distinct texture size.
+pub const MAX_ACTOR_TEXTURE_PAGES: usize = u8::MAX as usize + 1;
 /// Layers per generic entity page, within every backend's array-layer limit.
 const MAX_ACTOR_PAGE_LAYERS: usize = 256;
-// Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory.
-// Driver overhead and internal upload staging are separate, unmeasured costs.
-pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 48 * 1024 * 1024;
-
-/// Layers per equipment page, within every backend's array-layer limit.
-const MAX_EQUIPMENT_PAGE_LAYERS: usize = 256;
+// Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
+// startup art takes about 20 MiB. A page past it is downscaled to fit, never dropped.
+pub const MAX_ACTOR_GPU_PIXEL_BYTES: usize = 512 * 1024 * 1024;
 
 /// One equipment raster (item sprite or attachable texture) to place on a generic page.
 #[derive(Clone, Debug)]
@@ -28,6 +27,30 @@ pub struct EquipmentRaster {
 
 fn within_page_budget(generic_pages: usize, declared_pixel_bytes: usize) -> bool {
     generic_pages < MAX_ACTOR_TEXTURE_PAGES && declared_pixel_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES
+}
+
+/// Appends `page`, box-filtered down until it fits the byte budget, and returns its page id;
+/// `None` only once every page id is taken.
+fn push_page(
+    pages: &mut Vec<ActorTexturePage>,
+    gpu_bytes: &mut usize,
+    page: ActorTexturePage,
+) -> Option<u8> {
+    let mut page = page;
+    while !within_page_budget(pages.len() + 1, gpu_bytes.saturating_add(page.rgba8.len())) {
+        let longest = u32::from(page.width.max(page.height));
+        if pages.len() + 1 >= MAX_ACTOR_TEXTURE_PAGES || longest <= 1 {
+            return None;
+        }
+        page = page.fit_within(longest / 2).into_owned();
+    }
+    *gpu_bytes += page.rgba8.len();
+    pages.push(page);
+    u8::try_from(pages.len()).ok()
+}
+
+fn player_page_bytes() -> usize {
+    MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,23 +158,23 @@ impl ActorArtworkPages {
         let mut pages = Vec::new();
         let mut locations = BTreeMap::new();
         // The existing player page retains all 128 layers and its full byte budget.
-        let mut gpu_bytes = MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES;
+        let mut gpu_bytes = player_page_bytes();
         for ((width, height), indices) in groups {
             for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let length = indices
+                let pixels: Vec<u8> = indices
                     .iter()
-                    .map(|index| catalog.textures()[*index].rgba8.len())
-                    .sum::<usize>();
-                if gpu_bytes
-                    .checked_add(length)
-                    .is_none_or(|total| !within_page_budget(pages.len() + 1, total))
-                {
+                    .flat_map(|index| catalog.textures()[*index].rgba8.iter().copied())
+                    .collect();
+                let page = ActorTexturePage {
+                    width,
+                    height,
+                    layers: indices.len() as u32,
+                    rgba8: pixels.into(),
+                };
+                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
                     continue;
-                }
-                let page = (pages.len() + 1) as u8;
-                let mut pixels = Vec::with_capacity(length);
+                };
                 for (layer, index) in indices.iter().enumerate() {
-                    pixels.extend_from_slice(&catalog.textures()[*index].rgba8);
                     locations.insert(
                         *index as u32,
                         ActorArtworkLocation {
@@ -161,13 +184,6 @@ impl ActorArtworkPages {
                         },
                     );
                 }
-                gpu_bytes += length;
-                pages.push(ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: pixels.into(),
-                });
             }
         }
         let routes: BTreeMap<_, _> = catalog
@@ -232,47 +248,38 @@ impl ActorArtworkPages {
         let mut pages = self.pages.to_vec();
         let mut gpu_bytes = pages
             .iter()
-            .fold(MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES, |total, page| {
-                total + page.rgba8.len()
-            });
+            .fold(player_page_bytes(), |total, page| total + page.rgba8.len());
         let mut locations = vec![None; rasters.len()];
         let mut equipment = (*self.equipment).clone();
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
-            let length = indices
-                .iter()
-                .map(|index| rasters[*index].rgba8.len())
-                .sum::<usize>();
-            let layers = indices.len();
-            if gpu_bytes
-                .checked_add(length)
-                .is_none_or(|total| !within_page_budget(pages.len() + 1, total))
-                || layers > MAX_EQUIPMENT_PAGE_LAYERS
-            {
-                continue;
+            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
+                let pixels: Vec<u8> = indices
+                    .iter()
+                    .flat_map(|index| rasters[*index].rgba8.iter().copied())
+                    .collect();
+                hasher.update(width.to_le_bytes());
+                hasher.update(height.to_le_bytes());
+                hasher.update(&pixels);
+                let page = ActorTexturePage {
+                    width,
+                    height,
+                    layers: indices.len() as u32,
+                    rgba8: pixels.into(),
+                };
+                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
+                    continue;
+                };
+                for (layer, index) in indices.iter().enumerate() {
+                    locations[*index] = Some(ActorArtworkLocation {
+                        page,
+                        layer: layer as u32,
+                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                    });
+                    equipment.insert((page, layer as u32));
+                }
             }
-            let page = (pages.len() + 1) as u8;
-            let mut pixels = Vec::with_capacity(length);
-            for (layer, index) in indices.iter().enumerate() {
-                pixels.extend_from_slice(&rasters[*index].rgba8);
-                locations[*index] = Some(ActorArtworkLocation {
-                    page,
-                    layer: layer as u32,
-                    pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                });
-                equipment.insert((page, layer as u32));
-            }
-            hasher.update(width.to_le_bytes());
-            hasher.update(height.to_le_bytes());
-            hasher.update(&pixels);
-            gpu_bytes += length;
-            pages.push(ActorTexturePage {
-                width,
-                height,
-                layers: layers as u32,
-                rgba8: pixels.into(),
-            });
         }
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
@@ -300,28 +307,29 @@ impl ActorArtworkPages {
         let mut pages = self.pages.to_vec();
         let mut gpu_bytes = pages
             .iter()
-            .fold(MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES, |total, page| {
-                total + page.rgba8.len()
-            });
+            .fold(player_page_bytes(), |total, page| total + page.rgba8.len());
         let mut locations = BTreeMap::new();
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
             for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let length = indices
+                let pixels: Vec<u8> = indices
                     .iter()
-                    .map(|index| textures[*index].rgba8.len())
-                    .sum::<usize>();
-                if gpu_bytes
-                    .checked_add(length)
-                    .is_none_or(|total| !within_page_budget(pages.len() + 1, total))
-                {
+                    .flat_map(|index| textures[*index].rgba8.iter().copied())
+                    .collect();
+                hasher.update(width.to_le_bytes());
+                hasher.update(height.to_le_bytes());
+                hasher.update(&pixels);
+                let page = ActorTexturePage {
+                    width,
+                    height,
+                    layers: indices.len() as u32,
+                    rgba8: pixels.into(),
+                };
+                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
                     continue;
-                }
-                let page = (pages.len() + 1) as u8;
-                let mut pixels = Vec::with_capacity(length);
+                };
                 for (layer, index) in indices.iter().enumerate() {
-                    pixels.extend_from_slice(&textures[*index].rgba8);
                     locations.insert(
                         *index as u32,
                         ActorArtworkLocation {
@@ -331,16 +339,6 @@ impl ActorArtworkPages {
                         },
                     );
                 }
-                hasher.update(width.to_le_bytes());
-                hasher.update(height.to_le_bytes());
-                hasher.update(&pixels);
-                gpu_bytes += length;
-                pages.push(ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: pixels.into(),
-                });
             }
         }
         let pack_source_locations: BTreeMap<u32, ActorArtworkLocation> = textures
@@ -445,6 +443,52 @@ mod tests {
             MAX_ACTOR_TEXTURE_PAGES - 1,
             MAX_ACTOR_GPU_PIXEL_BYTES + 1
         ));
+    }
+
+    // A pack with a texture size per page past the old 32-page cap places every texture.
+    #[test]
+    fn pack_art_of_many_sizes_gets_a_page_per_size() {
+        let textures: Vec<_> = (1..=40u16)
+            .map(|side| assets::ActorTexture {
+                source: u32::from(side),
+                width: side,
+                height: 1,
+                pixel_sha256: [0; 32],
+                rgba8: vec![9; usize::from(side) * 4].into(),
+            })
+            .collect();
+        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+        assert_eq!(pages.pages().len(), 40);
+    }
+
+    // Same-size equipment rasters past one page's layer limit spill onto further pages.
+    #[test]
+    fn equipment_rasters_past_one_page_spill_onto_more_pages() {
+        let raster = EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: vec![9; 4].into(),
+        };
+        let rasters = vec![raster; MAX_ACTOR_PAGE_LAYERS + 3];
+        let (pages, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
+        assert_eq!(pages.pages().len(), 2);
+        assert!(locations.iter().all(Option::is_some));
+    }
+
+    // Past the byte budget a page is downscaled to fit rather than dropped.
+    #[test]
+    fn a_page_past_the_byte_budget_is_downscaled_not_dropped() {
+        let page = ActorTexturePage {
+            width: 16,
+            height: 16,
+            layers: 1,
+            rgba8: vec![9; 16 * 16 * 4].into(),
+        };
+        let mut pages = Vec::new();
+        let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 16 * 16;
+        assert_eq!(push_page(&mut pages, &mut gpu_bytes, page), Some(1));
+        assert_eq!(pages[0].dimensions(), (8, 8));
+        assert_eq!(gpu_bytes, MAX_ACTOR_GPU_PIXEL_BYTES);
     }
 
     #[test]
