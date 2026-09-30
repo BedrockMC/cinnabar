@@ -232,6 +232,8 @@ pub(crate) struct MenuRuntime {
     /// once a connect attempt provisions it and released on disconnect,
     /// session failure, exit, or drop.
     session_directory: Option<SessionDirectoryGuard>,
+    /// The join provisioning behind the connecting screen.
+    join: Option<connection::JoinAttempt>,
 }
 
 #[derive(Debug)]
@@ -307,6 +309,7 @@ impl MenuRuntime {
             layout,
             player_skin,
             session_directory: None,
+            join: None,
             editing: None,
             settings_section: 0,
             disconnect_message: None,
@@ -568,6 +571,7 @@ impl MenuRuntime {
 
     /// Releases the session runtime directory now (after the core has been
     /// stopped); a no-op when nothing is bound.
+    #[cfg(test)]
     pub(crate) fn release_session_directory(&mut self) {
         self.session_directory = None;
     }

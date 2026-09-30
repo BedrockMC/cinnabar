@@ -28,6 +28,8 @@ use crate::{
 /// the pipe still delivers stdin EOF to the core even then.
 const CORE_GRACEFUL_STOP_DEADLINE: Duration = Duration::from_millis(1_500);
 const CORE_STOP_POLL_INTERVAL: Duration = Duration::from_millis(20);
+/// How long a freshly spawned core has to publish its bridge endpoint.
+pub(crate) const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CoreStopOutcome {
@@ -73,6 +75,39 @@ impl CoreProcessGuard {
         let _ = child.kill();
         let _ = child.wait();
         CoreStopOutcome::KilledAfterGracefulTimeout
+    }
+
+    /// Whether the child has already exited on its own.
+    pub(crate) fn exited(&mut self) -> bool {
+        self.child
+            .as_mut()
+            .is_some_and(|child| matches!(child.try_wait(), Ok(Some(_))))
+    }
+
+    /// [`Self::stop`] on a reaper thread, running `then` once the core is gone,
+    /// so the frame never waits out the graceful deadline.
+    pub(crate) fn stop_detached(&mut self, then: impl FnOnce() + Send + 'static) {
+        if self.child.is_none() {
+            self.stdin = None;
+            then();
+            return;
+        }
+        let mut detached = Self {
+            child: self.child.take(),
+            stdin: self.stdin.take(),
+        };
+        // The pipe closes now either way; only the wait moves off the frame.
+        drop(detached.stdin.take());
+        let spawned = std::thread::Builder::new()
+            .name("bedrock-core-reaper".to_owned())
+            .spawn(move || {
+                detached.stop();
+                then();
+            });
+        // An unspawned job drops here: its guard stops the core, then `then`'s captures drop.
+        if let Err(error) = spawned {
+            bevy::log::warn!("core reaper unavailable, stopping inline: {error}");
+        }
     }
 }
 
@@ -170,8 +205,10 @@ pub(crate) fn clear_stale_bridge_endpoint(socket_dir: &Path) -> Result<()> {
     }
 }
 
+/// Blocks until the core publishes its endpoint; only for paths off the frame.
 pub(crate) fn wait_for_core(socket_dir: &Path) -> Result<()> {
-    for _ in 0..100 {
+    let deadline = Instant::now() + CORE_START_TIMEOUT;
+    while Instant::now() < deadline {
         if bridge_endpoint_exists(socket_dir) {
             return Ok(());
         }
