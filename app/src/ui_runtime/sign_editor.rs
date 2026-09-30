@@ -22,6 +22,50 @@ pub(crate) struct SignEdit {
     column: usize,
     base: NbtCompound,
     color: [u8; 4],
+    look: SignLook,
+}
+
+/// Which vanilla sign art and edit box the screen shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SignLook {
+    pub(crate) texture: String,
+    pub(crate) hanging: bool,
+}
+
+impl SignLook {
+    /// The `textures/ui` art for the sign block `name` (an oak sign when unknown).
+    pub(crate) fn of_block(name: Option<&str>) -> Self {
+        let name = name.unwrap_or_default();
+        let name = name.strip_prefix("minecraft:").unwrap_or(name);
+        let hanging = name.ends_with("hanging_sign");
+        let wood = name
+            .trim_end_matches("_hanging_sign")
+            .trim_end_matches("hanging_sign")
+            .trim_end_matches("_standing_sign")
+            .trim_end_matches("standing_sign")
+            .trim_end_matches("_wall_sign")
+            .trim_end_matches("wall_sign")
+            .trim_end_matches("_sign");
+        let wood = match wood {
+            "" | "oak" | "sign" => "",
+            "dark_oak" | "darkoak" => "darkoak",
+            other => other,
+        };
+        let texture = match (hanging, wood) {
+            (true, "") => "hanging_sign".to_owned(),
+            (true, wood) => format!("hanging_sign_{wood}"),
+            (false, "") => "sign".to_owned(),
+            // Newer woods name the art wood-first.
+            (false, wood @ ("mangrove" | "bamboo" | "cherry" | "pale_oak")) => {
+                format!("{wood}_sign")
+            }
+            (false, wood) => format!("sign_{wood}"),
+        };
+        Self {
+            texture: format!("textures/ui/{texture}"),
+            hanging,
+        }
+    }
 }
 
 fn face_key(front: bool) -> &'static str {
@@ -58,7 +102,18 @@ impl SignEdit {
             column: 0,
             base,
             color: [red, green, blue, 255],
+            look: SignLook::of_block(None),
         }
+    }
+
+    /// Shows the art of the sign block `name`.
+    pub(crate) fn with_block(mut self, name: Option<&str>) -> Self {
+        self.look = SignLook::of_block(name);
+        self
+    }
+
+    pub(crate) const fn look(&self) -> &SignLook {
+        &self.look
     }
 
     pub(crate) const fn position(&self) -> [i32; 3] {

@@ -72,3 +72,30 @@ fn the_sent_compound_keeps_both_faces_and_identity() {
     );
     assert_eq!(root.compound("BackText").unwrap().string("Text"), Some(""));
 }
+
+#[test]
+fn sign_art_follows_the_block_wood_and_mount() {
+    let look = |name: &str| SignLook::of_block(Some(name));
+    assert_eq!(look("minecraft:standing_sign").texture, "textures/ui/sign");
+    assert_eq!(look("minecraft:wall_sign").texture, "textures/ui/sign");
+    assert_eq!(
+        look("minecraft:birch_wall_sign").texture,
+        "textures/ui/sign_birch"
+    );
+    assert_eq!(
+        look("minecraft:darkoak_standing_sign").texture,
+        "textures/ui/sign_darkoak"
+    );
+    assert_eq!(
+        look("minecraft:cherry_standing_sign").texture,
+        "textures/ui/cherry_sign"
+    );
+    let hanging = look("minecraft:dark_oak_hanging_sign");
+    assert!(hanging.hanging);
+    assert_eq!(hanging.texture, "textures/ui/hanging_sign_darkoak");
+    assert_eq!(
+        look("minecraft:oak_hanging_sign").texture,
+        "textures/ui/hanging_sign"
+    );
+    assert_eq!(SignLook::of_block(None).texture, "textures/ui/sign");
+}

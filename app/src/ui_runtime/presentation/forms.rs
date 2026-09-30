@@ -65,6 +65,8 @@ pub(super) struct FormPresentation {
     chat: chat_screen::ChatScreen,
     /// The bed screen's hits and pointer; carried across the per-frame reset.
     bed: oreui::BedScreen,
+    /// The sign editor's cached screen; carried across the per-frame reset.
+    sign: sign_editor::SignScreen,
     /// Dev-mode OreUI originals and the look OreUI screens draw with.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
@@ -252,6 +254,7 @@ impl UiPresentationRuntime {
         let hud = std::mem::take(&mut self.form_presentation.hud);
         let chat = std::mem::take(&mut self.form_presentation.chat);
         let bed = std::mem::take(&mut self.form_presentation.bed);
+        let sign = std::mem::take(&mut self.form_presentation.sign);
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
@@ -259,6 +262,7 @@ impl UiPresentationRuntime {
             hud,
             chat,
             bed,
+            sign,
             oreui_originals: self.form_presentation.oreui_originals.take(),
             oreui_look: self.form_presentation.oreui_look,
             ..FormPresentation::default()

@@ -196,7 +196,7 @@ fn press(
         HitKind::Button | HitKind::Toggle | HitKind::Dropdown => {
             engine.view.pressed = Some(region.key.clone());
         }
-        HitKind::ScrollView | HitKind::Modal | HitKind::Custom => {}
+        HitKind::ScrollView | HitKind::Modal | HitKind::Panel | HitKind::Custom => {}
     }
 }
 
