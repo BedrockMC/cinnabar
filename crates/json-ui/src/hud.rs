@@ -45,6 +45,12 @@ pub struct HudModel {
     pub chat_background_opacity: f64,
     pub sidebar: Option<Sidebar>,
     pub boss_bars: Vec<BossBar>,
+    /// The `Position: x, y, z` line, when the world shows coordinates.
+    pub player_position: Option<String>,
+    /// The `Days played: n` line, when the world shows days played.
+    pub days_played: Option<String>,
+    /// Opacity of the backgrounds behind the position and days lines.
+    pub text_background_alpha: f64,
 }
 
 /// One hotbar cell: an index into the caller's icon table, the count, and the
@@ -233,6 +239,27 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
     }
     sidebar(&mut data, model.sidebar.as_ref());
     boss_bars(&mut data, &model.boss_bars);
+    for (line, visible, text) in [
+        (
+            &model.player_position,
+            "#player_position_visible",
+            "#player_position_text",
+        ),
+        (
+            &model.days_played,
+            "#number_of_days_played_visible",
+            "#number_of_days_played_text",
+        ),
+    ] {
+        data.set_global(visible, Scalar::Bool(line.is_some()));
+        if let Some(line) = line {
+            data.set_global(text, Scalar::Text(line.clone()));
+        }
+    }
+    data.set_global(
+        "#hud_text_background_alpha",
+        Scalar::Num(model.text_background_alpha),
+    );
     data
 }
 

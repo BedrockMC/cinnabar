@@ -103,6 +103,12 @@ pub(crate) struct HudFrame {
     pub attack_indicator_charge: Option<f32>,
     /// Whether the held player-list action keeps the tab overlay open.
     pub tab_list_open: bool,
+    /// The local player's floored feet position.
+    pub player_block: Option<[i32; 3]>,
+    /// The absolute world tick, when the session has a clock.
+    pub world_time: Option<f64>,
+    /// A held filled map shows the position whatever the world rule says.
+    pub holding_filled_map: bool,
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names

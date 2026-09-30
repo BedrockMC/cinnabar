@@ -12,6 +12,8 @@ use crate::{
 /// How far the targeted-block ray reaches.
 const TARGET_RANGE_BLOCKS: f64 = 20.0;
 const FPS_SMOOTHING: f32 = 0.1;
+/// Heads the overlay so it is never mistaken for vanilla UI.
+const DEV_LABEL: &str = "Cinnabar developer overlay (not vanilla)";
 
 #[derive(Resource, Default)]
 pub(super) struct DebugOverlayState {
@@ -113,7 +115,7 @@ fn publish_debug_overlay(
             })
         }
         _ => DebugLines {
-            left: vec![fps_line(state.fps)],
+            left: vec![DEV_LABEL.to_owned(), fps_line(state.fps)],
             right: Vec::new(),
         },
     };
@@ -168,7 +170,7 @@ fn format_lines(snapshot: &Snapshot) -> DebugLines {
     let (heading, axis) = facing(snapshot.direction);
     let (block_light, sky_light) = snapshot.light;
     let mut left = vec![
-        "Cinnabar".to_owned(),
+        DEV_LABEL.to_owned(),
         fps_line(snapshot.fps),
         format!("Dimension: {}", dimension_name(snapshot.dimension)),
         format!("XYZ: {x:.3} / {y:.5} / {z:.3}"),

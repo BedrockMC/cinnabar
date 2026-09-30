@@ -598,12 +598,20 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });
             }
-            WorldEvent::DaylightCycle(update) => {
-                let sequence = sequence.expect("sequenced daylight-cycle commits through submit");
-                self.push_committed_control(CommittedControlEvent::DaylightCycle {
-                    sequence,
-                    update,
-                });
+            WorldEvent::GameRules(rules) => {
+                let sequence = sequence.expect("sequenced game rules commit through submit");
+                if let Some(update) = rules.daylight_cycle {
+                    self.push_committed_control(CommittedControlEvent::DaylightCycle {
+                        sequence,
+                        update,
+                    });
+                }
+                if !rules.hud.is_empty() {
+                    self.push_committed_ui(CommittedUiEvent::Ui {
+                        sequence,
+                        event: UiEvent::HudRules(rules.hud),
+                    });
+                }
             }
             WorldEvent::Weather(update) => {
                 let sequence = sequence.expect("sequenced weather commits through submit");

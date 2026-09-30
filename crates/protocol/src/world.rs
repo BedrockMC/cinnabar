@@ -50,13 +50,13 @@ pub use self::custom_blocks::{
 pub use self::events::{
     ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
     BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
-    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode,
-    MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent, MovePlayerMode,
-    MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
-    SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id,
-    vanilla_dimension_range,
+    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, GameRulesEvent, LevelChunkEvent,
+    LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent,
+    MovePlayerMode, MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
+    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
+    air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 pub use self::requests::request_sub_chunk_column;
@@ -838,10 +838,17 @@ pub fn into_world_event(
             WorldEvent::SetTime(SetTimeEvent { time: packet.time })
         }
         McpePacketData::GameRulesChangedPacket(packet) => {
-            let Some(enabled) = daylight_cycle_rule_update(&packet.rule_data.rules_list) else {
+            let rules = &packet.rule_data.rules_list;
+            let daylight_cycle = daylight_cycle_rule_update(rules)
+                .map(|enabled| DaylightCycleUpdateEvent { enabled });
+            let hud = hud_rules(rules);
+            if daylight_cycle.is_none() && hud.is_empty() {
                 return Ok(None);
-            };
-            WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled })
+            }
+            WorldEvent::GameRules(GameRulesEvent {
+                daylight_cycle,
+                hud,
+            })
         }
         McpePacketData::LevelEventPacket(packet) => {
             if matches!(
@@ -940,8 +947,12 @@ pub(crate) fn normalize_borrowed_level_chunk(
 /// the old modelling required is gone: a non-boolean rule simply cannot decode
 /// into `GameRuleRuleValue::Bool`.
 fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
+    bool_rule(rules, "dodaylightcycle")
+}
+
+fn bool_rule(rules: &[GameRule], name: &str) -> Option<bool> {
     rules.iter().find_map(|rule| {
-        if rule.rule_name.eq_ignore_ascii_case("dodaylightcycle")
+        if rule.rule_name.eq_ignore_ascii_case(name)
             && let GameRuleRuleValue::Bool(enabled) = &rule.rule_value
         {
             Some(*enabled)
@@ -949,6 +960,25 @@ fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
             None
         }
     })
+}
+
+fn hud_rules(rules: &[GameRule]) -> crate::HudRules {
+    crate::HudRules {
+        show_coordinates: bool_rule(rules, "showcoordinates"),
+        show_days_played: bool_rule(rules, "showdaysplayed"),
+    }
+}
+
+impl crate::HudRules {
+    /// StartGame's HUD rules; an absent rule reads as off, its vanilla default.
+    #[must_use]
+    pub fn from_game_data(game_data: &GameData) -> Self {
+        let rules = hud_rules(&game_data.start_game.settings.rule_data.rules_list);
+        Self {
+            show_coordinates: Some(rules.show_coordinates.unwrap_or(false)),
+            show_days_played: Some(rules.show_days_played.unwrap_or(false)),
+        }
+    }
 }
 
 fn canonical_biome_name(name: &str) -> Arc<str> {
