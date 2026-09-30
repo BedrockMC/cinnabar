@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/df-mc/go-xsapi/v2"
+	"github.com/df-mc/go-xsapi/v2/xal/nsal"
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
 	"github.com/df-mc/go-xsapi/v2/xal/xasd"
 	"github.com/df-mc/go-xsapi/v2/xal/xasu"
@@ -840,4 +841,40 @@ func (s *sequenceOAuthSource) Token() (*oauth2.Token, error) {
 		s.tokens = s.tokens[1:]
 	}
 	return token, nil
+}
+
+// A rejected XSTS token must stay evicted across a reload of the persisted bundle.
+func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{}).(*persistentAuthSource)
+	var invalidator nsal.TokenInvalidator = source
+	rejected := source.session.Snapshot().XSTSTokens[cachedRelyingParty]
+	if rejected == nil {
+		t.Fatal("fixture did not restore the XSTS token")
+	}
+	invalidator.InvalidateXSTSToken(cachedRelyingParty, rejected)
+	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
+		t.Fatal("in-memory session kept the rejected token")
+	}
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.SISU.XSTSTokens[cachedRelyingParty] != nil {
+		t.Fatal("persisted bundle kept the rejected token")
+	}
+	fresh := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{}).(*persistentAuthSource)
+	if fresh.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
+		t.Fatal("a fresh process restored the rejected token")
+	}
+	// A stale bundle written without the eviction must not resurrect it on reload.
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	source.mu.Lock()
+	source.reloadLocked()
+	source.mu.Unlock()
+	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
+		t.Fatal("reload resurrected the rejected token")
+	}
 }

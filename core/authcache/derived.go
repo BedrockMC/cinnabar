@@ -121,6 +121,7 @@ type persistentAuthSource struct {
 	cachedEnv   *derivedEnvironment
 	service     *service.Token
 	persisted   string
+	rejected    map[string]*xsts.Token // XSTS tokens a relying party refused; re-evicted after every reload
 	deps        derivedDeps
 }
 
@@ -128,6 +129,7 @@ var (
 	_ oauth2.TokenSource               = (*persistentAuthSource)(nil)
 	_ xsapi.TokenSource                = (*persistentAuthSource)(nil)
 	_ minecraft.MultiplayerTokenSource = (*persistentAuthSource)(nil)
+	_ nsal.TokenInvalidator            = (*persistentAuthSource)(nil)
 )
 
 func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics io.Writer, deps derivedDeps) oauth2.TokenSource {
@@ -281,6 +283,30 @@ func (s *persistentAuthSource) XSTSToken(ctx context.Context, relyingParty strin
 		s.diagnostic("refresh", "xsts", "expired")
 	}
 	return token, nil
+}
+
+// InvalidateXSTSToken evicts rejected through SISU and persists the eviction so no reload, in this
+// process or another, can resurrect it.
+func (s *persistentAuthSource) InvalidateXSTSToken(relyingParty string, rejected *xsts.Token) {
+	if rejected == nil || rejected.Token == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rejected == nil {
+		s.rejected = make(map[string]*xsts.Token)
+	}
+	s.rejected[relyingParty] = rejected
+	lease, _ := s.acquireLeaseLocked(ctx)
+	if lease != nil {
+		defer lease.Close()
+		s.reloadLocked()
+	}
+	s.session.InvalidateXSTSToken(relyingParty, rejected)
+	s.diagnostic("invalidate", "xsts", "rejected")
+	s.persistLocked(ctx, lease != nil)
 }
 
 func (s *persistentAuthSource) MultiplayerToken(ctx context.Context, key *ecdsa.PublicKey) (string, error) {
@@ -510,6 +536,9 @@ func (s *persistentAuthSource) reloadLocked() {
 	}
 	if s.restore(state) == nil {
 		s.persisted = derivedFingerprint(state)
+		for relyingParty, token := range s.rejected {
+			s.session.InvalidateXSTSToken(relyingParty, token)
+		}
 	}
 }
 
@@ -594,6 +623,7 @@ func (s *persistentAuthSource) resetLocked(binding string) {
 	s.cachedEnv = nil
 	s.service = nil
 	s.deviceToken = nil
+	s.rejected = nil
 	s.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, proofKey)
 	s.session = auth.AndroidConfig.New(s.oauth, &sisu.SessionConfig{DeviceTokenSource: s.device})
 	s.persisted = ""
