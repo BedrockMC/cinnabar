@@ -19,6 +19,8 @@ pub struct PackApplication {
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
+    /// StartGame item components, applied with the pack stack they present through.
+    pub(crate) item_components: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
@@ -34,6 +36,7 @@ impl Default for PackApplication {
             server_lang: None,
             block_overlay: None,
             item_icons: None,
+            item_components: None,
             glyph_sheets: None,
             entities: None,
             property_defaults: Vec::new(),
@@ -51,7 +54,9 @@ pub(super) fn prepare_session_packs(
     let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
     let icon_keys = protocol::item_icon_keys(game_data);
     let hashed = game_data.start_game.block_network_ids_are_hashes;
-    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
+    let mut packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
+    packs.item_components =
+        crate::ui_runtime::item_facts::SessionItemComponents::from_game_data(game_data);
     (custom_blocks, packs)
 }
 
@@ -93,6 +98,7 @@ pub(super) fn prepare_pack_application(
     PackApplication {
         server_lang: merged_server_lang(&view),
         item_icons,
+        item_components: None,
         glyph_sheets: compile_session_glyphs(&view),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
@@ -466,10 +472,12 @@ pub(super) fn install_session_icons(
     runtime: &mut crate::ui_runtime::UiRuntime,
     generation: u64,
     icons: Option<Arc<SessionIcons>>,
+    items: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     setup_succeeded: bool,
 ) {
     if runtime.session_id() == generation {
         runtime.set_session_icons(icons.filter(|_| setup_succeeded));
+        runtime.set_session_items(items.filter(|_| setup_succeeded));
     }
 }
 
