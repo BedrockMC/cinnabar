@@ -5,13 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -36,19 +37,14 @@ const (
 	// separately: gophertunnel holds every downloaded pack in memory until the
 	// handoff is captured, and past this ceiling the dial is cancelled.
 	maxResourcePackTransferBytes = 2 * maxSelectedResourcePackTotalBytes
-	// Longest gap in pack transfer progress before the dial is cancelled. Servers
-	// pace chunk delivery (The Hive: 24 packs, 21.5 MB, 60-120 s on first join), so
-	// the total is left to the client's login deadline rather than bounded here.
-	maxResourcePackAcquisitionStall = 20 * time.Second
 )
 
-var (
-	errResourcePackAcquisitionStalled = errors.New("proxy: resource-pack acquisition stalled")
-	errResourcePackTransferTooLarge   = errors.New("proxy: resource-pack transfers exceeded their memory bound")
-)
+// Like vanilla, a slow or silent pack download is never cancelled here: it ends when the
+// server finishes, the user cancels, or the client's login deadline passes.
+var errResourcePackTransferTooLarge = errors.New("proxy: resource-pack transfers exceeded their memory bound")
 
 // ResourcePackDownload is the live progress of the newest pack download: the
-// chunk bytes received against the admitted offer's total.
+// chunk and CDN bytes received against the admitted offer's total.
 type ResourcePackDownload struct {
 	ReceivedBytes uint64 `json:"received_bytes"`
 	TotalBytes    uint64 `json:"total_bytes"`
@@ -57,27 +53,25 @@ type ResourcePackDownload struct {
 // resourcePackAcquisitionBudget admits offered packs for download in offer
 // order within the count and byte bounds; later packs are ignored, not fatal.
 // A pack whose transfer disagrees with its offer is dropped from the handoff so
-// login still succeeds, while transfers past the memory ceiling or a stall in
-// transfer progress cancel the upstream dial.
+// login still succeeds, while transfers past the memory ceiling cancel the upstream dial.
 type resourcePackAcquisitionBudget struct {
 	proto  minecraft.Protocol
 	cancel context.CancelCauseFunc
-	limit  time.Duration
 
 	mu          sync.Mutex
 	accepted    []bool
 	offered     map[string]uint64
 	excluded    map[string]bool
 	transferred uint64
-	timer       *time.Timer
-	admitted    uint64 // offered bytes admitted for download
-	received    uint64 // chunk bytes received so far
+	admitted    uint64          // offered bytes admitted for download
+	received    uint64          // chunk and CDN bytes received so far
+	urls        map[string]bool // CDN URLs of admitted packs
 
 	onProgress func(ResourcePackDownload)
 }
 
 func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.CancelCauseFunc) *resourcePackAcquisitionBudget {
-	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel, limit: maxResourcePackAcquisitionStall}
+	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel}
 }
 
 // observe must see every inbound packet before gophertunnel handles it.
@@ -93,14 +87,10 @@ func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, paylo
 		if info, ok := decodeInboundPacket[*packet.ResourcePackDataInfo](budget.proto, header.PacketID, payload); ok {
 			budget.observeTransfer(info)
 		}
-		budget.progress()
 	case packet.IDResourcePackChunkData:
 		if chunk, ok := decodeInboundPacket[*packet.ResourcePackChunkData](budget.proto, header.PacketID, payload); ok {
 			budget.observeChunk(len(chunk.Data))
 		}
-		budget.progress()
-	case packet.IDResourcePackStack, packet.IDStartGame:
-		budget.stop()
 	}
 }
 
@@ -109,7 +99,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	defer budget.mu.Unlock()
 	budget.accepted, budget.offered = nil, map[string]uint64{}
 	budget.excluded, budget.transferred = map[string]bool{}, 0
-	budget.admitted, budget.received = 0, 0
+	budget.admitted, budget.received, budget.urls = 0, 0, map[string]bool{}
 	if !decoded {
 		return
 	}
@@ -126,13 +116,9 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 		admitted++
 		budget.accepted[index] = true
 		budget.offered[pack.UUID.String()] = pack.Size
-	}
-	if budget.timer != nil {
-		budget.timer.Stop()
-		budget.timer = nil
-	}
-	if admitted != 0 {
-		budget.timer = time.AfterFunc(budget.limit, func() { budget.cancel(errResourcePackAcquisitionStalled) })
+		if pack.DownloadURL != "" {
+			budget.urls[pack.DownloadURL] = true
+		}
 	}
 }
 
@@ -171,8 +157,7 @@ func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index,
 	return total == len(budget.accepted) && index >= 0 && index < total && budget.accepted[index]
 }
 
-// progress restarts the stall bound while an admitted acquisition is running.
-// observeChunk counts received chunk bytes and reports the download's progress.
+// observeChunk counts received chunk or CDN bytes and reports the download's progress.
 func (budget *resourcePackAcquisitionBudget) observeChunk(size int) {
 	budget.mu.Lock()
 	budget.received = saturatingAdd(budget.received, uint64(size))
@@ -184,27 +169,62 @@ func (budget *resourcePackAcquisitionBudget) observeChunk(size int) {
 	}
 }
 
-func (budget *resourcePackAcquisitionBudget) progress() {
+func (budget *resourcePackAcquisitionBudget) offersURL(url string) bool {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	if budget.timer != nil {
-		budget.timer.Reset(budget.limit)
-	}
+	return budget.urls[url]
 }
 
-func (budget *resourcePackAcquisitionBudget) stop() {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if budget.timer != nil {
-		budget.timer.Stop()
-		budget.timer = nil
+// httpClient is base with admitted packs' CDN response bodies counted as progress.
+func (budget *resourcePackAcquisitionBudget) httpClient(base *http.Client) *http.Client {
+	client := http.Client{}
+	if base != nil {
+		client = *base
 	}
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	client.Transport = packDownloadTransport{base: transport, budget: budget}
+	return &client
 }
 
-// withResourcePackAcquisitionBudget routes pack admission and inbound packet
-// observation through budget, preserving any existing PacketFunc.
+type packDownloadTransport struct {
+	base   http.RoundTripper
+	budget *resourcePackAcquisitionBudget
+}
+
+func (transport packDownloadTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := transport.base.RoundTrip(request)
+	origin := request
+	for origin.Response != nil && origin.Response.Request != nil {
+		origin = origin.Response.Request // a CDN redirect keeps counting against the offered URL
+	}
+	if err != nil || response.StatusCode != http.StatusOK || !transport.budget.offersURL(origin.URL.String()) {
+		return response, err
+	}
+	response.Body = packDownloadBody{ReadCloser: response.Body, budget: transport.budget}
+	return response, nil
+}
+
+type packDownloadBody struct {
+	io.ReadCloser
+	budget *resourcePackAcquisitionBudget
+}
+
+func (body packDownloadBody) Read(buffer []byte) (int, error) {
+	read, err := body.ReadCloser.Read(buffer)
+	if read > 0 {
+		body.budget.observeChunk(read)
+	}
+	return read, err
+}
+
+// withResourcePackAcquisitionBudget routes pack admission, CDN downloads and
+// inbound packet observation through budget, preserving any existing PacketFunc.
 func withResourcePackAcquisitionBudget(dialer minecraft.Dialer, budget *resourcePackAcquisitionBudget) minecraft.Dialer {
 	dialer.DownloadResourcePack = budget.admit
+	dialer.HTTPClient = budget.httpClient(dialer.HTTPClient)
 	next := dialer.PacketFunc
 	dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
 		budget.observe(header, payload)
@@ -601,7 +621,6 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	budget.onProgress = connections.resourcePackDownload
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)
-	budget.stop()
 	// The dialed upstream owns its own context; releasing dialCtx now cannot
 	// affect it and frees the cancellation goroutine on either outcome.
 	cancelDial(nil)

@@ -9,8 +9,11 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1734,7 +1737,6 @@ func observedBudget(t *testing.T, info *packet.ResourcePacksInfo) (*resourcePack
 	var causes []error
 	budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { causes = append(causes, cause) })
 	budget.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, info))
-	t.Cleanup(budget.stop)
 	return budget, &causes
 }
 
@@ -1839,35 +1841,109 @@ func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(
 	}
 }
 
-// A stall cancels the dial; steady progress past the stall bound and completion do not.
-func TestAcquisitionBudgetCancelsStallButNotProgressOrCompletion(t *testing.T) {
-	fired := make(chan error, 4)
-	stalled := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
-	stalled.limit = time.Millisecond
-	stalled.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)))
+// cdnPackListener offers pack by URL from a CDN whose dialer-facing response is shaped by serve.
+func cdnPackListener(t *testing.T, serve func(http.ResponseWriter, *http.Request, []byte)) (minecraft.Network, *minecraft.Listener) {
+	t.Helper()
+	archive := testAdmissionPackArchive(t)
+	var fetched atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fetched.CompareAndSwap(false, true) {
+			_, _ = w.Write(archive) // the listener's own read of the pack
+			return
+		}
+		serve(w, r, archive)
+	}))
+	t.Cleanup(server.CloseClientConnections)
+	t.Cleanup(server.Close)
+	pack, err := resource.ReadURL(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, network := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)
+	})
+	return network, listener
+}
+
+func dialBudgeted(ctx context.Context, network minecraft.Network, cancelled *atomic.Value) <-chan admissionDialResult {
+	dialCtx, cancelDial := context.WithCancelCause(ctx)
+	budget := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) {
+		cancelled.Store(cause)
+		cancelDial(cause)
+	})
+	dialer := withResourcePackAcquisitionBudget(minecraft.Dialer{
+		IdentityData: login.IdentityData{DisplayName: "Budgeted"},
+		Protocol:     minecraft.DefaultProtocol,
+	}, budget)
+	done := make(chan admissionDialResult, 1)
+	go func() {
+		defer cancelDial(nil)
+		conn, err := dialer.DialContextNetwork(dialCtx, network, "")
+		done <- admissionDialResult{conn: conn, err: err}
+	}()
+	return done
+}
+
+// A CDN download that trickles in without any game packet is never cancelled by the core.
+func TestSlowCDNPackDownloadCompletesWithoutCancellation(t *testing.T) {
+	var served atomic.Bool
+	network, listener := cdnPackListener(t, func(w http.ResponseWriter, _ *http.Request, archive []byte) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		for offset := 0; offset < len(archive); offset += 16 {
+			served.Store(offset+16 >= len(archive))
+			_, _ = w.Write(archive[offset:min(offset+16, len(archive))])
+			w.(http.Flusher).Flush()
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var cancelled atomic.Value
+	done := dialBudgeted(ctx, network, &cancelled)
+	accepted, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accepted.Close()
+	if err := accepted.(*minecraft.Conn).StartGameContext(ctx, minecraft.GameData{EntityRuntimeID: 9}); err != nil {
+		t.Fatalf("start game: %v", err)
+	}
+	result := <-done
+	if result.err != nil || cancelled.Load() != nil || !served.Load() {
+		t.Fatalf("slow download: err=%v cancel=%v served=%t", result.err, cancelled.Load(), served.Load())
+	}
+	_ = result.conn.Close()
+}
+
+// A CDN that stops sending keeps the join waiting, as vanilla does, until the user cancels it.
+func TestStalledCDNPackDownloadWaitsForTheUserToCancel(t *testing.T) {
+	release := make(chan struct{})
+	network, _ := cdnPackListener(t, func(w http.ResponseWriter, r *http.Request, archive []byte) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		_, _ = w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	defer close(release)
+	ctx, cancelUser := context.WithCancel(context.Background())
+	var cancelled atomic.Value
+	done := dialBudgeted(ctx, network, &cancelled)
 	select {
-	case cause := <-fired:
-		if !errors.Is(cause, errResourcePackAcquisitionStalled) {
-			t.Fatalf("stalled acquisition cause = %v", cause)
+	case result := <-done:
+		t.Fatalf("stalled download ended on its own: %v", result.err)
+	case <-time.After(750 * time.Millisecond):
+	}
+	cancelUser()
+	select {
+	case result := <-done:
+		if !errors.Is(result.err, context.Canceled) || cancelled.Load() != nil {
+			t.Fatalf("user cancel: err=%v core cancel=%v", result.err, cancelled.Load())
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("stalled acquisition was not cancelled")
-	}
-
-	steady := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
-	steady.limit = 100 * time.Millisecond
-	info := packInfos(1)
-	steady.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, info))
-	for range 6 {
-		time.Sleep(40 * time.Millisecond)
-		steady.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, nil)
-	}
-	steady.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(info.TexturePacks[0].UUID.String(), 1)))
-	steady.observe(packet.Header{PacketID: packet.IDResourcePackStack}, nil)
-	select {
-	case cause := <-fired:
-		t.Fatalf("progressing acquisition was cancelled after outlasting the stall bound: %v", cause)
-	case <-time.After(250 * time.Millisecond):
+		t.Fatal("user cancel did not abort the stalled download")
 	}
 }
 
@@ -1882,6 +1958,38 @@ func TestAcquisitionBudgetReportsChunkProgressAgainstTheAdmittedTotal(t *testing
 	want := []ResourcePackDownload{{ReceivedBytes: 250, TotalBytes: 1000}, {ReceivedBytes: 500, TotalBytes: 1000}}
 	if !slices.Equal(reports, want) {
 		t.Fatalf("reports = %+v, want %+v", reports, want)
+	}
+}
+
+// CDN body bytes of an admitted pack count as progress, through redirects; other requests do not.
+func TestAcquisitionBudgetCountsAdmittedCDNDownloads(t *testing.T) {
+	body := bytes.Repeat([]byte{7}, 4096)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offered", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/cdn", http.StatusFound) })
+	mux.HandleFunc("/cdn", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) })
+	mux.HandleFunc("/auth", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) })
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	info := packInfos(uint64(len(body)))
+	info.TexturePacks[0].DownloadURL = server.URL + "/offered"
+	budget, _ := observedBudget(t, info)
+	var received atomic.Uint64
+	budget.onProgress = func(download ResourcePackDownload) { received.Store(download.ReceivedBytes) }
+	client := budget.httpClient(nil)
+	for _, path := range []string{"/auth", "/offered"} {
+		response, err := client.Get(server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+		if path == "/auth" && received.Load() != 0 {
+			t.Fatalf("a non-pack request reported %d bytes", received.Load())
+		}
+	}
+	if received.Load() != uint64(len(body)) {
+		t.Fatalf("received = %d, want the %d CDN bytes", received.Load(), len(body))
 	}
 }
 
