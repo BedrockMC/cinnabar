@@ -35,7 +35,6 @@ const ACTOR_FLAG_SNEAKING: u32 = 1;
 const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SWIMMING: u32 = 57;
 const ACTOR_FLAG_USING_ITEM: u32 = 4;
-const ACTOR_FLAG_BLOCKING: u32 = 72;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
@@ -197,7 +196,7 @@ impl ActorSnapshot {
     }
 
     /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim and
-    /// predicted item use.
+    /// predicted item use. Shield blocking stays server-owned.
     fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
         self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
         self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
@@ -206,14 +205,8 @@ impl ActorSnapshot {
         self.set_flag(ACTOR_FLAG_SWIMMING, feed.sprinting && in_water);
         match feed.item_use {
             LocalItemUse::Unpredicted => {}
-            LocalItemUse::Idle => {
-                self.set_flag(ACTOR_FLAG_USING_ITEM, false);
-                self.set_flag(ACTOR_FLAG_BLOCKING, false);
-            }
-            LocalItemUse::Using { shield } => {
-                self.set_flag(ACTOR_FLAG_USING_ITEM, true);
-                self.set_flag(ACTOR_FLAG_BLOCKING, shield);
-            }
+            LocalItemUse::Idle => self.set_flag(ACTOR_FLAG_USING_ITEM, false),
+            LocalItemUse::Using => self.set_flag(ACTOR_FLAG_USING_ITEM, true),
         }
     }
 
@@ -471,8 +464,8 @@ pub enum LocalItemUse {
     Unpredicted,
     /// A predicted item is held but not in use.
     Idle,
-    /// A predicted item is in use; `shield` also raises the block.
-    Using { shield: bool },
+    /// A predicted item is in use.
+    Using,
 }
 
 /// Sparse, session-scoped actor state. It owns no render or chunk-mesh state.

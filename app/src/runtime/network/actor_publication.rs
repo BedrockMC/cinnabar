@@ -687,16 +687,15 @@ pub(crate) fn local_item_use(
         return LocalItemUse::Unpredicted;
     };
     let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    let shield = name == "shield";
-    let predicted = shield
-        || matches!(name, "bow" | "trident" | "spyglass")
+    // Shields block through sneaking, not use; the server flag stands.
+    let predicted = matches!(name, "bow" | "trident" | "spyglass")
         || name.ends_with("_spear")
         // A loaded crossbow fires instead of charging.
         || (name == "crossbow" && stack.charged_projectile.is_none());
     match (predicted, use_held) {
         (false, _) => LocalItemUse::Unpredicted,
         (true, false) => LocalItemUse::Idle,
-        (true, true) => LocalItemUse::Using { shield },
+        (true, true) => LocalItemUse::Using,
     }
 }
 
