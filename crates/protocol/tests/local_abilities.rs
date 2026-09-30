@@ -2,7 +2,7 @@ use protocol::{
     AbilityLayersEvidence, MAX_ABILITY_LAYERS, decode_abilities_update, into_world_event,
 };
 use valentine::bedrock::codec::{BedrockCodec, VarUInt};
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     SerializedAbilitiesData, SerializedAbilitiesDataSerializedLayer, UpdateAbilitiesPacket,
 };
 
@@ -90,7 +90,7 @@ fn empty_max_and_over_policy_are_distinct_correctly_framed_evidence() {
 
 #[test]
 fn owned_and_raw_paths_preserve_identical_unknown_values_and_layer_order() {
-    use valentine::bedrock::version::v1_26_44::{
+    use valentine::bedrock::version::v1_26_51::{
         EnumsCommandPermissionLevel, EnumsPlayerPermissionLevel,
     };
     for count in [0, 32, 33] {

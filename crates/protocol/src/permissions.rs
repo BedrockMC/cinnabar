@@ -1,13 +1,13 @@
 //! Passive, bounded ability evidence. This module does not resolve permissions.
-//! Wire fields follow protocol 2168 and the pinned gophertunnel
-//! `minecraft/protocol/ability.go` at 3d9f4b7a4ac0.
+//! Wire fields follow protocol 2193 and the pinned gophertunnel
+//! `minecraft/protocol/ability.go` at b725d82563e9.
 use std::sync::Arc;
 
 use bytes::Buf;
 use valentine::bedrock::{
     codec::{BedrockCodec, VarUInt},
     error::DecodeError,
-    version::v1_26_44::{
+    version::v1_26_51::{
         EnumsCommandPermissionLevel, EnumsPlayerPermissionLevel, SerializedAbilitiesData,
     },
 };
@@ -111,7 +111,7 @@ pub(crate) fn normalize_abilities(data: SerializedAbilitiesData) -> AbilitiesUpd
     };
     let command_permission = match data.command_permissions {
         EnumsCommandPermissionLevel::Any => 0,
-        EnumsCommandPermissionLevel::GameDirectors => 1,
+        EnumsCommandPermissionLevel::Gamedirectors => 1,
         EnumsCommandPermissionLevel::Admin => 2,
         EnumsCommandPermissionLevel::Host => 3,
         EnumsCommandPermissionLevel::Owner => 4,

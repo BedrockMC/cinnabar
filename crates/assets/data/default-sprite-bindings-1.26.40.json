@@ -6,7 +6,7 @@
   "source_url": "https://github.com/Mojang/bedrock-samples/tree/7844835b6baad4c0010f46901a4accf87413a022",
   "archive_sha256": "6f6c3a8d5462cf0fc66fd0782a619a2b1a1f1255b981e7787d05dcfbd363a8cb",
   "atlas_sha256": "13415a73201c43c03afc7ff9c4e5146366ec31e4f3057228f309730daea963c7",
-  "retail_allowlist_sha256": "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0",
+  "retail_allowlist_sha256": "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821",
   "coverage": "Explicit default icon bindings only; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
   "routes": [
     {

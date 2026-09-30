@@ -169,7 +169,7 @@ pub fn physics_registry_header_protocol(preg: &[u8]) -> Result<u32, AssetError> 
 
 /// Decodes a strict `PREG1001` carrier for one explicit wire protocol.
 ///
-/// Only the reviewed protocol-1001 and protocol-2168 projections are
+/// Only the reviewed protocol-1001 and protocol-2193 projections are
 /// accepted; every other value is rejected before any structural read. All
 /// structural checks (trailer digest, count versus the supplied BREG records,
 /// exact-BREG-SHA-256 binding, element-wise re-decode, contiguity, unique
@@ -181,7 +181,7 @@ pub fn read_physics_registry_for_protocol(
     records: &[RegistryRecord],
     expected_protocol: u32,
 ) -> Result<PhysicsRegistry, AssetError> {
-    if !matches!(expected_protocol, 1001 | 2168) {
+    if !matches!(expected_protocol, 1001 | 2193) {
         return invalid("unsupported PREG1001 wire protocol");
     }
     if preg.len() < HEADER_BYTES + TRAILER_BYTES {

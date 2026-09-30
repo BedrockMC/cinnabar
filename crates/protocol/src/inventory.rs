@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
     codec::BedrockCodec,
-    version::v1_26_44::{
+    version::v1_26_51::{
         ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
         EnumsContainerEnumName as FullContainerNameContainerName,
         EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
@@ -377,7 +377,7 @@ impl VerifiedNetworkItemStack {
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.
 type ItemStackDescriptor =
-    valentine::bedrock::version::v1_26_44::CerealizerNetworkItemStackDescriptorSerializedData;
+    valentine::bedrock::version::v1_26_51::CerealizerNetworkItemStackDescriptorSerializedData;
 
 #[must_use]
 pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {
@@ -450,7 +450,7 @@ pub fn normalize_response(
     let mut responses = Vec::with_capacity(packet.responses.len());
     for response in packet.responses {
         let (status, containers) = match (response.result, response.containers) {
-            (ItemStackResponseInfoResult::Success, Some(Some(content))) => {
+            (ItemStackResponseInfoResult::Success, Some(content)) => {
                 if content.len() > MAX_RESPONSE_CONTAINERS {
                     return Err(InventoryPacketError::TooManyResponseContainers {
                         count: content.len(),
@@ -468,19 +468,18 @@ pub fn normalize_response(
                     let identity = full_container_identity(container.full_container_name)?;
                     let mut slots = Vec::with_capacity(container.slots.len());
                     for slot in container.slots {
-                        let custom_name = slot.custom_name;
-                        let filtered_custom_name = slot.filtered_custom_name.unwrap_or_default();
+                        let custom_name = slot.custom_name.unredacted;
+                        let filtered_custom_name = slot.custom_name.redacted.unwrap_or_default();
                         validate_response_name(&custom_name)?;
                         validate_response_name(&filtered_custom_name)?;
-                        // The stack net ID is a double optional now: absent means
-                        // the server did not track this slot, which the app models
-                        // as -1 rather than as a rejection.
+                        // An absent stack net ID means the server did not track this
+                        // slot, which the app models as -1 rather than as a rejection.
                         let item_stack_id = match slot.item_stack_net_id {
-                            Some(Some(net_id)) if net_id.id >= 0 => net_id.id,
-                            Some(Some(net_id)) => {
+                            Some(net_id) if net_id.id >= 0 => net_id.id,
+                            Some(net_id) => {
                                 return Err(InventoryPacketError::InvalidStackNetworkId(net_id.id));
                             }
-                            None | Some(None) => -1,
+                            None => -1,
                         };
                         slots.push(StackResponseSlot {
                             slot: slot.slot,
@@ -499,17 +498,17 @@ pub fn normalize_response(
                 }
                 (StackResponseStatus::Accepted, containers)
             }
-            (ItemStackResponseInfoResult::Success, None | Some(None)) => {
+            (ItemStackResponseInfoResult::Success, None) => {
                 return Err(InventoryPacketError::MissingResponseContent);
             }
-            (ItemStackResponseInfoResult::Error, None | Some(None)) => {
+            (ItemStackResponseInfoResult::Error, None) => {
                 (StackResponseStatus::Rejected, Vec::new())
             }
-            (other, None | Some(None)) => (
+            (other, None) => (
                 StackResponseStatus::Unknown(response_result_code(&other)?),
                 Vec::new(),
             ),
-            (_, Some(Some(_))) => return Err(InventoryPacketError::UnexpectedResponseContent),
+            (_, Some(_)) => return Err(InventoryPacketError::UnexpectedResponseContent),
         };
         responses.push(StackResponse {
             status,

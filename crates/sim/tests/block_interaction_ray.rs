@@ -6,7 +6,7 @@ use world::{BlockUpdate, ChunkKey, ChunkStore, SubChunkKey};
 
 fn identity() -> CollisionRegistryIdentity {
     CollisionRegistryIdentity {
-        protocol: 2168,
+        protocol: 2193,
         id_space: CollisionIdSpace::Sequential,
         preg_sha256: [0x5a; 32],
     }

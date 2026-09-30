@@ -140,19 +140,19 @@ func validate(value manifest) error {
 	if value.Schema != "cinnabar.registry-foundation.v1" {
 		return errors.New("unexpected schema")
 	}
-	if value.GameVersion != "1.26.40" || value.Protocol != 2168 {
-		return errors.New("foundation must target game 1.26.40 and protocol 2168")
+	if value.GameVersion != "1.26.50" || value.Protocol != 2193 {
+		return errors.New("foundation must target game 1.26.50 and protocol 2193")
 	}
 	if value.Formats != (formats{Block: "BREG1003", Light: "LREG1001", Biome: "BIOREG01"}) {
 		return errors.New("unexpected stable format labels")
 	}
 	wantOutputs := outputs{
-		Block: "crates/assets/data/block-registry-v2168.bin",
-		Light: "crates/assets/data/block-light-registry-v2168.bin",
-		Biome: "crates/assets/data/biome-registry-v2168.bin",
+		Block: "crates/assets/data/block-registry-v2193.bin",
+		Light: "crates/assets/data/block-light-registry-v2193.bin",
+		Biome: "crates/assets/data/biome-registry-v2193.bin",
 	}
 	if value.Outputs != wantOutputs {
-		return errors.New("outputs must use exact v2168 filenames")
+		return errors.New("outputs must use exact v2193 filenames")
 	}
 	if err := validateSources(value.Sources); err != nil {
 		return err
@@ -168,7 +168,7 @@ func validate(value manifest) error {
 		}
 		if value.ProjectionBindings == nil || value.ProjectionBindings.Block != nil ||
 			value.ProjectionBindings.Light != nil || value.ProjectionBindings.Biome == nil ||
-			value.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+			value.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
 			return errors.New("blocked foundation must bind only the exact biome projection")
 		}
 	case "ready":
@@ -176,11 +176,11 @@ func validate(value manifest) error {
 			value.ProjectionBindings.Biome == nil || value.ProjectionBindings.Light == nil {
 			return errors.New("ready foundation requires three projection bindings and no missing entries")
 		}
-		if value.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+		if value.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
 			return errors.New("ready foundation must preserve the exact biome projection binding")
 		}
-		if value.ProjectionBindings.Block.SHA256 != "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8" ||
-			value.ProjectionBindings.Light.SHA256 != "f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab" {
+		if value.ProjectionBindings.Block.SHA256 != "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53" ||
+			value.ProjectionBindings.Light.SHA256 != "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed" {
 			return errors.New("ready foundation must bind the exact block and light projections")
 		}
 		for _, digest := range []string{
@@ -200,19 +200,19 @@ func validate(value manifest) error {
 
 func validateSources(value sources) error {
 	dragonfly := value.Dragonfly
-	if dragonfly.Commit != "0c2c404540fc651873c24a020b0a48778bd56295" ||
-		dragonfly.Blob != "7006d9d46217425aab8e7d998f70c370b6b9c4eb" ||
-		dragonfly.SHA256 != "1dc6d7ea26b48b5b5e4702762e463b95e59eb109f26c0c3b74115d12cb1941a7" ||
-		dragonfly.Size != 2436125 {
+	if dragonfly.Commit != "4c7b5074be94fa83a1cd98e9c752083ad04a6e21" ||
+		dragonfly.Blob != "ee29e5e039086c10bdfb964621a8e146b4f7af19" ||
+		dragonfly.SHA256 != "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6" ||
+		dragonfly.Size != 3102889 {
 		return errors.New("unexpected Dragonfly source identity")
 	}
 	if !lowerHex(dragonfly.Commit, 20) || !lowerHex(dragonfly.Blob, 20) || !lowerHex(dragonfly.SHA256, 32) {
 		return errors.New("Dragonfly hashes must be lowercase hexadecimal")
 	}
 	bds := value.BDS
-	if bds.ArchiveSHA256 != "7b649671e1d88f8bd1499c580910f099e27533efc213f9faf5a5c68dd41a77c9" ||
-		bds.ExecutableSHA256 != "e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372" ||
-		bds.OverlaySHA256 != "c52bbdfa8c92679595b5e342bee556a891a8aab91d5173f8670ff15e47e3efbb" {
+	if bds.ArchiveSHA256 != "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825" ||
+		bds.ExecutableSHA256 != "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443" ||
+		bds.OverlaySHA256 != "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339" {
 		return errors.New("unexpected BDS source identities")
 	}
 	for _, digest := range []string{bds.ArchiveSHA256, bds.ExecutableSHA256, bds.OverlaySHA256} {

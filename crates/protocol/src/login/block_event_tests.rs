@@ -3,7 +3,7 @@
 use bytes::Buf;
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, BlockEventPacket, BlockPos, ClientboundMapItemDataPacket, OpenSignPacket,
 };
 

@@ -59,8 +59,8 @@ const (
 	pinnedPrismarineBlocksSHA = "12ff90b5094006b42d87ca7c296ed1bef0e1c2d6d67498aea85b6ece9408b494"
 	pinnedPrismarineStatesSHA = "c0a94f5a32597aff028918e152c76280c1823a7840fdf73cd98d7b44814ea041"
 	pinnedPrismarineShapesSHA = "72a7410456a1f5f556e8c91c07e1d1f61aea5d2fb555f2c0e33eba825247aa90"
-	pinnedDragonflyVersion    = "v0.11.1-0.20260714151819-dbbd8b787946"
-	pinnedDragonflyModuleSum  = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY="
+	pinnedDragonflyVersion    = "v0.11.5"
+	pinnedDragonflyModuleSum  = "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0="
 )
 
 type SurfaceResponse uint8
@@ -125,7 +125,7 @@ type reviewedPhysicsOverride struct {
 }
 
 var reviewedPhysicsOverrides = []reviewedPhysicsOverride{
-	{Name: "minecraft:bed", Behavior: behaviorBed, StateCount: 16, BoundingBox: "block", DragonflyTypes: "block.Bed,world.unknownBlock"},
+	{Name: "minecraft:bed", Behavior: behaviorBed, StateCount: 16, BoundingBox: "block", DragonflyTypes: "block.Bed"},
 	{Name: "minecraft:bubble_column", Behavior: behaviorBubble, StateCount: 2, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:cave_vines", Behavior: behaviorClimbable, StateCount: 26, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
 	{Name: "minecraft:cave_vines_body_with_berries", Behavior: behaviorClimbable, StateCount: 26, BoundingBox: "empty", DragonflyTypes: "world.unknownBlock"},
@@ -505,7 +505,7 @@ func encodePhysicsRegistry(breg []byte, records []PhysicsRecord, expectedCount i
 }
 
 // encodePhysicsRegistryForProtocol stamps an explicit wire protocol so the
-// protocol-2168 projection can bind its own identity space without mutating
+// protocol-2193 projection can bind its own identity space without mutating
 // the shared protocol-1001 constants or its byte-reproducible output.
 func encodePhysicsRegistryForProtocol(breg []byte, records []PhysicsRecord, expectedCount int, protocol uint32) ([]byte, error) {
 	if len(records) != expectedCount {

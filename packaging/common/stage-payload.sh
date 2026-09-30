@@ -15,7 +15,7 @@ stage_prep_kit() {
         install -m 0644 "$repo_root/scripts/$name" "$kit/scripts/$name"
     done
     cp "$repo_root"/assets/*.json "$kit/assets/"
-    cp "$repo_root"/crates/assets/data/{block-registry,block-light-registry,biome-registry}-v2168.* "$kit/data/"
+    cp "$repo_root"/crates/assets/data/{block-registry,block-light-registry,biome-registry}-v2193.* "$kit/data/"
     # Prebuilt so end users need no C compiler; Windows uses the PowerShell fetcher instead.
     if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
         cc -std=c11 -O2 "$repo_root/scripts/rename-directory-no-replace.c" -o "$kit/bin/rename-directory-no-replace"
@@ -26,7 +26,7 @@ stage_prep_kit() {
 stage_resources() {
     local resources="$1" assetc="$2"
     mkdir -p "$resources/assets"
-    install -m 0644 "$repo_root/crates/assets/data/block-physics-v2168.bin" "$resources/assets/block-physics-v2168.bin"
+    install -m 0644 "$repo_root/crates/assets/data/block-physics-v2193.bin" "$resources/assets/block-physics-v2193.bin"
     install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$resources/assets/THIRD_PARTY_NOTICES.md"
     mkdir -p "$resources/licenses"
     cp "$repo_root"/assets/licenses/* "$resources/licenses/"

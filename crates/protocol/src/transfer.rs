@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_44::McpePacketData;
+use valentine::bedrock::version::v1_26_51::McpePacketData;
 
 /// Longest retained transfer host, in bytes.
 ///
@@ -93,7 +93,7 @@ fn is_forbidden_host_character(character: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_44::TransferPacket;
+    use valentine::bedrock::version::v1_26_51::TransferPacket;
 
     fn transfer_data(address: &str, port: u16) -> McpePacketData {
         McpePacketData::TransferPacket(Box::new(TransferPacket {
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn normalization_ignores_non_transfer_packets() {
         let other =
-            McpePacketData::SetTimePacket(valentine::bedrock::version::v1_26_44::SetTimePacket {
+            McpePacketData::SetTimePacket(valentine::bedrock::version::v1_26_51::SetTimePacket {
                 time: 7,
             });
         assert_eq!(

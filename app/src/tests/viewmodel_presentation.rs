@@ -775,12 +775,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut weather = crate::environment::WeatherState::default();
     crate::environment::bind_session_generation(&mut clock, &mut weather, 1);
     let breg = crate::asset_startup::pinned_block_registry_bytes();
-    let records = assets::read_registry_for_protocol(breg, 2168).unwrap();
+    let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
     let collisions = crate::movement::PhysicsCollisionRegistries::from_assets(
         breg,
         &records,
-        include_bytes!("../../../crates/assets/data/block-physics-v2168.bin"),
-        2168,
+        include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
+        2193,
     )
     .unwrap();
     app.insert_resource(clock)

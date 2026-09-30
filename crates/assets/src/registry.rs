@@ -282,7 +282,7 @@ pub fn read_registry_for_protocol(
     bytes: &[u8],
     expected_protocol: u32,
 ) -> Result<Box<[RegistryRecord]>, AssetError> {
-    if !matches!(expected_protocol, 1001 | 2168) {
+    if !matches!(expected_protocol, 1001 | 2193) {
         return Err(AssetError::InvalidRegistryMagic);
     }
     let mut reader = Reader::new(bytes);

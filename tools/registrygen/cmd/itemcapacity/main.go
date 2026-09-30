@@ -20,13 +20,13 @@ import (
 )
 
 const (
-	targetVersion        = "1.26.40.8"
-	targetProtocol       = 2168
-	targetProbeRows      = 1518
-	targetRetailRows     = 1485
-	targetBinarySHA256   = "e7775e636b9fdbbc354823d92d0c22c12738a2141d12557d856744293d258372"
-	targetLogSHA256      = "b41a522ab7d23ad8fa7b07f295c4c7d8c6539fcdea4c62575cdb2c1755fc8600"
-	targetRetailSHA256   = "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0"
+	targetVersion        = "1.26.52.3"
+	targetProtocol       = 2193
+	targetProbeRows      = 1623
+	targetRetailRows     = 1590
+	targetBinarySHA256   = "0a490c711d4a2ce075debcd979e8862b7eaba008373f9970f0edbb67f98f9207"
+	targetLogSHA256      = "84c7865c3c5a5e70358d504adf47f2221b11c1bac94b30f5e668e41a206809be"
+	targetRetailSHA256   = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
 	targetScriptSHA256   = "c7d3312f08083001aa695368806730379bd0e1b787dbb236eb0ae566e0d43cc4"
 	targetManifestSHA256 = "317e96cb230dadcf60331d7b7aaa63d912527840cad13659d1cfb159f126c4f9"
 	maximumInputBytes    = 16 << 20

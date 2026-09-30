@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	expectedBDSExecutableSHA256 = "e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372"
-	expectedBDSRelease          = "1.26.40.8"
+	expectedBDSExecutableSHA256 = "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443"
+	expectedBDSRelease          = "1.26.52.3"
 	deterministicWorldSeed      = "2168"
 )
 
@@ -38,7 +38,7 @@ func TestProxyJoin(t *testing.T) {
 
 	client, err := (minecraft.Dialer{
 		IdentityData: login.IdentityData{DisplayName: "RustMCBEPhase0"},
-		Protocol:     minecraft.Protocol12644(),
+		Protocol:     minecraft.DefaultProtocol,
 	}).DialContextNetwork(harness.ctx, streamnet.New(socketDir), "")
 	if err != nil {
 		t.Fatalf("dial core: %v\nCore status: %s\nBDS output:\n%s", err, harness.core.status(), harness.bds.output())
@@ -47,8 +47,8 @@ func TestProxyJoin(t *testing.T) {
 	if err := client.DoSpawnContext(harness.ctx); err != nil {
 		t.Fatalf("complete spawn: %v\nBDS output:\n%s", err, harness.bds.output())
 	}
-	if got := client.Proto().ID(); got != 2168 {
-		t.Fatalf("protocol ID = %d, want %d", got, 2168)
+	if got := client.Proto().ID(); got != 2193 {
+		t.Fatalf("protocol ID = %d, want %d", got, 2193)
 	}
 	if got := client.GameData().EntityRuntimeID; got == 0 {
 		t.Fatal("StartGame runtime entity ID = 0, want non-zero")
@@ -641,12 +641,12 @@ func TestStableRuntimeDirectoryCanonicalizesAliasesBeforeLeasing(t *testing.T) {
 }
 
 func TestBDSReleaseLineRequiresExactPinnedRelease(t *testing.T) {
-	if !isExpectedBDSReleaseLine("[INFO] Version: 1.26.40.8") {
+	if !isExpectedBDSReleaseLine("[INFO] Version: 1.26.52.3") {
 		t.Fatal("exact pinned BDS release line was rejected")
 	}
 	for _, line := range []string{
-		"[INFO] Version: 1.26.40.80",
-		"[INFO] Version: 1.26.40.8-preview",
+		"[INFO] Version: 1.26.52.30",
+		"[INFO] Version: 1.26.52.3-preview",
 		"[INFO] Server started.",
 	} {
 		if isExpectedBDSReleaseLine(line) {

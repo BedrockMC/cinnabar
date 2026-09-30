@@ -1,6 +1,6 @@
 //! Normalizers for block-side packets: map pixel updates, sign editor requests and block events.
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     BlockEventPacket, ClientboundMapItemDataPacket, OpenSignPacket,
 };
 
