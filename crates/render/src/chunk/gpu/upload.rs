@@ -224,7 +224,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         // fresh complete allocation and keep the old one resident until the
         // queue-completion fence proves that no submitted frame can refer to
         // it anymore.
-        let preserve_old_allocation = old.is_some();
         let retirement = old
             .as_ref()
             .map(|old| RetiredArenaAllocation::full(entity, old.clone()));
@@ -238,20 +237,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
             continue;
         }
-        let reusable_old = (!preserve_old_allocation).then_some(old.as_ref()).flatten();
-        let Some(projected_ranges) = plan_chunk_range_update(
-            arena.quad_len,
-            &arena.free_quads,
-            arena.geometry_stream_len,
-            &arena.free_geometry_stream_words,
-            arena.biome_len,
-            &arena.free_biomes,
-            stream_counts,
-            biome_required,
-            reusable_old,
-            false,
-            arena.limits,
-        ) else {
+        let Some(projected_ranges) = plan_fresh_chunk_ranges(&arena, stream_counts, biome_required)
+        else {
             continue;
         };
         let required_lengths = ArenaRequiredLengths {
@@ -332,7 +319,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
             continue;
         }
-        let plan = commit_chunk_range_plan(&mut arena, projected_ranges);
+        commit_fresh_chunk_ranges(&mut arena, &projected_ranges);
+        let plan = projected_ranges;
         if let Some(retirement) = retirement {
             let bytes = retirement.owned_bytes();
             assert!(arena.retirement_budget.try_reserve(1, bytes));

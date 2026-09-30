@@ -120,15 +120,17 @@ pub use biome_tints::{
 use biome_tints::{ChunkBiomeTintResourceIdentity, MATERIAL_UV_ROTATION_MASK};
 use draw::{queue_chunks, queue_transparent_chunks};
 use extract::install_chunk_extraction;
+#[cfg(test)]
+use gpu::arena::plan_chunk_range_update;
 #[allow(unused_imports)]
 use gpu::arena::{
-    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, ChunkRangePlan, GPU_UPDATE_OVERDUE_FRAMES,
+    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreshChunkRanges, GPU_UPDATE_OVERDUE_FRAMES,
     GpuUpdateCandidate, GpuUpdateFairness, MAX_GPU_UPDATE_FAIRNESS_ENTRIES,
     allocate_aligned_quad_range, allocate_aligned_range_for_update, allocate_origin,
     allocate_quad_range, allocate_range_for_update, arena_limits_from_device_limits,
-    checked_geometry_range, chunk_tint_identity_is_active, commit_chunk_range_plan,
+    checked_geometry_range, chunk_tint_identity_is_active, commit_fresh_chunk_ranges,
     create_indirect_buffer, create_storage_buffer, init_chunk_gpu_arena, insert_free_quad_range,
-    plan_chunk_range_update, plan_gpu_chunk_updates, plan_origin_allocation,
+    plan_fresh_chunk_ranges, plan_gpu_chunk_updates, plan_origin_allocation,
     release_completed_transparent_retirements, release_origin, release_quad_range,
     take_free_quad_range,
 };
