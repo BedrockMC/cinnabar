@@ -180,6 +180,8 @@ struct Destroying {
     position: [i32; 3],
     face: u8,
     progress: f64,
+    /// The block broke; the destroy only waits for its next target.
+    completed: bool,
 }
 
 impl Destroying {
@@ -205,9 +207,11 @@ pub(crate) struct DestroyMachine {
 }
 
 impl DestroyMachine {
-    /// The block and face currently being destroyed.
+    /// The block and face currently cracking; none once it broke, so hit
+    /// sounds and particles stop with the break.
     pub(crate) fn destroying_target(&self) -> Option<([i32; 3], u8)> {
         self.destroying
+            .filter(|destroying| !destroying.completed)
             .map(|destroying| (destroying.position, destroying.face))
     }
 
@@ -262,6 +266,7 @@ impl DestroyMachine {
                     position: target.position,
                     face: target.face,
                     progress: 0.0,
+                    completed: false,
                 });
                 // Only zero hardness breaks on the start tick, then delays.
                 if target.instant || target.block.is_some_and(|block| block.hardness == 0.0) {
@@ -296,6 +301,7 @@ impl DestroyMachine {
                 } else {
                     self.destroying = Some(Destroying {
                         progress,
+                        completed: false,
                         ..destroying
                     });
                     if authority == BlockBreakingAuthority::Client {
@@ -324,6 +330,7 @@ impl DestroyMachine {
                     position: target.position,
                     face: target.face,
                     progress: 0.0,
+                    completed: false,
                 });
             }
         }
@@ -371,6 +378,7 @@ impl DestroyMachine {
             position: target.position,
             face: target.face,
             progress: 0.0,
+            completed: true,
         });
         payload.broken = Some(target.position);
     }
