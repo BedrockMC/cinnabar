@@ -346,6 +346,7 @@ fn stack_children<'a>(
         if matches!(child.properties.get(inherit), Some(Value::Bool(true))) {
             cross_size = cross_size.max(axis_pick(sibling_max, cross));
         }
+        cross_size = clamp_axis(child, parent_rect, cross, cross_size, content, nat);
         // A vertical stack knows each child's width before its height, so wrapped
         // text and `%c` content measure at that width.
         let known_width = (main == Axis::Y).then_some(cross_size);
@@ -366,6 +367,13 @@ fn stack_children<'a>(
         };
         match resolved {
             Resolved::Pixels(value) => {
+                // `max_size`/`min_size` bound a stack child too (the start
+                // screen's signing-in label wraps at 120px).
+                let value = if visible(child) {
+                    clamp_axis(child, parent_rect, main, value, content, nat)
+                } else {
+                    value
+                };
                 fixed_total += value;
                 main_sizes.push(Some(value));
             }
@@ -463,6 +471,21 @@ fn resolve_size(
         }
     }
     size
+}
+
+/// `size` on `axis` after the control's min/max bounds on that axis.
+fn clamp_axis(
+    control: &ResolvedControl,
+    parent_rect: Rect,
+    axis: Axis,
+    size: f64,
+    content: [f64; 2],
+    nat: Option<[f64; 2]>,
+) -> f64 {
+    let mut both = [0.0; 2];
+    both[axis_index(axis)] = size;
+    let clamped = clamp_bounds(control, parent_rect, both, content, nat, true);
+    clamped[axis_index(axis)]
 }
 
 /// Clamp by min/max; while the parent's size is still unknown (it sizes to its
