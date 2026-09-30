@@ -27,16 +27,8 @@ type Config struct {
 	Upstream    string
 	TokenSource oauth2.TokenSource
 	Logger      *slog.Logger
-	// UpstreamClientCache opts the core into advertising client blob-cache
-	// capability toward the real Bedrock server: during the upstream login
-	// the outbound ClientCacheStatus byte is rewritten to enabled, so the
-	// server may stream blob-referencing cached chunks through the relay.
-	// Operators must enable it only together with a downstream client that
-	// owns a verified blob cache and advertises cache support downstream —
-	// the app passes this option exactly then. Enabled without such a client,
-	// cached chunks reach a downstream session that skips them. The default
-	// false keeps today's exact upstream wire bytes; there is no runtime
-	// downstream-capability negotiation in either mode.
+	// UpstreamClientCache advertises blob-cache support upstream; set it only when the downstream
+	// client owns a verified blob cache, since there is no runtime negotiation.
 	UpstreamClientCache bool
 	// ResourcePackCache is an optional process-owned cache. Serve never closes it.
 	ResourcePackCache minecraft.ResourcePackCache
@@ -451,25 +443,16 @@ func newUpstreamDialerForAdmission(
 		DownloadResourcePack: ignoreResourcePack,
 		ResourcePackDownload: boundedResourcePackDownload(),
 		EnableBatchReading:   true,
-		// The Dialer field itself stays false in every configuration:
-		// gophertunnel copies it into conn.cacheEnabled, which on this pinned
-		// module gates only the outbound ClientCacheStatus byte written after
-		// upstream LoginSuccess. The explicit UpstreamClientCache option
-		// flips that wire byte inside PacketFunc below instead of setting the
-		// field, because the upstream login completes inside the Listener
-		// preparation hook before the downstream ClientCacheStatus arrives.
-		EnableClientCache: false,
+		// A static opt-in, not the downstream status: the upstream login completes before it arrives.
+		EnableClientCache: enableUpstreamClientCache,
 		ErrorLog:          secretSafeResourcePackLogger(),
 		Protocol:          downstream.Proto(),
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,
 	}
 	formProbe := processFormSchemaProbe()
-	if enableUpstreamClientCache || cacheTelemetry != nil || packAdmission != nil || formProbe != nil {
+	if cacheTelemetry != nil || packAdmission != nil || formProbe != nil {
 		dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
-			if enableUpstreamClientCache && header.PacketID == packet.IDClientCacheStatus && len(payload) > 0 {
-				flipUpstreamClientCacheStatus(payload)
-			}
 			if cacheTelemetry != nil {
 				cacheTelemetry.observeUpstreamPacket(header, payload, source, destination)
 			}
