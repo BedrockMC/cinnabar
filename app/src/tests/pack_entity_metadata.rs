@@ -101,6 +101,21 @@ const SCALED: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"d
  "scripts":{"scale":"query.variant == 1 ? 2.0 : 1.0","scaleY":"0.5"},
  "render_controllers":["controller.render.logo"]}}}"#;
 
+// An override clip rotating a bone clears the translation an earlier clip gave it.
+const OVERRIDE: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:override",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"default":"textures/entity/counter_zero"},
+ "geometry":{"default":"geometry.counter"},
+ "animations":{"lift":"animation.test.lift_loop","turn":"animation.test.turn_override"},
+ "scripts":{"animate":["lift","turn"]},
+ "render_controllers":["controller.render.logo"]}}}"#;
+
+const OVERRIDE_ANIMATION: &str = r#"{"format_version":"1.8.0","animations":{
+ "animation.test.lift_loop":{"loop":true,"bones":{"root":{"position":[0,8,0]}}},
+ "animation.test.turn_override":{"loop":true,"override_previous_animation":true,
+  "bones":{"root":{"rotation":[0,90,0]}}}}}"#;
+
 const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[
  {"description":{"identifier":"geometry.counter","texture_width":16,"texture_height":16},"bones":[
  {"name":"root","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,16,8],"uv":[0,0]}]}]},
@@ -143,6 +158,11 @@ fn pack() -> (Pack, ActorArtworkPages) {
         ("entity/logo.entity.json".into(), LOGO.into()),
         ("entity/title.entity.json".into(), TITLE.into()),
         ("entity/once.entity.json".into(), ONCE.into()),
+        ("entity/override.entity.json".into(), OVERRIDE.into()),
+        (
+            "animations/override.animation.json".into(),
+            OVERRIDE_ANIMATION.into(),
+        ),
         ("entity/scaled.entity.json".into(), SCALED.into()),
         ("entity/hold.entity.json".into(), HOLD.into()),
         (
@@ -458,4 +478,14 @@ fn scale_scripts_size_the_model_per_tick() {
         "{}",
         doubled.height_axis
     );
+}
+
+// Vanilla restores a bone's whole default pose before an override clip, not one channel.
+#[test]
+fn an_override_clip_resets_the_whole_bone_pose() {
+    let (pack, _) = pack();
+    let world = world(pack, "test:override");
+    let rig = world.actor_rig(42).unwrap();
+    let lift = rig.current[0].translation_scale[1] - rig.rest[0].translation_scale[1];
+    assert!(lift.abs() < 1e-5, "{lift}");
 }
