@@ -237,18 +237,28 @@ pub(crate) fn drive_chat_ui_actions(
     if runtime.server_forms().owns_input() {
         return;
     }
-    if menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || !runtime.chat_focused()
-        || !window.focused
-    {
-        presentation.set_chat_pointer(None);
-        return;
-    }
-    let logical_size = [window.width(), window.height()];
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let pointer = window
         .cursor_position()
         .and_then(|position| UiPoint::new(position.x, position.y).ok());
+    let menu_visible = menu.as_ref().is_some_and(|menu| menu.is_visible());
+    let bed =
+        !menu_visible && window.focused && runtime.local_sleeping() && !runtime.chat_focused();
+    presentation.set_bed_pointer(pointer.filter(|_| bed));
+    if bed && mouse_buttons.just_pressed(MouseButton::Left) {
+        match pointer.and_then(|position| presentation.hit_test_bed(position)) {
+            Some(presentation::BedHit::LeaveBed) => runtime.request_wake(),
+            Some(presentation::BedHit::OpenChat) => {
+                runtime.open_chat();
+            }
+            None => {}
+        }
+        return;
+    }
+    if menu_visible || !runtime.chat_focused() || !window.focused {
+        presentation.set_chat_pointer(None);
+        return;
+    }
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     presentation.set_chat_pointer(pointer);
     if let Some(wheel) = wheel.as_deref()
         && wheel.delta.y != 0.0
@@ -269,9 +279,6 @@ pub(crate) fn drive_chat_ui_actions(
         }
     }
     for position in presses {
-        if presentation.hit_test_leave_bed(position, logical_size) {
-            runtime.request_wake();
-        }
         let hit = presentation.hit_test_chat(position);
         match hit {
             Some(presentation::ChatHit::Send) => {
@@ -741,6 +748,21 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             continue;
         }
+        if runtime.local_sleeping() && !runtime.chat_focused() {
+            // The bed screen: Escape leaves the bed, T opens chat over it.
+            match input.key_code {
+                KeyCode::Escape => runtime.request_wake(),
+                KeyCode::KeyT => {
+                    runtime.open_chat();
+                }
+                KeyCode::Slash => {
+                    runtime.open_chat();
+                    let _ = runtime.insert_chat_text("/");
+                }
+                _ => {}
+            }
+            continue;
+        }
         if !runtime.chat_focused() {
             match input.key_code {
                 KeyCode::KeyE => {
@@ -769,7 +791,6 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         match input.key_code {
             KeyCode::Escape => {
-                runtime.request_wake();
                 runtime.close_chat();
             }
             KeyCode::Enter | KeyCode::NumpadEnter => {

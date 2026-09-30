@@ -26,7 +26,6 @@ impl UiRuntime {
     }
 
     /// The known player-list usernames.
-    #[cfg(test)]
     pub(crate) fn known_player_names(&self) -> &[Arc<str>] {
         &self.known_player_names
     }

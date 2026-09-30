@@ -25,6 +25,7 @@ type PublishExtras<'w> = (
     (
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
+        Res<'w, crate::environment::WeatherState>,
     ),
 );
 
@@ -44,7 +45,7 @@ pub(crate) fn publish_ui_runtime(
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig, collisions, profiler, (local_frame, clock)): PublishExtras,
+    (frame_poll, menu_runtime, hand_rig, collisions, profiler, (local_frame, clock, weather)): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
     let _timer = profiler
@@ -175,6 +176,7 @@ pub(crate) fn publish_ui_runtime(
         let feet = frame.pose().translation;
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
+    presentation.hud_frame.thunderstorm = weather.lightning_level() > 0.0;
     presentation.hud_frame.world_time = Some(crate::environment::visual_world_time(
         *clock,
         time.elapsed_secs_f64(),

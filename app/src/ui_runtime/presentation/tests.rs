@@ -15,6 +15,7 @@ use ui::BoundedStat;
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
 
+mod bed_screen_tests;
 mod chat_screen_tests;
 mod debug_overlay_tests;
 pub(crate) mod engine_hud_tests;
