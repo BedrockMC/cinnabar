@@ -109,7 +109,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         let McpePacketData::PlayerAuthInputPacket(built_input) = &built.data else {
             panic!("expected input")
         };
-        assert_eq!(built_input.input_data.as_ref().unwrap(), &canonical_flags);
+        assert_eq!(&built_input.input_data, &canonical_flags);
         let canonical_bytes = encode(&built, &session).unwrap();
         let canonical_decoded = decode_batch(canonical_bytes.clone(), &session).unwrap();
         assert_eq!(canonical_decoded.len(), 1);
@@ -124,7 +124,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         let McpePacketData::PlayerAuthInputPacket(input) = &decoded[0].data else {
             panic!("expected input")
         };
-        let flags = input.input_data.as_ref().unwrap();
+        let flags = &input.input_data;
         // The pinned producer appends request then prediction; the snapshot
         // encoder emits ascending IDs. Both unique lists preserve their order.
         let mut fixture_flags = canonical_flags.clone();
@@ -138,7 +138,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         else {
             panic!("expected input")
         };
-        fixture_order_input.input_data = Some(fixture_flags);
+        fixture_order_input.input_data = fixture_flags;
         assert_eq!(fixture_order_built, decoded[0]);
         assert_eq!(
             encode(&fixture_order_built, &session).unwrap().as_ref(),
@@ -147,8 +147,8 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         assert!(flags.contains(&InputData::Performitemstackrequest));
         assert_eq!(flags.contains(&InputData::Performblockactions), predict);
         assert!(!flags.contains(&InputData::Performiteminteraction));
-        assert_eq!(input.item_use_transaction, Some(None));
-        let request = input.item_stack_request.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(input.item_use_transaction, None);
+        let request = input.item_stack_request.as_ref().unwrap();
         assert_eq!(request.client_request_id.id, -3);
         assert_eq!(request.actions.len(), 1);
         assert!(request.strings_to_filter.is_empty());
@@ -189,11 +189,10 @@ fn absent_mining_request_preserves_existing_input_and_prediction_bytes() {
         let McpePacketData::PlayerAuthInputPacket(input) = absent.data else {
             panic!("expected input")
         };
-        assert_eq!(input.item_stack_request, Some(None));
+        assert_eq!(input.item_stack_request, None);
         assert!(
             !input
                 .input_data
-                .unwrap()
                 .contains(&InputData::Performitemstackrequest)
         );
     }

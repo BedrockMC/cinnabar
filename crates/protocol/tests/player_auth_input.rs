@@ -86,20 +86,20 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
     // The bitset became a list of set flag IDs, emitted in ascending order.
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Left,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-        ])
+        ]
     );
     // The outer bool of each DoubleOptionalFunc is always set by a Go writer;
     // the payload's own Option is what says "absent".
-    assert_eq!(input.item_use_transaction, Some(None));
-    assert_eq!(input.item_stack_request, Some(None));
-    assert_eq!(input.player_block_actions, Some(None));
-    assert_eq!(input.vehicle_rotation, Some(None));
-    assert_eq!(input.client_predicted_vehicle, Some(None));
+    assert_eq!(input.item_use_transaction, None);
+    assert_eq!(input.item_stack_request, None);
+    assert_eq!(input.player_block_actions, None);
+    assert_eq!(input.vehicle_rotation, None);
+    assert_eq!(input.client_predicted_vehicle, None);
 }
 
 #[test]
@@ -118,14 +118,14 @@ fn movement_hints_map_to_their_protocol_2168_list_ids() {
     };
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Upleft,
             EnumsPlayerAuthInputPacketPayloadInputData::Upright,
             EnumsPlayerAuthInputPacketPayloadInputData::Horizontalcollision,
             EnumsPlayerAuthInputPacketPayloadInputData::Verticalcollision,
             EnumsPlayerAuthInputPacketPayloadInputData::Downleft,
             EnumsPlayerAuthInputPacketPayloadInputData::Downright,
-        ])
+        ]
     );
 }
 
@@ -200,11 +200,11 @@ fn handled_teleport_flag_serializes_in_ascending_list_position() {
     // ascending list position between Sprinting (20) and the higher bits.
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Up,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
             EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
-        ])
+        ]
     );
 }
 
@@ -218,10 +218,10 @@ fn missed_swing_flag_serializes_as_its_wire_ordinal() {
     };
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
             EnumsPlayerAuthInputPacketPayloadInputData::Missedswing,
-        ])
+        ]
     );
 }
 
@@ -250,10 +250,10 @@ fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
     };
     assert_eq!(
         input.input_data,
-        Some(vec![
+        vec![
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
             EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
-        ])
+        ]
     );
 }
 

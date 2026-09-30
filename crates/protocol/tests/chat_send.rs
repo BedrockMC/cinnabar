@@ -4,7 +4,9 @@ use protocol::{
     BedrockSession, ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent,
     ChatPacketError, chat_input_packet, chat_text_packet, decode_batch, encode,
 };
-use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName, TextPacketBody};
+use valentine::bedrock::version::v1_26_51::{
+    McpePacketData, McpePacketName, TextPacketBody, TextPacketPayloadAuthorAndMessageMessageType,
+};
 
 #[test]
 fn outbound_chat_uses_exact_authored_text_shape() {
@@ -15,10 +17,13 @@ fn outbound_chat_uses_exact_authored_text_shape() {
     assert!(!packet.localize);
     // The union tag is the category byte gophertunnel derives from the message
     // type: TextTypeChat is written as TextCategoryAuthoredMessage.
-    assert_eq!(packet.message_category, 1);
-    let TextPacketBody::Chat(body) = packet.body else {
+    let TextPacketBody::AuthorAndMessage(body) = packet.body else {
         panic!("expected authored chat body")
     };
+    assert_eq!(
+        body.message_type,
+        TextPacketPayloadAuthorAndMessageMessageType::Chat
+    );
     assert_eq!(body.player_name, "RustMCBE");
     assert_eq!(body.message, "hello server");
     assert_eq!(packet.senders_xuid, "1234");
@@ -152,10 +157,13 @@ fn ordinary_chat_input_remains_an_authored_text_packet() {
     let McpePacketData::TextPacket(packet) = packet.data else {
         panic!("expected text packet")
     };
-    assert_eq!(packet.message_category, 1);
-    let TextPacketBody::Chat(body) = packet.body else {
+    let TextPacketBody::AuthorAndMessage(body) = packet.body else {
         panic!("expected authored chat body")
     };
+    assert_eq!(
+        body.message_type,
+        TextPacketPayloadAuthorAndMessageMessageType::Chat
+    );
     assert_eq!(body.player_name, "RustMCBE");
     assert_eq!(body.message, "hello server");
     assert_eq!(packet.senders_xuid, "1234");

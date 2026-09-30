@@ -1,5 +1,5 @@
 $expectedAxolotlStackRevision = 'c4540512dc47833bb40363da7ad1161110d64b67'
-$expectedProtocolgenRevision = '870bb549c701a0c03472c66441449c4b70a8454a'
+$expectedProtocolgenRevision = '0b8f17e3b321f7cb89e21dc8563398b9981e632f'
 $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 $validationSource = Get-Content -Raw -LiteralPath `
@@ -17,9 +17,9 @@ Assert-True (-not $validationSource.Contains('$PinnedValentineUpstreamCommit')) 
 
 $resolvedGophertunnelCommit = Get-PinnedGophertunnelCommit `
     -ProjectRoot $ProjectRoot `
-    -ExpectedVersion 'v1.25.3-0.20260908230935-3d9f4b7a4ac0' `
-    -ExpectedCommit '3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38'
-Assert-Equal '3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38' $resolvedGophertunnelCommit `
+    -ExpectedVersion 'v1.25.3-0.20260929084839-b725d82563e9' `
+    -ExpectedCommit 'b725d82563e93308fd1f92d27da5e97301ad5040'
+Assert-Equal 'b725d82563e93308fd1f92d27da5e97301ad5040' $resolvedGophertunnelCommit `
     'gophertunnel commit was not derived from the resolved Go module replacement'
 Assert-ThrowsLike {
     Get-PinnedGophertunnelCommit `

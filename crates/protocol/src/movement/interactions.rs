@@ -214,16 +214,14 @@ pub(super) fn packed_block_interaction(
     interaction: BlockItemInteraction,
 ) -> Result<PackedItemUseLegacyInventoryTransaction, InteractionEncodeError> {
     let transaction = match interaction {
-        BlockItemInteraction::Use(request) => item_use_transaction(
-            request,
-            EnumsItemUseInventoryTransactionActionType::Place,
-        )
-        .map_err(InteractionEncodeError::InvalidBlockUse)?,
-        BlockItemInteraction::Destroy(request) => item_use_transaction(
-            request,
-            EnumsItemUseInventoryTransactionActionType::Destroy,
-        )
-        .map_err(InteractionEncodeError::InvalidBlockDestroy)?,
+        BlockItemInteraction::Use(request) => {
+            item_use_transaction(request, EnumsItemUseInventoryTransactionActionType::Place)
+                .map_err(InteractionEncodeError::InvalidBlockUse)?
+        }
+        BlockItemInteraction::Destroy(request) => {
+            item_use_transaction(request, EnumsItemUseInventoryTransactionActionType::Destroy)
+                .map_err(InteractionEncodeError::InvalidBlockDestroy)?
+        }
     };
     Ok(PackedItemUseLegacyInventoryTransaction {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },

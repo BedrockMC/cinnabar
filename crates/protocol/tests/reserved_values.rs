@@ -5,11 +5,9 @@ use valentine::bedrock::version::v1_26_51::types::{
     BookEditActionAddPage, BookEditActionReplacePage, EnumsActorEvent, EnumsActorType,
     EnumsConnectionDisconnectFailReason, EnumsContainerEnumName, EnumsItemStackRequestActionType,
     EnumsLegacyTelemetryEventPacketPayloadType, EnumsPhotoType, EnumsPlayStatus,
-    ResourcePackClientResponseCanceljson,
-    ResourcePackClientResponseDownloadingjson,
-    ResourcePackClientResponseDownloadingFinishedjson,
+    ResourcePackClientResponseCanceljson, ResourcePackClientResponseDownloadingFinishedjson,
+    ResourcePackClientResponseDownloadingjson, ResourcePackClientResponsePacketResponse,
     ResourcePackClientResponseResourcePackStackFinishedjson,
-    ResourcePackClientResponsePacketResponse,
 };
 
 fn assert_wire<T>(value: T, expected: &[u8])
@@ -98,11 +96,9 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
     // downloadingfinished=2, resourcepackstackfinished=3. A one-based tag makes a
     // server read `downloading` as `downloadingfinished` and abandon the pack list.
     assert_wire(
-        ResourcePackClientResponsePacketResponse::Cancel(
-            ResourcePackClientResponseCanceljson {
-                response_type: "cancel".to_string(),
-            },
-        ),
+        ResourcePackClientResponsePacketResponse::Cancel(ResourcePackClientResponseCanceljson {
+            response_type: "cancel".to_string(),
+        }),
         &[0, 6, b'c', b'a', b'n', b'c', b'e', b'l'],
     );
     assert_wire(
