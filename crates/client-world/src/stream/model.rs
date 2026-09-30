@@ -347,6 +347,8 @@ pub enum CommittedControlEvent {
         sequence: u64,
         dimension: i32,
         current: f64,
+        /// Local input tick the server stamped; zero when unstamped.
+        tick: u64,
     },
     MovePlayer {
         sequence: u64,

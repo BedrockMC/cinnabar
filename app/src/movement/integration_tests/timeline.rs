@@ -68,3 +68,38 @@ fn current_and_future_server_motion_apply_to_live_state() {
     assert_eq!(physics.queue_server_motion([-0.2, 0.0, 0.0], 150), None);
     assert_eq!(physics.state().unwrap().velocity.x, f64::from(-0.2_f32));
 }
+
+fn run_tick_with(physics: &mut LocalPhysicsController, input: MovementInput) {
+    let frame = physics.advance(Duration::from_millis(50), input, &VersionedFloor(1));
+    assert_eq!(frame.completed_ticks, 1, "{:?}", frame.blocked);
+}
+
+/// A delayed movement-speed attribute applies from its tick through replay, not from arrival.
+#[test]
+fn delayed_movement_speed_rewinds_to_its_tick_and_matches_on_time_delivery() {
+    let faster = MovementInput {
+        movement_speed: Some(0.2),
+        ..forward_physics_input()
+    };
+    let (mut on_time, _) = walked_physics(2);
+    run_tick_with(&mut on_time, faster);
+    run_tick_with(&mut on_time, faster);
+
+    let (mut delayed, mut ticker) = walked_physics(4);
+    assert_eq!(delayed.retime_movement_speed(102, 0.2), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut delayed, 102, &VersionedFloor(1)).unwrap();
+    assert_eq!(delayed.state(), on_time.state());
+    assert_eq!(
+        delayed.retime_movement_speed(102, 0.2),
+        None,
+        "a repeated value changes nothing and needs no replay"
+    );
+}
+
+#[test]
+fn live_and_stale_movement_speed_stamps_leave_retained_inputs_alone() {
+    let (mut physics, _) = walked_physics(3);
+    assert_eq!(physics.retime_movement_speed(0, 0.2), None);
+    assert_eq!(physics.retime_movement_speed(103, 0.2), None);
+    assert_eq!(physics.retime_movement_speed(50, 0.2), None);
+}
