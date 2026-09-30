@@ -133,9 +133,31 @@ pub(super) fn button(
     label: &str,
     action: Option<MenuAction>,
 ) -> Result<(), UiPresentationError> {
+    button_face(
+        canvas,
+        b,
+        variant,
+        label,
+        Interaction::of(view, action),
+        action.is_some(),
+    )?;
+    if let Some(action) = action {
+        canvas.hit(action, b)?;
+    }
+    Ok(())
+}
+
+/// A solid button's art in `state`; the caller owns its hit area.
+pub(super) fn button_face(
+    canvas: &mut Canvas<'_>,
+    b: Bounds,
+    variant: Variant,
+    label: &str,
+    state: Interaction,
+    enabled: bool,
+) -> Result<(), UiPresentationError> {
     let role = variant.role();
-    let state = Interaction::of(view, action);
-    let disabled = action.is_none();
+    let disabled = !enabled;
     let drop = if state.pressed { canvas.r(0.4) } else { 0.0 };
     let shadow = canvas.r(0.4);
     let face = [b[0], b[1] + drop, b[2], b[3] - shadow + drop];
@@ -183,11 +205,7 @@ pub(super) fn button(
         role.text
     };
     let shadowed = matches!(variant, Variant::Hero);
-    canvas.text_centred(label, face, variant.label(), text, shadowed)?;
-    if let Some(action) = action {
-        canvas.hit(action, b)?;
-    }
-    Ok(())
+    canvas.text_centred(label, face, variant.label(), text, shadowed)
 }
 
 /// A neutral80 panel with the dark one-texel border.

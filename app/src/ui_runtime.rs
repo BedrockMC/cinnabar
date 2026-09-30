@@ -477,6 +477,7 @@ impl UiRuntime {
 
     pub fn ui_focused(&self) -> bool {
         self.chat_focused
+            || self.local_sleeping
             || self.inventory_open
             || self.forms.owns_input()
             || self.sign_editor.is_open()

@@ -33,7 +33,6 @@ pub(super) use inventory::{CraftingFrame, StorageIcons};
 pub(crate) use pinned::{BOSS_TINTS, effect_icon_role, java_gui_scale};
 use pinned::{BOTTOM_STACK_HEIGHT, HOTBAR_WIDTH, hsv_to_rgb};
 pub(crate) use sleep::SleepTimeline;
-pub(super) use sleep::leave_bed_bounds;
 pub(super) use windows::{Durability, TooltipLine, WindowIcons, WindowText, title_key};
 
 #[derive(Clone, Debug)]
@@ -106,6 +105,8 @@ pub(crate) struct HudFrame {
     pub world_time: Option<f64>,
     /// A held filled map shows the position whatever the world rule says.
     pub holding_filled_map: bool,
+    /// Lightning is falling: the bed screen talks of a thunderstorm.
+    pub thunderstorm: bool,
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names

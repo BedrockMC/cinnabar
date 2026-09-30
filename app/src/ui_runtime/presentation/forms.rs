@@ -28,6 +28,7 @@ mod textures;
 mod toast_screen;
 
 pub(crate) use chat_screen::ChatHit;
+pub(crate) use oreui::BedHit;
 pub(crate) use panorama::drive_menu_panorama;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
@@ -62,6 +63,8 @@ pub(super) struct FormPresentation {
     hud: hud::HudScreens,
     /// The open chat's cached screen; carried across the per-frame reset.
     chat: chat_screen::ChatScreen,
+    /// The bed screen's hits and pointer; carried across the per-frame reset.
+    bed: oreui::BedScreen,
     /// Dev-mode OreUI originals and the look OreUI screens draw with.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
@@ -248,12 +251,14 @@ impl UiPresentationRuntime {
         let logged = self.form_presentation.logged;
         let hud = std::mem::take(&mut self.form_presentation.hud);
         let chat = std::mem::take(&mut self.form_presentation.chat);
+        let bed = std::mem::take(&mut self.form_presentation.bed);
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
             logged,
             hud,
             chat,
+            bed,
             oreui_originals: self.form_presentation.oreui_originals.take(),
             oreui_look: self.form_presentation.oreui_look,
             ..FormPresentation::default()

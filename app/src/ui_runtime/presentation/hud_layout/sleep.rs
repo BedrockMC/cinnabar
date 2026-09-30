@@ -1,21 +1,14 @@
-//! Bed screen: the sleep darkening tint and the centered "Leave Bed" button.
+//! The camera's sleep fade: a dark tint while asleep, eased out on waking.
 
-use ui::{SafeArea, TextLayoutRequest, TextStyle, UiRect};
+use super::{HudFrame, HudLayout, UiPresentationError};
 
-use super::{HudFrame, HudGeometry, HudLayout, UiPresentationError, rect};
-
-/// Fade-in while asleep and fade-out after waking. Needs independent measurement.
+/// 26.30's `PlayerSleepFadeEffectSystemUtil` fade: 5 s in, 0.5 s out, to
+/// RGB (16, 16, 32).
 const FADE_IN_MILLIS: u64 = 5_000;
 const FADE_OUT_MILLIS: u64 = 500;
-/// Tint colour and its peak opacity. Needs independent measurement.
-const TINT: [u8; 3] = [16, 16, 48];
+const TINT: [u8; 3] = [16, 16, 32];
+/// Peak opacity; the fade's strength argument (0.863) is not confirmed as this.
 const PEAK_ALPHA: f32 = 0.7;
-
-const BUTTON_SIZE: [f32; 2] = [200.0, 20.0];
-const BUTTON_BOTTOM_MARGIN: f32 = 40.0;
-const BUTTON_BORDER: [u8; 4] = [0, 0, 0, 255];
-const BUTTON_FILL: [u8; 4] = [111, 111, 111, 255];
-const BUTTON_LABEL: &str = "Leave Bed";
 
 /// Tint strength over time, derived from the local sleeping flag.
 #[derive(Clone, Copy, Debug, Default)]
@@ -40,8 +33,10 @@ impl SleepTimeline {
         }
     }
 
-    pub(crate) const fn is_sleeping(&self) -> bool {
-        self.asleep_since.is_some()
+    /// Milliseconds since the player lay down, while asleep.
+    pub(crate) fn asleep_for(&self, now_millis: u64) -> Option<u64> {
+        self.asleep_since
+            .map(|since| now_millis.saturating_sub(since))
     }
 
     /// Tint opacity factor in `0.0..=1.0`.
@@ -57,31 +52,8 @@ impl SleepTimeline {
     }
 }
 
-fn button_origin(gui_width: f32, gui_height: f32) -> [f32; 2] {
-    [
-        (gui_width - BUTTON_SIZE[0]) / 2.0,
-        gui_height - BUTTON_BOTTOM_MARGIN,
-    ]
-}
-
-/// Window-logical bounds of the button, for pointer hit testing.
-pub(in crate::ui_runtime::presentation) fn leave_bed_bounds(
-    geometry: &HudGeometry,
-    safe_area: SafeArea,
-) -> Option<UiRect> {
-    let [x, y] = button_origin(geometry.gui_width, geometry.gui_height);
-    let scale = geometry.scale;
-    rect(
-        safe_area.left() + x * scale,
-        safe_area.top() + y * scale,
-        safe_area.left() + (x + BUTTON_SIZE[0]) * scale,
-        safe_area.top() + (y + BUTTON_SIZE[1]) * scale,
-    )
-    .ok()
-}
-
 impl HudLayout<'_> {
-    /// Draws the tint under the HUD and, while asleep, the Leave Bed button.
+    /// Draws the tint under the HUD.
     pub(super) fn sleep_overlay(&mut self, frame: &HudFrame) -> Result<(), UiPresentationError> {
         let g = self.geometry;
         let strength = frame.sleep.strength(frame.now_millis);
@@ -93,38 +65,7 @@ impl HudLayout<'_> {
                 [TINT[0], TINT[1], TINT[2], alpha],
             )?;
         }
-        if !frame.sleep.is_sleeping() {
-            return Ok(());
-        }
-        let [x, y] = button_origin(g.gui_width, g.gui_height);
-        self.solid_gui([x, y], BUTTON_SIZE, BUTTON_BORDER)?;
-        self.solid_gui(
-            [x + 1.0, y + 1.0],
-            [BUTTON_SIZE[0] - 2.0, BUTTON_SIZE[1] - 2.0],
-            BUTTON_FILL,
-        )?;
-        let scale = self.text_scale(9.0);
-        let label = self
-            .layouts
-            .layout(TextLayoutRequest {
-                text: BUTTON_LABEL,
-                style: TextStyle::default(),
-                width_64: (BUTTON_SIZE[0] * g.scale * 64.0) as u32,
-                line_height_64: super::super::TEXT_LINE_HEIGHT_64,
-                baseline_64: super::super::TEXT_BASELINE_64,
-                scale,
-                font: self.font,
-            })
-            .map_err(UiPresentationError::Text)?;
-        let [width, height] = label.size_64().map(|value| value as f32 / 64.0 / g.scale);
-        self.text_gui_shadowed(
-            label,
-            [
-                x + (BUTTON_SIZE[0] - width) / 2.0,
-                y + (BUTTON_SIZE[1] - height) / 2.0,
-            ],
-            [255; 4],
-        )
+        Ok(())
     }
 }
 
@@ -143,7 +84,7 @@ mod tests {
         timeline.observe(false, 6_000);
         assert!(timeline.strength(6_250) > 0.0 && timeline.strength(6_250) < 1.0);
         assert_eq!(timeline.strength(6_500), 0.0);
-        assert!(!timeline.is_sleeping());
+        assert!(timeline.asleep_for(6_500).is_none());
     }
 
     #[test]
@@ -153,10 +94,5 @@ mod tests {
         timeline.observe(false, 2_500);
         assert!((timeline.strength(2_500) - 0.5).abs() < 1e-6);
         assert!((timeline.strength(2_750) - 0.25).abs() < 1e-6);
-    }
-
-    #[test]
-    fn button_is_centered_forty_gui_pixels_above_the_bottom() {
-        assert_eq!(button_origin(320.0, 240.0), [60.0, 200.0]);
     }
 }

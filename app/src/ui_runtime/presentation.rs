@@ -31,7 +31,6 @@ use crate::{
     ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list},
 };
 
-mod chat;
 mod debug_overlay;
 mod dynamic_textures;
 pub(crate) mod forms;
@@ -67,7 +66,7 @@ mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
 pub(crate) use debug_overlay::DebugLines;
-pub(crate) use forms::{ChatHit, drive_menu_panorama};
+pub(crate) use forms::{BedHit, ChatHit, drive_menu_panorama};
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
@@ -125,8 +124,6 @@ pub struct UiPresentationRuntime {
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
-    chat_hit_logical_size: Option<[f32; 2]>,
-    leave_bed_hit: Option<UiRect>,
     debug_lines: Option<DebugLines>,
     /// Java GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
@@ -227,8 +224,6 @@ impl UiPresentationRuntime {
             last_input: None,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
-            chat_hit_logical_size: None,
-            leave_bed_hit: None,
             debug_lines: None,
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
@@ -414,7 +409,6 @@ impl UiPresentationRuntime {
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
-        self.leave_bed_hit = None;
         let menu_visible = self.menu_view.is_some();
         if !menu_visible
             && let Some(hud_textures) = self.hud_textures.as_ref()
@@ -432,11 +426,6 @@ impl UiPresentationRuntime {
                 geometry,
             )?;
             layout.append(runtime, &frame)?;
-            self.leave_bed_hit = frame
-                .sleep
-                .is_sleeping()
-                .then(|| hud_layout::leave_bed_bounds(&geometry, safe_area))
-                .flatten();
         }
 
         let inventory_open = runtime.inventory_open();
@@ -476,6 +465,16 @@ impl UiPresentationRuntime {
             )?;
         }
 
+        if !menu_visible && !inventory_open {
+            self.append_bed_screen(
+                runtime,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+                now_millis,
+            )?;
+        }
         if !menu_visible && !inventory_open && runtime.chat_focused() {
             self.append_chat_screen(
                 runtime,
@@ -591,7 +590,6 @@ impl UiPresentationRuntime {
         )
         .map_err(UiPresentationError::Adapter)?;
         let input = self.stabilize_revision(input);
-        self.chat_hit_logical_size = Some([logical_width, logical_height]);
         self.menu_hit_targets = menu_hit_targets;
         Ok(input)
     }
