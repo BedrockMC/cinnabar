@@ -355,7 +355,26 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             if movement.physics_is_authorized() {
                 crate::movement::note_motion(event.tick, event.motion);
-                local_physics.queue_server_motion(event.motion, event.tick);
+                if let Some(rewind) = local_physics.queue_server_motion(event.motion, event.tick) {
+                    let world = sim::PaletteWorld::new(
+                        stream.collision_store(),
+                        collisions.registry(stream.network_id_mode()),
+                        stream.current_dimension(),
+                    );
+                    if let Err(fault) = crate::movement::reconcile_timeline_rewind(
+                        &mut movement,
+                        &mut local_physics,
+                        rewind,
+                        &world,
+                    ) {
+                        debug!(
+                            ?fault,
+                            tick = event.tick,
+                            "server motion replay failed; applied live"
+                        );
+                        local_physics.replace_live_velocity(event.motion);
+                    }
+                }
             }
             continue;
         }
