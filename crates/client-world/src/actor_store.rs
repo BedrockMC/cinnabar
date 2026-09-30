@@ -25,6 +25,9 @@ const SCALE_METADATA_KEY: u32 = 38;
 const NAMETAG_METADATA_KEY: u32 = 4;
 const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
+/// `minecraft:collision_box` in the vanilla `player.json` definition.
+const PLAYER_COLLISION_WIDTH: f32 = 0.6;
+const PLAYER_COLLISION_HEIGHT: f32 = 1.8;
 const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
@@ -247,17 +250,19 @@ impl ActorSnapshot {
         self.head_yaw = pose.head_yaw;
     }
 
-    /// Feet-anchored `(min, max)` box from the width and height metadata.
+    /// Feet-anchored `(min, max)` box from the width and height metadata; a player
+    /// missing either falls back to its definition's collision box.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
-        let dimension = |key| match self.metadata.get(&key) {
+        let player = matches!(self.kind, ActorKind::Player { .. });
+        let dimension = |key, player_default| match self.metadata.get(&key) {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
                 Some(*value)
             }
-            _ => None,
+            _ => player.then_some(player_default),
         };
-        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY)? * 0.5;
-        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY)?;
+        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY, PLAYER_COLLISION_WIDTH)? * 0.5;
+        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY, PLAYER_COLLISION_HEIGHT)?;
         let [x, y, z] = self.position;
         Some((
             [x - half_width, y, z - half_width],
