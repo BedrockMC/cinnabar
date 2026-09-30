@@ -399,7 +399,7 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
         |runtime_id| world.actor_rig(runtime_id),
         |runtime_id| world.actor_player_profile(runtime_id),
     );
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     let layers = frame
         .rig
@@ -524,7 +524,7 @@ fn skin_geometry_replaces_the_default_model_and_keeps_the_player_animations() {
     );
     presentation.submission.input.rig = id;
     let batch = actors::select_actor_presentations(1, false, None, [presentation]);
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     assert_eq!(frame.rig.manifest[0].rig, id);
     assert_eq!(frame.rig.manifest[0].bone_count, 4);
