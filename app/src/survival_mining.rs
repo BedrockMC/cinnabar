@@ -490,7 +490,7 @@ impl SurvivalMiningRuntime {
             target: "bedrock_client::survival_mining",
             reason,
             game_mode_known = caps.is_some(),
-            can_edit = caps.is_some_and(|caps| caps.can_edit),
+            can_mine = caps.is_some_and(|caps| caps.can_mine),
             authority = ?authority,
             "held attack produced no block break",
         );
@@ -616,7 +616,7 @@ fn mining_active(
     focused: bool,
     snapshot_present: bool,
 ) -> bool {
-    focused && snapshot_present && caps.is_some_and(|caps| caps.can_edit)
+    focused && snapshot_present && caps.is_some_and(|caps| caps.can_mine)
 }
 
 /// Why a held attack yielded no destroy target, for the throttled diagnostic.
@@ -629,7 +629,7 @@ fn blocked_mining_reason(
 ) -> Option<&'static str> {
     match caps {
         None => Some("game mode unknown"),
-        Some(caps) if !caps.can_edit => Some("can_edit=false for this game mode"),
+        Some(caps) if !caps.can_mine => Some("can_mine=false for this game mode"),
         _ if !focused => Some("window or menu not focused"),
         _ if !snapshot_present => Some("no input snapshot yet"),
         _ if actor_in_front => Some("an actor in front owns the press"),

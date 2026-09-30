@@ -27,34 +27,38 @@ fn update(layers: Vec<AbilityLayerEvidence>) -> AbilitiesUpdate {
 #[test]
 fn mode_defaults_follow_the_gamemode_table() {
     let survival = GameModeCapabilities::for_mode(Survival);
-    assert!(survival.can_edit && survival.can_interact && survival.can_attack);
+    assert!(survival.can_build && survival.can_mine && survival.can_attack);
+    assert!(survival.can_use_switches && survival.can_open_containers);
     assert!(!survival.can_fly && !survival.creative_inventory && !survival.instant_break);
     assert!(!survival.invulnerable && survival.visible && survival.has_collision);
     assert_eq!(survival.attack_reach, 3.0);
     assert!(!survival.creative_reach);
 
     let creative = GameModeCapabilities::for_mode(Creative);
-    assert!(creative.can_edit && creative.can_interact && creative.can_attack);
+    assert!(creative.can_build && creative.can_mine && creative.can_attack);
     assert!(creative.can_fly && creative.creative_inventory && creative.instant_break);
     assert!(creative.invulnerable && creative.visible && creative.has_collision);
     assert_eq!(creative.attack_reach, 7.0);
     assert!(creative.creative_reach);
 
     let adventure = GameModeCapabilities::for_mode(Adventure);
-    assert!(!adventure.can_edit, "adventure cannot edit without a grant");
-    assert!(adventure.can_interact && adventure.can_attack);
+    assert!(
+        !adventure.can_build && !adventure.can_mine,
+        "adventure cannot edit without a grant"
+    );
+    assert!(adventure.can_use_switches && adventure.can_open_containers && adventure.can_attack);
     assert!(!adventure.can_fly && !adventure.instant_break && !adventure.invulnerable);
     assert!(adventure.visible && adventure.has_collision);
     assert_eq!(adventure.attack_reach, 3.0);
 
     let spectator = GameModeCapabilities::for_mode(Spectator);
-    assert!(!spectator.can_edit && !spectator.can_interact && !spectator.can_attack);
+    assert!(!spectator.can_use_blocks() && !spectator.can_mine && !spectator.can_attack);
     assert!(spectator.can_fly && spectator.flying && spectator.invulnerable);
     assert!(!spectator.visible && !spectator.has_collision);
     assert_eq!(spectator.attack_reach, 0.0);
 
     let unknown = GameModeCapabilities::for_mode(Unknown);
-    assert!(!unknown.can_edit && !unknown.can_interact && !unknown.can_attack);
+    assert!(!unknown.can_use_blocks() && !unknown.can_mine && !unknown.can_attack);
     assert!(!unknown.can_fly);
     assert_eq!(unknown.attack_reach, 0.0);
 }
@@ -67,35 +71,52 @@ fn adventure_with_build_permission_can_edit() {
         ability_bit::BUILD | ability_bit::MINE,
     )]);
     let caps = GameModeCapabilities::resolve(Adventure, Some(&grant));
-    assert!(caps.can_edit, "server Build/Mine grant unlocks editing");
+    assert!(
+        caps.can_build && caps.can_mine,
+        "server Build/Mine grant unlocks editing"
+    );
     // A grant does not fabricate the other creative privileges.
     assert!(!caps.can_fly && !caps.instant_break && !caps.creative_inventory);
+}
+
+/// Build and Mine are separate grants; neither implies the other.
+#[test]
+fn build_and_mine_grants_stay_separate() {
+    let mine = update(vec![layer(ability_bit::MINE, ability_bit::MINE)]);
+    let caps = GameModeCapabilities::resolve(Adventure, Some(&mine));
+    assert!(caps.can_mine && !caps.can_build);
+    let build = update(vec![layer(ability_bit::BUILD, ability_bit::BUILD)]);
+    let caps = GameModeCapabilities::resolve(Adventure, Some(&build));
+    assert!(caps.can_build && !caps.can_mine);
+    let no_doors = update(vec![layer(ability_bit::DOORS_AND_SWITCHES, 0)]);
+    let caps = GameModeCapabilities::resolve(Survival, Some(&no_doors));
+    assert!(!caps.can_use_switches && caps.can_open_containers);
 }
 
 /// No abilities, empty layers, and unavailable evidence all keep mode defaults.
 #[test]
 fn absent_or_undefined_abilities_keep_mode_defaults() {
-    assert!(!GameModeCapabilities::resolve(Adventure, None).can_edit);
+    assert!(!GameModeCapabilities::resolve(Adventure, None).can_mine);
     let empty = update(vec![]);
-    assert!(!GameModeCapabilities::resolve(Adventure, Some(&empty)).can_edit);
-    assert!(GameModeCapabilities::resolve(Survival, Some(&empty)).can_edit);
+    assert!(!GameModeCapabilities::resolve(Adventure, Some(&empty)).can_mine);
+    assert!(GameModeCapabilities::resolve(Survival, Some(&empty)).can_mine);
     // A layer that defines unrelated bits leaves Build/Mine untouched.
     let unrelated = update(vec![layer(ability_bit::FLYING, ability_bit::FLYING)]);
-    assert!(!GameModeCapabilities::resolve(Adventure, Some(&unrelated)).can_edit);
+    assert!(!GameModeCapabilities::resolve(Adventure, Some(&unrelated)).can_mine);
     let unavailable = AbilitiesUpdate {
         layers: AbilityLayersEvidence::Unavailable {
             declared_layers: 99,
         },
         ..update(vec![])
     };
-    assert!(GameModeCapabilities::resolve(Survival, Some(&unavailable)).can_edit);
+    assert!(GameModeCapabilities::resolve(Survival, Some(&unavailable)).can_mine);
 }
 
 /// An explicit deny is honored even against an editing mode's default.
 #[test]
 fn explicit_deny_overrides_the_mode_default() {
     let deny = update(vec![layer(ability_bit::BUILD | ability_bit::MINE, 0)]);
-    assert!(!GameModeCapabilities::resolve(Survival, Some(&deny)).can_edit);
+    assert!(!GameModeCapabilities::resolve(Survival, Some(&deny)).can_mine);
 }
 
 /// Fly, instant-build, invulnerable and no-clip bits refine their fields.

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use protocol::{
     ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent, ItemUseTrigger,
-    NetworkItemStack, SlotIdentity, VerifiedNetworkItemStack,
+    NetworkItemStack, PlayerGameMode, SlotIdentity, VerifiedNetworkItemStack,
 };
 use sha2::{Digest, Sha256};
 
@@ -10,7 +10,7 @@ use super::{
     BlockUseRuntime, LocalUse, RepeatClock, UseSurroundings, placement_cell,
     repeat_interval_millis, use_packets, verified_use_selection,
 };
-use crate::ui_runtime::UiRuntime;
+use crate::{game_mode_capabilities::GameModeCapabilities, ui_runtime::UiRuntime};
 
 fn network_item(network_id: i32, block_runtime_id: i32) -> NetworkItemStack {
     let extra_data: Arc<[u8]> = Arc::from([]);
@@ -133,8 +133,9 @@ fn local_use_decides_interaction_placement_or_nothing() {
     let block = verified(network_item(2, 77));
     let stick = verified(network_item(3, 0));
     let empty = verified(NetworkItemStack::empty());
+    let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
     let place = |item, clicked, face, around: &UseSurroundings| {
-        LocalUse::resolve(item, clicked, face, around)
+        LocalUse::resolve(item, clicked, face, around, &survival)
     };
     let stone = surroundings("minecraft:stone", "minecraft:air");
     assert_eq!(place(&block, [2, 63, 0], 1, &stone), LocalUse::Place);
@@ -171,6 +172,46 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &sneaking), LocalUse::Interact);
     let iron = surroundings("minecraft:iron_door", "minecraft:air");
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
+}
+
+/// Adventure uses doors and containers but cannot place; each ability gates only its own use.
+#[test]
+fn interaction_and_placement_follow_their_own_abilities() {
+    let block = verified(network_item(2, 77));
+    let adventure = GameModeCapabilities::for_mode(PlayerGameMode::Adventure);
+    let resolve = |clicked: &str, caps: &GameModeCapabilities| {
+        LocalUse::resolve(
+            &block,
+            [2, 63, 0],
+            1,
+            &surroundings(clicked, "minecraft:air"),
+            caps,
+        )
+    };
+    assert_eq!(
+        resolve("minecraft:oak_door", &adventure),
+        LocalUse::Interact
+    );
+    assert_eq!(resolve("minecraft:chest", &adventure), LocalUse::Interact);
+    assert_eq!(resolve("minecraft:stone", &adventure), LocalUse::Nothing);
+    assert!(adventure.can_use_blocks());
+    let no_switches = GameModeCapabilities {
+        can_use_switches: false,
+        ..GameModeCapabilities::for_mode(PlayerGameMode::Survival)
+    };
+    assert_eq!(
+        resolve("minecraft:stone_button", &no_switches),
+        LocalUse::Place
+    );
+    assert_eq!(
+        resolve("minecraft:barrel", &no_switches),
+        LocalUse::Interact
+    );
+    let mine_only = GameModeCapabilities {
+        can_build: false,
+        ..adventure
+    };
+    assert_eq!(resolve("minecraft:stone", &mine_only), LocalUse::Nothing);
 }
 
 #[test]
