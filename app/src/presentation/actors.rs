@@ -212,7 +212,7 @@ fn actor_rig_presentation_inner(
                 reset_generation: rig.reset_generation,
             },
             world_from_actor: death_tilted(
-                rig_world_from_actor(position, yaw, scale),
+                scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
                 actor.status.death_progress(alpha),
             ),
             texture_layer: u32::MAX,
@@ -471,6 +471,16 @@ pub(crate) fn rig_world_from_actor(
         [0.0, scale, 0.0, position[1]],
         [-sine * scale, 0.0, -cosine * scale, position[2]],
     ]
+}
+
+/// Scales the model's own axes (`scaleX`, `scaleY`, `scaleZ`) about its feet.
+fn scaled_axes(mut rows: [[f32; 4]; 3], axis_scale: [f32; 3]) -> [[f32; 4]; 3] {
+    for row in &mut rows {
+        for (value, scale) in row.iter_mut().zip(axis_scale) {
+            *value *= scale;
+        }
+    }
+    rows
 }
 
 /// Tips the rig sideways about its feet as death progresses; the ease-out curve needs measurement.

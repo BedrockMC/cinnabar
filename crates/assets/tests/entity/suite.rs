@@ -608,6 +608,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             initialize: None,
             pre_animation: None,
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
+            scale_expressions: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {

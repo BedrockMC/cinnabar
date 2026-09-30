@@ -200,6 +200,18 @@ pub(super) fn evaluate_state(
     if let Some(script) = rig.pre_animation {
         evaluator.run(script as usize, &mut variables, 0.0, budget)?;
     }
+    // Authored scale scripts read the variables pre_animation just set.
+    let scale = match rig.scale_expressions {
+        None => None,
+        Some(expressions) => {
+            let mut scale = [1.0; 4];
+            for (slot, expression) in scale.iter_mut().zip(expressions) {
+                let value = evaluator.number(expression as usize, &mut variables, 1.0, budget)?;
+                *slot = if value.is_finite() { value } else { 1.0 };
+            }
+            Some(scale)
+        }
+    };
     // Provisional: without an assignment the first-person swing would not move at all, so the
     // factor takes the value the pack computes under its older name.
     if variables
@@ -301,6 +313,7 @@ pub(super) fn evaluate_state(
     Ok(EvaluatedState {
         pose,
         render,
+        scale,
         controllers,
         variables,
     })
