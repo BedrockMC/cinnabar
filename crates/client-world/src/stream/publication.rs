@@ -194,8 +194,9 @@ impl WorldStream {
         );
     }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
-    pub fn start_local_player_swing(&mut self) {
-        self.actors.start_swing(self.local_player_runtime_id);
+    /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
+    pub fn start_local_player_swing(&mut self, ticks: i32) {
+        self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)

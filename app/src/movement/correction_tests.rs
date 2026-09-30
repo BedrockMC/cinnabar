@@ -12,7 +12,7 @@ use super::{
     CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape, LocalPhysicsController,
     MovementSource, MovementTicker, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
     PhysicsSampleContext, flush_player_auth_inputs, reconcile_candidate_physics_correction,
-    reconcile_committed_correction,
+    reconcile_committed_correction, reconcile_timeline_rewind,
 };
 use sim::{Aabb, BlockPhysicsSample, CollisionQuery, CollisionWorld, WorldQueryError};
 use world::{ChunkCollisionRevision, ChunkKey};
@@ -936,4 +936,61 @@ fn corrections_outside_retained_history_are_dropped_without_touching_prediction(
     }
     assert_eq!(physics.state().cloned(), state);
     assert_eq!(ticker.pending_count(), pending);
+}
+
+fn three_predicted_ticks(world: &VersionedWall) -> (LocalPhysicsController, MovementTicker) {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        world,
+    );
+    assert_eq!(physics.state().unwrap().tick, 103);
+    (physics, ticker_with_samples(frame.samples))
+}
+
+/// A motion stamped with an already-simulated tick must move the player now, exactly as if
+/// it had arrived at that tick.
+#[test]
+fn a_late_server_motion_replays_from_its_tick_into_current_prediction() {
+    let world = VersionedWall(1);
+    let motion = [0.6, 0.4, 0.0];
+    let mut on_time = LocalPhysicsController::default();
+    on_time.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    on_time.advance_with_context(
+        Duration::from_millis(100),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    assert_eq!(on_time.queue_server_motion(motion, 102), None);
+    on_time.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+
+    let (mut late, mut ticker) = three_predicted_ticks(&world);
+    let before = late.state().unwrap().position;
+    let rewind = late.queue_server_motion(motion, 102).unwrap();
+    reconcile_timeline_rewind(&mut ticker, &mut late, rewind, &world).unwrap();
+
+    let after = late.state().unwrap();
+    assert_eq!(after.tick, 103);
+    assert!(after.position.x > before.x + 0.3, "{:?}", after.position);
+    assert_eq!(Some(after), on_time.state());
+}
+
+/// A motion older than the replay horizon clamps to the oldest retained frame.
+#[test]
+fn an_unretained_server_motion_replays_from_the_oldest_retained_frame() {
+    let world = VersionedWall(1);
+    let (mut physics, mut ticker) = three_predicted_ticks(&world);
+    let before = physics.state().unwrap().position;
+    assert_eq!(physics.queue_server_motion([0.6, 0.4, 0.0], 12), Some(101));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &world).unwrap();
+    assert!(physics.state().unwrap().position.x > before.x + 0.3);
 }
