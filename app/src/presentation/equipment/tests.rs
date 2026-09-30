@@ -345,9 +345,15 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     ) else {
         return;
     };
-    let entities = Arc::new(assets::RuntimeEntityAssets::decode(&entities).unwrap());
-    let icons = Arc::new(assets::RuntimeIconCatalog::decode(&icons).unwrap());
-    let catalog = Arc::new(assets::RuntimeEquipmentCatalog::decode(&equipment).unwrap());
+    // Carriers built by an older compiler are skipped like absent ones until `make assets`.
+    let (Ok(entities), Ok(icons), Ok(catalog)) = (
+        assets::RuntimeEntityAssets::decode(&entities),
+        assets::RuntimeIconCatalog::decode(&icons),
+        assets::RuntimeEquipmentCatalog::decode(&equipment),
+    ) else {
+        return;
+    };
+    let (entities, icons, catalog) = (Arc::new(entities), Arc::new(icons), Arc::new(catalog));
     let (mut runtime, _, _) = EquipmentRuntime::build(
         entities,
         Some(catalog),
@@ -434,4 +440,209 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     });
     eprintln!("{held:?}");
     assert_eq!(held[0].1, 1);
+}
+
+fn png(side: u32) -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(side, side, image::Rgba([200, 40, 40, 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+/// A player-shaped body submission on a registered skin rig.
+fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmission {
+    let names = [
+        "root",
+        "body",
+        "head",
+        "rightArm",
+        "leftArm",
+        "rightItem",
+        "leftItem",
+    ]
+    .map(Box::<str>::from)
+    .to_vec();
+    let rig = EntityRigId(0x7000_0000);
+    runtime.register_skin_rig(rig, names.clone());
+    let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
+    ActorRigSubmission {
+        input: ActorRigRenderInput {
+            identity: ActorRenderIdentity {
+                session_id: 1,
+                dimension: 0,
+                runtime_id: 2,
+                spawn_revision: 1,
+                ingress_sequence: 1,
+                source_tick: None,
+                movement_revision: 0,
+                pose_generation: 0,
+                layer: ACTOR_LAYER_BODY,
+            },
+            rig,
+            previous_bones: Arc::clone(&pose),
+            current_bones: pose,
+            completed_tick: 0,
+            reset_generation: 0,
+        },
+        world_from_actor: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+        texture_layer: 0,
+        route: ActorRigRoute::Compiled,
+        tint: 0,
+        overlay_rgba8: 0,
+    }
+}
+
+/// An equipment runtime over a server pack's attachables, with no startup carriers.
+fn pack_runtime(
+    files: Vec<(Box<str>, Vec<u8>)>,
+) -> (super::runtime::EquipmentRuntime, ActorArtworkPages) {
+    use super::runtime::EquipmentRuntime;
+    let compiled = asset_compiler::compile_actor_pack(files)
+        .unwrap()
+        .expect("pack compiles");
+    let catalog = Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            compiled.identity,
+            compiled.equipment_bindings,
+            compiled.equipment_textures,
+        )
+        .unwrap(),
+    );
+    let entities = Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
+    let icons = Arc::new(
+        assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog([0; 32], &[], &[]).unwrap(),
+        )
+        .unwrap(),
+    );
+    let (mut runtime, pages, _) = EquipmentRuntime::build(
+        Arc::clone(&entities),
+        None,
+        icons,
+        None,
+        None,
+        ActorArtworkPages::default(),
+    );
+    let (pages, locations) =
+        pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((entities, catalog, locations)));
+    (runtime, pages)
+}
+
+fn session_items(
+    components: Vec<(&str, protocol::ItemComponents)>,
+    icons: Vec<&str>,
+) -> crate::runtime::network::entity_pack::SessionItems {
+    use crate::ui_runtime::presentation::{SessionIcon, SessionIcons};
+    crate::runtime::network::entity_pack::SessionItems {
+        components: Arc::new(
+            components
+                .into_iter()
+                .map(|(identifier, components)| (Arc::from(identifier), components))
+                .collect(),
+        ),
+        icons: (!icons.is_empty()).then(|| {
+            Arc::new(SessionIcons {
+                icons: icons
+                    .into_iter()
+                    .map(|identifier| SessionIcon {
+                        identifier: identifier.into(),
+                        width: 16,
+                        height: 16,
+                        rgba8: vec![255; 16 * 16 * 4].into(),
+                    })
+                    .collect(),
+                misses: Default::default(),
+            })
+        }),
+    }
+}
+
+fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
+    vec![
+        (
+            "attachables/crown.json".into(),
+            br#"{"format_version":"1.10.0","minecraft:attachable":{"description":{"identifier":"test:crown","materials":{"default":"armor"},"textures":{"default":"textures/models/crown"},"geometry":{"default":"geometry.test.crown"},"render_controllers":["controller.render.armor"]}}}"#.to_vec(),
+        ),
+        (
+            "models/entity/crown.geo.json".into(),
+            br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test.crown","texture_width":16,"texture_height":16},"bones":[{"name":"head","pivot":[0,24,0],"cubes":[{"origin":[-4,32,-4],"size":[8,2,8],"uv":[0,0]}]}]}]}"#.to_vec(),
+        ),
+        ("textures/models/crown.png".into(), png(16)),
+    ]
+}
+
+// A custom attachable whose name and geometry say nothing is worn where `minecraft:wearable` puts it.
+#[test]
+fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
+    let (mut runtime, _) = pack_runtime(crown_pack());
+    let body = player_body(&mut runtime);
+    let crown = WornItem {
+        identifier: Arc::from("test:crown"),
+        metadata: 0,
+        kind: HeldKind::Other,
+        dye_rgb: None,
+    };
+    let worn = ActorEquipmentInput {
+        armor: [Some(crown), None, None, None],
+        ..ActorEquipmentInput::default()
+    };
+    assert!(runtime.layers_for(&body, &worn).is_empty());
+    let components = protocol::ItemComponents {
+        wearable_slot: Some("slot.armor.head".into()),
+        ..Default::default()
+    };
+    let items = session_items(vec![("test:crown", components)], vec![]);
+    runtime.set_session_items(Some(&items), None, Vec::new());
+    assert_eq!(runtime.layers_for(&body, &worn).len(), 1);
+    runtime.set_session_items(None, None, Vec::new());
+    assert!(runtime.layers_for(&body, &worn).is_empty());
+}
+
+// A custom item with no attachable holds its pack icon, gripped per `hand_equipped`.
+#[test]
+fn custom_items_hold_their_session_icon_with_the_component_grip() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, StagedSessionIcons, WornItem};
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let body = player_body(&mut runtime);
+    let held = |identifier: &str| ActorEquipmentInput {
+        main: Some(WornItem {
+            identifier: Arc::from(identifier),
+            metadata: 0,
+            kind: HeldKind::Other,
+            dye_rgb: None,
+        }),
+        ..ActorEquipmentInput::default()
+    };
+    assert!(runtime.layers_for(&body, &held("test:blade")).is_empty());
+    let blade = protocol::ItemComponents {
+        hand_equipped: true,
+        use_duration_ticks: Some(24),
+        ..Default::default()
+    };
+    let items = session_items(
+        vec![("test:blade", blade), ("test:gem", Default::default())],
+        vec!["test:blade", "test:gem"],
+    );
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+    let blade_layers = runtime.layers_for(&body, &held("test:blade"));
+    let gem_layers = runtime.layers_for(&body, &held("test:gem"));
+    assert_eq!((blade_layers.len(), gem_layers.len()), (1, 1));
+    let bone = |layers: &[super::runtime::EquipmentPresentation]| {
+        layers[0].submission.input.current_bones[0]
+    };
+    // Upright and flat grips place the icon differently.
+    assert_ne!(bone(&blade_layers).rotation, bone(&gem_layers).rotation);
+    assert_eq!(
+        runtime.item_use_durations().get("test:blade").copied(),
+        Some(24)
+    );
+    assert!(!runtime.take_pending_geometries().is_empty());
 }

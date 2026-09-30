@@ -117,10 +117,12 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
     let main_item = IconRef {
         page: 1,
         uv: [0, 0, 16, 16],
+        glint: false,
     };
     let offhand = IconRef {
         page: 2,
         uv: [0, 0, 16, 16],
+        glint: false,
     };
     presentation.hud_frame_mut().held_item_icon = Some(main_item);
     presentation.hud_frame_mut().offhand_viewmodel_icon = Some(offhand);
@@ -773,12 +775,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut weather = crate::environment::WeatherState::default();
     crate::environment::bind_session_generation(&mut clock, &mut weather, 1);
     let breg = crate::asset_startup::pinned_block_registry_bytes();
-    let records = assets::read_registry_for_protocol(breg, 2168).unwrap();
+    let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
     let collisions = crate::movement::PhysicsCollisionRegistries::from_assets(
         breg,
         &records,
-        include_bytes!("../../../crates/assets/data/block-physics-v2168.bin"),
-        2168,
+        include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
+        2193,
     )
     .unwrap();
     app.insert_resource(clock)

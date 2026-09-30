@@ -1,14 +1,14 @@
 use bytes::{Buf, Bytes, BytesMut};
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameData, HASHED_AIR_NETWORK_ID, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
-    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
-    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
-    vanilla_dimension_range,
+    GameData, GameRulesEvent, HASHED_AIR_NETWORK_ID, HudRules, LevelChunkMode,
+    MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
+    SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
+    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
     ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, DimensionType,
@@ -472,7 +472,7 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
             protocol::MovePlayerMode::Teleport,
         ),
         (
-            MovePlayerPacketPositionMode::OnlyHeadRot,
+            MovePlayerPacketPositionMode::Onlyheadrot,
             protocol::MovePlayerMode::Rotation,
         ),
         (
@@ -768,12 +768,12 @@ fn resolves_non_cached_sub_chunk_entries_to_absolute_keys() {
             ),
             sub_chunk_entry(
                 [0, 1, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir,
+                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
                 None,
             ),
             sub_chunk_entry(
                 [1, 0, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::LevelChunkDoesntExist,
+                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Levelchunkdoesntexist,
                 None,
             ),
         ],
@@ -827,7 +827,7 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
         },
         sub_chunk_data: vec![sub_chunk_entry(
             [1, 0, 0],
-            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir,
+            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
             None,
         )],
         ..Default::default()
@@ -963,7 +963,7 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
             z: -4.25,
         },
         // gophertunnel packet/respawn.go: ReadyToSpawn is wire value 1.
-        state: RespawnPacketState::ReadyToSpawn,
+        state: RespawnPacketState::Readytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: 42,
         },
@@ -1003,8 +1003,9 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
     };
     assert_eq!(
         into_world_event(packet.into(), 0).unwrap(),
-        Some(WorldEvent::DaylightCycle(DaylightCycleUpdateEvent {
-            enabled: false,
+        Some(WorldEvent::GameRules(GameRulesEvent {
+            daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
+            hud: HudRules::default(),
         }))
     );
 
@@ -1018,6 +1019,47 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
         },
     };
     assert_eq!(into_world_event(wrong_type.into(), 0).unwrap(), None);
+}
+
+#[test]
+fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
+    let packet = GameRulesChangedPacket {
+        rule_data: GameRulesChangedPacketData {
+            rules_list: vec![
+                bool_rule("showCoordinates", true),
+                bool_rule("showdaysplayed", false),
+            ],
+        },
+    };
+    assert_eq!(
+        into_world_event(packet.into(), 0).unwrap(),
+        Some(WorldEvent::GameRules(GameRulesEvent {
+            daylight_cycle: None,
+            hud: HudRules {
+                show_coordinates: Some(true),
+                show_days_played: Some(false),
+            },
+        }))
+    );
+    let mut game_data = game_data();
+    assert_eq!(
+        HudRules::from_game_data(&game_data),
+        HudRules {
+            show_coordinates: Some(false),
+            show_days_played: Some(false),
+        },
+        "absent StartGame rules read as their vanilla default, off"
+    );
+    game_data
+        .start_game
+        .settings
+        .rule_data
+        .rules_list
+        .push(bool_rule("showcoordinates", true));
+    assert_eq!(
+        HudRules::from_game_data(&game_data).show_coordinates,
+        Some(true)
+    );
 }
 
 #[test]

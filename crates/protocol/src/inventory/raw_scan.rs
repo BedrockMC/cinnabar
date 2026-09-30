@@ -1,7 +1,7 @@
 //! Pre-decode wire scan of inventory packets: framing errors are fatal, semantic ones deferred.
 
 use bytes::{Buf, Bytes};
-use valentine::bedrock::version::v1_26_44::McpePacketName;
+use valentine::bedrock::version::v1_26_51::McpePacketName;
 
 use super::*;
 
@@ -31,7 +31,7 @@ pub(crate) fn validate_raw_inventory_packet(
             true
         }
         McpePacketName::InventorySlotPacket => {
-            // The container ID is a plain byte in 1.26.40, not a varint.
+            // The container ID is a plain byte, not a varint.
             take_u8(&mut body)?;
             read_var_i32(&mut body)?;
             if read_presence(&mut body)? {
@@ -85,9 +85,6 @@ fn scan_stack_responses(
     for _ in 0..response_count {
         take_u8(body)?;
         read_var_i32(body)?;
-        // The generated DoubleOptionalFunc shape carries its constant outer
-        // flag and then the actual optional-list presence byte.
-        read_presence(body)?;
         if !read_presence(body)? {
             continue;
         }
@@ -116,9 +113,6 @@ fn scan_stack_responses(
             for _ in 0..slot_count {
                 // requested_slot, slot, amount
                 take_bytes(body, 3)?;
-                // The stack net ID is another DoubleOptionalFunc: consume its
-                // constant outer flag before the actual optional presence.
-                read_presence(body)?;
                 if read_presence(body)? {
                     read_var_i32(body)?;
                 }

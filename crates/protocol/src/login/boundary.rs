@@ -1,5 +1,5 @@
 use jolyne::{raw::RawPacket, stream::transport::Transport};
-use valentine::bedrock::version::v1_26_44::McpePacketName;
+use valentine::bedrock::version::v1_26_51::McpePacketName;
 
 use super::{PlaySession, reset_cache_for_immediate_boundary};
 use crate::{Packet, ProtocolError, ServerDisconnectEvent, ServerTransferEvent};

@@ -60,6 +60,12 @@ pub enum UiVisual {
         color: [u8; 4],
         angle_radians: f32,
     },
+    /// A sprite with the animated enchantment glint over its opaque texels.
+    GlintSprite {
+        texture_page: u16,
+        uv: [u16; 4],
+        color: [u8; 4],
+    },
     /// A sprite drawn with the invert blend instead of alpha compositing.
     InvertedSprite {
         texture_page: u16,
@@ -235,6 +241,9 @@ impl UiFrame {
         self.bounds.get(&node).copied()
     }
 }
+
+/// Vertex style bit asking the renderer to draw the enchantment glint.
+pub const UI_STYLE_GLINT: u8 = 1 << 1;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiVertex {
@@ -671,6 +680,7 @@ impl UiTree {
                 UiVisual::None => 0,
                 UiVisual::Solid { .. }
                 | UiVisual::Sprite { .. }
+                | UiVisual::GlintSprite { .. }
                 | UiVisual::RotatedSprite { .. }
                 | UiVisual::InvertedSprite { .. } => 1,
                 UiVisual::Text { layout, shadow, .. }

@@ -27,7 +27,7 @@ use crate::{
 fn world_identity(revision: u64) -> WorldCollisionIdentity {
     WorldCollisionIdentity::new(
         CollisionRegistryIdentity {
-            protocol: 2168,
+            protocol: 2193,
             id_space: CollisionIdSpace::Sequential,
             preg_sha256: [7; 32],
         },
@@ -42,7 +42,7 @@ fn world_identity(revision: u64) -> WorldCollisionIdentity {
 fn cross_chunk_world_identity(revision: u64) -> WorldCollisionIdentity {
     WorldCollisionIdentity::new(
         CollisionRegistryIdentity {
-            protocol: 2168,
+            protocol: 2193,
             id_space: CollisionIdSpace::Sequential,
             preg_sha256: [7; 32],
         },
@@ -209,8 +209,8 @@ fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
 }
 
 fn fixture_registries() -> PhysicsCollisionRegistries {
-    let breg = include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
-    let records = read_registry_for_protocol(breg, 2168).unwrap();
+    let breg = include_bytes!("../../../crates/assets/data/block-registry-v2193.bin");
+    let records = read_registry_for_protocol(breg, 2193).unwrap();
     let preg = synthetic_preg(breg, &records);
     PhysicsCollisionRegistries::from_assets(
         breg,

@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::{
-    EnumsSetTitlePacketPayloadTitleType, SetTitlePacket, TextPacket, TextPacketBody,
+use valentine::bedrock::version::v1_26_51::{
+    EnumsSetTitlePacketPayloadTitleType, EnumsTextPacketType, SetTitlePacket, TextPacket,
+    TextPacketBody, TextPacketPayloadAuthorAndMessageMessageType as AuthoredType,
+    TextPacketPayloadMessageAndParamsMessageType as ParameterType,
 };
 
 use super::{MAX_CHAT_PARAMETERS, UiEvent, UiPacketError, bounded_text};
 
 /// Which of the three Text payload shapes the packet carried.
 ///
-/// 1.26.40 models this as the leading union tag of `TextPacketBody` rather than
-/// a standalone `category` field. gophertunnel writes the same byte and derives
-/// it from the message type
+/// The leading union tag of `TextPacketBody`; the message type follows inside
+/// the payload. gophertunnel derives the same byte from the message type
 /// (`minecraft/protocol/packet/text.go`, `Text.Marshal`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextCategory {
@@ -82,42 +83,41 @@ pub struct TitleEvent {
 
 pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketError> {
     let (category, kind, source, message, raw_text, parameters) = match packet.body {
-        TextPacketBody::Raw(payload) => normalize_message_only(TextKind::Raw, payload.message)?,
-        TextPacketBody::Tip(payload) => normalize_message_only(TextKind::Tip, payload.message)?,
-        TextPacketBody::SystemMessage(payload) => {
-            normalize_message_only(TextKind::System, payload.message)?
+        TextPacketBody::MessageOnly(payload) => match payload.message_type {
+            EnumsTextPacketType::Raw => normalize_message_only(TextKind::Raw, payload.message)?,
+            EnumsTextPacketType::Tip => normalize_message_only(TextKind::Tip, payload.message)?,
+            EnumsTextPacketType::Systemmessage => {
+                normalize_message_only(TextKind::System, payload.message)?
+            }
+            EnumsTextPacketType::Textobjectwhisper => {
+                normalize_json_message(TextKind::JsonWhisper, payload.message)?
+            }
+            EnumsTextPacketType::Textobject => {
+                normalize_json_message(TextKind::Json, payload.message)?
+            }
+            EnumsTextPacketType::Textobjectannouncement => {
+                normalize_json_message(TextKind::JsonAnnouncement, payload.message)?
+            }
+            EnumsTextPacketType::Unknown(value) => return Err(unknown_text_type(value)),
+        },
+        TextPacketBody::AuthorAndMessage(payload) => {
+            let kind = match payload.message_type {
+                AuthoredType::Chat => TextKind::Chat,
+                AuthoredType::Whisper => TextKind::Whisper,
+                AuthoredType::Announcement => TextKind::Announcement,
+                AuthoredType::Unknown(value) => return Err(unknown_text_type(value)),
+            };
+            normalize_authored(kind, payload.player_name, payload.message)?
         }
-        TextPacketBody::TextObjectWhisper(payload) => {
-            normalize_json_message(TextKind::JsonWhisper, payload.message)?
+        TextPacketBody::MessageAndParams(payload) => {
+            let kind = match payload.message_type {
+                ParameterType::Translate => TextKind::Translation,
+                ParameterType::Popup => TextKind::Popup,
+                ParameterType::Jukeboxpopup => TextKind::JukeboxPopup,
+                ParameterType::Unknown(value) => return Err(unknown_text_type(value)),
+            };
+            normalize_parameters(kind, payload.message, payload.parameter_list)?
         }
-        TextPacketBody::TextObject(payload) => {
-            normalize_json_message(TextKind::Json, payload.message)?
-        }
-        TextPacketBody::TextObjectAnnouncement(payload) => {
-            normalize_json_message(TextKind::JsonAnnouncement, payload.message)?
-        }
-        TextPacketBody::Chat(payload) => {
-            normalize_authored(TextKind::Chat, payload.player_name, payload.message)?
-        }
-        TextPacketBody::Whisper(payload) => {
-            normalize_authored(TextKind::Whisper, payload.player_name, payload.message)?
-        }
-        TextPacketBody::Announcement(payload) => {
-            normalize_authored(TextKind::Announcement, payload.player_name, payload.message)?
-        }
-        TextPacketBody::Translate(payload) => normalize_parameters(
-            TextKind::Translation,
-            payload.message,
-            payload.parameter_list,
-        )?,
-        TextPacketBody::Popup(payload) => {
-            normalize_parameters(TextKind::Popup, payload.message, payload.parameter_list)?
-        }
-        TextPacketBody::JukeboxPopup(payload) => normalize_parameters(
-            TextKind::JukeboxPopup,
-            payload.message,
-            payload.parameter_list,
-        )?,
     };
     let event = TextEvent {
         category,
@@ -137,6 +137,13 @@ pub(crate) fn normalize_text(packet: TextPacket) -> Result<UiEvent, UiPacketErro
         }),
         None => UiEvent::Text(event),
     })
+}
+
+fn unknown_text_type(value: u8) -> UiPacketError {
+    UiPacketError::UnknownEnum {
+        kind: "text type",
+        value: i64::from(value),
+    }
 }
 
 type NormalizedTextParts = (
@@ -233,9 +240,9 @@ pub(crate) fn normalize_title(packet: SetTitlePacket) -> Result<UiEvent, UiPacke
         EnumsSetTitlePacketPayloadTitleType::Subtitle => TitleAction::SetSubtitle,
         EnumsSetTitlePacketPayloadTitleType::Actionbar => TitleAction::ActionBar,
         EnumsSetTitlePacketPayloadTitleType::Times => TitleAction::SetDurations,
-        EnumsSetTitlePacketPayloadTitleType::TitleTextObject => TitleAction::SetTitleJson,
-        EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject => TitleAction::SetSubtitleJson,
-        EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject => TitleAction::ActionBarJson,
+        EnumsSetTitlePacketPayloadTitleType::Titletextobject => TitleAction::SetTitleJson,
+        EnumsSetTitlePacketPayloadTitleType::Subtitletextobject => TitleAction::SetSubtitleJson,
+        EnumsSetTitlePacketPayloadTitleType::Actionbartextobject => TitleAction::ActionBarJson,
         EnumsSetTitlePacketPayloadTitleType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "title action",

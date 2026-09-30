@@ -2,7 +2,7 @@ use bytes::Bytes;
 use protocol::*;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_44::McpePacketData;
+use valentine::bedrock::version::v1_26_51::McpePacketData;
 
 fn admitted(fixture: &'static [u8]) -> RecipeUpdate {
     let mut batch = Bytes::from_static(fixture);
@@ -65,7 +65,7 @@ fn each_atomic_request_uses_current_registry_and_ingredient_authority() {
     let McpePacketData::ItemStackRequestPacket(packet) = packet.data else {
         panic!("request")
     };
-    use valentine::bedrock::version::v1_26_44::{
+    use valentine::bedrock::version::v1_26_51::{
         ItemStackRequestCerealNetworkItemInstanceDescriptorDataItemDescriptor as Descriptor,
         ItemStackRequestPacketDataRequestDataActionsItem as Action,
     };
@@ -102,7 +102,7 @@ fn each_atomic_request_uses_current_registry_and_ingredient_authority() {
 
 #[test]
 fn current_ingredient_count_must_cover_the_advertised_consumption() {
-    use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
+    use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
     let mut bytes = bytes::BytesMut::new();
     CraftingDataPacket {
         shaped_recipes: vec![ShapedRecipePayload {
@@ -223,7 +223,7 @@ fn candidate_compound_order_and_current_request_reference_match_pinned_codec() {
     };
     let actions = &request.requests[0].actions;
     assert_eq!(actions.len(), 4);
-    use valentine::bedrock::version::v1_26_44::ItemStackRequestPacketDataRequestDataActionsItem as Action;
+    use valentine::bedrock::version::v1_26_51::ItemStackRequestPacketDataRequestDataActionsItem as Action;
     assert!(matches!(actions[0], Action::CraftRecipeActionData(_)));
     assert!(matches!(actions[1], Action::CraftResultsActionData(_)));
     assert!(matches!(actions[2], Action::ConsumeActionData(_)));

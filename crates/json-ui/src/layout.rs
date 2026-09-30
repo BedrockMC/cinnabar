@@ -356,6 +356,13 @@ fn grid_children<'a>(
         [acc[0].max(size[0]), acc[1].max(size[1])]
     });
     let columns = fitted_columns(columns, Some(parent_rect.w), pitch[0], sizes.len());
+    // The grid sizes itself to its rows, so a bottom-anchored grid's rows end at its bottom edge.
+    let rows = sizes.len().div_ceil(columns) as f64;
+    let top = if bottom_anchored(parent) {
+        parent_rect.y + (parent_rect.h - rows * pitch[1]).max(0.0)
+    } else {
+        parent_rect.y
+    };
     parent
         .children
         .iter()
@@ -363,10 +370,18 @@ fn grid_children<'a>(
         .enumerate()
         .map(|(index, (child, size))| {
             let x = parent_rect.x + (index % columns) as f64 * pitch[0];
-            let y = parent_rect.y + (index / columns) as f64 * pitch[1];
+            let y = top + (index / columns) as f64 * pitch[1];
             (child, Rect::new(x, y, size[0], size[1]))
         })
         .collect()
+}
+
+fn bottom_anchored(control: &ResolvedControl) -> bool {
+    control
+        .properties
+        .get("anchor_to")
+        .and_then(Value::as_str)
+        .is_some_and(|anchor| anchor.starts_with("bottom"))
 }
 
 fn stack_children<'a>(

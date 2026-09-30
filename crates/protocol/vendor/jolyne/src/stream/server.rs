@@ -257,7 +257,7 @@ impl<T: Transport> BedrockStream<SecurePending, Server, T> {
 
         self.transport
             .send_batch(&[McpePacket::from(PlayStatusPacket {
-                status: PlayStatusPacketStatus::LoginSuccess,
+                status: PlayStatusPacketStatus::Loginsuccess,
             })])
             .await?;
 
@@ -482,7 +482,7 @@ impl<T: Transport> BedrockStream<StartGame, Server, T> {
                 McpePacket::from(params.available_entities.as_ref().clone()),
                 McpePacket::from(params.creative_content.as_ref().clone()),
                 McpePacket::from(PlayStatusPacket {
-                    status: PlayStatusPacketStatus::PlayerSpawn,
+                    status: PlayStatusPacketStatus::Playerspawn,
                 }),
             ])
             .await?;

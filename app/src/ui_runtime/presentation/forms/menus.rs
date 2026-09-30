@@ -270,7 +270,7 @@ impl UiPresentationRuntime {
 }
 
 /// A region's clipped rect in window-logical pixels.
-fn window_rect(region: &HitRegion, scale: f32, origin: [f32; 2]) -> Option<UiRect> {
+pub(super) fn window_rect(region: &HitRegion, scale: f32, origin: [f32; 2]) -> Option<UiRect> {
     let x0 = region.rect.x.max(region.clip.x);
     let y0 = region.rect.y.max(region.clip.y);
     let x1 = (region.rect.x + region.rect.w).min(region.clip.x + region.clip.w);

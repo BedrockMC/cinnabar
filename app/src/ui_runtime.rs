@@ -226,6 +226,7 @@ pub struct UiRuntime {
     active_lang: Option<Arc<assets::RuntimeLangCatalog>>,
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     session_icons: Option<Arc<presentation::SessionIcons>>,
+    session_items: Option<Arc<item_facts::SessionItemComponents>>,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
     session_glyphs: Option<Arc<presentation::SessionGlyphSheets>>,
     /// Authoritative display names of real player/entity score owners,
@@ -309,6 +310,7 @@ impl UiRuntime {
             active_lang: None,
             server_lang: None,
             session_icons: None,
+            session_items: None,
             server_ui: None,
             session_glyphs: None,
         }
@@ -598,6 +600,7 @@ impl UiRuntime {
         self.clear_local_abilities();
         self.server_lang = None;
         self.session_icons = None;
+        self.session_items = None;
         self.server_ui = None;
         self.session_glyphs = None;
         self.last_fifo_sequence = None;
@@ -795,6 +798,10 @@ impl UiRuntime {
             ),
             UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
             UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
+            UiEvent::HudRules(rules) => {
+                self.apply_hud_rules(rules);
+                UiApplyOutcome::Applied
+            }
             UiEvent::Form(event) => {
                 self.forms.admit(
                     event,

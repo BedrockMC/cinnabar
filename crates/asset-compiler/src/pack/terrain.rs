@@ -187,6 +187,23 @@ impl TerrainTextureMap {
         }
     }
 
+    /// Path `variant` of an untinted key, clamped to its last variant as vanilla's icon lookup is.
+    pub(crate) fn get_clamped_untinted(&self, key: &str, variant: usize) -> Option<&str> {
+        match self.entries.get(key)? {
+            TerrainPaths::Static {
+                path,
+                requires_tint: false,
+                has_extra_metadata: false,
+            } => Some(path),
+            TerrainPaths::Variants {
+                paths,
+                requires_tint: false,
+                has_extra_metadata: false,
+            } => paths.get(variant.min(paths.len() - 1)).map(AsRef::as_ref),
+            TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
+        }
+    }
+
     pub(crate) fn source_paths(&self) -> impl Iterator<Item = &str> {
         self.entries.values().flat_map(TerrainPaths::paths)
     }

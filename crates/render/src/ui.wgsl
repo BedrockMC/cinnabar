@@ -1,7 +1,11 @@
 struct UiViewport {
     viewport_size: vec2<f32>,
-    _padding: vec2<f32>,
+    time_seconds: f32,
+    _padding: f32,
 };
+
+// Vertex style bit for the enchantment glint (`ui::UI_STYLE_GLINT`).
+const STYLE_GLINT: u32 = 2u;
 
 @group(0) @binding(0) var<uniform> viewport: UiViewport;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
@@ -62,6 +66,22 @@ fn ui_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
     );
     let straight_color = input.color;
     let alpha = sample.a * straight_color.a;
-    let premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a;
+    var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a;
+    if (input.style_flags & STYLE_GLINT) != 0u {
+        premultiplied_rgb += glint(input.clip_position.xy) * alpha;
+    }
     return vec4<f32>(premultiplied_rgb, alpha);
+}
+
+// Two diagonal purple bands scrolling at different rates, added over opaque texels like the
+// item glint layers. Provisional: procedural, not the retail glint texture.
+fn glint(pixel: vec2<f32>) -> vec3<f32> {
+    let t = viewport.time_seconds;
+    let a = fract((pixel.x * 0.96 + pixel.y * 0.28) / 96.0 - t * 0.33);
+    let b = fract((pixel.x * 0.5 - pixel.y * 0.87) / 80.0 + t * 0.21);
+    return vec3<f32>(0.5, 0.25, 0.8) * (glint_band(a) + glint_band(b)) * 0.55;
+}
+
+fn glint_band(x: f32) -> f32 {
+    return smoothstep(0.0, 0.18, x) * (1.0 - smoothstep(0.18, 0.42, x));
 }

@@ -3,7 +3,7 @@ use crate::{
     InventoryPacketError, ItemRegistryEntry, RecipeCatalog, RecipeHandle, VerifiedNetworkItemStack,
 };
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsContainerEnumName, EnumsItemStackRequestActionType,
     EnumsItemStackRequestCerealItemDescriptorType, EnumsTextProcessingEventOrigin,
     FullContainerName, ItemStackRequestCerealConsumeActionData,
@@ -204,7 +204,7 @@ pub fn manual_craft_packet(
     actions.push(
         ItemStackRequestPacketDataRequestDataActionsItem::CraftRecipeActionData(
             ItemStackRequestCerealCraftRecipeActionData {
-                actiontype: EnumsItemStackRequestActionType::CraftRecipe,
+                actiontype: EnumsItemStackRequestActionType::Craftrecipe,
                 recipe_net_id: TypedServerNetIdstructRecipeNetIdTag {
                     raw_id: plan.recipe.network_id(),
                 },
@@ -213,10 +213,10 @@ pub fn manual_craft_packet(
         ),
     );
     actions.push(ItemStackRequestPacketDataRequestDataActionsItem::CraftResultsActionData(ItemStackRequestCerealCraftResultsActionData {
-        actiontype: EnumsItemStackRequestActionType::CraftResults, num_crafts: 1,
+        actiontype: EnumsItemStackRequestActionType::Craftresults, num_crafts: 1,
         craft_results: vec![ItemStackRequestCerealNetworkItemInstanceDescriptorData {
             item_descriptor: ItemStackRequestCerealNetworkItemInstanceDescriptorDataItemDescriptor::ItemNameDescriptorData(ItemStackRequestCerealItemNameDescriptorData {
-                descriptor_type: EnumsItemStackRequestCerealItemDescriptorType::ItemName,
+                descriptor_type: EnumsItemStackRequestCerealItemDescriptorType::Itemname,
                 full_name: plan.output_name.to_string(), aux_value: i32::from(output.aux),
             }), stacksize: u16::from(output.count), block_runtime_id: output.block,
             user_data_buffer: if output.empty_envelope { vec![0;10] } else { Vec::new() },
@@ -228,7 +228,7 @@ pub fn manual_craft_packet(
                 ItemStackRequestCerealConsumeActionData {
                     actiontype: EnumsItemStackRequestActionType::Consume,
                     amount: count,
-                    source: slot(EnumsContainerEnumName::CraftingInputContainer, source, id),
+                    source: slot(EnumsContainerEnumName::Craftinginputcontainer, source, id),
                 },
             ),
         );
@@ -239,11 +239,11 @@ pub fn manual_craft_packet(
                 actiontype: EnumsItemStackRequestActionType::Take,
                 amount: output.count,
                 source: slot(
-                    EnumsContainerEnumName::CreatedOutputContainer,
+                    EnumsContainerEnumName::Createdoutputcontainer,
                     50,
                     request_id,
                 ),
-                destination: slot(EnumsContainerEnumName::CursorContainer, 0, 0),
+                destination: slot(EnumsContainerEnumName::Cursorcontainer, 0, 0),
             },
         )),
     );

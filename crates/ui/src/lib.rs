@@ -25,16 +25,16 @@ pub use hud::{
     TitleDurations, Toast,
 };
 pub use model::{
-    FocusState, FocusTransition, TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiDrawList,
-    UiError, UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
+    FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_GLINT, UiBlendMode, UiDrawBatch,
+    UiDrawList, UiError, UiFrame, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,
-    BossOverlay, BossStyle, DisplaySlot, MAX_BOSS_BARS, MAX_BOSS_PLAYER_MEMBERSHIPS,
-    MAX_BOSS_RETAINED_TEXT_BYTES, MAX_OBJECTIVES, MAX_RETAINED_UI_TEXT_FIELD_BYTES,
-    MAX_SCOREBOARD_RETAINED_TEXT_BYTES, MAX_SCORES, RetainedUiApply, RetainedUiSequenceError,
-    ScoreAction, ScoreEntry, ScoreIdentity, ScoreOwner, ScoreRenderType, ScoreRow, ScoreSortOrder,
-    ScoreboardDiagnostics, ScoreboardEvent, ScoreboardProjection, ScoreboardStore,
+    BossOverlay, BossStyle, DisplaySlot, MAX_BOSS_BARS, MAX_BOSS_RETAINED_TEXT_BYTES,
+    MAX_OBJECTIVES, MAX_RETAINED_UI_TEXT_FIELD_BYTES, MAX_SCOREBOARD_RETAINED_TEXT_BYTES,
+    MAX_SCORES, RetainedUiApply, RetainedUiSequenceError, ScoreAction, ScoreEntry, ScoreIdentity,
+    ScoreOwner, ScoreRenderType, ScoreRow, ScoreSortOrder, ScoreboardDiagnostics, ScoreboardEvent,
+    ScoreboardProjection, ScoreboardStore,
 };
 pub use settings::{CURRENT_SETTINGS_SCHEMA, GameplaySettings, UserSettings, VideoSettings};
 pub use text::{

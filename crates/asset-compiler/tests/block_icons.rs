@@ -109,7 +109,7 @@ fn world(entity: &CompiledEntityAssets) -> CompiledAssets {
         provenance: BlobProvenance {
             source_manifest_sha256: entity.source_manifest_sha256,
             block_registry_sha256: Sha256::digest(include_bytes!(
-                "../../assets/data/block-registry-v2168.bin"
+                "../../assets/data/block-registry-v2193.bin"
             ))
             .into(),
             light_registry_sha256: [3; 32],
@@ -211,8 +211,12 @@ fn provenance_and_hidden_face_eligibility_are_fail_closed() {
     let mut source = world(&entity);
     source.texture_pages[0].texture.mips[0].rgba8[16 * 16 * 4 * 2 + 3] = 0;
     let result = compile_icon_assets_with_blocks(pack.path(), MANIFEST, &runtime(&source)).unwrap();
-    assert_eq!(result.report.block_visuals, 0);
-    assert!(result.report.block_refusals[3] >= 3);
+    // The opaque-cube path refuses the hole; the cutout model path draws it instead.
+    assert_eq!(
+        result.report.block_visuals,
+        result.report.model_block_visuals
+    );
+    assert_eq!(result.report.block_visuals, 3);
 }
 
 #[test]
@@ -306,4 +310,63 @@ fn legacy_sprite_only_accepts_valid_carrier_despite_many_missing_keys() {
     // The conservative world-aware estimate counts these 9000 valid missing
     // identifiers, but the legacy carrier never serializes them.
     assert!(9000 * (10 + 254) + output.bytes.len() > MAX_ICON_CARRIER_BYTES);
+}
+
+// Pinned-pack coverage: plants draw flat, sprite items beat their block routes; prints leftovers.
+#[test]
+fn pinned_block_items_resolve_icons_when_requested() {
+    let (Some(pack), Some(world)) = (
+        std::env::var_os("PINNED_VANILLA_PACK"),
+        std::env::var_os("PINNED_WORLD_CARRIER"),
+    ) else {
+        return;
+    };
+    let world = RuntimeAssets::decode(&fs::read(world).unwrap()).unwrap();
+    let pack = fs::canonicalize(pack).unwrap();
+    let compiled = compile_icon_assets_with_blocks(&pack, MANIFEST, &world).unwrap();
+    let catalog = RuntimeIconCatalog::decode(&compiled.bytes).unwrap();
+    let missing = [
+        "poppy",
+        "dandelion",
+        "red_tulip",
+        "orange_tulip",
+        "white_tulip",
+        "pink_tulip",
+        "cornflower",
+        "allium",
+        "azure_bluet",
+        "blue_orchid",
+        "oxeye_daisy",
+        "lily_of_the_valley",
+        "torchflower",
+        "oak_sapling",
+        "cherry_sapling",
+        "brown_mushroom",
+        "red_mushroom",
+        "fern",
+        "short_grass",
+        "deadbush",
+        "wooden_door",
+        "oak_sign",
+        "carrot",
+        "oak_leaves",
+        "oak_fence",
+        "cobblestone_wall",
+        "oak_slab",
+    ]
+    .into_iter()
+    .filter(|name| {
+        catalog
+            .lookup_index(&format!("minecraft:{name}"), 0)
+            .is_none()
+    })
+    .collect::<Vec<_>>();
+    eprintln!(
+        "{} flat and {} model block icons; {} block items unresolved: {:?}",
+        compiled.report.flat_block_visuals,
+        compiled.report.model_block_visuals,
+        compiled.report.unresolved_block_items.len(),
+        compiled.report.unresolved_block_items
+    );
+    assert!(missing.is_empty(), "no icon: {missing:?}");
 }

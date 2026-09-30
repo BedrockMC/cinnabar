@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use valentine::bedrock::borrowed::BorrowedStr;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     BorrowedMcpePacketData, LevelEventPacket, LevelSoundEventPacket, PlaySoundPacket,
     StopSoundPacket,
 };
@@ -210,7 +210,7 @@ fn validate_finite(value: f32, field: &'static str) -> Result<(), WorldPacketErr
 #[cfg(test)]
 mod level_event_tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_44::Vec3;
+    use valentine::bedrock::version::v1_26_51::Vec3;
 
     fn level(event_id: i32, x: f32) -> LevelEventPacket {
         LevelEventPacket {

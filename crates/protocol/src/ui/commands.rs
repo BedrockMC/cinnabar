@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_44::AvailableCommandsPacket;
+use valentine::bedrock::version::v1_26_51::AvailableCommandsPacket;
 
 use super::{
     ChatAutocompleteAction, ChatAutocompleteEvent, MAX_CHAT_AUTOCOMPLETE,

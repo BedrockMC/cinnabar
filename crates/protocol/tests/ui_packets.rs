@@ -9,13 +9,13 @@ use protocol::{
     modal_form_cancel_response, modal_form_submit_response,
 };
 use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_44::{
-    ActorUniqueId, BossEventPacket, CommandOutput, CommandOutputMessage, CommandOutputPacket,
-    EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType, EnumsModalFormCancelReason,
-    EnumsPlayStatus, EnumsSetTitlePacketPayloadTitleType, EnumsSoftEnumUpdateType,
-    LevelEventPacket, McpePacketData, McpePacketName, ModalFormRequestPacket,
-    ModalFormResponsePacket, PlayStatusPacket, SetHealthPacket, SetScorePacket,
-    SetScorePacketScoreInfoItem, SetTitlePacket, TextPacket, TextPacketBody,
+use valentine::bedrock::version::v1_26_51::{
+    ActorUniqueId, BossEventPacket, CommandOutputMessagejson, CommandOutputPacket,
+    CommandOutputjson, EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType,
+    EnumsModalFormCancelReason, EnumsPlayStatus, EnumsSetTitlePacketPayloadTitleType,
+    EnumsSoftEnumUpdateType, EnumsTextPacketType, LevelEventPacket, McpePacketData, McpePacketName,
+    ModalFormRequestPacket, ModalFormResponsePacket, PlayStatusPacket, SetHealthPacket,
+    SetScorePacket, SetScorePacketScoreInfoItem, SetTitlePacket, TextPacket, TextPacketBody,
     TextPacketPayloadMessageOnly, ToastRequestPacket, UpdateSoftEnumPacket, Vec3,
 };
 use valentine::protocol::wire;
@@ -52,7 +52,10 @@ fn decode_ui_fixture(bytes: &'static [u8]) -> UiEvent {
 
 fn raw_text_packet(message: String) -> TextPacket {
     TextPacket {
-        body: TextPacketBody::Raw(TextPacketPayloadMessageOnly { message }),
+        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
+            message_type: EnumsTextPacketType::Raw,
+            message,
+        }),
         ..Default::default()
     }
 }
@@ -123,7 +126,7 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     ));
     assert!(matches!(
         ui(PlayStatusPacket {
-            status: EnumsPlayStatus::PlayerSpawn,
+            status: EnumsPlayStatus::Playerspawn,
         })
         .unwrap(),
         UiEvent::Hud(protocol::HudEvent::PlayerStatus(
@@ -163,10 +166,10 @@ fn representative_ui_packets_normalize_without_vendor_types() {
 #[test]
 fn command_output_is_bounded_and_normalized_for_chat_presentation() {
     let packet = CommandOutputPacket {
-        output: CommandOutput {
+        output: CommandOutputjson {
             output_type: "all_output".to_owned(),
             success_count: 1,
-            output_messages: vec![CommandOutputMessage {
+            output_messages: vec![CommandOutputMessagejson {
                 message_id: "commands.generic.success".to_owned(),
                 successful: true,
                 parameters: vec!["sm3".to_owned()],
@@ -191,24 +194,28 @@ fn command_output_is_bounded_and_normalized_for_chat_presentation() {
 
 #[test]
 fn score_entries_carry_their_own_verb() {
-    use valentine::bedrock::version::v1_26_44::{ChangeFakePlayerScore, RemoveScore, ScoreboardId};
+    use valentine::bedrock::version::v1_26_51::{
+        ChangeFakePlayerScorejson, RemoveScorejson, ScoreboardId,
+    };
 
-    // Protocol 2168 moved the add/remove verb into each entry, so one packet may mix
-    // removals with changes (gophertunnel `ScoreboardEntry.Marshal`).
+    // The add/remove verb is carried per entry, so one packet may mix removals
+    // with changes (gophertunnel `ScoreboardEntry.Marshal`).
     let packet = SetScorePacket {
         score_info: vec![
-            SetScorePacketScoreInfoItem::RemoveScore(RemoveScore {
+            SetScorePacketScoreInfoItem::RemoveScore(RemoveScorejson {
                 action: "remove".to_owned(),
                 scoreboard_id: ScoreboardId { scoreboard_id: 7 },
-                objective_name: Some(Some("kills".to_owned())),
+                objective_name: Some("kills".to_owned()),
             }),
-            SetScorePacketScoreInfoItem::ChangeFakePlayerScore(Box::new(ChangeFakePlayerScore {
-                action: "changefakeplayer".to_owned(),
-                scoreboard_id: ScoreboardId { scoreboard_id: 8 },
-                objective_name: "kills".to_owned(),
-                score_value: 12,
-                fake_player_name: "Server".to_owned(),
-            })),
+            SetScorePacketScoreInfoItem::ChangeFakePlayerScore(Box::new(
+                ChangeFakePlayerScorejson {
+                    action: "changefakeplayer".to_owned(),
+                    scoreboard_id: ScoreboardId { scoreboard_id: 8 },
+                    objective_name: "kills".to_owned(),
+                    score_value: 12,
+                    fake_player_name: "Server".to_owned(),
+                },
+            )),
         ],
     };
     let UiEvent::Score(score) = ui(packet).unwrap() else {
@@ -231,25 +238,21 @@ fn score_entries_carry_their_own_verb() {
 }
 
 #[test]
-fn remove_score_preserves_both_1_26_44_optional_markers() {
-    use valentine::bedrock::version::v1_26_44::{RemoveScore, ScoreboardId};
+fn remove_score_writes_one_optional_objective_marker() {
+    use valentine::bedrock::version::v1_26_51::{RemoveScorejson, ScoreboardId};
 
     let cases = [
         (None, vec![6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 0]),
         (
-            Some(None),
-            vec![6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 1, 0],
-        ),
-        (
-            Some(Some("obj".to_owned())),
+            Some("obj".to_owned()),
             vec![
-                6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 1, 1, 3, b'o', b'b', b'j',
+                6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 1, 3, b'o', b'b', b'j',
             ],
         ),
     ];
 
     for (objective_name, expected) in cases {
-        let value = RemoveScore {
+        let value = RemoveScorejson {
             action: "remove".to_owned(),
             scoreboard_id: ScoreboardId { scoreboard_id: 7 },
             objective_name,
@@ -259,18 +262,17 @@ fn remove_score_preserves_both_1_26_44_optional_markers() {
         assert_eq!(encoded, expected);
 
         let mut input = expected.as_slice();
-        let decoded = RemoveScore::decode(&mut input, ()).expect("decode RemoveScore");
+        let decoded = RemoveScorejson::decode(&mut input, ()).expect("decode RemoveScore");
         assert_eq!(decoded, value);
         assert!(input.is_empty(), "RemoveScore left trailing bytes");
     }
 }
 
-// The core's pinned `Protocol12644` writes removals through
-// `marshalScoreboardEntry12644` (gophertunnel `minecraft/legacy.go`): two
-// presence bytes before a removal's objective name. The raw pre-validator must
-// walk the same shape or the next entry misaligns.
+// gophertunnel `ScoreboardEntry.Marshal` writes one presence byte before a
+// removal's objective name; the raw pre-validator must walk the same shape or
+// the next entry misaligns.
 #[test]
-fn gophertunnel_1_26_44_named_removal_is_followed_by_the_next_entry() {
+fn named_removal_is_followed_by_the_next_entry() {
     fn text(out: &mut Vec<u8>, value: &str) {
         out.push(value.len() as u8);
         out.extend_from_slice(value.as_bytes());
@@ -278,7 +280,7 @@ fn gophertunnel_1_26_44_named_removal_is_followed_by_the_next_entry() {
     let mut payload = vec![2];
     payload.push(0);
     text(&mut payload, "remove");
-    payload.extend([14, 1, 1]);
+    payload.extend([14, 1]);
     text(&mut payload, "kills");
     payload.push(3);
     text(&mut payload, "changefakeplayer");
@@ -294,7 +296,7 @@ fn gophertunnel_1_26_44_named_removal_is_followed_by_the_next_entry() {
     batch.extend(payload);
 
     let mut packets = decode_batch(batch.into(), &BedrockSession { shield_item_id: 0 })
-        .expect("1.26.44 SetScore enters the play receive path");
+        .expect("SetScore enters the play receive path");
     let Ok(Some(WorldEvent::Ui(UiEvent::Score(score)))) = into_world_event(packets.remove(0), 0)
     else {
         panic!("expected a score event")
@@ -308,10 +310,10 @@ fn gophertunnel_1_26_44_named_removal_is_followed_by_the_next_entry() {
 // so an absent name must stay distinguishable from a present empty one.
 #[test]
 fn absent_removal_objective_differs_from_an_empty_name() {
-    use valentine::bedrock::version::v1_26_44::{RemoveScore, ScoreboardId};
+    use valentine::bedrock::version::v1_26_51::{RemoveScorejson, ScoreboardId};
     let removal = |objective_name| {
         let packet = SetScorePacket {
-            score_info: vec![SetScorePacketScoreInfoItem::RemoveScore(RemoveScore {
+            score_info: vec![SetScorePacketScoreInfoItem::RemoveScore(RemoveScorejson {
                 action: "remove".to_owned(),
                 scoreboard_id: ScoreboardId { scoreboard_id: 7 },
                 objective_name,
@@ -323,8 +325,7 @@ fn absent_removal_objective_differs_from_an_empty_name() {
         score.entries[0].clone()
     };
     let absent = removal(None);
-    assert_eq!(removal(Some(None)), absent);
-    assert_ne!(removal(Some(Some(String::new()))), absent);
+    assert_ne!(removal(Some(String::new())), absent);
 }
 
 #[test]
@@ -902,7 +903,7 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
     let direct_cancel = ModalFormResponsePacket {
         form_id: 7,
         json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::UserClosed),
+        form_cancel_reason: Some(EnumsModalFormCancelReason::Userclosed),
     };
     assert_eq!(
         protocol::encode(&cancel, &session).unwrap(),

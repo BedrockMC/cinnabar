@@ -1,4 +1,5 @@
-//! F3 debug overlay: a left and a right text column over translucent row strips.
+//! The non-vanilla F3 developer overlay: a left and a right text column over
+//! translucent row strips.
 
 use ui::{TextShadow, UiNode, UiNodeId, UiVisual};
 

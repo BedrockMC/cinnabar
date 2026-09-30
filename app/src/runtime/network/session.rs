@@ -79,6 +79,7 @@ pub enum NetworkControlEvent {
         player_game_mode_uses_world_default: bool,
         server_authoritative_block_breaking: bool,
         hardcore: bool,
+        hud_rules: protocol::HudRules,
         packs: super::resource_packs::PackApplication,
     },
     SubChunkRequestSent {
@@ -603,6 +604,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                     protocol::server_authoritative_block_breaking(&game_data);
                 let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
                 let hardcore = protocol::is_hardcore(&game_data);
+                let hud_rules = protocol::HudRules::from_game_data(&game_data);
                 let inventory = start_game_inventory_authority(&game_data);
                 let item_registry = match start_game_item_registry(&game_data, bootstrap.dimension)
                 {
@@ -632,6 +634,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         player_game_mode_uses_world_default,
                         server_authoritative_block_breaking,
                         hardcore,
+                        hud_rules,
                         packs,
                     },
                 )

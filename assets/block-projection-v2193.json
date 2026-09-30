@@ -1,0 +1,42 @@
+{
+  "schema": "cinnabar.block-projection.v2",
+  "game_version": "1.26.50",
+  "protocol": 2193,
+  "source": {
+    "module": "github.com/df-mc/dragonfly",
+    "version": "v0.11.5",
+    "module_sum": "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=",
+    "commit": "4c7b5074be94fa83a1cd98e9c752083ad04a6e21",
+    "blob": "ee29e5e039086c10bdfb964621a8e146b4f7af19",
+    "sha256": "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6",
+    "size": 3102889
+  },
+  "allowlist": {
+    "path": "crates/protocol/data/retail_items_1_26_50.tsv",
+    "sha256": "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
+  },
+  "projection": {
+    "states": 22091,
+    "legacy_exact_states": 15963,
+    "legacy_reduced_states": 3440,
+    "twin_states": 2026,
+    "twin_names": 119,
+    "twin_fingerprint": "8241b13c69a52d991beb3b2ffff30357a5cbf83fda18abad50b5ec0ceb5f7ec3",
+    "unresolved_retail": [
+      "minecraft:shelf_mushroom",
+      "minecraft:straw_bed"
+    ],
+    "denied_count": 662,
+    "denied_fingerprint": "1cd78a1b522f4b305cdf0bd472be82f9aa53023a55facab5aff08a3f128cff71"
+  },
+  "output": {
+    "format": "BREG1003",
+    "path": "crates/assets/data/block-registry-v2193.bin",
+    "sha256": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"
+  },
+  "light": {
+    "format": "LREG1001",
+    "path": "crates/assets/data/block-light-registry-v2193.bin",
+    "sha256": "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"
+  }
+}

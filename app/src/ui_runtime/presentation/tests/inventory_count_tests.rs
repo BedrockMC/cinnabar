@@ -152,6 +152,7 @@ fn personal_main_and_hotbar_counts_do_not_depend_on_item_icons() {
         presentation.hud_frame_mut().inventory_icons.0[slot] = Some(IconRef {
             page: 0,
             uv: [0, 0, 1, 1],
+            glint: false,
         });
         let with_icon = build_vertices(&mut presentation, &personal_inventory(Some((slot, 22))));
         assert_eq!(

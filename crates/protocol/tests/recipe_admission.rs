@@ -1,6 +1,6 @@
 use ::protocol::{RecipeCatalog, decode_recipe_update};
 use bytes::BytesMut;
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
+use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 fn recipe(id: u32) -> ShapedRecipePayload {
     ShapedRecipePayload {
@@ -186,7 +186,7 @@ fn nested_declared_work_and_string_userdata_limits_refuse_atomically() {
     cases.push(r);
     let mut r = recipe(1);
     r.unlocking_requirement = Some(CerealizerRecipeUnlockingRequirementSerializedData {
-        unlocking_context: EnumsRecipeUnlockingRequirementUnlockingContext::AlwaysUnlocked,
+        unlocking_context: EnumsRecipeUnlockingRequirementUnlockingContext::Alwaysunlocked,
         unlocking_ingredients: Some(vec![base.ingredients[0].clone(); 65]),
     });
     cases.push(r);

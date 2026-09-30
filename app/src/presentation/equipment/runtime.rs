@@ -18,8 +18,10 @@ use render::{
 mod diagnostics;
 mod pack;
 mod push;
+mod session;
 mod types;
 pub(crate) use pack::PackEquipment;
+pub(crate) use session::StagedSessionIcons;
 pub(crate) use types::{
     ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, HeldKind, WornItem,
 };
@@ -107,6 +109,12 @@ pub(crate) struct EquipmentRuntime {
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
     item_use: Arc<BTreeMap<Box<str>, u32>>,
+    /// The startup catalog's use durations, before session items join them.
+    base_item_use: Arc<BTreeMap<Box<str>, u32>>,
+    /// The session's custom item facts and icon sprites.
+    session: session::SessionLayer,
+    /// Next startup item mesh index; session icons use their own range.
+    next_mesh: u32,
     /// The session's server-pack attachables, consulted before `catalog`.
     pack: Option<PackEquipment>,
     /// `(identifier, reason)` pairs already logged as drawing no layer.
@@ -196,6 +204,13 @@ impl EquipmentRuntime {
             .collect::<Vec<_>>();
         geometries.sort_unstable();
         geometries.dedup();
+        let item_use: Arc<BTreeMap<Box<str>, u32>> = Arc::new(
+            catalog
+                .iter()
+                .flat_map(|catalog| catalog.item_use())
+                .map(|entry| (entry.identifier.clone(), entry.ticks))
+                .collect(),
+        );
         let runtime = Self {
             assets,
             icons,
@@ -211,13 +226,10 @@ impl EquipmentRuntime {
             armor_geometry: BTreeMap::new(),
             armor_maps: BTreeMap::new(),
             meshes: BTreeMap::new(),
-            item_use: Arc::new(
-                catalog
-                    .iter()
-                    .flat_map(|catalog| catalog.item_use())
-                    .map(|entry| (entry.identifier.clone(), entry.ticks))
-                    .collect(),
-            ),
+            base_item_use: Arc::clone(&item_use),
+            item_use,
+            session: session::SessionLayer::default(),
+            next_mesh: 0,
             catalog,
             pending,
             skulls,
@@ -444,22 +456,32 @@ impl EquipmentRuntime {
         placement_index: usize,
         placement: Placement,
     ) -> Option<EntityRigId> {
-        if self.meshes.len() >= MAX_ITEM_MESHES {
-            return None;
-        }
-        let vertices = match key {
-            MeshKey::Sprite(_) => {
-                let sprite = self.icons.sprites().get(placement_index)?;
-                extruded_sprite_vertices(
-                    usize::from(sprite.width),
-                    usize::from(sprite.height),
-                    &sprite.rgba8,
-                    placement.uv_rect(),
-                )?
-            }
-            MeshKey::Block(_) => textured_cube_vertices(blocks::face_rects(placement.uv_rect())),
+        let sprite = match key {
+            MeshKey::Sprite(_) => self.icons.sprites().get(placement_index),
+            MeshKey::Session(index) => self.session_sprite_pixels(index),
+            MeshKey::Block(_) => None,
         };
-        let id = item_mesh_rig_id(u32::try_from(self.meshes.len()).ok()?);
+        let vertices = match (key, sprite) {
+            (MeshKey::Block(_), _) => {
+                textured_cube_vertices(blocks::face_rects(placement.uv_rect()))
+            }
+            (_, Some(sprite)) => extruded_sprite_vertices(
+                usize::from(sprite.width),
+                usize::from(sprite.height),
+                &sprite.rgba8,
+                placement.uv_rect(),
+            )?,
+            (_, None) => return None,
+        };
+        let id = if let MeshKey::Session(index) = key {
+            session::session_mesh_id(index)?
+        } else {
+            if self.next_mesh as usize >= MAX_ITEM_MESHES {
+                return None;
+            }
+            self.next_mesh += 1;
+            item_mesh_rig_id(self.next_mesh - 1)
+        };
         let geometry = ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()?;
         self.pending.push(geometry);
         Some(id)

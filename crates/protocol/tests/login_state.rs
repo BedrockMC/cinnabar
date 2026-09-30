@@ -76,7 +76,7 @@ impl CompressionMode {
         match self {
             // gophertunnel calls the zlib/deflate compressor `CompressionAlgorithmFlate`;
             // the 1.26.40 generated enum spells the same wire value `ZLib`.
-            Self::Deflate => NetworkSettingsPacketCompressionAlgorithm::ZLib,
+            Self::Deflate => NetworkSettingsPacketCompressionAlgorithm::Zlib,
             Self::Snappy => NetworkSettingsPacketCompressionAlgorithm::Snappy,
             Self::None => NetworkSettingsPacketCompressionAlgorithm::Unknown(u16::MAX),
         }
@@ -293,7 +293,7 @@ impl ServerScript {
                 ));
                 self.enqueue_encrypted(&[
                     McpePacket::from(PlayStatusPacket {
-                        status: PlayStatusPacketStatus::LoginSuccess,
+                        status: PlayStatusPacketStatus::Loginsuccess,
                     }),
                     McpePacket::from(ResourcePacksInfoPacket::default()),
                 ]);
@@ -387,7 +387,7 @@ impl ServerScript {
                             data: McpePacketData::ServerboundLoadingScreenPacket(
                                 ServerboundLoadingScreenPacket {
                                     loading_screen_packet_type:
-                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::StartLoadingScreen,
+                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Startloadingscreen,
                                     ..
                                 }
                             ),
@@ -406,7 +406,7 @@ impl ServerScript {
                 ));
                 let radius = McpePacket::from(ChunkRadiusUpdatedPacket { chunk_radius: 16 });
                 let spawn = McpePacket::from(PlayStatusPacket {
-                    status: PlayStatusPacketStatus::PlayerSpawn,
+                    status: PlayStatusPacketStatus::Playerspawn,
                 });
                 match self.order {
                     SpawnOrder::RadiusThenSpawn => {
@@ -427,7 +427,7 @@ impl ServerScript {
                             data: McpePacketData::ServerboundLoadingScreenPacket(
                                 ServerboundLoadingScreenPacket {
                                     loading_screen_packet_type:
-                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::EndLoadingScreen,
+                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Endloadingscreen,
                                     ..
                                 }
                             ),

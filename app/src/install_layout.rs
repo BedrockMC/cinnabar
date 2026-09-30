@@ -67,7 +67,7 @@ impl InstallLayout {
             return Ok(Self {
                 resource_root: local.clone(),
                 compiled_assets: local.join("assets/compiled"),
-                physics_registry: local.join("assets/block-physics-v2168.bin"),
+                physics_registry: local.join("assets/block-physics-v2193.bin"),
                 core_executable: binary_dir.join(core_filename(platform)),
                 user_config_root: local.join("cinnabar"),
                 user_data_root: local.clone(),
@@ -122,7 +122,7 @@ impl InstallLayout {
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
         Ok(Self {
             compiled_assets: resource_root.join("assets"),
-            physics_registry: resource_root.join("assets/block-physics-v2168.bin"),
+            physics_registry: resource_root.join("assets/block-physics-v2193.bin"),
             resource_root,
             core_executable,
             user_config_root,
@@ -200,7 +200,7 @@ impl InstallLayout {
 
     #[must_use]
     pub fn world_assets(&self) -> PathBuf {
-        self.compiled_assets.join("vanilla-v2168.mcbea")
+        self.compiled_assets.join("vanilla-v2193.mcbea")
     }
 
     /// The local player's own skin PNG, shipped beside the other assets under `resources/assets`
@@ -444,11 +444,11 @@ mod tests {
         .unwrap();
         assert_eq!(
             layout.world_assets(),
-            PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2168.mcbea")
+            PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2193.mcbea")
         );
         assert_eq!(
             layout.physics_registry,
-            PathBuf::from("/work/cinnabar/.local/assets/block-physics-v2168.bin")
+            PathBuf::from("/work/cinnabar/.local/assets/block-physics-v2193.bin")
         );
         assert_eq!(
             layout.runtime_root,
@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn explicit_asset_sources_precede_the_layout_default() {
-        let default = PathBuf::from("/bundle/resources/assets/vanilla-v2168.mcbea");
+        let default = PathBuf::from("/bundle/resources/assets/vanilla-v2193.mcbea");
         let environment = select_asset_path_with_default(
             None,
             Some(OsString::from("/override/environment.mcbea")),

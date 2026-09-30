@@ -2,7 +2,8 @@ use std::{io::Write, sync::Arc};
 
 use resource_pack::LayeredPackView;
 
-use super::compile_session_icons;
+use super::{BlockIcons, compile_session_icons, custom_block_items};
+use crate::ui_runtime::presentation::SessionIcon;
 
 fn png(width: u32, height: u32) -> Vec<u8> {
     let image = image::RgbaImage::from_fn(width, height, |_, y| image::Rgba([y as u8, 0, 0, 255]));
@@ -55,6 +56,7 @@ fn icon_keys_resolve_to_bounded_sprites() {
             key("lifeboat:huge", "test:huge"),
             key("lifeboat:missing", "test:absent"),
         ],
+        BlockIcons::default(),
     )
     .expect("icons");
     let sizes = icons
@@ -131,6 +133,7 @@ fn custom_item_icons_merge_across_packs_and_explain_misses() {
             key("t:dead", "dead_key"),
             key("t:absent", "missing_key"),
         ],
+        BlockIcons::default(),
     )
     .expect("icons");
     let mut resolved: Vec<_> = icons
@@ -160,8 +163,118 @@ fn catalog_paths_with_an_image_extension_resolve() {
             key("zeqa:item.training", "zeqa.training"),
             key("t:upper", "upper"),
         ],
+        BlockIcons::default(),
     )
     .expect("icons");
     assert!(icons.misses.is_empty(), "{:?}", icons.misses);
     assert_eq!(icons.icons.len(), 2);
+}
+
+// A custom block item draws as its block even when a short-name guess would resolve.
+#[test]
+fn block_items_beat_short_name_guesses() {
+    let key = |identifier: &str, key: &str| (Arc::<str>::from(identifier), Arc::<str>::from(key));
+    let block = SessionIcon {
+        identifier: "t:crate".into(),
+        width: 32,
+        height: 32,
+        rgba8: vec![7; 32 * 32 * 4].into(),
+    };
+    let blocks = BlockIcons {
+        icons: vec![block],
+        misses: vec![("t:broken".into(), "no drawable visual".into())],
+    };
+    let icons = compile_session_icons(
+        &view(),
+        &[
+            key("t:crate", "test:gem"),
+            key("t:broken", "test:gem"),
+            key("t:gem", "test:gem"),
+        ],
+        blocks,
+    )
+    .expect("icons");
+    let crate_icon = icons
+        .icons
+        .iter()
+        .find(|icon| icon.identifier.as_ref() == "t:crate")
+        .expect("block icon");
+    assert_eq!((crate_icon.width, crate_icon.rgba8[0]), (32, 7));
+    assert_eq!(icons.icons.len(), 2, "t:broken keeps no sprite");
+    assert!(icons.misses["t:broken"].contains("no drawable visual"));
+}
+
+// A registry item named after a custom block is that block's item; others are not.
+#[test]
+fn registry_items_named_after_custom_blocks_are_block_items() {
+    let mut game_data = protocol::GameData {
+        start_game: Default::default(),
+        item_registry: Default::default(),
+        biome_definitions: None,
+        entity_identifiers: None,
+        creative_content: None,
+    };
+    for name in ["t:crate", "t:sword"] {
+        game_data.item_registry.item_data.push(Default::default());
+        game_data
+            .item_registry
+            .item_data
+            .last_mut()
+            .unwrap()
+            .item_name = name.into();
+    }
+    let blocks = protocol::CustomBlocks {
+        blocks: vec![protocol::CustomBlock {
+            name: "t:crate".into(),
+            state_count: 1,
+            collides: true,
+            collision_box: None,
+            selection: Default::default(),
+            visual: Default::default(),
+        }]
+        .into(),
+        skipped: 0,
+    };
+    let pairs = custom_block_items(&game_data, &blocks);
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(
+        (pairs[0].0.as_ref(), pairs[0].1.as_ref()),
+        ("t:crate", "t:crate")
+    );
+}
+
+// Real cached packs (`CINNABAR_PACKCACHE_DIR`): every item_texture.json key a pack declares
+// resolves to a bounded icon through the same path a `minecraft:icon` component takes.
+#[test]
+fn packcache_item_icon_keys_resolve_when_requested() {
+    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        return;
+    };
+    let (mut declared, mut resolved) = (0usize, 0usize);
+    for entry in std::fs::read_dir(dir).expect("packcache dir").flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "zip") {
+            continue;
+        }
+        let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
+            continue;
+        };
+        let keys =
+            super::super::resource_packs::texture_key_paths(&view, "textures/item_texture.json")
+                .into_keys()
+                .map(|key| {
+                    (
+                        Arc::<str>::from(format!("pack:{key}")),
+                        Arc::<str>::from(key),
+                    )
+                })
+                .collect::<Vec<_>>();
+        for chunk in keys.chunks(256) {
+            declared += chunk.len();
+            resolved += compile_session_icons(&view, chunk, BlockIcons::default())
+                .map_or(0, |icons| icons.icons.len());
+        }
+    }
+    eprintln!("{resolved} of {declared} cached-pack item icon keys resolved");
+    assert!(resolved * 10 >= declared * 8, "{resolved} of {declared}");
 }

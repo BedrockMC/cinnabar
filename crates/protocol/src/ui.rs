@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use valentine::bedrock::borrowed::BorrowedStr;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     BorrowedMcpePacketData, BossEventPacket, CommandOriginDatajson, CommandOutputPacket,
     CommandRequestPacket, EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType,
     EnumsPlayStatus, EnumsSoftEnumUpdateType, LevelEventPacket, PlayStatusPacket,
     RemoveObjectivePacket, SetDisplayObjectivePacket, SetHealthPacket, SetScorePacket,
     SetScorePacketScoreInfoItem, TextPacket, TextPacketBody, TextPacketPayloadAuthorAndMessage,
-    ToastRequestPacket, UpdateSoftEnumPacket,
+    TextPacketPayloadAuthorAndMessageMessageType, ToastRequestPacket, UpdateSoftEnumPacket,
 };
 
 mod commands;
@@ -95,8 +95,8 @@ pub fn chat_text_packet(
     // payload here.
     Ok(TextPacket {
         localize: false,
-        message_category: 1,
-        body: TextPacketBody::Chat(TextPacketPayloadAuthorAndMessage {
+        body: TextPacketBody::AuthorAndMessage(TextPacketPayloadAuthorAndMessage {
+            message_type: TextPacketPayloadAuthorAndMessageMessageType::Chat,
             player_name: source_name.to_owned(),
             message: message.to_owned(),
         }),
@@ -156,6 +156,20 @@ pub enum UiEvent {
     /// SetDefaultGameType: the level's default mode changed; players whose
     /// mode is bound to the default follow it.
     DefaultGameMode(GameModeEvent),
+    HudRules(HudRules),
+}
+
+/// The world rules that raise HUD text; `None` leaves a rule as it was.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HudRules {
+    pub show_coordinates: Option<bool>,
+    pub show_days_played: Option<bool>,
+}
+
+impl HudRules {
+    pub const fn is_empty(self) -> bool {
+        self.show_coordinates.is_none() && self.show_days_played.is_none()
+    }
 }
 
 /// One wire game-mode value, retained without guessing.
@@ -307,7 +321,6 @@ pub struct BossStyle {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BossEvent {
     pub target_entity_id: i64,
-    pub player_id: i64,
     pub action: BossAction,
     pub title: Arc<str>,
     pub filtered_title: Arc<str>,
@@ -458,18 +471,18 @@ pub(crate) fn normalize_health(packet: SetHealthPacket) -> UiEvent {
 pub(crate) fn normalize_player_status(packet: PlayStatusPacket) -> Result<UiEvent, UiPacketError> {
     // Map the reserved edition-mismatch statuses to one neutral local state.
     let status = match packet.status {
-        EnumsPlayStatus::LoginSuccess => PlayerStatus::LoginSuccess,
-        EnumsPlayStatus::LoginFailedClientOld => PlayerStatus::FailedClient,
-        EnumsPlayStatus::LoginFailedServerOld => PlayerStatus::FailedSpawn,
-        EnumsPlayStatus::PlayerSpawn => PlayerStatus::PlayerSpawn,
-        EnumsPlayStatus::LoginFailedInvalidTenant
+        EnumsPlayStatus::Loginsuccess => PlayerStatus::LoginSuccess,
+        EnumsPlayStatus::LoginfailedClientold => PlayerStatus::FailedClient,
+        EnumsPlayStatus::LoginfailedServerold => PlayerStatus::FailedSpawn,
+        EnumsPlayStatus::Playerspawn => PlayerStatus::PlayerSpawn,
+        EnumsPlayStatus::LoginfailedInvalidtenant
         | EnumsPlayStatus::Reserved5
         | EnumsPlayStatus::Reserved6 => PlayerStatus::UnsupportedEdition,
-        EnumsPlayStatus::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
-        EnumsPlayStatus::LoginFailedEditorMismatchEditorToVanilla => {
+        EnumsPlayStatus::LoginfailedServerfullsubclient => PlayerStatus::FailedServerFull,
+        EnumsPlayStatus::LoginfailedEditormismatcheditortovanilla => {
             PlayerStatus::FailedEditorVanillaMismatch
         }
-        EnumsPlayStatus::LoginFailedEditorMismatchVanillaToEditor => {
+        EnumsPlayStatus::LoginfailedEditormismatchvanillatoeditor => {
             PlayerStatus::FailedVanillaEditorMismatch
         }
         EnumsPlayStatus::Unknown(value) => {
@@ -521,7 +534,7 @@ pub(crate) fn normalize_score(packet: SetScorePacket) -> Result<UiEvent, UiPacke
             SetScorePacketScoreInfoItem::RemoveScore(entry) => {
                 // A removal carries an optional objective name and nothing
                 // else, so there is no score or identity to report.
-                let objective = entry.objective_name.flatten();
+                let objective = entry.objective_name;
                 Ok(ScoreEntry {
                     action: match objective {
                         Some(_) => ScoreAction::Remove,
@@ -573,9 +586,9 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
     // is value 7, the one gophertunnel calls `BossEventTexture`.
     let action = match packet.event_type {
         EnumsBossEventUpdateType::Add => BossAction::Show,
-        EnumsBossEventUpdateType::PlayerAdded => BossAction::RegisterPlayer,
+        EnumsBossEventUpdateType::Playeradded => BossAction::RegisterPlayer,
         EnumsBossEventUpdateType::Remove => BossAction::Hide,
-        EnumsBossEventUpdateType::PlayerRemoved => BossAction::UnregisterPlayer,
+        EnumsBossEventUpdateType::Playerremoved => BossAction::UnregisterPlayer,
         EnumsBossEventUpdateType::UpdatePercent => BossAction::SetProgress,
         EnumsBossEventUpdateType::UpdateName => BossAction::SetTitle,
         EnumsBossEventUpdateType::UpdateProperties => BossAction::UpdateProperties,
@@ -619,7 +632,6 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
     };
     Ok(UiEvent::Boss(BossEvent {
         target_entity_id: packet.target_actor_id.actor_unique_id,
-        player_id: packet.player_id.actor_unique_id,
         action,
         title: bounded_text(packet.name)?,
         filtered_title: bounded_text(packet.filtered_name)?,
@@ -777,23 +789,14 @@ pub(crate) fn validate_borrowed_ui_packet(
             // straight off the raw frame; this arm re-checks the retained byte
             // and parameter budgets.
             match &packet.body {
-                TextPacketBody::Raw(payload)
-                | TextPacketBody::Tip(payload)
-                | TextPacketBody::SystemMessage(payload)
-                | TextPacketBody::TextObjectWhisper(payload)
-                | TextPacketBody::TextObject(payload)
-                | TextPacketBody::TextObjectAnnouncement(payload) => {
+                TextPacketBody::MessageOnly(payload) => {
                     bounded_borrowed_text(&payload.message)?;
                 }
-                TextPacketBody::Chat(payload)
-                | TextPacketBody::Whisper(payload)
-                | TextPacketBody::Announcement(payload) => {
+                TextPacketBody::AuthorAndMessage(payload) => {
                     bounded_borrowed_text(&payload.player_name)?;
                     bounded_borrowed_text(&payload.message)?;
                 }
-                TextPacketBody::Translate(payload)
-                | TextPacketBody::Popup(payload)
-                | TextPacketBody::JukeboxPopup(payload) => {
+                TextPacketBody::MessageAndParams(payload) => {
                     bounded_borrowed_text(&payload.message)?;
                     if payload.parameter_list.len() > MAX_CHAT_PARAMETERS {
                         return Err(UiPacketError::TooManyChatParameters {
