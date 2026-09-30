@@ -108,6 +108,30 @@ fn compile_color(
     Some(components)
 }
 
+/// `uv_anim` as `[offset u, offset v, scale u, scale v]`; a missing channel keeps vanilla's
+/// identity default (offset 0, scale 1).
+fn compile_uv_anim(molang: &mut MolangCompiler, value: Option<&Value>) -> Option<[u32; 4]> {
+    let object = value?.as_object()?;
+    let channel =
+        |key: &str, axis: usize| -> Option<&Value> { object.get(key)?.as_array()?.get(axis) };
+    let mut components = [0; 4];
+    for (slot, (key, axis, default)) in [
+        ("offset", 0, "0.0"),
+        ("offset", 1, "0.0"),
+        ("scale", 0, "1.0"),
+        ("scale", 1, "1.0"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let text = channel(key, axis)
+            .and_then(expression_text)
+            .unwrap_or_else(|| default.to_owned());
+        components[slot] = compile_condition(molang, &text)?;
+    }
+    Some(components)
+}
+
 pub(super) fn compile_render(
     input: RenderSources<'_>,
     molang: &mut MolangCompiler,
@@ -297,6 +321,7 @@ pub(super) fn compile_render(
                 color: compile_color(molang, definition.get("color"), "1.0"),
                 overlay_color: compile_color(molang, definition.get("overlay_color"), "0.0"),
                 on_fire_color: compile_color(molang, definition.get("on_fire_color"), "0.0"),
+                uv_anim: compile_uv_anim(molang, definition.get("uv_anim")),
             });
         }
     }

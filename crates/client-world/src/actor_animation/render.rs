@@ -11,7 +11,12 @@ pub struct RenderTextureLayer {
     pub overlay: [f32; 4],
     /// Bones this layer does not draw.
     pub hidden_bones: Arc<[u32]>,
+    /// `uv_anim` `[offset u, offset v, scale u, scale v]`: `uv = offset + uv * scale`.
+    pub uv_anim: [f32; 4],
 }
+
+/// The `uv_anim` value of a controller without one.
+const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 /// `pattern` is lowercase with an optional leading and/or trailing `*`; bone names match
 /// ignoring ASCII case. Runs per rule, bone and actor every tick, so it never allocates.
@@ -101,6 +106,13 @@ pub(super) fn evaluate_render(
             .collect();
         let tint = color(evaluator, variables, layer.color, [1.0; 4], budget)?;
         let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
+        let uv_anim = color(
+            evaluator,
+            variables,
+            layer.uv_anim,
+            IDENTITY_UV_ANIM,
+            budget,
+        )?;
         let slots = render
             .slots
             .get(
@@ -130,6 +142,7 @@ pub(super) fn evaluate_render(
                         color: tint,
                         overlay,
                         hidden_bones: Arc::clone(&hidden_bones),
+                        uv_anim,
                     });
                     break;
                 }

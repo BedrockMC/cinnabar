@@ -19,6 +19,7 @@ struct ResolvedLayer {
     tint: u32,
     overlay: Option<u32>,
     hidden_bones: Arc<[u32]>,
+    uv_anim: [f32; 4],
 }
 
 /// Packs a colour multiplier as the instance tint word; white leaves the texture untouched.
@@ -51,6 +52,7 @@ fn resolve(
                 tint: pack_layer_tint(layer.color),
                 overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
                 hidden_bones: Arc::clone(&layer.hidden_bones),
+                uv_anim: layer.uv_anim,
             })
         })
         .take(MAX_TEXTURE_LAYERS)
@@ -75,6 +77,7 @@ fn layered(body: &ActorRigSubmission, layer: &ResolvedLayer, index: usize) -> Ac
     }
     submission.texture_layer = layer.location.layer();
     submission.tint = layer.tint;
+    submission.uv_anim = layer.uv_anim;
     if let Some(overlay) = layer.overlay {
         submission.overlay_rgba8 = overlay;
     }

@@ -218,6 +218,7 @@ fn actor_rig_presentation_inner(
             texture_layer: u32::MAX,
             route,
             tint: 0,
+            uv_anim: render::IDENTITY_UV_ANIM,
             overlay_rgba8: if actor.status.overlay_active() {
                 pack_overlay_rgba8(HURT_OVERLAY_RGBA)
             } else {
@@ -292,6 +293,7 @@ pub(crate) fn local_diagnostic_presentation(
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
             tint: 0,
+            uv_anim: render::IDENTITY_UV_ANIM,
             overlay_rgba8: 0,
         },
         skin_rgba8: Some(default_actor_skin_rgba8()),

@@ -179,6 +179,21 @@ pub struct ActorRigSubmission {
     pub tint: u32,
     /// Packed RGBA8 overlay blended over the lit skin (see [`pack_overlay_rgba8`]); 0 disables it.
     pub overlay_rgba8: u32,
+    /// Render-controller `uv_anim` `[offset u, offset v, scale u, scale v]`.
+    pub uv_anim: [f32; 4],
+}
+
+/// The `uv_anim` of a draw without one.
+pub const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+
+fn sanitized_uv_anim(uv_anim: [f32; 4]) -> [f32; 4] {
+    std::array::from_fn(|axis| {
+        if uv_anim[axis].is_finite() {
+            uv_anim[axis]
+        } else {
+            IDENTITY_UV_ANIM[axis]
+        }
+    })
 }
 
 #[repr(C)]
@@ -193,9 +208,10 @@ pub struct ActorGpuInstance {
     pub reset_generation: u32,
     pub tint: u32,
     pub overlay_rgba8: u32,
+    pub uv_anim: [f32; 4],
 }
 
-pub const ACTOR_GPU_INSTANCE_WORDS: usize = 20;
+pub const ACTOR_GPU_INSTANCE_WORDS: usize = 24;
 const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == ACTOR_GPU_INSTANCE_WORDS * 4);
 
 /// Packs a non-premultiplied RGBA overlay (components clamped to 0..=1) into little-endian RGBA8.
@@ -731,6 +747,7 @@ impl ActorRigFrameBuilder {
                 partial_tick,
                 reset_generation,
                 tint: submission.tint,
+                uv_anim: sanitized_uv_anim(submission.uv_anim),
                 overlay_rgba8: submission.overlay_rgba8,
             });
             body_count += usize::from(is_body);

@@ -29,6 +29,9 @@ pub struct EntityRenderLayer {
     /// `[r, g, b, a]` expressions blended over the texture.
     pub overlay_color: Option<[u32; 4]>,
     pub on_fire_color: Option<[u32; 4]>,
+    /// `uv_anim` `[offset u, offset v, scale u, scale v]` expressions; absent is identity.
+    #[serde(default)]
+    pub uv_anim: Option<[u32; 4]>,
 }
 
 /// One authored `textures` entry: the first candidate whose condition holds is drawn.
@@ -100,6 +103,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             || !colors_valid(&layer.color)
             || !colors_valid(&layer.overlay_color)
             || !colors_valid(&layer.on_fire_color)
+            || !colors_valid(&layer.uv_anim)
         {
             return Err(invalid("entity render layer is invalid"));
         }
