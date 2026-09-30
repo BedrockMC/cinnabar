@@ -87,6 +87,11 @@ pub(crate) fn advance_local_physics(
         locals.controls.reset();
     }
     let fly_toggle = jump.pressed && locals.fly_tap.press(now);
+    if let Some(server) = physics.take_server_control_flags() {
+        locals
+            .controls
+            .adopt_server_flags(server.sprinting, server.sneaking);
+    }
     let controlled = locals.controls.update(ControlObservation {
         now,
         forward: movement[1],

@@ -372,6 +372,26 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             continue;
         }
+        if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
+            if movement.physics_is_authorized()
+                && let Some(rewind) = local_physics.apply_server_movement_flags(tick, flags)
+            {
+                let world = sim::PaletteWorld::new(
+                    stream.collision_store(),
+                    collisions.registry(stream.network_id_mode()),
+                    stream.current_dimension(),
+                );
+                if let Err(fault) = crate::movement::reconcile_timeline_rewind(
+                    &mut movement,
+                    &mut local_physics,
+                    rewind,
+                    &world,
+                ) {
+                    debug!(?fault, tick, "movement flag replay failed; applied live");
+                }
+            }
+            continue;
+        }
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
             continue;
         }
@@ -617,6 +637,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
+            | CommittedControlEvent::LocalMovementFlags { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {

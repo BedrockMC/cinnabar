@@ -682,6 +682,14 @@ impl WorldStream {
                         server_tick: update.tick,
                         metadata: Arc::clone(&update.metadata),
                     });
+                    if let Some(flags) = crate::MovementFlagUpdate::from_metadata(&update.metadata)
+                    {
+                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
+                            sequence,
+                            tick: update.tick,
+                            flags,
+                        });
+                    }
                 }
                 let local_hurt = matches!(
                     &event,

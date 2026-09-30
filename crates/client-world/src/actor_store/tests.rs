@@ -1057,3 +1057,30 @@ fn remote_rotation_steps_the_short_way_across_the_wrap() {
     store.advance_interpolation_ticks(2);
     assert_eq!(store.get(42).unwrap().head_yaw, -170.0);
 }
+
+#[test]
+fn movement_flag_update_reads_both_flag_words_and_skips_absent_ones() {
+    use protocol::{ActorMetadata, ActorMetadataValue};
+    let primary = ActorMetadata {
+        key: 0,
+        value: ActorMetadataValue::Flags((1 << 1) | (1 << 32)),
+    };
+    let extended = ActorMetadata {
+        key: 92,
+        value: ActorMetadataValue::FlagsExtended(1 << (114 - 64)),
+    };
+    let update = crate::MovementFlagUpdate::from_metadata(&[primary.clone(), extended]).unwrap();
+    assert_eq!(update.sneaking, Some(true));
+    assert_eq!(update.sprinting, Some(false));
+    assert_eq!(update.gliding, Some(true));
+    assert_eq!(update.swimming, Some(false));
+    assert_eq!(update.crawling, Some(true));
+
+    let primary_only = crate::MovementFlagUpdate::from_metadata(&[primary]).unwrap();
+    assert_eq!(primary_only.crawling, None);
+    let unrelated = ActorMetadata {
+        key: 4,
+        value: ActorMetadataValue::String("name".into()),
+    };
+    assert_eq!(crate::MovementFlagUpdate::from_metadata(&[unrelated]), None);
+}

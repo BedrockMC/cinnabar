@@ -9,6 +9,9 @@ use sim::{
 use thiserror::Error;
 
 mod correction;
+mod timeline;
+
+pub(crate) use timeline::ServerControlFlags;
 
 use super::anchor_probe::BeforeTick;
 use super::locomotion::{ModeIntent, ModeObservation, ModeTracker};
@@ -189,17 +192,6 @@ pub struct LocalPhysicsFrame {
     pub samples: Vec<PhysicsMovementSample>,
 }
 
-/// Placement of a tick-stamped authoritative update on the prediction timeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::movement) enum TimelineSlot {
-    /// Zero, current or future tick: applies to live state.
-    Live,
-    /// Retained tick: edit the following frame and replay to the present.
-    Rewind(u64),
-    /// Older than the retained history window.
-    Stale,
-}
-
 /// Locally predicted fixed-tick player state and render interpolation.
 ///
 /// This resource never owns a network sender or changes [`super::MovementTicker`]
@@ -224,6 +216,8 @@ pub struct LocalPhysicsController {
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     history_capacity: usize,
+    /// Server sprint/sneak states awaiting adoption by the control latches.
+    server_control_flags: Option<ServerControlFlags>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
@@ -253,6 +247,7 @@ impl Default for LocalPhysicsController {
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             server_motions: VecDeque::new(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
+            server_control_flags: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
@@ -282,104 +277,12 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        self.server_control_flags = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
         self.anchor_state.reset();
         self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
             .expect("local physics history capacity is non-zero");
-    }
-
-    /// Where an authoritative update stamped with `tick` lands on the timeline.
-    ///
-    /// Vanilla edits the frame after `tick` and replays when that frame is
-    /// retained; zero, current and future ticks apply to live state.
-    pub(in crate::movement) fn timeline_slot(&self, tick: u64) -> TimelineSlot {
-        let Some(state) = self.state.as_ref() else {
-            return TimelineSlot::Live;
-        };
-        if tick == 0 || tick >= state.tick {
-            return TimelineSlot::Live;
-        }
-        let retained = self.history.state_at(tick).is_some()
-            && self.sample_history.iter().any(|sample| sample.tick == tick);
-        if retained {
-            TimelineSlot::Rewind(tick)
-        } else {
-            TimelineSlot::Stale
-        }
-    }
-
-    /// Records one server velocity replacement (`SetActorMotion`) and returns
-    /// the tick to rewind from when it lands inside retained history.
-    ///
-    /// The motion replaces velocity before the tick after its stamp. Live
-    /// ticks replace velocity now; stale ticks clamp to the oldest retained
-    /// frame as `ReplayStateComponent::applyFrameCorrection` does. Non-finite
-    /// motion is ignored; when inactive there is no timeline to enter.
-    pub fn queue_server_motion(&mut self, motion: [f32; 3], tick: u64) -> Option<u64> {
-        if !motion.into_iter().all(f32::is_finite) {
-            return None;
-        }
-        let velocity = Vec3::new(
-            f64::from(motion[0]),
-            f64::from(motion[1]),
-            f64::from(motion[2]),
-        );
-        let rewind = match self.timeline_slot(tick) {
-            TimelineSlot::Live => None,
-            TimelineSlot::Rewind(tick) => Some(tick),
-            TimelineSlot::Stale => self.history.oldest_tick(),
-        };
-        let state = self.state.as_mut()?;
-        let applies_before = match rewind {
-            Some(tick) => tick.checked_add(1)?,
-            None => {
-                state.velocity = velocity;
-                state.tick.checked_add(1)?
-            }
-        };
-        let oldest = self.history.oldest_tick().unwrap_or(state.tick);
-        self.server_motions.retain(|overlay| overlay.tick > oldest);
-        if self.server_motions.len() >= self.history_capacity {
-            self.server_motions.pop_front();
-        }
-        self.server_motions.push_back(sim::MotionOverlay {
-            tick: applies_before,
-            velocity,
-        });
-        rewind
-    }
-
-    /// Rewrites the movement speed of retained ticks after an `UpdateAttributes`
-    /// stamped `tick`; returns the tick to replay from when anything changed.
-    ///
-    /// Live and stale stamps need no rewrite: the live authority already
-    /// carries the value into future ticks.
-    pub(crate) fn retime_movement_speed(&mut self, tick: u64, speed: f64) -> Option<u64> {
-        let TimelineSlot::Rewind(tick) = self.timeline_slot(tick) else {
-            return None;
-        };
-        let mut changed = false;
-        for input in self.history.retained_inputs_after_mut(tick) {
-            if input.movement_speed != Some(speed) {
-                input.movement_speed = Some(speed);
-                changed = true;
-            }
-        }
-        changed.then_some(tick)
-    }
-
-    /// Replaces the live velocity, for timeline edits whose replay failed.
-    pub(crate) fn replace_live_velocity(&mut self, motion: [f32; 3]) {
-        if let Some(state) = self.state.as_mut()
-            && motion.into_iter().all(f32::is_finite)
-        {
-            state.velocity = Vec3::new(
-                f64::from(motion[0]),
-                f64::from(motion[1]),
-                f64::from(motion[2]),
-            );
-        }
     }
 
     /// Replaces prediction state from a server network-position anchor.
