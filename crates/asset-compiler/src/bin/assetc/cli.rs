@@ -239,6 +239,9 @@ pub(super) enum Command {
         /// Exact hash-verified secondary source required by a fallback manifest.
         #[arg(long)]
         fallback_font: Option<PathBuf>,
+        /// Compile the primary font alone even when the manifest declares a fallback.
+        #[arg(long)]
+        primary_only: bool,
         /// Tracked manifest pinning font URL, hash, license, and raster settings.
         #[arg(long)]
         source_manifest: PathBuf,
