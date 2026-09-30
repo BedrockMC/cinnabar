@@ -478,21 +478,6 @@ fn route_critical(
     system.spawn(&request);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::critical_particle_variables;
-
-    /// The server's critical count reaches the emitter; unusable data keeps the pack fallback.
-    #[test]
-    fn critical_hits_bind_the_server_particle_count() {
-        let bound = |data| critical_particle_variables(data);
-        assert_eq!(bound(12.7), [("particle_count".to_owned(), 12.0)]);
-        assert_eq!(bound(0.0), [("particle_count".to_owned(), 0.0)]);
-        assert_eq!(bound(1.0e9), [("particle_count".to_owned(), 256.0)]);
-        assert!(bound(f32::NAN).is_empty());
-    }
-}
-
 /// Advances the crack cadence, keeping the remainder so it does not drift with
 /// the frame rate; a long stall yields one burst, not a backlog.
 fn crack_cadence_due(timer: &mut f32, delta_seconds: f32) -> bool {
@@ -506,7 +491,17 @@ fn crack_cadence_due(timer: &mut f32, delta_seconds: f32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::crack_cadence_due;
+    use super::{crack_cadence_due, critical_particle_variables};
+
+    /// The server's critical count reaches the emitter; unusable data keeps the pack fallback.
+    #[test]
+    fn critical_hits_bind_the_server_particle_count() {
+        let bound = |data| critical_particle_variables(data);
+        assert_eq!(bound(12.7), [("particle_count".to_owned(), 12.0)]);
+        assert_eq!(bound(0.0), [("particle_count".to_owned(), 0.0)]);
+        assert_eq!(bound(1.0e9), [("particle_count".to_owned(), 256.0)]);
+        assert!(bound(f32::NAN).is_empty());
+    }
 
     /// Frame times that straddle the interval keep a steady five bursts per second.
     #[test]

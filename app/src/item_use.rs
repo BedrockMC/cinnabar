@@ -282,8 +282,8 @@ pub(crate) fn produce_item_use(
         && context
             .ui
             .game_mode_capabilities()
-            .is_some_and(|caps| caps.can_interact)
-        && movement.accepts_creative_mining();
+            .is_some_and(|caps| caps.can_use_items)
+        && movement.accepts_block_interactions();
     let use_phase = context.input.phase(Action::Use);
     runtime.observe_press(admitted && use_phase.pressed);
     let Some(stream) = context.client_world.stream.as_ref() else {
