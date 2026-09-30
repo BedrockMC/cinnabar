@@ -40,8 +40,10 @@ bedrock-client (Rust)  ── local socket ──  bedrock-core (Go, gophertunne
 Rust never implements Xbox authentication, encryption, RakNet or NetherNet; the core owns those
 and relays packets over a local stream.
 
-| Go library | Used for |
+| Library | Used for |
 | --- | --- |
+| [protocolgen](https://github.com/bedrock-mc/protocolgen) | Generates the Bedrock packet definitions behind `crates/protocol`. |
+| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Valentine (packet codec) and Jolyne (client transport), vendored in `crates/protocol/vendor`. |
 | [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
 | [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
 | [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
