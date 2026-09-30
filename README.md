@@ -22,6 +22,9 @@ The wire target is Bedrock 1.26.50 (protocol 2193).
 - `crates/world/`: the client-side world model.
 - `crates/render/`: Bevy rendering.
 - `core/`: the `bedrock-core` Go service.
+- `tools/jsonui-editor/`: a browser JSON-UI editor on the client's own engine, published at
+  <https://bedrock-mc.github.io/cinnabar/>; `tools/jsonui-mcp/` serves the same core over MCP.
+  See [JSON-UI editor](#json-ui-editor).
 
 Local reference repositories and BDS installations under `.local/` are read-only development
 inputs. Committed builds do not depend on them.
@@ -204,6 +207,30 @@ table is validated against Prismarine bounding-box/state counts and Dragonfly's
 exact registered implementation-type set before any special movement fact is
 encoded. Valid JSON with changed keys or values is rejected by source hash, and
 malformed or ambiguous bubble direction fails closed.
+
+## JSON-UI editor
+
+`make jsonui-editor` builds the static site (wasm via the `wasm-bindgen` CLI version
+`Cargo.lock` pins, plus a Monocraft-only font carrier) into `target/jsonui-editor-site`; serve
+that folder with any static server. No pack is bundled: users open their own vanilla or server
+pack folders or zips, layered bottom to top as the client layers them.
+
+`cargo build -p jsonui-mcp` builds a stdio MCP server with `load_packs`, `list_screens`,
+`resolve`, `validate`, `layout` and `render_png`. For an MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "jsonui": {
+      "command": "/path/to/cinnabar/target/debug/jsonui-mcp",
+      "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-monocraft-v1.mcbefont"]
+    }
+  }
+}
+```
+
+`--font` is the carrier `make font-assets` builds; without it text uses a fixed-advance
+fallback.
 
 ## UI font assets
 
