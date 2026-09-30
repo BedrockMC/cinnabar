@@ -13,7 +13,7 @@ use std::{
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound, render_screen,
+    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
@@ -295,6 +295,11 @@ impl FormEngine {
         &self.assets
     }
 
+    /// Resolve `reference` under `context` in the background ahead of its first open.
+    pub(super) fn prewarm(&self, reference: &'static str, context: Context) {
+        self.screens.prewarm(reference, &self.catalog, context);
+    }
+
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
         self.splash
             .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
@@ -348,7 +353,20 @@ impl FormEngine {
                 language,
             };
             self.screens.get_or_render(key, || {
-                render_screen(reference, &self.catalog, context, data, root, env, view)
+                if !json_ui::is_engine_screen(reference) {
+                    return None;
+                }
+                let tree = self
+                    .screens
+                    .resolved(reference, &self.catalog, context, || {
+                        json_ui::resolve(&self.catalog, reference, context).control
+                    })?;
+                let library = json_ui::CatalogLibrary {
+                    catalog: &self.catalog,
+                    context,
+                };
+                let bound = json_ui::bind(&tree, data, &library);
+                Some(json_ui::render_bound(bound, root, env, view))
             })
         })
     }
@@ -940,7 +958,13 @@ impl Painter<'_> {
                 dest,
             ),
             Draw::Sprite { texture, uv, color } => {
-                let Some(visual) = self.sprite(texture, *uv, alpha(*color)) else {
+                let mut uv = *uv;
+                if let Some(book) = &node.flip_book {
+                    let shift = book.step_u * book.frame(self.art.now) as f32;
+                    uv.u0 += shift;
+                    uv.u1 += shift;
+                }
+                let Some(visual) = self.sprite(texture, uv, alpha(*color)) else {
                     return Ok(());
                 };
                 (visual, dest)
