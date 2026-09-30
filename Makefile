@@ -116,7 +116,7 @@ else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
 
-.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets language-assets audio-assets audio-bank icon-assets physics-assets core local-server client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets language-assets audio-assets audio-bank icon-assets physics-assets core local-server client play client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
@@ -140,7 +140,8 @@ help:
 	@echo make physics-assets  - Install and verify the pinned protocol-2193 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make local-server    - Build the dragonfly local-world server beside the core binary
-	@echo make client          - Refresh stale assets, then run the release Rust client
+	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
+	@echo make client          - Refresh stale assets, then join the core at SOCKET_DIR directly
 	@echo make client-windows  - Run the client on Windows
 	@echo make client-macos    - Run the client on macOS
 	@echo make client-linux    - Run with automatic Wayland/X11 selection
@@ -332,6 +333,12 @@ local-server:
 
 client: assets physics-assets
 	$(CLIENT_RUN)
+
+# Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
+play: assets physics-assets
+	$(GO) build -o "$(abspath $(DIST_CORE))" ./core/cmd/bedrock-core
+	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client
 
