@@ -74,7 +74,12 @@ impl WorldStream {
                 .last_mesh_ack_at
                 .map_or(applied_at, |latest| latest.max(applied_at)),
         );
-        self.applied_mesh_generations.insert(key, generation);
+        // An evicted key's removal ack must not re-enter the map its eviction just pruned.
+        if self.resident.contains(&key) || self.known_air.contains(&key) {
+            self.applied_mesh_generations.insert(key, generation);
+        } else {
+            self.applied_mesh_generations.remove(&key);
+        }
         self.revisions.clear_if_current(key, generation);
         self.stats.phase2_stages.mesh_uploads_acknowledged = self
             .stats

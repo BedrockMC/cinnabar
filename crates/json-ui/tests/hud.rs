@@ -1,6 +1,8 @@
 //! The gameplay HUD against the real vanilla templates. The `.local` pack is
 //! gitignored, so each test skips (not fails) when it is absent.
 
+mod support;
+
 use std::path::PathBuf;
 
 use json_ui::{
@@ -10,8 +12,7 @@ use json_ui::{
 };
 
 fn pack() -> Option<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack");
+    let dir = support::vanilla_pack();
     dir.is_dir().then_some(dir)
 }
 

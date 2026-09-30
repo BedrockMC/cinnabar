@@ -55,3 +55,37 @@ fn post_world_ready_required_growth_revokes_the_emitted_cohort() {
     assert_eq!(acceptance.deadline, None);
     assert_eq!(acceptance.mutation_cohort, None);
 }
+
+/// Ordinary play must not scan the retained world for the cohort witness every frame.
+#[test]
+fn frame_cohort_status_is_computed_only_for_acceptance_or_metrics_runs() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.5, 70.0, 0.5],
+        world_spawn_position: [0, 70, 0],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::PublisherUpdate(protocol::PublisherUpdateEvent {
+                center: [0, 70, 0],
+                radius_blocks: 256,
+            }),
+        )
+        .unwrap();
+    assert!(stream.committed_view_cohort().is_some());
+
+    let play = AcceptanceRun::new(None, None, false, false);
+    let acceptance = AcceptanceRun::new(Some(60), None, false, false);
+    let metrics = AcceptanceRun::new(None, Some("metrics.json".into()), false, false);
+    assert_eq!(
+        crate::runtime::world::frame_cohort_status(&stream, &play),
+        None
+    );
+    assert!(crate::runtime::world::frame_cohort_status(&stream, &acceptance).is_some());
+    assert!(crate::runtime::world::frame_cohort_status(&stream, &metrics).is_some());
+}

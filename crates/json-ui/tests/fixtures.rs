@@ -3,14 +3,15 @@
 //! fails) the test; when present, these lock in inheritance, substitution,
 //! `ignored` removal, and factory recording.
 
+mod support;
+
 use std::path::PathBuf;
 
 use json_ui::{Catalog, Context, ControlRef, ResolvedControl, resolve};
 use serde_json::json;
 
 fn ui_dir() -> Option<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/ui");
+    let dir = support::vanilla_pack().join("ui");
     dir.is_dir().then_some(dir)
 }
 

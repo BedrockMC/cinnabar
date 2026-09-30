@@ -26,15 +26,6 @@ use environment_source::{
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_DECODE_ALLOC: u64 = 512 * 1024;
-const PINNED_MANIFEST_SHA256: [u8; 32] =
-    decode_sha256(b"c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6");
-const PINNED_TAG: &str = "v1.26.30.32-preview";
-const PINNED_COMMIT: &str = "020f1cf4b2baef78e635d4ce7498eb16a429dcbb";
-const PINNED_ARCHIVE: &str = "bedrock-samples-v1.26.30.32-preview-full.zip";
-const PINNED_URL: &str = "https://github.com/Mojang/bedrock-samples/releases/download/v1.26.30.32-preview/bedrock-samples-v1.26.30.32-preview-full.zip";
-const PINNED_ARCHIVE_SHA256: &str =
-    "12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c";
-const PINNED_CACHE_DIR: &str = ".local/assets/bedrock-samples/v1.26.30.32-preview/full";
 const SUN_SOURCE_SHA256: [u8; 32] =
     decode_sha256(b"f7273544b691f08aaef76373d526e00793cf1e1aa0e1df8518f738d44a8e526b");
 const MOON_PHASES_SOURCE_SHA256: [u8; 32] =
@@ -45,6 +36,8 @@ const NATIVE_CLOUDS_SOURCE_SHA256: [u8; 32] =
     decode_sha256(b"f19b2f3a483af3a67568dfed4387c7b59fed215edf1cb02bef0470f2b72982a0");
 const NATIVE_CLOUDS_PIXELS_SHA256: [u8; 32] =
     decode_sha256(b"95f8808115fcc28c8665324bba1b72dcb1350fbfebd1c9a30009691326695136");
+const DEFAULT_ATMOSPHERE_IDENTIFIER: &str = "minecraft:default_atmospherics";
+const DEFAULT_LIGHTING_IDENTIFIER: &str = "minecraft:default_lighting";
 const NATIVE_CLOUDS_SOURCE_BYTES: usize = 7_880;
 const NATIVE_CLOUDS_OCCUPIED_TEXELS: usize = 13_356;
 
@@ -188,16 +181,17 @@ fn validate_source_manifest(
         value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
     };
     let cache_path = Path::new(manifest.cache_dir.as_ref());
-    if manifest_sha256 != PINNED_MANIFEST_SHA256
+    let pinned = assets::vanilla_source();
+    if manifest_sha256 != assets::vanilla_source_manifest_sha256()
         || manifest.schema != 1
         || !safe_component(&manifest.tag)
         || !safe_component(&manifest.archive)
-        || manifest.tag.as_ref() != PINNED_TAG
-        || manifest.commit.as_ref() != PINNED_COMMIT
+        || manifest.tag.as_ref() != pinned.tag.as_ref()
+        || manifest.commit.as_ref() != pinned.commit.as_ref()
         || !hex(&manifest.commit, 40)
-        || manifest.archive.as_ref() != PINNED_ARCHIVE
-        || manifest.url.as_ref() != PINNED_URL
-        || manifest.sha256.as_ref() != PINNED_ARCHIVE_SHA256
+        || manifest.archive.as_ref() != pinned.archive.as_ref()
+        || manifest.url.as_ref() != pinned.url.as_ref()
+        || manifest.sha256.as_ref() != pinned.sha256.as_ref()
         || !hex(&manifest.sha256, 64)
         || manifest.artifact_policy.as_ref() != "local-only"
         || cache_path.is_absolute()
@@ -205,7 +199,7 @@ fn validate_source_manifest(
             .cache_dir
             .split(['/', '\\'])
             .any(|part| part == "..")
-        || manifest.cache_dir.as_ref() != PINNED_CACHE_DIR
+        || manifest.cache_dir.as_ref() != pinned.cache_dir.as_ref()
     {
         return Err(AssetError::InvalidAtmosphereProvenance {
             detail: "manifest bytes and fields must exactly match the reviewed Mojang Bedrock Samples pin".into(),
@@ -701,8 +695,16 @@ fn compile_environment_profiles(root: &Path) -> Result<CompiledEnvironmentProfil
         let biome = document.biome;
         validate_environment_identifier(&biome.description.identifier)?;
         validate_environment_identifier(&biome.components.fog.fog_identifier)?;
-        validate_environment_identifier(&biome.components.atmosphere.atmosphere_identifier)?;
-        validate_environment_identifier(&biome.components.lighting.lighting_identifier)?;
+        let atmosphere_identifier = biome.components.atmosphere.map_or_else(
+            || DEFAULT_ATMOSPHERE_IDENTIFIER.to_owned(),
+            |component| component.atmosphere_identifier,
+        );
+        let lighting_identifier = biome.components.lighting.map_or_else(
+            || DEFAULT_LIGHTING_IDENTIFIER.to_owned(),
+            |component| component.lighting_identifier,
+        );
+        validate_environment_identifier(&atmosphere_identifier)?;
+        validate_environment_identifier(&lighting_identifier)?;
         if !biome_identifiers.insert(biome.description.identifier.clone()) {
             return Err(invalid(format!(
                 "duplicate biome visual profile {}",
@@ -718,16 +720,8 @@ fn compile_environment_profiles(root: &Path) -> Result<CompiledEnvironmentProfil
         biomes.push(BiomeVisualProfile {
             biome_identifier: biome.description.identifier.into_boxed_str(),
             fog_identifier: biome.components.fog.fog_identifier.into_boxed_str(),
-            atmosphere_identifier: biome
-                .components
-                .atmosphere
-                .atmosphere_identifier
-                .into_boxed_str(),
-            lighting_identifier: biome
-                .components
-                .lighting
-                .lighting_identifier
-                .into_boxed_str(),
+            atmosphere_identifier: atmosphere_identifier.into_boxed_str(),
+            lighting_identifier: lighting_identifier.into_boxed_str(),
             sky_rgb8: biome
                 .components
                 .sky
@@ -879,6 +873,41 @@ mod environment_profile_tests {
             .distance(FogMedium::Air)
             .unwrap();
         assert_eq!(end_fog.rgb8, 0x0B_08_0C);
+    }
+
+    #[test]
+    fn absent_identifier_components_compile_as_the_default_settings() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("biomes");
+        fs::create_dir_all(&directory).unwrap();
+        let document = serde_json::json!({"minecraft:client_biome": {
+            "description": {"identifier": "minecraft:dappled_forest"},
+            "components": {"minecraft:fog_appearance": {"fog_identifier": "minecraft:fog_plains"}},
+        }});
+        fs::write(
+            directory.join("dappled_forest.client_biome.json"),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+        write_fog(
+            root.path(),
+            "default",
+            "minecraft:fog_plains",
+            0.92,
+            1.0,
+            "#ABD2FF",
+            "render",
+        );
+
+        let (biomes, _) = compile_environment_profiles(root.path()).unwrap();
+        assert_eq!(
+            biomes[0].atmosphere_identifier.as_ref(),
+            "minecraft:default_atmospherics"
+        );
+        assert_eq!(
+            biomes[0].lighting_identifier.as_ref(),
+            "minecraft:default_lighting"
+        );
     }
 
     fn write_biome(

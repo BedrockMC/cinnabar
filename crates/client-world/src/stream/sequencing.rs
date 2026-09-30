@@ -24,6 +24,7 @@ impl WorldStream {
                         continue;
                     }
                     let ids = self.decode_ids(self.current_dimension);
+                    self.predictions.begin_server_batch();
                     self.enqueue_decode_job(DecodeJob::BlockUpdates {
                         sequence,
                         batches,
@@ -40,6 +41,34 @@ impl WorldStream {
                 }
             }
         }
+    }
+    /// Commits prepared block mutations and invalidates what they changed.
+    pub(super) fn commit_block_mutations(
+        &mut self,
+        prepared: Vec<PreparedSubChunkMutation>,
+    ) -> bool {
+        let relight = prepared
+            .iter()
+            .filter(|mutation| mutation.changed())
+            .filter_map(|mutation| {
+                self.block_light_semantics_changed(
+                    self.store.sub_chunk(mutation.key()).as_deref(),
+                    mutation.replacement(),
+                )
+                .then_some(mutation.key())
+            })
+            .collect::<BTreeSet<_>>();
+        let Ok(changed) = self.store.commit_prepared_block_updates(prepared) else {
+            return false;
+        };
+        let now = Instant::now();
+        for key in changed {
+            self.reconcile_block_crack_column(key.chunk());
+            self.refresh_block_entity_visuals_for_sub_chunk(key);
+            self.sync_resident(key);
+            self.mark_live_mutation_changed(key, now, relight.contains(&key));
+        }
+        true
     }
     pub(super) fn apply_prepared(&mut self, event: PreparedWorldEvent) {
         self.apply_prepared_with_sequence(event, None);
@@ -272,34 +301,10 @@ impl WorldStream {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 match result {
                     Ok(prepared) => {
-                        let relight = prepared
-                            .iter()
-                            .filter(|mutation| mutation.changed())
-                            .filter_map(|mutation| {
-                                self.block_light_semantics_changed(
-                                    self.store.sub_chunk(mutation.key()).as_deref(),
-                                    mutation.replacement(),
-                                )
-                                .then_some(mutation.key())
-                            })
-                            .collect::<BTreeSet<_>>();
-                        match self.store.commit_prepared_block_updates(prepared) {
-                            Ok(changed) => {
-                                let now = Instant::now();
-                                for key in changed {
-                                    self.reconcile_block_crack_column(key.chunk());
-                                    self.refresh_block_entity_visuals_for_sub_chunk(key);
-                                    self.sync_resident(key);
-                                    self.mark_live_mutation_changed(
-                                        key,
-                                        now,
-                                        relight.contains(&key),
-                                    );
-                                }
-                            }
-                            Err(_) => self.record_normalization_error(
+                        if !self.commit_block_mutations(prepared) {
+                            self.record_normalization_error(
                                 NormalizationErrorReason::BlockMutationFailure,
-                            ),
+                            );
                         }
                     }
                     Err(_) => {

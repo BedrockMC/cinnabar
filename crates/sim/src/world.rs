@@ -490,6 +490,12 @@ impl CollisionRegistry {
         self.blocks.contains_key(&runtime_id)
     }
 
+    /// Block-local collision boxes of a registered runtime id.
+    #[must_use]
+    pub fn collision_shapes(&self, runtime_id: u32) -> Option<&[Aabb]> {
+        self.physics(runtime_id).map(|physics| &*physics.shapes)
+    }
+
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
         self.blocks.get(&runtime_id)
     }

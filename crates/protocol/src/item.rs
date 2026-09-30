@@ -138,6 +138,16 @@ pub fn item_extra_damage(extra_data: &[u8]) -> Option<u32> {
     root_damage_tag(&decode_extra_nbt(extra_data)?)
 }
 
+/// Whether a stack's extra data carries a true root `Unbreakable` byte.
+#[must_use]
+pub fn item_extra_unbreakable(extra_data: &[u8]) -> bool {
+    decode_extra_nbt(extra_data).is_some_and(|nbt| {
+        let mut cursor = &nbt[..];
+        root_tag(&mut cursor, 1, b"Unbreakable")
+            .is_some_and(|mut value| read_u8(&mut value).is_some_and(|byte| byte != 0))
+    })
+}
+
 /// Reads one enchantment's level from the root `ench` list of a stack's extra data.
 ///
 /// Each entry is a compound of short `id` and short `lvl`; malformed data reads as `None`.

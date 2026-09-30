@@ -472,17 +472,38 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
         }
     );
 
+    // Vanilla floors fractional coordinates and keeps a zero (stationary) speed.
     let fractional = LevelEventPacket {
         event_id: LEVEL_EVENT_UPDATE_BLOCK_CRACKING,
         position: Vec3 {
             x: 1.5,
+            y: 64.0,
+            z: -2.5,
+        },
+        data: 0,
+    };
+    let Some(WorldEvent::BlockCrack(fractional)) = into_world_event(fractional.into(), 0).unwrap()
+    else {
+        panic!("expected block crack update")
+    };
+    assert_eq!(fractional.position, [1, 64, -3]);
+    assert_eq!(
+        fractional.action,
+        protocol::BlockCrackAction::UpdateSpeed {
+            progress_per_tick: 0
+        }
+    );
+    let non_finite = LevelEventPacket {
+        event_id: LEVEL_EVENT_UPDATE_BLOCK_CRACKING,
+        position: Vec3 {
+            x: f32::NAN,
             y: 64.0,
             z: -2.0,
         },
         data: 1,
     };
     assert!(matches!(
-        into_world_event(fractional.into(), 0),
+        into_world_event(non_finite.into(), 0),
         Err(protocol::WorldPacketError::Ui(
             UiPacketError::InvalidBlockCrackPosition { field: "x", .. }
         ))

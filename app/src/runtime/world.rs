@@ -226,6 +226,20 @@ pub(crate) fn update_camera_medium(
     };
 }
 
+/// Full-world cohort witness; only acceptance and metrics runs consume it, and
+/// it scans every retained column and sub-chunk.
+pub(crate) fn frame_cohort_status(
+    stream: &WorldStream,
+    acceptance: &AcceptanceRun,
+) -> Option<ViewCohortStatus> {
+    if !super::telemetry::publication_diagnostics_enabled(acceptance) {
+        return None;
+    }
+    stream
+        .committed_view_cohort()
+        .map(|target| stream.cohort_status(target))
+}
+
 pub(crate) fn world_stream_fatal_message(error: client_world::WorldStreamFatalError) -> String {
     format!("world stream fatal: {error}")
 }
@@ -287,9 +301,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
     );
-    frame_poll.cohort = stream
-        .committed_view_cohort()
-        .map(|target| stream.cohort_status(target));
+    frame_poll.cohort = frame_cohort_status(stream, &acceptance);
     let controls = stream.take_committed_controls();
     refresh_player_list_cache_for_controls(stream, &mut ui_runtime, &controls);
     drain_committed_audio(stream, |event| {
