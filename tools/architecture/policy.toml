@@ -153,6 +153,12 @@ path = "tools/phase2-evidence"
 allowed_dependencies = []
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
+[[crates]]
+name = "jsonui-editor"
+path = "tools/jsonui-editor"
+allowed_dependencies = ["assets", "json-ui", "ui"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
 [[markers]]
 literal = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA"
 kind = "parsed"
