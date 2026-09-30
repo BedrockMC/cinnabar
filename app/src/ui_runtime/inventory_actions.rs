@@ -460,6 +460,12 @@ impl UiRuntime {
                 state.book_page = 0;
                 Ok(0)
             }
+            Widget::RecipeFilter => {
+                let filtering = self.recipe_filtering();
+                self.screen_state_mut().recipe_filtering = Some(!filtering);
+                self.screen_state_mut().container_scroll.clear();
+                Ok(0)
+            }
             Widget::BookPage { next } => {
                 let page = self.screen_state().book_page;
                 let target = if next {

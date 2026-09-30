@@ -231,6 +231,18 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
             vec![Widget(W::BookToggle), CreativeTab(1), CreativeSearch],
         ),
         (
+            "inventory_recipe_search",
+            {
+                let mut runtime = personal();
+                runtime.screen_state_mut().book_open = true;
+                runtime
+                    .screen_state_mut()
+                    .select_tab(crate::ui_runtime::presentation::screens::SEARCH_TAB);
+                runtime
+            },
+            vec![Widget(W::RecipeFilter), CreativeSearch],
+        ),
+        (
             "creative",
             creative(),
             vec![
