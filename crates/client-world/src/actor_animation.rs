@@ -114,6 +114,8 @@ struct ActorRigState {
     bone_names: Vec<Box<str>>,
     /// This tick's render-controller result.
     render: Vec<RenderTextureLayer>,
+    /// Skeletons of the geometries render controllers draw instead of the rig's, by geometry.
+    layer_skeletons: BTreeMap<u32, Option<Arc<render::LayerSkeleton>>>,
     controllers: Vec<ControllerState>,
     previous: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
@@ -425,6 +427,7 @@ impl ActorAnimationStore {
                 (&assets, &self.layout)
             };
             if state.fallback != EntityRigFallback::GeometryOnly {
+                render::cache_layer_skeletons(state_assets, state);
                 geometry::reselect_geometry(
                     state_assets,
                     state_layout,
@@ -452,7 +455,8 @@ impl ActorAnimationStore {
                 Ok(evaluated) => {
                     state.controllers = evaluated.controllers;
                     state.variables = evaluated.variables;
-                    if let Some(render) = evaluated.render {
+                    if let Some(mut render) = evaluated.render {
+                        render::carry_layer_poses(&state.render, &mut render, state.reset_pending);
                         state.render = render;
                     }
                     state.initialized = true;
@@ -655,6 +659,7 @@ fn resolve_rig(
         bones,
         bone_names,
         render: Vec::new(),
+        layer_skeletons: BTreeMap::new(),
         controllers,
         previous: current.clone(),
         rest: current.clone(),

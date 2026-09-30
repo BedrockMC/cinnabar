@@ -34,6 +34,40 @@ const LOGO: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"des
  "geometry":{"default":"geometry.counter"},
  "render_controllers":["controller.render.logo"]}}}"#;
 
+// Two controllers, each drawing its own model: the digit's `count` bone exists only there, so
+// the clip moving it must still reach that model though the rig poses the background.
+const TITLE: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:title",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"zero":"textures/entity/counter_zero","one":"textures/entity/counter_one"},
+ "geometry":{"digit":"geometry.title_digit","background":"geometry.title_background"},
+ "animations":{"center":"animation.title.center"},
+ "scripts":{"animate":["center"]},
+ "render_controllers":["controller.render.title.digit","controller.render.title.background"]}}}"#;
+
+const TITLE_STILL: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:title_still",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"zero":"textures/entity/counter_zero","one":"textures/entity/counter_one"},
+ "geometry":{"digit":"geometry.title_digit","background":"geometry.title_background"},
+ "render_controllers":["controller.render.title.digit","controller.render.title.background"]}}}"#;
+
+const TITLE_GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[
+ {"description":{"identifier":"geometry.title_digit","texture_width":16,"texture_height":16},"bones":[
+ {"name":"root","pivot":[0,4,0]},
+ {"name":"count","parent":"root","pivot":[0,0,0],"cubes":[{"origin":[0,3,0],"size":[5,5,0],"uv":[0,0]}]}]},
+ {"description":{"identifier":"geometry.title_background","texture_width":16,"texture_height":16},"bones":[
+ {"name":"root","pivot":[0,10,0],"cubes":[{"origin":[-8,0,0],"size":[16,16,0],"uv":[0,0]}]}]}]}"#;
+
+const TITLE_ANIMATION: &str = r#"{"format_version":"1.8.0","animations":{
+ "animation.title.center":{"loop":true,"bones":{"count":{"position":[3,0,0]}}}}}"#;
+
+const TITLE_RENDER: &str = r#"{"format_version":"1.8.0","render_controllers":{
+ "controller.render.title.digit":{"geometry":"Geometry.digit","materials":[{"*":"Material.default"}],
+  "textures":["Texture.one"]},
+ "controller.render.title.background":{"geometry":"Geometry.background",
+  "materials":[{"*":"Material.default"}],"textures":["Texture.zero"]}}}"#;
+
 const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[
  {"description":{"identifier":"geometry.counter","texture_width":16,"texture_height":16},"bones":[
  {"name":"root","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,16,8],"uv":[0,0]}]}]},
@@ -74,6 +108,17 @@ fn pack() -> (Pack, ActorArtworkPages) {
         ("entity/counter.entity.json".into(), COUNTER.into()),
         ("entity/hologram.entity.json".into(), HOLOGRAM.into()),
         ("entity/logo.entity.json".into(), LOGO.into()),
+        ("entity/title.entity.json".into(), TITLE.into()),
+        ("entity/title_still.entity.json".into(), TITLE_STILL.into()),
+        ("models/entity/title.geo.json".into(), TITLE_GEOMETRY.into()),
+        (
+            "animations/title.animation.json".into(),
+            TITLE_ANIMATION.into(),
+        ),
+        (
+            "render_controllers/title.render_controllers.json".into(),
+            TITLE_RENDER.into(),
+        ),
         ("models/entity/counter.geo.json".into(), GEOMETRY.into()),
         (
             "render_controllers/counter.render_controllers.json".into(),
@@ -244,4 +289,67 @@ fn render_controller_uv_anim_steps_the_flipbook_frame() {
     let second = drawn(&world, &artwork).uv_anim;
     // Six frames pass per tick at 120 frames a second, two past a whole strip of four.
     assert_eq!((second[1] - first[1]).rem_euclid(1.0), 0.5);
+}
+
+fn layered(world: &WorldStream, artwork: &ActorArtworkPages) -> actors::ActorPresentationBatch {
+    let rig = world.actor_rig(42).unwrap();
+    let body =
+        actors::entity_rig_presentation(&rig, world.actor(42).unwrap(), artwork, 0.5).unwrap();
+    let mut batch = actors::select_actor_presentations(1, false, None, [body]);
+    entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), artwork);
+    batch
+}
+
+fn batch(world: &WorldStream, artwork: &ActorArtworkPages) -> Vec<render::ActorRigSubmission> {
+    layered(world, artwork).submissions
+}
+
+// Every controller draws with its own geometry and texture; neither is dropped for not matching
+// the rig's model.
+#[test]
+fn each_render_controller_draws_its_own_geometry() {
+    let (pack, artwork) = pack();
+    let assets = Arc::clone(&pack.0);
+    let world = world(pack, "test:title");
+    let layered = layered(&world, &artwork);
+    let mut scene = render::ActorRenderScene::default();
+    scene.replace_pack_entities(Some(&assets)).unwrap();
+    scene.configure_artwork(artwork.clone());
+    let frame = scene.update_rigs_with_artwork(
+        0.5,
+        None,
+        layered.submissions.clone(),
+        Arc::from([]),
+        &layered.artwork,
+    );
+    assert_eq!(frame.rig.instances.len(), 2, "{:?}", frame.rig.rejects);
+    let submissions = layered.submissions;
+    assert_eq!(submissions.len(), 2, "both controllers draw");
+    let (digit, background) = (&submissions[0], &submissions[1]);
+    assert_ne!(digit.input.rig, background.input.rig);
+    assert_ne!(digit.texture_layer, background.texture_layer);
+    assert_eq!(
+        digit.input.current_bones.len(),
+        2,
+        "the digit model's own bones"
+    );
+    assert_eq!(background.input.current_bones.len(), 1);
+}
+
+// A clip moving a bone only a controller's model has still poses that model.
+#[test]
+fn clips_pose_bones_only_a_controller_model_has() {
+    let (pack, artwork) = pack();
+    let count_x = |identifier: &str| {
+        let world = world(pack.clone(), identifier);
+        batch(&world, &artwork)[0].input.current_bones[1].translation_scale
+    };
+    let (moved, still) = (count_x("test:title"), count_x("test:title_still"));
+    let offset: f32 = (0..3)
+        .map(|axis| (moved[axis] - still[axis]).powi(2))
+        .sum::<f32>();
+    assert!(
+        (offset.sqrt() - 3.0 / 16.0).abs() < 1e-4,
+        "{moved:?} vs {still:?}"
+    );
 }

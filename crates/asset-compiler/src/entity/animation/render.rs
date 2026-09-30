@@ -4,14 +4,15 @@ use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, EntityAssetKind, EntityAssetSource, EntityAssetSymbol, EntityGeometry,
-    EntityRenderCandidate, EntityRenderData, EntityRenderLayer, EntityRenderSlot,
-    EntityRenderVisibility, EntityRigBinding, EntityRigGeometryBinding,
+    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
+    EntityRenderSlot, EntityRenderVisibility, EntityRigBinding, EntityRigGeometryBinding,
 };
 use serde_json::{Map, Value};
 
 use super::{
     super::{SourcePayloads, molang::MolangCompiler},
     clip::{read_json, required_object},
+    environment::unique_geometry_indices,
     selection::{Selector, condition_text},
 };
 
@@ -45,38 +46,6 @@ fn lowercase_map(value: Option<&Value>) -> BTreeMap<String, String> {
             Some((alias.to_ascii_lowercase(), target.as_str()?.to_owned()))
         })
         .collect()
-}
-
-/// Geometry identifiers a controller's `geometry` expression can select.
-fn controller_geometries(
-    definition: &Map<String, Value>,
-    aliases: &BTreeMap<String, String>,
-) -> Vec<String> {
-    let Some(expression) = definition.get("geometry").and_then(Value::as_str) else {
-        return Vec::new();
-    };
-    let mut names = Vec::new();
-    let lower = expression.to_ascii_lowercase();
-    for token in lower.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')) {
-        if let Some(alias) = token.strip_prefix("geometry.") {
-            names.extend(aliases.get(alias).cloned());
-        } else if let Some(array) = token.strip_prefix("array.") {
-            let members = definition
-                .get("arrays")
-                .and_then(|arrays| arrays.get("geometries"))
-                .and_then(Value::as_object)
-                .into_iter()
-                .flatten()
-                .find(|(name, _)| name.to_ascii_lowercase() == format!("array.{array}"))
-                .and_then(|(_, members)| members.as_array());
-            for member in members.into_iter().flatten().filter_map(Value::as_str) {
-                if let Some(alias) = member.to_ascii_lowercase().strip_prefix("geometry.") {
-                    names.extend(aliases.get(alias).cloned());
-                }
-            }
-        }
-    }
-    names
 }
 
 fn compile_condition(molang: &mut MolangCompiler, text: &str) -> Option<u32> {
@@ -161,6 +130,8 @@ pub(super) fn compile_render(
     let mut entity_json = BTreeMap::<u32, Value>::new();
     let (mut layers, mut slots, mut candidates, mut visibility) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let mut layer_geometries = Vec::new();
+    let geometry_indices = unique_geometry_indices(geometries);
     for (rig_index, rig) in rigs.iter().enumerate() {
         let entity = &symbols[rig.entity_symbol as usize];
         debug_assert_eq!(entity.kind, EntityAssetKind::Entity);
@@ -180,12 +151,9 @@ pub(super) fn compile_render(
         else {
             continue;
         };
-        let Some(rig_geometry) = rig_geometries.get(rig.first_geometry as usize) else {
+        if rig_geometries.get(rig.first_geometry as usize).is_none() {
             continue;
-        };
-        let default_geometry = geometries[rig_geometry.geometry as usize]
-            .identifier
-            .to_ascii_lowercase();
+        }
         let geometry_aliases = lowercase_map(description.get("geometry"));
         let scope_aliases = lowercase_map(description.get("textures"));
         let entries = description
@@ -208,14 +176,6 @@ pub(super) fn compile_render(
             let Some(definition) = definition.as_object() else {
                 continue;
             };
-            let selected = controller_geometries(definition, &geometry_aliases);
-            if !selected.is_empty()
-                && !selected
-                    .iter()
-                    .any(|identifier| identifier.to_ascii_lowercase() == default_geometry)
-            {
-                continue;
-            }
             let condition = match activation {
                 None => None,
                 Some(text) => match compile_condition(molang, &text) {
@@ -291,6 +251,18 @@ pub(super) fn compile_render(
             if slots.len() == first_slot {
                 continue;
             }
+            let first_geometry = layer_geometries.len();
+            compile_geometry_choices(
+                definition,
+                &|alias: &str| {
+                    geometry_indices
+                        .get(geometry_aliases.get(alias)?.as_str())
+                        .copied()
+                        .flatten()
+                },
+                molang,
+                &mut layer_geometries,
+            );
             let first_visibility = visibility.len();
             for rule in definition
                 .get("part_visibility")
@@ -322,6 +294,8 @@ pub(super) fn compile_render(
                 overlay_color: compile_color(molang, definition.get("overlay_color"), "0.0"),
                 on_fire_color: compile_color(molang, definition.get("on_fire_color"), "0.0"),
                 uv_anim: compile_uv_anim(molang, definition.get("uv_anim")),
+                first_geometry: first_geometry as u32,
+                geometry_count: (layer_geometries.len() - first_geometry) as u16,
             });
         }
     }
@@ -330,5 +304,62 @@ pub(super) fn compile_render(
         slots: slots.into_boxed_slice(),
         candidates: candidates.into_boxed_slice(),
         visibility: visibility.into_boxed_slice(),
+        geometries: layer_geometries.into_boxed_slice(),
     })
+}
+
+/// Appends the geometries a controller's `geometry` expression selects, each with the condition
+/// that selects it; an absent or unresolvable expression leaves the rig's own geometry.
+fn compile_geometry_choices(
+    definition: &Map<String, Value>,
+    resolve: &dyn Fn(&str) -> Option<u32>,
+    molang: &mut MolangCompiler,
+    output: &mut Vec<EntityRenderGeometry>,
+) {
+    let Some(expression) = definition.get("geometry").and_then(Value::as_str) else {
+        return;
+    };
+    let arrays = definition
+        .get("arrays")
+        .and_then(|arrays| arrays.get("geometries"))
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(name, members)| {
+            (
+                name.to_ascii_lowercase(),
+                members
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|member| member.as_str().map(str::to_owned))
+                    .collect(),
+            )
+        })
+        .collect();
+    let selector = Selector {
+        prefix: "geometry.",
+        arrays,
+        resolve,
+    };
+    let Some(leaves) = selector.leaves(expression) else {
+        return;
+    };
+    let mark = output.len();
+    for (path, geometry) in leaves {
+        let condition = match condition_text(&path) {
+            None => None,
+            Some(text) => match compile_condition(molang, &text) {
+                Some(index) => Some(index),
+                None => {
+                    output.truncate(mark);
+                    return;
+                }
+            },
+        };
+        output.push(EntityRenderGeometry {
+            condition,
+            geometry,
+        });
+    }
 }

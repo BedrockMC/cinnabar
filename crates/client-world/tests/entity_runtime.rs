@@ -144,6 +144,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             channel_count: 1,
             source: 1,
             override_previous: false,
+            geometry: None,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {

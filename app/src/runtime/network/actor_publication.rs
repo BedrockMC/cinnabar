@@ -474,13 +474,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         remotes,
         cull_view,
     );
-    if let Some(stream) = client_world.stream.as_ref() {
-        crate::presentation::entity_layers::apply_render_layers(
-            &mut batch,
-            |runtime_id| stream.actor_rig(runtime_id),
-            artwork,
-        );
-    }
     if let (Some(stream), Some(cape)) = (
         client_world.stream.as_ref(),
         cape_state.rig(client_world.entity_assets.as_deref()),
@@ -515,6 +508,14 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 batch.submissions.push(layer.submission);
             }
         }
+    }
+    // After equipment, which rides the rig's own model even when a controller draws another.
+    if let Some(stream) = client_world.stream.as_ref() {
+        crate::presentation::entity_layers::apply_render_layers(
+            &mut batch,
+            |runtime_id| stream.actor_rig(runtime_id),
+            artwork,
+        );
     }
     // Layers were built above from the visible body, so hiding the body keeps armor and held items.
     if let Some(stream) = client_world.stream.as_ref() {
