@@ -22,8 +22,6 @@ pub use outline::{
 };
 
 const DESCRIPTOR_PATH: &str = "font/catalog.json";
-const PINNED_SOURCE_MANIFEST_SHA256: [u8; 32] =
-    decode_sha256(b"c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FontCompileReport {
@@ -142,7 +140,7 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
         .map_err(|source| FontCompileError::DescriptorJson { source })?;
     if descriptor.schema != FONT_CARRIER_SCHEMA
         || decode_runtime_sha256(&descriptor.source_manifest_sha256)
-            != Some(PINNED_SOURCE_MANIFEST_SHA256)
+            != Some(assets::vanilla_source_manifest_sha256())
     {
         return Err(FontCompileError::SourceManifestMismatch);
     }
@@ -271,7 +269,7 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
         }
     }
 
-    let bytes = encode_font_catalog(PINNED_SOURCE_MANIFEST_SHA256, &glyphs, &pages)?;
+    let bytes = encode_font_catalog(assets::vanilla_source_manifest_sha256(), &glyphs, &pages)?;
     let carrier_sha256 = bytes
         .get(bytes.len().saturating_sub(32)..)
         .and_then(|digest| digest.try_into().ok())
@@ -283,7 +281,7 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
             pages: pages.len(),
             source_bytes: total_source_bytes,
             decoded_bytes: total_decoded_bytes,
-            source_manifest_sha256: PINNED_SOURCE_MANIFEST_SHA256,
+            source_manifest_sha256: assets::vanilla_source_manifest_sha256(),
             carrier_sha256,
         },
         bytes,
@@ -708,25 +706,6 @@ fn decode_hex_nibble_runtime(value: u8) -> Option<u8> {
         b'a'..=b'f' => Some(value - b'a' + 10),
         b'A'..=b'F' => Some(value - b'A' + 10),
         _ => None,
-    }
-}
-
-const fn decode_sha256(value: &[u8; 64]) -> [u8; 32] {
-    let mut decoded = [0; 32];
-    let mut index = 0;
-    while index < decoded.len() {
-        decoded[index] =
-            (decode_hex_nibble(value[index * 2]) << 4) | decode_hex_nibble(value[index * 2 + 1]);
-        index += 1;
-    }
-    decoded
-}
-
-const fn decode_hex_nibble(value: u8) -> u8 {
-    match value {
-        b'0'..=b'9' => value - b'0',
-        b'a'..=b'f' => value - b'a' + 10,
-        _ => panic!("invalid pinned SHA-256"),
     }
 }
 

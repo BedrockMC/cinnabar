@@ -556,8 +556,9 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
             return;
         }
         for batch in batches {
-            render_queue.write_buffer(
-                &arena.geometry_stream_buffer,
+            write_geometry_stream_words(
+                &arena,
+                &render_queue,
                 u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
                 bytemuck::cast_slice(&batch.words),
             );

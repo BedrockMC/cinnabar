@@ -272,3 +272,19 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
     assert!(!visual.flags.contains(assets::BlockFlags::AIR));
     assert_eq!(visual.contributor_role, assets::ContributorRole::Primary);
 }
+
+#[test]
+fn every_current_registry_button_has_a_supported_name() {
+    let records = assets::read_registry_for_protocol(
+        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
+        2193,
+    )
+    .unwrap();
+    let unsupported = records
+        .iter()
+        .filter(|record| record.model_family == assets::ModelFamily::Button)
+        .filter(|record| !super::classification::is_supported_button_name(&record.name))
+        .map(|record| record.name.as_ref())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(unsupported.is_empty(), "{unsupported:?}");
+}

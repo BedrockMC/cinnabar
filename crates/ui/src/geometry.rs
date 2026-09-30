@@ -220,3 +220,15 @@ fn finite_in_range(value: f32, min: f32, max: f32) -> Result<f32, GeometryError>
     }
     Ok(value)
 }
+
+/// Physical pixels per GUI pixel: Bedrock's desktop rule
+/// (`GuiData::calculateOptimalGuiScaleIndex`), `min(width/376, height/250)` in
+/// 1..=8, or a fixed preference no larger than that.
+#[must_use]
+pub fn gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
+    let auto = (physical[0] / 376).min(physical[1] / 250).clamp(1, 8);
+    match preference {
+        None | Some(0) => auto,
+        Some(fixed) => u32::from(fixed).clamp(1, auto),
+    }
+}

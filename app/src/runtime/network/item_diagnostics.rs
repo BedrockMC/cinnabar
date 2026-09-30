@@ -95,6 +95,10 @@ pub(super) fn equipment(notices: Vec<EquipmentNotice>) {
     }
     with_state(|state| {
         for notice in notices {
+            // Past the log bound nothing more is printed, so nothing more is remembered.
+            if state.equipment.len() >= MAX_LINES * 4 {
+                break;
+            }
             let first = state
                 .equipment
                 .insert((notice.runtime_id, notice.armor, None));
@@ -102,7 +106,7 @@ pub(super) fn equipment(notices: Vec<EquipmentNotice>) {
                 && state
                     .equipment
                     .insert((notice.runtime_id, notice.armor, Some(notice.outcome)));
-            if state.equipment.len() > MAX_LINES * 4 || !(first || refused) {
+            if !(first || refused) {
                 continue;
             }
             let items = notice
@@ -119,4 +123,31 @@ pub(super) fn equipment(notices: Vec<EquipmentNotice>) {
             );
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A long session's stream of new actors must not grow the diagnostic memory.
+    #[test]
+    fn equipment_diagnostics_stop_remembering_past_the_log_bound() {
+        session_registry(None);
+        equipment(
+            (0..(MAX_LINES as u64 * 8))
+                .map(|runtime_id| EquipmentNotice {
+                    runtime_id,
+                    armor: true,
+                    outcome: EquipmentOutcome::Applied,
+                    items: Box::new([]),
+                })
+                .collect(),
+        );
+        let remembered = STATE
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map_or(0, |state| state.equipment.len());
+        assert_eq!(remembered, MAX_LINES * 4);
+    }
 }

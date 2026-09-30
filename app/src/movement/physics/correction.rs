@@ -95,6 +95,58 @@ impl LocalPhysicsController {
             }
             corrected.collisions = sim::AxisCollisions::default();
         }
+        self.replay_from_anchor(tick, corrected, network_position, world)
+    }
+
+    /// Re-simulates from the retained tick before `tick` with a past server impulse overlaid,
+    /// as `ReplayStateComponent::applyFrameCorrection` does for an in-history motion.
+    pub(in crate::movement) fn replay_server_motion(
+        &mut self,
+        motion: [f32; 3],
+        tick: u64,
+        world: &impl CollisionWorld,
+    ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let anchor_tick = tick.saturating_sub(1);
+        let current_tick = self
+            .state
+            .as_ref()
+            .ok_or(PhysicsCorrectionError::NotRetained { tick })?
+            .tick;
+        if tick == 0 || tick > current_tick || !motion.into_iter().all(f32::is_finite) {
+            return Err(PhysicsCorrectionError::NotRetained { tick });
+        }
+        let anchor = self
+            .history
+            .state_at(anchor_tick)
+            .cloned()
+            .ok_or(PhysicsCorrectionError::NotRetained { tick: anchor_tick })?;
+        let anchor_position = self
+            .sample_history
+            .iter()
+            .find(|sample| sample.tick == anchor_tick)
+            .map(|sample| sample.position)
+            .ok_or(PhysicsCorrectionError::NotRetained { tick: anchor_tick })?;
+        self.retain_server_motion(sim::MotionOverlay {
+            tick,
+            velocity: Vec3::new(
+                f64::from(motion[0]),
+                f64::from(motion[1]),
+                f64::from(motion[2]),
+            ),
+        });
+        self.replay_from_anchor(anchor_tick, anchor, anchor_position, world)
+    }
+
+    /// Replays every retained tick after `tick` from `anchor`, re-applying motion overlays.
+    fn replay_from_anchor(
+        &mut self,
+        tick: u64,
+        corrected: PlayerState,
+        network_position: [f32; 3],
+        world: &impl CollisionWorld,
+    ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let on_ground = corrected.on_ground;
+        let feet = corrected.position;
         let motion_overlays: Vec<sim::MotionOverlay> =
             self.server_motions.iter().copied().collect();
         // The replay starts from this exact anchor state; capture its cooldown

@@ -74,7 +74,12 @@ impl WorldStream {
                 .last_mesh_ack_at
                 .map_or(applied_at, |latest| latest.max(applied_at)),
         );
-        self.applied_mesh_generations.insert(key, generation);
+        // An evicted key's removal ack must not re-enter the map its eviction just pruned.
+        if self.resident.contains(&key) || self.known_air.contains(&key) {
+            self.applied_mesh_generations.insert(key, generation);
+        } else {
+            self.applied_mesh_generations.remove(&key);
+        }
         self.revisions.clear_if_current(key, generation);
         self.stats.phase2_stages.mesh_uploads_acknowledged = self
             .stats
@@ -189,8 +194,9 @@ impl WorldStream {
         );
     }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
-    pub fn start_local_player_swing(&mut self) {
-        self.actors.start_swing(self.local_player_runtime_id);
+    /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
+    pub fn start_local_player_swing(&mut self, ticks: i32) {
+        self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)

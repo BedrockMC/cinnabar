@@ -29,15 +29,42 @@ pub(crate) struct ActorRigPresentation {
 #[derive(Debug)]
 pub(crate) struct ActorPresentationBatch {
     pub(crate) submissions: Vec<ActorRigSubmission>,
-    pub(crate) skins_rgba8: Arc<[u8]>,
+    /// One standard-size RGBA8 layer per texture layer index.
+    pub(crate) skin_layers: Vec<Arc<[u8]>>,
     pub(crate) artwork: BTreeMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
-pub(crate) fn update_actor_rig_scene(
-    scene: &mut ActorRenderScene,
+/// The packed skin payload, rebuilt only when the layer list changes so an
+/// unchanged frame neither copies nor compares the whole payload.
+#[derive(Debug, Default)]
+pub(crate) struct SkinLayerPack {
+    layers: Vec<Arc<[u8]>>,
+    packed: Arc<[u8]>,
+    rebuilds: u64,
+}
+
+impl SkinLayerPack {
+    pub(crate) fn pack(&mut self, layers: Vec<Arc<[u8]>>) -> Arc<[u8]> {
+        if layers != self.layers {
+            self.packed = layers.concat().into();
+            self.layers = layers;
+            self.rebuilds += 1;
+        }
+        Arc::clone(&self.packed)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn rebuilds(&self) -> u64 {
+        self.rebuilds
+    }
+}
+
+pub(crate) fn update_actor_rig_scene<'a>(
+    scene: &'a mut ActorRenderScene,
     partial_tick: f32,
     batch: ActorPresentationBatch,
-) -> &ActorRenderFrame {
+    skins: &mut SkinLayerPack,
+) -> &'a ActorRenderFrame {
     // The app adapter has already applied the renderer's exact culling helper
     // to remotes before enforcing capacity. Passing no second cull view keeps
     // Phase 3's visible local reservation unconditional in both third-person
@@ -46,7 +73,7 @@ pub(crate) fn update_actor_rig_scene(
         partial_tick,
         None,
         batch.submissions,
-        batch.skins_rgba8,
+        skins.pack(batch.skin_layers),
         &batch.artwork,
     )
 }
@@ -382,7 +409,7 @@ pub(crate) fn select_actor_presentations_for_view(
         };
         let layer = skin_families
             .iter()
-            .position(|existing| existing.as_ref() == skin.as_ref())
+            .position(|existing| *existing == skin)
             .unwrap_or_else(|| {
                 skin_families.push(skin);
                 skin_families.len() - 1
@@ -391,13 +418,9 @@ pub(crate) fn select_actor_presentations_for_view(
             u32::try_from(layer).expect("actor skin family count is bounded");
         submissions.push(presentation.submission);
     }
-    let mut skin_bytes = Vec::new();
-    for skin in skin_families {
-        skin_bytes.extend_from_slice(&skin);
-    }
     ActorPresentationBatch {
         submissions,
-        skins_rgba8: skin_bytes.into(),
+        skin_layers: skin_families,
         artwork,
     }
 }

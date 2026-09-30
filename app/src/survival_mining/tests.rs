@@ -35,8 +35,14 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
             .unwrap(),
         },
         wear: None,
+        instant: false,
     }
 }
+
+const STILL: TickMotion = TickMotion {
+    on_ground: true,
+    moved: 0.0,
+};
 
 fn kinds(payload: &SurvivalTickPayload) -> Vec<(protocol::BlockActionKind, [i32; 3], u8)> {
     payload
@@ -51,7 +57,7 @@ fn held(
     target: &DestroyTarget,
     authority: BlockBreakingAuthority,
 ) -> SurvivalTickPayload {
-    machine.step(DestroyInput::Held(Some(target)), true, authority)
+    machine.step(DestroyInput::Held(Some(target)), STILL, authority)
 }
 
 /// Held ticks after the start tick until completion, from the documented per-tick rate.
@@ -169,12 +175,12 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
     }
     // 75 ticks of 1/150 per tick is half the block.
     assert_eq!(
-        kinds(&machine.step(DestroyInput::Released, true, Server)),
+        kinds(&machine.step(DestroyInput::Released, STILL, Server)),
         [(AbortDestroy, [0, 0, 1], 50)]
     );
     assert!(
         machine
-            .step(DestroyInput::Released, true, Server)
+            .step(DestroyInput::Released, STILL, Server)
             .is_empty()
     );
     assert_eq!(
@@ -182,7 +188,7 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
         [(StartDestroy, [0, 0, 0], 1)]
     );
     assert_eq!(
-        kinds(&machine.step(DestroyInput::Held(None), true, Server)),
+        kinds(&machine.step(DestroyInput::Held(None), STILL, Server)),
         [(AbortDestroy, [0, 0, 0], 0)]
     );
 }
@@ -223,36 +229,53 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
     );
 }
 
+/// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
+/// a block with hardness breaks on the first continued tick however fast.
 #[test]
-fn a_rate_at_the_threshold_breaks_on_the_start_tick_and_then_delays() {
-    // Zero hardness, and a hoe on leaves at twice the needed rate.
-    for (block, tool) in [
-        ("minecraft:torch", None),
-        ("minecraft:oak_leaves", Some("minecraft:golden_hoe")),
-    ] {
-        let instant = target([2, 2, 2], block, tool);
-        let mut machine = DestroyMachine::default();
-        assert_eq!(
-            kinds(&held(&mut machine, &instant, Server)),
-            [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)],
-            "{block}"
-        );
-        let next = target([2, 1, 2], block, tool);
-        for _ in 0..DESTROY_DELAY_TICKS {
-            assert!(held(&mut machine, &next, Server).is_empty());
-        }
-        assert!(!held(&mut machine, &next, Server).is_empty());
+fn only_zero_hardness_breaks_on_the_start_tick() {
+    let torch = target([2, 2, 2], "minecraft:torch", None);
+    let mut machine = DestroyMachine::default();
+    assert_eq!(
+        kinds(&held(&mut machine, &torch, Server)),
+        [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)]
+    );
+    let next = target([2, 1, 2], "minecraft:torch", None);
+    for _ in 0..DESTROY_DELAY_TICKS {
+        assert!(held(&mut machine, &next, Server).is_empty());
     }
+    assert!(!held(&mut machine, &next, Server).is_empty());
+    // A hoe on leaves is twice the needed rate, yet still waits one tick.
     let leaves = target(
         [2, 2, 2],
         "minecraft:oak_leaves",
         Some("minecraft:golden_hoe"),
     );
-    let done = held(&mut DestroyMachine::default(), &leaves, Client);
+    let mut machine = DestroyMachine::default();
     assert_eq!(
-        kinds(&done),
-        [(StartDestroy, [2, 2, 2], 1), (StopDestroy, [0, 0, 0], 0)]
+        kinds(&held(&mut machine, &leaves, Server)),
+        [(StartDestroy, [2, 2, 2], 1)]
     );
+    assert_eq!(
+        kinds(&held(&mut machine, &leaves, Server)),
+        [
+            (ContinueDestroy, [2, 2, 2], 1),
+            (PredictDestroy, [2, 2, 2], 1)
+        ]
+    );
+    // A rate of at least one skips the post-break delay.
+    let below = target(
+        [2, 1, 2],
+        "minecraft:oak_leaves",
+        Some("minecraft:golden_hoe"),
+    );
+    assert_eq!(
+        kinds(&held(&mut machine, &below, Server)),
+        [(ContinueDestroy, [2, 1, 2], 1)]
+    );
+    let mut client = DestroyMachine::default();
+    held(&mut client, &leaves, Client);
+    let done = held(&mut client, &leaves, Client);
+    assert_eq!(kinds(&done), [(StopDestroy, [0, 0, 0], 0)]);
     assert!(done.destroy.is_some());
 }
 
@@ -281,7 +304,7 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         held(&mut DestroyMachine::default(), &torch, Server).wear,
         None
     );
-    // An instant start-tick break of a block with hardness still wears.
+    // A one-tick break of a block with hardness still wears.
     let leaves = DestroyTarget {
         conditions: DestroyConditions {
             tool: HeldTool::from_identifier("minecraft:golden_hoe"),
@@ -289,10 +312,9 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         },
         ..worn("minecraft:oak_leaves")
     };
-    assert_eq!(
-        held(&mut DestroyMachine::default(), &leaves, Server).wear,
-        Some((2, 6, -1))
-    );
+    let mut quick = DestroyMachine::default();
+    held(&mut quick, &leaves, Server);
+    assert_eq!(held(&mut quick, &leaves, Server).wear, Some((2, 6, -1)));
     let mut client = DestroyMachine::default();
     held(&mut client, &dirt, Client);
     for _ in 0..20 {
@@ -300,8 +322,9 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
     }
 }
 
+/// Completion removes the block locally; a server rollback is mined afresh after the delay.
 #[test]
-fn a_predicted_break_waits_for_its_block_update() {
+fn a_completion_predicts_the_break_and_a_rolled_back_block_is_mined_again() {
     // A golden shovel removes 0.8 of dirt per tick: two held ticks after the start.
     let dirt = target([0, 3, 0], "minecraft:dirt", Some("minecraft:golden_shovel"));
     let completion = [
@@ -309,16 +332,29 @@ fn a_predicted_break_waits_for_its_block_update() {
         (PredictDestroy, [0, 3, 0], 1),
     ];
     let mut machine = DestroyMachine::default();
-    held(&mut machine, &dirt, Server);
+    assert_eq!(held(&mut machine, &dirt, Server).broken, None);
     assert!(held(&mut machine, &dirt, Server).is_empty());
-    assert_eq!(kinds(&held(&mut machine, &dirt, Server)), completion);
-    // The unchanged block is locally gone: no restart and no abort while held.
-    for _ in 0..PREDICTED_BREAK_HOLD_TICKS - 1 {
+    let done = held(&mut machine, &dirt, Server);
+    assert_eq!(kinds(&done), completion);
+    assert_eq!(done.broken, Some([0, 3, 0]));
+    assert_eq!(
+        machine.destroying_target(),
+        None,
+        "hit sounds and particles stop with the break"
+    );
+    for _ in 0..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &dirt, Server).is_empty());
     }
-    // Without an update the hold expires and destroying resumes on it.
+    // The server restated the block: no hold, destroying resumes at once.
     assert!(held(&mut machine, &dirt, Server).is_empty());
     assert_eq!(kinds(&held(&mut machine, &dirt, Server)), completion);
+    let torch = target([1, 1, 1], "minecraft:torch", None);
+    let client = held(&mut DestroyMachine::default(), &torch, Client);
+    assert_eq!(
+        client.broken,
+        Some([1, 1, 1]),
+        "client authority predicts too"
+    );
 }
 
 #[test]
@@ -337,6 +373,134 @@ fn interruption_aborts_on_the_next_step_only() {
     for _ in 0..1_000 {
         assert!(held(&mut machine, &unknown, Server).is_empty());
     }
+}
+
+/// Creative completes on the start tick through the negotiated authority's actions only.
+#[test]
+fn an_instant_destroy_uses_the_negotiated_completion() {
+    let stone = DestroyTarget {
+        instant: true,
+        ..target([3, 4, 5], "minecraft:obsidian", None)
+    };
+    let server = held(&mut DestroyMachine::default(), &stone, Server);
+    assert_eq!(
+        kinds(&server),
+        [(StartDestroy, [3, 4, 5], 1), (PredictDestroy, [3, 4, 5], 1)]
+    );
+    assert_eq!(
+        server.destroy, None,
+        "no legacy transaction beside PredictDestroy"
+    );
+    assert_eq!(server.broken, Some([3, 4, 5]));
+    assert_eq!(machine_target(&stone), None, "instant destroys never crack");
+    let mut machine = DestroyMachine::default();
+    let client = held(&mut machine, &stone, Client);
+    assert_eq!(
+        kinds(&client),
+        [(StartDestroy, [3, 4, 5], 1), (StopDestroy, [0, 0, 0], 0)]
+    );
+    assert!(client.destroy.is_some());
+    assert_eq!(
+        kinds(&machine.step(DestroyInput::Released, STILL, Client)),
+        [(AbortDestroy, [3, 4, 5], 0)]
+    );
+}
+
+fn machine_target(target: &DestroyTarget) -> Option<([i32; 3], u8)> {
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, target, Server);
+    machine.destroying_target()
+}
+
+/// Holding attack in Creative keeps destroying: after the delay when still,
+/// per block travelled when moving.
+#[test]
+fn a_held_instant_destroy_repeats_after_the_delay_or_per_block_travelled() {
+    let instant = |position| DestroyTarget {
+        instant: true,
+        ..target(position, "minecraft:stone", None)
+    };
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, &instant([0, 0, 0]), Server);
+    let next = instant([0, -1, 0]);
+    for _ in 0..DESTROY_DELAY_TICKS {
+        assert!(held(&mut machine, &next, Server).is_empty());
+    }
+    assert_eq!(
+        kinds(&held(&mut machine, &next, Server)),
+        [
+            (ContinueDestroy, [0, -1, 0], 1),
+            (PredictDestroy, [0, -1, 0], 1)
+        ]
+    );
+    // Flying at 6 blocks/s ignores the delay and destroys past each travelled block.
+    let flying = TickMotion {
+        on_ground: false,
+        moved: 0.3,
+    };
+    let ahead = instant([0, -2, 0]);
+    let steps = (0..4)
+        .map(|_| {
+            !machine
+                .step(DestroyInput::Held(Some(&ahead)), flying, Server)
+                .is_empty()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(steps, [false, false, false, true]);
+    assert!(
+        (machine.travel - 0.2).abs() < 1e-5,
+        "the fraction carries over"
+    );
+}
+
+/// stopDestroyBlock clears the delay, so a fresh press starts at once.
+#[test]
+fn release_clears_the_destroy_delay() {
+    let torch = target([1, 1, 1], "minecraft:torch", None);
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, &torch, Server);
+    machine.step(DestroyInput::Released, STILL, Server);
+    assert_eq!(
+        kinds(&held(&mut machine, &torch, Server)),
+        [(StartDestroy, [1, 1, 1], 1), (PredictDestroy, [1, 1, 1], 1)]
+    );
+}
+
+/// Local flight reaches the destroy conditions instead of always reading grounded-or-falling.
+#[test]
+fn local_flight_exempts_the_airborne_penalty() {
+    assert!(exempt_from_airborne_penalty(Some(
+        sim::MovementMode::Flying
+    )));
+    assert!(!exempt_from_airborne_penalty(Some(
+        sim::MovementMode::Walking
+    )));
+    assert!(!exempt_from_airborne_penalty(None));
+}
+
+/// Unbreaking III damages only a quarter of rolls.
+#[test]
+fn unbreaking_suppresses_damage_by_the_reference_chance() {
+    assert!(unbreaking_keeps_damage(0, 99));
+    let kept = (0..100)
+        .filter(|roll| unbreaking_keeps_damage(3, *roll))
+        .count();
+    assert_eq!(kept, 25);
+    assert_eq!(
+        (0..100)
+            .filter(|roll| unbreaking_keeps_damage(1, *roll))
+            .count(),
+        50
+    );
+}
+
+#[test]
+fn swords_and_the_trident_cannot_destroy_in_creative() {
+    assert!(!destroys_in_creative(Some("minecraft:diamond_sword")));
+    assert!(!destroys_in_creative(Some("minecraft:trident")));
+    assert!(destroys_in_creative(Some("minecraft:diamond_pickaxe")));
+    assert!(destroys_in_creative(Some("minecraft:stick")));
+    assert!(destroys_in_creative(None));
 }
 
 pub(crate) fn completed(tick: u64) -> PhysicsMovementSample {
@@ -395,7 +559,7 @@ pub(crate) fn ticker_with_ticks(ticks: u64) -> MovementTicker {
 }
 
 #[test]
-fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
+fn each_unsent_tick_is_stepped_once() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
@@ -411,6 +575,7 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         Server,
         |tick| swings.push(tick),
         |_, _| None,
+        |_| {},
     );
     // Re-running the frame must not step the same ticks again.
     runtime.step_ticks(
@@ -419,8 +584,8 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         Server,
         |_| {},
         |_, _| None,
+        |_| {},
     );
-    ticker.retain_creative_mining(None);
     ticker.enqueue_completed_physics(completed(103)).unwrap();
     runtime.step_ticks(
         &mut ticker,
@@ -428,6 +593,7 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         Server,
         |tick| swings.push(tick),
         |_, _| None,
+        |_| {},
     );
     assert_eq!(
         swings,
@@ -482,6 +648,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
     };
     let mut runtime = SurvivalMiningRuntime::default();
     let mut ids = [-7, -9].into_iter();
+    let mut broken = Vec::new();
     for tick in 101..=103 {
         ticker.enqueue_completed_physics(completed(tick)).unwrap();
         runtime.step_ticks(
@@ -490,6 +657,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
             Server,
             |_| {},
             |_, _| ids.next(),
+            |position| broken.push(position),
         );
     }
     let mut packets = Vec::new();
@@ -510,10 +678,15 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
     // Start, crack, then completion with the first allocated id.
     assert_eq!(requests, [false, false, true]);
     assert_eq!(ids.next(), Some(-9), "only the completion allocates an id");
+    assert_eq!(
+        broken,
+        [[0, 1, -3]],
+        "the carried completion is predicted once"
+    );
 }
 
 mod gate {
-    use super::super::{blocked_mining_reason, survival_mining_active};
+    use super::super::{blocked_mining_reason, mining_active};
     use crate::game_mode_capabilities::GameModeCapabilities;
     use protocol::PlayerGameMode::{Adventure, Creative, Spectator, Survival};
 
@@ -523,7 +696,7 @@ mod gate {
     fn survival_mining_runs_regardless_of_wire_authority() {
         let survival = Some(GameModeCapabilities::for_mode(Survival));
         assert!(
-            survival_mining_active(survival, true, true),
+            mining_active(survival, true, true),
             "survival with a focused window and an input snapshot must mine"
         );
     }
@@ -531,21 +704,18 @@ mod gate {
     #[test]
     fn gate_requires_edit_focus_and_a_snapshot() {
         let survival = Some(GameModeCapabilities::for_mode(Survival));
-        assert!(!survival_mining_active(survival, false, true), "unfocused");
+        assert!(!mining_active(survival, false, true), "unfocused");
+        assert!(!mining_active(survival, true, false), "no snapshot");
+        assert!(!mining_active(None, true, true), "no game mode");
         assert!(
-            !survival_mining_active(survival, true, false),
-            "no snapshot"
-        );
-        assert!(!survival_mining_active(None, true, true), "no game mode");
-        assert!(
-            !survival_mining_active(Some(GameModeCapabilities::for_mode(Creative)), true, true),
-            "creative uses the instant-break path, not this machine"
+            mining_active(Some(GameModeCapabilities::for_mode(Creative)), true, true),
+            "creative mines through the same machine"
         );
         assert!(
-            !survival_mining_active(Some(GameModeCapabilities::for_mode(Adventure)), true, true),
+            !mining_active(Some(GameModeCapabilities::for_mode(Adventure)), true, true),
             "adventure cannot edit without a server grant"
         );
-        assert!(!survival_mining_active(
+        assert!(!mining_active(
             Some(GameModeCapabilities::for_mode(Spectator)),
             true,
             true
@@ -555,8 +725,8 @@ mod gate {
     #[test]
     fn adventure_with_build_grant_mines() {
         let mut caps = GameModeCapabilities::for_mode(Adventure);
-        caps.can_edit = true;
-        assert!(survival_mining_active(Some(caps), true, true));
+        caps.can_mine = true;
+        assert!(mining_active(Some(caps), true, true));
     }
 
     #[test]
@@ -574,17 +744,7 @@ mod gate {
                 false,
                 false
             ),
-            Some("can_edit=false for this game mode")
-        );
-        assert_eq!(
-            blocked_mining_reason(
-                Some(GameModeCapabilities::for_mode(Creative)),
-                true,
-                true,
-                false,
-                false
-            ),
-            Some("instant-break mode uses the creative path")
+            Some("can_mine=false for this game mode")
         );
         assert_eq!(
             blocked_mining_reason(survival, false, true, false, false),

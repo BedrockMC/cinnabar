@@ -20,7 +20,7 @@ use crate::local_player::{
 };
 use crate::movement::{MovementSource, PhysicsAuthorityGate};
 use crate::presentation::actors::{
-    ActorRigPresentation, actor_rig_presentation, entity_rig_presentation,
+    ActorRigPresentation, SkinLayerPack, actor_rig_presentation, entity_rig_presentation,
     local_actor_presentation_for_visibility, local_diagnostic_presentation,
     select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
@@ -223,7 +223,7 @@ fn generic_actor_without_validated_artwork_remains_explicitly_no_draw() {
     let batch = select_actor_presentations(7, false, None, [presentation]);
     assert_eq!(batch.submissions.len(), 1);
     assert_eq!(batch.submissions[0].route, ActorRigRoute::NoDraw);
-    assert!(batch.skins_rgba8.is_empty());
+    assert!(batch.skin_layers.is_empty());
     assert!(batch.artwork.is_empty());
 }
 
@@ -335,13 +335,30 @@ fn local_visibility_identity_gates_all_perspective_routes() {
 fn identical_skin_families_share_one_bounded_texture_layer() {
     let batch =
         select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 31)]);
-    assert_eq!(batch.skins_rgba8.len(), STANDARD_SKIN_BYTES);
+    assert_eq!(batch.skin_layers.len(), 1);
     assert!(
         batch
             .submissions
             .iter()
             .all(|entry| entry.texture_layer == 0)
     );
+}
+
+/// An unchanged skin set must reuse the packed payload instead of copying it every frame.
+#[test]
+fn unchanged_skin_layers_reuse_one_packed_payload() {
+    let mut pack = SkinLayerPack::default();
+    let first =
+        select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 32)]);
+    let packed = pack.pack(first.skin_layers);
+    let again =
+        select_actor_presentations(99, false, None, [render_owned(1, 31), render_owned(2, 32)]);
+    let repacked = pack.pack(again.skin_layers);
+    assert!(Arc::ptr_eq(&packed, &repacked));
+    assert_eq!(pack.rebuilds(), 1);
+    let changed = select_actor_presentations(99, false, None, [render_owned(1, 33)]);
+    assert_eq!(pack.pack(changed.skin_layers).len(), STANDARD_SKIN_BYTES);
+    assert_eq!(pack.rebuilds(), 2);
 }
 
 #[test]
@@ -357,7 +374,7 @@ fn visible_local_is_reserved_even_when_the_world_frustum_excludes_its_body() {
 
     let batch = select_actor_presentations_for_view(7, true, Some(local), [], Some(view));
     let mut scene = ActorRenderScene::default();
-    let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
+    let frame = update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
 
     assert_eq!(frame.rig.instances.len(), 1);
     assert_eq!(frame.rig.manifest[0].identity.runtime_id, 7);
@@ -416,7 +433,7 @@ fn third_person_local_fallback_reaches_the_render_manifest_without_a_physics_fra
         .expect("view-backed local visibility converts to a diagnostic rig");
         let batch = select_actor_presentations(42, snapshot.visible(), Some(local), []);
         let mut scene = ActorRenderScene::default();
-        let frame = update_actor_rig_scene(&mut scene, 0.5, batch);
+        let frame = update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
 
         assert_eq!(frame.rig.instances.len(), expected_draws);
         assert_eq!(frame.rig.manifest.len(), expected_draws);
