@@ -55,8 +55,8 @@ pub(super) struct IconBlocks {
 impl IconBlocks {
     pub(super) fn read(root: &Path) -> Result<Self, AssetError> {
         let records = read_registry_for_protocol(
-            include_bytes!("../../../assets/data/block-registry-v2168.bin"),
-            2168,
+            include_bytes!("../../../assets/data/block-registry-v2193.bin"),
+            2193,
         )?;
         let has_catalogs = root.join("blocks.json").is_file()
             && root.join("textures/terrain_texture.json").is_file();
