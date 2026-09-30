@@ -23,6 +23,7 @@ use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentatio
 
 pub(crate) mod hud_renderers;
 mod menu_renderers;
+mod screen_cache;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
@@ -60,6 +61,7 @@ pub(crate) struct FormEngine {
     pub(super) passes: [usize; 2],
     /// The title splash, picked once per launch.
     splash: std::sync::OnceLock<Option<String>>,
+    screens: screen_cache::ScreenCache,
 }
 
 pub(super) struct FormCache {
@@ -112,6 +114,7 @@ impl FormEngine {
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),
+            screens: screen_cache::ScreenCache::default(),
         }
     }
 
@@ -336,8 +339,22 @@ impl FormEngine {
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let language = (inputs.translate)("menu.play");
         render_with(self.art(), inputs, out, art, None, |env, root| {
-            render_screen(reference, &self.catalog, context, data, root, env, view)
+            let key = screen_cache::ScreenKey {
+                reference,
+                catalog: &self.catalog,
+                context,
+                data,
+                view,
+                root,
+                px,
+                language,
+            };
+            self.screens.get_or_render(key, || {
+                render_screen(reference, &self.catalog, context, data, root, env, view)
+            })
         })
     }
 }
