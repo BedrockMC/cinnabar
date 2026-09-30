@@ -12,9 +12,19 @@ impl WorldStream {
             return;
         }
 
-        self.evict_all_resident();
+        // Vanilla keeps chunk data across a teleport and drops only what the moved view no
+        // longer covers (`NetworkChunkSubscriber::moveRegion`), so overlap stays presented.
         self.transport_pending_requests = 0;
         self.publisher_center = Some(center);
+        let stale = self
+            .tracked_columns()
+            .into_iter()
+            .chain(self.request_collision_failures.iter().copied())
+            .filter(|column| !self.column_is_data_interesting(*column))
+            .collect::<BTreeSet<_>>();
+        for column in stale {
+            self.evict_column(column);
+        }
         self.committed_view_cohort = None;
         self.required_columns.clear();
         self.provisional_publisher_rebase = true;
