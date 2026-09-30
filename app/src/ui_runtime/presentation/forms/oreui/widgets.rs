@@ -401,13 +401,18 @@ pub(super) fn section_label(
     let height = canvas.r(4.8);
     let pad = canvas.r(1.6);
     let text_top = top + height - canvas.r(0.8) - canvas.r(CAPTION.line);
-    canvas.text_line(
-        label,
-        [span[0] + pad, text_top],
-        span[1] - span[0] - pad * 2.0,
-        CAPTION,
-        TEXT_DIMMER,
-    )?;
+    let width = span[1] - span[0] - pad * 2.0;
+    // The open font runs wider than vanilla's; shrink a long label to fit whole.
+    let natural = canvas.measure(label, CAPTION)?;
+    let style = if natural > width {
+        Type {
+            size: CAPTION.size * (width / natural * 0.98).max(0.6),
+            ..CAPTION
+        }
+    } else {
+        CAPTION
+    };
+    canvas.text_line(label, [span[0] + pad, text_top], width, style, TEXT_DIMMER)?;
     divider(canvas, span[0], span[1], top + height - canvas.r(EDGE))?;
     Ok(top + height)
 }

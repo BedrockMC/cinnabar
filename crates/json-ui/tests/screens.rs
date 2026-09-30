@@ -57,6 +57,8 @@ fn items(count: usize, icon: bool) -> Vec<CollectionItem> {
 
 fn chest_data() -> DataSource {
     let mut data = DataSource::new();
+    // A screen controller answers the bindings it lacks with false.
+    data.set_strict(true);
     data.set_collection("container_items", items(27, true));
     data.set_collection("inventory_items", items(27, false));
     data.set_collection("hotbar_items", items(9, false));

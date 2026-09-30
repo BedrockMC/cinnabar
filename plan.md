@@ -3,6 +3,13 @@
 Current execution order: [playable multiplayer track](docs/tracking/playable-multiplayer.md).
 This preserves the full scope below; historical snapshots are not current runtime acceptance.
 
+2026-09-30 menus: settings open the legacy JSON screen as retail does (the OreUI
+"/settings" route sits behind the off-by-default `mc-new-settings-screen` flight);
+unbound `$vars` in `ignored`/`requires` read as null like `UIEval::evalVariable`.
+Provisional, labeled incomplete: the OreUI scroll thumb's look and shrinking a
+long side-menu label to fit are approximations (no OreUI stylesheet on hand), and
+unbacked settings show fixed vanilla defaults.
+
 2026-09-28 inventory and crafting: the ledger follows the owner's Lunar engine
 (pipelined in-order requests, prediction groups, vanilla container addressing),
 with 2x2 and crafting-table crafting, creative take, number-key swap and drops;

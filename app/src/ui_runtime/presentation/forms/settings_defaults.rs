@@ -78,4 +78,13 @@ pub(super) fn bind(data: &mut DataSource, translate: &dyn Fn(&str) -> String) {
     for toggle in TOGGLES_ON {
         data.set_global(*toggle, Scalar::Bool(true));
     }
+    // With no global packs, `ResourcePacksScreenController`'s cycling icon falls
+    // back to the vanilla pack's (`ResourcePack::getIconPath`).
+    data.set_global(
+        "#cycling_icon_path_global",
+        Scalar::Text(format!(
+            "{}pack_icon.png",
+            super::server_pack::VANILLA_IN_PACKAGE
+        )),
+    );
 }

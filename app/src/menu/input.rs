@@ -1,8 +1,10 @@
 use bevy::{
+    ecs::message::{MessageCursor, Messages},
     input::{
         ButtonState,
         gamepad::{Gamepad, GamepadButton},
         keyboard::KeyboardInput,
+        mouse::{MouseScrollUnit, MouseWheel},
         touch::Touches,
     },
     prelude::{
@@ -218,18 +220,29 @@ impl MenuRuntime {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
     mut keyboard_messages: MessageReader<KeyboardInput>,
+    wheel_messages: Option<Res<Messages<MouseWheel>>>,
+    mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
-    presentation: Res<UiPresentationRuntime>,
+    mut presentation: ResMut<UiPresentationRuntime>,
     mut clipboard: ResMut<MenuClipboard>,
     mut menu: ResMut<MenuRuntime>,
     runtime: Option<Res<crate::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    let wheel: Vec<(f32, bool)> = wheel_messages
+        .as_deref()
+        .map(|messages| {
+            wheel_cursor
+                .read(messages)
+                .map(|wheel| (wheel.y, wheel.unit == MouseScrollUnit::Pixel))
+                .collect()
+        })
+        .unwrap_or_default();
     if runtime.as_ref().is_some_and(|runtime| {
         runtime.server_forms().owns_input()
             && (!menu.is_visible() || runtime.server_forms().settings_form_active())
@@ -272,15 +285,30 @@ pub(crate) fn drive_menu_input(
     modifiers.capture_pressed(&keys);
     cursor.grab_mode = CursorGrabMode::None;
     cursor.visible = true;
-    menu.hovered = window
+    let pointer = window
         .cursor_position()
-        .and_then(|position| UiPoint::new(position.x, position.y).ok())
-        .and_then(|position| presentation.hit_test_menu(position));
+        .and_then(|position| UiPoint::new(position.x, position.y).ok());
+    menu.hovered = pointer.and_then(|position| presentation.hit_test_menu(position));
     let pointer_pressed = mouse_buttons.pressed(MouseButton::Left);
     let pointer_just_pressed =
         mouse_buttons.just_pressed(MouseButton::Left) || (pointer_pressed && !menu.pointer_down);
     menu.pointer_down = pointer_pressed;
-    if pointer_just_pressed && let Some(action) = menu.hovered {
+    if let Some(point) = pointer {
+        for (notches, pixels) in wheel {
+            presentation.scroll_menu(point, notches, pixels);
+        }
+    }
+    // A scrollbar press or drag scrolls instead of pressing what lies beneath.
+    let on_scrollbar = presentation.drag_menu_scroll(pointer, pointer_pressed)
+        || (pointer_just_pressed
+            && pointer.is_some_and(|point| presentation.press_menu_scrollbar(point)));
+    if on_scrollbar {
+        menu.hovered = None;
+    }
+    if pointer_just_pressed
+        && !on_scrollbar
+        && let Some(action) = menu.hovered
+    {
         menu.activate(action);
     }
     for touch in touches.iter_just_pressed() {
