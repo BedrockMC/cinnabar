@@ -118,7 +118,12 @@ impl Simulator {
         }
         let grounded_at_start = next.on_ground;
         let retained_collisions = next.collisions;
-        let sampled = sample(world, next.position, next.velocity)?;
+        let sampled = sample(
+            world,
+            next.position,
+            next.velocity,
+            input.mode.hitbox_height(input.sneaking),
+        )?;
         if matches!(
             input.mode,
             MovementMode::Swimming
@@ -160,14 +165,14 @@ impl Simulator {
                     1.0
                 };
             speed * ground_factor * (0.162_771_36 / (friction * friction * friction))
-        } else if sampled.movement.in_water || sampled.movement.in_lava {
-            let base = DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor;
-            if sampled.movement.in_water && depth_strider > 0.0 {
-                let ground = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED);
-                base + (ground - base) * depth_strider
-            } else {
-                base
-            }
+        } else if sampled.movement.in_water {
+            water_travel_speed(
+                &input,
+                sampled.movement.horizontal_speed_factor,
+                depth_strider,
+            )
+        } else if sampled.movement.in_lava {
+            DEFAULT_AIR_SPEED * sampled.movement.horizontal_speed_factor
         } else if input.sprinting {
             SPRINT_AIR_SPEED
         } else {
@@ -410,6 +415,18 @@ impl Simulator {
 }
 
 /// Depth strider's pull of water travel toward ground travel, `0..=1`; halved airborne.
+/// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+/// movement speed by the Depth Strider share `depth_strider`.
+fn water_travel_speed(
+    input: &MovementInput,
+    horizontal_speed_factor: f64,
+    depth_strider: f64,
+) -> f64 {
+    let base = DEFAULT_AIR_SPEED * horizontal_speed_factor;
+    let ground = input.movement_speed.unwrap_or(DEFAULT_MOVEMENT_SPEED);
+    base + (ground - base) * depth_strider
+}
+
 fn depth_strider_blend(level: u8, grounded: bool) -> f64 {
     let blend = f64::from(level.min(DEPTH_STRIDER_MAX_LEVEL)) / f64::from(DEPTH_STRIDER_MAX_LEVEL);
     if grounded { blend } else { blend * 0.5 }

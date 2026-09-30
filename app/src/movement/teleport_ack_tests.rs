@@ -50,6 +50,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
+        sneak_button: false,
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,
@@ -204,6 +205,7 @@ fn a_confirming_correction_mutates_no_acknowledgement_state() {
         network_position,
         101,
         true,
+        None,
         &VersionedFloor(1),
     )
     .unwrap();

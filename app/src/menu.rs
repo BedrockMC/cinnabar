@@ -11,6 +11,7 @@ mod account_control;
 pub(crate) mod auth;
 mod connection;
 pub(crate) mod core_process;
+pub(crate) mod disconnect;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
@@ -537,8 +538,10 @@ impl MenuRuntime {
         self.field = None;
         self.text_selected = false;
         self.settings_return_to_pause = false;
-        self.message = Some(session_failure_message(error));
-        self.disconnect_message = self.message.clone();
+        // The raw chain is for the log; the disconnect screen words it as vanilla does.
+        bevy::log::warn!(error, "session ended");
+        self.message = None;
+        self.disconnect_message = Some(error.to_owned());
         // Let the account catalog repopulate now that the session is gone.
         self.catalog_started = false;
         true
@@ -911,19 +914,6 @@ impl Drop for MenuRuntime {
 }
 
 /// Condenses a runtime error into something that fits the menu message area.
-fn session_failure_message(error: &str) -> String {
-    const MAX_DETAIL_CHARS: usize = 120;
-    let detail = error.trim();
-    if detail.is_empty() {
-        return "Disconnected from the server.".to_owned();
-    }
-    let mut condensed: String = detail.chars().take(MAX_DETAIL_CHARS).collect();
-    if detail.chars().count() > MAX_DETAIL_CHARS {
-        condensed.push('…');
-    }
-    format!("Disconnected: {condensed}")
-}
-
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -193,6 +193,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		case errors.Is(err, ErrInvalidTarget):
 			return fail(codeInvalidTarget, "Invalid target")
 		}
+		server.logServiceFailure(method, err)
 		return fail(codeServiceFailed, "Service unavailable")
 	}
 	switch method {

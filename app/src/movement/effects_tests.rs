@@ -253,9 +253,12 @@ fn replay_and_hard_reanchor_do_not_rewind_authoritative_countdown() {
     let corrected = frame.samples[0].clone();
     physics
         .apply_correction(
-            corrected.position,
-            corrected.tick,
-            false,
+            super::PhysicsAnchor {
+                network_position: corrected.position,
+                tick: corrected.tick,
+                on_ground: false,
+                velocity: None,
+            },
             PhysicsCorrectionMode::ReplayIfRetained,
             None,
             &EmptyWorld,

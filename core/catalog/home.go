@@ -34,6 +34,58 @@ type Home struct {
 	LiveEvents   []LiveEvent `json:"live_events"`
 	PersonaHead  Image       `json:"persona_head"`
 	Errors       []string    `json:"errors,omitempty"`
+	failed       homePart
+}
+
+// homePart marks one independently fetched part of Home.
+type homePart uint8
+
+const (
+	partInvites homePart = 1 << iota
+	partTreatments
+	partMessages
+	partEvents
+	partPersona
+	partServices = partTreatments | partMessages | partEvents | partPersona
+	allHomeParts = partInvites | partServices
+)
+
+// Failed reports whether no part of a fetched Home succeeded.
+func (h Home) Failed() bool { return h.failed == allHomeParts }
+
+// Refill returns h with its failed parts taken from previous, so a partial refresh keeps the
+// last good data.
+func (h Home) Refill(previous Home) Home {
+	if h.failed&partInvites != 0 {
+		h.RealmInvites = previous.RealmInvites
+	}
+	if h.failed&partTreatments != 0 {
+		h.Treatments = previous.Treatments
+	}
+	if h.failed&partMessages != 0 {
+		h.Messages, h.Inbox = previous.Messages, previous.Inbox
+	}
+	if h.failed&partEvents != 0 {
+		h.LiveEvents = previous.LiveEvents
+	}
+	if h.failed&partPersona != 0 {
+		h.PersonaHead = previous.PersonaHead
+	}
+	return h
+}
+
+// HomeImages lists the artwork of home for CacheImages.
+func HomeImages(home *Home) []*Image {
+	var images []*Image
+	for index := range home.Messages {
+		for image := range home.Messages[index].Images {
+			images = append(images, &home.Messages[index].Images[image].Image)
+		}
+	}
+	for index := range home.LiveEvents {
+		images = append(images, &home.LiveEvents[index].Badge, &home.LiveEvents[index].EventImage)
+	}
+	return append(images, &home.PersonaHead)
 }
 
 // Message is one player-messaging message; Surface places it (PlayButton,
@@ -145,32 +197,38 @@ func HomeFeed(ctx context.Context, src oauth2.TokenSource, session *MessagingSes
 	if src == nil {
 		return home, errors.New("catalog authentication token source is nil")
 	}
+	fail := func(part homePart, name string, err error) {
+		home.failed |= part
+		home.Errors = append(home.Errors, name+": "+err.Error())
+	}
 	if count, err := realmInvites(ctx, src); err != nil {
-		home.Errors = append(home.Errors, "Realms invites: "+err.Error())
+		fail(partInvites, "Realms invites", err)
 	} else {
 		home.RealmInvites = count
 	}
 	err := withServices(ctx, src, func(s *serviceSession) error {
 		if token, err := s.tokens.ServiceToken(ctx); err == nil {
 			home.Treatments = append(home.Treatments, token.Treatments...)
+		} else {
+			home.failed |= partTreatments
 		}
 		if err := s.messages(ctx, session, &home); err != nil {
-			home.Errors = append(home.Errors, "Messaging: "+err.Error())
+			fail(partMessages, "Messaging", err)
 		}
 		if events, err := s.liveEvents(ctx); err != nil {
-			home.Errors = append(home.Errors, "Live events: "+err.Error())
+			fail(partEvents, "Live events", err)
 		} else {
 			home.LiveEvents = events
 		}
 		if head, err := s.personaHead(ctx, artworkDir); err != nil {
-			home.Errors = append(home.Errors, "Persona: "+err.Error())
+			fail(partPersona, "Persona", err)
 		} else {
 			home.PersonaHead = head
 		}
 		return nil
 	})
 	if err != nil {
-		home.Errors = append(home.Errors, "Services: "+err.Error())
+		fail(partServices, "Services", err)
 	}
 	return home, nil
 }

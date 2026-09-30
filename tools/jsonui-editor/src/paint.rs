@@ -380,6 +380,7 @@ mod tests {
             layer: 0,
             alpha: 0.5,
             fades: Vec::new(),
+            flip_book: None,
             draw,
         }
     }

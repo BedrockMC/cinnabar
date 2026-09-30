@@ -331,11 +331,14 @@ impl ActorStore {
                             / elapsed_seconds
                     })
                 };
-                actor.velocity = if derived_velocity.iter().all(|value| value.is_finite()) {
-                    derived_velocity
-                } else {
-                    [0.0; 3]
-                };
+                // A rotation-only move carries no displacement to derive from.
+                if movement.position.iter().any(Option::is_some) {
+                    actor.velocity = if derived_velocity.iter().all(|value| value.is_finite()) {
+                        derived_velocity
+                    } else {
+                        [0.0; 3]
+                    };
+                }
                 actor.received_pose = received;
                 if movement.teleported {
                     actor.previous_pose = received;
@@ -615,19 +618,26 @@ impl ActorStore {
         dimension: i32,
         movement: MovePlayerEvent,
     ) -> ActorApplyResult {
+        // `Player::handleMovePlayerPacket`: Reset sets the position directly and
+        // Rotation turns the player without any position request.
+        let rotation_only = movement.mode == protocol::MovePlayerMode::Rotation;
         self.apply(
             session_id,
             sequence,
             ActorEvent::Move(ActorMoveEvent {
                 dimension,
                 runtime_id: movement.runtime_id,
-                position: movement.position.map(Some),
+                position: if rotation_only {
+                    [None; 3]
+                } else {
+                    movement.position.map(Some)
+                },
                 position_origin: ActorPositionOrigin::NetworkOffset,
                 pitch: Some(movement.pitch),
                 yaw: Some(movement.yaw),
                 head_yaw: Some(movement.head_yaw),
                 on_ground: Some(movement.on_ground),
-                teleported: movement.teleported,
+                teleported: movement.teleported || movement.mode == protocol::MovePlayerMode::Reset,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),
             }),

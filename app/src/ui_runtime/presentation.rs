@@ -151,7 +151,9 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_source: Option<IconRef>,
     held_viewmodel_icon: Option<IconRef>,
     offhand_viewmodel_icon: Option<IconRef>,
-    menu_artwork_paths: Vec<String>,
+    menu_artwork_paths: Vec<(String, u32)>,
+    /// This frame's clock in seconds, for menu animations painted over cached layouts.
+    menu_seconds: f64,
     /// Engine textures too big for a server page, keyed by texture path.
     menu_artwork_oversized: Vec<(String, Arc<[u8]>)>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
@@ -245,6 +247,7 @@ impl UiPresentationRuntime {
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
             menu_artwork_paths: Vec::new(),
+            menu_seconds: 0.0,
             menu_artwork_oversized: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             // The title logo loads before any service art arrives.
@@ -307,7 +310,7 @@ impl UiPresentationRuntime {
     }
 
     /// Service art at `paths`, plus the engine's oversized textures, on the art pages.
-    pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<String>) {
+    pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<(String, u32)>) {
         let oversized = self.oversized_ui_textures();
         let same_oversized = oversized.len() == self.menu_artwork_oversized.len()
             && oversized
@@ -498,6 +501,7 @@ impl UiPresentationRuntime {
             self.close_chat_screen();
         }
 
+        self.menu_seconds = now_millis as f64 / 1_000.0;
         let menu_hit_targets = self.append_menu(
             runtime,
             &mut nodes,

@@ -200,6 +200,29 @@ impl<'a> Canvas<'a> {
         Ok(height)
     }
 
+    /// `value` on one line from `at`, cut with an ellipsis to fit `width`.
+    pub(super) fn text_line(
+        &mut self,
+        value: &str,
+        at: [f32; 2],
+        width: f32,
+        style: Type,
+        color: Rgba,
+    ) -> Result<f32, UiPresentationError> {
+        if self.measure(value, style)? <= width {
+            return self.text(value, at, width + 1.0, style, color, false);
+        }
+        let mut cut: Vec<char> = value.chars().collect();
+        while !cut.is_empty() {
+            cut.pop();
+            let shown = format!("{}…", cut.iter().collect::<String>().trim_end());
+            if self.measure(&shown, style)? <= width {
+                return self.text(&shown, at, width + 1.0, style, color, false);
+            }
+        }
+        Ok(0.0)
+    }
+
     /// The width `value` lays out to in `style`.
     pub(super) fn measure(&mut self, value: &str, style: Type) -> Result<f32, UiPresentationError> {
         let mut request = self.metrics.request(value, 65_536 * 64, self.font);

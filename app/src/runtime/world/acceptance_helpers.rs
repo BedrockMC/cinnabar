@@ -17,6 +17,7 @@ pub(crate) fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::Weather { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
+        | CommittedControlEvent::LocalMovementFlags { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => return false,

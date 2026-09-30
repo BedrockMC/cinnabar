@@ -286,7 +286,12 @@ fn compare(operator: &Token, left: &Operand, right: &Operand) -> Option<bool> {
         Token::Eq => match (left, right) {
             (Str(a), Str(b)) => a == b,
             (Num(a), Num(b)) => a == b,
-            (Bool(_), _) | (_, Bool(_)) => left.as_bool()? == right.as_bool()?,
+            // A bool against text or a number compares truthiness, so an unset
+            // (false) binding equals `''` as an empty controller string does.
+            (Bool(_), _) | (_, Bool(_)) => {
+                left.as_bool().unwrap_or_else(|| truthy(left))
+                    == right.as_bool().unwrap_or_else(|| truthy(right))
+            }
             // A numeric string compares as its number; other text against a
             // number is equal only when both read as false.
             (Str(text), Num(number)) | (Num(number), Str(text)) => match reparse(text.clone()) {
@@ -336,7 +341,30 @@ struct Parser<'a> {
     bindings: &'a dyn Bindings,
 }
 
+/// `(...)` wrapping the whole text: an expression, not a string value.
+fn is_expression(text: &str) -> bool {
+    let text = text.trim();
+    text.len() > 2 && text.starts_with('(') && text.ends_with(')')
+}
+
 impl Parser<'_> {
+    /// Evaluate a variable's expression one level deeper, undecidable past the nesting bound.
+    fn sub_expression(&self, text: &str) -> Option<Operand> {
+        if self.depth >= MAX_NESTING || text.len() > MAX_BYTES {
+            return None;
+        }
+        let tokens = tokenize(text)?;
+        let mut parser = Parser {
+            tokens: &tokens,
+            pos: 0,
+            depth: self.depth + 1,
+            env: self.env,
+            bindings: self.bindings,
+        };
+        let value = parser.parse_or()?;
+        (parser.pos == parser.tokens.len()).then_some(value)
+    }
+
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }
@@ -497,6 +525,9 @@ impl Parser<'_> {
             let name = name.split_once('|').map_or(name, |(name, _)| name);
             return match self.env.get(name)? {
                 Value::Bool(value) => Some(Operand::Bool(*value)),
+                // A variable holding a parenthesised expression evaluates it, as
+                // `$include_world_section: "($a and $b)"` does in vanilla.
+                Value::String(text) if is_expression(text) => self.sub_expression(text),
                 Value::String(text) => Some(Operand::Str(text.clone())),
                 Value::Number(number) => number.as_f64().map(Operand::Num),
                 _ => None,
@@ -510,6 +541,26 @@ impl Parser<'_> {
             return Some(Operand::Num(number));
         }
         Some(Operand::Str(word.to_owned()))
+    }
+}
+
+#[cfg(test)]
+mod expression_variable_tests {
+    use super::eval;
+    use crate::env::Env;
+    use serde_json::json;
+
+    // A variable holding an expression evaluates it; a self-reference stays undecidable.
+    #[test]
+    fn expression_variables_evaluate() {
+        let mut env = Env::new();
+        env.set("a", json!(false));
+        env.set("b", json!(true));
+        env.set("both", json!("($a and $b)"));
+        env.set("loop", json!("(not $loop)"));
+        assert_eq!(eval("(not $both)", &env), Some(true));
+        assert_eq!(eval("$loop", &env), None);
+        assert_eq!(eval("($a = '')", &env), Some(true));
     }
 }
 
