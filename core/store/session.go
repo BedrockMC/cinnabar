@@ -2,54 +2,15 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"strings"
 	"sync"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/sandertv/gophertunnel/minecraft/service"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
-
-const (
-	defaultBaseURI = "https://store.mktpl.minecraft-services.net"
-	allowedHostTLD = ".minecraft-services.net"
-)
-
-// environmentNames are the discovery service names tried, in order, for the store base URI.
-var environmentNames = []string{"store", "marketplace", "mktpl"}
-
-// baseURL picks the store service URI from discovery, falling back to the production host. Only
-// https hosts under the Mojang services domain are accepted so the service token never leaves it.
-func baseURL(disc *service.Discovery) *url.URL {
-	if disc != nil {
-		for _, name := range environmentNames {
-			raw, ok := disc.ServiceEnvironments[name]["prod"]
-			if !ok {
-				continue
-			}
-			var env struct {
-				ServiceURI string `json:"serviceUri"`
-			}
-			if json.Unmarshal(raw, &env) != nil {
-				continue
-			}
-			if u, err := url.Parse(env.ServiceURI); err == nil && trustedHost(u) {
-				return u
-			}
-		}
-	}
-	u, _ := url.Parse(defaultBaseURI)
-	return u
-}
-
-func trustedHost(u *url.URL) bool {
-	host := strings.ToLower(u.Hostname())
-	return u.Scheme == "https" && strings.HasSuffix(host, allowedHostTLD) && u.User == nil
-}
 
 // Open returns a Client on the account's shared PlayFab session and service token; the account owns
 // both, so closing the Client releases nothing.
@@ -67,6 +28,14 @@ func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: discover services: %w", err)
 	}
+	storeEnv := new(marketplace.Environment)
+	if err := discovery.Environment(storeEnv); err != nil {
+		return nil, fmt.Errorf("store: resolve store service: %w", err)
+	}
+	market, err := storeEnv.New(account)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
 	env, err := account.Environment(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("store: resolve authorization service: %w", err)
@@ -76,8 +45,7 @@ func Open(ctx context.Context, account *authcache.Account) (*Client, error) {
 		return nil, fmt.Errorf("store: %w", err)
 	}
 	return NewClient(Config{
-		BaseURL:  baseURL(discovery),
-		Tokens:   account,
+		Market:   market,
 		Catalog:  pf.Catalog(),
 		Identity: Identity{XUID: xuid, TitleID: string(env.PlayFabTitleID)},
 	})
