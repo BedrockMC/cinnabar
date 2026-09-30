@@ -131,6 +131,10 @@ impl FrozenBlockObservation {
     }
 }
 
+/// The ray or world evidence behind a block observation is stale or unreadable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BlockRayUnavailable;
+
 pub(crate) fn observe_block(
     origin: &InteractionOriginSnapshot,
     ui: &UiRuntime,
@@ -139,19 +143,33 @@ pub(crate) fn observe_block(
     selection: FrozenMiningSelection,
     input: (PlayerInputMode, f64, (NonZeroU64, u64), u64),
 ) -> Option<FrozenBlockObservation> {
+    observe_block_ray(origin, ui, client_world, collisions, selection, input)
+        .ok()
+        .flatten()
+}
+
+/// The nearest block on the current ray; `Ok(None)` only for a verified clear ray.
+pub(crate) fn observe_block_ray(
+    origin: &InteractionOriginSnapshot,
+    ui: &UiRuntime,
+    client_world: &ClientWorld,
+    collisions: &PhysicsCollisionRegistries,
+    selection: FrozenMiningSelection,
+    input: (PlayerInputMode, f64, (NonZeroU64, u64), u64),
+) -> Result<Option<FrozenBlockObservation>, BlockRayUnavailable> {
     let (
         input_mode,
         reach,
         (input_authority_generation, input_frame_sequence),
         position_authority_generation,
     ) = input;
-    let ray = origin.outbound_ray()?;
-    let stream = client_world.stream.as_ref()?;
+    let ray = origin.outbound_ray().ok_or(BlockRayUnavailable)?;
+    let stream = client_world.stream.as_ref().ok_or(BlockRayUnavailable)?;
     if ray.session_generation() != ui.session_id()
         || ray.session_generation() != stream.actor_session_id()
         || stream.committed_sequence() != ray.fifo_sequence()
     {
-        return None;
+        return Err(BlockRayUnavailable);
     }
     let vector = |value: bevy::prelude::Vec3| {
         Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
@@ -161,10 +179,13 @@ pub(crate) fn observe_block(
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
     );
-    let hit = world
+    let Some(hit) = world
         .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
-        .ok()??;
-    Some(FrozenBlockObservation {
+        .map_err(|_| BlockRayUnavailable)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(FrozenBlockObservation {
         frame: FrozenMiningFrame {
             session_generation: ray.session_generation(),
             position_authority_generation,
@@ -194,7 +215,7 @@ pub(crate) fn observe_block(
             runtime_id: hit.runtime_id,
             identity: hit.identity,
         },
-    })
+    }))
 }
 
 #[cfg(test)]

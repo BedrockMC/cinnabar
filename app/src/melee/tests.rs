@@ -290,3 +290,31 @@ fn a_sizeless_player_is_picked() {
     let hit = pick_actor([player].iter(), None, EYE, NORTH, 5.7).unwrap();
     assert_eq!(hit.runtime_id, 6);
 }
+
+/// A press waiting on unavailable block evidence survives briefly, then expires.
+#[test]
+fn a_press_deferred_on_unavailable_block_evidence_is_bounded() {
+    let mut runtime = MeleeRuntime::default();
+    runtime.observe_input(true, true);
+    runtime.defer(10);
+    runtime.defer(10 + MAX_PENDING_INTERACTION_FRAMES);
+    let outcome = runtime.resolve(
+        ZOMBIE,
+        &press(PlayerInputMode::Mouse),
+        &mut SwingTracker::default(),
+    );
+    assert_eq!(outcome.packets.len(), 2, "the deferred press still attacks");
+
+    runtime.observe_input(true, true);
+    runtime.defer(50);
+    runtime.defer(51 + MAX_PENDING_INTERACTION_FRAMES);
+    let outcome = runtime.resolve(
+        ZOMBIE,
+        &press(PlayerInputMode::Mouse),
+        &mut SwingTracker::default(),
+    );
+    assert!(
+        outcome.packets.is_empty(),
+        "a press stale past the bound is dropped"
+    );
+}
