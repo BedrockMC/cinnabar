@@ -611,8 +611,9 @@ re-measured on BDS 1.26.52.3. **Provisional, incomplete against vanilla:**
 - `shelf_mushroom` and `straw_bed` (retail in 1.26.50) have no reviewed fact
   source and stay reserved (invisible, passable).
 - The world/resource pack stays on `v1.26.30.32-preview`, so 1.26.50 blocks lack
-  textures; bedrock-samples `v1.26.50.4` exists but the pack bump (HUD, JSON-UI,
-  lang and visual pins) is a separate migration.
+  textures and `dappled_forest` compiles no biome rule (fallback tint);
+  bedrock-samples `v1.26.50.4` exists but the pack bump (HUD, JSON-UI, lang and
+  visual pins) is a separate migration.
 
 **Protocol-2168 target cutover (2026-08-26).** One canonical
 `assets/bedrock-target.json` now owns the active game/protocol/codec identity,
