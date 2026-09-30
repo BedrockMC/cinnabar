@@ -22,6 +22,7 @@ bevy = { workspace = true, default-features = false, features = [
     "std",
 ] }
 crossbeam-channel = "0.5"
+fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 client-world = { path = "../crates/client-world" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 json-ui = { path = "../crates/json-ui" }
@@ -41,6 +42,8 @@ thiserror.workspace = true
 url = "2"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 ui = { path = "../crates/ui" }
+wgpu = { version = "27.0.1", default-features = false, features = ["wgsl"] }
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
 
 [target.'cfg(unix)'.dependencies]
