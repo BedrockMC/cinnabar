@@ -125,7 +125,7 @@ pub fn layout_with<'a>(
     LENGTH_MEMO.with(|memo| memo.borrow_mut().clear());
     measure::reset();
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
-    let own = resolve_size(root, screen, intrinsic(root, env, None), env);
+    let own = resolve_size(root, screen, intrinsic(root, env, [None; 2]), env);
     let rect = place_by_anchor(root, screen, own, env);
     let mut ctx = PlaceCtx {
         env,
@@ -326,54 +326,81 @@ fn stack_children<'a>(
     let mut fixed_total = 0.0;
     let mut fill_count = 0usize;
     for child in &parent.children {
-        let content = content_extent(child, env, None);
-        let child_max = children_max(child, env, None);
+        let content = content_extent(child, env, [None; 2]);
         let nat = natural(child, env, None);
-        let cross_ctx = axis_context(
-            parent_cross,
-            None,
-            content,
-            child_max,
-            sibling_max,
-            nat,
-            cross,
-        );
-        let mut cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
-        let inherit = match cross {
-            Axis::X => "inherit_max_sibling_width",
-            Axis::Y => "inherit_max_sibling_height",
+        let cross_of = |main_size: Option<f64>| {
+            let other = main_size.map(|size| (main, size));
+            let own = known_size(other);
+            let content = content_extent(child, env, own);
+            let cross_ctx = axis_context(
+                parent_cross,
+                other,
+                content,
+                children_max(child, env, own),
+                sibling_max,
+                nat,
+                cross,
+            );
+            let mut cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
+            let inherit = match cross {
+                Axis::X => "inherit_max_sibling_width",
+                Axis::Y => "inherit_max_sibling_height",
+            };
+            if matches!(child.properties.get(inherit), Some(Value::Bool(true))) {
+                cross_size = cross_size.max(axis_pick(sibling_max, cross));
+            }
+            clamp_axis(child, parent_rect, cross, cross_size, content, nat)
         };
-        if matches!(child.properties.get(inherit), Some(Value::Bool(true))) {
-            cross_size = cross_size.max(axis_pick(sibling_max, cross));
-        }
-        cross_size = clamp_axis(child, parent_rect, cross, cross_size, content, nat);
-        // A vertical stack knows each child's width before its height, so wrapped
-        // text and `%c` content measure at that width.
-        let known_width = (main == Axis::Y).then_some(cross_size);
-        let main_ctx = axis_context(
-            parent_main,
-            Some((cross, cross_size)),
-            content_extent(child, env, known_width),
-            children_max(child, env, known_width),
-            sibling_max,
-            natural(child, env, known_width),
-            main,
-        );
-        // An invisible stack child collapses instead of holding its slot.
-        let resolved = if visible(child) {
-            eval_length(child, main, &main_ctx)
+        let main_of = |cross_size: Option<f64>| {
+            // A child's cross size is known before its main size, so wrapped text
+            // and `%c` content measure at it.
+            let own = known_size(cross_size.map(|size| (cross, size)));
+            let main_ctx = axis_context(
+                parent_main,
+                cross_size.map(|size| (cross, size)),
+                content_extent(child, env, own),
+                children_max(child, env, own),
+                sibling_max,
+                natural(child, env, own[0]),
+                main,
+            );
+            // An invisible stack child collapses instead of holding its slot;
+            // `max_size`/`min_size` bound a visible one (the start screen's
+            // signing-in label wraps at 120px).
+            if !visible(child) {
+                return Resolved::Pixels(0.0);
+            }
+            match eval_length(child, main, &main_ctx) {
+                Resolved::Pixels(value) => {
+                    Resolved::Pixels(clamp_axis(child, parent_rect, main, value, content, nat))
+                }
+                Resolved::Fill => Resolved::Fill,
+            }
+        };
+        // The cross size resolves first unless it depends on the main size: a
+        // vertical stack child whose width follows its height, or a horizontal
+        // one whose height reads its width (`[20, "100%x"]`).
+        let main_first = match main {
+            Axis::Y => height_first(child),
+            Axis::X => {
+                !height_first(child)
+                    && axis_units(child, Axis::Y)
+                        .is_some_and(|units| units.contains(&expr::Unit::PercentX))
+            }
+        };
+        let (cross_size, resolved) = if main_first {
+            let resolved = main_of(None);
+            let main_size = match resolved {
+                Resolved::Pixels(value) => Some(value),
+                Resolved::Fill => None,
+            };
+            (cross_of(main_size), resolved)
         } else {
-            Resolved::Pixels(0.0)
+            let cross_size = cross_of(None);
+            (cross_size, main_of(Some(cross_size)))
         };
         match resolved {
             Resolved::Pixels(value) => {
-                // `max_size`/`min_size` bound a stack child too (the start
-                // screen's signing-in label wraps at 120px).
-                let value = if visible(child) {
-                    clamp_axis(child, parent_rect, main, value, content, nat)
-                } else {
-                    value
-                };
                 fixed_total += value;
                 main_sizes.push(Some(value));
             }
@@ -439,28 +466,28 @@ fn resolve_size(
     sibling_max: [f64; 2],
     env: &LayoutEnv,
 ) -> [f64; 2] {
-    let width_ctx = axis_context(
-        parent_rect.w,
-        None,
-        content_extent(control, env, None),
-        children_max(control, env, None),
-        sibling_max,
-        natural(control, env, None),
-        Axis::X,
-    );
-    let width = pixels_or(eval_length(control, Axis::X, &width_ctx), parent_rect.w);
-    let content = content_extent(control, env, Some(width));
+    let axis = |axis: Axis, other: Option<(Axis, f64)>| {
+        let parent = axis_of(parent_rect, axis);
+        let own = known_size(other);
+        let ctx = axis_context(
+            parent,
+            other,
+            content_extent(control, env, own),
+            children_max(control, env, own),
+            sibling_max,
+            natural(control, env, own[0]),
+            axis,
+        );
+        pixels_or(eval_length(control, axis, &ctx), parent)
+    };
+    let [width, height] = in_dependency_order(control, axis);
+    let own = if height_first(control) {
+        [Some(width), Some(height)]
+    } else {
+        [Some(width), None]
+    };
+    let content = content_extent(control, env, own);
     let nat = natural(control, env, Some(width));
-    let height_ctx = axis_context(
-        parent_rect.h,
-        Some((Axis::X, width)),
-        content,
-        children_max(control, env, Some(width)),
-        sibling_max,
-        nat,
-        Axis::Y,
-    );
-    let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), parent_rect.h);
     let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, true);
     for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
         .into_iter()
@@ -471,6 +498,58 @@ fn resolve_size(
         }
     }
     size
+}
+
+/// `[w, h]` from `resolve(axis, other_axis)`, width first unless [`height_first`].
+fn in_dependency_order(
+    control: &ResolvedControl,
+    mut resolve: impl FnMut(Axis, Option<(Axis, f64)>) -> f64,
+) -> [f64; 2] {
+    if height_first(control) {
+        let height = resolve(Axis::Y, None);
+        [resolve(Axis::X, Some((Axis::Y, height))), height]
+    } else {
+        let width = resolve(Axis::X, None);
+        [width, resolve(Axis::Y, Some((Axis::X, width)))]
+    }
+}
+
+/// Whether the height resolves before the width: the width reads the height
+/// (`["100%y", 32]`), or reads children that may, while the height reads neither.
+fn height_first(control: &ResolvedControl) -> bool {
+    use expr::Unit::{PercentChildren, PercentChildrenMax, PercentX, PercentY};
+    let height_free = matches!(
+        axis_units(control, Axis::Y),
+        Some(units) if !units.iter().any(|unit| matches!(unit, PercentX | PercentChildren | PercentChildrenMax))
+    );
+    height_free
+        && axis_units(control, Axis::X).is_some_and(|units| {
+            units
+                .iter()
+                .any(|unit| matches!(unit, PercentY | PercentChildren | PercentChildrenMax))
+        })
+}
+
+/// The units the size on `axis` sums, or `None` for `default`/`fill`.
+fn axis_units(control: &ResolvedControl, axis: Axis) -> Option<Vec<expr::Unit>> {
+    memo_length(
+        control,
+        axis_index(axis) as u8,
+        || Some(length(control, axis)),
+        |length| match length {
+            Some(Length::Terms(terms)) => Some(terms.iter().map(|term| term.unit).collect()),
+            _ => None,
+        },
+    )
+}
+
+/// The control's `[width, height]` as far as `other` carries it.
+fn known_size(other: Option<(Axis, f64)>) -> [Option<f64>; 2] {
+    match other {
+        Some((Axis::X, width)) => [Some(width), None],
+        Some((Axis::Y, height)) => [None, Some(height)],
+        None => [None; 2],
+    }
 }
 
 /// `size` on `axis` after the control's min/max bounds on that axis.
@@ -531,7 +610,7 @@ std::thread_local! {
     /// that width, but `content_extent`/`children_max` each re-derive it, so without
     /// this the cost is exponential in tree depth. The borrowed tree is stable for
     /// one `layout` call; `layout` clears the memo first.
-    static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u64), [f64; 2]>> =
+    static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u64, u64), [f64; 2]>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -583,15 +662,16 @@ fn eval_bound(
 /// Intrinsic size used when a parent aggregates this child for its own `%c`/`%cm`.
 /// With `parent_width` known, percent widths resolve against it (so wrapped text
 /// measures correctly); unknown parent-relative units resolve to zero.
-fn intrinsic(control: &ResolvedControl, env: &LayoutEnv, parent_width: Option<f64>) -> [f64; 2] {
+fn intrinsic(control: &ResolvedControl, env: &LayoutEnv, parent: [Option<f64>; 2]) -> [f64; 2] {
     let key = (
         control as *const ResolvedControl as usize,
-        parent_width.map_or(u64::MAX, f64::to_bits),
+        parent[0].map_or(u64::MAX, f64::to_bits),
+        parent[1].map_or(u64::MAX, f64::to_bits),
     );
     if let Some(cached) = INTRINSIC_MEMO.with(|memo| memo.borrow().get(&key).copied()) {
         return cached;
     }
-    let value = intrinsic_uncached(control, env, parent_width);
+    let value = intrinsic_uncached(control, env, parent);
     INTRINSIC_MEMO.with(|memo| memo.borrow_mut().insert(key, value));
     value
 }
@@ -599,59 +679,64 @@ fn intrinsic(control: &ResolvedControl, env: &LayoutEnv, parent_width: Option<f6
 fn intrinsic_uncached(
     control: &ResolvedControl,
     env: &LayoutEnv,
-    parent_width: Option<f64>,
+    parent: [Option<f64>; 2],
 ) -> [f64; 2] {
-    let parent = parent_width.unwrap_or(0.0);
-    let width_ctx = axis_context(
-        parent,
-        None,
-        content_extent(control, env, None),
-        children_max(control, env, None),
-        [0.0; 2],
-        natural(control, env, None),
-        Axis::X,
-    );
-    let width = pixels_or(eval_length(control, Axis::X, &width_ctx), parent);
-    let known = parent_width.map(|_| width);
-    let height_ctx = axis_context(
-        0.0,
-        Some((Axis::X, width)),
-        content_extent(control, env, known),
-        children_max(control, env, known),
-        [0.0; 2],
-        natural(control, env, known),
-        Axis::Y,
-    );
-    let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), 0.0);
+    // A size is only known downstream when the parent axis it resolved against is.
+    let known = |own: [Option<f64>; 2]| {
+        [
+            own[0].filter(|_| parent[0].is_some()),
+            own[1].filter(|_| parent[1].is_some()),
+        ]
+    };
+    let axis = |axis: Axis, other: Option<(Axis, f64)>| {
+        let axis_parent = parent[axis_index(axis)].unwrap_or(0.0);
+        let own = known(known_size(other));
+        let ctx = axis_context(
+            axis_parent,
+            other,
+            content_extent(control, env, own),
+            children_max(control, env, own),
+            [0.0; 2],
+            natural(control, env, own[0]),
+            axis,
+        );
+        pixels_or(eval_length(control, axis, &ctx), axis_parent)
+    };
+    let [width, height] = in_dependency_order(control, axis);
+    let own = known(if height_first(control) {
+        [Some(width), Some(height)]
+    } else {
+        [Some(width), None]
+    });
     // A parent aggregating this child sees it after its own min/max clamp.
-    let content = content_extent(control, env, known);
-    let parent_rect = Rect::new(0.0, 0.0, parent, 0.0);
-    let nat = natural(control, env, known);
+    let content = content_extent(control, env, own);
+    let parent_rect = Rect::new(0.0, 0.0, parent[0].unwrap_or(0.0), parent[1].unwrap_or(0.0));
+    let nat = natural(control, env, parent[0].map(|_| width));
     clamp_bounds(
         control,
         parent_rect,
         [width, height],
         content,
         nat,
-        parent_width.is_some(),
+        parent[0].is_some(),
     )
 }
 
 /// The extent of a control's children, the value `%c` reports. A stack sums along
 /// its main axis and takes the max across; other controls take the bounding max.
-/// `own_width` is this control's resolved width when already known.
-fn content_extent(control: &ResolvedControl, env: &LayoutEnv, own_width: Option<f64>) -> [f64; 2] {
-    measure::children(control, env, own_width).content
+/// `own` is this control's resolved `[width, height]` where already known.
+fn content_extent(control: &ResolvedControl, env: &LayoutEnv, own: [Option<f64>; 2]) -> [f64; 2] {
+    measure::children(control, env, own).content
 }
 
 /// Per-axis largest child, the value `%cm` reports.
-fn children_max(control: &ResolvedControl, env: &LayoutEnv, own_width: Option<f64>) -> [f64; 2] {
-    measure::children(control, env, own_width).maximum
+fn children_max(control: &ResolvedControl, env: &LayoutEnv, own: [Option<f64>; 2]) -> [f64; 2] {
+    measure::children(control, env, own).maximum
 }
 
 /// Per-axis largest of a parent's children, the value `%sm` reports to each sibling.
 fn siblings_max(parent: &ResolvedControl, env: &LayoutEnv) -> [f64; 2] {
-    children_max(parent, env, None)
+    children_max(parent, env, [None; 2])
 }
 
 /// Natural content size: an opted-in image's texture `base_size`, a label's text extent
