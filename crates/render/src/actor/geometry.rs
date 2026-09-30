@@ -82,8 +82,11 @@ pub(super) fn append_entity_cube_vertices(
     };
     if let Some(axis) = zero_axes.first() {
         let (front, back) = [(2, 3), (4, 5), (0, 1)][*axis];
-        let (Some(front_uv), Some(back_uv)) = (face_uvs[front], face_uvs[back]) else {
-            return Err(ActorRigGeometryError::InvalidAssetGeometry);
+        // A plane draws only the faces given a UV, like any other cube.
+        let (front, back, front_uv, back_uv) = match (face_uvs[front], face_uvs[back]) {
+            (Some(front_uv), back_uv) => (front, back, front_uv, back_uv),
+            (None, Some(back_uv)) => (back, front, back_uv, None),
+            (None, None) => return Ok(()),
         };
         let quad = face_corners[front];
         let normal = triangle_normal(
@@ -95,15 +98,21 @@ pub(super) fn append_entity_cube_vertices(
         // Corner correspondence is geometric, not opposing-array ordinal order.
         for index in order {
             let corner = quad[index];
-            let opposite = face_corners[back]
-                .iter()
-                .position(|back| corners[*back] == corners[corner])
-                .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
+            let back_uv = match back_uv {
+                None => ONE_SIDED_BACK_UV,
+                Some(back_uv) => {
+                    let opposite = face_corners[back]
+                        .iter()
+                        .position(|back| corners[*back] == corners[corner])
+                        .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
+                    back_uv[opposite]
+                }
+            };
             vertices.push(ActorRigVertex {
                 position: corners[corner],
                 normal,
                 uv: front_uv[index],
-                back_uv: back_uv[opposite],
+                back_uv,
                 bone_index,
             });
         }
@@ -128,6 +137,9 @@ pub(super) fn append_entity_cube_vertices(
     }
     Ok(())
 }
+
+/// Back UV of a plane with one textured face; the shaders discard its back side.
+pub(crate) const ONE_SIDED_BACK_UV: [f32; 2] = [-1.0e9, -1.0e9];
 
 /// Corner-index bit that selects the max-X corner of a cuboid.
 const REFLECT_X_BIT: usize = 1;
@@ -436,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn planar_geometry_rejects_lines_points_inflate_and_missing_opposed_face() {
+    fn planar_geometry_rejects_lines_points_and_inflate() {
         let mut cube = plane(0, false);
         for size in [[0.0, 0.0, 3.0], [0.0; 3], [-1.0, 2.0, 3.0]] {
             cube.size = size.map(scalar);
@@ -450,20 +462,47 @@ mod tests {
         assert!(
             append_entity_cube_vertices(&mut Vec::new(), &cube, 0, (16, 16), false, 0.0).is_err()
         );
-        cube.inflate = scalar(0.0);
-        cube.uv = EntityGeometryUv::Faces(assets::EntityGeometryFaceUvs {
-            north: None,
-            south: None,
-            east: None,
-            west: Some(EntityGeometryFaceUv {
+    }
+
+    // A plane with one textured face (display text, logos) draws that face one-sided instead of
+    // rejecting the whole model; a plane with neither face draws nothing.
+    #[test]
+    fn a_plane_with_one_textured_face_draws_it_one_sided() {
+        let mut cube = plane(0, false);
+        let face = || {
+            Some(EntityGeometryFaceUv {
                 uv: [scalar(0.0); 2],
                 uv_size: Some([scalar(4.0), scalar(3.0)]),
-            }),
-            up: None,
-            down: None,
-        });
-        assert!(
-            append_entity_cube_vertices(&mut Vec::new(), &cube, 0, (16, 16), false, 0.0).is_err()
-        );
+            })
+        };
+        let faces = |east, west| {
+            EntityGeometryUv::Faces(assets::EntityGeometryFaceUvs {
+                north: None,
+                south: None,
+                east,
+                west,
+                up: None,
+                down: None,
+            })
+        };
+        for (east, west) in [(face(), None), (None, face())] {
+            cube.uv = faces(east, west);
+            let mut vertices = Vec::new();
+            append_entity_cube_vertices(&mut vertices, &cube, 0, (16, 16), false, 0.0).unwrap();
+            assert_eq!(vertices.len(), 6);
+            assert!(
+                vertices
+                    .iter()
+                    .all(|vertex| vertex.back_uv == ONE_SIDED_BACK_UV)
+            );
+        }
+        let front = {
+            cube.uv = faces(face(), None);
+            build(&cube)[0].normal
+        };
+        cube.uv = faces(None, face());
+        assert_eq!(build(&cube)[0].normal, front.map(|value| -value));
+        cube.uv = faces(None, None);
+        assert!(build(&cube).is_empty());
     }
 }

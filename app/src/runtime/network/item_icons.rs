@@ -8,7 +8,8 @@ use resource_pack::LayeredPackView;
 use super::resource_packs::{DecodedTexture, decode_pack_texture, texture_key_paths};
 use crate::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 
-const MAX_SESSION_ICONS: usize = 512;
+/// One icon per registry item, the most a session can name.
+const MAX_SESSION_ICONS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 
 /// Resolves each `(identifier, icon key)` through the item texture catalog merged across the
 /// whole stack, then `textures/items/<key>`; misses are recorded with their reason. Items in

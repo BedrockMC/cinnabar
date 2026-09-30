@@ -17,6 +17,8 @@ pub use artwork::{
     ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+#[cfg(test)]
+pub(crate) use geometry::ONE_SIDED_BACK_UV;
 pub use item_mesh::{extruded_sprite_vertices, textured_cube_vertices};
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
@@ -40,10 +42,10 @@ pub use rig::{
     ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometry,
     ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, EntityRigId,
-    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
-    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, pack_equipment_rig_id,
-    pack_overlay_rgba8, pack_rig_id, skin_rig_id,
+    IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
+    MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
+    actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, layer_geometry_rig_id,
+    pack_actor_light, pack_equipment_rig_id, pack_overlay_rgba8, pack_rig_id, skin_rig_id,
 };
 pub(crate) use witness::{
     ActorDrawWitness, ActorPrepareWitness, ActorQueueWitness, ActorSubmitWitness,
@@ -391,6 +393,8 @@ impl ActorRenderScene {
                 texture_layer: skin_layer,
                 route: ActorRigRoute::Diagnostic,
                 tint: 0,
+                uv_anim: crate::IDENTITY_UV_ANIM,
+                light: 0,
                 overlay_rgba8: 0,
             });
             skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));
