@@ -353,7 +353,7 @@ pub(crate) fn produce_block_use(
             && !context.ui.ui_focused()
             && caps.is_some_and(|caps| caps.can_edit)
             && input.input_mode != semantic_input::InputMode::Touch
-            && movement.accepts_creative_mining()
+            && movement.accepts_block_interactions()
     }) else {
         runtime.clear();
         return;

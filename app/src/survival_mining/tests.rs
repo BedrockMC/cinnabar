@@ -35,6 +35,7 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
             .unwrap(),
         },
         wear: None,
+        instant: false,
     }
 }
 
@@ -348,6 +349,39 @@ fn interruption_aborts_on_the_next_step_only() {
     }
 }
 
+/// Creative completes on the start tick through the negotiated authority's actions only.
+#[test]
+fn an_instant_destroy_uses_the_negotiated_completion_and_one_break_per_press() {
+    let stone = DestroyTarget {
+        instant: true,
+        ..target([3, 4, 5], "minecraft:obsidian", None)
+    };
+    let server = held(&mut DestroyMachine::default(), &stone, Server);
+    assert_eq!(
+        kinds(&server),
+        [(StartDestroy, [3, 4, 5], 1), (PredictDestroy, [3, 4, 5], 1)]
+    );
+    assert_eq!(
+        server.destroy, None,
+        "no legacy transaction beside PredictDestroy"
+    );
+    assert_eq!(server.broken, Some([3, 4, 5]));
+    let mut machine = DestroyMachine::default();
+    let client = held(&mut machine, &stone, Client);
+    assert_eq!(
+        kinds(&client),
+        [(StartDestroy, [3, 4, 5], 1), (StopDestroy, [0, 0, 0], 0)]
+    );
+    assert!(client.destroy.is_some());
+    for _ in 0..20 {
+        assert!(held(&mut machine, &stone, Client).is_empty());
+    }
+    assert_eq!(
+        kinds(&machine.step(DestroyInput::Released, true, Client)),
+        [(AbortDestroy, [3, 4, 5], 0)]
+    );
+}
+
 pub(crate) fn completed(tick: u64) -> PhysicsMovementSample {
     PhysicsMovementSample {
         tick,
@@ -404,7 +438,7 @@ pub(crate) fn ticker_with_ticks(ticks: u64) -> MovementTicker {
 }
 
 #[test]
-fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
+fn each_unsent_tick_is_stepped_once() {
     let mut ticker = MovementTicker::default();
     ticker.reset(7, 100, [0.5, 2.620_01, 0.5]);
     ticker.set_source(MovementSource::Physics);
@@ -431,7 +465,6 @@ fn each_unsent_tick_is_stepped_once_and_survives_creative_revocation() {
         |_, _| None,
         |_| {},
     );
-    ticker.retain_creative_mining(None);
     ticker.enqueue_completed_physics(completed(103)).unwrap();
     runtime.step_ticks(
         &mut ticker,
@@ -532,7 +565,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
 }
 
 mod gate {
-    use super::super::{blocked_mining_reason, survival_mining_active};
+    use super::super::{blocked_mining_reason, mining_active};
     use crate::game_mode_capabilities::GameModeCapabilities;
     use protocol::PlayerGameMode::{Adventure, Creative, Spectator, Survival};
 
@@ -542,7 +575,7 @@ mod gate {
     fn survival_mining_runs_regardless_of_wire_authority() {
         let survival = Some(GameModeCapabilities::for_mode(Survival));
         assert!(
-            survival_mining_active(survival, true, true),
+            mining_active(survival, true, true),
             "survival with a focused window and an input snapshot must mine"
         );
     }
@@ -550,21 +583,18 @@ mod gate {
     #[test]
     fn gate_requires_edit_focus_and_a_snapshot() {
         let survival = Some(GameModeCapabilities::for_mode(Survival));
-        assert!(!survival_mining_active(survival, false, true), "unfocused");
+        assert!(!mining_active(survival, false, true), "unfocused");
+        assert!(!mining_active(survival, true, false), "no snapshot");
+        assert!(!mining_active(None, true, true), "no game mode");
         assert!(
-            !survival_mining_active(survival, true, false),
-            "no snapshot"
-        );
-        assert!(!survival_mining_active(None, true, true), "no game mode");
-        assert!(
-            !survival_mining_active(Some(GameModeCapabilities::for_mode(Creative)), true, true),
-            "creative uses the instant-break path, not this machine"
+            mining_active(Some(GameModeCapabilities::for_mode(Creative)), true, true),
+            "creative mines through the same machine"
         );
         assert!(
-            !survival_mining_active(Some(GameModeCapabilities::for_mode(Adventure)), true, true),
+            !mining_active(Some(GameModeCapabilities::for_mode(Adventure)), true, true),
             "adventure cannot edit without a server grant"
         );
-        assert!(!survival_mining_active(
+        assert!(!mining_active(
             Some(GameModeCapabilities::for_mode(Spectator)),
             true,
             true
@@ -575,7 +605,7 @@ mod gate {
     fn adventure_with_build_grant_mines() {
         let mut caps = GameModeCapabilities::for_mode(Adventure);
         caps.can_edit = true;
-        assert!(survival_mining_active(Some(caps), true, true));
+        assert!(mining_active(Some(caps), true, true));
     }
 
     #[test]
@@ -594,16 +624,6 @@ mod gate {
                 false
             ),
             Some("can_edit=false for this game mode")
-        );
-        assert_eq!(
-            blocked_mining_reason(
-                Some(GameModeCapabilities::for_mode(Creative)),
-                true,
-                true,
-                false,
-                false
-            ),
-            Some("instant-break mode uses the creative path")
         );
         assert_eq!(
             blocked_mining_reason(survival, false, true, false, false),

@@ -15,10 +15,6 @@ use crate::{
     ui_runtime::UiRuntime,
 };
 
-// Bound a retained edge across render frames without extending it through a
-// stalled simulation. This preserves the existing Creative attachment limit.
-pub(super) const MAX_PENDING_INTERACTION_FRAMES: u64 = 32;
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FrozenBlockObservation {
     pub(crate) frame: FrozenMiningFrame,
@@ -27,45 +23,6 @@ pub(crate) struct FrozenBlockObservation {
     pub(crate) input_mode: PlayerInputMode,
     pub(crate) selection: FrozenMiningSelection,
     pub(crate) target: FrozenMiningTarget,
-}
-
-type ObservationParts<'a> = (
-    &'a FrozenMiningFrame,
-    &'a FrozenMiningRay,
-    f64,
-    PlayerInputMode,
-    &'a FrozenMiningSelection,
-    &'a FrozenMiningTarget,
-);
-
-pub(crate) fn still_authorized_by(
-    previous: ObservationParts<'_>,
-    current: ObservationParts<'_>,
-) -> bool {
-    let (frame, ray, reach, input_mode, selection, target) = previous;
-    let (next_frame, next_ray, next_reach, next_mode, next_selection, next_target) = current;
-    frame.session_generation == next_frame.session_generation
-        && frame.position_authority_generation == next_frame.position_authority_generation
-        && frame.input_authority_generation == next_frame.input_authority_generation
-        && frame.input_frame_sequence <= next_frame.input_frame_sequence
-        && next_frame
-            .input_frame_sequence
-            .saturating_sub(frame.input_frame_sequence)
-            <= MAX_PENDING_INTERACTION_FRAMES
-        && frame.fifo_sequence <= next_frame.fifo_sequence
-        && frame.physics_tick <= next_frame.physics_tick
-        && frame.pose_generation <= next_frame.pose_generation
-        && ray.origin.into_iter().all(f32::is_finite)
-        && ray.direction.into_iter().all(f32::is_finite)
-        && ray.movement_world_identity == next_ray.movement_world_identity
-        && ray.world_identity == next_ray.world_identity
-        && reach == next_reach
-        && input_mode == next_mode
-        && selection == next_selection
-        && target.position == next_target.position
-        && target.face == next_target.face
-        && target.runtime_id == next_target.runtime_id
-        && target.identity == next_target.identity
 }
 
 /// Server-side pick checks measure to the block's minimum corner with this slack

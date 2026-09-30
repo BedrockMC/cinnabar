@@ -59,15 +59,6 @@ fn mode_defaults_follow_the_gamemode_table() {
     assert_eq!(unknown.attack_reach, 0.0);
 }
 
-/// Only survival and adventure route through the held-mine state machine.
-#[test]
-fn uses_survival_mining_excludes_creative_and_spectator() {
-    assert!(GameModeCapabilities::for_mode(Survival).uses_survival_mining());
-    assert!(!GameModeCapabilities::for_mode(Creative).uses_survival_mining());
-    assert!(!GameModeCapabilities::for_mode(Adventure).uses_survival_mining());
-    assert!(!GameModeCapabilities::for_mode(Spectator).uses_survival_mining());
-}
-
 /// An explicit Build+Mine grant lets an adventure player edit the world.
 #[test]
 fn adventure_with_build_permission_can_edit() {
@@ -77,7 +68,6 @@ fn adventure_with_build_permission_can_edit() {
     )]);
     let caps = GameModeCapabilities::resolve(Adventure, Some(&grant));
     assert!(caps.can_edit, "server Build/Mine grant unlocks editing");
-    assert!(caps.uses_survival_mining());
     // A grant does not fabricate the other creative privileges.
     assert!(!caps.can_fly && !caps.instant_break && !caps.creative_inventory);
 }

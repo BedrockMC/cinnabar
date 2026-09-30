@@ -155,11 +155,6 @@ impl GameModeCapabilities {
         }
         caps
     }
-
-    /// Held survival/adventure mining runs here; creative's instant break does not.
-    pub(crate) const fn uses_survival_mining(&self) -> bool {
-        self.can_edit && !self.instant_break
-    }
 }
 
 /// The effective value of one ability bit: the last received layer that defines
