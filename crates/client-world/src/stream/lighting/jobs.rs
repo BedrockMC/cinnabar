@@ -63,6 +63,16 @@ impl WorldStream {
             self.pending_light_scan.clear();
             self.light_scheduler_camera_cell = Some(camera_cell);
         } else {
+            let pending_light = &self.pending_light;
+            super::super::dirty::compact_scheduler_scan(
+                &mut self.pending_light_scan,
+                pending_light.len(),
+                |key, revision| {
+                    pending_light
+                        .get(&key)
+                        .is_some_and(|p| p.revision == revision)
+                },
+            );
             let ingress_budget = self
                 .pending_light_scan
                 .len()

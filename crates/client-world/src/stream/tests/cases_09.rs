@@ -106,6 +106,37 @@ fn shrinking_confirmed_radius_evicts_columns_that_leave_the_grid() {
     assert!(!stream.tracked_columns().contains(&outer));
 }
 
+/// A stationary dirty storm must not grow the mesh scan history without bound.
+#[test]
+fn stationary_dirty_storm_keeps_the_mesh_scan_bounded_by_live_work() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.dispatch_mesh_jobs([0.0; 3], 1);
+    let keys = (0..4)
+        .map(|x| SubChunkKey::new(0, x, 0, 0))
+        .collect::<Vec<_>>();
+    let now = Instant::now();
+    for _ in 0..5_000 {
+        for key in &keys {
+            stream.mark_dirty_exact(*key, now);
+        }
+    }
+    stream.dispatch_mesh_jobs([0.0; 3], 1);
+    assert!(
+        stream.pending_mesh_scan.len() <= keys.len(),
+        "scan retained {} entries for {} live keys",
+        stream.pending_mesh_scan.len(),
+        keys.len()
+    );
+}
+
 /// Removal acks for evicted sub-chunks must not accumulate applied generations.
 #[test]
 fn evicted_removal_acks_leave_no_applied_generation_behind() {
