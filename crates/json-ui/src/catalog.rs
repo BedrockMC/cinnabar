@@ -70,6 +70,22 @@ impl RawControl {
     }
 }
 
+impl RawControl {
+    /// The authored `{ "name@base": body }` entry this control was read from.
+    pub(crate) fn to_entry(&self) -> Value {
+        let key = match &self.base {
+            Some(base) => format!("{}@{base}", self.name),
+            None => self.name.clone(),
+        };
+        let mut body = self.props.clone();
+        if self.has_controls && !body.contains_key("controls") {
+            let children = self.children.iter().map(Self::to_entry).collect();
+            body.insert("controls".to_owned(), Value::Array(children));
+        }
+        Value::Object(Map::from_iter([(key, Value::Object(body))]))
+    }
+}
+
 pub(crate) fn child_controls(
     owner_ns: &str,
     value: &Value,
@@ -161,12 +177,26 @@ impl Catalog {
                 path: path.to_path_buf(),
             });
         };
+        self.merge_globals(object);
+        Ok(())
+    }
+
+    /// Layer global variables; object values merge member by member, as the
+    /// vanilla client's JSON merge does, and anything else replaces.
+    fn merge_globals(&mut self, object: Map<String, Value>) {
         for (key, item) in object {
-            if let Some(name) = key.strip_prefix('$') {
-                self.globals.insert(name.to_owned(), item);
+            let Some(name) = key.strip_prefix('$') else {
+                continue;
+            };
+            match (self.globals.get_mut(name), item) {
+                (Some(Value::Object(old)), Value::Object(new)) => {
+                    crate::pack::merge_objects(old, &new);
+                }
+                (_, item) => {
+                    self.globals.insert(name.to_owned(), item);
+                }
             }
         }
-        Ok(())
     }
 
     fn load_file(&mut self, entry: &str, path: &Path) {
@@ -187,16 +217,10 @@ impl Catalog {
         self.merge_overlay_file(entry, text);
     }
 
-    /// Layers a pack's `_global_variables.json`; its variables replace earlier ones.
+    /// Layers a pack's `_global_variables.json` over the earlier ones.
     pub fn overlay_globals_text(&mut self, text: &str) {
         match json5::parse(text) {
-            Ok(Value::Object(object)) => {
-                for (key, item) in object {
-                    if let Some(name) = key.strip_prefix('$') {
-                        self.globals.insert(name.to_owned(), item);
-                    }
-                }
-            }
+            Ok(Value::Object(object)) => self.merge_globals(object),
             _ => self
                 .diagnostics
                 .push("_global_variables.json: overlay is not an object".to_owned()),
