@@ -128,6 +128,9 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if (input.valid == 0u) {
         discard;
     }
+    if (!front && input.back_uv.x < -1.0e8) {
+        discard;
+    }
     let uv = select(input.back_uv, input.uv, front);
     let skin_color = textureSample(skins, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
     let item_color = textureSample(item_atlas, skin_sampler, uv, i32(input.skin_layer & 0x7fffffffu));
