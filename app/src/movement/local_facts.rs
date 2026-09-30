@@ -82,7 +82,7 @@ pub(super) fn read(
                 .is_some_and(|hunger| hunger.current() <= SPRINT_HUNGER_FLOOR))
             || matches!(
                 crate::runtime::network::local_item_use(stream, ui, use_held),
-                client_world::LocalItemUse::Using { .. }
+                client_world::LocalItemUse::Using
             ),
     }
 }
