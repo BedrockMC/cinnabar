@@ -132,8 +132,23 @@ pub(super) fn advance_motion(
         item_use_ticks,
         swim_amount,
         arm_height,
+        attack_time: motion.attack_time(),
     };
     state.history.push_back(input);
+}
+
+impl ActorRigState {
+    /// The previous and current tick's swing and equip progress; rest before any tick.
+    pub(super) fn hand_phases(&self) -> [HandPhase; 2] {
+        let phase = |input: &ActorTickInput| HandPhase {
+            attack_time: input.attack_time,
+            arm_height: input.arm_height,
+            use_ticks: input.item_use_ticks,
+        };
+        let mut recent = self.history.iter().rev().map(phase);
+        let current = recent.next().unwrap_or_default();
+        [recent.next().unwrap_or(current), current]
+    }
 }
 
 pub(super) fn evaluate_state(

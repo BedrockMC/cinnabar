@@ -310,6 +310,19 @@ pub(crate) fn selected_air_use(stream: &WorldStream, ui: &UiRuntime) -> Option<A
     )
 }
 
+/// The use duration of the selected stack when vanilla animates its use as eating or drinking.
+pub(crate) fn consume_ticks(stream: &WorldStream, ui: &UiRuntime) -> Option<u32> {
+    let canonical = stream.canonical_item_stack(ui.selected_stack()?)?;
+    match selected_air_use(stream, ui)? {
+        AirUse::Hold { max_ticks, .. }
+            if classify::is_consumed(canonical.identifier.as_deref()?) =>
+        {
+            Some(max_ticks)
+        }
+        _ => None,
+    }
+}
+
 /// Whether the known state meets `needs`.
 fn needs_met(stream: &WorldStream, ui: &UiRuntime, needs: Needs) -> bool {
     let is = |stack: &protocol::NetworkItemStack, identifier: &str| {

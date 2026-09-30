@@ -105,6 +105,15 @@ impl AirUse {
     }
 }
 
+/// Whether a vanilla hold use is eaten or drunk (`UseAnimation::Eat`/`Drink`), which the
+/// first-person pass raises to the mouth.
+pub(crate) fn is_consumed(identifier: &str) -> bool {
+    identifier.strip_prefix("minecraft:").is_some_and(|name| {
+        !matches!(name, "bow" | "trident" | "spyglass" | "crossbow" | "camera")
+            && !name.ends_with("_spear")
+    })
+}
+
 /// The behavior-pack identifier a wire identifier's use duration is filed under.
 pub(crate) fn pack_identifier(identifier: &str) -> Option<&'static str> {
     PACK_ALIASES
