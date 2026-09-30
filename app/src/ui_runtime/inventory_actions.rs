@@ -210,6 +210,9 @@ impl UiRuntime {
             InventoryCellHit::CreativeGrid(index) => self.creative_click(index, false),
             InventoryCellHit::RecipeBook(index) => self.recipe_book_click(index, false),
             InventoryCellHit::CraftOutput => self.output_click(false),
+            InventoryCellHit::Storage(slot) if self.crafter_slot_disables(slot) => {
+                self.set_crafter_slot(slot, true)
+            }
             hit if self.bundle_insert_target(hit).is_some() => {
                 let target = self
                     .bundle_insert_target(hit)
@@ -223,6 +226,37 @@ impl UiRuntime {
                 None => Err(InventoryGestureError::InvalidRequest),
             },
         }
+    }
+
+    /// Whether a click on crafter slot `slot` disables it: an empty, enabled
+    /// slot clicked with nothing held, as `CrafterScreenController::handleEvent`.
+    fn crafter_slot_disables(&self, slot: u8) -> bool {
+        let ledger = self.inventory_ledger();
+        ledger.window_kind() == Some(WindowKind::Crafter)
+            && slot < 9
+            && ledger.cursor_stack().is_none()
+            && ledger
+                .target_stack(InventoryTarget::Storage(slot))
+                .is_none()
+            && !self.screen_state().crafter.is_disabled(slot)
+    }
+
+    /// Shows crafter slot `slot` toggled at once and asks the server to follow.
+    fn set_crafter_slot(&mut self, slot: u8, disabled: bool) -> Outcome {
+        let position = self
+            .inventory_ledger()
+            .window_position()
+            .filter(|_| slot < 9)
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let crafter = &mut self.screen_state_mut().crafter;
+        let bit = 1 << slot;
+        let shown = crafter.shown_disabled();
+        let mask = if disabled { shown | bit } else { shown & !bit };
+        crafter.pending = Some((mask, None));
+        self.queue_client_packet(protocol::crafter_slot_toggle_packet(
+            position, slot, disabled,
+        ));
+        Ok(0)
     }
 
     fn secondary_click_hit(&mut self, hit: InventoryCellHit) -> Outcome {
@@ -460,6 +494,7 @@ impl UiRuntime {
                 state.book_page = 0;
                 Ok(0)
             }
+            Widget::CrafterSlot(slot) => self.set_crafter_slot(slot, false),
             Widget::RecipeFilter => {
                 let filtering = self.recipe_filtering();
                 self.screen_state_mut().recipe_filtering = Some(!filtering);

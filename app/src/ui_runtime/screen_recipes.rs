@@ -96,6 +96,35 @@ impl UiRuntime {
         }
     }
 
+    /// The result the open screen previews before it is taken: the chosen
+    /// recipe's on the stonecutter, smithing and cartography tables, the
+    /// grid's recipe on a crafter.
+    pub(crate) fn predicted_screen_output(&self) -> Option<protocol::RecipeOutput> {
+        match self.inventory_ledger().window_kind()? {
+            WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography => {
+                self.active_screen_recipe()?.output
+            }
+            WindowKind::Crafter => {
+                let cells = self.inventory_ledger().crafter_grid_cells()?;
+                if cells.iter().all(Option::is_none) {
+                    return None;
+                }
+                let items: Vec<_> = cells
+                    .iter()
+                    .map(|cell| {
+                        cell.as_ref()
+                            .map(super::inventory_ledger::CraftGridCell::item)
+                    })
+                    .collect();
+                match protocol::match_crafting_grid(self.screen_catalog()?, 3, &items) {
+                    protocol::CraftGridMatch::Unique(recipe) => Some(recipe.output()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Whether the recipe book filters by the inventory: on by default outside
     /// creative, as `CraftingScreenController` opens.
     pub(crate) fn recipe_filtering(&self) -> bool {

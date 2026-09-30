@@ -511,7 +511,7 @@ fn screen_data(
                     .map(|cell| {
                         let (stack, icon, durability) = station_cell(runtime, frame, *cell);
                         let item = cells.cell(stack, icon, durability);
-                        container_data::decorate(collection, stack.is_none(), item)
+                        container_data::decorate(runtime, collection, stack.is_none(), item)
                     })
                     .collect();
                 data.set_collection(*collection, items);
