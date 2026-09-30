@@ -1477,6 +1477,26 @@ func (s *fakeSession) isClosed() bool {
 	}
 }
 
+// Chat must carry the authenticated upstream identity even through the observing wrappers.
+func TestRelayRewritesChatIdentityThroughSessionWrappers(t *testing.T) {
+	down := newFakeDownstream(nil)
+	up := newFakeUpstream(nil)
+	up.identity = login.IdentityData{DisplayName: "Canonical", XUID: "2535"}
+	wrapped := observeDisconnects(observeTransfers(up, new(TransferState), nil), func(DisconnectInfo) {})
+	down.useBatchReads = true
+	down.batchReads <- batchResult{packets: []packet.Packet{&packet.Text{TextType: packet.TextTypeChat, SourceName: "offline", XUID: "1", Message: "hi"}}}
+	down.batchReads <- batchResult{err: io.EOF}
+
+	if err := pumpPackets(down, wrapped, true); !errors.Is(err, io.EOF) {
+		t.Fatalf("pumpPackets() error = %v, want EOF", err)
+	}
+	batches := up.flushedBatches()
+	text, ok := batches[0][0].(*packet.Text)
+	if !ok || text.SourceName != "Canonical" || text.XUID != "2535" {
+		t.Fatalf("forwarded chat = %#v", batches[0][0])
+	}
+}
+
 type fakeDownstream struct {
 	fakeSession
 	start func(context.Context, minecraft.GameData) error
@@ -1499,6 +1519,7 @@ type fakeUpstream struct {
 	data     minecraft.GameData
 	packs    []*resource.Pack
 	required bool
+	identity login.IdentityData
 }
 
 func newFakeUpstream(spawn func(context.Context) error) *fakeUpstream {
@@ -1512,6 +1533,7 @@ func (s *fakeUpstream) DoSpawnContext(ctx context.Context) error { return s.spaw
 func (s *fakeUpstream) GameData() minecraft.GameData             { return s.data }
 func (s *fakeUpstream) ResourcePacks() []*resource.Pack          { return slices.Clone(s.packs) }
 func (s *fakeUpstream) TexturePacksRequired() bool               { return s.required }
+func (s *fakeUpstream) IdentityData() login.IdentityData         { return s.identity }
 
 type errorCloser struct{ err error }
 

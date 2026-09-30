@@ -558,6 +558,7 @@ type downstreamSession interface {
 
 type upstreamSession interface {
 	packetSession
+	IdentityData() login.IdentityData // canonical account identity; wrappers must keep forwarding it
 	DoSpawnContext(context.Context) error
 	GameData() minecraft.GameData
 	ResourcePacks() []*resource.Pack
