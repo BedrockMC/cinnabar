@@ -12,4 +12,8 @@ mod runtime;
 mod tests;
 
 pub(crate) use input::{local_input, remote_input};
-pub(crate) use runtime::{EquipmentPresentation, EquipmentRuntime, FirstPersonArms};
+#[cfg(test)]
+pub(crate) use runtime::{ActorEquipmentInput, HeldKind, WornItem};
+pub(crate) use runtime::{
+    EquipmentPresentation, EquipmentRuntime, FirstPersonArms, StagedSessionIcons,
+};

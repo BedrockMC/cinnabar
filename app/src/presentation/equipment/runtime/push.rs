@@ -119,32 +119,48 @@ impl EquipmentRuntime {
         let Some(hand) = hand else {
             return;
         };
-        let (sprite_index, key, display) = match item.kind {
-            HeldKind::Sprite => {
-                let Some(index) = self.icons.lookup_index(&item.identifier, item.metadata) else {
-                    return;
-                };
+        let sprite_display = || held_sprite_display(self.hand_equipped(&item.identifier));
+        // A server pack's icon replaces the vanilla one, as it does in the inventory.
+        let session = match item.kind {
+            HeldKind::Sprite | HeldKind::Other => self.session_sprite(&item.identifier),
+            HeldKind::Block(_) => None,
+        };
+        let (sprite_index, key, display, placement, location) =
+            if let Some((index, placement, location)) = session {
                 (
                     index,
-                    MeshKey::Sprite(index),
-                    held_sprite_display(is_hand_equipped(&item.identifier)),
+                    MeshKey::Session(index),
+                    sprite_display(),
+                    placement,
+                    location,
                 )
-            }
-            HeldKind::Block(visual) => {
-                let Some(index) = self.block_sheets.get(&visual).copied() else {
+            } else {
+                let (sprite_index, key, display) = match item.kind {
+                    HeldKind::Sprite => {
+                        let Some(index) = self.icons.lookup_index(&item.identifier, item.metadata)
+                        else {
+                            return;
+                        };
+                        (index, MeshKey::Sprite(index), sprite_display())
+                    }
+                    HeldKind::Block(visual) => {
+                        let Some(index) = self.block_sheets.get(&visual).copied() else {
+                            return;
+                        };
+                        (index, MeshKey::Block(visual), held_block_display())
+                    }
+                    HeldKind::Other => return,
+                };
+                let Some(placement) = self.placements.get(sprite_index).copied().flatten() else {
                     return;
                 };
-                (index, MeshKey::Block(visual), held_block_display())
-            }
-            HeldKind::Other => return,
-        };
+                let Some(location) = self.atlas_locations.get(placement.layer).copied().flatten()
+                else {
+                    return;
+                };
+                (sprite_index, key, display, placement, location)
+            };
         let display = override_display.unwrap_or(display);
-        let Some(placement) = self.placements.get(sprite_index).copied().flatten() else {
-            return;
-        };
-        let Some(location) = self.atlas_locations.get(placement.layer).copied().flatten() else {
-            return;
-        };
         let Some(mesh) = self.mesh_for(key, sprite_index, placement) else {
             return;
         };
@@ -189,7 +205,14 @@ impl EquipmentRuntime {
         };
         let elytra_in_chest =
             binding.category == EquipmentCategory::Elytra && slot == ArmorSlot::Chestplate;
-        if binding.category != (EquipmentCategory::Armor { slot }) && !elytra_in_chest {
+        // A custom item's `minecraft:wearable` slot names where its attachable is worn.
+        let category = match (binding.category, self.wearable_slot(&item.identifier)) {
+            (EquipmentCategory::Elytra | EquipmentCategory::Shield, _) | (_, None) => {
+                binding.category
+            }
+            (_, Some(worn)) => EquipmentCategory::Armor { slot: worn },
+        };
+        if category != (EquipmentCategory::Armor { slot }) && !elytra_in_chest {
             return;
         }
         let Some(location) = self.texture_location(&binding.texture.identifier, from_pack) else {
