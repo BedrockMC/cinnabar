@@ -14,7 +14,8 @@ use super::invalid;
 pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.40.json";
 pub(super) const SOURCE_BYTES: &[u8] =
     include_bytes!("../../../assets/data/default-sprite-bindings-1.26.40.json");
-const RETAIL_ITEMS: &[u8] = include_bytes!("../../../protocol/data/retail_items_1_26_40.tsv");
+pub(super) const RETAIL_ITEMS: &[u8] =
+    include_bytes!("../../../protocol/data/retail_items_1_26_40.tsv");
 const RETAIL_SHA256: &str = "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0";
 const SOURCE_COMMIT: &str = "7844835b6baad4c0010f46901a4accf87413a022";
 const ATLAS_SHA256: &str = "13415a73201c43c03afc7ff9c4e5146366ec31e4f3057228f309730daea963c7";
