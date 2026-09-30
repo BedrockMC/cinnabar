@@ -156,17 +156,35 @@ impl<'a> Canvas<'a> {
         if value.is_empty() {
             return Ok(0.0);
         }
-        let mut request = self
-            .metrics
-            .request(value, (width.max(1.0) * 64.0) as u32, self.font);
+        let layout = self.layout(value, (width.max(1.0) * 64.0) as u32, style)?;
+        self.place_text(layout, at, width, color, shadow)
+    }
+
+    fn layout(
+        &mut self,
+        value: &str,
+        width_64: u32,
+        style: Type,
+    ) -> Result<std::sync::Arc<ui::TextLayout>, UiPresentationError> {
+        let mut request = self.metrics.request(value, width_64, self.font);
         // The open font's default line is the 1.6rem body size.
         if let Ok(scale) = UiScale::new(self.metrics.scale.get() * style.size / 1.6) {
             request.scale = scale;
         }
-        let layout = self
-            .layouts
+        self.layouts
             .layout(request)
-            .map_err(UiPresentationError::Text)?;
+            .map_err(UiPresentationError::Text)
+    }
+
+    /// Draws a laid-out `layout` from `at` within `width`; returns its height.
+    fn place_text(
+        &mut self,
+        layout: std::sync::Arc<ui::TextLayout>,
+        at: [f32; 2],
+        width: f32,
+        color: Rgba,
+        shadow: bool,
+    ) -> Result<f32, UiPresentationError> {
         let height = layout.size_64()[1] as f32 / 64.0;
         if shadow {
             let offset = self.r(EDGE);
@@ -209,15 +227,18 @@ impl<'a> Canvas<'a> {
         style: Type,
         color: Rgba,
     ) -> Result<f32, UiPresentationError> {
-        if self.measure(value, style)? <= width {
-            return self.text(value, at, width + 1.0, style, color, false);
+        let (fits, layout) = self.measured(value, style)?;
+        if fits <= width {
+            // A line that fits draws the layout it was measured with.
+            return self.place_text(layout, at, width + 1.0, color, false);
         }
         let mut cut: Vec<char> = value.chars().collect();
         while !cut.is_empty() {
             cut.pop();
             let shown = format!("{}…", cut.iter().collect::<String>().trim_end());
-            if self.measure(&shown, style)? <= width {
-                return self.text(&shown, at, width + 1.0, style, color, false);
+            let (fits, layout) = self.measured(&shown, style)?;
+            if fits <= width {
+                return self.place_text(layout, at, width + 1.0, color, false);
             }
         }
         Ok(0.0)
@@ -225,15 +246,17 @@ impl<'a> Canvas<'a> {
 
     /// The width `value` lays out to in `style`.
     pub(super) fn measure(&mut self, value: &str, style: Type) -> Result<f32, UiPresentationError> {
-        let mut request = self.metrics.request(value, 65_536 * 64, self.font);
-        if let Ok(scale) = UiScale::new(self.metrics.scale.get() * style.size / 1.6) {
-            request.scale = scale;
-        }
-        let layout = self
-            .layouts
-            .layout(request)
-            .map_err(UiPresentationError::Text)?;
-        Ok(layout.size_64()[0] as f32 / 64.0)
+        Ok(self.measured(value, style)?.0)
+    }
+
+    /// `value`'s unwrapped width and layout in `style`.
+    fn measured(
+        &mut self,
+        value: &str,
+        style: Type,
+    ) -> Result<(f32, std::sync::Arc<ui::TextLayout>), UiPresentationError> {
+        let layout = self.layout(value, 65_536 * 64, style)?;
+        Ok((layout.size_64()[0] as f32 / 64.0, layout))
     }
 
     /// `value` centred in `bounds` on one line.
@@ -245,13 +268,21 @@ impl<'a> Canvas<'a> {
         color: Rgba,
         shadow: bool,
     ) -> Result<(), UiPresentationError> {
-        let width = self.measure(value, style)?.min(b[2] - b[0]);
+        let (measured, layout) = self.measured(value, style)?;
+        let width = measured.min(b[2] - b[0]);
         let height = self.r(style.line);
         let at = [
             (b[0] + b[2] - width) * 0.5,
             (b[1] + b[3] - height) * 0.5 + self.r((style.line - style.size) * 0.5),
         ];
-        self.text(value, at, width + 1.0, style, color, shadow)?;
+        if value.is_empty() {
+            return Ok(());
+        }
+        if measured <= width {
+            self.place_text(layout, at, width + 1.0, color, shadow)?;
+        } else {
+            self.text(value, at, width + 1.0, style, color, shadow)?;
+        }
         Ok(())
     }
 
