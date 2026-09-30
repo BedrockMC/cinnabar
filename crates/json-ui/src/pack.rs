@@ -33,7 +33,9 @@ impl Catalog {
         };
         let mut catalog = Catalog::default();
         catalog.load_globals_text(Path::new(GLOBALS), &text(GLOBALS)?)?;
-        for entry in parse_ui_defs(Path::new(UI_DEFS), &text(UI_DEFS)?)? {
+        let entries = parse_ui_defs(Path::new(UI_DEFS), &text(UI_DEFS)?)?;
+        catalog.list(entries.iter().cloned());
+        for entry in entries {
             match files.get(entry.as_str()) {
                 Some(bytes) => catalog.load_text(&entry, &String::from_utf8_lossy(bytes)),
                 None => catalog.note(format!("{entry}: listed but absent")),
@@ -42,9 +44,9 @@ impl Catalog {
         Ok(catalog)
     }
 
-    /// Overlay a resource pack's ui files (pack-relative paths). Files named by the
-    /// pack's own `_ui_defs.json` apply in that order, then every other `ui/` json
-    /// by path; malformed files are skipped and recorded, never fatal.
+    /// Overlay a resource pack's ui files (pack-relative paths). As the vanilla
+    /// client does, only paths some `_ui_defs.json` lists load, in sorted order;
+    /// malformed files are skipped and recorded, never fatal.
     pub fn apply_pack<'a>(&mut self, files: impl IntoIterator<Item = (&'a str, &'a [u8])>) {
         let files: BTreeMap<&str, &[u8]> = files
             .into_iter()
@@ -56,26 +58,21 @@ impl Catalog {
         {
             self.note(format!("pack {GLOBALS}: {error}"));
         }
-        let mut order: Vec<&str> = Vec::new();
         if let Some(bytes) = files.get(UI_DEFS) {
             match parse_ui_defs(Path::new(UI_DEFS), &String::from_utf8_lossy(bytes)) {
-                Ok(entries) => {
-                    for entry in entries {
-                        if let Some((path, _)) = files.get_key_value(entry.as_str()) {
-                            order.push(*path);
-                        }
-                    }
-                }
+                Ok(entries) => self.list(entries),
                 Err(error) => self.note(format!("pack {UI_DEFS}: {error}")),
             }
         }
-        for path in files.keys().copied() {
-            if path != GLOBALS && path != UI_DEFS && !order.contains(&path) {
-                order.push(path);
+        for (path, bytes) in files {
+            if path == GLOBALS || path == UI_DEFS {
+                continue;
             }
-        }
-        for path in order {
-            self.merge_overlay_file(path, &String::from_utf8_lossy(files[path]));
+            if self.lists(path) {
+                self.merge_overlay_file(path, &String::from_utf8_lossy(bytes));
+            } else {
+                self.note(format!("pack {path}: not listed in any _ui_defs.json; skipped"));
+            }
         }
     }
 
@@ -114,10 +111,10 @@ impl Catalog {
         // A file overriding a vanilla path may omit the namespace it extends.
         let namespace = match object.get("namespace") {
             Some(Value::String(namespace)) => namespace.clone(),
-            _ => match self.file_namespace(entry) {
-                Some(namespace) => namespace.to_owned(),
-                None => return self.note(format!("pack {entry}: missing string `namespace`")),
-            },
+            _ => self
+                .file_namespace(entry)
+                .unwrap_or(crate::catalog::ROOT_NAMESPACE)
+                .to_owned(),
         };
         for (key, body) in &object {
             if key == "namespace" {
@@ -179,10 +176,12 @@ fn merge_into(
         match property.as_str() {
             "controls" if value.is_string() => {
                 existing.children.clear();
+                existing.has_controls = true;
                 existing.props.insert(property.clone(), value.clone());
             }
             "controls" => {
                 existing.props.remove("controls");
+                existing.has_controls = true;
                 existing.children = child_controls(&existing.owner_ns, value, diagnostics);
             }
             "modifications" => apply_modifications(existing, value, diagnostics),
@@ -456,7 +455,7 @@ mod tests {
             { "array_name": "controls", "operation": "remove", "control_name": "second" },
             { "array_name": "controls", "operation": "move_front", "control_name": "middle" }
         ] } }"##;
-        catalog.apply_pack([("ui/extra.json", pack.as_slice())]);
+        catalog.apply_pack([("ui/screen.json", pack.as_slice())]);
         assert_eq!(names(&catalog), ["middle", "first"]);
     }
 
@@ -482,6 +481,10 @@ mod tests {
             (
                 "ui/_global_variables.json",
                 br##"{ "$color": "red" }"##.as_slice(),
+            ),
+            (
+                "ui/_ui_defs.json",
+                br##"{ "ui_defs": ["ui/new.json"] }"##.as_slice(),
             ),
             (
                 "ui/new.json",
