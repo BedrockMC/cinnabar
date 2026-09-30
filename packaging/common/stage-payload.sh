@@ -33,7 +33,6 @@ stage_resources() {
     stage_prep_kit "$resources/prep-kit" "$assetc"
     # Optional endpoints, injected by CI; absent means the feature is off.
     [[ -z "${CINNABAR_UPDATE_URL:-}" ]] || printf '%s\n' "$CINNABAR_UPDATE_URL" > "$resources/update-url"
-    [[ -z "${CINNABAR_SENTRY_DSN:-}" ]] || printf '%s\n' "$CINNABAR_SENTRY_DSN" > "$resources/sentry-dsn"
 }
 
 # require_file <path> <hint>

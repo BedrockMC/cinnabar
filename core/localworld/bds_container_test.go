@@ -150,13 +150,13 @@ func TestStatusExposesUnavailableReasonAndRedetectFlipsDefaultBackend(t *testing
 func TestForcedBackendSurvivesRedetectAndSavedWorldsKeepTheirs(t *testing.T) {
 	store := newTestStore(t)
 	store.SetDefaultBackend(BackendDragonfly)
-	old, _ := store.Create(Spec{Name: "old"})
+	old, _ := store.Create(Spec{Name: "old", Generator: GeneratorFlat})
 	p := &Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"}
 	p.SetDetector(func(context.Context) RuntimeInfo { return RuntimeInfo{Kind: RuntimeContainer} })
 	m := NewManager(store, Runners{}, nil)
 	m.SetSetup(p)
 	_, _ = m.Prefs(context.Background(), PrefsUpdate{Redetect: true})
-	if w, _ := m.Create(Spec{Name: "n"}); w.Backend != BackendDragonfly {
+	if w, _ := m.Create(Spec{Name: "n", Generator: GeneratorFlat}); w.Backend != BackendDragonfly {
 		t.Fatalf("forced default changed to %q", w.Backend)
 	}
 	m.SetAutoBackend(true)

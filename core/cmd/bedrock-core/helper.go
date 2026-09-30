@@ -7,10 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"runtime"
 
-	"github.com/hashimthearab/rust-mcbe/core/crashreport"
 	"github.com/hashimthearab/rust-mcbe/core/update"
 )
 
@@ -22,17 +20,10 @@ var (
 
 // helperMode reports whether args select a client-driven helper subcommand and, if so, runs it.
 func helperMode(ctx context.Context, args []string, stdout, stderr io.Writer) (bool, int) {
-	if len(args) == 0 || (args[0] != "check-update" && args[0] != "upload-crash") {
+	if len(args) == 0 || args[0] != "check-update" {
 		return false, 0
 	}
-	var err error
-	switch args[0] {
-	case "check-update":
-		err = runCheckUpdate(ctx, args[1:], stdout)
-	case "upload-crash":
-		err = runUploadCrash(ctx, args[1:])
-	}
-	if err != nil {
+	if err := runCheckUpdate(ctx, args[1:], stdout); err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", args[0], err)
 		return true, 1
 	}
@@ -62,18 +53,4 @@ func runCheckUpdate(ctx context.Context, args []string, stdout io.Writer) error 
 		return err
 	}
 	return json.NewEncoder(stdout).Encode(result)
-}
-
-func runUploadCrash(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("upload-crash", flag.ContinueOnError)
-	file := flags.String("file", "", "crash report JSON path")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	dsn, err := crashreport.ParseDSN(os.Getenv("CINNABAR_SENTRY_DSN"))
-	if err != nil {
-		return err
-	}
-	home, _ := os.UserHomeDir()
-	return crashreport.Upload(ctx, dsn, *file, home, nil)
 }

@@ -24,10 +24,9 @@ it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Appli
 The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri, code }` exposes the
 code and URL; no packaging-specific UI exists.
 
-## Crash reports (opt-in)
-A panic hook writes `crashes/*.json`. Next launch, if a DSN exists (`CINNABAR_SENTRY_DSN` or
-`resources/sentry-dsn`) and the user opted in (`CINNABAR_CRASH_REPORTS`, `crash-reporting.json`, or
-a one-time prompt), `bedrock-core upload-crash` posts a home-scrubbed Sentry envelope.
+## Crash reports
+A panic hook writes `crashes/*.json` (message, backtrace, core log tail) for local debugging; the newest
+reports are kept and nothing is uploaded.
 
 ## Update channel
 `bedrock-core check-update` fetches an Ed25519-signed manifest (`core/update`), rejects unknown keys,
