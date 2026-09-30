@@ -162,6 +162,9 @@ func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
 	if err != nil {
 		return catalog.Profile{}, err
 	}
+	if partial := profile.Partial(); partial != nil {
+		s.logger.Warn("profile partly unavailable", "error", control.RedactError(partial))
+	}
 	s.cacheArt(ctx, []*catalog.Image{&profile.Gamerpic})
 	s.mu.Lock()
 	s.gamerpic = profile.Gamerpic.Path
