@@ -1,10 +1,11 @@
 //! Client-predicted sounds tied to local interaction: block place/hit/break, eating and drinking,
-//! the local player's hurt/death, and dropped-item pickup.
+//! actor hurt/death status events, and dropped-item pickup.
 
 use std::{collections::HashSet, sync::Arc};
 
 use bevy::prelude::{Local, Message, MessageReader, Res, ResMut, Time};
-use protocol::ActorStatusKind;
+use client_world::ActorStatusNotice;
+use protocol::{ActorKind, ActorStatusKind};
 use sim::PaletteWorld;
 
 use super::{
@@ -19,6 +20,8 @@ use crate::{
 };
 
 const PLAYER: &str = "minecraft:player";
+/// Height fraction of an actor's box standing in for its head attach point.
+const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 /// Seconds between block hit sounds while mining; needs native measurement.
 const HIT_INTERVAL: f32 = 0.25;
 /// Seconds between eating/drinking sounds while an item is in use; needs native measurement.
@@ -255,7 +258,27 @@ pub(super) fn drive_consume_audio(
     }
 }
 
-/// Voices the local player's hurt/death status and dropped-item pickups.
+/// Hurt or death sound of `identifier` for a status `notice`, from the actor's head.
+fn status_request(
+    tables: &assets::SoundEventTables,
+    identifier: &str,
+    notice: &ActorStatusNotice,
+) -> Option<(&'static str, SoundRequest)> {
+    let event = match notice.kind {
+        ActorStatusKind::Hurt => "hurt",
+        ActorStatusKind::Death => "death",
+        _ => return None,
+    };
+    let route = tables.entity(identifier, event, None)?;
+    let mut head = notice.position;
+    head[1] += notice.height.unwrap_or(0.0).max(0.0) * HEAD_HEIGHT_FRACTION;
+    let request = SoundRequest::new(route.sound)
+        .with_ranges(route.volume, route.pitch)
+        .at(head);
+    Some((event, request))
+}
+
+/// Voices every actor's hurt/death status and dropped-item pickups.
 pub(super) fn drive_actor_audio(
     world: Res<ClientWorld>,
     inbox: Option<ResMut<ParticleInbox>>,
@@ -276,25 +299,27 @@ pub(super) fn drive_actor_audio(
         return;
     }
     let local = stream.local_player_runtime_id();
-    for notice in notices.iter().filter(|notice| notice.runtime_id == local) {
-        let event = match notice.kind {
-            ActorStatusKind::Hurt => "hurt",
-            ActorStatusKind::Death => "death",
-            _ => continue,
+    for notice in &notices {
+        let (identifier, unique_id) = if notice.runtime_id == local {
+            (PLAYER, stream.local_player_unique_id())
+        } else {
+            let Some(actor) = stream.actor(notice.runtime_id) else {
+                continue;
+            };
+            let identifier = match &actor.kind {
+                ActorKind::Player { .. } => PLAYER,
+                ActorKind::Entity { identifier } => identifier.as_ref(),
+            };
+            (identifier, actor.unique_id)
         };
-        let subject = EchoSubject::Actor(stream.local_player_unique_id());
-        if !engine.admit_echo(EchoOrigin::Client, event, subject, ACTOR_ECHO_SECONDS) {
+        let Some((event, request)) = engine
+            .bank()
+            .and_then(|bank| status_request(bank.tables(), identifier, notice))
+        else {
             continue;
-        }
-        let request = engine.bank().and_then(|bank| {
-            let route = bank.tables().entity(PLAYER, event, None)?;
-            Some(
-                SoundRequest::new(route.sound)
-                    .with_ranges(route.volume, route.pitch)
-                    .at(notice.position),
-            )
-        });
-        if let Some(request) = request {
+        };
+        let subject = EchoSubject::Actor(unique_id);
+        if engine.admit_echo(EchoOrigin::Client, event, subject, ACTOR_ECHO_SECONDS) {
             engine.enqueue(request);
         }
     }
@@ -326,6 +351,38 @@ mod tests {
         assert_eq!(is_consumable("minecraft:bread"), Some("eat"));
         assert_eq!(is_consumable("minecraft:potion"), Some("drink"));
         assert_eq!(is_consumable("minecraft:stone"), None);
+    }
+
+    // Only the local player's status was voiced; remote players and mobs stayed silent.
+    #[test]
+    fn remote_actor_status_voices_its_own_hurt_sound_from_the_head() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {
+                "defaults": {"events": {"hurt": "game.hurt", "death": "game.death"}},
+                "entities": {"zombie": {"events": {"hurt": "mob.zombie.hurt"}},
+                    "armor_stand": {"events": {"hurt": ""}}}}}),
+            &serde_json::json!({}),
+        );
+        let notice = |kind| ActorStatusNotice {
+            runtime_id: 9,
+            kind,
+            data: 0,
+            position: [1.0, 64.0, 1.0],
+            height: Some(2.0),
+        };
+        let (event, hurt) =
+            status_request(&tables, "minecraft:zombie", &notice(ActorStatusKind::Hurt)).unwrap();
+        assert_eq!((event, &*hurt.name), ("hurt", "mob.zombie.hurt"));
+        assert_eq!(hurt.position, Some([1.0, 65.8, 1.0]));
+        let (_, death) =
+            status_request(&tables, "minecraft:zombie", &notice(ActorStatusKind::Death)).unwrap();
+        assert_eq!(&*death.name, "game.death");
+        let silent = status_request(
+            &tables,
+            "minecraft:armor_stand",
+            &notice(ActorStatusKind::Hurt),
+        );
+        assert!(silent.is_none());
     }
 
     #[test]
