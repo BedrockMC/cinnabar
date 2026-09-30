@@ -352,6 +352,7 @@ PKG_CORE_LDFLAGS = -s -w -X main.releaseVersion=$(PKG_VERSION) -X main.trustedUp
 package-binaries:
 	$(CARGO) build --release --locked -p bedrock-client -p asset-compiler --bin bedrock-client --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
+	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
 package-macos: package-binaries
 	bash packaging/macos/build-app.sh
