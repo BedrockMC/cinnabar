@@ -15,7 +15,7 @@
 
 use serde_json::Value;
 
-use crate::anim::{Fade, Inherited};
+use crate::anim::{Fade, Inherited, Motion, Motions, SLIDE_KEY, Slide};
 use crate::expr::{self, AxisContext, Length, Resolved};
 use crate::sidecar::TextureMeta;
 use crate::state::{LayoutReport, ViewState};
@@ -96,6 +96,8 @@ pub struct LaidOut<'a> {
     pub alpha: f32,
     /// Animations scaling `alpha` at paint time, own and propagated.
     pub fades: Vec<Fade>,
+    /// Offset animations displacing this control and its clip at paint time.
+    pub motions: Motions,
     pub visible: bool,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
@@ -187,11 +189,28 @@ fn place_subtree<'a>(
     inherited: &Inherited,
     ctx: &mut PlaceCtx,
 ) -> LaidOut<'a> {
-    let (own_alpha, fades, inherit) = inherited.apply(control, alpha(control));
-    let child_clip = if clip_children(control) {
+    let (own_alpha, fades, mut inherit) = inherited.apply(control, alpha(control));
+    let clips = clip_children(control);
+    let child_clip = if clips {
         parent_clip.intersect(rect)
     } else {
         parent_clip
+    };
+    let parent_rect = ctx
+        .ancestors
+        .last()
+        .map_or(parent_clip, |(_, parent, _)| *parent);
+    let mut motions = inherited.motions.clone();
+    motions
+        .own
+        .extend(motion(control, parent_rect, [rect.w, rect.h], &inherit));
+    inherit.motions = Motions {
+        clip: if clips {
+            motions.own.clone()
+        } else {
+            motions.clip.clone()
+        },
+        own: motions.own.clone(),
     };
     let absolute_layer = parent_layer.saturating_add(layer(control));
     let scroll = ScrollFrame::open(control, &key, ctx.state);
@@ -269,6 +288,7 @@ fn place_subtree<'a>(
         layer: absolute_layer,
         alpha: own_alpha,
         fades,
+        motions,
         visible: shown && visible(control),
         children,
     }
@@ -424,7 +444,11 @@ fn stack_children<'a>(
     for (index, child) in parent.children.iter().enumerate() {
         let main_size = main_sizes[index].unwrap_or(fill_each);
         let cross_size = cross_sizes[index];
-        let off = offset(child, parent_rect, env);
+        let size = match main {
+            Axis::X => [main_size, cross_size],
+            Axis::Y => [cross_size, main_size],
+        };
+        let off = offset(child, parent_rect, size);
         let main_pos = cursor + axis_pick(off, main);
         let cross_pos = axis_min(parent_rect, cross)
             + parent_cross * anchor_frac(anchor_from(child), cross)
@@ -445,11 +469,11 @@ fn place_by_anchor(
     control: &ResolvedControl,
     parent_rect: Rect,
     size: [f64; 2],
-    env: &LayoutEnv,
+    _env: &LayoutEnv,
 ) -> Rect {
     let from = anchor_from(control);
     let to = anchor_to(control);
-    let off = offset(control, parent_rect, env);
+    let off = offset(control, parent_rect, size);
     let x = parent_rect.x + parent_rect.w * anchor_frac(from, Axis::X)
         - size[0] * anchor_frac(to, Axis::X)
         + off[0];
@@ -864,17 +888,27 @@ fn bound_length(control: &ResolvedControl, key: &str, index: usize) -> Option<Le
     }
 }
 
-fn offset(control: &ResolvedControl, parent_rect: Rect, _env: &LayoutEnv) -> [f64; 2] {
-    let Some(Value::Array(items)) = control.properties.get("offset") else {
-        return [0.0, 0.0];
+/// The static `offset`: `%` of the parent, `%x`/`%y` of the control's own size.
+fn offset(control: &ResolvedControl, parent_rect: Rect, size: [f64; 2]) -> [f64; 2] {
+    control
+        .properties
+        .get("offset")
+        .map_or([0.0; 2], |pair| offset_pixels(pair, parent_rect, size))
+}
+
+/// An `[x, y]` offset pair in pixels; anything else is no offset.
+fn offset_pixels(pair: &Value, parent_rect: Rect, size: [f64; 2]) -> [f64; 2] {
+    let Value::Array(items) = pair else {
+        return [0.0; 2];
     };
     if items.len() < 2 {
-        return [0.0, 0.0];
+        return [0.0; 2];
     }
     let axis_value = |index: usize, axis: Axis| {
-        let parent = axis_of(parent_rect, axis);
         let ctx = AxisContext {
-            parent,
+            parent: axis_of(parent_rect, axis),
+            own_width: Some(size[0]),
+            own_height: Some(size[1]),
             ..AxisContext::default()
         };
         expr::length_from_value(&items[index])
@@ -882,6 +916,22 @@ fn offset(control: &ResolvedControl, parent_rect: Rect, _env: &LayoutEnv) -> [f6
             .unwrap_or(0.0)
     };
     [axis_value(0, Axis::X), axis_value(1, Axis::Y)]
+}
+
+/// The control's `offset` animation in pixels, measured like its static offset.
+fn motion(
+    control: &ResolvedControl,
+    parent_rect: Rect,
+    size: [f64; 2],
+    inherited: &Inherited,
+) -> Option<Motion> {
+    let slide: Slide = serde_json::from_value(control.properties.get(SLIDE_KEY)?.clone()).ok()?;
+    let (born, clock) = inherited.timing();
+    let rest = offset(control, parent_rect, size);
+    Some(slide.motion(rest, born, clock, |pair| match pair {
+        Value::Null => rest,
+        pair => offset_pixels(pair, parent_rect, size),
+    }))
 }
 
 fn anchor_from(control: &ResolvedControl) -> [f64; 2] {

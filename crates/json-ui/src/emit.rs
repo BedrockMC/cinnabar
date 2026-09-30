@@ -116,7 +116,30 @@ pub struct DrawNode {
     /// A sprite's `uv` flip-book, stepped by the caller at paint time.
     #[serde(default)]
     pub flip_book: Option<crate::anim::FlipBook>,
+    /// Offset animations shifting `dest` and `clip`, evaluated at paint time.
+    #[serde(default)]
+    pub motions: crate::anim::Motions,
     pub draw: Draw,
+}
+
+impl DrawNode {
+    /// `dest` and `clip` displaced by this node's offset animations at `now`.
+    pub fn animated_rects(
+        &self,
+        now: f64,
+        clocks: Option<&BTreeMap<String, f64>>,
+    ) -> (RectOut, RectOut) {
+        if self.motions.own.is_empty() && self.motions.clip.is_empty() {
+            return (self.dest, self.clip);
+        }
+        let (own, clip) = self.motions.at(now, clocks);
+        let shift = |rect: RectOut, by: [f64; 2]| RectOut {
+            x: rect.x + by[0],
+            y: rect.y + by[1],
+            ..rect
+        };
+        (shift(self.dest, own), shift(self.clip, clip))
+    }
 }
 
 /// Flatten a laid-out tree to draw commands, ordered by `layer` then document order.
@@ -156,6 +179,7 @@ fn collect(
                 layer: node.layer,
                 alpha: node.alpha,
                 fades: node.fades.clone(),
+                motions: node.motions.clone(),
                 flip_book: match &draw {
                     Draw::Sprite { texture, .. } => flip_book(node.control, texture, env),
                     _ => None,

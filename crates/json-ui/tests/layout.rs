@@ -751,3 +751,52 @@ fn a_variable_child_key_instances_the_control_it_names() {
         Some(&json!([10, 10]))
     );
 }
+
+// An `offset` anim chain sweeps a clipped child at paint time: it starts at
+// `from`, measures `%x` against its own width, waits, loops, and its clip stays put.
+#[test]
+fn an_offset_animation_moves_the_draw_inside_a_still_clip() {
+    let screen = br#"{
+        "namespace": "s",
+        "sweep": { "anim_type": "offset", "easing": "linear", "from": ["-50%", "-25%x"],
+            "to": ["50%", "25%x"], "duration": 2.0, "next": "@s.hold" },
+        "hold": { "anim_type": "wait", "duration": 1.0, "next": "@s.sweep" },
+        "card": { "type": "panel", "size": [40, 40], "clips_children": true,
+            "anchor_from": "top_left", "anchor_to": "top_left", "controls": [
+            { "shine": { "type": "image", "texture": "textures/ui/shine",
+                "size": ["200%", "200%"], "anims": ["@s.sweep"] } } ] }
+    }"#;
+    let catalog = json_ui::Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/s.json"]}"#.as_slice(),
+        ),
+        ("ui/s.json", screen.as_slice()),
+    ])
+    .unwrap();
+    let card = resolve(&catalog, "s.card", &Context::desktop())
+        .control
+        .unwrap();
+    let env = zero_env();
+    let draws = emit(&layout(&card, [100.0, 100.0], &env), &env);
+    let shine = draws.iter().find(|node| node.name == "shine").unwrap();
+    // Laid out centred on the 40px card: 80px wide at -20.
+    assert_eq!(
+        (shine.dest.x, shine.dest.y, shine.dest.w),
+        (-20.0, -20.0, 80.0)
+    );
+    let at = |now: f64| {
+        let (dest, clip) = shine.animated_rects(now, None);
+        ([dest.x, dest.y], [clip.x, clip.y, clip.w, clip.h])
+    };
+    assert_eq!(
+        at(0.0).0,
+        [-40.0, -40.0],
+        "starts at from: -50% of 40, -25% of 80"
+    );
+    assert_eq!(at(1.0).0, [-20.0, -20.0]);
+    assert_eq!(at(2.5).0, [0.0, 0.0], "holds `to` through the wait");
+    assert_eq!(at(3.0).0, [-40.0, -40.0], "and loops");
+    assert_eq!(at(1.0).1, [0.0, 0.0, 40.0, 40.0], "the clip never moves");
+}
