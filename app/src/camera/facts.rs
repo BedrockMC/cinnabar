@@ -4,14 +4,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use bevy::prelude::{Res, ResMut, Resource};
 use protocol::{AbilitiesUpdate, AbilityLayersEvidence, ActorMetadataValue};
-use semantic_input::Action;
 
 use super::{fov::CameraFovInputs, presentation::ScreenEffectFacts};
 use crate::{
+    item_use::ItemUseRuntime,
     local_player::{LOCAL_AVATAR_EYE_HEIGHT_BLOCKS, LocalViewPose},
     movement::PhysicsCollisionRegistries,
     runtime::world::ClientWorld,
-    semantic_controls::SemanticInputSnapshot,
     ui_runtime::UiRuntime,
 };
 
@@ -67,8 +66,8 @@ fn flying_from_abilities(update: &AbilitiesUpdate) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn collect_screen_effect_facts(
     time: Res<bevy::prelude::Time>,
-    input: Res<SemanticInputSnapshot>,
     view: Res<LocalViewPose>,
+    item_use: Option<Res<ItemUseRuntime>>,
     ui: Option<Res<UiRuntime>>,
     client_world: Option<Res<ClientWorld>>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
@@ -109,7 +108,7 @@ pub(super) fn collect_screen_effect_facts(
         let stack = ui.selected_stack()?;
         stream?.canonical_item_stack(stack)?.identifier
     });
-    let use_held = input.phase(Action::Use).held;
+    let use_held = item_use.as_deref().is_some_and(ItemUseRuntime::is_using);
     clock.advance(selected.as_ref(), use_held, time.delta_secs());
     let using =
         |identifier: &str| use_held && selected.as_deref().is_some_and(|item| item == identifier);

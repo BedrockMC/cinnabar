@@ -149,7 +149,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     ui: Option<Res<'w, crate::ui_runtime::UiRuntime>>,
     collisions: Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
-    semantic_input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
+    item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
@@ -176,7 +176,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         hand_motion,
         mut equipment,
         collisions,
-        semantic_input,
+        item_use,
         ui,
         mut dropped_items,
         profiler,
@@ -234,9 +234,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         .stream
         .as_ref()
         .zip(ui.as_deref())
-        .zip(semantic_input.as_deref())
-        .map_or(LocalItemUse::Unpredicted, |((stream, ui), input)| {
-            local_item_use(stream, ui, input.phase(semantic_input::Action::Use).held)
+        .zip(item_use.as_deref())
+        .map_or(LocalItemUse::Unpredicted, |((stream, ui), item_use)| {
+            item_use.local_item_use(stream, ui)
         });
     let mut local_feed = build_local_player_feed(
         &local_physics,
@@ -669,35 +669,6 @@ fn hand_motion_matrix(motion: &crate::camera::FirstPersonHandMotion) -> Mat4 {
 
 /// Marks an instance's texture layer as an item-atlas layer for the first-person shader.
 const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
-
-/// Items whose use the client animates without waiting for the server; food and drink wait for
-/// the server flag, since the client cannot tell whether eating is allowed.
-pub(crate) fn local_item_use(
-    stream: &WorldStream,
-    ui: &crate::ui_runtime::UiRuntime,
-    use_held: bool,
-) -> LocalItemUse {
-    let Some(stack) = ui
-        .selected_stack()
-        .and_then(|stack| stream.canonical_item_stack(stack))
-    else {
-        return LocalItemUse::Unpredicted;
-    };
-    let Some(identifier) = stack.identifier.as_deref() else {
-        return LocalItemUse::Unpredicted;
-    };
-    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    // Shields block through sneaking, not use; the server flag stands.
-    let predicted = matches!(name, "bow" | "trident" | "spyglass")
-        || name.ends_with("_spear")
-        // A loaded crossbow fires instead of charging.
-        || (name == "crossbow" && stack.charged_projectile.is_none());
-    match (predicted, use_held) {
-        (false, _) => LocalItemUse::Unpredicted,
-        (true, false) => LocalItemUse::Idle,
-        (true, true) => LocalItemUse::Using,
-    }
-}
 
 /// Builds this frame's client-authored local-player feed from the predicted physics state and
 /// the look pose. The yaw/pitch come from the look input (`LocalViewPose`), never the boomed

@@ -306,6 +306,15 @@ impl MovementTicker {
 
     /// Flags an attack press that hit nothing on its exact unsent tick.
     pub(crate) fn mark_missed_swing(&mut self, tick: u64) -> bool {
+        self.mark_unsent_flag(tick, protocol::PlayerInputFlags::MISSED_SWING)
+    }
+
+    /// Flags the exact unsent tick on which the held item's use began.
+    pub(crate) fn mark_started_using_item(&mut self, tick: u64) -> bool {
+        self.mark_unsent_flag(tick, protocol::PlayerInputFlags::START_USING_ITEM)
+    }
+
+    fn mark_unsent_flag(&mut self, tick: u64, flag: protocol::PlayerInputFlags) -> bool {
         let Some(sample) = self
             .outbox
             .iter_mut()
@@ -313,7 +322,7 @@ impl MovementTicker {
         else {
             return false;
         };
-        sample.snapshot.flags |= protocol::PlayerInputFlags::MISSED_SWING;
+        sample.snapshot.flags |= flag;
         true
     }
 
