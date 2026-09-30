@@ -271,6 +271,9 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             -pitch.to_degrees(),
             (180.0 - yaw.to_degrees()).rem_euclid(360.0),
         ]);
+        if let Ok((transform, _)) = camera.single() {
+            stream.set_actor_camera_position(transform.translation.to_array());
+        }
         // Fluid and bed state is tick state; a frame without a tick would resample the same.
         if step.ticks > 0
             && let Some(collisions) = collisions.as_deref()

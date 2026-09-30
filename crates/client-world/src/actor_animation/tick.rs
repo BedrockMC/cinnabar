@@ -19,6 +19,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) is_local_first_person: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
     pub(crate) camera_rotation: [f32; 2],
+    /// World position of the view, for camera-relative queries.
+    pub(crate) camera_position: [f32; 3],
     /// Worn stacks in helmet, chestplate, leggings, boots, body order.
     pub(crate) armor: [Option<WornArmor>; 5],
     /// The player's skin carries a cape image.

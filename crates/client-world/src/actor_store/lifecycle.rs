@@ -90,6 +90,7 @@ impl ActorStore {
             local_first_person: false,
             local_hands: [None, None],
             camera_rotation: [0.0; 2],
+            camera_position: [0.0; 3],
             seat_defaults: Default::default(),
             property_registry: Default::default(),
             local_knockback: None,
@@ -101,6 +102,13 @@ impl ActorStore {
     pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
         if rotation.iter().all(|value| value.is_finite()) {
             self.camera_rotation = rotation;
+        }
+    }
+
+    /// Records the view's world position for camera-relative animation queries.
+    pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
+        if position.iter().all(|value| value.is_finite()) {
+            self.camera_position = position;
         }
     }
 
@@ -513,6 +521,7 @@ impl ActorStore {
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
             let camera_rotation = self.camera_rotation;
+            let camera_position = self.camera_position;
             let property_registry = &self.property_registry;
             let players = &self.players;
             let local_first_person = self
@@ -586,6 +595,7 @@ impl ActorStore {
                     has_player_rider,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     camera_rotation,
+                    camera_position,
                     armor: worn_armor(items.armor(actor.runtime_id)),
                     properties: property_registry.for_kind(&actor.kind),
                     skin_geometry: match &actor.kind {
