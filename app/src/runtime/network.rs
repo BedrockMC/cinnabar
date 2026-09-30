@@ -63,8 +63,9 @@ pub(crate) use resource_packs::{
     set_active_language, set_base_material_keys,
 };
 pub(crate) use session::{
-    NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, PacketSendError,
-    SessionTransferTarget, WORLD_EVENT_CAPACITY, session_failure_display, spawn_network,
+    BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
+    PacketSendError, SessionTransferTarget, WORLD_EVENT_CAPACITY, session_failure_display,
+    spawn_network,
 };
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;

@@ -25,7 +25,10 @@ use crate::{
     movement::{
         LocalMovementEffectTimeline, MiningEffects, MovementTicker, PhysicsCollisionRegistries,
     },
-    runtime::{network::NetworkHandle, world::ClientWorld},
+    runtime::{
+        network::{BatchSendError, NetworkHandle},
+        world::ClientWorld,
+    },
     semantic_controls::SemanticInputSnapshot,
     ui_runtime::UiRuntime,
 };
@@ -191,7 +194,7 @@ pub(crate) fn swing_duration(effects: MiningEffects) -> i32 {
 }
 
 /// The local arm-swing guard: a new swing starts once half the current one elapsed.
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub(crate) struct SwingTracker {
     last_swing_tick: Option<u64>,
     /// A swing started since the local rig last took it.
@@ -237,7 +240,7 @@ pub(crate) struct MeleeOutcome {
 }
 
 /// Attack-press state; `actor_in_front` vetoes mining behind a targeted actor.
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub(crate) struct MeleeRuntime {
     latched_press: bool,
     actor_in_front: bool,
@@ -354,6 +357,31 @@ impl MeleeRuntime {
     }
 }
 
+/// Resolves the press and queues its swing and transaction as one batch.
+///
+/// A full queue restores the pre-press state so the same press retries, bounded like any
+/// deferred press; returns whether the tick reports a missed swing.
+pub(crate) fn resolve_and_send(
+    runtime: &mut MeleeRuntime,
+    swings: &mut SwingTracker,
+    crosshair: Crosshair,
+    press: &PressContext,
+    input_frame: u64,
+    send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
+) -> bool {
+    let (saved_runtime, saved_swings) = (runtime.clone(), swings.clone());
+    let outcome = runtime.resolve(crosshair, press, swings);
+    match send(outcome.packets) {
+        Ok(()) | Err(BatchSendError::Closed) => outcome.missed_swing,
+        Err(BatchSendError::Full) => {
+            *runtime = saved_runtime;
+            *swings = saved_swings;
+            runtime.defer(input_frame);
+            false
+        }
+    }
+}
+
 #[derive(SystemParam)]
 pub(crate) struct MeleeContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
@@ -428,11 +456,15 @@ pub(crate) fn produce_melee(
         swing_duration: swing_duration(context.effects.mining_effects()),
         now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
-    let outcome = runtime.resolve(crosshair, &press, &mut swings);
-    for packet in outcome.packets {
-        let _ = context.network.send_inventory_packet(packet);
-    }
-    if outcome.missed_swing {
+    let missed_swing = resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        crosshair,
+        &press,
+        input.frame_sequence,
+        |packets| context.network.send_inventory_packets(packets),
+    );
+    if missed_swing {
         movement.mark_missed_swing(sample.tick);
     }
 }
