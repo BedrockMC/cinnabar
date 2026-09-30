@@ -21,6 +21,13 @@ pub(crate) struct SessionEntityPack {
     pub(crate) equipment: Option<Arc<assets::RuntimeEquipmentCatalog>>,
 }
 
+/// StartGame item components and pack item icons the equipment layer draws custom items from.
+#[derive(Debug)]
+pub(crate) struct SessionItems {
+    pub(crate) components: Arc<[(Arc<str>, protocol::ItemComponents)]>,
+    pub(crate) icons: Option<Arc<crate::ui_runtime::presentation::SessionIcons>>,
+}
+
 /// Vanilla definitions server-pack entities may reference, set once at startup when the
 /// sidecar loads.
 static VANILLA_REFS: std::sync::OnceLock<assets::VanillaEntityRefs> = std::sync::OnceLock::new();
@@ -197,3 +204,6 @@ mod tests {
 
 #[cfg(test)]
 mod pack_report;
+
+#[cfg(test)]
+mod equipment_report;

@@ -440,6 +440,10 @@ pub(crate) fn receive_network_events(
                 }));
                 stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
+                client_world.session_items = Some(Arc::new(entity_pack::SessionItems {
+                    components: Arc::clone(&packs.item_components),
+                    icons: packs.item_icons.clone(),
+                }));
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)
                 {
