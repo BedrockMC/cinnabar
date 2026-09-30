@@ -342,6 +342,13 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
+    /// Movement flags from one local-player SetActorData.
+    LocalMovementFlags {
+        sequence: u64,
+        /// Local input tick the server stamped; zero when unstamped.
+        tick: u64,
+        flags: crate::MovementFlagUpdate,
+    },
     /// Valid current `minecraft:movement` authority for local prediction.
     LocalMovementSpeed {
         sequence: u64,

@@ -103,3 +103,105 @@ fn live_and_stale_movement_speed_stamps_leave_retained_inputs_alone() {
     assert_eq!(physics.retime_movement_speed(103, 0.2), None);
     assert_eq!(physics.retime_movement_speed(50, 0.2), None);
 }
+
+fn sprinting_input(sprinting: bool) -> MovementInput {
+    MovementInput {
+        sprinting,
+        ..forward_physics_input()
+    }
+}
+
+fn flags(update: impl FnOnce(&mut client_world::MovementFlagUpdate)) -> client_world::MovementFlagUpdate {
+    let mut flags = client_world::MovementFlagUpdate::default();
+    update(&mut flags);
+    flags
+}
+
+/// A server sprint stop applies from its tick through replay and reaches the live latch.
+#[test]
+fn delayed_sprint_stop_rewinds_to_its_tick_and_is_adopted_live() {
+    let (mut on_time, _) = walked_physics(0);
+    for sprinting in [true, true, false, false] {
+        run_tick_with(&mut on_time, sprinting_input(sprinting));
+    }
+    let (mut delayed, mut ticker) = walked_physics(0);
+    for _ in 0..4 {
+        let frame = delayed.advance(Duration::from_millis(50), sprinting_input(true), &VersionedFloor(1));
+        ticker.enqueue_completed_physics(frame.samples[0].clone()).unwrap();
+    }
+    let stop = flags(|flags| flags.sprinting = Some(false));
+    assert_eq!(delayed.apply_server_movement_flags(102, stop), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut delayed, 102, &VersionedFloor(1)).unwrap();
+    assert_eq!(delayed.state(), on_time.state());
+    assert_eq!(delayed.latest_sneak_sprint(), Some((false, false)));
+    let adopted = delayed.take_server_control_flags().unwrap();
+    assert_eq!(adopted.sprinting, Some(false));
+    assert_eq!(adopted.sneaking, None);
+}
+
+#[test]
+fn a_redundant_flag_echo_changes_nothing() {
+    let (mut physics, _) = walked_physics(0);
+    for _ in 0..3 {
+        run_tick_with(&mut physics, sprinting_input(true));
+    }
+    let before = physics.state().cloned();
+    let echo = flags(|flags| {
+        flags.sprinting = Some(true);
+        flags.sneaking = Some(false);
+    });
+    assert_eq!(physics.apply_server_movement_flags(102, echo), None);
+    assert_eq!(physics.state().cloned(), before);
+    assert_eq!(physics.take_server_control_flags(), None);
+}
+
+#[test]
+fn a_later_client_transition_outranks_an_older_server_flag() {
+    let (mut physics, _) = walked_physics(0);
+    for sprinting in [true, true, false, false] {
+        run_tick_with(&mut physics, sprinting_input(sprinting));
+    }
+    let stop = flags(|flags| flags.sprinting = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(101, stop), Some(101));
+    assert_eq!(
+        physics.take_server_control_flags(),
+        None,
+        "the client already stopped on its own, so the latch is left alone"
+    );
+}
+
+#[test]
+fn a_server_glide_clear_ends_the_retained_glide_and_the_live_mode() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 50.620_01, 0.0], 100, false);
+    let context = PhysicsSampleContext {
+        mode_intent: super::ModeIntent {
+            elytra_ready: true,
+            ..super::ModeIntent::default()
+        },
+        ..PhysicsSampleContext::default()
+    };
+    for jumping in [false, true, false, false] {
+        let input = MovementInput {
+            jumping,
+            ..MovementInput::default()
+        };
+        let frame = physics.advance_with_context(Duration::from_millis(50), input, context, &VersionedFloor(1));
+        assert_eq!(frame.completed_ticks, 1);
+    }
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let clear = flags(|flags| flags.gliding = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    assert_eq!(physics.mode(), sim::MovementMode::Walking);
+}
+
+#[test]
+fn an_unstamped_flag_update_applies_live() {
+    let (mut physics, _) = walked_physics(1);
+    let stop = flags(|flags| flags.sprinting = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(0, stop), None);
+    assert_eq!(
+        physics.take_server_control_flags().and_then(|flags| flags.sprinting),
+        Some(false)
+    );
+}

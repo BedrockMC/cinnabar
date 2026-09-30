@@ -96,6 +96,13 @@ impl ModeTracker {
         self.mode
     }
 
+    /// Ends `mode` when it is current, as a server flag clear does.
+    pub(super) fn end(&mut self, mode: MovementMode) {
+        if self.mode == mode {
+            self.mode = MovementMode::Walking;
+        }
+    }
+
     /// Picks this tick's mode. `fly_toggle` must be true only on the first tick of its frame.
     pub(super) fn select(
         &mut self,
