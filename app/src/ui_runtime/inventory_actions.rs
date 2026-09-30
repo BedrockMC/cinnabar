@@ -495,6 +495,16 @@ impl UiRuntime {
                 Ok(0)
             }
             Widget::CrafterSlot(slot) => self.set_crafter_slot(slot, false),
+            Widget::InventoryLayout(layout) => {
+                let creative = self.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
+                let state = self.screen_state_mut();
+                // The book shows when `book_open` differs from creative's default.
+                state.book_open = (layout != 1) != creative;
+                state.creative_wide = creative && layout == 3;
+                state.book_page = 0;
+                state.container_scroll.clear();
+                Ok(0)
+            }
             Widget::RecipeFilter => {
                 let filtering = self.recipe_filtering();
                 self.screen_state_mut().recipe_filtering = Some(!filtering);

@@ -196,7 +196,12 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
         (
             "inventory",
             personal(),
-            vec![Craft(28), Craft(31), CraftOutput, Widget(W::BookToggle)],
+            vec![
+                Craft(28),
+                Craft(31),
+                CraftOutput,
+                Widget(W::InventoryLayout(2)),
+            ],
         ),
         (
             "book",
@@ -228,7 +233,11 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 runtime.screen_state_mut().book_open = true;
                 runtime
             },
-            vec![Widget(W::BookToggle), CreativeTab(1), CreativeSearch],
+            vec![
+                Widget(W::InventoryLayout(1)),
+                CreativeTab(1),
+                CreativeSearch,
+            ],
         ),
         (
             "inventory_recipe_search",
@@ -250,7 +259,7 @@ fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
                 RecipeBook(20),
                 CreativeTab(2),
                 CreativeSearch,
-                Widget(W::BookToggle),
+                Widget(W::InventoryLayout(3)),
             ],
         ),
         (
@@ -443,6 +452,49 @@ fn crafter_slots_toggle_through_their_buttons() {
     assert_eq!(toggles.len(), 2);
     assert!(toggles[0].contains("slot_index: 0") && toggles[0].contains("is_disabled: false"));
     assert!(toggles[1].contains("slot_index: 4") && toggles[1].contains("is_disabled: true"));
+}
+
+// Creative's wide list drops the player inventory for the catalog and keeps
+// the hotbar beneath it; its toggles pick each layout.
+#[test]
+fn creative_wide_layout_keeps_only_the_hotbar_under_the_catalog() {
+    use crate::ui_runtime::presentation::screens::Widget as W;
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = creative();
+    runtime.screen_state_mut().creative_wide = true;
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let input = presentation
+        .build(&runtime, 5_000, [1280, 720], dpi)
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "container-creative_wide");
+    let frame = presentation.engine_container_frame().unwrap();
+    let reached: Vec<InventoryCellHit> = frame
+        .hits
+        .iter()
+        .filter_map(|region| {
+            let center = [
+                (region.rect.x + region.rect.w / 2.0) as f32,
+                (region.rect.y + region.rect.h / 2.0) as f32,
+            ];
+            presentation.engine_container_hit(center)
+        })
+        .collect();
+    for hit in [
+        InventoryCellHit::RecipeBook(0),
+        InventoryCellHit::Player(0),
+        InventoryCellHit::Player(8),
+        InventoryCellHit::Widget(W::InventoryLayout(2)),
+    ] {
+        assert!(reached.contains(&hit), "{hit:?} unreachable");
+    }
+    assert!(!reached.contains(&InventoryCellHit::Player(9)));
 }
 
 // Moving the pointer across slots only changes which hover states show: the

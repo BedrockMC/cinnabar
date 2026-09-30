@@ -657,6 +657,7 @@ impl HudLayout<'_> {
                 Widget::BookToggle
                 | Widget::RecipeFilter
                 | Widget::CrafterSlot(_)
+                | Widget::InventoryLayout(_)
                 | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }
