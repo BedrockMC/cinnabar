@@ -248,6 +248,20 @@ impl<'a> Resolver<'a> {
         child: &RawControl,
         env: &Env,
     ) -> (RawControl, Option<ControlRef>, Option<String>) {
+        // `{ "$button_layout": {} }` with `$button_layout: "@ns.panel"` instances
+        // that panel, named as it is (the disconnect screen's buttons).
+        if child.base.is_none()
+            && let Some(Value::String(text)) = child
+                .name
+                .strip_prefix('$')
+                .and_then(|variable| env.get(variable))
+            && let Some(reference) = text.strip_prefix('@')
+        {
+            let mut named = child.clone();
+            named.name = ControlRef::parse(reference, &child.owner_ns).name;
+            named.base = Some(reference.to_owned());
+            return self.resolve_child_base(&named, env);
+        }
         let Some(base) = &child.base else {
             return (child.clone(), None, None);
         };
