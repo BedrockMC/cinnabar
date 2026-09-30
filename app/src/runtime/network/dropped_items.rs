@@ -33,7 +33,7 @@ const GRASS_TINT_RGB: [u8; 3] = [0x79, 0xc0, 0x5a];
 const FOLIAGE_TINT_RGB: [u8; 3] = [0x77, 0xab, 0x2f];
 const WATER_TINT_RGB: [u8; 3] = [0x3f, 0x76, 0xe4];
 /// Daylight scale until the celestial curve feeds world-space actors.
-const DAYLIGHT: f32 = 1.0;
+pub(super) const DAYLIGHT: f32 = 1.0;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum ModelKey {

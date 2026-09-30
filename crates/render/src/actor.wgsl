@@ -1,4 +1,5 @@
 #import bevy_render::view::View
+#import cinnabar::lighting::{lit_colour, light_brightness}
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -11,9 +12,9 @@ struct BoneMatrix {
     row_2: vec4<f32>,
 }
 
-// ActorGpuInstance is deliberately read as 24 packed words. Its Rust contract
-// is 96 bytes; a WGSL struct containing vec4 rows would round the array stride
-// to 96 bytes under storage-buffer layout rules.
+// ActorGpuInstance is deliberately read as 25 packed words. Its Rust contract
+// is 100 bytes; a WGSL struct containing vec4 rows would round the array stride
+// to 112 bytes under storage-buffer layout rules.
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
@@ -34,6 +35,7 @@ struct VertexOutput {
     @location(5) @interpolate(flat) tint: u32,
     @location(6) @interpolate(flat) overlay: vec4<f32>,
     @location(7) @interpolate(flat) uv_wrap: u32,
+    @location(8) @interpolate(flat) light: u32,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -72,7 +74,7 @@ fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 24u;
+    let instance_base = instance_index * 25u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
@@ -85,6 +87,7 @@ fn actor_vertex(
     out.skin_layer = texture_layer;
     out.tint = instance_words[instance_base + 18u];
     out.overlay = unpack4x8unorm(overlay_rgba8);
+    out.light = instance_words[instance_base + 24u];
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
     let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
@@ -170,6 +173,20 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (input.tint != 0u && color.a > 0.99) {
         color = vec4(color.rgb * pow(unpack4x8unorm(input.tint).rgb, vec3(2.2)), color.a);
     }
-    // The hurt/death overlay blends after the dye.
+    // World light (packed block, sky and daylight); zero draws unlit for `ignore_lighting`.
+    if ((input.light & 0x80000000u) != 0u) {
+        let daylight = f32((input.light >> 8u) & 0xffu) / 255.0;
+        color = vec4(
+            lit_colour(
+                color.rgb,
+                light_brightness(input.light & 0xfu),
+                light_brightness((input.light >> 4u) & 0xfu),
+                1.0,
+                daylight,
+            ),
+            color.a,
+        );
+    }
+    // The hurt/death overlay blends after the dye and light.
     return vec4(mix(color.rgb, input.overlay.rgb, input.overlay.a), color.a);
 }

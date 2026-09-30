@@ -29,6 +29,7 @@ struct ResolvedLayer {
     hidden_bones: Arc<[u32]>,
     uv_anim: [f32; 4],
     model: Option<LayerModel>,
+    ignore_lighting: bool,
 }
 
 fn convert(bones: &[BoneTransform]) -> Option<Arc<[RenderBoneTransform]>> {
@@ -81,6 +82,7 @@ fn resolve(
             };
             Some(ResolvedLayer {
                 model,
+                ignore_lighting: layer.ignore_lighting,
                 location: artwork.variant_location(submission.input.rig, layer.source)?,
                 tint: pack_layer_tint(layer.color),
                 overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
@@ -116,6 +118,9 @@ fn layered(body: &ActorRigSubmission, layer: &ResolvedLayer, index: usize) -> Ac
     submission.texture_layer = layer.location.layer();
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
+    if layer.ignore_lighting {
+        submission.light = 0;
+    }
     if let Some(overlay) = layer.overlay {
         submission.overlay_rgba8 = overlay;
     }
