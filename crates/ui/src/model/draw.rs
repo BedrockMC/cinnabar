@@ -120,70 +120,134 @@ pub(super) fn emit_visual(
             layout,
             color,
             shadow,
+        } => emit_text(
+            layout, *color, *shadow, None, bounds, clip, effects, vertices, indices, batches,
+        ),
+        UiVisual::RotatedText {
+            layout,
+            color,
+            shadow,
+            angle_radians,
         } => {
-            // Mojang's client draws the entire shadowed run before the run
-            // itself, so an overlapping glyph never casts a shadow over an
-            // already-drawn neighbour.
-            let scale = f32::from(layout.key().scale_1024) / 1_024.0;
-            let layout_id = layout.id();
-            let shadow_pass = match shadow {
-                TextShadow::None => None,
-                TextShadow::Offset64(offset_64) => Some((scale * *offset_64 as f32 / 64.0, true)),
+            let angle = if angle_radians.is_finite() {
+                *angle_radians
+            } else {
+                0.0
             };
-            for (offset, shadowed) in shadow_pass.into_iter().chain(std::iter::once((0.0, false))) {
-                for (index, glyph) in layout.glyphs().iter().enumerate() {
-                    let glyph_bounds = UiRect::new(
-                        UiPoint::new(
-                            bounds.min().x() + glyph.bounds_64[0] as f32 / 64.0 + offset,
-                            bounds.min().y() + glyph.bounds_64[1] as f32 / 64.0 + offset,
-                        )
-                        .map_err(|_| UiError::DrawIndexOverflow)?,
-                        UiPoint::new(
-                            bounds.min().x() + glyph.bounds_64[2] as f32 / 64.0 + offset,
-                            bounds.min().y() + glyph.bounds_64[3] as f32 / 64.0 + offset,
-                        )
-                        .map_err(|_| UiError::DrawIndexOverflow)?,
-                    )
-                    .map_err(|_| UiError::DrawIndexOverflow)?;
-                    if is_empty(glyph_bounds) {
-                        continue;
-                    }
-                    let glyph_color = style_color(glyph.style.color, *color);
-                    let glyph_color = if shadowed {
-                        shadow_color(glyph_color)
-                    } else {
-                        glyph_color
-                    };
-                    let style_flags = u8::from(glyph.style.obfuscated)
-                        | (u8::from(glyph.style.bold) << 1)
-                        | (u8::from(glyph.style.italic) << 2);
-                    // §k swaps to a same-width raster, stable within a frame
-                    // (so both passes agree) and animated across frames.
-                    let (page, uv) = obfuscated_raster(glyph, index, layout_id, effects);
-                    let shear = if glyph.style.italic {
-                        ITALIC_SHEAR_PX * scale
-                    } else {
-                        0.0
-                    };
-                    let bold_offset = glyph.style.bold.then_some(BOLD_OFFSET_PX * scale);
-                    emit_text_glyph(
-                        glyph_bounds,
-                        uv,
-                        page,
-                        glyph_color,
-                        style_flags,
-                        shear,
-                        bold_offset,
-                        clip,
-                        vertices,
-                        indices,
-                        batches,
-                    )?;
-                }
-            }
-            Ok(())
+            let (sin, cos) = angle.sin_cos();
+            let center = [
+                (bounds.min().x() + bounds.max().x()) * 0.5,
+                (bounds.min().y() + bounds.max().y()) * 0.5,
+            ];
+            emit_text(
+                layout,
+                *color,
+                *shadow,
+                Some(Rotation { center, sin, cos }),
+                bounds,
+                clip,
+                effects,
+                vertices,
+                indices,
+                batches,
+            )
         }
     }
+}
+
+/// A rotation about `center`, applied to each glyph's corners.
+#[derive(Clone, Copy)]
+struct Rotation {
+    center: [f32; 2],
+    sin: f32,
+    cos: f32,
+}
+
+impl Rotation {
+    fn apply(self, point: [f32; 2]) -> [f32; 2] {
+        let offset = [point[0] - self.center[0], point[1] - self.center[1]];
+        [
+            self.center[0] + offset[0] * self.cos - offset[1] * self.sin,
+            self.center[1] + offset[0] * self.sin + offset[1] * self.cos,
+        ]
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_text(
+    layout: &crate::TextLayout,
+    color: [u8; 4],
+    shadow: TextShadow,
+    rotation: Option<Rotation>,
+    bounds: UiRect,
+    clip: UiRect,
+    effects: TextEffects<'_>,
+    vertices: &mut Vec<UiVertex>,
+    indices: &mut Vec<u32>,
+    batches: &mut Vec<UiDrawBatch>,
+) -> Result<(), UiError> {
+    // Mojang's client draws the entire shadowed run before the run
+    // itself, so an overlapping glyph never casts a shadow over an
+    // already-drawn neighbour.
+    let scale = f32::from(layout.key().scale_1024) / 1_024.0;
+    let layout_id = layout.id();
+    let shadow_pass = match shadow {
+        TextShadow::None => None,
+        TextShadow::Offset64(offset_64) => Some((scale * offset_64 as f32 / 64.0, true)),
+    };
+    for (offset, shadowed) in shadow_pass.into_iter().chain(std::iter::once((0.0, false))) {
+        for (index, glyph) in layout.glyphs().iter().enumerate() {
+            let glyph_bounds = UiRect::new(
+                UiPoint::new(
+                    bounds.min().x() + glyph.bounds_64[0] as f32 / 64.0 + offset,
+                    bounds.min().y() + glyph.bounds_64[1] as f32 / 64.0 + offset,
+                )
+                .map_err(|_| UiError::DrawIndexOverflow)?,
+                UiPoint::new(
+                    bounds.min().x() + glyph.bounds_64[2] as f32 / 64.0 + offset,
+                    bounds.min().y() + glyph.bounds_64[3] as f32 / 64.0 + offset,
+                )
+                .map_err(|_| UiError::DrawIndexOverflow)?,
+            )
+            .map_err(|_| UiError::DrawIndexOverflow)?;
+            if is_empty(glyph_bounds) {
+                continue;
+            }
+            let glyph_color = style_color(glyph.style.color, color);
+            let glyph_color = if shadowed {
+                shadow_color(glyph_color)
+            } else {
+                glyph_color
+            };
+            let style_flags = u8::from(glyph.style.obfuscated)
+                | (u8::from(glyph.style.bold) << 1)
+                | (u8::from(glyph.style.italic) << 2);
+            // §k swaps to a same-width raster, stable within a frame
+            // (so both passes agree) and animated across frames.
+            let (page, uv) = obfuscated_raster(glyph, index, layout_id, effects);
+            let shear = if glyph.style.italic {
+                ITALIC_SHEAR_PX * scale
+            } else {
+                0.0
+            };
+            let bold_offset = glyph.style.bold.then_some(BOLD_OFFSET_PX * scale);
+            emit_text_glyph(
+                glyph_bounds,
+                uv,
+                page,
+                glyph_color,
+                style_flags,
+                shear,
+                bold_offset,
+                rotation,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// The `(page, uv)` to draw for one glyph: a same-width scramble target when
@@ -229,6 +293,7 @@ fn emit_text_glyph(
     style_flags: u8,
     shear: f32,
     bold_offset: Option<f32>,
+    rotation: Option<Rotation>,
     clip: UiRect,
     vertices: &mut Vec<UiVertex>,
     indices: &mut Vec<u32>,
@@ -250,7 +315,8 @@ fn emit_text_glyph(
             [x1 + shear + dx, y0],
             [x1 + dx, y1],
             [x0 + dx, y1],
-        ];
+        ]
+        .map(|point| rotation.map_or(point, |rotation| rotation.apply(point)));
         emit_positioned_quad(
             positions,
             uv_corners,
