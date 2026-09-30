@@ -15,13 +15,7 @@ const MAX_TOTAL_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PROVENANCE_SOURCES: usize = 128;
 // The classic icons sheet is 256x256; every other reviewed source is smaller.
 const MAX_SOURCE_IMAGE_SIDE: u32 = 256;
-const PINNED_TAG: &str = "v1.26.30.32-preview";
-const PINNED_COMMIT: &str = "020f1cf4b2baef78e635d4ce7498eb16a429dcbb";
-const PINNED_ARCHIVE: &str = "bedrock-samples-v1.26.30.32-preview-full.zip";
-const PINNED_URL: &str = "https://github.com/Mojang/bedrock-samples/releases/download/v1.26.30.32-preview/bedrock-samples-v1.26.30.32-preview-full.zip";
-const PINNED_ARCHIVE_SHA256: &str =
-    "12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c";
-const PINNED_PROTOCOL: u32 = 1001;
+const PINNED_PROTOCOL: u32 = 2193;
 const PINNED_PACK_RELATIVE_PATH: &str = "resource_pack";
 const PINNED_ARTIFACT_POLICY: &str = "official-mojang-download-local-only";
 
@@ -72,7 +66,7 @@ struct SourceRecord {
 pub enum HudCompileError {
     #[error("HUD source manifest exceeds the {maximum}-byte bound")]
     SourceManifestTooLarge { maximum: usize },
-    #[error("HUD source manifest is not the reviewed protocol-1001 identity: {detail}")]
+    #[error("HUD source manifest is not the reviewed protocol-2193 identity: {detail}")]
     SourceManifestIdentity { detail: Box<str> },
     #[error("reviewed HUD source {path} could not be read: {source}")]
     SourceRead {
@@ -82,7 +76,7 @@ pub enum HudCompileError {
     },
     #[error("reviewed HUD source {path} exceeds the {maximum}-byte bound")]
     SourceTooLarge { path: Box<Path>, maximum: usize },
-    #[error("reviewed HUD source {path} does not match Mojang bedrock-samples v1.26.30.32-preview")]
+    #[error("reviewed HUD source {path} does not match the pinned Mojang bedrock-samples pack")]
     SourceIdentity { path: Box<Path> },
     #[error("required HUD texture {path} is not a bounded PNG: {detail}")]
     TextureDecode { path: Box<Path>, detail: Box<str> },
@@ -103,7 +97,7 @@ pub fn compile_hud_assets(
     let source_manifest_sha256: [u8; 32] = Sha256::digest(&canonical_manifest).into();
     if source_manifest_sha256 != HUD_SOURCE_MANIFEST_SHA256 {
         return Err(HudCompileError::SourceManifestIdentity {
-            detail: "manifest bytes differ from assets/hud-source-v1001.json".into(),
+            detail: "manifest bytes differ from assets/hud-source-v2193.json".into(),
         });
     }
     let manifest =
@@ -269,12 +263,13 @@ pub fn compile_hud_assets(
 }
 
 fn validate_manifest_contract(manifest: &SourceManifest) -> Result<(), HudCompileError> {
+    let pinned = assets::vanilla_source();
     if manifest.schema != 1
-        || manifest.tag.as_ref() != PINNED_TAG
-        || manifest.commit.as_ref() != PINNED_COMMIT
-        || manifest.archive.as_ref() != PINNED_ARCHIVE
-        || manifest.url.as_ref() != PINNED_URL
-        || manifest.archive_sha256.as_ref() != PINNED_ARCHIVE_SHA256
+        || manifest.tag.as_ref() != pinned.tag.as_ref()
+        || manifest.commit.as_ref() != pinned.commit.as_ref()
+        || manifest.archive.as_ref() != pinned.archive.as_ref()
+        || manifest.url.as_ref() != pinned.url.as_ref()
+        || manifest.archive_sha256.as_ref() != pinned.sha256.as_ref()
         || manifest.protocol != PINNED_PROTOCOL
         || manifest.pack_relative_path.as_ref() != PINNED_PACK_RELATIVE_PATH
         || manifest.artifact_policy.as_ref() != PINNED_ARTIFACT_POLICY

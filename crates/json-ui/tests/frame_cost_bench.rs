@@ -1,5 +1,7 @@
 //! Repeatable HUD bind/layout costs against the owner's local vanilla templates.
 
+mod support;
+
 use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
 
 use json_ui::{
@@ -35,8 +37,7 @@ impl TextureSource for FixedTextures {
 #[ignore = "benchmark; needs the local vanilla UI templates"]
 fn frame_cost_bench_changing_hud_bind_layout() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let vanilla =
-        base.join(".local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/ui");
+    let vanilla = support::vanilla_pack().join("ui");
     if !vanilla.is_dir() {
         eprintln!("FRAME_COST changing_hud: skipped, no local vanilla templates");
         return;

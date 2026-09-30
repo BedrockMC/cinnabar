@@ -1,3 +1,4 @@
+$MetricsPinnedSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'assets\vanilla-source.json') | ConvertFrom-Json
     $metrics = [ordered]@{
         session_seconds = 900.0; world_ready = $true; requested_radius_chunks = 16
         received_radius_chunks = 16; publisher_radius_chunks = 16
@@ -13,8 +14,8 @@
         peak_outbound_requests = 1; peak_pending_mesh_jobs = 1
         peak_in_flight_mesh_jobs = 1; gpu_upload_bytes = 1
         assets = [ordered]@{
-            source_tag = 'v1.26.30.32-preview'
-            source_sha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
+            source_tag = [string]$MetricsPinnedSource.tag
+            source_sha256 = [string]$MetricsPinnedSource.sha256
             blob_sha256 = $expectedAssetBlobSha256
             texture_layers = 372
             texture_bytes_including_mips = 1000
@@ -212,8 +213,8 @@
         peak_in_flight_mesh_jobs = 64
         gpu_upload_bytes = 25976256
         assets = [ordered]@{
-            source_tag = 'v1.26.30.32-preview'
-            source_sha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
+            source_tag = [string]$MetricsPinnedSource.tag
+            source_sha256 = [string]$MetricsPinnedSource.sha256
             blob_sha256 = $approvedOpaqueBlobSha256
             texture_layers = 388
             texture_bytes_including_mips = 529232

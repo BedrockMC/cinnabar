@@ -16,7 +16,14 @@ DIST_TARGET ?= $(shell rustc --print host-tuple)
 DIST_GIT_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_NOTICES ?= THIRD_PARTY_NOTICES.md
 
-PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
+VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
+# The pinned pack's extraction directory comes from the manifest, its one definition.
+ifeq ($(OS),Windows_NT)
+VANILLA_CACHE_DIR := $(shell $(POWERSHELL) -NoProfile -Command "(Get-Content -Raw '$(VANILLA_SOURCE_MANIFEST)' | ConvertFrom-Json).cache_dir")
+else
+VANILLA_CACHE_DIR := $(shell sed -n 's/^[[:space:]]*"cache_dir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $(VANILLA_SOURCE_MANIFEST))
+endif
+PACK_DIR ?= $(VANILLA_CACHE_DIR)/resource_pack
 BEHAVIOR_PACK_DIR ?= $(patsubst %/resource_pack,%/behavior_pack,$(PACK_DIR))
 PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
@@ -35,7 +42,6 @@ REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json
 PHYSICS_REGISTRY ?= .local/assets/block-physics-v2193.bin
 PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2193.bin
 PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2193.sha256
-VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
 ASSET_BLOB ?= .local/assets/compiled/vanilla-v2193.mcbea
 ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
@@ -47,7 +53,7 @@ LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
 HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud
 HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json
-HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json
+HUD_SOURCE_MANIFEST ?= assets/hud-source-v2193.json
 LANG_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbelang
 LANG_ASSET_REPORT ?= .local/assets/compiled/lang-assets.json
 LANGUAGE_ASSET_DIR ?= .local/assets/compiled/lang
