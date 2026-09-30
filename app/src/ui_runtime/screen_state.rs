@@ -33,6 +33,8 @@ pub(crate) struct ScreenState {
     /// The beacon's pyramid level, from its block entity.
     pub(crate) beacon_level: Option<u8>,
     pub(crate) crafter: CrafterView,
+    /// The open mount inventory's entity identifier.
+    pub(crate) mount_identifier: Option<std::sync::Arc<str>>,
     pub(crate) book_open: bool,
     /// Creative's wide list stands in for its recipe book layout.
     pub(crate) creative_wide: bool,
@@ -103,6 +105,7 @@ impl ScreenState {
             self.anvil_focused = false;
             self.beacon_level = None;
             self.crafter = CrafterView::default();
+            self.mount_identifier = None;
             self.container_scroll.clear();
             self.creative_expanded.clear();
             self.recipe_filtering = None;

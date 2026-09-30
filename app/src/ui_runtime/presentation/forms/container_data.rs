@@ -8,6 +8,7 @@ use json_ui::{CollectionItem, DataSource, HitKind, HitRegion, Scalar};
 use protocol::WindowKind;
 
 use super::super::{HudFrame, IconRef};
+use super::container_kinds::{MountBody, mount_slots};
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::inventory_ledger::InventoryTarget;
 use crate::ui_runtime::presentation::screens::{BEACON_LEVEL_FOR, STONECUTTER_CELLS, Widget};
@@ -62,6 +63,17 @@ pub(crate) fn observe_station_block(
     else {
         return;
     };
+    if kind == WindowKind::Horse {
+        let identifier = ledger
+            .window_actor()
+            .and_then(|unique| stream.actor_by_unique_id(unique))
+            .and_then(|actor| match &actor.kind {
+                protocol::ActorKind::Entity { identifier } => Some(identifier.clone()),
+                protocol::ActorKind::Player { .. } => None,
+            });
+        runtime.screen_state_mut().mount_identifier = identifier;
+        return;
+    }
     let nbt = stream.block_entity_compound(position);
     let integer = |key: &str| nbt.as_ref().and_then(|nbt| nbt.integer(key));
     match kind {
@@ -149,12 +161,42 @@ pub(super) fn station_globals(data: &mut DataSource, runtime: &UiRuntime, kind: 
         }
         WindowKind::Horse => {
             let chest = ledger.storage_slot_count().unwrap_or(2).saturating_sub(2);
-            data.set_grid_dimensions("#equip_grid_dimensions", [1, 2]);
+            let slots = mount_slots(runtime.screen_state().mount_identifier.as_deref());
+            let worn = slots.body != MountBody::None;
+            let equip = u32::from(slots.saddle) + u32::from(worn);
+            data.set_grid_dimensions("#equip_grid_dimensions", [1, equip]);
             data.set_grid_dimensions("#inv_grid_dimensions", [(chest / 3) as u32, 3]);
             data.set_global("#is_chested", Scalar::Bool(chest > 0));
-            // The mount's kind is not tracked; every mount shows the horse's slots.
-            data.set_global("#has_saddle_slot", Scalar::Bool(true));
-            data.set_global("#has_horse_armor_and_saddle_slot", Scalar::Bool(true));
+            let body = |kind: MountBody| slots.body == kind;
+            for (name, shown) in [
+                ("#has_saddle_slot", slots.saddle),
+                (
+                    "#has_only_horse_armor_slot",
+                    !slots.saddle && body(MountBody::HorseArmor),
+                ),
+                (
+                    "#has_only_carpet_slot",
+                    !slots.saddle && body(MountBody::Carpet),
+                ),
+                (
+                    "#has_only_nautilus_armor_slot",
+                    !slots.saddle && body(MountBody::NautilusArmor),
+                ),
+                (
+                    "#has_horse_armor_and_saddle_slot",
+                    slots.saddle && body(MountBody::HorseArmor),
+                ),
+                (
+                    "#has_carpet_and_saddle_slot",
+                    slots.saddle && body(MountBody::Carpet),
+                ),
+                (
+                    "#has_nautilus_armor_and_saddle_slot",
+                    slots.saddle && body(MountBody::NautilusArmor),
+                ),
+            ] {
+                data.set_global(name, Scalar::Bool(shown));
+            }
         }
         _ => {}
     }
