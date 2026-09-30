@@ -151,12 +151,13 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_source: Option<IconRef>,
     held_viewmodel_icon: Option<IconRef>,
     offhand_viewmodel_icon: Option<IconRef>,
-    menu_artwork_paths: Vec<(String, u32)>,
+    /// The art set last requested: service art plus engine textures too big for a server page.
+    menu_artwork_set: menu_artwork::ArtworkSet,
+    menu_artwork_loader: menu_artwork::ArtworkLoader,
     /// This frame's clock in seconds, for menu animations painted over cached layouts.
     menu_seconds: f64,
-    /// Engine textures too big for a server page, keyed by texture path.
-    menu_artwork_oversized: Vec<(String, Arc<[u8]>)>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
+    /// The installed refs must be rebased onto moved art pages.
     menu_artwork_dirty: bool,
     session_icons: session_icons::SessionIconPage,
     session_glyphs: session_glyphs::SessionGlyphPages,
@@ -246,9 +247,9 @@ impl UiPresentationRuntime {
             offhand_viewmodel_source: None,
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
-            menu_artwork_paths: Vec::new(),
+            menu_artwork_set: Default::default(),
+            menu_artwork_loader: Default::default(),
             menu_seconds: 0.0,
-            menu_artwork_oversized: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
             // The title logo loads before any service art arrives.
             menu_artwork_dirty: true,
@@ -309,20 +310,26 @@ impl UiPresentationRuntime {
         dynamic_textures::rebuild(self);
     }
 
-    /// Service art at `paths`, plus the engine's oversized textures, on the art pages.
+    /// Service art at `paths`, plus the engine's oversized textures, on the art
+    /// pages once the worker has packed them; the last atlas draws meanwhile.
     pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<(String, u32)>) {
-        let oversized = self.oversized_ui_textures();
-        let same_oversized = oversized.len() == self.menu_artwork_oversized.len()
-            && oversized
-                .iter()
-                .zip(&self.menu_artwork_oversized)
-                .all(|(a, b)| a.0 == b.0);
-        if self.menu_artwork_paths == paths && same_oversized {
-            return;
+        let set = menu_artwork::ArtworkSet {
+            paths,
+            oversized: self.oversized_ui_textures(),
+        };
+        if !set.same(&self.menu_artwork_set) {
+            self.menu_artwork_set = set.clone();
+            self.menu_artwork_loader.request(set);
         }
-        self.menu_artwork_paths = paths;
-        self.menu_artwork_oversized = oversized;
-        self.menu_artwork_dirty = true;
+        if self.menu_artwork_loader.poll() {
+            self.rebuild_dynamic_textures();
+        }
+    }
+
+    /// Installs the latest requested art set's complete atlas.
+    #[cfg(test)]
+    pub(crate) fn finish_menu_artwork(&mut self) {
+        self.menu_artwork_loader.wait();
         self.rebuild_dynamic_textures();
     }
 
