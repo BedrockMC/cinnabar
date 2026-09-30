@@ -88,6 +88,11 @@ impl PanoramaScene {
     }
 }
 
+/// Render run condition: world passes queue nothing while the launcher panorama is shown.
+pub(crate) fn world_passes_enabled(scene: Option<bevy::prelude::Res<PanoramaScene>>) -> bool {
+    scene.is_none_or(|scene| scene.view.is_none())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
