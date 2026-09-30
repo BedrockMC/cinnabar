@@ -386,6 +386,7 @@ fn preview_changes_do_not_reread_menu_files_or_copy_cached_menu_pages() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
     let name = path.to_string_lossy().into_owned();
     presentation.sync_menu_artwork(vec![(name.clone(), 512)]);
+    presentation.finish_menu_artwork();
     let menu = presentation.menu_artwork_icon(&name).unwrap();
     let retained = Arc::clone(&presentation.textures);
     let menu_pixels = retained.pages()[menu.page as usize].pixels().as_ptr();
@@ -411,6 +412,7 @@ fn preview_changes_do_not_reread_menu_files_or_copy_cached_menu_pages() {
         .pixels()
         .as_ptr();
     presentation.sync_menu_artwork(Vec::new());
+    presentation.finish_menu_artwork();
     assert!(presentation.menu_artwork_icon(&name).is_none());
     assert_eq!(
         presentation.textures.pages()[presentation.textures.dynamic_start()]
@@ -418,6 +420,24 @@ fn preview_changes_do_not_reread_menu_files_or_copy_cached_menu_pages() {
             .as_ptr(),
         preview_pixels
     );
+}
+
+// A changed art set decodes on the worker: the frame returns before the art
+// exists, and a later frame installs it.
+#[test]
+fn menu_art_decodes_off_the_frame() {
+    let path = std::env::temp_dir().join(format!("ui-worker-art-{}.png", std::process::id()));
+    image::RgbaImage::from_pixel(2048, 2048, image::Rgba([200, 40, 40, 255]))
+        .save(&path)
+        .unwrap();
+    let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let name = path.to_string_lossy().into_owned();
+    presentation.sync_menu_artwork(vec![(name.clone(), 512)]);
+    assert!(presentation.menu_artwork_icon(&name).is_none());
+    presentation.finish_menu_artwork();
+    let icon = presentation.menu_artwork_icon(&name).expect("installed");
+    assert_eq!(icon.uv[2] - icon.uv[0], 512);
+    std::fs::remove_file(&path).unwrap();
 }
 
 // Server icons pack onto the last dynamic page and win over the vanilla atlas.
