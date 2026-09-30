@@ -1,26 +1,48 @@
-//! Offline thumbnails for block items drawn in 3D that are not plain opaque cubes (slabs, stairs,
-//! walls, glass): the world visual's isolated template quads through the cube thumbnail's
-//! projection, depth-tested and alpha-tested. Provisional: vanilla's GUI tessellation of
+//! Thumbnails for block items drawn in 3D that are not plain opaque cubes (slabs, stairs, walls,
+//! glass, server custom blocks): the visual's isolated template quads through the cube
+//! thumbnail's projection, depth-tested and alpha-tested. Provisional: vanilla's GUI tessellation of
 //! connected shapes (fences, walls) differs and is not modelled.
 
 use std::{borrow::Cow, sync::Arc};
 
 use assets::{
-    BlockFace, BlockVisualId, IconSprite, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, ModelQuad, NetworkIdMode, RuntimeAssets, VisualKind,
+    BlockFace, BlockOverlay, BlockVisualId, IconSprite, MATERIAL_FLAG_ALPHA_BLEND,
+    MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, Material, ModelQuad,
+    ModelTemplate, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TexturePage,
+    VisualKind,
 };
 
-use super::cube::{PIXEL_BYTES, Reject};
+use super::cube::Reject;
 
 pub(super) const SIDE: usize = 32;
-const TILE: usize = 16;
+/// Largest tile side sampled; session overlays resample to at most 128.
+const MAX_TILE: usize = 128;
 
 struct Face<'a> {
     corners: [[f32; 3]; 4],
     uvs: [[f32; 2]; 4],
     tile: Cow<'a, [u8]>,
+    /// Square tile side in pixels.
+    side: usize,
     blend: bool,
+}
+
+/// Where a visual's material tiles live.
+#[derive(Clone, Copy)]
+enum Textures<'a> {
+    /// World carrier pages, indexed by each material's page.
+    World(&'a [TexturePage]),
+    /// A session overlay's one array, which its materials address as page 1.
+    Overlay(&'a TextureArray),
+}
+
+#[derive(Clone, Copy)]
+struct Parts<'a> {
+    materials: &'a [Material],
+    templates: &'a [ModelTemplate],
+    quads: &'a [ModelQuad],
+    textures: Textures<'a>,
 }
 
 pub(super) struct Model<'a> {
@@ -36,25 +58,58 @@ impl<'a> Model<'a> {
         if !block.is_known() {
             return Err(Reject::Geometry);
         }
+        let parts = Parts {
+            materials: world.materials(),
+            templates: world.model_templates(),
+            quads: world.model_quads(),
+            textures: Textures::World(world.texture_pages()),
+        };
+        let faces = BlockFace::ALL.map(|face| block.face(face).material_id());
+        Self::build(parts, block.kind(), faces, block.model_template())
+    }
+
+    /// State `visual` of a session block overlay.
+    pub(super) fn overlay(overlay: &'a BlockOverlay, visual: usize) -> Result<Self, Reject> {
+        let block = overlay.visuals.get(visual).ok_or(Reject::Geometry)?;
+        let texture = overlay.texture.as_ref().ok_or(Reject::Texture)?;
+        let parts = Parts {
+            materials: &overlay.materials,
+            templates: &overlay.model_templates,
+            quads: &overlay.model_quads,
+            textures: Textures::Overlay(texture),
+        };
+        let template = (block.model_template != NO_MODEL_TEMPLATE).then_some(block.model_template);
+        Self::build(parts, block.kind, block.faces, template)
+    }
+
+    fn build(
+        parts: Parts<'a>,
+        kind: VisualKind,
+        materials: [u32; 6],
+        template: Option<u32>,
+    ) -> Result<Self, Reject> {
         let mut faces = Vec::new();
-        match (block.kind(), block.model_template()) {
+        match (kind, template) {
             (VisualKind::Cube, _) => {
                 for face in BlockFace::ALL {
                     let (corners, uvs) = cube_face(face);
-                    let (tile, blend) = tile(world, block.face(face).material_id())?;
+                    let (tile, side, blend) = tile(parts, materials[face as usize])?;
                     faces.push(Face {
                         corners,
                         uvs,
                         tile: Cow::Borrowed(tile),
+                        side,
                         blend,
                     });
                 }
             }
             (VisualKind::Model, Some(template)) => {
-                let templates = world.model_templates();
-                let first = templates.get(template as usize).ok_or(Reject::Geometry)?;
+                let first = parts
+                    .templates
+                    .get(template as usize)
+                    .ok_or(Reject::Geometry)?;
                 // A fence item shows its post with east and west arms (connection mask 2 | 8).
-                let parts: &[usize] = if first.flags
+                let offsets: &[usize] = if first.flags
                     & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER)
                     != 0
                 {
@@ -64,17 +119,18 @@ impl<'a> Model<'a> {
                 } else {
                     &[0]
                 };
-                for part in parts {
-                    let template = templates
-                        .get(template as usize + part)
+                for offset in offsets {
+                    let template = parts
+                        .templates
+                        .get(template as usize + offset)
                         .ok_or(Reject::Geometry)?;
                     let start = template.quad_start as usize;
-                    let quads = world
-                        .model_quads()
+                    let quads = parts
+                        .quads
                         .get(start..start + template.quad_count as usize)
                         .ok_or(Reject::Geometry)?;
                     for quad in quads {
-                        faces.push(model_face(world, quad)?);
+                        faces.push(model_face(parts, quad)?);
                     }
                 }
             }
@@ -97,6 +153,7 @@ impl<'a> Model<'a> {
                     corners,
                     uvs,
                     tile: Cow::Owned(tile.into_vec()),
+                    side: 16,
                     blend: false,
                 }
             })
@@ -129,36 +186,42 @@ impl<'a> Model<'a> {
     }
 }
 
-fn tile(world: &RuntimeAssets, id: u32) -> Result<(&[u8], bool), Reject> {
+fn tile(parts: Parts<'_>, id: u32) -> Result<(&[u8], usize, bool), Reject> {
     if id == assets::DIAGNOSTIC_MATERIAL {
         return Err(Reject::Material);
     }
-    let material = world.materials().get(id as usize).ok_or(Reject::Material)?;
+    let material = parts.materials.get(id as usize).ok_or(Reject::Material)?;
     let alpha = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT;
     // Tints, overlays and rotated UVs need per-biome or per-state data an icon lacks.
     if material.flags & !alpha != 0 {
         return Err(Reject::Material);
     }
-    let page = world
-        .texture_pages()
-        .get(material.texture.page() as usize)
-        .ok_or(Reject::Texture)?;
-    let mip = page.texture.mips.first().ok_or(Reject::Texture)?;
-    if mip.size as usize != TILE || material.texture.layer() >= page.texture.layers {
+    let array = match parts.textures {
+        Textures::World(pages) => {
+            &pages
+                .get(material.texture.page() as usize)
+                .ok_or(Reject::Texture)?
+                .texture
+        }
+        Textures::Overlay(array) if material.texture.page() == 1 => array,
+        Textures::Overlay(_) => return Err(Reject::Texture),
+    };
+    let mip = array.mips.first().ok_or(Reject::Texture)?;
+    let side = mip.size as usize;
+    if side == 0 || side > MAX_TILE || material.texture.layer() >= array.layers {
         return Err(Reject::Texture);
     }
-    let start = material.texture.layer() as usize * PIXEL_BYTES;
-    let tile = mip
-        .rgba8
-        .get(start..start + PIXEL_BYTES)
-        .ok_or(Reject::Texture)?;
-    Ok((tile, material.flags & MATERIAL_FLAG_ALPHA_BLEND != 0))
+    let bytes = side * side * 4;
+    let start = material.texture.layer() as usize * bytes;
+    let tile = mip.rgba8.get(start..start + bytes).ok_or(Reject::Texture)?;
+    Ok((tile, side, material.flags & MATERIAL_FLAG_ALPHA_BLEND != 0))
 }
 
-fn model_face<'a>(world: &'a RuntimeAssets, quad: &ModelQuad) -> Result<Face<'a>, Reject> {
-    let (tile, blend) = tile(world, quad.material)?;
+fn model_face<'a>(parts: Parts<'a>, quad: &ModelQuad) -> Result<Face<'a>, Reject> {
+    let (tile, side, blend) = tile(parts, quad.material)?;
     Ok(Face {
         tile: Cow::Borrowed(tile),
+        side,
         corners: quad
             .positions
             .map(|point| point.map(|component| f32::from(component) / 256.0)),
@@ -272,9 +335,10 @@ fn triangle(
                 continue;
             }
             let [u, v] = [0, 1].map(|axis| (0..3).map(|i| weights[i] * uv[i][axis]).sum::<f32>());
-            let tx = ((u.rem_euclid(1.) * TILE as f32) as usize).min(TILE - 1);
-            let ty = ((v.rem_euclid(1.) * TILE as f32) as usize).min(TILE - 1);
-            let texel = &face.tile[(ty * TILE + tx) * 4..][..4];
+            let side = face.side;
+            let tx = ((u.rem_euclid(1.) * side as f32) as usize).min(side - 1);
+            let ty = ((v.rem_euclid(1.) * side as f32) as usize).min(side - 1);
+            let texel = &face.tile[(ty * side + tx) * 4..][..4];
             if texel[3] < 128 && !(face.blend && texel[3] > 0) {
                 continue;
             }
