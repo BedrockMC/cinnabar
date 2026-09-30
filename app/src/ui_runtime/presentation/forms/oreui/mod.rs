@@ -80,9 +80,9 @@ impl UiPresentationRuntime {
         size: [f32; 2],
         portrait: Option<super::super::IconRef>,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
+        // A launcher dialog draws over the OreUI screen instead.
         let covered = view.connecting
             || view.disconnect_message.is_some()
-            || view.dialog.is_some()
             || matches!(view.auth_state, AuthState::AwaitingCode { .. });
         let screen = view.screen;
         if covered

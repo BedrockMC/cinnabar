@@ -19,6 +19,14 @@ struct UiVertexOutput {
     @location(3) @interpolate(flat) style_flags: u32,
 };
 
+// Vertex colours are authored in sRGB (JSON-UI and HUD colours alike); the
+// target stores linear values, so decode them as the texture pages are.
+fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
+    let low = srgb / 12.92;
+    let high = pow((srgb + 0.055) / 1.055, vec3<f32>(2.4));
+    return select(high, low, srgb <= vec3<f32>(0.04045));
+}
+
 @vertex
 fn ui_vertex(
     @location(0) position: vec2<f32>,
@@ -34,7 +42,7 @@ fn ui_vertex(
     var output: UiVertexOutput;
     output.clip_position = vec4<f32>(ndc, 0.0, 1.0);
     output.uv = vec2<f32>(uv);
-    output.color = color;
+    output.color = vec4<f32>(srgb_to_linear(color.rgb), color.a);
     output.texture_page = texture_page;
     output.style_flags = style_flags;
     return output;

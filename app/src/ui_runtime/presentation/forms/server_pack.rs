@@ -138,6 +138,8 @@ pub(super) struct ServerAtlas {
     max_pages: usize,
     clock: u64,
     dirty: bool,
+    /// Drawn textures too big for a page, for the full-resolution art pages.
+    oversized: BTreeMap<String, std::sync::Arc<[u8]>>,
 }
 
 impl ServerAtlas {
@@ -240,6 +242,14 @@ impl ServerAtlas {
         self.resident.get(key).copied()
     }
 
+    /// Drawn textures a page had to shrink, by key, with their source bytes.
+    pub(super) fn oversized(&self) -> Vec<(String, std::sync::Arc<[u8]>)> {
+        self.oversized
+            .iter()
+            .map(|(key, bytes)| (key.clone(), std::sync::Arc::clone(bytes)))
+            .collect()
+    }
+
     /// Page images in order, for the reserved dynamic pages.
     pub(super) fn images(&self) -> &[UiTexturePage] {
         &self.images
@@ -298,6 +308,10 @@ impl ServerAtlas {
             Some(source) => source.clone(),
             None => self.fallback(key)?,
         };
+        if source.packed != source.size && self.oversized.len() < MAX_OVERSIZED {
+            self.oversized
+                .insert(key.to_owned(), std::sync::Arc::clone(&source.bytes));
+        }
         let size = source.packed;
         let (index, origin) = self.slot(size)?;
         let rgba = decode(&source.bytes, size)?;
@@ -371,6 +385,9 @@ fn source(bytes: std::sync::Arc<[u8]>, meta: Option<TextureMeta>) -> Option<Sour
         meta,
     })
 }
+
+/// Oversized textures remembered for the art pages.
+const MAX_OVERSIZED: usize = 16;
 
 /// Largest source side decoded; bigger images are skipped.
 const MAX_SOURCE_SIDE: u32 = 4096;
@@ -492,6 +509,9 @@ mod tests {
             [256, 2],
             "an oversized texture packs downscaled"
         );
+        let oversized = atlas.oversized();
+        assert_eq!(oversized.len(), 1, "and is offered to the art pages");
+        assert_eq!(oversized[0].0, "textures/ui/wide");
     }
 
     // A full atlas evicts the page drawn least recently, never one drawn this frame.

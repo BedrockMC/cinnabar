@@ -68,7 +68,7 @@ use crate::menu::{MenuAction, MenuView};
 pub(crate) use debug_overlay::DebugLines;
 pub(crate) use forms::{BedHit, ChatHit, LoadingStage, drive_menu_panorama};
 pub(crate) use hud_layout::HudFrame;
-use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
+use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
 #[cfg(test)]
 pub(crate) use publish::refresh_hud_frame;
@@ -152,6 +152,8 @@ pub struct UiPresentationRuntime {
     held_viewmodel_icon: Option<IconRef>,
     offhand_viewmodel_icon: Option<IconRef>,
     menu_artwork_paths: Vec<String>,
+    /// Engine textures too big for a server page, keyed by texture path.
+    menu_artwork_oversized: Vec<(String, Arc<[u8]>)>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_artwork_dirty: bool,
     session_icons: session_icons::SessionIconPage,
@@ -243,8 +245,10 @@ impl UiPresentationRuntime {
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
             menu_artwork_paths: Vec::new(),
+            menu_artwork_oversized: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
-            menu_artwork_dirty: false,
+            // The title logo loads before any service art arrives.
+            menu_artwork_dirty: true,
             session_icons: session_icons::SessionIconPage::default(),
             session_glyphs: session_glyphs::SessionGlyphPages::default(),
             missing_icons: Default::default(),
@@ -302,11 +306,19 @@ impl UiPresentationRuntime {
         dynamic_textures::rebuild(self);
     }
 
+    /// Service art at `paths`, plus the engine's oversized textures, on the art pages.
     pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<String>) {
-        if self.menu_artwork_paths == paths {
+        let oversized = self.oversized_ui_textures();
+        let same_oversized = oversized.len() == self.menu_artwork_oversized.len()
+            && oversized
+                .iter()
+                .zip(&self.menu_artwork_oversized)
+                .all(|(a, b)| a.0 == b.0);
+        if self.menu_artwork_paths == paths && same_oversized {
             return;
         }
         self.menu_artwork_paths = paths;
+        self.menu_artwork_oversized = oversized;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
     }

@@ -146,7 +146,7 @@ fn mixed_font_shadow_and_fill_keep_logical_page_order() {
         glyphs.iter().map(|g| g.0).collect::<Vec<_>>(),
         [0, 1, 0, 0, 1, 0]
     );
-    let shadow_offset = java_gui_scale([800, 600], None) as f32;
+    let shadow_offset = gui_scale([800, 600], None) as f32;
     for index in 0..3 {
         for channel in 0..3 {
             assert_eq!(glyphs[index].1[channel], glyphs[index + 3].1[channel] / 4);
@@ -353,8 +353,10 @@ fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_owners
         reset.textures.static_identity(),
         first.textures.static_identity()
     );
+    // Session pages clear; the art pages keep the launcher's title logo.
+    let dynamic = reset.textures.dynamic_start();
     assert!(
-        reset.textures.pages()[reset.textures.dynamic_start()..]
+        reset.textures.pages()[dynamic..dynamic + render::MAX_UI_DYNAMIC_PAGES]
             .iter()
             .all(|p| p.pixels().iter().all(|&v| v == 0))
     );

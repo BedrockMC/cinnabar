@@ -22,14 +22,14 @@ use ui::{
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
 pub(crate) mod hud_renderers;
+mod menu_renderers;
+mod screen_cache;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 const UNWRAPPED_LOGICAL: f64 = 65_536.0;
-/// Player preview height relative to its renderer box (needs native measurement).
-const PREVIEW_BOX_SCALE: f32 = 2.2;
 /// Tooltip placement relative to the pointer and its padding, in virtual px
 /// (needs native measurement).
 const TOOLTIP_OFFSET: [f32; 2] = [8.0, -12.0];
@@ -54,6 +54,9 @@ pub(crate) struct FormEngine {
     pub(super) cache: Option<FormCache>,
     /// Resolve+bind and layout passes run, for cache tests and profiling.
     pub(super) passes: [usize; 2],
+    /// The title splash, picked once per launch.
+    splash: std::sync::OnceLock<Option<String>>,
+    screens: screen_cache::ScreenCache,
 }
 
 pub(super) struct FormCache {
@@ -105,6 +108,8 @@ impl FormEngine {
             server_source: None,
             cache: None,
             passes: [0; 2],
+            splash: std::sync::OnceLock::new(),
+            screens: screen_cache::ScreenCache::default(),
         }
     }
 
@@ -290,6 +295,12 @@ impl FormEngine {
         &self.assets
     }
 
+    pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
+        self.splash
+            .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
+            .as_deref()
+    }
+
     pub(super) fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
     }
@@ -323,15 +334,30 @@ impl FormEngine {
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let language = (inputs.translate)("menu.play");
         render_with(self.art(), inputs, out, art, None, |env, root| {
-            render_screen(reference, &self.catalog, context, data, root, env, view)
+            let key = screen_cache::ScreenKey {
+                reference,
+                catalog: &self.catalog,
+                context,
+                data,
+                view,
+                root,
+                px,
+                language,
+            };
+            self.screens.get_or_render(key, || {
+                render_screen(reference, &self.catalog, context, data, root, env, view)
+            })
         })
     }
 }
 
 /// `vanilla` under the built-in Java HUD pack, less its files for any namespace
 /// in `withdrawn`: a server pack authored against vanilla that restyles a
-/// namespace gets vanilla beneath it there, so it looks as designed.
+/// namespace gets vanilla beneath it there, so it looks as designed. The title
+/// panels then take the logo's shape.
 fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
     let mut catalog = vanilla.clone();
     let kept = super::hud::JAVA_HUD_PACK
@@ -339,6 +365,10 @@ fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<Strin
         .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
         .map(|(path, _, bytes)| (*path, *bytes));
     catalog.apply_pack(kept);
+    catalog.apply_pack([(
+        "ui/cinnabar_title.json",
+        menu_renderers::TITLE_PANEL_OVERLAY,
+    )]);
     catalog
 }
 
@@ -459,6 +489,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
+    pub(super) splash: Option<&'a str>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -664,33 +695,14 @@ impl Painter<'_> {
                     dest,
                 ))
             }
-            // The live model is approximated by the cached preview raster, kept at
-            // its aspect and scaled to the renderer's box (needs native measurement).
             "live_player_renderer" | "paper_doll_renderer" => {
-                let preview = self.art.preview?;
-                let w = f32::from(preview.uv[2].saturating_sub(preview.uv[0]));
-                let h = f32::from(preview.uv[3].saturating_sub(preview.uv[1]));
-                if w <= 0.0 || h <= 0.0 {
-                    return None;
-                }
-                let height = (dest[3] - dest[1]) * PREVIEW_BOX_SCALE;
-                let width = height * w / h;
-                let centre = (dest[0] + dest[2]) * 0.5;
-                let top = (dest[1] + dest[3]) * 0.5 - height * 0.5 + height * 0.25;
-                Some((
-                    UiVisual::Sprite {
-                        texture_page: preview.page,
-                        uv: preview.uv,
-                        color: alpha([255; 4]),
-                    },
-                    [
-                        centre - width * 0.5,
-                        top,
-                        centre + width * 0.5,
-                        top + height,
-                    ],
-                ))
+                self.player_preview(renderer == "paper_doll_renderer", dest, &alpha)
             }
+            "splash_text_renderer" => {
+                self.splash(dest, &alpha);
+                None
+            }
+            "name_tag_renderer" => self.name_tag(data, dest, &alpha),
             "hover_text_renderer" => {
                 let text = data
                     .get("#hover_text")?

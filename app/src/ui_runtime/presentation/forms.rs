@@ -18,6 +18,8 @@ mod oreui;
 pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
+#[cfg(test)]
+mod play_flow_snapshots;
 mod play_screen;
 mod recipe_book;
 mod remote_images;
@@ -171,6 +173,14 @@ impl UiPresentationRuntime {
     }
 
     /// The dynamic pages holding the server pack's UI textures.
+    /// Drawn engine textures too big for a server page, for the art pages.
+    pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map_or_else(Vec::new, |engine| engine.textures.oversized())
+    }
+
     pub(super) fn server_ui_pages(&self) -> &[render::UiTexturePage] {
         self.form_presentation
             .engine

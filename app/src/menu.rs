@@ -38,6 +38,8 @@ pub(crate) use view::{
     MenuView, PingInfo, SavedServer,
 };
 use view::{CatalogFile, MenuFeeds};
+#[cfg(test)]
+pub(crate) use view::{LiveEventCard, MenuGameCard, ServerDetails};
 
 use std::{
     fs,
@@ -150,6 +152,10 @@ pub(crate) enum MenuAction {
     SettingsVolume(u8, u8),
     /// Show a featured server in the Servers tab's info panel.
     SelectFeatured(usize),
+    /// Show a saved server's details on the Servers tab.
+    SelectSaved(usize),
+    /// Show a Realm's details on the Realms tab.
+    SelectRealm(usize),
     /// Flip the info panel's description (0) or news (1) past "read more".
     ToggleReadMore(u8),
     /// The start screen's live-event button.
@@ -325,6 +331,10 @@ impl MenuRuntime {
 
     pub(crate) fn screen(&self) -> MenuScreen {
         self.screen
+    }
+
+    pub(crate) fn player_skin(&self) -> &crate::player_skin::LocalPlayerSkin {
+        &self.player_skin
     }
 
     pub(crate) fn is_launcher(&self) -> bool {
@@ -665,6 +675,7 @@ impl MenuRuntime {
             MenuAction::ConfirmRemoveSaved(index) => {
                 if index < self.servers.len() {
                     let removed = self.servers.remove(index);
+                    self.feeds.selected_saved = None;
                     let _ = save_servers(&self.config_path, &self.servers);
                     self.message = Some(format!("Removed {}.", removed.name));
                 }
@@ -721,6 +732,8 @@ impl MenuRuntime {
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SettingsVolume(slot, percent) => self.set_volume(slot, percent),
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
+            MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
+            MenuAction::SelectRealm(index) => self.feeds.selected_realm = Some(index),
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::Store(action) => {
