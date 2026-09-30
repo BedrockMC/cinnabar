@@ -139,6 +139,18 @@ fn haste_shortens_and_fatigue_lengthens_the_swing() {
     assert_eq!(swing_duration(effects(Some(40), None)), 1);
 }
 
+/// An extreme server amplifier must not overflow the swing arithmetic.
+#[test]
+fn maximal_effect_amplifiers_saturate() {
+    let effects = |haste, fatigue| MiningEffects {
+        haste,
+        mining_fatigue: fatigue,
+        conduit_power: None,
+    };
+    assert_eq!(swing_duration(effects(Some(i32::MAX), None)), 1);
+    assert_eq!(swing_duration(effects(None, Some(i32::MAX))), i32::MAX);
+}
+
 fn press(input_mode: PlayerInputMode) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
