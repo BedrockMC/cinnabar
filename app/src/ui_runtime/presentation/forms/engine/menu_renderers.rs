@@ -14,6 +14,20 @@ use ui::{TextShadow, UiVisual};
 
 use super::{Painter, UNWRAPPED_LOGICAL, scaled_request, width_64};
 
+/// Title panels shaped to Cinnabar's logo (1022x282) rather than the pack's
+/// title, so it draws unstretched and the splash meets its right edge.
+pub(super) const TITLE_PANEL_OVERLAY: &[u8] = br#"{
+  "namespace": "common_art",
+  "title_panel_win10": { "size": ["55%", "27.59%x"] },
+  "title_panel_osx": { "size": ["55%", "27.59%x"] },
+  "title_panel_pocket": { "size": ["55%", "27.59%x"] },
+  "pause_logo_panel": { "variables": [
+    { "requires": "($win10_edition or $osx_edition or $pocket_edition or $console_edition)",
+      "$title_panel": "common_art.title_image",
+      "$logo_max_size": [275, "27.59%x"], "$logo_size": ["90%", "27.59%x"] }
+  ] }
+}"#;
+
 /// Tilt of the splash: 20 degrees, rising to the right.
 const SPLASH_ANGLE: f32 = -20.0 * std::f32::consts::PI / 180.0;
 const SPLASH_COLOR: [u8; 4] = [255, 255, 0, 255];
@@ -239,6 +253,21 @@ impl Painter<'_> {
 #[cfg(test)]
 mod tests {
     use super::split_sentence;
+
+    // The overlay's title aspect matches the logo it frames.
+    #[test]
+    fn the_title_panel_matches_the_logo_aspect() {
+        let logo = image::load_from_memory(include_bytes!(
+            "../../../../../../assets/branding/title.png"
+        ))
+        .unwrap();
+        let percent = f64::from(logo.height()) / f64::from(logo.width()) * 100.0;
+        let overlay = std::str::from_utf8(super::TITLE_PANEL_OVERLAY).unwrap();
+        assert!(
+            overlay.contains(&format!("\"{percent:.2}%x\"")),
+            "{percent:.2}"
+        );
+    }
 
     #[test]
     fn long_splashes_wrap_once_at_a_space() {
