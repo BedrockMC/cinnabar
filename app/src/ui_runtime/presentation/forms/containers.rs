@@ -117,6 +117,16 @@ impl UiPresentationRuntime {
                     hit_test(&frame.hits, [f64::from(point[0]), f64::from(point[1])])
                 })
                 .map(|region| region.key.clone()),
+            // The anvil's name field shows focused while it takes typing.
+            focused: previous
+                .filter(|_| runtime.screen_state().anvil_focused)
+                .and_then(|frame| {
+                    frame
+                        .hits
+                        .iter()
+                        .find(|region| region.kind == json_ui::HitKind::EditBox)
+                })
+                .map(|region| region.key.clone()),
             ..ViewState::default()
         };
         let overlay = held_stack(
@@ -125,8 +135,11 @@ impl UiPresentationRuntime {
             pointer,
             &mut icons,
         );
+        let id_aux =
+            container_data::id_aux_icons(runtime, &self.hud_frame, |id| self.item_icon(id, 0));
         let art = engine::ScreenArt {
             icons: &icons,
+            id_aux: &id_aux,
             preview: self.hud_frame.player_preview,
             pointer,
             ..engine::ScreenArt::default()
@@ -203,19 +216,32 @@ impl UiPresentationRuntime {
     pub(crate) fn engine_container_hit(&self, gui: [f32; 2]) -> Option<InventoryCellHit> {
         let (frame, layout) = self.form_presentation.container.as_ref()?;
         let region = hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?;
-        let index = region.collection_index?;
-        let small = u8::try_from(index).ok()?;
-        Some(match region.collection.as_deref()? {
-            "inventory_items" => InventoryCellHit::Player(small.checked_add(9)?),
-            "hotbar_items" => InventoryCellHit::Player(small),
-            "armor_items" => InventoryCellHit::Armor(small),
+        let widget = || match layout {
+            ScreenLayout::Station(kind) => {
+                container_data::widget_hit(kind.screen, region).map(InventoryCellHit::Widget)
+            }
+            _ => None,
+        };
+        let (Some(index), Some(collection)) =
+            (region.collection_index, region.collection.as_deref())
+        else {
+            return widget();
+        };
+        let small = u8::try_from(index).ok();
+        Some(match collection {
+            "inventory_items" => InventoryCellHit::Player(small?.checked_add(9)?),
+            "hotbar_items" => InventoryCellHit::Player(small?),
+            "armor_items" => InventoryCellHit::Armor(small?),
             "offhand_items" => InventoryCellHit::Offhand,
             "crafting_input_items" => {
-                InventoryCellHit::Craft(layout.craft_slot().checked_add(small)?)
+                InventoryCellHit::Craft(layout.craft_slot().checked_add(small?)?)
             }
             "crafting_output_items" => InventoryCellHit::CraftOutput,
             collection => match layout {
-                ScreenLayout::Station(kind) => kind.cell(collection, index)?.hit(),
+                ScreenLayout::Station(kind) => match kind.cell(collection, index) {
+                    Some(cell) => cell.hit(),
+                    None => return widget(),
+                },
                 _ => return None,
             },
         })
@@ -266,11 +292,14 @@ pub(crate) fn engine_panel_contains(frame: &EngineFrame, gui: [f32; 2]) -> bool 
 struct Cells<'a> {
     frame: &'a HudFrame,
     icons: &'a mut Vec<IconRef>,
+    /// The hovered cell and its full tooltip (name, enchantments, lore).
+    hover: Option<(InventoryCellHit, String)>,
 }
 
 impl Cells<'_> {
     fn cell(
         &mut self,
+        hit: InventoryCellHit,
         stack: Option<&NetworkItemStack>,
         icon: Option<IconRef>,
         durability: Option<f32>,
@@ -291,6 +320,10 @@ impl Cells<'_> {
                     .get(&(stack.network_id, stack.metadata))
             })
             .map_or_else(String::new, |name| name.to_string());
+        let name = match &self.hover {
+            Some((hovered, tooltip)) if *hovered == hit && stack.is_some() => tooltip.clone(),
+            _ => name,
+        };
         item.with(
             "#inventory_stack_count",
             Scalar::Text(if count > 1 {
@@ -324,14 +357,22 @@ fn screen_data(
     let mut data = DataSource::new();
     // Bindings the controller does not answer read as false, as in vanilla.
     data.set_strict(true);
-    let mut cells = Cells { frame, icons };
+    let mut cells = Cells {
+        frame,
+        icons,
+        hover: runtime
+            .screen_state()
+            .hover
+            .zip(tooltip_text(&frame.window_text.tooltip)),
+    };
     let player_icon = |index: usize| frame.inventory_icons.0.get(index).copied().flatten();
     let inventory = (9..36)
         .map(|index| {
             cells.cell(
+                InventoryCellHit::Player(index as u8),
                 ledger.displayed_stack(index as u8),
                 player_icon(index),
-                None,
+                frame.durability.player[index],
             )
         })
         .collect();
@@ -339,6 +380,7 @@ fn screen_data(
     let hotbar = (0..9)
         .map(|index| {
             cells.cell(
+                InventoryCellHit::Player(index as u8),
                 ledger.displayed_stack(index as u8),
                 player_icon(index),
                 frame.hotbar_durability[index],
@@ -356,9 +398,10 @@ fn screen_data(
             let first = layout.craft_slot();
             let grid = (0..width * width)
                 .map(|index| {
-                    let target = InventoryTarget::Craft(first + index as u8);
+                    let slot = first + index as u8;
                     cells.cell(
-                        ledger.target_stack(target),
+                        InventoryCellHit::Craft(slot),
+                        ledger.target_stack(InventoryTarget::Craft(slot)),
                         frame.crafting.icons.get(index).copied().flatten(),
                         None,
                     )
@@ -366,22 +409,34 @@ fn screen_data(
                 .collect();
             data.set_collection("crafting_input_items", grid);
             let output = match &frame.crafting.output {
-                Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
-                None => cells.cell(None, None, None),
+                Some((icon, stack)) => {
+                    cells.cell(InventoryCellHit::CraftOutput, Some(stack), *icon, None)
+                }
+                None => cells.cell(InventoryCellHit::CraftOutput, None, None, None),
             };
             data.set_collection("crafting_output_items", vec![output]);
             let armor = (0..4u8)
                 .map(|slot| {
                     let stack = ledger.target_stack(InventoryTarget::Armor(slot));
                     cells
-                        .cell(stack, frame.armor_icons[usize::from(slot)], None)
+                        .cell(
+                            InventoryCellHit::Armor(slot),
+                            stack,
+                            frame.armor_icons[usize::from(slot)],
+                            None,
+                        )
                         .with("#empty_armor_image_visible", Scalar::Bool(stack.is_none()))
                 })
                 .collect();
             data.set_collection("armor_items", armor);
             let offhand = ledger.target_stack(InventoryTarget::Offhand);
             let offhand = cells
-                .cell(offhand, frame.offhand_icon, frame.offhand_durability)
+                .cell(
+                    InventoryCellHit::Offhand,
+                    offhand,
+                    frame.offhand_icon,
+                    frame.offhand_durability,
+                )
                 .with(
                     "#empty_offhand_image_visible",
                     Scalar::Bool(offhand.is_none()),
@@ -395,7 +450,7 @@ fn screen_data(
                     .iter()
                     .map(|cell| {
                         let (stack, icon, durability) = station_cell(runtime, frame, *cell);
-                        let item = cells.cell(stack, icon, durability);
+                        let item = cells.cell(cell.hit(), stack, icon, durability);
                         container_data::decorate(collection, stack.is_none(), item)
                     })
                     .collect();
@@ -403,11 +458,32 @@ fn screen_data(
             }
             if let Some(window) = ledger.window_kind() {
                 container_data::station_globals(&mut data, runtime, window);
+                container_data::station_controls(&mut data, runtime, frame, window);
             }
         }
     }
     survival_globals(&mut data, title);
     data
+}
+
+/// Tooltip lines as one `#hover_text`, each coloured by its format code.
+fn tooltip_text(
+    lines: &[crate::ui_runtime::presentation::hud_layout::TooltipLine],
+) -> Option<String> {
+    (!lines.is_empty()).then(|| {
+        lines
+            .iter()
+            .map(|line| {
+                let code = match line.color {
+                    [170, 170, 170, _] => "§7",
+                    [170, 0, 170, _] => "§5",
+                    _ => "",
+                };
+                format!("{code}{}", line.text)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
 }
 
 /// The stack, icon, and durability a station cell shows.

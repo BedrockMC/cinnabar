@@ -349,11 +349,8 @@ fn grid_children<'a>(
     sibling_max: [f64; 2],
     env: &LayoutEnv,
 ) -> Vec<(&'a ResolvedControl, Rect)> {
-    let rows = parent
-        .properties
-        .get("grid_dimensions")
-        .and_then(Value::as_array)
-        .and_then(|dims| dims.get(1)?.as_f64())
+    let rows = number_pair(parent, "grid_dimensions")
+        .map(|[_, rows]| rows)
         .filter(|rows| *rows >= 1.0);
     // Template grids pitch on their template; listed cells share the grid's rect.
     let listed = !parent.properties.contains_key("grid_item_template");
@@ -381,22 +378,23 @@ fn grid_children<'a>(
         .zip(sizes)
         .enumerate()
         .map(|(index, (child, size))| {
-            let [column, row] = grid_position(child)
+            let [column, row] = number_pair(child, "grid_position")
                 .unwrap_or([(index % columns) as f64, (index / columns) as f64]);
-            let x = parent_rect.x + column * pitch[0];
-            let y = parent_rect.y + row * pitch[1];
-            let rect = match cell {
-                Some([w, h]) => place_by_anchor(child, Rect::new(x, y, w, h), size, env),
-                None => Rect::new(x, y, size[0], size[1]),
-            };
+            let (x, y) = (
+                parent_rect.x + column * pitch[0],
+                parent_rect.y + row * pitch[1],
+            );
+            let rect = cell.map_or(Rect::new(x, y, size[0], size[1]), |[w, h]| {
+                place_by_anchor(child, Rect::new(x, y, w, h), size, env)
+            });
             (child, rect)
         })
         .collect()
 }
 
-fn grid_position(control: &ResolvedControl) -> Option<[f64; 2]> {
-    let position = control.properties.get("grid_position")?.as_array()?;
-    Some([position.first()?.as_f64()?, position.get(1)?.as_f64()?])
+fn number_pair(control: &ResolvedControl, key: &str) -> Option<[f64; 2]> {
+    let pair = control.properties.get(key)?.as_array()?;
+    Some([pair.first()?.as_f64()?, pair.get(1)?.as_f64()?])
 }
 
 fn stack_children<'a>(
@@ -805,7 +803,9 @@ fn length(control: &ResolvedControl, axis: Axis) -> Length {
         }
         _ => None,
     };
-    let is_grid = control.control_type.as_deref() == Some("grid");
+    // A grid sizes to its cells, except one listing them with no size, which fills.
+    let is_grid = control.control_type.as_deref() == Some("grid")
+        && (explicit.is_some() || control.properties.contains_key("grid_item_template"));
     match explicit {
         Some(Length::Default) | None if stack_axis(control) == Some(axis) || is_grid => {
             expr::parse_length("100%c").unwrap_or(Length::Default)

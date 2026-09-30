@@ -64,6 +64,14 @@ fn level_text(runtime: &UiRuntime, level: u8) -> String {
         .map_or_else(|| level.to_string(), |text| text.to_string())
 }
 
+/// An enchantment's localized name and level numeral (`Sharpness II`).
+pub(super) fn enchantment_name(runtime: &UiRuntime, id: i16, level: u8) -> String {
+    let label = enchantment_key(id)
+        .and_then(|key| runtime.translation(&format!("enchantment.{key}")))
+        .map_or_else(|| format!("Enchantment {id}"), |text| text.to_string());
+    format!("{label} {}", level_text(runtime, level))
+}
+
 /// The tooltip for one stack; a server-stated name wins over the item's own.
 pub(super) fn tooltip_lines(
     runtime: &UiRuntime,
@@ -82,11 +90,8 @@ pub(super) fn tooltip_lines(
         color: NAME_COLOR,
     }];
     for (id, level) in &display.enchantments {
-        let label = enchantment_key(*id)
-            .and_then(|key| runtime.translation(&format!("enchantment.{key}")))
-            .map_or_else(|| format!("Enchantment {id}"), |text| text.to_string());
         lines.push(TooltipLine {
-            text: format!("{label} {}", level_text(runtime, *level)),
+            text: enchantment_name(runtime, *id, *level),
             color: ENCHANT_COLOR,
         });
     }

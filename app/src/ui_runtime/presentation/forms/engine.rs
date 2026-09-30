@@ -449,6 +449,8 @@ fn render_with<R: Borrow<FormRender>>(
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
+    /// Icons an `#item_id_aux` renderer names, by that value.
+    pub(super) id_aux: &'a [(i64, IconRef)],
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
@@ -602,10 +604,13 @@ impl Painter<'_> {
         }
         match renderer {
             "inventory_item_renderer" => {
-                let icon = self
-                    .art
-                    .icons
-                    .get(number("#item_renderer_data")? as usize)?;
+                let icon = match number("#item_renderer_data") {
+                    Some(index) => self.art.icons.get(index as usize)?,
+                    None => {
+                        let key = number("#item_id_aux")? as i64;
+                        &self.art.id_aux.iter().find(|(id, _)| *id == key)?.1
+                    }
+                };
                 Some((
                     UiVisual::Sprite {
                         texture_page: icon.page,
