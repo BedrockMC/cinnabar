@@ -250,6 +250,17 @@ fn first_person_arms_follow_the_render_controller_visibility() {
     assert!(arms(None, Some("minecraft:filled_map")).left);
 }
 
+/// A held item with no drawable layer keeps the bare arm, so the first-person rig still swings.
+#[test]
+fn undrawn_main_hand_item_keeps_the_swinging_arm() {
+    let held = FirstPersonArms::for_hands(Some("zeqa:item.ffa"), None);
+    assert!(!held.with_undrawn_main(true).right);
+    assert!(held.with_undrawn_main(false).right);
+    assert!(!held.with_undrawn_main(false).left);
+    let empty = FirstPersonArms::for_hands(None, None);
+    assert_eq!(empty.with_undrawn_main(false), empty);
+}
+
 #[test]
 fn block_face_rects_tile_the_three_by_two_sheet() {
     let rects = super::blocks::face_rects([0.0, 0.0, 0.75, 0.5]);

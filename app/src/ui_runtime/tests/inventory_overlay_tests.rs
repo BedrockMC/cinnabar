@@ -211,7 +211,7 @@ fn cursor_updates_clear_the_cursor_response_overlay() {
         .apply(&InventoryEvent::Slot(InventorySlotEvent {
             identity: SlotIdentity {
                 container: ContainerIdentity {
-                    window_id: Some(0),
+                    window_id: Some(124),
                     slot_type: Some(59),
                     dynamic_id: None,
                 },

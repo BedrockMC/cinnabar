@@ -1,0 +1,10 @@
+{
+  "globals": { "#title_text": "Example Server" },
+  "collections": {
+    "rows": [
+      { "role": "row", "#row_text": "Survival" },
+      { "role": "row", "#row_text": "Creative" },
+      { "role": "row", "#row_text": "Minigames" }
+    ]
+  }
+}
