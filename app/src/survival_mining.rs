@@ -27,7 +27,10 @@ use crate::{
         FrozenMiningSelection, creative_reach, hand_interaction_selection, protocol_input_mode,
         survival_reach,
     },
-    movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
+    movement::{
+        LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
+        PhysicsCollisionRegistries,
+    },
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
     ui_runtime::UiRuntime,
@@ -517,6 +520,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     client_world: ResMut<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
+    physics: Option<Res<'w, LocalPhysicsController>>,
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
@@ -749,8 +753,9 @@ fn observe_destroy_target(
             conduit_power_amplifier: effects.conduit_power,
             mining_fatigue_amplifier: effects.mining_fatigue,
             on_ground: true,
-            // Local simulation has no flight and never reports starting to fly.
-            flying: false,
+            flying: exempt_from_airborne_penalty(
+                context.physics.as_ref().map(|physics| physics.mode()),
+            ),
             riding: ui.gameplay_hud().mount_unique_id().is_some(),
             eyes_in_water: eyes_in_water(&world, observed.ray.origin),
             // Unknown armor reads as absent, which only slows prediction.
@@ -773,6 +778,11 @@ fn destroys_in_creative(identifier: Option<&str>) -> bool {
             && HeldTool::from_identifier(identifier)
                 .is_none_or(|tool| tool.kind != sim::ToolKind::Sword)
     })
+}
+
+/// Flight, not mere airborne movement, exempts the destroy-speed penalty (`PlayerDestroy`).
+fn exempt_from_airborne_penalty(mode: Option<sim::MovementMode>) -> bool {
+    mode == Some(sim::MovementMode::Flying)
 }
 
 /// Whether Unbreaking at `level` lets a `roll` in `0..100` damage the item:
