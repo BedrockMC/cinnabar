@@ -140,6 +140,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     session_artwork: Local<'s, Option<render::ActorArtworkPages>>,
     cape_state: Local<'s, crate::presentation::cape::CapeState>,
     skin_rigs: Local<'s, crate::presentation::skin_rig::SkinRigCache>,
+    skin_pack: Local<'s, crate::presentation::actors::SkinLayerPack>,
     hand_builder: ResMut<'w, HandRigBuilder>,
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
@@ -168,6 +169,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         mut session_artwork,
         mut cape_state,
         mut skin_rigs,
+        mut skin_pack,
         mut hand_builder,
         mut hand_scene,
         mut hand_revision,
@@ -272,7 +274,10 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             -pitch.to_degrees(),
             (180.0 - yaw.to_degrees()).rem_euclid(360.0),
         ]);
-        if let Some(collisions) = collisions.as_deref() {
+        // Fluid and bed state is tick state; a frame without a tick would resample the same.
+        if step.ticks > 0
+            && let Some(collisions) = collisions.as_deref()
+        {
             super::actor_sampling::sample_actor_world_state(stream, collisions);
         }
         stream.advance_actor_interpolation_ticks(step.ticks);
@@ -531,7 +536,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         new_geometries.extend(equipment.take_pending_geometries());
     }
     register_geometries(&mut hand_builder.0, &mut scene, new_geometries);
-    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch).clone();
+    *frame = update_actor_rig_scene(&mut scene, step.partial_tick, batch, &mut skin_pack).clone();
     witness.observe_main(ActorMainWitness {
         local_snapshot: visibility_snapshot.is_some(),
         local_visible,

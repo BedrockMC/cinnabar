@@ -235,3 +235,22 @@ impl WorldStream {
             .retain(|change| !matches!(change, WorldMeshChange::Upsert { .. }));
     }
 }
+
+/// Drops superseded and duplicate scan entries once they outnumber live work
+/// plus one poll of ingress, so a stationary dirty storm cannot grow the scan
+/// history without bound. Surviving entries keep their queue order.
+pub(super) fn compact_scheduler_scan(
+    scan: &mut VecDeque<(SubChunkKey, u64)>,
+    live_len: usize,
+    is_live: impl Fn(SubChunkKey, u64) -> bool,
+) {
+    if scan.len()
+        <= live_len
+            .saturating_mul(2)
+            .saturating_add(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL)
+    {
+        return;
+    }
+    let mut seen = HashSet::with_capacity(live_len);
+    scan.retain(|&(key, revision)| is_live(key, revision) && seen.insert(key));
+}
