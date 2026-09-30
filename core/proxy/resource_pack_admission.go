@@ -36,20 +36,22 @@ const (
 	// separately: gophertunnel holds every downloaded pack in memory until the
 	// handoff is captured, and past this ceiling the dial is cancelled.
 	maxResourcePackTransferBytes = 2 * maxSelectedResourcePackTotalBytes
-	// Cinnabar safety bound on the download phase, below the client's login timeout.
-	maxResourcePackAcquisitionTime = 60 * time.Second
+	// Longest gap in pack transfer progress before the dial is cancelled. Servers
+	// pace chunk delivery (The Hive: 24 packs, 21.5 MB, 60-120 s on first join), so
+	// the total is left to the client's login deadline rather than bounded here.
+	maxResourcePackAcquisitionStall = 20 * time.Second
 )
 
 var (
-	errResourcePackAcquisitionTimeout = errors.New("proxy: resource-pack acquisition exceeded its time bound")
+	errResourcePackAcquisitionStalled = errors.New("proxy: resource-pack acquisition stalled")
 	errResourcePackTransferTooLarge   = errors.New("proxy: resource-pack transfers exceeded their memory bound")
 )
 
 // resourcePackAcquisitionBudget admits offered packs for download in offer
 // order within the count and byte bounds; later packs are ignored, not fatal.
 // A pack whose transfer disagrees with its offer is dropped from the handoff so
-// login still succeeds, while transfers past the memory ceiling or the time
-// bound cancel the upstream dial.
+// login still succeeds, while transfers past the memory ceiling or a stall in
+// transfer progress cancel the upstream dial.
 type resourcePackAcquisitionBudget struct {
 	proto  minecraft.Protocol
 	cancel context.CancelCauseFunc
@@ -64,7 +66,7 @@ type resourcePackAcquisitionBudget struct {
 }
 
 func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.CancelCauseFunc) *resourcePackAcquisitionBudget {
-	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel, limit: maxResourcePackAcquisitionTime}
+	return &resourcePackAcquisitionBudget{proto: proto, cancel: cancel, limit: maxResourcePackAcquisitionStall}
 }
 
 // observe must see every inbound packet before gophertunnel handles it.
@@ -80,6 +82,9 @@ func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, paylo
 		if info, ok := decodeInboundPacket[*packet.ResourcePackDataInfo](budget.proto, header.PacketID, payload); ok {
 			budget.observeTransfer(info)
 		}
+		budget.progress()
+	case packet.IDResourcePackChunkData:
+		budget.progress()
 	case packet.IDResourcePackStack, packet.IDStartGame:
 		budget.stop()
 	}
@@ -111,7 +116,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 		budget.timer = nil
 	}
 	if admitted != 0 {
-		budget.timer = time.AfterFunc(budget.limit, func() { budget.cancel(errResourcePackAcquisitionTimeout) })
+		budget.timer = time.AfterFunc(budget.limit, func() { budget.cancel(errResourcePackAcquisitionStalled) })
 	}
 }
 
@@ -148,6 +153,15 @@ func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index,
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
 	return total == len(budget.accepted) && index >= 0 && index < total && budget.accepted[index]
+}
+
+// progress restarts the stall bound while an admitted acquisition is running.
+func (budget *resourcePackAcquisitionBudget) progress() {
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if budget.timer != nil {
+		budget.timer.Reset(budget.limit)
+	}
 }
 
 func (budget *resourcePackAcquisitionBudget) stop() {
