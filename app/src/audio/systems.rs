@@ -1,11 +1,8 @@
 //! Frame systems feeding the audio engine: packets, local motion, ambience, weather and output.
 
 use std::{
-    collections::{HashMap, HashSet},
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
+    collections::HashSet,
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use bevy::prelude::{
@@ -20,6 +17,7 @@ use super::{
         ADDITIONS_INTERVAL, IntervalTimer, MOOD_INTERVAL, MusicScheduler, dimension_ambience,
         music_key,
     },
+    echo::{EchoOrigin, EchoSubject},
     engine::{AudioEngine, Listener, LoopSpec, SoundRequest},
     local::{LocalCue, LocalMotion, MotionSample},
     predicted::{LocalBlockCue, drive_actor_audio, drive_block_cues, drive_consume_audio},
@@ -111,8 +109,8 @@ pub(super) struct IngestState {
     stream: u64,
     epoch: u64,
     last_sequence: u64,
-    /// Record voices by jukebox cell, so a stop event can silence the right one.
-    records: HashMap<[i32; 3], Arc<str>>,
+    /// Jukebox cells whose record may still be playing, bounded by [`MAX_RECORDS`].
+    records: HashSet<[i32; 3]>,
 }
 
 impl IngestState {
@@ -129,25 +127,44 @@ impl IngestState {
         }
     }
 
-    /// Replaces the jukebox record at `position` with `name`, or silences it for `None`.
+    /// Replaces the record of the jukebox at `position` with `request`, or silences it for `None`.
     fn start_record(
         &mut self,
         position: [f32; 3],
-        name: Option<Arc<str>>,
+        request: Option<SoundRequest>,
         engine: &mut AudioEngine,
     ) {
         let cell = position.map(|axis| axis.floor() as i32);
-        if let Some(previous) = self.records.remove(&cell) {
-            engine.stop_named(&previous);
-        }
-        let Some(name) = name else { return };
-        self.records.retain(|_, playing| engine.is_active(playing));
+        self.records.remove(&cell);
+        engine.stop_jukebox(cell);
+        let Some(mut request) = request else { return };
+        self.records.retain(|cell| engine.is_jukebox_active(*cell));
         if self.records.len() >= MAX_RECORDS {
             engine.stats.voice_limit += 1;
             return;
         }
-        self.records.insert(cell, Arc::clone(&name));
-        engine.enqueue(SoundRequest::new(name).at(position));
+        self.records.insert(cell);
+        request.jukebox = Some(cell);
+        engine.enqueue(request);
+    }
+
+    /// A jukebox `record.*` level sound: starts that cell's record, or stops it for `record.null`.
+    fn record_sound(
+        &mut self,
+        level: &protocol::LevelAudioEvent,
+        block_identifier: &dyn Fn(u32) -> Option<String>,
+        engine: &mut AudioEngine,
+    ) {
+        let stop = &*level.sound_event == RECORD_STOP_SOUND;
+        let request = (!stop)
+            .then(|| engine.bank())
+            .flatten()
+            .and_then(|bank| route::level_sound_request(bank.tables(), level, block_identifier));
+        if request.is_none() && !stop {
+            engine.stats.unrouted += 1;
+            return;
+        }
+        self.start_record(level.position, request, engine);
     }
 
     /// Whether `event` belongs to the bound session and current dimension, in order.
@@ -163,9 +180,14 @@ impl IngestState {
     }
 }
 
-/// Level sound events also produced by local prediction; the second copy within the window is dropped.
-const DEDUPED_EVENTS: [&str; 4] = ["place", "break", "hurt", "death"];
+/// Level sound events the client also voices itself: block events by cell, actor events by actor.
+const ECHOED_BLOCK_EVENTS: [&str; 2] = ["place", "break"];
+const ECHOED_ACTOR_EVENTS: [&str; 2] = ["hurt", "death"];
+pub(super) const BLOCK_ECHO_SECONDS: f64 = 0.6;
+pub(super) const ACTOR_ECHO_SECONDS: f64 = 0.4;
 const RECORD_EVENT: i32 = 1006;
+/// Level sound event a jukebox sends when its record stops or is ejected.
+const RECORD_STOP_SOUND: &str = "record.null";
 /// Jukebox records tracked at once; entries whose sound is no longer active are pruned first.
 const MAX_RECORDS: usize = 64;
 
@@ -209,6 +231,9 @@ pub(super) fn ingest_audio_events(
         let request = match &event.event {
             protocol::AudioEvent::Play(play) => Some(route::play_request(play)),
             protocol::AudioEvent::Stop(stop) => {
+                if stop.stop_music_legacy {
+                    engine.stop_category(AudioCategory::Music);
+                }
                 if stop.stop_all_sounds {
                     engine.stop_all();
                 } else {
@@ -216,19 +241,21 @@ pub(super) fn ingest_audio_events(
                 }
                 continue;
             }
+            protocol::AudioEvent::Level(level) if level.sound_event.starts_with("record.") => {
+                state.record_sound(level, &lookup, &mut engine);
+                continue;
+            }
             protocol::AudioEvent::Level(level) => {
-                let name = level.sound_event.as_ref();
-                if DEDUPED_EVENTS.contains(&name) {
-                    if engine.was_recent(name, level.position, 0.6, 3.0) {
-                        continue;
-                    }
-                    engine.note_recent(name, level.position);
-                } else if name == "thunder" {
-                    engine.note_recent(name, level.position);
-                }
-                engine
+                let request = engine
                     .bank()
-                    .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup))
+                    .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup));
+                if request.is_some() && !admit_level_echo(&mut engine, level) {
+                    continue;
+                }
+                if level.sound_event.as_ref() == "thunder" {
+                    engine.note_server_thunder();
+                }
+                request
             }
             protocol::AudioEvent::LevelEvent(level) if level.event_id == RECORD_EVENT => {
                 let name = (level.data != 0)
@@ -240,17 +267,44 @@ pub(super) fn ingest_audio_events(
                             .bank()
                             .is_some_and(|bank| bank.definition(name).is_some())
                     });
-                state.start_record(level.position, name.map(Arc::from), &mut engine);
+                let request = name.map(|name| SoundRequest::new(name).at(level.position));
+                state.start_record(level.position, request, &mut engine);
                 continue;
             }
-            protocol::AudioEvent::LevelEvent(level) => engine
-                .bank()
-                .and_then(|bank| route::level_event_request(bank.tables(), level)),
+            protocol::AudioEvent::LevelEvent(level) => {
+                let roll = engine.unit();
+                engine
+                    .bank()
+                    .and_then(|bank| route::level_event_request(bank.tables(), level, roll))
+            }
         };
         match request {
             Some(request) => engine.enqueue(request),
             None => engine.stats.unrouted += 1,
         }
+    }
+}
+
+/// Whether a server level sound should play, or is the copy of a sound the client already voiced.
+fn admit_level_echo(engine: &mut AudioEngine, level: &protocol::LevelAudioEvent) -> bool {
+    let name = level.sound_event.as_ref();
+    if ECHOED_BLOCK_EVENTS.contains(&name) {
+        let cell = level.position.map(|axis| axis.floor() as i32);
+        engine.admit_echo(
+            EchoOrigin::Packet,
+            name,
+            EchoSubject::Cell(cell),
+            BLOCK_ECHO_SECONDS,
+        )
+    } else if ECHOED_ACTOR_EVENTS.contains(&name) {
+        engine.admit_echo(
+            EchoOrigin::Packet,
+            name,
+            EchoSubject::Actor(level.actor_unique_id),
+            ACTOR_ECHO_SECONDS,
+        )
+    } else {
+        true
     }
 }
 
@@ -534,7 +588,7 @@ pub(super) fn drive_weather_and_particles(
         *remaining > 0.0
     });
     for position in due {
-        if !engine.was_recent("thunder", position, 2.0, f32::MAX.sqrt()) {
+        if !engine.server_thundered_within(2.0) {
             engine.enqueue(SoundRequest::new("ambient.weather.lightning.impact").at(position));
             engine.enqueue(SoundRequest::new("ambient.weather.thunder"));
         }
@@ -602,6 +656,7 @@ pub(super) fn pump_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn event(sequence: u64, dimension: i32, dimension_epoch: u64) -> SequencedAudioEvent {
         SequencedAudioEvent {
@@ -625,10 +680,42 @@ mod tests {
         let settings = AudioSettings::default();
         for x in 0..1000 {
             let position = [x as f32, 64.0, 0.0];
-            state.start_record(position, Some(Arc::from("record.cat")), &mut engine);
+            let request = SoundRequest::new("record.cat").at(position);
+            state.start_record(position, Some(request), &mut engine);
             engine.pump(None, 0.0, &settings);
         }
         assert!(state.records.len() <= 1, "{} retained", state.records.len());
+    }
+
+    // Stopping one jukebox stopped every jukebox playing the same disc.
+    #[test]
+    fn a_record_stop_silences_only_its_own_jukebox() {
+        let mut engine = crate::audio::engine::tests::engine(&[("record.cat", "record")]);
+        let mut state = IngestState::default();
+        for x in [0.5, 2.5] {
+            let position = [x, 64.0, 0.5];
+            let request = SoundRequest::new("record.cat").at(position);
+            state.start_record(position, Some(request), &mut engine);
+        }
+        let listener = Listener {
+            position: [1.5, 64.0, 0.5],
+            right: [1.0, 0.0, 0.0],
+        };
+        let mut sources = engine.pump(Some(listener), 0.05, &AudioSettings::default());
+        assert_eq!(sources.len(), 2);
+        let stop = protocol::LevelAudioEvent {
+            sound_event: Arc::from(RECORD_STOP_SOUND),
+            position: [0.5, 64.0, 0.5],
+            data: -1,
+            actor_identifier: Arc::from(""),
+            is_baby: false,
+            is_global: false,
+            actor_unique_id: -1,
+            fire_at_position: None,
+        };
+        state.record_sound(&stop, &|_| None, &mut engine);
+        assert!(sources[0].next().is_none());
+        assert!(sources[1].next().is_some());
     }
 
     // A sound committed before a 0 -> 1 -> 0 roundtrip must not play in the new visit.
@@ -637,7 +724,7 @@ mod tests {
         let mut engine = AudioEngine::default();
         let mut state = IngestState::default();
         state.bind(1, 4, &mut engine);
-        state.records.insert([0, 64, 0], Arc::from("record.cat"));
+        state.records.insert([0, 64, 0]);
         assert!(!state.admits(&event(10, 0, 2), 0));
         assert!(state.admits(&event(11, 0, 4), 0));
         state.bind(1, 9, &mut engine);

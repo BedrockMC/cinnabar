@@ -7,6 +7,7 @@ use bevy::prelude::Resource;
 
 use super::{
     bank::{PcmLookup, SoundBank},
+    echo::{EchoLedger, EchoOrigin, EchoSubject},
     settings::{AudioCategory, AudioSettings},
     voice::{VoiceShared, VoiceSource, attenuation, pan_for},
 };
@@ -39,6 +40,8 @@ pub(crate) struct SoundRequest {
     pub volume: FloatRange,
     pub pitch: FloatRange,
     pub looping: bool,
+    /// Jukebox cell that owns this record, so its stop silences only this voice.
+    pub jukebox: Option<[i32; 3]>,
 }
 
 impl SoundRequest {
@@ -49,6 +52,7 @@ impl SoundRequest {
             volume: FloatRange::ONE,
             pitch: FloatRange::ONE,
             looping: false,
+            jukebox: None,
         }
     }
 
@@ -112,6 +116,7 @@ struct Voice {
     min: f32,
     max: f32,
     key: Option<&'static str>,
+    jukebox: Option<[i32; 3]>,
     priority: u8,
     gain: f32,
 }
@@ -147,7 +152,8 @@ pub(crate) struct AudioEngine {
     pub(crate) stats: EngineStats,
     server_seen: u64,
     clock: f64,
-    recent: Vec<(Box<str>, [f32; 3], f64)>,
+    echoes: EchoLedger,
+    last_server_thunder: f64,
     pending: Vec<PendingStart>,
 }
 
@@ -171,35 +177,31 @@ impl AudioEngine {
             stats: EngineStats::default(),
             server_seen: 0,
             clock: 0.0,
-            recent: Vec::new(),
+            echoes: EchoLedger::default(),
+            last_server_thunder: f64::NEG_INFINITY,
             pending: Vec::new(),
         }
     }
 
-    /// Records that a sound of class `key` was heard at `position`, for duplicate suppression.
-    pub(crate) fn note_recent(&mut self, key: &str, position: [f32; 3]) {
-        if self.recent.len() >= 64 {
-            self.recent.remove(0);
-        }
-        self.recent.push((key.into(), position, self.clock));
+    /// Whether a sound both the client and the server may voice should play; see [`EchoLedger`].
+    pub(crate) fn admit_echo(
+        &mut self,
+        origin: EchoOrigin,
+        event: &str,
+        subject: EchoSubject,
+        window: f64,
+    ) -> bool {
+        self.echoes
+            .admit(origin, event, subject, window, self.clock)
     }
 
-    /// Whether class `key` was noted within `seconds` and `radius` blocks of `position`.
-    pub(crate) fn was_recent(
-        &self,
-        key: &str,
-        position: [f32; 3],
-        seconds: f64,
-        radius: f32,
-    ) -> bool {
-        self.recent.iter().any(|(name, at, time)| {
-            &**name == key
-                && self.clock - time <= seconds
-                && (0..3)
-                    .map(|axis| (at[axis] - position[axis]).powi(2))
-                    .sum::<f32>()
-                    <= radius * radius
-        })
+    pub(crate) fn note_server_thunder(&mut self) {
+        self.last_server_thunder = self.clock;
+    }
+
+    /// Whether the server voiced any thunder within the last `seconds`.
+    pub(crate) fn server_thundered_within(&self, seconds: f64) -> bool {
+        self.clock - self.last_server_thunder <= seconds
     }
 
     pub(crate) fn has_bank(&self) -> bool {
@@ -234,28 +236,63 @@ impl AudioEngine {
             || self.pending.iter().any(|start| start.category == category)
     }
 
-    /// Whether `name` is queued, waiting on a decode, or playing.
-    pub(crate) fn is_active(&self, name: &str) -> bool {
-        self.queue.iter().any(|request| &*request.name == name)
-            || self
-                .pending
-                .iter()
-                .any(|start| &*start.request.name == name)
-            || (self.voices.iter()).any(|voice| &*voice.name == name && !voice.shared.finished())
-    }
-
-    /// Cancels every voice playing `name`.
+    /// Cancels every voice playing `name`, and starts of it requested earlier but not yet begun.
     pub(crate) fn stop_named(&mut self, name: &str) {
         for voice in self.voices.iter().filter(|voice| &*voice.name == name) {
             voice.shared.cancel();
         }
+        self.queue.retain(|request| &*request.name != name);
         self.pending.retain(|start| &*start.request.name != name);
+    }
+
+    /// Cancels the record owned by the jukebox at `cell`, playing or not yet started.
+    pub(crate) fn stop_jukebox(&mut self, cell: [i32; 3]) {
+        for voice in self
+            .voices
+            .iter()
+            .filter(|voice| voice.jukebox == Some(cell))
+        {
+            voice.shared.cancel();
+        }
+        self.queue.retain(|request| request.jukebox != Some(cell));
+        self.pending
+            .retain(|start| start.request.jukebox != Some(cell));
+    }
+
+    /// Whether the jukebox at `cell` has a record queued, decoding, or playing.
+    pub(crate) fn is_jukebox_active(&self, cell: [i32; 3]) -> bool {
+        self.queue
+            .iter()
+            .any(|request| request.jukebox == Some(cell))
+            || (self.pending.iter()).any(|start| start.request.jukebox == Some(cell))
+            || (self.voices.iter())
+                .any(|voice| voice.jukebox == Some(cell) && !voice.shared.finished())
+    }
+
+    /// Cancels every voice and not-yet-started sound of `category`.
+    pub(crate) fn stop_category(&mut self, category: AudioCategory) {
+        for voice in self
+            .voices
+            .iter()
+            .filter(|voice| voice.category == category)
+        {
+            voice.shared.cancel();
+        }
+        self.pending.retain(|start| start.category != category);
+        if let Some(bank) = self.bank.as_ref() {
+            self.queue.retain(|request| {
+                bank.definition(&request.name).is_none_or(|definition| {
+                    AudioCategory::from_definition(definition.category.as_deref()) != category
+                })
+            });
+        }
     }
 
     pub(crate) fn stop_all(&mut self) {
         self.queue.clear();
         self.pending.clear();
         self.loops.clear();
+        self.echoes.clear();
         for voice in &self.voices {
             voice.shared.cancel();
         }
@@ -301,8 +338,6 @@ impl AudioEngine {
     ) -> Vec<VoiceSource> {
         self.voices.retain(|voice| !voice.shared.finished());
         self.clock += f64::from(dt.max(0.0));
-        let clock = self.clock;
-        self.recent.retain(|(_, _, time)| clock - time < 5.0);
         let mut started = Vec::new();
         self.resume_decoded(&mut started, listener, settings);
         self.reconcile_loops(&mut started, listener, settings);
@@ -489,8 +524,13 @@ impl AudioEngine {
             .unwrap_or(alternatives[0]);
         let category = AudioCategory::from_definition(definition.category.as_deref());
         let request_volume = request.volume.sample(roll[1]);
-        let volume =
-            definition.volume.unwrap_or(1.0) * chosen.volume.unwrap_or(1.0) * request_volume;
+        // Vanilla widens the audible range by the raw volume but clamps the playback gain to unity.
+        let request_gain = if request_volume.is_finite() {
+            request_volume.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let volume = definition.volume.unwrap_or(1.0) * chosen.volume.unwrap_or(1.0) * request_gain;
         let pitch = (definition.pitch.unwrap_or(1.0)
             * chosen.pitch.unwrap_or(1.0)
             * request.pitch.sample(roll[2]))
@@ -611,6 +651,7 @@ impl AudioEngine {
             min,
             max,
             key,
+            jukebox: request.jukebox,
             priority: new_priority,
             gain: new_gain,
         });
@@ -620,7 +661,7 @@ impl AudioEngine {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::audio::voice::Pcm;
     use assets::{
@@ -650,7 +691,7 @@ mod tests {
         }
     }
 
-    fn engine(names: &[(&str, &str)]) -> AudioEngine {
+    pub(crate) fn engine(names: &[(&str, &str)]) -> AudioEngine {
         let defs: Vec<_> = names
             .iter()
             .map(|(name, category)| definition(name, category))
@@ -792,6 +833,24 @@ mod tests {
         assert!((engine.voices[0].gain - 0.5).abs() < 1e-3);
     }
 
+    // Thunder's volume 1000 widened its range but also became a 1000x output gain.
+    #[test]
+    fn loud_requests_reach_further_without_exceeding_unit_gain() {
+        let mut engine = engine(&[("ambient.weather.thunder", "weather")]);
+        let loud = FloatRange {
+            min: 1000.0,
+            max: 1000.0,
+        };
+        engine.enqueue(
+            SoundRequest::new("ambient.weather.thunder")
+                .at([200.0, 0.0, 0.0])
+                .with_ranges(loud, FloatRange::ONE),
+        );
+        let started = engine.pump(Some(LISTENER), 0.05, &AudioSettings::default());
+        assert_eq!(started.len(), 1, "admitted beyond the default 16 blocks");
+        assert!(engine.voices[0].gain > 0.0 && engine.voices[0].gain <= 1.0);
+    }
+
     #[test]
     fn interface_sounds_ignore_position_and_listener() {
         let mut engine = engine(&[("random.click", "ui")]);
@@ -848,17 +907,6 @@ mod tests {
         assert!(held[0].next().is_none());
     }
 
-    #[test]
-    fn recent_sounds_expire_and_respect_radius() {
-        let mut engine = engine(&[("dig.stone", "block")]);
-        engine.note_recent("break", [0.0; 3]);
-        assert!(engine.was_recent("break", [1.0, 0.0, 0.0], 1.0, 2.0));
-        assert!(!engine.was_recent("break", [9.0, 0.0, 0.0], 1.0, 2.0));
-        assert!(!engine.was_recent("hurt", [0.0; 3], 1.0, 2.0));
-        engine.pump(None, 2.0, &AudioSettings::default());
-        assert!(!engine.was_recent("break", [0.0; 3], 1.0, 2.0));
-    }
-
     // Admitted server alternatives can sum past u32; the pick must neither panic nor wrap.
     #[test]
     fn huge_aggregate_weights_pick_without_overflow() {
@@ -882,6 +930,29 @@ mod tests {
                 .is_none()
         );
         assert_eq!(engine.stats.no_pcm, 1, "the pick reached PCM lookup");
+    }
+
+    // A PlaySound then StopSound in one ingestion pass still started the sound on the next pump.
+    #[test]
+    fn stops_cancel_starts_queued_before_them() {
+        let mut engine = engine(&[("mob.cat", "neutral"), ("music.game", "music")]);
+        let settings = AudioSettings::default();
+        engine.enqueue(SoundRequest::new("mob.cat"));
+        engine.stop_named("mob.cat");
+        engine.enqueue(SoundRequest::new("music.game"));
+        engine.stop_category(AudioCategory::Music);
+        assert!(engine.pump(None, 0.05, &settings).is_empty());
+    }
+
+    #[test]
+    fn legacy_music_stop_leaves_effects_playing() {
+        let mut engine = engine(&[("mob.cat", "neutral"), ("music.game", "music")]);
+        engine.enqueue(SoundRequest::new("mob.cat"));
+        engine.enqueue(SoundRequest::new("music.game"));
+        let mut sources = engine.pump(None, 0.05, &AudioSettings::default());
+        engine.stop_category(AudioCategory::Music);
+        assert!(sources[0].next().is_some());
+        assert!(sources[1].next().is_none());
     }
 
     #[test]
