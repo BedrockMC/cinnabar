@@ -37,7 +37,9 @@ use crate::{
         InteractionOriginSnapshot, LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
         LocalPlayerFrameCarrier, LocalPlayerFrameReset, LocalViewPose, reset_local_player_session,
     },
-    movement::{LocalPhysicsController, MovementSource, MovementTicker, PhysicsAuthorityGate},
+    movement::{
+        LocalPhysicsController, MovementSource, PhysicsAuthorityGate, reset_start_game_prediction,
+    },
     runtime::{
         phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::PublicationController,
@@ -71,30 +73,8 @@ pub(crate) use session::{
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const ACTOR_TICK_NANOS: u128 = 50_000_000;
-/// Provisional local pre-first-input anchor: public protocol documentation does
-/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
-/// separate clock domain.
-const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
 const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
-
-pub(crate) fn reset_start_game_prediction(
-    movement: &mut MovementTicker,
-    local_physics: &mut LocalPhysicsController,
-    session_generation: u64,
-    initial_position: [f32; 3],
-) {
-    movement.reset(
-        session_generation,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        initial_position,
-    );
-    local_physics.reanchor_network_position_before_advance(
-        initial_position,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        false,
-    );
-}
 
 #[derive(SystemParam)]
 pub(crate) struct NetworkLocalPlayerState<'w> {

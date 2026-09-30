@@ -695,12 +695,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut app = App::new();
     let mut movement = crate::movement::MovementTicker::default();
     let mut physics = crate::movement::LocalPhysicsController::default();
-    crate::runtime::network::reset_start_game_prediction(
-        &mut movement,
-        &mut physics,
-        1,
-        [0., 64., 0.],
-    );
+    crate::movement::reset_start_game_prediction(&mut movement, &mut physics, 1, [0., 64., 0.]);
     movement.set_source(crate::movement::MovementSource::Physics);
     let mut avatar = crate::local_player::LocalAvatarPresentation::default();
     let mut view = crate::local_player::LocalViewPose::default();

@@ -30,10 +30,12 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     let plan = physics
         .clone()
         .apply_correction(
-            [0.25, 2.620_01, 0.0],
-            101,
-            true,
-            None,
+            super::PhysicsAnchor {
+                network_position: [0.25, 2.620_01, 0.0],
+                tick: 101,
+                on_ground: true,
+                velocity: None,
+            },
             PhysicsCorrectionMode::ReplayIfRetained,
             confirmation.as_ref(),
             &VersionedFloor(1),
