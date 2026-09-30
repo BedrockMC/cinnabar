@@ -8,6 +8,7 @@ mod containers;
 mod engine;
 mod fallback;
 mod hud;
+mod loading_screen;
 mod menu_screens;
 mod menus;
 mod model;
@@ -17,6 +18,8 @@ mod oreui;
 pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
+#[cfg(test)]
+mod play_flow_snapshots;
 mod play_screen;
 mod recipe_book;
 mod remote_images;
@@ -28,8 +31,11 @@ mod start_feed;
 #[cfg(test)]
 pub(crate) mod tests;
 mod textures;
+mod toast_screen;
 
 pub(crate) use chat_screen::ChatHit;
+pub(crate) use loading_screen::LoadingStage;
+pub(crate) use oreui::BedHit;
 pub(crate) use panorama::drive_menu_panorama;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
@@ -67,6 +73,10 @@ pub(super) struct FormPresentation {
     container_cache: Option<containers::ScreenCache>,
     /// The open chat's cached screen; carried across the per-frame reset.
     chat: chat_screen::ChatScreen,
+    /// The bed screen's hits and pointer; carried across the per-frame reset.
+    bed: oreui::BedScreen,
+    /// The sign editor's cached screen; carried across the per-frame reset.
+    sign: sign_editor::SignScreen,
     /// Dev-mode OreUI originals and the look OreUI screens draw with.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
@@ -163,6 +173,14 @@ impl UiPresentationRuntime {
     }
 
     /// The dynamic pages holding the server pack's UI textures.
+    /// Drawn engine textures too big for a server page, for the art pages.
+    pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map_or_else(Vec::new, |engine| engine.textures.oversized())
+    }
+
     pub(super) fn server_ui_pages(&self) -> &[render::UiTexturePage] {
         self.form_presentation
             .engine
@@ -255,6 +273,8 @@ impl UiPresentationRuntime {
         let hud = std::mem::take(&mut self.form_presentation.hud);
         let container_cache = self.form_presentation.container_cache.take();
         let chat = std::mem::take(&mut self.form_presentation.chat);
+        let bed = std::mem::take(&mut self.form_presentation.bed);
+        let sign = std::mem::take(&mut self.form_presentation.sign);
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
@@ -262,6 +282,8 @@ impl UiPresentationRuntime {
             hud,
             container_cache,
             chat,
+            bed,
+            sign,
             oreui_originals: self.form_presentation.oreui_originals.take(),
             oreui_look: self.form_presentation.oreui_look,
             ..FormPresentation::default()

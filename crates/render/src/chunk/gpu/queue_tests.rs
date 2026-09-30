@@ -255,12 +255,8 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     let stats = account_chunk_gpu_uploads(
         ChunkUploadBudget::new(2, u64::MAX),
         2,
-        40,
-        32,
-        0,
+        72,
         growth.gpu_copy_bytes,
-        0,
-        0,
     );
 
     assert_eq!(stats.chunk_updates, 2);
@@ -272,74 +268,39 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
 }
 
 #[test]
-fn whole_arena_growth_never_bypasses_the_literal_frame_byte_cap() {
+fn migration_copy_bytes_count_against_the_literal_frame_byte_cap() {
     let budget = ChunkUploadBudget::new(1, 103);
-    let mut reservation = GpuUploadReservation::default();
+    let mut reservation = GpuUploadReservation {
+        growth_copy_bytes: 64,
+        ..GpuUploadReservation::default()
+    };
 
-    assert!(!reservation.try_reserve(budget, 40, 64, 64));
-    assert_eq!(reservation, GpuUploadReservation::default());
+    assert!(!reservation.try_reserve(budget, 40));
+    assert!(reservation.try_reserve(budget, 39));
 }
 
 #[test]
-fn one_growth_copy_defers_until_the_frame_has_sufficient_literal_byte_authority() {
-    let budget = ChunkUploadBudget::new(8, 4 * 1024 * 1024);
-    let mut reservation = GpuUploadReservation::default();
-
-    assert!(!reservation.try_reserve(budget, 64 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024,));
-    assert_eq!(reservation, GpuUploadReservation::default());
-}
-
-#[test]
-fn adapter_bounded_arena_growth_cannot_bypass_its_dedicated_ceiling() {
-    let budget = ChunkUploadBudget::new(8, 1);
-    let mut reservation = GpuUploadReservation::default();
-    let limits = ArenaLimits {
-        max_quad_items: 1024,
-        max_geometry_stream_words: 2048,
-        max_origin_items: 128,
-        max_biome_words: 512,
-    };
-    let ceiling = arena_growth_copy_ceiling(limits);
-
-    assert!(!reservation.try_reserve(budget, 1, ceiling.saturating_add(1), ceiling));
-    assert_eq!(reservation, GpuUploadReservation::default());
-}
-
-#[test]
-fn every_legal_whole_arena_growth_fits_the_adapter_bounded_ceiling() {
-    let limits = ArenaLimits {
-        max_quad_items: 32,
-        max_geometry_stream_words: 32,
-        max_origin_items: 32,
-        max_biome_words: 32,
-    };
-    let capacities = ArenaRequiredLengths {
-        quads: 16,
-        geometry_stream_words: 16,
-        origins: 16,
-        biome_words: 16,
-    };
-    let required = ArenaRequiredLengths {
-        quads: 32,
-        geometry_stream_words: 32,
-        origins: 32,
-        biome_words: 32,
-    };
-
-    assert!(
-        planned_arena_growth_copy_bytes(capacities, required, limits).unwrap()
-            <= arena_growth_copy_ceiling(limits)
+fn migration_allowance_never_exceeds_the_frame_ceiling_or_slice() {
+    let frame = PublicationServiceConfig::PHASE2_GATE.maximum_frame_bytes;
+    assert_eq!(
+        GpuUploadReservation::default().migration_allowance(),
+        ARENA_MIGRATION_FRAME_BYTES
     );
+    let nearly_full = GpuUploadReservation {
+        items: 1,
+        incremental_bytes: frame - 12,
+        growth_copy_bytes: 0,
+    };
+    assert_eq!(nearly_full.migration_allowance(), 12);
+    let spent = GpuUploadReservation {
+        growth_copy_bytes: ARENA_MIGRATION_FRAME_BYTES,
+        ..GpuUploadReservation::default()
+    };
+    assert_eq!(spent.migration_allowance(), 0);
 }
 
 #[test]
-fn projected_arena_growth_counts_each_whole_arena_copy_once() {
-    let lengths = ArenaRequiredLengths {
-        quads: 9,
-        geometry_stream_words: 17,
-        origins: 5,
-        biome_words: 9,
-    };
+fn first_arena_growth_names_the_first_short_stream_and_rejects_adapter_overflow() {
     let capacities = ArenaRequiredLengths {
         quads: 8,
         geometry_stream_words: 16,
@@ -352,15 +313,30 @@ fn projected_arena_growth_counts_each_whole_arena_copy_once() {
         max_origin_items: 32,
         max_biome_words: 32,
     };
-
+    let fits = capacities;
+    assert_eq!(first_arena_growth(capacities, fits, limits), Ok(None));
+    let geometry_short = ArenaRequiredLengths {
+        geometry_stream_words: 17,
+        origins: 5,
+        ..capacities
+    };
     assert_eq!(
-        planned_arena_growth_copy_bytes(capacities, lengths, limits),
-        Some(
-            8 * PACKED_QUAD_BYTES
-                + 16 * GEOMETRY_STREAM_WORD_BYTES
-                + 4 * CHUNK_ORIGIN_BYTES
-                + 8 * BIOME_WORD_BYTES
-        )
+        first_arena_growth(capacities, geometry_short, limits),
+        Ok(Some((
+            ArenaStream::GeometryStreams,
+            ArenaGrowthPlan {
+                new_capacity: 32,
+                gpu_copy_bytes: 16 * GEOMETRY_STREAM_WORD_BYTES,
+            }
+        )))
+    );
+    let overflow = ArenaRequiredLengths {
+        biome_words: 33,
+        ..geometry_short
+    };
+    assert_eq!(
+        first_arena_growth(capacities, overflow, limits),
+        Err(ArenaGrowthError)
     );
 }
 

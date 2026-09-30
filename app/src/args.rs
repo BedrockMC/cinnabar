@@ -2,12 +2,7 @@ use std::{ffi::OsString, path::PathBuf};
 
 use thiserror::Error;
 
-/// The compact classic/Java-style HUD scale used by the normal desktop client.
-///
-/// The Java auto rule selects scale 3 at 1280x720, which makes the fixed 182px
-/// hotbar 546 physical pixels wide while the compact Monocraft text remains at
-/// its scale-2 equivalent. Scale 2 keeps the gameplay HUD and chat visually
-/// coherent; `--gui-scale auto` remains available for reference captures.
+/// The settings screen's GUI-scale step when `--gui-scale` is auto.
 pub const DEFAULT_GUI_SCALE: u8 = 2;
 
 pub const HELP: &str = "\
@@ -29,7 +24,7 @@ Options:
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Use immediate presentation when supported
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
-  --gui-scale <1-4|auto>       Fix the Java HUD GUI scale (default: 2)
+  --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
   --dev-debug-overlay          Enable the non-vanilla F3 developer overlay (default: off)
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
@@ -131,7 +126,7 @@ impl Default for ClientArgs {
             force_vsync: false,
             no_vsync: false,
             frame_cap: None,
-            gui_scale: Some(DEFAULT_GUI_SCALE),
+            gui_scale: None,
             dev_debug_overlay: false,
             language: None,
             full_view_teleport_gate: false,

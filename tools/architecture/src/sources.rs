@@ -10,6 +10,13 @@ pub(super) fn check_artifacts(
 ) {
     for path in files {
         let relative = relative_slash(root, path);
+        if policy
+            .owned_artifacts
+            .iter()
+            .any(|owned| relative.starts_with(&owned.path))
+        {
+            continue;
+        }
         for pattern in &policy.forbidden_artifacts {
             if wildcard_match(pattern.as_bytes(), relative.as_bytes()) {
                 diagnostics.push(format!(

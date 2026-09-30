@@ -1871,6 +1871,20 @@ func TestAcquisitionBudgetCancelsStallButNotProgressOrCompletion(t *testing.T) {
 	}
 }
 
+// Chunk bytes report against the admitted offer's total.
+func TestAcquisitionBudgetReportsChunkProgressAgainstTheAdmittedTotal(t *testing.T) {
+	var reports []ResourcePackDownload
+	budget, _ := observedBudget(t, packInfos(300, 700))
+	budget.onProgress = func(download ResourcePackDownload) { reports = append(reports, download) }
+	chunk := &packet.ResourcePackChunkData{UUID: "pack", Data: make([]byte, 250)}
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, encodeLatest(t, chunk))
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, encodeLatest(t, chunk))
+	want := []ResourcePackDownload{{ReceivedBytes: 250, TotalBytes: 1000}, {ReceivedBytes: 500, TotalBytes: 1000}}
+	if !slices.Equal(reports, want) {
+		t.Fatalf("reports = %+v, want %+v", reports, want)
+	}
+}
+
 // A budgeted dialer downloads a required offer and hands its stack onward.
 func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
 	pack := testAdmissionPack(t)

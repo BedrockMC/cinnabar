@@ -291,9 +291,11 @@ left/right_arm_swim_amount, has_target (per tick); the rest of the seeded set in
 (charge_amount, arm offsets) stays at its seed.
 
 Local player: sneak and sprint come from the latest predicted tick, swim is sprint while in
-water, and using and blocking are predicted for bow, trident, spears, spyglass, shield and an
-uncharged crossbow while Use is held (food and drink wait for the server flag, since the client
-cannot tell whether eating is allowed). Glide, crawl and sleep arrive from server metadata; the
+water, and using follows the accepted air-use lifecycle in `item_use.rs` (bow, trident,
+spyglass, crossbow: click-air on the press, release on button-up, completion when a crossbow's
+charge runs out). Blocking is always the server flag. Incomplete: other use items (food, drink,
+throwables, spears) send no click-air, trident durability/Riptide admission and the item-use
+movement slowdown are unmodeled, and the Quick Charge completion tick is unmeasured. Glide, crawl and sleep arrive from server metadata; the
 movement simulator models none of them, and sleep_rotation samples the bed under the local rig.
 
 Riders are placed at mount position plus a seat offset rotated by the mount's yaw each tick: the

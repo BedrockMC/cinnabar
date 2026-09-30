@@ -31,7 +31,6 @@ use crate::{
     ui_runtime::{item_facts, render_adapter::adapt_ui_draw_list},
 };
 
-mod chat;
 mod debug_overlay;
 mod dynamic_textures;
 pub(crate) mod forms;
@@ -67,9 +66,9 @@ mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
 pub(crate) use debug_overlay::DebugLines;
-pub(crate) use forms::{ChatHit, drive_menu_panorama};
+pub(crate) use forms::{BedHit, ChatHit, LoadingStage, drive_menu_panorama};
 pub(crate) use hud_layout::HudFrame;
-use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
+use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
 #[cfg(test)]
 pub(crate) use publish::refresh_hud_frame;
@@ -125,8 +124,6 @@ pub struct UiPresentationRuntime {
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
-    chat_hit_logical_size: Option<[f32; 2]>,
-    leave_bed_hit: Option<UiRect>,
     debug_lines: Option<DebugLines>,
     /// Java GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
@@ -166,6 +163,8 @@ pub struct UiPresentationRuntime {
     held_viewmodel_icon: Option<IconRef>,
     offhand_viewmodel_icon: Option<IconRef>,
     menu_artwork_paths: Vec<String>,
+    /// Engine textures too big for a server page, keyed by texture path.
+    menu_artwork_oversized: Vec<(String, Arc<[u8]>)>,
     menu_artwork: menu_artwork::MenuArtworkAtlas,
     menu_artwork_dirty: bool,
     session_icons: session_icons::SessionIconPage,
@@ -178,8 +177,7 @@ pub struct UiPresentationRuntime {
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
     /// Window-space rect of the sign editor's Done button in the last build.
-    sign_editor_done: Option<UiRect>,
-    loading_message: Option<&'static str>,
+    loading_stage: Option<LoadingStage>,
     startup: StartupPresentationState,
 }
 
@@ -238,8 +236,6 @@ impl UiPresentationRuntime {
             last_input: None,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
-            chat_hit_logical_size: None,
-            leave_bed_hit: None,
             debug_lines: None,
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
@@ -265,8 +261,10 @@ impl UiPresentationRuntime {
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
             menu_artwork_paths: Vec::new(),
+            menu_artwork_oversized: Vec::new(),
             menu_artwork: menu_artwork::MenuArtworkAtlas::default(),
-            menu_artwork_dirty: false,
+            // The title logo loads before any service art arrives.
+            menu_artwork_dirty: true,
             session_icons: session_icons::SessionIconPage::default(),
             session_glyphs: session_glyphs::SessionGlyphPages::default(),
             missing_icons: Default::default(),
@@ -274,14 +272,13 @@ impl UiPresentationRuntime {
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),
-            sign_editor_done: None,
-            loading_message: None,
+            loading_stage: None,
             startup: StartupPresentationState::default(),
         })
     }
 
-    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
-        self.loading_message = message;
+    pub(crate) fn set_loading_stage(&mut self, stage: Option<LoadingStage>) {
+        self.loading_stage = stage;
     }
 
     /// Updates the cached corner avatar. The raster is regenerated and the UI
@@ -332,11 +329,19 @@ impl UiPresentationRuntime {
         dynamic_textures::rebuild(self);
     }
 
+    /// Service art at `paths`, plus the engine's oversized textures, on the art pages.
     pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<String>) {
-        if self.menu_artwork_paths == paths {
+        let oversized = self.oversized_ui_textures();
+        let same_oversized = oversized.len() == self.menu_artwork_oversized.len()
+            && oversized
+                .iter()
+                .zip(&self.menu_artwork_oversized)
+                .all(|(a, b)| a.0 == b.0);
+        if self.menu_artwork_paths == paths && same_oversized {
             return;
         }
         self.menu_artwork_paths = paths;
+        self.menu_artwork_oversized = oversized;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
     }
@@ -437,7 +442,6 @@ impl UiPresentationRuntime {
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
-        self.leave_bed_hit = None;
         let menu_visible = self.menu_view.is_some();
         if !menu_visible
             && let Some(hud_textures) = self.hud_textures.as_ref()
@@ -455,11 +459,6 @@ impl UiPresentationRuntime {
                 geometry,
             )?;
             layout.append(runtime, &frame)?;
-            self.leave_bed_hit = frame
-                .sleep
-                .is_sleeping()
-                .then(|| hud_layout::leave_bed_bounds(&geometry, safe_area))
-                .flatten();
         }
 
         let inventory_open = runtime.inventory_open();
@@ -471,23 +470,6 @@ impl UiPresentationRuntime {
                 metrics,
                 [content_width, content_height],
                 now_millis,
-            )?;
-        }
-
-        // The tab player-list overlay presents every known player with the
-        // list-objective score while the player-list action is held.
-        if !inventory_open && !menu_visible && self.hud_frame.tab_list_open {
-            let players = runtime.player_list_overlay_rows();
-            retained_hud::append_player_list_nodes(
-                &mut nodes,
-                &mut next_id,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                content_width,
-                content_height,
-                &players,
             )?;
         }
 
@@ -516,6 +498,16 @@ impl UiPresentationRuntime {
             )?;
         }
 
+        if !menu_visible && !inventory_open {
+            self.append_bed_screen(
+                runtime,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+                now_millis,
+            )?;
+        }
         if !menu_visible && !inventory_open && runtime.chat_focused() {
             self.append_chat_screen(
                 runtime,
@@ -538,15 +530,9 @@ impl UiPresentationRuntime {
             content_height,
         )?;
 
-        // Hit rects are compared against window-logical pointer positions, so
-        // translate the content-relative rows by the safe-area origin.
-        if !menu_visible && let Some(message) = self.loading_message {
-            // Keep the pre-world frame intentional: the sky clear color is a
-            // renderer fallback, not a user-facing loading screen. The opaque
-            // cover hides partial terrain and HUD state while the world cohort
-            // is still settling.
-            // Append it after the normal HUD/chat nodes so no partial terrain
-            // or UI leaks through while the world cohort is still settling.
+        if !menu_visible && let Some(stage) = self.loading_stage {
+            // An opaque cover under the loading screen: no partial terrain or
+            // HUD leaks through while the world settles.
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
@@ -559,29 +545,14 @@ impl UiPresentationRuntime {
                 }),
             );
             next_id = next_id.saturating_add(1);
-            let layout = self
-                .layouts
-                .layout(metrics.request(message, logical_width.max(1.0) as u32 * 64, &self.font))
-                .map_err(UiPresentationError::Text)?;
-            let width = layout.size_64()[0] as f32 / 64.0;
-            let height = layout.size_64()[1] as f32 / 64.0;
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(
-                        ((logical_width - width) * 0.5).max(0.0),
-                        (logical_height * 0.5 - height * 0.5).max(0.0),
-                        (logical_width + width) * 0.5,
-                        (logical_height * 0.5 + height * 0.5).max(height),
-                    )?,
-                )
-                .with_visual(UiVisual::Text {
-                    layout,
-                    color: [235, 238, 245, 255],
-                    shadow: metrics.shadow(),
-                }),
-            );
+            self.append_loading_screen(
+                runtime,
+                stage,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+            )?;
         }
 
         self.append_server_form(
@@ -599,7 +570,18 @@ impl UiPresentationRuntime {
             metrics,
             content_width,
             content_height,
+            now_millis,
         )?;
+        if !menu_visible {
+            self.append_toast_screen(
+                runtime,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+                now_millis,
+            )?;
+        }
         self.sync_server_ui_pages();
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
@@ -621,7 +603,6 @@ impl UiPresentationRuntime {
         )
         .map_err(UiPresentationError::Adapter)?;
         let input = self.stabilize_revision(input);
-        self.chat_hit_logical_size = Some([logical_width, logical_height]);
         self.menu_hit_targets = menu_hit_targets;
         Ok(input)
     }

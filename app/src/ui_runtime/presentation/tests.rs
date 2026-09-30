@@ -15,6 +15,7 @@ use ui::BoundedStat;
 use super::*;
 use crate::ui_runtime::SequencedUiEvent;
 
+mod bed_screen_tests;
 mod chat_screen_tests;
 mod container_screen_tests;
 mod debug_overlay_tests;
@@ -24,10 +25,11 @@ mod hud_matrix_tests;
 mod hud_server_pack_tests;
 mod inventory_count_tests;
 mod item_pipeline_tests;
+mod loading_screen_tests;
 mod menu_status_tests;
 mod retained_hud_tests;
 mod safe_area_tests;
-mod tab_binding_tests;
+mod sign_screen_tests;
 mod texture_pages;
 mod toast_tests;
 

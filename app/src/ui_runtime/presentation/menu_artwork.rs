@@ -23,6 +23,10 @@ const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 const MAX_ARTWORK_SIDE: u32 = 512;
 const GUTTER: u32 = 1;
 const MAX_ARTWORKS: usize = 32;
+/// The start screen's title texture, which Cinnabar's own logo replaces.
+pub(super) const TITLE_KEY: &str = "textures/ui/title";
+/// Cinnabar's logo; the pack's title draws only if this fails to decode.
+const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../assets/branding/title.png");
 
 #[derive(Default)]
 pub(super) struct MenuArtworkAtlas {
@@ -40,27 +44,40 @@ struct Artwork {
 
 /// Shelf-packs the artwork at `paths` into the full-resolution art pages that
 /// start at texture page `first_page`; what does not fit is left out.
-pub(super) fn load(paths: &[String], first_page: u16) -> MenuArtworkAtlas {
+pub(super) fn load(
+    paths: &[String],
+    oversized: &[(String, std::sync::Arc<[u8]>)],
+    first_page: u16,
+) -> MenuArtworkAtlas {
     let side = render::UI_ART_PAGE_SIDE;
     let mut unique = BTreeSet::new();
-    let mut decoded = paths
+    // Big textures keep up to a whole page of detail; service art stays smaller.
+    let whole_page = side - GUTTER * 2;
+    let artwork = |path: &str, (pixels, width, height): (Vec<u8>, u32, u32)| Artwork {
+        path: path.to_owned(),
+        width,
+        height,
+        pixels,
+    };
+    let title = decode_bytes(BUILT_IN_TITLE, whole_page).map(|art| artwork(TITLE_KEY, art));
+    let mut rest = paths
         .iter()
         .take(MAX_ARTWORKS)
         .filter(|path| !path.is_empty() && unique.insert((*path).clone()))
-        .filter_map(|path| {
-            let (pixels, width, height) = decode(Path::new(path))?;
-            Some(Artwork {
-                path: path.clone(),
-                width,
-                height,
-                pixels,
-            })
-        })
+        .filter_map(|path| Some(artwork(path, decode(Path::new(path))?)))
         .collect::<Vec<_>>();
+    rest.extend(
+        oversized
+            .iter()
+            .filter(|(key, _)| key != TITLE_KEY && unique.insert(key.clone()))
+            .filter_map(|(key, bytes)| Some(artwork(key, decode_bytes(bytes, whole_page)?))),
+    );
+    rest.sort_by(|a, b| b.height.cmp(&a.height).then(a.path.cmp(&b.path)));
+    // The title packs first so later art can never crowd it out.
+    let decoded: Vec<Artwork> = title.into_iter().chain(rest).collect();
     if decoded.is_empty() {
         return MenuArtworkAtlas::default();
     }
-    decoded.sort_by(|a, b| b.height.cmp(&a.height).then(a.path.cmp(&b.path)));
     let page_bytes = side as usize * side as usize * 4;
     let mut buffers: Vec<Vec<u8>> = Vec::new();
     let mut refs = HashMap::with_capacity(decoded.len());
@@ -120,11 +137,19 @@ fn decode(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     file.take((MAX_SOURCE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.is_empty() || bytes.len() > MAX_SOURCE_BYTES {
+    if bytes.len() > MAX_SOURCE_BYTES {
         return None;
     }
-    let format = image::guess_format(&bytes).ok()?;
-    let dimensions = ImageReader::with_format(Cursor::new(&bytes), format)
+    decode_bytes(&bytes, MAX_ARTWORK_SIDE)
+}
+
+/// Premultiplied RGBA8 of an image no larger than `max_side` on either axis.
+fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let format = image::guess_format(bytes).ok()?;
+    let dimensions = ImageReader::with_format(Cursor::new(bytes), format)
         .into_dimensions()
         .ok()?;
     if dimensions.0 == 0
@@ -134,15 +159,15 @@ fn decode(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     {
         return None;
     }
-    let mut reader = ImageReader::with_format(Cursor::new(&bytes), format);
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_SOURCE_SIDE);
     limits.max_image_height = Some(MAX_SOURCE_SIDE);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
     let image = reader.decode().ok()?;
-    let image = if image.width() > MAX_ARTWORK_SIDE || image.height() > MAX_ARTWORK_SIDE {
-        image.resize(MAX_ARTWORK_SIDE, MAX_ARTWORK_SIDE, FilterType::Lanczos3)
+    let image = if image.width() > max_side || image.height() > max_side {
+        image.resize(max_side, max_side, FilterType::Lanczos3)
     } else {
         image
     };

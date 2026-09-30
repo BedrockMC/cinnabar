@@ -6,13 +6,12 @@ pub const DEFAULT_TITLE_FADE_IN_TICKS: u32 = 10;
 pub const DEFAULT_TITLE_STAY_TICKS: u32 = 70;
 pub const DEFAULT_TITLE_FADE_OUT_TICKS: u32 = 20;
 
-/// Explicitly provisional toast display duration.
-///
-/// No authoritative version-matched Bedrock measurement of the native toast
-/// duration or transition timing exists yet, so this bounded value only
-/// stops toasts from rendering forever; it must not be read as a vanilla
-/// parity claim and needs native calibration before that gate can close.
-pub const PROVISIONAL_TOAST_DURATION_MILLIS: u64 = 5_000;
+/// A server toast's slide in, time on screen (the notification-duration
+/// option's default, slide-in included) and slide out, from 26.30's
+/// `ToastMessage` defaults and `ToastManager`.
+pub const TOAST_SLIDE_IN_MILLIS: u64 = 500;
+pub const TOAST_DISPLAY_MILLIS: u64 = 3_000;
+pub const TOAST_SLIDE_OUT_MILLIS: u64 = 400;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundedStat {
@@ -143,6 +142,8 @@ pub struct Toast {
     pub message: Arc<str>,
     pub fifo_sequence: u64,
     pub received_millis: u64,
+    /// When it reaches the screen: toasts show one at a time, in order.
+    pub started_millis: u64,
     pub expires_millis: u64,
 }
 
@@ -158,12 +159,22 @@ impl Toast {
             message,
             fifo_sequence,
             received_millis,
-            expires_millis: received_millis.saturating_add(PROVISIONAL_TOAST_DURATION_MILLIS),
+            started_millis: received_millis,
+            expires_millis: received_millis
+                .saturating_add(TOAST_DISPLAY_MILLIS + TOAST_SLIDE_OUT_MILLIS),
         }
     }
 
     pub const fn visible_at(&self, now_millis: u64) -> bool {
-        now_millis < self.expires_millis
+        self.started_millis <= now_millis && now_millis < self.expires_millis
+    }
+
+    /// How far it has slid onto the screen, `0.0..=1.0`.
+    pub fn slide(&self, now_millis: u64) -> f32 {
+        let shown = now_millis.saturating_sub(self.started_millis);
+        let left = self.expires_millis.saturating_sub(now_millis);
+        let fraction = |part: u64, whole: u64| (part as f32 / whole as f32).min(1.0);
+        fraction(shown, TOAST_SLIDE_IN_MILLIS).min(fraction(left, TOAST_SLIDE_OUT_MILLIS))
     }
 
     fn retained_bytes(&self) -> usize {
@@ -362,7 +373,15 @@ impl HudStore {
         self.player_status = Some(status);
     }
 
-    pub fn push_toast(&mut self, toast: Toast) -> usize {
+    pub fn push_toast(&mut self, mut toast: Toast) -> usize {
+        // It waits for the toast ahead of it, keeping its own duration.
+        if let Some(ahead) = self.toasts.back()
+            && ahead.expires_millis > toast.started_millis
+        {
+            let duration = toast.expires_millis.saturating_sub(toast.started_millis);
+            toast.started_millis = ahead.expires_millis;
+            toast.expires_millis = ahead.expires_millis.saturating_add(duration);
+        }
         let bytes = toast.retained_bytes();
         if bytes > MAX_TOAST_RETAINED_BYTES {
             return 0;
@@ -406,8 +425,7 @@ impl HudStore {
         {
             self.actionbar = None;
         }
-        // Toasts arrive in receive order with a fixed provisional duration,
-        // so expiry is monotone from the front.
+        // Toasts show one after another, so expiry is monotone from the front.
         while let Some(front) = self.toasts.front() {
             if front.visible_at(now_millis) {
                 break;

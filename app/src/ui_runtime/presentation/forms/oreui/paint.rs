@@ -31,6 +31,8 @@ pub(super) struct Canvas<'a> {
     /// Logical pixels per rem (five GUI pixels).
     pub(super) rem: f32,
     pub(super) hits: Vec<(MenuAction, UiRect)>,
+    /// Opacity multiplier for everything drawn, for fading screens in.
+    pub(super) alpha: f32,
 }
 
 impl<'a> Canvas<'a> {
@@ -54,6 +56,7 @@ impl<'a> Canvas<'a> {
             originals,
             rem: gui_pixel * 5.0,
             hits: Vec::new(),
+            alpha: 1.0,
         }
     }
 
@@ -62,8 +65,23 @@ impl<'a> Canvas<'a> {
         value * self.rem
     }
 
-    fn push(&mut self, bounds: Bounds, visual: UiVisual) -> Result<UiRect, UiPresentationError> {
+    fn push(
+        &mut self,
+        bounds: Bounds,
+        mut visual: UiVisual,
+    ) -> Result<UiRect, UiPresentationError> {
         let area = rect(bounds[0], bounds[1], bounds[2], bounds[3])?;
+        if self.alpha < 1.0 {
+            let scale = |color: &mut Rgba| {
+                color[3] = (f32::from(color[3]) * self.alpha.max(0.0)).round() as u8;
+            };
+            match &mut visual {
+                UiVisual::Solid { color, .. }
+                | UiVisual::Sprite { color, .. }
+                | UiVisual::Text { color, .. } => scale(color),
+                _ => {}
+            }
+        }
         self.nodes
             .push(UiNode::new(UiNodeId::new(*self.next), None, area).with_visual(visual));
         *self.next = self.next.saturating_add(1);

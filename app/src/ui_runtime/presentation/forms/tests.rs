@@ -287,3 +287,93 @@ fn path_and_url_button_images_resolve_like_vanilla() {
     assert_eq!(presentation.server_ui_pages().len(), 1);
     let _ = std::fs::remove_dir_all(vanilla);
 }
+
+/// Six virtual px per character, nine per line.
+struct FixedText;
+impl json_ui::TextMeasure for FixedText {
+    fn extent(&self, text: &str) -> [f64; 2] {
+        [text.chars().count() as f64 * 6.0, 9.0]
+    }
+}
+
+struct NoTextures;
+impl json_ui::TextureSource for NoTextures {
+    fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
+        Some(json_ui::TextureMeta {
+            base_size: [16.0, 16.0],
+            nineslice: None,
+        })
+    }
+}
+
+fn pause_texts() -> Option<Vec<String>> {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.screen = crate::menu::MenuScreen::Pause;
+    screen_texts(&view)
+}
+
+fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
+    let carrier = super::pack_harness::carrier()?;
+    let catalog = json_ui::Catalog::from_files(
+        carrier
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .ok()?;
+    let screen = super::menu_screens::screen_data(view, &|_| None)?;
+    let env = json_ui::LayoutEnv {
+        text: &FixedText,
+        textures: &NoTextures,
+    };
+    let render = json_ui::render_screen(
+        screen.reference,
+        &catalog,
+        &screen.context,
+        &screen.data,
+        [480.0, 270.0],
+        &env,
+        &json_ui::ViewState::default(),
+    )?;
+    Some(
+        render
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.draw {
+                json_ui::Draw::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+// A retail client's pause screen draws the retail content, not edu_pause's.
+#[test]
+fn pause_screen_draws_the_retail_buttons() {
+    let Some(texts) = pause_texts() else {
+        return;
+    };
+    for wanted in ["menu.returnToGame", "menu.settings", "pauseScreen.quit"] {
+        assert!(
+            texts.iter().any(|text| text == wanted),
+            "{wanted}: {texts:?}"
+        );
+    }
+}
+
+// A pack download shows vanilla's "Downloading packs" title with the percent and bytes.
+#[test]
+fn connecting_screen_reports_the_pack_download() {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.connecting = true;
+    view.feeds.pack_download = Some((5 * 1024 * 1024, 20 * 1024 * 1024));
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    for wanted in ["Downloading packs 25%", "5.0 / 20.0 MB"] {
+        assert!(
+            texts.iter().any(|text| text == wanted),
+            "{wanted}: {texts:?}"
+        );
+    }
+}

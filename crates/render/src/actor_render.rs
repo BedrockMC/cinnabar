@@ -92,7 +92,9 @@ fn install_actor_render(app: &mut App) {
             (
                 prepare_actor_resources.in_set(RenderSystems::PrepareResources),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_actors.in_set(RenderSystems::Queue),
+                queue_actors
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
                 submit_actor_presented_frame
                     .in_set(RenderSystems::Render)
                     .after(bevy::render::renderer::render_system),

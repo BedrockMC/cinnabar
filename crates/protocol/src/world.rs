@@ -41,6 +41,7 @@ mod block_side;
 mod custom_blocks;
 mod events;
 mod game_mode;
+mod game_rules;
 mod requests;
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
@@ -59,6 +60,7 @@ pub use self::events::{
     air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
+use self::game_rules::{daylight_cycle_rule_update, hud_rules};
 pub use self::requests::request_sub_chunk_column;
 use self::requests::{checked_sub_chunk_position, normalize_layer};
 
@@ -89,6 +91,8 @@ pub const MAX_BIOME_NAME_BYTES: usize = 256;
 // generated enum (`LevelEventPacket.event_id` is a bare varint32), so the ids
 // this crate reacts to are pinned here from gophertunnel
 // `minecraft/protocol/packet/level_event.go` @ be6713da4dc051a4197f897d04835e89e9c54321.
+/// `LevelEventSleepingPlayers`, sent as a LevelEventGeneric.
+const LEVEL_EVENT_SLEEPING_PLAYERS: i32 = 9801;
 /// `LevelEventStartRaining`.
 pub(crate) const LEVEL_EVENT_START_RAINING: i32 = 3001;
 /// `LevelEventStartThunderstorm`.
@@ -850,6 +854,14 @@ pub fn into_world_event(
                 hud,
             })
         }
+        McpePacketData::LevelEventGenericPacket(packet) => {
+            if packet.event_id != LEVEL_EVENT_SLEEPING_PLAYERS {
+                return Ok(None);
+            }
+            WorldEvent::Ui(UiEvent::SleepStatus(crate::SleepStatusEvent {
+                nbt: Arc::from(packet.__ctd__.0.as_ref()),
+            }))
+        }
         McpePacketData::LevelEventPacket(packet) => {
             if matches!(
                 packet.event_id,
@@ -937,48 +949,6 @@ pub(crate) fn normalize_borrowed_level_chunk(
         },
         payload,
     ))
-}
-
-/// Reads the authoritative `doDaylightCycle` switch from a rule list.
-///
-/// 1.26.40 collapses the 1.26.30 `GameRuleI32` / `GameRuleVarint` pair (and
-/// their separate `type_` discriminants) into one `GameRule` whose value is a
-/// tagged union, so the redundant "declared type matches the value arm" check
-/// the old modelling required is gone: a non-boolean rule simply cannot decode
-/// into `GameRuleRuleValue::Bool`.
-fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
-    bool_rule(rules, "dodaylightcycle")
-}
-
-fn bool_rule(rules: &[GameRule], name: &str) -> Option<bool> {
-    rules.iter().find_map(|rule| {
-        if rule.rule_name.eq_ignore_ascii_case(name)
-            && let GameRuleRuleValue::Bool(enabled) = &rule.rule_value
-        {
-            Some(*enabled)
-        } else {
-            None
-        }
-    })
-}
-
-fn hud_rules(rules: &[GameRule]) -> crate::HudRules {
-    crate::HudRules {
-        show_coordinates: bool_rule(rules, "showcoordinates"),
-        show_days_played: bool_rule(rules, "showdaysplayed"),
-    }
-}
-
-impl crate::HudRules {
-    /// StartGame's HUD rules; an absent rule reads as off, its vanilla default.
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let rules = hud_rules(&game_data.start_game.settings.rule_data.rules_list);
-        Self {
-            show_coordinates: Some(rules.show_coordinates.unwrap_or(false)),
-            show_days_played: Some(rules.show_days_played.unwrap_or(false)),
-        }
-    }
 }
 
 fn canonical_biome_name(name: &str) -> Arc<str> {

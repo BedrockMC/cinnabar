@@ -16,7 +16,14 @@ DIST_TARGET ?= $(shell rustc --print host-tuple)
 DIST_GIT_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_NOTICES ?= THIRD_PARTY_NOTICES.md
 
-PACK_DIR ?= .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack
+VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
+# The pinned pack's extraction directory comes from the manifest, its one definition.
+ifeq ($(OS),Windows_NT)
+VANILLA_CACHE_DIR := $(shell $(POWERSHELL) -NoProfile -Command "(Get-Content -Raw '$(VANILLA_SOURCE_MANIFEST)' | ConvertFrom-Json).cache_dir")
+else
+VANILLA_CACHE_DIR := $(shell sed -n 's/^[[:space:]]*"cache_dir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $(VANILLA_SOURCE_MANIFEST))
+endif
+PACK_DIR ?= $(VANILLA_CACHE_DIR)/resource_pack
 BEHAVIOR_PACK_DIR ?= $(patsubst %/resource_pack,%/behavior_pack,$(PACK_DIR))
 PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
@@ -35,7 +42,6 @@ REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json
 PHYSICS_REGISTRY ?= .local/assets/block-physics-v2193.bin
 PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2193.bin
 PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2193.sha256
-VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
 ASSET_BLOB ?= .local/assets/compiled/vanilla-v2193.mcbea
 ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
@@ -47,7 +53,7 @@ LOCAL_FONT_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbefont
 LOCAL_FONT_ASSET_REPORT ?= .local/assets/compiled/font-assets.json
 HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud
 HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json
-HUD_SOURCE_MANIFEST ?= assets/hud-source-v1001.json
+HUD_SOURCE_MANIFEST ?= assets/hud-source-v2193.json
 LANG_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbelang
 LANG_ASSET_REPORT ?= .local/assets/compiled/lang-assets.json
 LANGUAGE_ASSET_DIR ?= .local/assets/compiled/lang
@@ -116,7 +122,7 @@ else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
 
-.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets language-assets audio-assets audio-bank icon-assets physics-assets core local-server client client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
+.PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets language-assets audio-assets audio-bank icon-assets physics-assets core local-server client play client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
 .PHONY: registry-foundation-check
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
@@ -140,7 +146,8 @@ help:
 	@echo make physics-assets  - Install and verify the pinned protocol-2193 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make local-server    - Build the dragonfly local-world server beside the core binary
-	@echo make client          - Refresh stale assets, then run the release Rust client
+	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
+	@echo make client          - Refresh stale assets, then join the core at SOCKET_DIR directly
 	@echo make client-windows  - Run the client on Windows
 	@echo make client-macos    - Run the client on macOS
 	@echo make client-linux    - Run with automatic Wayland/X11 selection
@@ -332,6 +339,12 @@ local-server:
 
 client: assets physics-assets
 	$(CLIENT_RUN)
+
+# Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
+play: assets physics-assets audio-pcm-assets
+	$(GO) build -o "$(abspath $(DIST_CORE))" ./core/cmd/bedrock-core
+	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 client-windows client-macos client-linux: client
 

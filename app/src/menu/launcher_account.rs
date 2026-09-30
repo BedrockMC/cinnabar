@@ -49,6 +49,7 @@ struct Snapshot {
     home: Option<Home>,
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
+    pack_download: Option<launcher_control::PackDownload>,
 }
 
 /// The menu's link to a running core's launcher control endpoint.
@@ -176,6 +177,7 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
                 snapshot.last_disconnect = Some(disconnect.sequence);
             }
             snapshot.last_disconnect.get_or_insert(0);
+            snapshot.pack_download = events.pack_download;
             snapshot.account = Some(events.auth);
         }
         if let Some((realms, friends)) = catalog {
@@ -311,6 +313,14 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
 impl AccountControl for LauncherAccount {
     fn account_status(&mut self) -> Option<AuthState> {
         self.with(|snapshot| snapshot.account.as_ref().and_then(auth_state))
+    }
+
+    fn pack_download(&mut self) -> Option<(u64, u64)> {
+        self.with(|snapshot| {
+            snapshot
+                .pack_download
+                .map(|download| (download.received_bytes, download.total_bytes))
+        })
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {

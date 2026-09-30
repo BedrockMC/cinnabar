@@ -136,8 +136,6 @@ pub(crate) fn apply_capes<'a>(
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     profile_of: impl Fn(u64) -> Option<&'a PlayerProfile>,
 ) {
-    let mut layers = batch.skins_rgba8.len() / STANDARD_SKIN_BYTES;
-    let mut pixels = Vec::<u8>::new();
     let mut capes: Vec<(Arc<[u8]>, usize)> = Vec::new();
     let mut extras = Vec::new();
     for body in &batch.submissions {
@@ -154,16 +152,12 @@ pub(crate) fn apply_capes<'a>(
         let Some(rig) = rig_of(identity.runtime_id) else {
             continue;
         };
-        let layer = match capes
-            .iter()
-            .find(|(known, _)| known.as_ref() == cape_pixels.as_ref())
-        {
+        let layer = match capes.iter().find(|(known, _)| *known == cape_pixels) {
             Some((_, layer)) => *layer,
-            None if layers < MAX_RENDERED_PLAYERS => {
-                pixels.extend_from_slice(&cape_pixels);
-                capes.push((cape_pixels, layers));
-                layers += 1;
-                layers - 1
+            None if batch.skin_layers.len() < MAX_RENDERED_PLAYERS => {
+                batch.skin_layers.push(Arc::clone(&cape_pixels));
+                capes.push((cape_pixels, batch.skin_layers.len() - 1));
+                batch.skin_layers.len() - 1
             }
             None => continue,
         };
@@ -177,11 +171,6 @@ pub(crate) fn apply_capes<'a>(
         submission.tint = 0;
         submission.overlay_rgba8 = 0;
         extras.push(submission);
-    }
-    if !pixels.is_empty() {
-        let mut skins = batch.skins_rgba8.to_vec();
-        skins.extend_from_slice(&pixels);
-        batch.skins_rgba8 = skins.into();
     }
     batch.submissions.extend(extras);
 }

@@ -365,6 +365,16 @@ pub struct Events {
     pub disconnect: Option<ServerDisconnect>,
     #[serde(default)]
     pub transfer: Option<TransferPending>,
+    /// Live while the core downloads the server's resource packs.
+    #[serde(default)]
+    pub pack_download: Option<PackDownload>,
+}
+
+/// Pack chunk bytes received against the admitted offer's total.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub struct PackDownload {
+    pub received_bytes: u64,
+    pub total_bytes: u64,
 }
 
 #[derive(Serialize)]

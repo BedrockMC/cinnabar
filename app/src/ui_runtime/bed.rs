@@ -1,24 +1,63 @@
-//! Bed screen state: sleeping opens the chat-style screen and a wake request leaves the bed.
+//! Bed screen state: sleeping shows the bed screen and a wake request leaves the bed.
 
-use super::UiRuntime;
+use super::{UiApplyOutcome, UiRuntime};
+
+/// The world's sleep status as the server last sent it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SleepStatus {
+    pub(crate) sleeping: u32,
+    /// Sleepers needed to skip the night (the `overworldPlayerCount` field).
+    pub(crate) required: u32,
+    pub(crate) able: bool,
+}
 
 impl UiRuntime {
-    /// Opens the chat-style bed screen on falling asleep and closes it on waking.
+    /// Tracks the local player's sleep; waking closes a chat opened from the bed.
     pub(crate) fn set_local_sleeping(&mut self, sleeping: bool) {
         if sleeping == self.local_sleeping {
             return;
         }
         self.local_sleeping = sleeping;
-        if sleeping {
-            if !self.inventory_open && !self.forms.owns_input() {
-                self.open_chat();
-            }
-        } else {
+        if !sleeping {
             self.wake_requested = false;
             if self.chat_focused {
                 self.close_chat();
             }
         }
+    }
+
+    /// Whether the bed screen owns input: the player lies in bed.
+    pub(crate) const fn local_sleeping(&self) -> bool {
+        self.local_sleeping
+    }
+
+    /// Decodes the `SleepingPlayers` compound; an undecodable one is skipped.
+    pub(crate) fn apply_sleep_status(
+        &mut self,
+        event: &protocol::SleepStatusEvent,
+    ) -> UiApplyOutcome {
+        let Some(root) = world::BlockEntityNbt::decode_prefix(&event.nbt)
+            .ok()
+            .and_then(|(nbt, _)| nbt.parse())
+        else {
+            return UiApplyOutcome::IgnoredByReceiveStore;
+        };
+        // Absent or non-int fields read as zero, as the client does.
+        let count = |key: &str| {
+            root.integer(key)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(0)
+        };
+        self.sleep_status = Some(SleepStatus {
+            sleeping: count("sleepingPlayerCount"),
+            required: count("overworldPlayerCount"),
+            able: count("ableToSleep") != 0,
+        });
+        UiApplyOutcome::Applied
+    }
+
+    pub(crate) const fn sleep_status(&self) -> Option<SleepStatus> {
+        self.sleep_status
     }
 
     /// Queues one StopSleeping action; a no-op unless the local player is asleep.
@@ -36,13 +75,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sleeping_opens_chat_and_wake_request_is_taken_once() {
+    fn sleeping_takes_ui_focus_and_wake_request_is_taken_once() {
         let mut runtime = UiRuntime::new(1);
         runtime.request_wake();
         assert!(!runtime.take_wake_request());
 
         runtime.set_local_sleeping(true);
-        assert!(runtime.chat_focused());
+        assert!(runtime.ui_focused() && !runtime.chat_focused());
+        runtime.open_chat();
         runtime.request_wake();
         assert!(runtime.take_wake_request());
         assert!(!runtime.take_wake_request());
@@ -54,11 +94,41 @@ mod tests {
     }
 
     #[test]
-    fn escape_closed_bed_screen_does_not_reopen_while_still_asleep() {
+    fn sleeping_players_compound_decodes_leniently() {
+        // A root compound of zigzag-varint ints, as servers send it.
+        let mut nbt = vec![10, 0];
+        for (name, value) in [
+            ("sleepingPlayerCount", 2u8),
+            ("overworldPlayerCount", 6),
+            ("ableToSleep", 2),
+        ] {
+            nbt.push(3);
+            nbt.push(name.len() as u8);
+            nbt.extend_from_slice(name.as_bytes());
+            nbt.push(value);
+        }
+        nbt.push(0);
         let mut runtime = UiRuntime::new(1);
-        runtime.set_local_sleeping(true);
-        runtime.close_chat();
-        runtime.set_local_sleeping(true);
-        assert!(!runtime.chat_focused());
+        let event = protocol::SleepStatusEvent { nbt: nbt.into() };
+        assert_eq!(runtime.apply_sleep_status(&event), UiApplyOutcome::Applied);
+        assert_eq!(
+            runtime.sleep_status(),
+            Some(SleepStatus {
+                sleeping: 1,
+                required: 3,
+                able: true
+            })
+        );
+        let garbage = protocol::SleepStatusEvent {
+            nbt: vec![1, 2].into(),
+        };
+        assert_eq!(
+            runtime.apply_sleep_status(&garbage),
+            UiApplyOutcome::IgnoredByReceiveStore
+        );
+        assert!(
+            runtime.sleep_status().is_some(),
+            "a bad packet keeps the last status"
+        );
     }
 }

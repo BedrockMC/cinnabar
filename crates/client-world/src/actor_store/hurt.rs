@@ -43,8 +43,10 @@ pub struct ActorPickup {
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ActorStatus {
-    /// Ticks of hurt tint remaining.
+    /// Ticks of hurt state remaining.
     pub hurt_time: u8,
+    /// The current hurt came without damage, so it shows no red flash (`SkipRedFlashComponent`).
+    pub skip_red_flash: bool,
     /// Server-streamed hurt direction, when the server provides one.
     pub hurt_direction: Option<f32>,
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
@@ -65,7 +67,7 @@ impl ActorStatus {
     /// Whether the red damage overlay should tint the actor this frame.
     #[must_use]
     pub fn overlay_active(&self) -> bool {
-        self.hurt_time > 0 || self.dead
+        (self.hurt_time > 0 && !self.skip_red_flash) || self.dead
     }
 
     /// Death tip-over progress in `0..=1` at `partial_tick`, or `None` while alive.
@@ -92,6 +94,7 @@ impl ActorStatus {
     fn die(&mut self) {
         self.dead = true;
         self.hurt_time = HURT_DURATION_TICKS;
+        self.skip_red_flash = false;
     }
 
     fn revive(&mut self) {
@@ -145,8 +148,9 @@ impl ActorStore {
             });
         }
         match event.kind {
-            ActorStatusKind::Hurt => {
+            ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => {
                 actor.status.hurt_time = HURT_DURATION_TICKS;
+                actor.status.skip_red_flash = event.kind == ActorStatusKind::HurtWithoutDamage;
                 actor.status.hurt_direction = actor.streamed_hurt_direction();
             }
             ActorStatusKind::Death => {
@@ -262,6 +266,19 @@ mod tests {
             store.get(7).unwrap().status.hurt_time,
             HURT_DURATION_TICKS - 3
         );
+    }
+
+    /// Event 81 arms the hurt countdown but never the red damage flash; a real hit restores it.
+    #[test]
+    fn hurt_without_damage_skips_the_red_flash() {
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn());
+        store.apply(1, 2, status(ActorStatusKind::HurtWithoutDamage));
+        let status_now = store.get(7).unwrap().status;
+        assert_eq!(status_now.hurt_time, HURT_DURATION_TICKS);
+        assert!(!status_now.overlay_active());
+        store.apply(1, 3, status(ActorStatusKind::Hurt));
+        assert!(store.get(7).unwrap().status.overlay_active());
     }
 
     #[test]

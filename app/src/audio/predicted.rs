@@ -1,38 +1,36 @@
 //! Client-predicted sounds tied to local interaction: block place/hit/break, eating and drinking,
-//! the local player's hurt/death, and dropped-item pickup.
+//! actor hurt/death status events, and dropped-item pickup.
 
 use std::{collections::HashSet, sync::Arc};
 
 use bevy::prelude::{Local, Message, MessageReader, Res, ResMut, Time};
-use protocol::ActorStatusKind;
+use client_world::ActorStatusNotice;
+use protocol::{ActorKind, ActorStatusKind};
 use sim::PaletteWorld;
 
 use super::{
+    echo::{EchoOrigin, EchoSubject},
     engine::{AudioEngine, SoundRequest},
-    systems::{block_lookup, identifier_at},
+    systems::{ACTOR_ECHO_SECONDS, BLOCK_ECHO_SECONDS, block_lookup, identifier_at},
 };
 use crate::{
     local_player::LocalViewPose, movement::PhysicsCollisionRegistries, particles::ParticleInbox,
-    runtime::world::ClientWorld, semantic_controls::SemanticInputSnapshot,
-    survival_mining::SurvivalMiningRuntime, ui_runtime::UiRuntime,
+    runtime::world::ClientWorld, survival_mining::SurvivalMiningRuntime, ui_runtime::UiRuntime,
 };
 
 const PLAYER: &str = "minecraft:player";
-/// Seconds between block hit sounds while mining; needs native measurement.
-const HIT_INTERVAL: f32 = 0.25;
+/// Height fraction of an actor's box standing in for its head attach point.
+const HEAD_HEIGHT_FRACTION: f32 = 0.9;
+/// Seconds between block hit sounds while mining (`GameMode` 200 ms).
+const HIT_INTERVAL: f32 = 0.2;
 /// Seconds between eating/drinking sounds while an item is in use; needs native measurement.
 const CONSUME_INTERVAL: f32 = 0.25;
-/// Held seconds after which releasing a food item counts as finishing it; needs native measurement.
-const EAT_DURATION: f32 = 1.6;
-const DEDUPE_SECONDS: f64 = 0.6;
-const DEDUPE_RADIUS: f32 = 3.0;
+const SECONDS_PER_TICK: f32 = 0.05;
 
-const DRINKS: [&str; 5] = [
+const DRINKS: [&str; 3] = [
     "minecraft:potion",
     "minecraft:milk_bucket",
-    "minecraft:honey_bottle",
     "minecraft:ominous_bottle",
-    "minecraft:experience_bottle",
 ];
 const FOODS: &[&str] = &[
     "minecraft:apple",
@@ -96,8 +94,11 @@ fn center(cell: [i32; 3]) -> [f32; 3] {
     cell.map(|axis| axis as f32 + 0.5)
 }
 
+/// The player sound event voiced while `identifier` is being consumed.
 pub(super) fn is_consumable(identifier: &str) -> Option<&'static str> {
-    if DRINKS.contains(&identifier) {
+    if identifier == "minecraft:honey_bottle" {
+        Some("drink.honey")
+    } else if DRINKS.contains(&identifier) {
         Some("drink")
     } else if FOODS.contains(&identifier) {
         Some("eat")
@@ -179,14 +180,16 @@ pub(super) fn drive_block_cues(
             .collect()
     };
     for (event, cell, request) in built {
-        let position = center(cell);
-        if event != "hit" {
-            if engine.was_recent(event, position, DEDUPE_SECONDS, DEDUPE_RADIUS) {
-                continue;
-            }
-            engine.note_recent(event, position);
+        if event == "hit"
+            || engine.admit_echo(
+                EchoOrigin::Client,
+                event,
+                EchoSubject::Cell(cell),
+                BLOCK_ECHO_SECONDS,
+            )
+        {
+            engine.enqueue(request);
         }
-        engine.enqueue(request);
     }
 }
 
@@ -197,64 +200,128 @@ pub(super) struct ConsumeAudio {
     timer: f32,
 }
 
-/// Loops the eating/drinking sound while a consumable is held in use, with a finishing burp.
-#[allow(clippy::too_many_arguments)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConsumeCue {
+    /// The player sound event of one eating/drinking step.
+    Step(&'static str),
+    /// The use ran its full duration; food finishes with a burp.
+    Finished,
+}
+
+impl ConsumeAudio {
+    /// Advances by `dt` while `item` (identifier, sound event) is in admitted use, completing
+    /// every `duration` seconds of continuous use.
+    fn advance(
+        &mut self,
+        item: Option<(Arc<str>, &'static str)>,
+        duration: Option<f32>,
+        dt: f32,
+    ) -> Vec<ConsumeCue> {
+        let identifier = item.as_ref().map(|(identifier, _)| Arc::clone(identifier));
+        if self.item != identifier {
+            *self = Self {
+                item: identifier,
+                ..Self::default()
+            };
+        }
+        let Some((_, event)) = item else {
+            return Vec::new();
+        };
+        let mut cues = Vec::new();
+        self.elapsed += dt;
+        self.timer -= dt;
+        if self.timer <= 0.0 {
+            self.timer = CONSUME_INTERVAL;
+            cues.push(ConsumeCue::Step(event));
+        }
+        if let Some(duration) = duration.filter(|duration| *duration > 0.0)
+            // Tolerates frame-sum rounding at an exact tick boundary.
+            && self.elapsed >= duration - 1.0e-4
+        {
+            self.elapsed = (self.elapsed - duration).max(0.0);
+            if event == "eat" {
+                cues.push(ConsumeCue::Finished);
+            }
+        }
+        cues
+    }
+}
+
+/// Voices eating and drinking while the server admits the held consumable in use, finishing
+/// food with a burp once its pack use duration elapses.
 pub(super) fn drive_consume_audio(
     time: Res<Time>,
-    input: Res<SemanticInputSnapshot>,
     ui: Option<Res<UiRuntime>>,
     world: Res<ClientWorld>,
     view: Res<LocalViewPose>,
     mut engine: ResMut<AudioEngine>,
     mut state: Local<ConsumeAudio>,
 ) {
-    let held = input.phase(semantic_input::Action::Use).held;
-    let selected = world
-        .stream
-        .as_ref()
+    let stream = world.stream.as_ref();
+    let using = stream
+        .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+        .is_some_and(|actor| actor.is_using_item());
+    let item = stream
         .zip(ui.as_deref())
+        .filter(|_| using)
         .and_then(|(stream, ui)| {
-            stream
+            let identifier = stream
                 .canonical_item_stack(ui.selected_stack()?)?
-                .identifier
+                .identifier?;
+            let event = is_consumable(&identifier)?;
+            Some((identifier, event))
         });
-    let kind = selected.as_deref().and_then(is_consumable);
-    if !held || kind.is_none() || state.item != selected {
-        let finished = state.elapsed >= EAT_DURATION
-            && state.item.as_deref().and_then(is_consumable) == Some("eat");
-        if finished && !held {
-            engine.enqueue(SoundRequest::new("random.burp"));
-        }
-        state.elapsed = 0.0;
-        state.timer = 0.0;
-        state.item = selected;
-        if !held || kind.is_none() {
-            return;
-        }
-    }
-    let Some(kind) = kind else { return };
-    let dt = time.delta_secs();
-    state.elapsed += dt;
-    state.timer -= dt;
-    if state.timer > 0.0 || !engine.has_bank() {
+    let duration = stream
+        .zip(item.as_ref())
+        .and_then(|(stream, (identifier, _))| {
+            Some(stream.item_max_use_ticks(identifier)? as f32 * SECONDS_PER_TICK)
+        });
+    let cues = state.advance(item, duration, time.delta_secs());
+    if cues.is_empty() {
         return;
     }
-    state.timer = CONSUME_INTERVAL;
     let eye = view.eye_translation();
-    let request = engine.bank().and_then(|bank| {
-        let route = bank.tables().entity(PLAYER, kind, None)?;
-        Some(
-            SoundRequest::new(route.sound)
-                .with_ranges(route.volume, route.pitch)
-                .at([eye.x, eye.y, eye.z]),
-        )
-    });
-    if let Some(request) = request {
+    let requests: Vec<SoundRequest> = {
+        let Some(bank) = engine.bank() else { return };
+        let tables = bank.tables();
+        cues.iter()
+            .filter_map(|cue| match cue {
+                ConsumeCue::Step(event) => tables.entity(PLAYER, event, None),
+                ConsumeCue::Finished => tables.individual("burp").cloned(),
+            })
+            .map(|route| {
+                SoundRequest::new(route.sound)
+                    .with_ranges(route.volume, route.pitch)
+                    .at([eye.x, eye.y, eye.z])
+            })
+            .collect()
+    };
+    for request in requests {
         engine.enqueue(request);
     }
 }
 
-/// Voices the local player's hurt/death status and dropped-item pickups.
+/// Hurt or death sound of `identifier` for a status `notice`, from the actor's head.
+fn status_request(
+    tables: &assets::SoundEventTables,
+    identifier: &str,
+    notice: &ActorStatusNotice,
+) -> Option<(&'static str, SoundRequest)> {
+    let event = match notice.kind {
+        ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => "hurt",
+        ActorStatusKind::Death => "death",
+        _ => return None,
+    };
+    let route = tables.entity(identifier, event, None)?;
+    let mut head = notice.position;
+    head[1] += notice.height.unwrap_or(0.0).max(0.0) * HEAD_HEIGHT_FRACTION;
+    let request = SoundRequest::new(route.sound)
+        .with_ranges(route.volume, route.pitch)
+        .at(head);
+    Some((event, request))
+}
+
+/// Voices every actor's hurt/death status and dropped-item pickups.
 pub(super) fn drive_actor_audio(
     world: Res<ClientWorld>,
     inbox: Option<ResMut<ParticleInbox>>,
@@ -275,25 +342,27 @@ pub(super) fn drive_actor_audio(
         return;
     }
     let local = stream.local_player_runtime_id();
-    for notice in notices.iter().filter(|notice| notice.runtime_id == local) {
-        let event = match notice.kind {
-            ActorStatusKind::Hurt => "hurt",
-            ActorStatusKind::Death => "death",
-            _ => continue,
+    for notice in &notices {
+        let (identifier, unique_id) = if notice.runtime_id == local {
+            (PLAYER, stream.local_player_unique_id())
+        } else {
+            let Some(actor) = stream.actor(notice.runtime_id) else {
+                continue;
+            };
+            let identifier = match &actor.kind {
+                ActorKind::Player { .. } => PLAYER,
+                ActorKind::Entity { identifier } => identifier.as_ref(),
+            };
+            (identifier, actor.unique_id)
         };
-        if engine.was_recent(event, notice.position, 0.4, DEDUPE_RADIUS) {
+        let Some((event, request)) = engine
+            .bank()
+            .and_then(|bank| status_request(bank.tables(), identifier, notice))
+        else {
             continue;
-        }
-        engine.note_recent(event, notice.position);
-        let request = engine.bank().and_then(|bank| {
-            let route = bank.tables().entity(PLAYER, event, None)?;
-            Some(
-                SoundRequest::new(route.sound)
-                    .with_ranges(route.volume, route.pitch)
-                    .at(notice.position),
-            )
-        });
-        if let Some(request) = request {
+        };
+        let subject = EchoSubject::Actor(unique_id);
+        if engine.admit_echo(EchoOrigin::Client, event, subject, ACTOR_ECHO_SECONDS) {
             engine.enqueue(request);
         }
     }
@@ -324,7 +393,69 @@ mod tests {
     fn consumables_are_classified() {
         assert_eq!(is_consumable("minecraft:bread"), Some("eat"));
         assert_eq!(is_consumable("minecraft:potion"), Some("drink"));
+        assert_eq!(is_consumable("minecraft:honey_bottle"), Some("drink.honey"));
+        assert_eq!(is_consumable("minecraft:experience_bottle"), None, "thrown");
         assert_eq!(is_consumable("minecraft:stone"), None);
+    }
+
+    // Food only burped after releasing Use past a fixed 1.6 s, whatever the item's duration.
+    #[test]
+    fn food_finishes_at_its_own_duration_while_still_in_use() {
+        let kelp = || Some((Arc::from("minecraft:dried_kelp"), "eat"));
+        let mut state = ConsumeAudio::default();
+        let mut finished_at = None;
+        for frame in 1..=40 {
+            let cues = state.advance(kelp(), Some(16.0 * SECONDS_PER_TICK), 0.05);
+            if cues.contains(&ConsumeCue::Finished) {
+                finished_at.get_or_insert(frame);
+            }
+        }
+        assert_eq!(finished_at, Some(16));
+        assert!(
+            state.advance(None, None, 0.05).is_empty(),
+            "no admitted use"
+        );
+        let honey = Some((Arc::from("minecraft:honey_bottle"), "drink.honey"));
+        let cues = state.advance(honey, Some(0.05), 0.05);
+        assert_eq!(cues, vec![ConsumeCue::Step("drink.honey")]);
+    }
+
+    // Only the local player's status was voiced; remote players and mobs stayed silent.
+    #[test]
+    fn remote_actor_status_voices_its_own_hurt_sound_from_the_head() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {
+                "defaults": {"events": {"hurt": "game.hurt", "death": "game.death"}},
+                "entities": {"zombie": {"events": {"hurt": "mob.zombie.hurt"}},
+                    "armor_stand": {"events": {"hurt": ""}}}}}),
+            &serde_json::json!({}),
+        );
+        let notice = |kind| ActorStatusNotice {
+            runtime_id: 9,
+            kind,
+            data: 0,
+            position: [1.0, 64.0, 1.0],
+            height: Some(2.0),
+        };
+        let (event, hurt) =
+            status_request(&tables, "minecraft:zombie", &notice(ActorStatusKind::Hurt)).unwrap();
+        assert_eq!((event, &*hurt.name), ("hurt", "mob.zombie.hurt"));
+        assert_eq!(hurt.position, Some([1.0, 65.8, 1.0]));
+        let (_, death) =
+            status_request(&tables, "minecraft:zombie", &notice(ActorStatusKind::Death)).unwrap();
+        assert_eq!(&*death.name, "game.death");
+        let silent = status_request(
+            &tables,
+            "minecraft:armor_stand",
+            &notice(ActorStatusKind::Hurt),
+        );
+        assert!(silent.is_none());
+    }
+
+    /// `GameMode` spaces mining hit sounds 200 ms apart.
+    #[test]
+    fn mining_hits_follow_the_reference_interval() {
+        assert_eq!(HIT_INTERVAL, 0.2);
     }
 
     #[test]

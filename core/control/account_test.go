@@ -179,9 +179,13 @@ func TestEventsCarryAuthDisconnectAndTransfer(t *testing.T) {
 		events.Transfer == nil || events.Transfer.Host != "next.example" {
 		t.Fatalf("events = %+v", events)
 	}
+	store.ObservePackDownload(proxy.ResourcePackDownload{ReceivedBytes: 5, TotalBytes: 9})
+	if got := store.Events().PackDownload; got == nil || got.ReceivedBytes != 5 || got.TotalBytes != 9 {
+		t.Fatalf("pack download = %+v", got)
+	}
 	store.Observe(snapshot(1, proxy.ResourcePackOfferNone))
 	store.Observe(snapshot(2, proxy.ResourcePackOfferNone))
-	if got := store.Events(); got.Disconnect != nil || got.Transfer != nil {
+	if got := store.Events(); got.Disconnect != nil || got.Transfer != nil || got.PackDownload != nil {
 		t.Fatalf("new attempt kept stale events: %+v", got)
 	}
 }

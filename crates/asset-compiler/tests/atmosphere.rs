@@ -110,7 +110,7 @@ fn production_compiler_rejects_any_manifest_bytes_other_than_the_tracked_pin() {
 
     let changed = std::str::from_utf8(&manifest)
         .unwrap()
-        .replace("v1.26.30.32-preview", "v1.26.30.31-preview");
+        .replace(assets::vanilla_source().tag.as_ref(), "v0.0.0.0");
     assert!(compile_atmosphere_assets(pack.path(), changed.as_bytes()).is_err());
 }
 
@@ -649,13 +649,13 @@ fn pinned_pack_atmosphere_sources_match_exact_provenance() {
     let compiled = compile_atmosphere_assets(Path::new(&pack), &manifest).unwrap();
     let blob = encode_atmosphere_blob(&compiled).unwrap();
     assert_eq!(
-        format!("{:x}", Sha256::digest(canonical_tracked_manifest())),
-        "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6"
+        <[u8; 32]>::from(Sha256::digest(canonical_tracked_manifest())),
+        assets::vanilla_source_manifest_sha256()
     );
-    assert_eq!(blob.len(), 334_088);
+    assert_eq!(blob.len(), 334_457);
     assert_eq!(
         format!("{:x}", Sha256::digest(&blob)),
-        "2cc4de00cc2cbc7a380c1c8ffe760994f896e721cbb097eae6809cdfbb2cf4eb"
+        "bd5c34eacfd995e3352f2541edfa2447935ae5ec2e63479fbdca74ee8ad0da40"
     );
     let expected = [
         (

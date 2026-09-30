@@ -162,7 +162,7 @@ pub(crate) fn engine_presentation() -> Option<UiPresentationRuntime> {
     let carrier = carrier()?;
     let mut presentation = UiPresentationRuntime::new(font()).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
-    let vanilla = local(crate::install_layout::VANILLA_PACK_DIR);
+    let vanilla = local(&crate::install_layout::vanilla_pack_relative());
     let engine = presentation.form_presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(Default::default(), vanilla);
     Some(presentation)

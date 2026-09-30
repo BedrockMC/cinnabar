@@ -10,13 +10,14 @@ const PLAY_POSITION_SCALE: f32 = 0.125;
 /// Pitch multiplier for baby actors; needs native measurement.
 const BABY_PITCH: f32 = 1.5;
 const DESTROY_BLOCK_EVENT: i32 = 2001;
+/// Legacy door sound, which picks opening or closing at random.
+const DOOR_EVENT: i32 = 1003;
 
 /// Sound-only level events: `(id, individual event name, sound definition fallback)`.
 const LEVEL_EVENT_SOUNDS: &[(i32, &str, &str)] = &[
     (1000, "block.click", "random.click"),
     (1001, "block.click.fail", "random.click"),
     (1002, "launch", "random.bow"),
-    (1003, "", "random.door_open"),
     (1004, "fizz", "random.fizz"),
     (1005, "", "random.fuse"),
     (1007, "", "mob.ghast.charge"),
@@ -44,6 +45,37 @@ const LEVEL_EVENT_SOUNDS: &[(i32, &str, &str)] = &[
     (1062, "", "mob.armor_stand.land"),
     (1063, "", "mob.armor_stand.place"),
 ];
+
+/// Note block instruments by the id a `note` event packs above its low data byte.
+const NOTE_INSTRUMENTS: [&str; 26] = [
+    "note.harp",
+    "note.bd",
+    "note.snare",
+    "note.hat",
+    "note.bassattack",
+    "note.flute",
+    "note.bell",
+    "note.guitar",
+    "note.chime",
+    "note.xylophone",
+    "note.iron_xylophone",
+    "note.cow_bell",
+    "note.didgeridoo",
+    "note.bit",
+    "note.banjo",
+    "note.pling",
+    "note.trumpet",
+    "note.trumpet_exposed",
+    "note.trumpet_weathered",
+    "note.trumpet_oxidized",
+    "note.zombie",
+    "note.skeleton",
+    "note.creeper",
+    "note.enderdragon",
+    "note.witherskeleton",
+    "note.piglin",
+];
+const NOTE_EVENT: &str = "note";
 
 fn from_route(route: SoundRoute, position: Option<[f32; 3]>) -> SoundRequest {
     let mut request = SoundRequest::new(route.sound).with_ranges(route.volume, route.pitch);
@@ -79,6 +111,9 @@ pub(super) fn level_sound_request(
     let position = (!event.is_global).then_some(event.position);
     let actor = event.actor_identifier.as_ref();
     let baby = if event.is_baby { BABY_PITCH } else { 1.0 };
+    if name == NOTE_EVENT {
+        return note_request(tables, event, position);
+    }
     if !actor.is_empty() {
         match tables.entity_lookup(actor, name, None) {
             RouteLookup::Route(route) => {
@@ -105,11 +140,42 @@ pub(super) fn level_sound_request(
         .map(|route| from_route(route, position).scaled(1.0, baby))
 }
 
-/// Sound-range `LevelEvent`: the individual route when the pack defines one, else the fallback definition.
+/// A `note` event: data packs `note | instrument << 8`; the note sets pitch in semitones from 12.
+fn note_request(
+    tables: &SoundEventTables,
+    event: &LevelAudioEvent,
+    position: Option<[f32; 3]>,
+) -> Option<SoundRequest> {
+    let instrument = NOTE_INSTRUMENTS.get(usize::try_from(event.data >> 8).ok()?)?;
+    let semitones = (event.data & 0xff) - 12;
+    let pitch = (semitones as f32 / 12.0).exp2();
+    let (volume, base_pitch) = tables
+        .individual(NOTE_EVENT)
+        .map_or((FloatRange::ONE, FloatRange::ONE), |route| {
+            (route.volume, route.pitch)
+        });
+    let mut request = SoundRequest::new(*instrument)
+        .with_ranges(volume, base_pitch)
+        .scaled(1.0, pitch);
+    request.position = position;
+    Some(request)
+}
+
+/// Sound-range `LevelEvent`: the individual route when the pack defines one, else the fallback
+/// definition; `roll` in `[0, 1)` makes the door event's open-or-close choice.
 pub(super) fn level_event_request(
     tables: &SoundEventTables,
     event: &LevelEventSound,
+    roll: f32,
 ) -> Option<SoundRequest> {
+    if event.event_id == DOOR_EVENT {
+        let name = if roll >= 0.5 {
+            "random.door_close"
+        } else {
+            "random.door_open"
+        };
+        return Some(SoundRequest::new(name).at(event.position));
+    }
     let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
         .iter()
         .find(|(id, _, _)| *id == event.event_id)?;
@@ -222,6 +288,19 @@ mod tests {
         assert_eq!(request.pitch.min, BABY_PITCH);
     }
 
+    // Note data was read as a block runtime id, so instrument and pitch never resolved.
+    #[test]
+    fn note_events_unpack_instrument_and_semitone_pitch() {
+        let request =
+            level_sound_request(&tables(), &level("note", "", 24 | (4 << 8)), &stone).unwrap();
+        assert_eq!(&*request.name, "note.bassattack");
+        assert!((request.pitch.min - 2.0).abs() < 1e-6);
+        let low = level_sound_request(&tables(), &level("note", "", 0), &stone).unwrap();
+        assert_eq!(&*low.name, "note.harp");
+        assert!((low.pitch.min - 0.5).abs() < 1e-6);
+        assert!(level_sound_request(&tables(), &level("note", "", 26 << 8), &stone).is_none());
+    }
+
     #[test]
     fn play_sound_positions_are_eighth_block_fixed_point() {
         let play = PlayAudioEvent {
@@ -255,14 +334,19 @@ mod tests {
             data: 0,
         };
         assert_eq!(
-            &*level_event_request(&tables(), &event).unwrap().name,
+            &*level_event_request(&tables(), &event, 0.2).unwrap().name,
             "random.door_open"
+        );
+        assert_eq!(
+            &*level_event_request(&tables(), &event, 0.7).unwrap().name,
+            "random.door_close",
+            "the door event always opened"
         );
         let unknown = LevelEventSound {
             event_id: 1999,
             ..event
         };
-        assert!(level_event_request(&tables(), &unknown).is_none());
+        assert!(level_event_request(&tables(), &unknown, 0.0).is_none());
         let destroy = destroy_block_request(&tables(), 2001, [0.0; 3], 7, &stone).unwrap();
         assert_eq!(&*destroy.name, "dig.stone");
         assert!(destroy_block_request(&tables(), 2002, [0.0; 3], 7, &stone).is_none());

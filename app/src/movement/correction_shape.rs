@@ -134,3 +134,35 @@ pub(crate) fn reconcile_committed_correction(
     )
     .map(Some)
 }
+
+/// Enters one `SetActorMotion` impulse into prediction.
+///
+/// Untimed and future ticks wait for their simulation boundary; a retained past
+/// tick is replayed from the tick before it; anything unretained applies now.
+pub(crate) fn reconcile_server_motion(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    motion: [f32; 3],
+    tick: u64,
+    world: &impl CollisionWorld,
+) {
+    let Some(current_tick) = physics.state().map(|state| state.tick) else {
+        return;
+    };
+    if tick == 0 || tick > current_tick {
+        physics.queue_server_motion(motion, tick);
+        return;
+    }
+    let mut candidate_physics = physics.clone();
+    let mut candidate_ticker = ticker.clone();
+    let replayed = candidate_physics
+        .replay_server_motion(motion, tick, world)
+        .ok()
+        .is_some_and(|plan| candidate_ticker.apply_correction_plan(&plan).is_ok());
+    if replayed {
+        *physics = candidate_physics;
+        *ticker = candidate_ticker;
+    } else {
+        physics.queue_server_motion(motion, tick);
+    }
+}

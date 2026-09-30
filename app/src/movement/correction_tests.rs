@@ -10,7 +10,7 @@ use super::{
     CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape, LocalPhysicsController,
     MovementSource, MovementTicker, PhysicsCorrectionMode, PhysicsCorrectionOutcome,
     PhysicsSampleContext, flush_player_auth_inputs, reconcile_candidate_physics_correction,
-    reconcile_committed_correction,
+    reconcile_committed_correction, reconcile_server_motion,
 };
 use sim::{Aabb, BlockPhysicsSample, CollisionQuery, CollisionWorld, WorldQueryError};
 use world::{ChunkCollisionRevision, ChunkKey};
@@ -811,5 +811,60 @@ fn nearby_corrections_replay_and_distant_ones_snap_like_the_teleport_anchor_path
         ticker.pending_count(),
         0,
         "the snap clears bounded outbound prediction state"
+    );
+}
+
+fn three_predicted_ticks(world: &VersionedWall) -> (LocalPhysicsController, MovementTicker) {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        world,
+    );
+    assert_eq!(physics.state().unwrap().tick, 103);
+    (physics, ticker_with_samples(frame.samples))
+}
+
+/// A motion stamped with an already-simulated tick must move the player now, exactly as if
+/// it had arrived before that tick.
+#[test]
+fn a_late_server_motion_replays_from_its_tick_into_current_prediction() {
+    let world = VersionedWall(1);
+    let motion = [0.6, 0.4, 0.0];
+    let mut on_time = LocalPhysicsController::default();
+    on_time.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    on_time.queue_server_motion(motion, 102);
+    on_time.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+
+    let (mut late, mut ticker) = three_predicted_ticks(&world);
+    let before = late.state().unwrap().position;
+    reconcile_server_motion(&mut ticker, &mut late, motion, 102, &world);
+
+    let after = late.state().unwrap();
+    let expected = on_time.state().unwrap();
+    assert_eq!(after.tick, 103);
+    assert!(after.position.x > before.x + 0.5, "{:?}", after.position);
+    assert!((after.position.x - expected.position.x).abs() < 1e-9);
+    assert!((after.position.y - expected.position.y).abs() < 1e-9);
+    assert!((after.velocity.x - expected.velocity.x).abs() < 1e-9);
+}
+
+/// A motion older than the replay horizon still applies, as a direct velocity replacement.
+#[test]
+fn an_unretained_server_motion_applies_directly() {
+    let world = VersionedWall(1);
+    let (mut physics, mut ticker) = three_predicted_ticks(&world);
+    reconcile_server_motion(&mut ticker, &mut physics, [0.6, 0.4, 0.0], 12, &world);
+    let velocity = physics.state().unwrap().velocity;
+    assert_eq!(
+        [velocity.x, velocity.y, velocity.z],
+        [0.6_f32 as f64, 0.4_f32 as f64, 0.0]
     );
 }
