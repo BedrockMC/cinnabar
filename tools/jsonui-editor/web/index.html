@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JSON-UI Editor</title>
+  <meta name="description" content="Edit Bedrock resource-pack JSON-UI and preview it with Cinnabar's JSON-UI engine.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <strong class="brand">JSON-UI Editor</strong>
+    <label class="button">Open folder<input id="open-folder" type="file" webkitdirectory multiple hidden></label>
+    <label class="button">Open zip<input id="open-zip" type="file" accept=".zip,.mcpack" multiple hidden></label>
+    <button id="load-example" type="button">Load example</button>
+    <button id="export" type="button" disabled>Export edits</button>
+    <span id="status" class="status" role="status"></span>
+  </header>
+  <p id="hint" class="hint">No packs are bundled: drop your own resource pack folder or .zip here (vanilla first, then server packs above it), or load the example.</p>
+
+  <main class="layout">
+    <aside class="side">
+      <h2>Layers <small>bottom → top</small></h2>
+      <ol id="layers" class="layers"></ol>
+      <h2>ui/ files</h2>
+      <input id="file-filter" type="search" placeholder="Filter files" aria-label="Filter files">
+      <ul id="files" class="files"></ul>
+    </aside>
+
+    <section class="code">
+      <div class="code-head"><span id="file-name">No file open</span><span id="file-state"></span></div>
+      <div id="editor" class="editor"></div>
+    </section>
+
+    <section class="preview">
+      <div class="toolbar">
+        <input id="screen" list="screen-list" placeholder="namespace.control" aria-label="Screen" spellcheck="false">
+        <datalist id="screen-list"></datalist>
+        <label><input id="all-controls" type="checkbox"> all controls</label>
+        <select id="size" aria-label="Screen size">
+          <option value="1920x1080">1920×1080</option>
+          <option value="1280x720" selected>1280×720</option>
+          <option value="2560x1440">2560×1440</option>
+          <option value="1366x768">1366×768</option>
+          <option value="1024x768">1024×768 (4:3)</option>
+          <option value="2340x1080">2340×1080 (phone)</option>
+          <option value="2048x1536">2048×1536 (tablet)</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <select id="scale" aria-label="GUI scale">
+          <option value="0" selected>GUI auto</option>
+          <option value="1">GUI 1</option><option value="2">GUI 2</option><option value="3">GUI 3</option>
+          <option value="4">GUI 4</option><option value="5">GUI 5</option><option value="6">GUI 6</option>
+        </select>
+        <select id="zoom" aria-label="Zoom">
+          <option value="fit" selected>Fit</option><option value="0.5">50%</option>
+          <option value="1">100%</option><option value="2">200%</option>
+        </select>
+        <select id="background" aria-label="Background">
+          <option value="checker" selected>Checker</option><option value="dark">Dark</option><option value="light">Light</option>
+        </select>
+        <label><input id="show-bounds" type="checkbox"> bounds</label>
+      </div>
+      <div class="anim">
+        <button id="play" type="button" aria-label="Play animations">▶</button>
+        <input id="time" type="range" min="0" max="10" step="0.01" value="0" aria-label="Animation time">
+        <span id="time-label">0.00 s</span>
+        <span id="frame-info" class="muted"></span>
+      </div>
+      <div id="stage" class="stage checker">
+        <canvas id="canvas"></canvas>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="inspector" aria-selected="true">Inspector</button>
+        <button role="tab" data-tab="diagnostics">Diagnostics <span id="diag-count" class="badge">0</span></button>
+        <button role="tab" data-tab="mock">Mock data</button>
+        <button role="tab" data-tab="context">Context</button>
+      </div>
+      <div class="panels">
+        <div class="panel" data-panel="inspector">
+          <div class="inspector">
+            <ul id="tree" class="tree"></ul>
+            <div id="props" class="props muted">Click the preview or the tree to inspect a control.</div>
+          </div>
+        </div>
+        <div class="panel" data-panel="diagnostics" hidden><ul id="diagnostics" class="diagnostics"></ul></div>
+        <div class="panel" data-panel="mock" hidden>
+          <div class="row">
+            <select id="mock-preset" aria-label="Mock data preset"></select>
+            <span id="mock-error" class="error"></span>
+          </div>
+          <textarea id="mock" spellcheck="false" aria-label="Mock data JSON"></textarea>
+        </div>
+        <div class="panel" data-panel="context" hidden>
+          <div class="row">
+            <select id="context-preset" aria-label="Context preset"></select>
+            <span id="flags" class="flags"></span>
+            <span id="context-error" class="error"></span>
+          </div>
+          <textarea id="context" spellcheck="false" aria-label="Context variables JSON"></textarea>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
+    Renders with <a href="https://github.com/bedrock-mc/cinnabar">Cinnabar</a>'s JSON-UI engine; nothing you load leaves your browser.
+  </footer>
+  <div id="drop" class="drop" hidden>Drop a resource pack folder or .zip</div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

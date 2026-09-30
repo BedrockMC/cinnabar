@@ -3202,6 +3202,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonui-editor"
+version = "0.1.0"
+dependencies = [
+ "assets",
+ "image",
+ "json-ui",
+ "serde",
+ "serde_json",
+ "ui",
+ "wasm-bindgen",
+ "zip",
+]
+
+[[package]]
+name = "jsonui-mcp"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "json-ui",
+ "jsonui-editor",
+ "serde_json",
+]
+
+[[package]]
 name = "jsonwebtoken"
 version = "9.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

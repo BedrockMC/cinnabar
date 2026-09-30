@@ -156,14 +156,12 @@ fn cursor_slot_type_events_cannot_reach_the_hotbar_mirror_through_any_admission_
     runtime
         .enqueue_inventory_event(1, 1, content(identity(0, None), slots))
         .unwrap();
-    // A cursor Slot event names the cursor container explicitly even though
-    // its legacy window id is still 0.
+    // Cursor Slot and Content events ride the UI window naming the cursor container.
     runtime
-        .enqueue_inventory_event(1, 2, slot_event(identity(0, Some(59)), 0, stack(777)))
+        .enqueue_inventory_event(1, 2, slot_event(identity(124, Some(59)), 0, stack(777)))
         .unwrap();
-    // A cursor Content event likewise carries the named cursor container.
     runtime
-        .enqueue_inventory_event(1, 3, content(identity(0, Some(59)), vec![stack(888)]))
+        .enqueue_inventory_event(1, 3, content(identity(124, Some(59)), vec![stack(888)]))
         .unwrap();
     runtime.drain_pending_inventory();
 
@@ -200,6 +198,31 @@ fn cursor_slot_type_events_cannot_reach_the_hotbar_mirror_through_any_admission_
     assert_eq!(runtime.gameplay_hud().hotbar_stack(1), None);
 }
 
+/// A server's arbitrary container name on the player window still fills player inventory cells.
+#[test]
+fn foreign_container_name_on_the_player_window_fills_player_inventory_cells() {
+    let mut runtime = UiRuntime::new(1);
+    server_ledger(&mut runtime);
+    let anvil_material = Some(1);
+    runtime.inventory_ledger_mut().apply(&content(
+        identity(0, anvil_material),
+        vec![NetworkItemStack::empty(); 36],
+    ));
+    runtime.inventory_ledger_mut().apply(&slot_event(
+        identity(0, anvil_material),
+        0,
+        stack(20_329),
+    ));
+    assert_eq!(
+        runtime
+            .inventory_ledger()
+            .displayed_stack(0)
+            .map(|stack| stack.network_id),
+        Some(20_329)
+    );
+    assert_eq!(runtime.inventory_ledger().skipped_unknown_containers(), 0);
+}
+
 #[test]
 fn offhand_container_events_never_pollute_player_inventory_cells() {
     let mut runtime = UiRuntime::new(1);
@@ -208,15 +231,13 @@ fn offhand_container_events_never_pollute_player_inventory_cells() {
         .inventory_ledger_mut()
         .apply(&slot_event(identity(0, None), 20, stack(20)));
 
-    // An offhand Content event may arrive on the legacy player window while
-    // naming the offhand container; it belongs to no player-inventory cell.
+    // Offhand traffic rides the offhand window and never reaches a player cell.
     runtime
         .inventory_ledger_mut()
-        .apply(&content(identity(0, Some(34)), vec![stack(34)]));
-    // An offhand Slot event on the same window is equally foreign.
+        .apply(&content(identity(119, Some(34)), vec![stack(34)]));
     runtime
         .inventory_ledger_mut()
-        .apply(&slot_event(identity(0, Some(34)), 0, stack(340)));
+        .apply(&slot_event(identity(119, Some(34)), 0, stack(340)));
 
     assert_eq!(
         runtime
@@ -256,7 +277,7 @@ fn unknown_container_identities_skip_without_mutating_cells_or_ending_the_sessio
     // counted as typed leniency.
     runtime
         .inventory_ledger_mut()
-        .apply(&slot_event(identity(0, Some(211)), 3, stack(999)));
+        .apply(&slot_event(identity(5, Some(211)), 3, stack(999)));
     runtime
         .inventory_ledger_mut()
         .apply(&slot_event(identity(-777, None), 4, stack(998)));
@@ -449,16 +470,15 @@ fn fixture_named_inventory_slot_updates_land_in_player_cells_in_ledger_and_hud()
         Some(9)
     );
 
-    // The prior window-0 exclusions still hold: generic-storage-named
-    // traffic belongs to no player cell regardless of its legacy window id.
-    // With no storage window open it is counted leniency (Minor 6).
+    // Generic-storage-named traffic on a non-player window belongs to no
+    // player cell; with no storage window open it is counted leniency.
     let mut runtime = UiRuntime::new(1);
     server_ledger(&mut runtime);
     runtime
         .inventory_ledger_mut()
         .apply(&slot_event(identity(0, None), 4, stack(4)));
     runtime.inventory_ledger_mut().apply(&slot_event(
-        identity(0, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
+        identity(5, Some(protocol::CONTAINER_NAME_LEVEL_ENTITY)),
         4,
         stack(777),
     ));
