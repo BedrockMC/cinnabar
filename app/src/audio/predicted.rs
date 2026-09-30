@@ -277,7 +277,7 @@ pub(super) fn drive_actor_audio(
     let local = stream.local_player_runtime_id();
     for notice in notices.iter().filter(|notice| notice.runtime_id == local) {
         let event = match notice.kind {
-            ActorStatusKind::Hurt => "hurt",
+            ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => "hurt",
             ActorStatusKind::Death => "death",
             _ => continue,
         };
