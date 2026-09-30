@@ -10,26 +10,23 @@ pub(super) const LAYER_CHESTPLATE: u8 = 4;
 pub(super) const LAYER_LEGGINGS: u8 = 5;
 pub(super) const LAYER_BOOTS: u8 = 6;
 
-/// Item-space to hand-bone placement: rotation, translation in blocks, uniform scale, and an
-/// optional mirror of item X applied first.
+/// Item-space to hand-bone placement: rotation, translation in blocks and uniform scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ItemDisplay {
     pub(super) rotation: Quat,
     pub(super) translation: Vec3,
     pub(super) scale: f32,
-    pub(super) mirror_x: bool,
 }
 
 impl ItemDisplay {
-    /// Decomposes a rotation + uniform scale + translation matrix (X mirrored first if asked).
-    fn from_matrix(matrix: Mat4, mirror_x: bool) -> Self {
+    /// Decomposes a rotation + uniform scale + translation matrix.
+    fn from_matrix(matrix: Mat4) -> Self {
         let linear = Mat3::from_mat4(matrix);
         let scale = linear.determinant().cbrt();
         Self {
             rotation: Quat::from_mat3(&(linear * scale.recip())).normalize(),
             translation: matrix.w_axis.truncate(),
             scale,
-            mirror_x,
         }
     }
 }
@@ -43,7 +40,16 @@ fn rig_from_reference_bone() -> Mat4 {
     Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0))
 }
 
-/// Main-hand placement of a flat sprite item, identical in first and third person, from the
+/// `ItemInHandRenderer::_applyDefaultItemTransforms` for a flat sprite in hand: the 1.5 scale
+/// and tilt that seat vanilla's held-sprite mesh (`held_sprite_vertices`) in the grip.
+fn item_default() -> Mat4 {
+    Mat4::from_scale(Vec3::splat(1.5))
+        * Mat4::from_rotation_y(degrees(50.0))
+        * Mat4::from_rotation_z(degrees(335.0))
+        * Mat4::from_translation(Vec3::new(0.075, -0.245, -0.1))
+}
+
+/// Third-person main-hand placement of a flat sprite item on the `rightItem` bone, from the
 /// 26.30 reference's held-item and default item transforms. `hand_equipped` items (tools,
 /// weapons, rods) are held upright like a sword.
 pub(super) fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
@@ -60,17 +66,7 @@ pub(super) fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
             * Mat4::from_rotation_x(degrees(-90.0))
             * Mat4::from_rotation_z(degrees(20.0))
     };
-    let item_default = Mat4::from_scale(Vec3::splat(1.5))
-        * Mat4::from_rotation_y(degrees(50.0))
-        * Mat4::from_rotation_z(degrees(335.0))
-        * Mat4::from_translation(Vec3::new(0.075, -0.245, -0.1));
-    // The reference icon spans X in [-1, 0] with its left column at 0 and Y in [0, 1]; the
-    // extruded mesh is centred with its left column at -X, so it is shifted and mirrored.
-    let icon_from_mesh = Mat4::from_translation(Vec3::new(-0.5, 0.5, 0.0));
-    ItemDisplay::from_matrix(
-        rig_from_reference_bone() * grip * item_default * icon_from_mesh,
-        true,
-    )
+    ItemDisplay::from_matrix(rig_from_reference_bone() * grip * item_default())
 }
 
 /// The item's single bone: the hand bone's pose with `display` applied in the hand frame, so
@@ -99,11 +95,7 @@ pub(super) fn attach_to_bone(
             translation.z,
             hand_scale * display.scale,
         ],
-        axis_scale: if display.mirror_x {
-            [-1.0, 1.0, 1.0, 1.0]
-        } else {
-            render::UNIT_AXIS_SCALE
-        },
+        axis_scale: render::UNIT_AXIS_SCALE,
     };
     bone.is_finite().then_some(bone)
 }
@@ -117,7 +109,6 @@ pub(super) fn held_block_display() -> ItemDisplay {
             * Mat4::from_rotation_x(degrees(200.0))
             * Mat4::from_rotation_y(degrees(225.0))
             * Mat4::from_scale(Vec3::splat(0.375)),
-        false,
     )
 }
 
@@ -127,7 +118,6 @@ pub(super) fn head_block_display() -> ItemDisplay {
         rotation: Quat::IDENTITY,
         translation: Vec3::new(0.0, 0.25, 0.0),
         scale: 0.5625,
-        mirror_x: false,
     }
 }
 

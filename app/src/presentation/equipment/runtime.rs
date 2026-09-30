@@ -10,8 +10,8 @@ use bevy::prelude::Resource;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, BlockEntityAtlas, EntityRigId,
-    EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, extruded_sprite_vertices,
-    find_geometry_index, geometry_bone_names, geometry_bone_pivots, item_mesh_rig_id,
+    EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, find_geometry_index,
+    geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, item_mesh_rig_id,
     skull_geometry, textured_cube_vertices,
 };
 
@@ -465,7 +465,7 @@ impl EquipmentRuntime {
             (MeshKey::Block(_), _) => {
                 textured_cube_vertices(blocks::face_rects(placement.uv_rect()))
             }
-            (_, Some(sprite)) => extruded_sprite_vertices(
+            (_, Some(sprite)) => held_sprite_vertices(
                 usize::from(sprite.width),
                 usize::from(sprite.height),
                 &sprite.rgba8,
