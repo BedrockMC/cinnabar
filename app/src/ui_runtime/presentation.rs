@@ -451,23 +451,6 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        // The tab player-list overlay presents every known player with the
-        // list-objective score while the player-list action is held.
-        if !inventory_open && !menu_visible && self.hud_frame.tab_list_open {
-            let players = runtime.player_list_overlay_rows();
-            retained_hud::append_player_list_nodes(
-                &mut nodes,
-                &mut next_id,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
-                content_width,
-                content_height,
-                &players,
-            )?;
-        }
-
         if !inventory_open && !menu_visible {
             self.append_debug_overlay(&mut nodes, &mut next_id, metrics, content_width)?;
             nametags::append_nametag_nodes(

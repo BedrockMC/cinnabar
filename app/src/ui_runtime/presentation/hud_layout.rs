@@ -101,8 +101,6 @@ pub(crate) struct HudFrame {
     /// ready); the reference hides the indicator at full charge, so it
     /// draws only for sub-full values.
     pub attack_indicator_charge: Option<f32>,
-    /// Whether the held player-list action keeps the tab overlay open.
-    pub tab_list_open: bool,
     /// The local player's floored feet position.
     pub player_block: Option<[i32; 3]>,
     /// The absolute world tick, when the session has a clock.

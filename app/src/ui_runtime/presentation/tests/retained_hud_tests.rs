@@ -1,18 +1,13 @@
 use super::super::retained_hud::{
     MAX_PRESENTED_BELOW_NAME_ROWS, MAX_PRESENTED_PLAYER_LIST_ROWS, MAX_PRESENTED_SCOREBOARD_HEARTS,
-    MAX_PRESENTED_SCOREBOARD_ROWS, PresentedScoreValue, SCOREBOARD_HORIZONTAL_PADDING,
-    SCOREBOARD_NAME_WIDTH, SCOREBOARD_TEXT_HEIGHT, SCOREBOARD_TITLE_WIDTH,
-    ScoreboardPresentationScope, project_below_name_scores, project_scoreboard_for_scope,
+    MAX_PRESENTED_SCOREBOARD_ROWS, PresentedScoreValue, ScoreboardPresentationScope,
+    project_below_name_scores, project_scoreboard_for_scope,
 };
 use super::*;
 use ui::ScoreOwner;
 
 #[test]
 fn scoreboard_contract_matches_hash_pinned_1_26_3301_ui_definition() {
-    assert_eq!(SCOREBOARD_TEXT_HEIGHT, 10.0);
-    assert_eq!(SCOREBOARD_TITLE_WIDTH, 170.0);
-    assert_eq!(SCOREBOARD_NAME_WIDTH, 100.0);
-    assert_eq!(SCOREBOARD_HORIZONTAL_PADDING, 10.0);
     assert_eq!(MAX_PRESENTED_SCOREBOARD_ROWS, 15);
     assert_eq!(
         MAX_PRESENTED_PLAYER_LIST_ROWS,

@@ -122,28 +122,3 @@ fn the_renderable_effect_id_gate_matches_the_pinned_icon_table_exactly() {
         );
     }
 }
-
-#[test]
-fn the_tab_overlay_lists_known_players_with_list_scores_while_held() {
-    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
-    let mut runtime = UiRuntime::new(1);
-    runtime.refresh_raw_text_identities(
-        |_| None,
-        vec![std::sync::Arc::from("Alex"), std::sync::Arc::from("Steve")],
-    );
-
-    let closed = build(&mut presentation, &runtime, 0);
-    assert!(closed.vertices.is_empty(), "no overlay while released");
-
-    presentation.hud_frame_mut().tab_list_open = true;
-    let open = build(&mut presentation, &runtime, 0);
-    assert!(
-        !open.vertices.is_empty(),
-        "held player-list action presents the known players"
-    );
-
-    // Releasing the action removes the overlay again.
-    presentation.hud_frame_mut().tab_list_open = false;
-    let released = build(&mut presentation, &runtime, 0);
-    assert!(released.vertices.is_empty());
-}

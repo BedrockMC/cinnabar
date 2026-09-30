@@ -163,7 +163,8 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 data.set_global("#playername", text(view.display_name.clone()));
                 flags(&mut data, &["#playername_visible"]);
                 data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
-                context = unlock_text(context);
+                // A non-edu client draws the retail pause content, not edu_pause's.
+                context = unlock_text(context).with_flag("ignore_edu_pause", true);
                 "pause.pause_screen"
             }
             MenuScreen::Home => {

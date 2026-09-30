@@ -5,13 +5,10 @@ use super::*;
 pub(crate) fn observe_mount_jump_input(
     input: Res<crate::semantic_controls::SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
     time: Res<Time<Real>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
-    presentation.hud_frame_mut().tab_list_open =
-        input.phase(semantic_input::Action::PlayerList).held;
 }
 
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
