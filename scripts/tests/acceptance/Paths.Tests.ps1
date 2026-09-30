@@ -393,10 +393,10 @@
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
-    Assert-True ($source.Contains("'3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38'")) 'gophertunnel metadata commit is not the repository pin'
+    Assert-True ($source.Contains("'b725d82563e93308fd1f92d27da5e97301ad5040'")) 'gophertunnel metadata commit is not the repository pin'
     Assert-True ($source.Contains('Get-PinnedGophertunnelCommit')) 'gophertunnel metadata does not verify go list -m resolution'
     Assert-True ($source.Contains("'c4540512dc47833bb40363da7ad1161110d64b67'")) 'protocol metadata omitted the Axolotl Stack revision'
-    Assert-True ($source.Contains("'870bb549c701a0c03472c66441449c4b70a8454a'")) 'protocol metadata omitted the protocolgen revision'
+    Assert-True ($source.Contains("'0b8f17e3b321f7cb89e21dc8563398b9981e632f'")) 'protocol metadata omitted the protocolgen revision'
     Assert-True ($source.Contains("'62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'")) 'Valentine metadata omitted the retained license identity'
     Assert-True ($source.Contains("protocol_dependency_resolution = 'vendored-path'")) 'acceptance metadata does not identify local vendored dependency resolution'
     Assert-True ($source.Contains('pinned_axolotl_stack_commit')) 'acceptance metadata omits the Axolotl Stack revision'
@@ -419,9 +419,9 @@
     Assert-True ($source.Contains('Write-AcceptanceEvent')) 'live harness does not persist ordered fixture/teleport events'
     Assert-True ($source.Contains('$sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir -AllowMissingWorld')) `
         'live BDS source-world behavior is not manifested for every acceptance run'
-    Assert-True ($source.Contains("'e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'")) `
+    Assert-True ($source.Contains("'19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'")) `
         'acceptance does not pin the exact BDS executable identity'
-    Assert-True ($source.Contains("'1.26.40.8'")) 'acceptance does not pin the exact BDS startup release'
+    Assert-True ($source.Contains("'1.26.52.3'")) 'acceptance does not pin the exact BDS startup release'
     Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
     Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
     Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'

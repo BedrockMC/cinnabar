@@ -125,7 +125,7 @@ mod tests {
             "",
         ))
         .expect("known reason normalizes");
-        assert_eq!(known.reason, "KickedForExploit");
+        assert_eq!(known.reason, "Kickedforexploit");
 
         let unknown = ServerDisconnectEvent::from_packet_data(&disconnect_data(
             EnumsConnectionDisconnectFailReason::UnknownValue(-7),

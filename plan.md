@@ -59,6 +59,23 @@ render controllers fall back), pack attachables (held/worn on player bodies) lay
 (pack bindings win by item identifier; pack property defaults seed only from `entities/` in
 resource packs), rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
+2026-09-30 protocol-2193 wire target (owner decision): Cinnabar moves from
+Bedrock 1.26.44 / protocol 2168 to 1.26.50 / protocol 2193, because Gophertunnel
+`lunar` now supports only 1.26.50 (Mojang's current release is 1.26.52 on the
+same protocol). The Go core, fixture generator and local server pin Gophertunnel
+`b725d82563e93308fd1f92d27da5e97301ad5040` on `resource-pack-changes` and accept
+only `minecraft.DefaultProtocol`; the client reports game version 1.26.50. The
+vendored Valentine crate is regenerated from protocolgen `0b8f17e3`'s reconciled
+1.26.51 manifest (`valentine_bedrock_1_26_51`, see `crates/protocol/vendor/UPSTREAM.md`)
+and the fixtures by `tools/fixturegen`. Local worlds provision BDS 1.26.52.x.
+Codec, fixture and unit coverage only: no 1.26.50 server join, native visual, or
+vanilla acceptance gate has been run on this target yet. New 2193 fields are
+decoded but not yet consumed (MoveActorDelta interpolation ticks, PlaySound
+range bypass and playback offset, camera preset starting rotation, dimension
+default biome, SetPlayerFurnaceOptions, RecordStarted); that parity work is
+incomplete. The account/auth cache is keyed on the game version, so the first
+join re-authenticates.
+
 2026-09-09 loading publication: the owner authorized publishing the completed
 loading/auth work; the broader track and unused solver experiments remain paused.
 The reviewed ordered-batch dependency is published on `resource-pack-changes` at
@@ -535,7 +552,7 @@ carrying plain Bedrock packets pinned to ONE protocol version, plus a small cont
 Local worlds run dragonfly behind the same core, over the same client path.
 
 **Tech Stack:**
-- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (1.26.44)
+- Client: Rust, Bevy (wgpu), rayon (meshing), axolotl-stack `valentine` packet defs (protocol 2193)
 - Core: Go, `lunar` gophertunnel + go-raknet fork; upstream `df-mc/go-nethernet` and `df-mc/go-xsapi/v2`; dragonfly
 - Boundary: socket-file transport already implemented in `bedrock-mc/plugin` (reference impl)
 - Assets: Mojang/bedrock-samples (full vanilla resource pack); `refs/pocketmine/bds-data`
@@ -543,7 +560,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Global Constraints
 
-- Pinned loopback wire target: **Bedrock 1.26.44 / protocol 2168** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
+- Pinned loopback wire target: **Bedrock 1.26.50 / protocol 2193** (bumps are deliberate, lockstep with a core release; the core's gophertunnel protocol conversion absorbs upstream server version variance).
 - The Rust side NEVER implements auth, encryption-to-upstream, RakNet-to-upstream, or NetherNet. If a task seems to need one of those in Rust, the task is wrong.
 - The loopback game channel is Bedrock packets with length-prefixed framing; no RakNet on this leg. Encryption on this leg: whatever gophertunnel's Listener does by default — do not fork to remove it; AES on loopback is negligible.
 - Single source of truth for protocol/data lives in the Go estate: packet truth = gophertunnel (validated against Mojang bedrock-protocol-docs via `cmd/protocoldrift`); block/item/biome registries = generated exports from dragonfly; client packet defs = valentine (docs-generated), conformance-tested against gophertunnel bytes.
@@ -561,7 +578,7 @@ Local worlds run dragonfly behind the same core, over the same client path.
 ## Repos and Layout
 
 - **`bedrock-mc/client`** (new greenfield repo; do not reuse `bedrock-mc/Rust-LCE` code, assets, renderer, or world model because it targets the Legacy Console Edition rather than current Bedrock/BDS data):
-  - `crates/protocol/` — vendored/generated Valentine 1.26.44 defs + login-sequence state machine
+  - `crates/protocol/` — vendored/generated Valentine protocol-2193 defs + login-sequence state machine
   - `crates/world/` — chunk store, sub-chunk decode, block registry, light engine
   - `crates/render/` — meshing, atlas, chunk/entity/sky rendering (Bevy plugins)
   - `crates/sim/` — movement physics (bedsim-parity port)

@@ -1,6 +1,6 @@
 //! Passive, bounded ability evidence. This module does not resolve permissions.
-//! Wire fields follow protocol 2168 and the pinned gophertunnel
-//! `minecraft/protocol/ability.go` at 3d9f4b7a4ac0.
+//! Wire fields follow protocol 2193 and the pinned gophertunnel
+//! `minecraft/protocol/ability.go` at b725d82563e9.
 use std::sync::Arc;
 
 use bytes::Buf;

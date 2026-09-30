@@ -9,6 +9,11 @@ pub use current::*;
 #[cfg(feature = "bedrock_1_26_51")]
 pub use valentine::bedrock::version::v1_26_51 as current;
 
+/// Game version reported at login and to the auth services. The codec's source
+/// manifest is 1.26.51, but gophertunnel identifies protocol 2193 as 1.26.50 and
+/// the core proxy accepts only that string.
+pub const GAME_VERSION: &str = "1.26.50";
+
 // Keep Jolyne's stable facade names while protocolgen exposes shared canonical
 // enum names from the version module.
 pub type NetworkSettingsPacketCompressionAlgorithm = current::EnumsPacketCompressionAlgorithm;

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_gophertunnel_commit='3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38'
-expected_gophertunnel_version='v1.25.3-0.20260908230935-3d9f4b7a4ac0'
-expected_bds_sha256='e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'
-expected_bds_release='1.26.40.8'
+expected_gophertunnel_commit='b725d82563e93308fd1f92d27da5e97301ad5040'
+expected_gophertunnel_version='v1.25.3-0.20260929084839-b725d82563e9'
+expected_bds_sha256='19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
+expected_bds_release='1.26.52.3'
 pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'
-pinned_protocolgen_commit='870bb549c701a0c03472c66441449c4b70a8454a'
+pinned_protocolgen_commit='0b8f17e3b321f7cb89e21dc8563398b9981e632f'
 pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 usage() {

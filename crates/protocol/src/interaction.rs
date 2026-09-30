@@ -115,10 +115,8 @@ pub fn click_block_transaction_packet(
     trigger: ItemUseTrigger,
     predicted_success: bool,
 ) -> Result<crate::Packet, BlockUsePacketError> {
-    let mut transaction = item_use_transaction(
-        request,
-        ItemUseInventoryTransactionActionType::Place,
-    )?;
+    let mut transaction =
+        item_use_transaction(request, ItemUseInventoryTransactionActionType::Place)?;
     transaction.trigger_type = match trigger {
         ItemUseTrigger::PlayerInput => ItemUseInventoryTransactionTriggerType::Playerinput,
         ItemUseTrigger::SimulationTick => ItemUseInventoryTransactionTriggerType::Simulationtick,
@@ -279,28 +277,27 @@ pub fn use_actor_packet(
     Ok(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
-        transaction:
-            InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(Box::new(
-                ItemUseOnActorInventoryTransaction {
-                    actions: InventoryTransaction {
-                        actions: Vec::new(),
-                    },
-                    runtime_id: ActorRuntimeId { actor_runtime_id },
-                    action_type,
-                    slot: i32::from(request.selected_slot),
-                    item,
-                    from_position: Vec3 {
-                        x: from_x,
-                        y: from_y,
-                        z: from_z,
-                    },
-                    hit_position: Vec3 {
-                        x: hit_x,
-                        y: hit_y,
-                        z: hit_z,
-                    },
+        transaction: InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
+            Box::new(ItemUseOnActorInventoryTransaction {
+                actions: InventoryTransaction {
+                    actions: Vec::new(),
                 },
-            )),
+                runtime_id: ActorRuntimeId { actor_runtime_id },
+                action_type,
+                slot: i32::from(request.selected_slot),
+                item,
+                from_position: Vec3 {
+                    x: from_x,
+                    y: from_y,
+                    z: from_z,
+                },
+                hit_position: Vec3 {
+                    x: hit_x,
+                    y: hit_y,
+                    z: hit_z,
+                },
+            }),
+        ),
     }
     .into())
 }

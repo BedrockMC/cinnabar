@@ -60,12 +60,12 @@ fn assert_block_use_constants(
     };
     assert_eq!(packet.legacy_request_id.id, 0);
     assert!(packet.legacy_set_item_slots.is_none());
-    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction)) =
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
         &packet.transaction
     else {
         panic!("expected item-use transaction");
     };
-    assert_eq!(transaction.actions.actions, Some(Vec::new()));
+    assert!(transaction.actions.actions.is_empty());
     assert_eq!(transaction.action_type, expected_action);
     assert_eq!(
         transaction.trigger_type,
@@ -85,7 +85,7 @@ fn verified_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItemStack 
     let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
         panic!("expected inventory transaction");
     };
-    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction)) =
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
         &packet.transaction
     else {
         panic!("expected item-use transaction");
@@ -111,9 +111,8 @@ fn verified_actor_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItem
     let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
         panic!("expected inventory transaction");
     };
-    let Some(InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
-        transaction,
-    )) = &packet.transaction
+    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
+        &packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
@@ -140,13 +139,12 @@ fn assert_actor_use_constants(packet: &protocol::Packet, action: ActorUseAction)
     };
     assert_eq!(packet.legacy_request_id.id, 0);
     assert!(packet.legacy_set_item_slots.is_none());
-    let Some(InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
-        transaction,
-    )) = &packet.transaction
+    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
+        &packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
-    assert_eq!(transaction.actions.actions, Some(Vec::new()));
+    assert!(transaction.actions.actions.is_empty());
     assert_eq!(
         transaction.action_type,
         match action {
@@ -493,7 +491,7 @@ fn click_block_builder_preserves_exact_relative_hit_boundaries() {
     let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
         panic!("expected inventory transaction");
     };
-    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction)) =
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
         packet.transaction
     else {
         panic!("expected item-use transaction");
@@ -552,9 +550,8 @@ fn actor_use_builder_preserves_finite_out_of_unit_hit_offsets() {
     let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
         panic!("expected inventory transaction");
     };
-    let Some(InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
-        transaction,
-    )) = packet.transaction
+    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
+        packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
@@ -615,7 +612,7 @@ fn click_block_transaction_carries_trigger_and_prediction() {
     let McpePacketData::InventoryTransactionPacket(fixture) = &decoded.data else {
         panic!("inventory transaction");
     };
-    let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(fixture)) =
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(fixture) =
         &fixture.transaction
     else {
         panic!("item use");
@@ -658,7 +655,7 @@ fn click_block_transaction_carries_trigger_and_prediction() {
         else {
             panic!("inventory transaction");
         };
-        let Some(InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built)) =
+        let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built) =
             built.transaction
         else {
             panic!("item use");
