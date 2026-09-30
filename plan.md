@@ -23,7 +23,8 @@ variables read 0; non-uniform parent scale over rotated children is approximated
 without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
 transitions, render-controller part visibility and per-axis rotation objects are
 missing; queries without retained data read idle values; held items and most mob
-artwork are deferred.
+artwork are deferred. A first-person held item with no drawable layer shows the
+bare swinging arm instead (vanilla always draws the item).
 
 2026-09-28 survival interaction: hold-to-mine (both block-breaking authority
 modes), MineBlock wear with reconciled responses, standalone ClickBlock
