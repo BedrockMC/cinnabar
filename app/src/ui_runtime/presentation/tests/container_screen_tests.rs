@@ -101,6 +101,10 @@ fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
 /// The creative inventory over a 300-item catalog across the four tabs, whose
 /// first construction items fold into a named group, the second one unfolded.
 fn creative() -> UiRuntime {
+    creative_with(300)
+}
+
+fn creative_with(count: u32) -> UiRuntime {
     use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
     let mut runtime = session();
     runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
@@ -127,7 +131,7 @@ fn creative() -> UiRuntime {
         CreativeCategory::Construction,
         "itemGroup.name.stone",
     ));
-    let items = (0..300u32)
+    let items = (0..count)
         .map(|index| CreativeItem {
             creative_network_id: index + 1,
             stack: NetworkItemStack {
@@ -377,4 +381,36 @@ fn every_container_screen_draws_through_the_engine() {
             assert!(reached.contains(&hit), "{name}: {hit:?} unreachable");
         }
     }
+}
+
+// Moving the pointer across slots only changes which hover states show: the
+// screen never lays out again, however long the creative catalog.
+#[test]
+fn hovering_slots_never_lays_the_screen_out_again() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = creative_with(1500);
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let layouts = presentation.engine_container_layouts();
+    let started = std::time::Instant::now();
+    let moves = 24u64;
+    for step in 0..moves {
+        let point = [
+            60.0 + (step % 8) as f32 * 18.0,
+            70.0 + (step / 8) as f32 * 18.0,
+        ];
+        runtime.set_inventory_pointer_gui(Some(point));
+        presentation
+            .build(&runtime, 1_000 + step, [1280, 720], dpi)
+            .unwrap();
+    }
+    let per_move = started.elapsed() / moves as u32;
+    eprintln!("hover frame with 1500 catalog entries: {per_move:?}");
+    assert_eq!(presentation.engine_container_layouts(), layouts);
 }

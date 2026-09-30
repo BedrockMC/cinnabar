@@ -76,15 +76,59 @@ pub(crate) fn hidden_state_children(
     key: &str,
     state: &ViewState,
 ) -> Vec<String> {
+    hidden_under(
+        control,
+        state.is_hovered(key),
+        state.is_pressed(key),
+        state.is_focused(key),
+    )
+}
+
+/// Per state child of a stateful control, the interaction states it shows under,
+/// as a mask over [`state_index`]; empty for controls without state children.
+pub(crate) fn state_child_masks(control: &ResolvedControl) -> Vec<(String, u8)> {
+    let names: &[&str] = match control.control_type.as_deref().unwrap_or("") {
+        "button" | "edit_box" | "slider_box" | "slider" => &BUTTON_STATES,
+        "toggle" | "dropdown" => &TOGGLE_STATES,
+        _ => return Vec::new(),
+    };
+    let mut masks: Vec<(String, u8)> = names
+        .iter()
+        .filter_map(|property| prop_str(control, property))
+        .map(|name| (name.to_owned(), 0))
+        .collect();
+    masks.dedup();
+    for index in 0..8u8 {
+        let hidden = hidden_under(control, index & 1 != 0, index & 2 != 0, index & 4 != 0);
+        for (name, mask) in &mut masks {
+            if !hidden.contains(name) {
+                *mask |= 1 << index;
+            }
+        }
+    }
+    masks
+}
+
+/// The bit a control's interaction state takes in a [`state_child_masks`] mask.
+pub(crate) fn state_index(state: &ViewState, key: &str) -> u8 {
+    u8::from(state.is_hovered(key))
+        | (u8::from(state.is_pressed(key)) << 1)
+        | (u8::from(state.is_focused(key)) << 2)
+}
+
+fn hidden_under(
+    control: &ResolvedControl,
+    hovered: bool,
+    pressed: bool,
+    focused: bool,
+) -> Vec<String> {
     let kind = control.control_type.as_deref().unwrap_or("");
-    let hovered = state.is_hovered(key);
-    let pressed = state.is_pressed(key);
     let locked = !enabled(control);
     let (names, shown): (&[&str], &str) = match kind {
         "button" | "edit_box" | "slider_box" => {
             let shown = if locked {
                 "locked_control"
-            } else if pressed || (kind == "edit_box" && state.is_focused(key)) {
+            } else if pressed || (kind == "edit_box" && focused) {
                 "pressed_control"
             } else if hovered {
                 "hover_control"

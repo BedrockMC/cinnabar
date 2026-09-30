@@ -520,12 +520,39 @@ pub fn render_bound(
     finish(bound, root_size, env, state)
 }
 
+/// [`render_bound`] independent of hover, press and focus: only `state`'s scroll
+/// offsets lay out, and state children emit gated ([`crate::emit_gated`]), so
+/// the result stays valid until the data, scroll, or root size change. Filter
+/// its nodes with [`DrawNode::shown`]; its hit regions are the neutral state's.
+pub fn render_bound_gated(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+) -> FormRender {
+    let neutral = ViewState {
+        scroll: state.scroll.clone(),
+        ..ViewState::default()
+    };
+    lay_out_and_emit(bound, root_size, env, &neutral, crate::emit::emit_gated)
+}
+
 /// Lay out, emit, and collect input for a bound tree.
 pub(crate) fn finish(
     bound: ResolvedControl,
     root_size: [f64; 2],
     env: &LayoutEnv,
     state: &ViewState,
+) -> FormRender {
+    lay_out_and_emit(bound, root_size, env, state, emit)
+}
+
+fn lay_out_and_emit(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    emit: fn(&crate::layout::LaidOut, &LayoutEnv) -> Vec<DrawNode>,
 ) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
         let (laid, report) = layout_with(&bound, root_size, env, state);

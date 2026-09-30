@@ -154,9 +154,18 @@ impl UiPresentationRuntime {
         );
         let id_aux =
             container_data::id_aux_icons(runtime, &self.hud_frame, |id| self.item_icon(id, 0));
+        // The hovered item's full tooltip (name, enchantments, lore) replaces its
+        // bound name, so hovering changes no data.
+        let tooltip = runtime
+            .screen_state()
+            .hover
+            .filter(|hit| hit.is_item_cell())
+            .and_then(|_| tooltip_text(&self.hud_frame.window_text.tooltip));
         let art = engine::ScreenArt {
             icons: &icons,
             id_aux: &id_aux,
+            view: Some(&view),
+            tooltip: tooltip.as_deref(),
             preview: self.hud_frame.player_preview,
             pointer,
             ..engine::ScreenArt::default()
@@ -195,6 +204,15 @@ impl UiPresentationRuntime {
                 Ok(false)
             }
         }
+    }
+
+    /// Layouts the current container screen has run, for cache tests.
+    #[cfg(test)]
+    pub(crate) fn engine_container_layouts(&self) -> usize {
+        self.form_presentation
+            .container_cache
+            .as_ref()
+            .map_or(0, |cache| cache.layouts)
     }
 
     /// The container frame the engine drew last build, if any.
@@ -248,8 +266,8 @@ impl UiPresentationRuntime {
 }
 
 /// The last container screen's resolved tree, its binding and its layout, each
-/// kept while its inputs stay the same: a frame that only moves the hover
-/// re-lays out, and an unchanged frame (a screen sitting open) reuses it all.
+/// kept while its inputs stay the same: a hover, press or focus change only
+/// filters the laid-out nodes, and a screen sitting open reuses it all.
 pub(super) struct ScreenCache {
     catalog: Arc<json_ui::Catalog>,
     reference: &'static str,
@@ -257,6 +275,8 @@ pub(super) struct ScreenCache {
     resolved: json_ui::ResolvedControl,
     bound: Option<(DataSource, json_ui::ResolvedControl)>,
     laid: Option<(ViewState, [f64; 2], Arc<json_ui::FormRender>)>,
+    /// Layouts run for this screen, for cache tests.
+    layouts: usize,
 }
 
 impl ScreenCache {
@@ -284,6 +304,7 @@ impl ScreenCache {
                 resolved: json_ui::resolve_screen(reference, catalog, context)?,
                 bound: None,
                 laid: None,
+                layouts: 0,
             });
         }
         let cached = cache.as_mut()?;
@@ -292,12 +313,14 @@ impl ScreenCache {
             cached.bound = Some((data.clone(), tree));
             cached.laid = None;
         }
+        // Hover, press and focus only filter the gated nodes; scroll lays out again.
         let fresh = |(laid_view, laid_root, _): &(ViewState, [f64; 2], _)| {
-            laid_view == view && *laid_root == root
+            laid_view.scroll == view.scroll && *laid_root == root
         };
         if !cached.laid.as_ref().is_some_and(fresh) {
             let tree = cached.bound.as_ref()?.1.clone();
-            let render = json_ui::render_bound(tree, root, env, view);
+            let render = json_ui::render_bound_gated(tree, root, env, view);
+            cached.layouts += 1;
             cached.laid = Some((view.clone(), root, Arc::new(render)));
         }
         cached
@@ -324,14 +347,11 @@ pub(crate) fn engine_panel_contains(frame: &EngineFrame, gui: [f32; 2]) -> bool 
 struct Cells<'a> {
     frame: &'a HudFrame,
     icons: &'a mut Vec<IconRef>,
-    /// The hovered cell and its full tooltip (name, enchantments, lore).
-    hover: Option<(InventoryCellHit, String)>,
 }
 
 impl Cells<'_> {
     fn cell(
         &mut self,
-        hit: InventoryCellHit,
         stack: Option<&NetworkItemStack>,
         icon: Option<IconRef>,
         durability: Option<f32>,
@@ -352,10 +372,6 @@ impl Cells<'_> {
                     .get(&(stack.network_id, stack.metadata))
             })
             .map_or_else(String::new, |name| name.to_string());
-        let name = match &self.hover {
-            Some((hovered, tooltip)) if *hovered == hit && stack.is_some() => tooltip.clone(),
-            _ => name,
-        };
         item.with(
             "#inventory_stack_count",
             Scalar::Text(if count > 1 {
@@ -389,19 +405,11 @@ fn screen_data(
     let mut data = DataSource::new();
     // Bindings the controller does not answer read as false, as in vanilla.
     data.set_strict(true);
-    let mut cells = Cells {
-        frame,
-        icons,
-        hover: runtime
-            .screen_state()
-            .hover
-            .zip(tooltip_text(&frame.window_text.tooltip)),
-    };
+    let mut cells = Cells { frame, icons };
     let player_icon = |index: usize| frame.inventory_icons.0.get(index).copied().flatten();
     let inventory = (9..36)
         .map(|index| {
             cells.cell(
-                InventoryCellHit::Player(index as u8),
                 ledger.displayed_stack(index as u8),
                 player_icon(index),
                 frame.durability.player[index],
@@ -412,7 +420,6 @@ fn screen_data(
     let hotbar = (0..9)
         .map(|index| {
             cells.cell(
-                InventoryCellHit::Player(index as u8),
                 ledger.displayed_stack(index as u8),
                 player_icon(index),
                 frame.hotbar_durability[index],
@@ -434,7 +441,6 @@ fn screen_data(
                 .map(|index| {
                     let slot = first + index as u8;
                     cells.cell(
-                        InventoryCellHit::Craft(slot),
                         ledger.target_stack(InventoryTarget::Craft(slot)),
                         frame.crafting.icons.get(index).copied().flatten(),
                         None,
@@ -443,34 +449,22 @@ fn screen_data(
                 .collect();
             data.set_collection("crafting_input_items", grid);
             let output = match &frame.crafting.output {
-                Some((icon, stack)) => {
-                    cells.cell(InventoryCellHit::CraftOutput, Some(stack), *icon, None)
-                }
-                None => cells.cell(InventoryCellHit::CraftOutput, None, None, None),
+                Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
+                None => cells.cell(None, None, None),
             };
             data.set_collection("crafting_output_items", vec![output]);
             let armor = (0..4u8)
                 .map(|slot| {
                     let stack = ledger.target_stack(InventoryTarget::Armor(slot));
                     cells
-                        .cell(
-                            InventoryCellHit::Armor(slot),
-                            stack,
-                            frame.armor_icons[usize::from(slot)],
-                            None,
-                        )
+                        .cell(stack, frame.armor_icons[usize::from(slot)], None)
                         .with("#empty_armor_image_visible", Scalar::Bool(stack.is_none()))
                 })
                 .collect();
             data.set_collection("armor_items", armor);
             let offhand = ledger.target_stack(InventoryTarget::Offhand);
             let offhand = cells
-                .cell(
-                    InventoryCellHit::Offhand,
-                    offhand,
-                    frame.offhand_icon,
-                    frame.offhand_durability,
-                )
+                .cell(offhand, frame.offhand_icon, frame.offhand_durability)
                 .with(
                     "#empty_offhand_image_visible",
                     Scalar::Bool(offhand.is_none()),
@@ -484,7 +478,7 @@ fn screen_data(
                     .iter()
                     .map(|cell| {
                         let (stack, icon, durability) = station_cell(runtime, frame, *cell);
-                        let item = cells.cell(cell.hit(), stack, icon, durability);
+                        let item = cells.cell(stack, icon, durability);
                         container_data::decorate(collection, stack.is_none(), item)
                     })
                     .collect();
@@ -605,6 +599,7 @@ fn held_stack(
         alpha: 1.0,
         fades: Vec::new(),
         draw,
+        gates: Vec::new(),
     };
     let mut nodes = vec![node(
         RectOut {

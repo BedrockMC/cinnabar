@@ -132,10 +132,6 @@ pub(super) fn book_data(
     }
     let entries = recipe_book_entries(runtime);
     let total = entries.len() as f64;
-    let hovered = match state.hover {
-        Some(InventoryCellHit::RecipeBook(index)) => Some(usize::from(index)),
-        _ => None,
-    };
     let items = entries
         .iter()
         .enumerate()
@@ -152,12 +148,6 @@ pub(super) fn book_data(
                 item = item.with("#item_renderer_data", Scalar::Num((icons.len() - 1) as f64));
             }
             let count = entry.stack().count;
-            // Only the hovered entry's text is ever read.
-            let hover = if hovered == Some(index) {
-                super::containers::tooltip_text(&frame.window_text.tooltip).unwrap_or_default()
-            } else {
-                String::new()
-            };
             item.with(
                 "#recipe_craftable_count",
                 Scalar::Text(if count > 1 && !creative {
@@ -166,7 +156,7 @@ pub(super) fn book_data(
                     String::new()
                 }),
             )
-            .with("#recipe_hover_text", Scalar::Text(hover))
+            .with("#recipe_hover_text", Scalar::Text(String::new()))
             .with("#is_creative_selected_slot", Scalar::Bool(false))
             .with(
                 "#container_item_background_texture",

@@ -836,6 +836,10 @@ fn alpha(control: &ResolvedControl) -> f32 {
 
 /// `visible` honours a literal bool or `"true"`/`"false"`; an undecidable binding
 /// stays visible, matching the lenient-remote-data rule.
+pub(crate) fn own_visible(control: &ResolvedControl) -> bool {
+    visible(control)
+}
+
 fn visible(control: &ResolvedControl) -> bool {
     match control.properties.get("visible") {
         Some(Value::Bool(flag)) => *flag,

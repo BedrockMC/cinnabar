@@ -384,27 +384,28 @@ fn render_with<R: Borrow<FormRender>>(
     let layouts = cache.into_inner();
     let mut atlas = textures.set.lock();
     // Only what this screen draws needs to be resident.
+    // Many nodes share a texture; each path resolves once.
+    let paths: std::collections::HashSet<&str> = render
+        .nodes
+        .iter()
+        .chain(out.overlay)
+        .filter_map(|node| match &node.draw {
+            Draw::Sprite { texture, .. } => Some(texture.as_str()),
+            _ => None,
+        })
+        .chain(
+            art.hud
+                .into_iter()
+                .flat_map(hud_renderers::HudPaint::textures),
+        )
+        .collect();
     let drawn = Textures {
         assets: textures.assets,
         set: textures.set,
         atlas: &atlas,
         images: art.images,
     }
-    .atlas_keys(
-        render
-            .nodes
-            .iter()
-            .chain(out.overlay)
-            .filter_map(|node| match &node.draw {
-                Draw::Sprite { texture, .. } => Some(texture.as_str()),
-                _ => None,
-            })
-            .chain(
-                art.hud
-                    .into_iter()
-                    .flat_map(hud_renderers::HudPaint::textures),
-            ),
-    );
+    .atlas_keys(paths.into_iter());
     atlas.require(drawn.iter().map(String::as_str));
     let mut painter = Painter {
         textures: Textures {
@@ -425,8 +426,11 @@ fn render_with<R: Borrow<FormRender>>(
         next: out.next,
         clip: None,
     };
+    let view = art.view;
     for node in render.nodes.iter().chain(out.overlay) {
-        painter.paint(node)?;
+        if view.is_none_or(|view| node.shown(view)) {
+            painter.paint(node)?;
+        }
     }
     Ok(Some(EngineFrame {
         identity,
@@ -451,6 +455,10 @@ pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
     /// Icons an `#item_id_aux` renderer names, by that value.
     pub(super) id_aux: &'a [(i64, IconRef)],
+    /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
+    pub(super) view: Option<&'a ViewState>,
+    /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
+    pub(super) tooltip: Option<&'a str>,
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
@@ -686,9 +694,10 @@ impl Painter<'_> {
                 ))
             }
             "hover_text_renderer" => {
-                let text = data
-                    .get("#hover_text")?
-                    .as_str()
+                let text = self
+                    .art
+                    .tooltip
+                    .or_else(|| data.get("#hover_text")?.as_str())
                     .filter(|text| !text.is_empty())?;
                 self.tooltip(text, dest).ok().flatten()
             }
