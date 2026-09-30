@@ -134,14 +134,13 @@ impl LauncherCore {
         let directory =
             SessionDirectoryGuard::bind(socket_dir.clone()).map_err(|error| anyhow!("{error}"))?;
         clear_stale_bridge_endpoint(&socket_dir)?;
-        let child = launcher_command(
+        let child = crate::lifecycle::children::spawn(&mut launcher_command(
             layout,
             &executable,
             &socket_dir,
             auth_cache,
             upstream_client_cache,
-        )
-        .spawn()
+        ))
         .with_context(|| format!("spawn {} for the launcher", executable.display()))?;
         let mut guard = CoreProcessGuard::default();
         guard.replace(child);
