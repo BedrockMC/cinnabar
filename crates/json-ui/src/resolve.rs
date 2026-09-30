@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use crate::anim;
 use crate::catalog::{Catalog, RawControl, child_controls};
 use crate::env::{Env, apply_declarations, fold_expression, parse_var_key, substitute};
-use crate::merge::{deep_merge_control, flatten_def};
+use crate::merge::{Layering, flatten_def, inherit};
 use crate::predicate;
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
@@ -186,24 +186,24 @@ impl<'a> Resolver<'a> {
             }
             return Vec::new();
         }
-        // A `$var` child list (`"controls": "$button_contents"`) is read here.
+        // A `$var` child list (`"controls": "$button_contents"`) is read here;
+        // it replaces the static list even when it resolves to nothing.
         let dynamic = match control.props.get("controls") {
-            Some(Value::String(reference)) => {
+            Some(Value::String(reference)) => Some(
                 match reference.strip_prefix('$').and_then(|name| env.get(name)) {
                     Some(value) => child_controls(&control.owner_ns, value, &mut self.diagnostics),
                     None => Vec::new(),
-                }
-            }
-            _ => Vec::new(),
+                },
+            ),
+            _ => None,
         };
-        let children = if dynamic.is_empty() {
-            &control.children
-        } else {
-            &dynamic
-        };
+        let children = dynamic.as_ref().unwrap_or(&control.children);
         let mut resolved = Vec::new();
         for child in children {
-            let (working, provenance, unresolved) = self.resolve_child_base(child, env);
+            let (mut working, provenance, unresolved) = self.resolve_child_base(child, env);
+            if child.base.is_none() && !child.name.starts_with('$') {
+                working.name = crate::catalog::unqualified(&child.name).to_owned();
+            }
             // `ignored` reads the enclosing scope only: the vanilla client
             // evaluates it before the control's own `$` declarations apply.
             if self.is_ignored(&working, env) {
@@ -284,7 +284,7 @@ impl<'a> Resolver<'a> {
             &mut self.diagnostics,
         ) {
             Some((base_control, _)) => {
-                let mut working = deep_merge_control(&base_control, child);
+                let mut working = inherit(&base_control, child, Layering::Inline);
                 working.base = None;
                 (working, Some(base_ref), None)
             }
@@ -509,5 +509,28 @@ mod tests {
             .map(|child| child.name.as_str())
             .collect();
         assert_eq!(names, ["mouse"]);
+    }
+
+    fn names(catalog: &Catalog, reference: &str) -> Vec<String> {
+        let root = resolve(catalog, reference, &Context::empty()).control.unwrap();
+        root.children.iter().map(|child| child.name.clone()).collect()
+    }
+
+    // A derived `controls`, even an empty dynamic one, replaces the base's children.
+    #[test]
+    fn derived_controls_replace_the_base_children() {
+        let mut catalog = Catalog::default();
+        catalog.overlay_text(
+            "ui/a.json",
+            r#"{ "namespace": "a",
+                "base": { "type": "panel", "controls": [ { "old": { "type": "panel" } } ] },
+                "derived@a.base": { "controls": [ { "new": { "type": "panel" } } ] },
+                "dynamic@a.base": { "$children": [], "controls": "$children" },
+                "inline": { "type": "panel", "controls": [ { "x@a.base": { "controls": [] } } ] } }"#,
+        );
+        assert_eq!(names(&catalog, "a.derived"), ["new"]);
+        assert!(names(&catalog, "a.dynamic").is_empty());
+        let inline = resolve(&catalog, "a.inline", &Context::empty()).control.unwrap();
+        assert!(inline.children[0].children.is_empty());
     }
 }
