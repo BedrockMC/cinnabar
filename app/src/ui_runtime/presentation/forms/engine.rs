@@ -367,9 +367,16 @@ fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<Strin
     catalog.apply_pack(kept);
     let disclaimer = menu_renderers::disclaimer_overlays();
     catalog.apply_pack(
-        [("ui/cinnabar_title.json", menu_renderers::TITLE_PANEL_OVERLAY)]
-            .into_iter()
-            .chain(disclaimer.iter().map(|(path, bytes)| (*path, bytes.as_slice()))),
+        [(
+            "ui/cinnabar_title.json",
+            menu_renderers::TITLE_PANEL_OVERLAY,
+        )]
+        .into_iter()
+        .chain(
+            disclaimer
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice())),
+        ),
     );
     catalog
 }
