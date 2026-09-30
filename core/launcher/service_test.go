@@ -7,15 +7,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"golang.org/x/oauth2"
 )
 
-type staticSource struct{}
-
-func (staticSource) Token() (*oauth2.Token, error) { return &oauth2.Token{AccessToken: "x"}, nil }
+// testAccount is an account runtime without persistence; injected fetchers never touch it.
+func testAccount() *authcache.Account {
+	return authcache.NewAccount(context.Background(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "x"}), nil)
+}
 
 type fixture struct {
 	service  *Service
@@ -24,26 +26,26 @@ type fixture struct {
 	removed  []string
 }
 
-func newFixture(t *testing.T, source oauth2.TokenSource) *fixture {
+func newFixture(t *testing.T, source *authcache.Account) *fixture {
 	t.Helper()
 	f := &fixture{store: control.NewStore(), selector: new(proxy.UpstreamSelector)}
 	f.service = New(Config{
-		TokenSource: source, AuthCache: "/cache/token.json",
+		Account: source, AuthCache: "/cache/token.json",
 		Store: f.store, Selector: f.selector, Transfers: new(proxy.TransferState),
-		Realms: func(context.Context, oauth2.TokenSource) ([]catalog.Realm, error) {
+		Realms: func(context.Context, *authcache.Account) ([]catalog.Realm, error) {
 			return []catalog.Realm{{Name: "R", Target: "realm_id/1"}}, nil
 		},
-		Friends: func(context.Context, oauth2.TokenSource) ([]catalog.Friend, error) {
+		Friends: func(context.Context, *authcache.Account) ([]catalog.Friend, error) {
 			return []catalog.Friend{{XUID: "9"}}, nil
 		},
-		Gamertag: func(context.Context, oauth2.TokenSource) (string, error) { return "Steve", nil },
+		Gamertag: func(context.Context, *authcache.Account) (string, error) { return "Steve", nil },
 		Remove:   func(path string) error { f.removed = append(f.removed, path); return nil },
 	})
 	return f
 }
 
 func TestConnectMapsTargetsToProxySyntax(t *testing.T) {
-	f := newFixture(t, staticSource{})
+	f := newFixture(t, testAccount())
 	for _, test := range []struct{ kind, value, want string }{
 		{control.TargetRakNet, " play.example.net:19132 ", "play.example.net:19132"},
 		{control.TargetRakNet, "[::1]:19132", "[::1]:19132"},
@@ -60,7 +62,7 @@ func TestConnectMapsTargetsToProxySyntax(t *testing.T) {
 }
 
 func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
-	f := newFixture(t, staticSource{})
+	f := newFixture(t, testAccount())
 	_ = f.service.Connect(control.TargetRakNet, "keep.example:1")
 	for _, test := range []struct{ kind, value string }{
 		{control.TargetRakNet, "no-port"}, {control.TargetRakNet, "host:0"}, {control.TargetRakNet, "host:99999"},
@@ -77,7 +79,7 @@ func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
 }
 
 func TestConnectClearsPendingTransfer(t *testing.T) {
-	f := newFixture(t, staticSource{})
+	f := newFixture(t, testAccount())
 	f.store.ObserveTransfer(proxy.TransferTarget{Host: "next", Port: 1})
 	if err := f.service.Connect(control.TargetRakNet, "a.example:1"); err != nil {
 		t.Fatal(err)
@@ -104,7 +106,7 @@ func TestAccountBoundOperationsNeedASession(t *testing.T) {
 }
 
 func TestSignOutRemovesCachesAndBlocksAccountCalls(t *testing.T) {
-	f := newFixture(t, staticSource{})
+	f := newFixture(t, testAccount())
 	f.store.SetAuth(control.AuthV1{State: control.AuthSignedIn, Gamertag: "Steve"})
 	_ = f.service.Connect(control.TargetRealm, "5")
 	if err := f.service.SignOut(); err != nil {
@@ -129,12 +131,12 @@ func TestSignOutRemovesCachesAndBlocksAccountCalls(t *testing.T) {
 }
 
 func TestSignOutToleratesMissingFilesAndReportsRealFailures(t *testing.T) {
-	f := newFixture(t, staticSource{})
+	f := newFixture(t, testAccount())
 	f.service.cfg.Remove = func(string) error { return os.ErrNotExist }
 	if err := f.service.SignOut(); err != nil {
 		t.Fatalf("missing cache files: %v", err)
 	}
-	f = newFixture(t, staticSource{})
+	f = newFixture(t, testAccount())
 	f.service.cfg.Remove = func(string) error { return errors.New("/secret/path: permission denied") }
 	if err := f.service.SignOut(); err == nil || strings.Contains(err.Error(), "/secret") {
 		t.Fatalf("SignOut() = %v, want a failure", err)
@@ -145,7 +147,7 @@ func TestSignOutToleratesMissingFilesAndReportsRealFailures(t *testing.T) {
 }
 
 func TestPublishSignedInIncludesGamertag(t *testing.T) {
-	f := newFixture(t, staticSource{})
+	f := newFixture(t, testAccount())
 	f.service.PublishSignedIn(context.Background())
 	if got := f.store.Auth(); got.State != control.AuthSignedIn || got.Gamertag != "Steve" {
 		t.Fatalf("auth = %+v", got)
@@ -155,11 +157,11 @@ func TestPublishSignedInIncludesGamertag(t *testing.T) {
 func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 	var cached []string
 	service := New(Config{
-		TokenSource: staticSource{}, ArtworkDir: "/art",
-		Featured: func(context.Context, oauth2.TokenSource) ([]catalog.FeaturedServer, error) {
+		Account: testAccount(), ArtworkDir: "/art",
+		Featured: func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error) {
 			return []catalog.FeaturedServer{{Name: "S", Logo: catalog.Image{URL: "https://a.test/l.png"}}}, nil
 		},
-		Profile: func(context.Context, oauth2.TokenSource) (catalog.Profile, error) {
+		Profile: func(context.Context, *authcache.Account) (catalog.Profile, error) {
 			return catalog.Profile{Gamertag: "Steve"}, nil
 		},
 		CacheArt: func(_ context.Context, directory string, images []*catalog.Image) {
@@ -186,8 +188,8 @@ func TestScreenFeedsCacheArtworkAndNeedAnAccount(t *testing.T) {
 
 func TestHomeCachesMessageAndEventArtwork(t *testing.T) {
 	service := New(Config{
-		TokenSource: staticSource{}, ArtworkDir: "/art",
-		Home: func(context.Context, oauth2.TokenSource, *catalog.MessagingSession, string) (catalog.Home, error) {
+		Account: testAccount(), ArtworkDir: "/art",
+		Home: func(context.Context, *authcache.Account, *catalog.MessagingSession, string) (catalog.Home, error) {
 			return catalog.Home{
 				Messages: []catalog.Message{{ID: "m", Images: []catalog.MessageImage{
 					{ID: "tile", Image: catalog.Image{URL: "https://a.test/t.png"}},

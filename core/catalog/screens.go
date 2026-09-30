@@ -2,21 +2,15 @@ package catalog
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/df-mc/go-playfab/v2"
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
-	"github.com/df-mc/go-xsapi/v2"
-	"github.com/sandertv/gophertunnel/minecraft/service"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
-	"golang.org/x/oauth2"
 )
 
 // FeaturedServer is a featured server with the details the play screen's
@@ -76,23 +70,23 @@ type Profile struct {
 }
 
 // FeaturedServers lists the featured servers from the gatherings service.
-func FeaturedServers(ctx context.Context, src oauth2.TokenSource) ([]FeaturedServer, error) {
+func FeaturedServers(ctx context.Context, account *authcache.Account) ([]FeaturedServer, error) {
 	var result []FeaturedServer
-	err := withGatherings(ctx, src, func(_ *xsapi.Client, client *gatherings.Client) error {
+	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
 		values, err := client.FeaturedServers(ctx)
 		if err != nil {
 			return err
 		}
 		result = featuredServers(values)
 		return nil
-	}, nil)
+	})
 	return result, err
 }
 
 // Gatherings lists the community experiences with their join addresses.
-func Gatherings(ctx context.Context, src oauth2.TokenSource) ([]Gathering, error) {
+func Gatherings(ctx context.Context, account *authcache.Account) ([]Gathering, error) {
 	var result []Gathering
-	err := withGatherings(ctx, src, func(_ *xsapi.Client, client *gatherings.Client) error {
+	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
 		values, err := client.Experiences(ctx)
 		if err != nil {
 			return err
@@ -111,17 +105,14 @@ func Gatherings(ctx context.Context, src oauth2.TokenSource) ([]Gathering, error
 			result = append(result, entry)
 		}
 		return nil
-	}, nil)
+	})
 	return result, err
 }
 
 // AccountProfile returns the signed-in gamertag, XUID and gamerpic; a missing
 // gamerpic is not an error.
-func AccountProfile(ctx context.Context, src oauth2.TokenSource) (Profile, error) {
-	if src == nil {
-		return Profile{}, errors.New("catalog authentication token source is nil")
-	}
-	xbl, err := newXSAPIClient(ctx, src)
+func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, error) {
+	xbl, err := newXSAPIClient(ctx, account)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -151,51 +142,12 @@ func AccountProfile(ctx context.Context, src oauth2.TokenSource) (Profile, error
 	return profile, nil
 }
 
-// withGatherings signs in to Xbox Live, PlayFab and the Minecraft-services
-// auth environment, then hands a gatherings client and/or a service session
-// to whichever callbacks are set.
-func withGatherings(
-	ctx context.Context,
-	src oauth2.TokenSource,
-	runGatherings func(*xsapi.Client, *gatherings.Client) error,
-	runServices func(*serviceSession) error,
-) error {
-	if src == nil {
-		return errors.New("catalog authentication token source is nil")
+// withGatherings hands a gatherings client on the account's shared service token to run.
+func withGatherings(ctx context.Context, account *authcache.Account, run func(*gatherings.Client) error) error {
+	if account == nil {
+		return errNoAccount
 	}
-	xbl, err := newXSAPIClient(ctx, src)
-	if err != nil {
-		return err
-	}
-	defer xbl.Close()
-	discovery, err := service.Default(ctx)
-	if err != nil {
-		return fmt.Errorf("discover services: %w", err)
-	}
-	env := new(service.AuthorizationEnvironment)
-	if err := discovery.Environment(env); err != nil {
-		return fmt.Errorf("resolve services: %w", err)
-	}
-	session, err := playfab.LoginWithXbox(ctx, env.PlayFabTitleID, xbl, playfab.ClientConfig{CreateAccount: true})
-	if err != nil {
-		return fmt.Errorf("PlayFab login: %w", err)
-	}
-	defer session.Close()
-	tokens := env.TokenSource(session, service.TokenConfig{})
-	if runGatherings != nil {
-		if err := runGatherings(xbl, gatherings.NewClient(tokens)); err != nil {
-			return err
-		}
-	}
-	if runServices != nil {
-		return runServices(&serviceSession{
-			discovery: discovery,
-			tokens:    tokens,
-			xuid:      xbl.UserInfo().XUID,
-			client:    http.DefaultClient,
-		})
-	}
-	return nil
+	return run(gatherings.NewClient(account))
 }
 
 func featuredServers(values []*gatherings.FeaturedServer) []FeaturedServer {

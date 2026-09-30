@@ -183,6 +183,7 @@ func runWithResourcePackCacheFactory(
 	}
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
+	var account *authcache.Account
 	if statusStore != nil {
 		statusStore.SetAuth(control.AuthV1{State: control.AuthOffline})
 	}
@@ -200,7 +201,9 @@ func runWithResourcePackCacheFactory(
 			}
 			return fmt.Errorf("initialize Microsoft authentication: %w", err)
 		}
-		tokenSource = authcache.PersistentSource(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr)
+		if account = authcache.NewAccount(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
+			tokenSource = account
+		}
 		if statusStore != nil {
 			statusStore.SetAuth(control.AuthV1{State: control.AuthSignedIn})
 		}
@@ -210,10 +213,10 @@ func runWithResourcePackCacheFactory(
 		if opts.resourcePackCacheDir != "" {
 			return errors.New("catalog mode cannot be combined with resource-pack cache options")
 		}
-		if tokenSource == nil {
+		if account == nil {
 			return errors.New("catalog mode requires -auth-cache")
 		}
-		if err := catalog.Write(ctx, opts.catalogFile, tokenSource); err != nil {
+		if err := catalog.Write(ctx, opts.catalogFile, account); err != nil {
 			return fmt.Errorf("write launcher catalog: %w", err)
 		}
 		logger.Info("launcher catalog written", "path", opts.catalogFile)
@@ -264,7 +267,7 @@ func runWithResourcePackCacheFactory(
 			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
 		}
 		service := launcher.New(launcher.Config{
-			TokenSource: tokenSource, AuthCache: opts.authCache,
+			Account: account, AuthCache: opts.authCache,
 			Store: statusStore, Selector: selector, Transfers: transfers,
 			ArtworkDir: artworkDir, CacheFile: cacheFile, Logger: logger,
 			StoreImageDir: authSibling(opts.authCache, "store-images"),
@@ -272,7 +275,7 @@ func runWithResourcePackCacheFactory(
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
 		controlServer.SetMarketplace(service.Marketplace(nil))
-		if tokenSource != nil {
+		if account != nil {
 			go service.PublishSignedIn(ctx)
 			service.Prefetch()
 		}
