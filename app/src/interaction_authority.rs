@@ -15,6 +15,9 @@ use crate::{
     ui_runtime::UiRuntime,
 };
 
+/// Render frames a deferred press may wait for fresh evidence without outliving a stalled simulation.
+pub(crate) const MAX_PENDING_INTERACTION_FRAMES: u64 = 32;
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FrozenBlockObservation {
     pub(crate) frame: FrozenMiningFrame,

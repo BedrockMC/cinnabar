@@ -53,6 +53,8 @@ fn mode_defaults_follow_the_gamemode_table() {
 
     let spectator = GameModeCapabilities::for_mode(Spectator);
     assert!(!spectator.can_use_blocks() && !spectator.can_mine && !spectator.can_attack);
+    assert!(!spectator.can_use_items, "spectators cannot use held items");
+    assert!(survival.can_use_items && creative.can_use_items && adventure.can_use_items);
     assert!(spectator.can_fly && spectator.flying && spectator.invulnerable);
     assert!(!spectator.visible && !spectator.has_collision);
     assert_eq!(spectator.attack_reach, 0.0);
