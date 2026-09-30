@@ -408,7 +408,14 @@ fn drive_particles(
             ParticleEvent::ActorCritical {
                 actor_runtime_id,
                 magic,
-            } => route_critical(&mut system, stream, *actor_runtime_id, *magic),
+                particle_count,
+            } => route_critical(
+                &mut system,
+                stream,
+                *actor_runtime_id,
+                *magic,
+                *particle_count,
+            ),
         }
     }
     for notice in inbox.notices.drain(..) {
@@ -435,7 +442,26 @@ fn drive_particles(
     update_particle_frame(&mut system, &mut frame, time.delta_secs(), &view, &world);
 }
 
-fn route_critical(system: &mut ParticleSystem, stream: &WorldStream, runtime_id: u64, magic: bool) {
+/// Largest server particle count a critical hit may request.
+const MAX_CRITICAL_PARTICLES: i32 = 256;
+
+/// `variable.particle_count` from a critical Animate's data, truncated as vanilla's `(int)` cast;
+/// a non-finite value leaves the pack's fallback count in place.
+fn critical_particle_variables(particle_count: f32) -> Vec<(String, f32)> {
+    if !particle_count.is_finite() {
+        return Vec::new();
+    }
+    let count = (particle_count as i32).clamp(0, MAX_CRITICAL_PARTICLES);
+    vec![("particle_count".to_owned(), count as f32)]
+}
+
+fn route_critical(
+    system: &mut ParticleSystem,
+    stream: &WorldStream,
+    runtime_id: u64,
+    magic: bool,
+    particle_count: f32,
+) {
     let Some(actor) = stream.actor(runtime_id) else {
         return;
     };
@@ -449,5 +475,22 @@ fn route_critical(system: &mut ParticleSystem, stream: &WorldStream, runtime_id:
     } else {
         "minecraft:critical_hit_emitter"
     };
-    system.spawn(&named_request(effect, position, None));
+    let mut request = named_request(effect, position, None);
+    request.variables = critical_particle_variables(particle_count);
+    system.spawn(&request);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::critical_particle_variables;
+
+    /// The server's critical count reaches the emitter; unusable data keeps the pack fallback.
+    #[test]
+    fn critical_hits_bind_the_server_particle_count() {
+        let bound = |data| critical_particle_variables(data);
+        assert_eq!(bound(12.7), [("particle_count".to_owned(), 12.0)]);
+        assert_eq!(bound(0.0), [("particle_count".to_owned(), 0.0)]);
+        assert_eq!(bound(1.0e9), [("particle_count".to_owned(), 256.0)]);
+        assert!(bound(f32::NAN).is_empty());
+    }
 }
