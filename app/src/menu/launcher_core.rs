@@ -220,10 +220,16 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
         .map_err(|_| "the launcher core did not answer".to_owned())?
 }
 
+/// Marks a menu address as a gathering's experience ID, joined when selected.
+pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
+
 /// The `connect.v1` target for a menu address (the proxy's realm and friend
 /// prefixes, else a server that gets the default port when it names none).
 fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
+    if let Some(id) = address.strip_prefix(GATHERING_ADDRESS_PREFIX) {
+        return ConnectTarget::Gathering(id.to_owned());
+    }
     if let Some(id) = address.strip_prefix("realm_id/") {
         return ConnectTarget::Realm(id.to_owned());
     }
@@ -266,6 +272,10 @@ mod tests {
     #[test]
     fn menu_addresses_map_to_connect_targets() {
         assert_eq!(target_for("realm_id/42"), ConnectTarget::Realm("42".into()));
+        assert_eq!(
+            target_for("gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"),
+            ConnectTarget::Gathering("5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f".into())
+        );
         assert_eq!(
             target_for("friend_xuid/2535"),
             ConnectTarget::Friend("2535".into())
