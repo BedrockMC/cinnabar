@@ -22,7 +22,10 @@ use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
 use crate::widgets::{self, ScrollFrame};
 
+mod grid;
 mod measure;
+
+use grid::{fitted_columns, grid_children, grid_columns};
 
 /// A virtual-pixel rectangle, top-left origin.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -305,85 +308,6 @@ fn layout_children<'a>(
     }
 }
 
-/// A `grid`'s column count: `grid_dimensions` (`[columns, rows]`) when given,
-/// else `Some(None)` for a horizontally rescaling grid that fits its width.
-fn grid_columns(control: &ResolvedControl) -> Option<Option<usize>> {
-    if control.control_type.as_deref() != Some("grid") {
-        return None;
-    }
-    let fixed = control
-        .properties
-        .get("grid_dimensions")
-        .and_then(Value::as_array)
-        .and_then(|dims| dims.first()?.as_f64())
-        .filter(|columns| *columns >= 1.0)
-        .map(|columns| columns as usize)
-        // A grid sized by a bound dimension is a one-column menu list.
-        .or_else(|| {
-            control
-                .properties
-                .contains_key("grid_dimension_binding")
-                .then_some(1)
-        });
-    Some(fixed)
-}
-
-fn fitted_columns(columns: Option<usize>, width: Option<f64>, pitch: f64, cells: usize) -> usize {
-    columns
-        .or_else(|| {
-            let width = width?;
-            (pitch > 0.0).then(|| (width / pitch).floor() as usize)
-        })
-        .unwrap_or(cells)
-        .max(1)
-}
-
-/// Grid cells fill row-major from the top-left, each at its own resolved size on
-/// a pitch of the largest cell.
-fn grid_children<'a>(
-    parent: &'a ResolvedControl,
-    parent_rect: Rect,
-    columns: Option<usize>,
-    sibling_max: [f64; 2],
-    env: &LayoutEnv,
-) -> Vec<(&'a ResolvedControl, Rect)> {
-    let sizes: Vec<[f64; 2]> = parent
-        .children
-        .iter()
-        .map(|child| resolve_size(child, parent_rect, sibling_max, env))
-        .collect();
-    let pitch = sizes.iter().fold([0.0f64, 0.0f64], |acc, size| {
-        [acc[0].max(size[0]), acc[1].max(size[1])]
-    });
-    let columns = fitted_columns(columns, Some(parent_rect.w), pitch[0], sizes.len());
-    // The grid sizes itself to its rows, so a bottom-anchored grid's rows end at its bottom edge.
-    let rows = sizes.len().div_ceil(columns) as f64;
-    let top = if bottom_anchored(parent) {
-        parent_rect.y + (parent_rect.h - rows * pitch[1]).max(0.0)
-    } else {
-        parent_rect.y
-    };
-    parent
-        .children
-        .iter()
-        .zip(sizes)
-        .enumerate()
-        .map(|(index, (child, size))| {
-            let x = parent_rect.x + (index % columns) as f64 * pitch[0];
-            let y = top + (index / columns) as f64 * pitch[1];
-            (child, Rect::new(x, y, size[0], size[1]))
-        })
-        .collect()
-}
-
-fn bottom_anchored(control: &ResolvedControl) -> bool {
-    control
-        .properties
-        .get("anchor_to")
-        .and_then(Value::as_str)
-        .is_some_and(|anchor| anchor.starts_with("bottom"))
-}
-
 fn stack_children<'a>(
     parent: &'a ResolvedControl,
     parent_rect: Rect,
@@ -414,7 +338,14 @@ fn stack_children<'a>(
             nat,
             cross,
         );
-        let cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
+        let mut cross_size = pixels_or(eval_length(child, cross, &cross_ctx), parent_cross);
+        let inherit = match cross {
+            Axis::X => "inherit_max_sibling_width",
+            Axis::Y => "inherit_max_sibling_height",
+        };
+        if matches!(child.properties.get(inherit), Some(Value::Bool(true))) {
+            cross_size = cross_size.max(axis_pick(sibling_max, cross));
+        }
         // A vertical stack knows each child's width before its height, so wrapped
         // text and `%c` content measure at that width.
         let known_width = (main == Axis::Y).then_some(cross_size);
@@ -522,7 +453,7 @@ fn resolve_size(
         Axis::Y,
     );
     let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), parent_rect.h);
-    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, env);
+    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, true);
     for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
         .into_iter()
         .enumerate()
@@ -534,22 +465,37 @@ fn resolve_size(
     size
 }
 
+/// Clamp by min/max; while the parent's size is still unknown (it sizes to its
+/// children), a parent-relative bound does not constrain the child.
 fn clamp_bounds(
     control: &ResolvedControl,
     parent_rect: Rect,
     size: [f64; 2],
     content: [f64; 2],
     nat: Option<[f64; 2]>,
-    _env: &LayoutEnv,
+    parent_known: bool,
 ) -> [f64; 2] {
+    // A childless label's `%c` is its text: `max_size: ["100%c", 10]` fits the text.
+    let content = match nat {
+        Some(text) if control.children.is_empty() => text,
+        _ => content,
+    };
     let mut out = size;
+    // A leaf's content is its own natural size (a label's `max_size: 100%c`).
+    let content = nat
+        .filter(|_| control.children.is_empty())
+        .unwrap_or(content);
     for (index, axis) in [Axis::X, Axis::Y].into_iter().enumerate() {
         let parent = axis_of(parent_rect, axis);
-        let ctx = axis_context(parent, None, content, content, content, nat, axis);
-        if let Some(max) = eval_bound(control, "max_size", index, &ctx) {
+        let bound = |key: &str, unknown: f64| {
+            let parent = if parent_known { parent } else { unknown };
+            let ctx = axis_context(parent, None, content, content, content, nat, axis);
+            eval_bound(control, key, index, &ctx)
+        };
+        if let Some(max) = bound("max_size", f64::INFINITY) {
             out[index] = out[index].min(max);
         }
-        if let Some(min) = eval_bound(control, "min_size", index, &ctx) {
+        if let Some(min) = bound("min_size", 0.0) {
             out[index] = out[index].max(min);
         }
     }
@@ -658,7 +604,14 @@ fn intrinsic_uncached(
     let content = content_extent(control, env, known);
     let parent_rect = Rect::new(0.0, 0.0, parent, 0.0);
     let nat = natural(control, env, known);
-    clamp_bounds(control, parent_rect, [width, height], content, nat, env)
+    clamp_bounds(
+        control,
+        parent_rect,
+        [width, height],
+        content,
+        nat,
+        parent_width.is_some(),
+    )
 }
 
 /// The extent of a control's children, the value `%c` reports. A stack sums along
@@ -783,7 +736,9 @@ fn length(control: &ResolvedControl, axis: Axis) -> Length {
         }
         _ => None,
     };
-    let is_grid = control.control_type.as_deref() == Some("grid");
+    // A grid sizes to its cells, except one listing them with no size, which fills.
+    let is_grid = control.control_type.as_deref() == Some("grid")
+        && (explicit.is_some() || control.properties.contains_key("grid_item_template"));
     match explicit {
         Some(Length::Default) | None if stack_axis(control) == Some(axis) || is_grid => {
             expr::parse_length("100%c").unwrap_or(Length::Default)

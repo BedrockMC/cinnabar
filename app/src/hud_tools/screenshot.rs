@@ -32,6 +32,57 @@ pub(super) fn configure(app: &mut App, dir: PathBuf) {
         receiver,
     })
     .add_systems(Update, (capture_on_key, report_saved).chain());
+    if let Some(path) = std::env::var_os("CINNABAR_CAPTURE_PATH") {
+        let frames = std::env::var("CINNABAR_CAPTURE_AFTER_FRAMES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(240);
+        app.insert_resource(EnvCapture {
+            path: PathBuf::from(path),
+            frames,
+            done: None,
+        })
+        .add_systems(Update, capture_from_env);
+    }
+}
+
+/// Dev capture: `CINNABAR_CAPTURE_PATH` saves the window after
+/// `CINNABAR_CAPTURE_AFTER_FRAMES` frames (default 240) and exits.
+#[derive(Resource)]
+struct EnvCapture {
+    path: PathBuf,
+    frames: u32,
+    done: Option<Receiver<SaveResult>>,
+}
+
+fn capture_from_env(
+    mut capture: ResMut<EnvCapture>,
+    mut commands: Commands,
+    mut exits: MessageWriter<AppExit>,
+) {
+    if let Some(done) = &capture.done {
+        if let Ok(result) = done.try_recv() {
+            eprintln!("capture: {result:?}");
+            exits.write(AppExit::Success);
+        }
+        return;
+    }
+    if capture.frames > 0 {
+        capture.frames -= 1;
+        return;
+    }
+    let (sender, receiver) = crossbeam_channel::bounded(1);
+    let path = capture.path.clone();
+    commands.spawn(Screenshot::primary_window()).observe(
+        move |captured: On<ScreenshotCaptured>| {
+            let image = captured.image.clone();
+            let (path, sender) = (path.clone(), sender.clone());
+            std::thread::spawn(move || {
+                let _ = sender.send(write_png(image, &path));
+            });
+        },
+    );
+    capture.done = Some(receiver);
 }
 
 fn capture_on_key(

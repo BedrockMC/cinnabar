@@ -191,7 +191,8 @@ fn whole_token(text: &str) -> Option<String> {
 
 fn replace_tokens(text: &str, env: &Env, unresolved: &mut Vec<String>) -> String {
     // Inside a parenthesised expression a string variable is one string operand,
-    // as the vanilla client makes a token from the variable's value.
+    // as the vanilla client makes a token from the variable's value; a value
+    // naming a `#binding` stays that binding.
     let expression = text.trim_start().starts_with('(');
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
@@ -206,7 +207,9 @@ fn replace_tokens(text: &str, env: &Env, unresolved: &mut Vec<String>) -> String
             if end > start {
                 let name = &text[start..end];
                 match env.get(name) {
-                    Some(Value::String(value)) if expression && !value.contains('\'') => {
+                    Some(Value::String(value))
+                        if expression && !value.contains('\'') && !value.starts_with('#') =>
+                    {
                         out.push('\'');
                         out.push_str(value);
                         out.push('\'');
@@ -412,6 +415,15 @@ mod tests {
             substitute(&json!("a $boxes"), &env, &mut Vec::new()),
             json!("a @mineville/boxes")
         );
+    }
+
+    // `(not $cell_selected_binding_name)` names the binding the variable holds.
+    #[test]
+    fn a_variable_holding_a_binding_name_stays_a_binding_in_expressions() {
+        let mut env = Env::new();
+        env.set("selected", json!("#is_selected_slot"));
+        let out = substitute(&json!("(not $selected)"), &env, &mut Vec::new());
+        assert_eq!(out, json!("(not #is_selected_slot)"));
     }
 
     #[test]

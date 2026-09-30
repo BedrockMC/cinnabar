@@ -57,6 +57,10 @@ const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 /// computes in code (`VanillaSceneFactory::createGlobalVars`).
 pub(super) fn retail_context() -> Context {
     Context::desktop()
+        .with_flag("win10_edition", !cfg!(target_os = "macos"))
+        .with_flag("osx_edition", cfg!(target_os = "macos"))
+        .with_flag("pocket_edition", false)
+        .with_flag("console_edition", false)
         .with_flag("trial", false)
         .with_flag("education_edition", false)
         .with_flag("store_disabled", false)
@@ -182,6 +186,8 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 }
                 MenuScreen::AddServer => {
                     add_server_screen(view, &mut data, translate);
+                    // The controller's edit mode swaps Play for Remove.
+                    context = context.with_flag("edit_mode", view.editing.is_some());
                     "add_external_server.add_external_server_screen_new"
                 }
                 MenuScreen::Settings => {
@@ -275,30 +281,47 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     data.set_global("#show_gamerpic", Scalar::Bool(portrait));
     flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
     super::start_feed::bind(view, data);
-    data.set_global("#version", text("v1.26.30"));
+    data.set_global("#version", text(version_label(protocol::GAME_VERSION)));
     data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
     data.set_global("#edu_demo_only_ui_visible", Scalar::Bool(false));
-    // The controller hardwires these: realms promo and upper online padding
-    // off, so Settings sits in the plain settings row.
+    // Retail Realms is enabled, so its row shows between Settings and
+    // Marketplace, as on the release client.
     flags(
         data,
         &[
             "#online_stack_visible",
+            "#realms_promo_visible",
             "#not_realms_promo_visible_and_supports_launching_legacy_version",
+            "#dressing_room_button_visible",
+            "#is_appearance_visible",
         ],
     );
     match &view.auth_state {
-        AuthState::SignedOut | AuthState::Failed(_) => flags(data, &["#sign_in_visible"]),
+        AuthState::SignedOut | AuthState::Failed(_) => {
+            flags(data, &["#sign_in_visible", "#upper_online_buttons_visible"])
+        }
         AuthState::Checking => {
             flags(data, &["#signingin_visible"]);
             data.set_global(
                 "#signingin_text",
-                text(translated(translate, "xbox.signingin", "Signing in...")),
+                text(translated(
+                    translate,
+                    "xbox.signingin",
+                    "Signing in with your Microsoft account...",
+                )),
             );
         }
         AuthState::Authenticated => flags(data, &["#gamertag_pic_and_label_visible"]),
         AuthState::AwaitingCode { .. } => {}
     }
+}
+
+/// The start screen's version: the release client shows `1.26.50` as `v26.50`.
+fn version_label(game_version: &str) -> String {
+    format!(
+        "v{}",
+        game_version.strip_prefix("1.").unwrap_or(game_version)
+    )
 }
 
 /// The vanilla two-button popup a launcher dialog opens, and the action its
@@ -320,16 +343,17 @@ pub(super) fn dialog_model(
             translated(translate, "gui.no", "No"),
             MenuAction::ConfirmExit,
         ),
+        // The popup's title is one line, so the server names it and the body asks.
         MenuDialog::RemoveSaved(index) => (
+            view.servers
+                .get(index)
+                .map(|server| server.name.clone())
+                .unwrap_or_default(),
             translated(
                 translate,
                 "addExternalServerScreen.removeConfirmation",
                 "Are you sure you want to remove this server?",
             ),
-            view.servers
-                .get(index)
-                .map(|server| server.name.clone())
-                .unwrap_or_default(),
             translated(
                 translate,
                 "addExternalServerScreen.removeButtonLabel",
@@ -448,7 +472,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             MenuAction::Navigate(MenuScreen::Friends)
         }
         "button.menu_store" => MenuAction::Store(crate::store::OPEN),
-        "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
+        "button.menu_play" => MenuAction::Navigate(MenuScreen::Play),
+        "button.menu_realms" => MenuAction::Navigate(MenuScreen::Social),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,
         "button.sign_out" => MenuAction::SignOut,
@@ -581,6 +606,12 @@ mod tests {
 
     fn reference(view: &MenuView) -> Option<&'static str> {
         screen_data(view, &|_| None).map(|screen| screen.reference)
+    }
+
+    #[test]
+    fn the_version_reads_as_the_release_client_shows_it() {
+        assert_eq!(version_label("1.26.50"), "v26.50");
+        assert_eq!(version_label("26.60"), "v26.60");
     }
 
     #[test]

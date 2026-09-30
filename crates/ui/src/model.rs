@@ -81,6 +81,13 @@ pub enum UiVisual {
         /// whether the run is shadowed.
         shadow: TextShadow,
     },
+    /// A text run rotated around the centre of its node (the title splash).
+    RotatedText {
+        layout: Arc<TextLayout>,
+        color: [u8; 4],
+        shadow: TextShadow,
+        angle_radians: f32,
+    },
 }
 
 /// A Java-style 1-design-pixel drop shadow.
@@ -676,7 +683,8 @@ impl UiTree {
                 | UiVisual::GlintSprite { .. }
                 | UiVisual::RotatedSprite { .. }
                 | UiVisual::InvertedSprite { .. } => 1,
-                UiVisual::Text { layout, shadow, .. } => {
+                UiVisual::Text { layout, shadow, .. }
+                | UiVisual::RotatedText { layout, shadow, .. } => {
                     let passes = match shadow {
                         TextShadow::None => 1,
                         TextShadow::Offset64(_) => 2,

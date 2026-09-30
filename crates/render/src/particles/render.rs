@@ -151,7 +151,9 @@ impl Plugin for ParticleRenderPlugin {
                 (
                     prepare_particle_resources.in_set(RenderSystems::PrepareResources),
                     prepare_particle_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                    queue_particles.in_set(RenderSystems::Queue),
+                    queue_particles
+                        .run_if(crate::panorama::world_passes_enabled)
+                        .in_set(RenderSystems::Queue),
                 ),
             );
     }

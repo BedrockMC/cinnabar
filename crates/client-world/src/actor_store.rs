@@ -331,6 +331,13 @@ impl ActorSnapshot {
         player_flags || self.flag(ACTOR_FLAG_SLEEPING)
     }
 
+    /// Whether the using-item flag is set; for the local player's food and drink it is the
+    /// server's admission of the use.
+    #[must_use]
+    pub fn is_using_item(&self) -> bool {
+        self.flag(ACTOR_FLAG_USING_ITEM)
+    }
+
     /// Reads one actor flag bit from the primary or overflow flag word.
     pub(crate) fn flag(&self, bit: u32) -> bool {
         let (key, bit) = if bit < 64 {

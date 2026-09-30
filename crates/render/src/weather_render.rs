@@ -68,7 +68,9 @@ pub(crate) fn install_weather_render(app: &mut App) {
             (
                 prepare_weather_records.in_set(RenderSystems::PrepareResources),
                 prepare_weather_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_weather.in_set(RenderSystems::Queue),
+                queue_weather
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
             ),
         );
 }
