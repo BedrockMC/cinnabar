@@ -368,6 +368,32 @@ impl PhysicsCollisionRegistries {
             .map(|(identifier, _)| identifier.as_ref())
     }
 
+    /// The runtime id of `identifier` in exactly `states`, compared as parsed JSON.
+    pub(crate) fn block_state_runtime_id(
+        &self,
+        mode: assets::NetworkIdMode,
+        identifier: &str,
+        states: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<u32> {
+        let (names, canonical) = match mode {
+            assets::NetworkIdMode::Sequential => (&self.interaction_blocks, &self.canonical_states),
+            assets::NetworkIdMode::Hashed => (
+                &self.hashed_interaction_blocks,
+                &self.hashed_canonical_states,
+            ),
+        };
+        names
+            .iter()
+            .filter(|(_, (name, _))| name.as_ref() == identifier)
+            .find(|(runtime_id, _)| {
+                canonical.get(runtime_id).is_some_and(|state| {
+                    serde_json::from_str::<serde_json::Map<_, _>>(state)
+                        .is_ok_and(|parsed| &parsed == states)
+                })
+            })
+            .map(|(runtime_id, _)| *runtime_id)
+    }
+
     /// Whether `runtime_id` is a cube-model block with one full collision box.
     pub(crate) fn block_is_full_cube(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> bool {
         let map = match mode {

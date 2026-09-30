@@ -8,7 +8,8 @@ use sha2::{Digest, Sha256};
 
 use super::{
     BlockUseRuntime, LocalUse, RepeatClock, UseSurroundings, placement_cell,
-    placement_state_is_certain, repeat_interval_millis, use_packets, verified_use_selection,
+    placement_state_is_certain, repeat_interval_millis, toggled_states, use_packets,
+    verified_use_selection,
 };
 use crate::{game_mode_capabilities::GameModeCapabilities, ui_runtime::UiRuntime};
 
@@ -234,6 +235,42 @@ fn only_certain_placement_states_are_predicted() {
     assert!(!placement_state_is_certain(true, Some("{}"), stone, stone));
     assert!(!placement_state_is_certain(true, None, stone, None));
     assert!(!placement_state_is_certain(true, Some("{}"), None, None));
+}
+
+/// Trapdoors and levers flip, buttons press once, and two-part switches are left to the server.
+#[test]
+fn switch_uses_predict_their_toggled_state() {
+    let flipped = |identifier, state: &str| {
+        toggled_states(identifier, state)
+            .map(|states| serde_json::Value::Object(states).to_string())
+    };
+    assert_eq!(
+        flipped(
+            "minecraft:spruce_trapdoor",
+            r#"{"direction":2,"open_bit":0,"upside_down_bit":1}"#
+        ),
+        Some(r#"{"direction":2,"open_bit":1,"upside_down_bit":1}"#.to_owned())
+    );
+    assert_eq!(
+        flipped(
+            "minecraft:lever",
+            r#"{"open_bit":{"type":"byte","value":1}}"#
+        ),
+        Some(r#"{"open_bit":{"type":"byte","value":0}}"#.to_owned())
+    );
+    assert_eq!(
+        flipped("minecraft:stone_button", r#"{"button_pressed_bit":false}"#),
+        Some(r#"{"button_pressed_bit":true}"#.to_owned())
+    );
+    assert_eq!(
+        flipped("minecraft:stone_button", r#"{"button_pressed_bit":true}"#),
+        None
+    );
+    assert_eq!(flipped("minecraft:oak_door", r#"{"open_bit":0}"#), None);
+    assert_eq!(
+        flipped("minecraft:iron_trapdoor", r#"{"open_bit":0}"#),
+        None
+    );
 }
 
 /// Adventure uses doors and containers but cannot place; each ability gates only its own use.

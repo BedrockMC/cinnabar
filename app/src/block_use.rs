@@ -1,8 +1,8 @@
 //! Block use as standalone click-block transactions on the press and while held.
 //!
 //! The local use outcome (interaction, placement or nothing) decides the
-//! transaction's prediction and swing. A placement whose state is certain is
-//! also applied locally; the server's block updates stay authoritative. Air use
+//! transaction's prediction and swing. A placement or switch toggle whose state
+//! is certain is also applied locally; the server's block updates stay authoritative. Air use
 //! and item-use-on start/stop actions are not implemented.
 
 use bevy::{
@@ -468,7 +468,14 @@ pub(crate) fn produce_block_use(
                 surroundings.clicked_identifier.as_deref(),
             )
         })
-        .flatten();
+        .flatten()
+        .map(|block| (destination, block));
+    let predicted = predicted.or_else(|| {
+        (local_use == LocalUse::Interact)
+            .then(|| predicted_toggle(&context.collisions, stream, observed.target.runtime_id))
+            .flatten()
+            .map(|block| (observed.target.position, block))
+    });
     let local_runtime_id = stream.local_player_runtime_id();
     if local_use == LocalUse::Place {
         let position = destination;
@@ -499,11 +506,62 @@ pub(crate) fn produce_block_use(
         sent &= context.network.send_inventory_packet(packet).is_ok();
     }
     // Vanilla places locally as it sends; a correction replaces the prediction.
-    if let (true, Some(block), Some(stream)) =
+    if let (true, Some((position, block)), Some(stream)) =
         (sent, predicted, context.client_world.stream.as_mut())
     {
-        stream.predict_block(destination, 0, block);
+        stream.predict_block(position, 0, block);
     }
+}
+
+/// The state a switch use predicts for the clicked block.
+fn predicted_toggle(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &client_world::WorldStream,
+    clicked: u32,
+) -> Option<u32> {
+    let mode = stream.network_id_mode();
+    let identifier = collisions.block_identifier(mode, clicked)?;
+    let states = toggled_states(identifier, collisions.block_canonical_state(mode, clicked)?)?;
+    collisions.block_state_runtime_id(mode, identifier, &states)
+}
+
+/// Trapdoors and levers flip `open_bit` (`TrapDoorBlock::_useTrapDoor`); an
+/// unpressed button presses. Doors and fence gates also change their other
+/// half or facing, which is not modelled, so they wait for the server.
+fn toggled_states(
+    identifier: &str,
+    canonical_state: &str,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let iron = identifier == "minecraft:iron_trapdoor";
+    let (property, press_only) =
+        if identifier == "minecraft:lever" || (!iron && identifier.ends_with("_trapdoor")) {
+            ("open_bit", false)
+        } else if identifier.ends_with("_button") {
+            ("button_pressed_bit", true)
+        } else {
+            return None;
+        };
+    let mut states =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(canonical_state).ok()?;
+    let entry = states.get_mut(property)?;
+    // Typed values carry the bit in `value`.
+    let bit = match entry {
+        serde_json::Value::Object(typed) => typed.get_mut("value")?,
+        plain => plain,
+    };
+    let set = match bit {
+        serde_json::Value::Bool(value) => *value,
+        serde_json::Value::Number(value) => value.as_u64()? != 0,
+        _ => return None,
+    };
+    if press_only && set {
+        return None;
+    }
+    *bit = match bit {
+        serde_json::Value::Bool(_) => serde_json::Value::Bool(!set),
+        _ => serde_json::Value::from(u8::from(!set)),
+    };
+    Some(states)
 }
 
 /// The store id a placement predicts locally, when its placed state is certain.
