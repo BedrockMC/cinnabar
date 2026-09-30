@@ -271,9 +271,12 @@ pub(super) fn ingest_audio_events(
                 state.start_record(level.position, request, &mut engine);
                 continue;
             }
-            protocol::AudioEvent::LevelEvent(level) => engine
-                .bank()
-                .and_then(|bank| route::level_event_request(bank.tables(), level)),
+            protocol::AudioEvent::LevelEvent(level) => {
+                let roll = engine.unit();
+                engine
+                    .bank()
+                    .and_then(|bank| route::level_event_request(bank.tables(), level, roll))
+            }
         };
         match request {
             Some(request) => engine.enqueue(request),

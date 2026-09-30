@@ -10,13 +10,14 @@ const PLAY_POSITION_SCALE: f32 = 0.125;
 /// Pitch multiplier for baby actors; needs native measurement.
 const BABY_PITCH: f32 = 1.5;
 const DESTROY_BLOCK_EVENT: i32 = 2001;
+/// Legacy door sound, which picks opening or closing at random.
+const DOOR_EVENT: i32 = 1003;
 
 /// Sound-only level events: `(id, individual event name, sound definition fallback)`.
 const LEVEL_EVENT_SOUNDS: &[(i32, &str, &str)] = &[
     (1000, "block.click", "random.click"),
     (1001, "block.click.fail", "random.click"),
     (1002, "launch", "random.bow"),
-    (1003, "", "random.door_open"),
     (1004, "fizz", "random.fizz"),
     (1005, "", "random.fuse"),
     (1007, "", "mob.ghast.charge"),
@@ -160,11 +161,21 @@ fn note_request(
     Some(request)
 }
 
-/// Sound-range `LevelEvent`: the individual route when the pack defines one, else the fallback definition.
+/// Sound-range `LevelEvent`: the individual route when the pack defines one, else the fallback
+/// definition; `roll` in `[0, 1)` makes the door event's open-or-close choice.
 pub(super) fn level_event_request(
     tables: &SoundEventTables,
     event: &LevelEventSound,
+    roll: f32,
 ) -> Option<SoundRequest> {
+    if event.event_id == DOOR_EVENT {
+        let name = if roll >= 0.5 {
+            "random.door_close"
+        } else {
+            "random.door_open"
+        };
+        return Some(SoundRequest::new(name).at(event.position));
+    }
     let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
         .iter()
         .find(|(id, _, _)| *id == event.event_id)?;
@@ -323,14 +334,19 @@ mod tests {
             data: 0,
         };
         assert_eq!(
-            &*level_event_request(&tables(), &event).unwrap().name,
+            &*level_event_request(&tables(), &event, 0.2).unwrap().name,
             "random.door_open"
+        );
+        assert_eq!(
+            &*level_event_request(&tables(), &event, 0.7).unwrap().name,
+            "random.door_close",
+            "the door event always opened"
         );
         let unknown = LevelEventSound {
             event_id: 1999,
             ..event
         };
-        assert!(level_event_request(&tables(), &unknown).is_none());
+        assert!(level_event_request(&tables(), &unknown, 0.0).is_none());
         let destroy = destroy_block_request(&tables(), 2001, [0.0; 3], 7, &stone).unwrap();
         assert_eq!(&*destroy.name, "dig.stone");
         assert!(destroy_block_request(&tables(), 2002, [0.0; 3], 7, &stone).is_none());
