@@ -58,7 +58,14 @@ type resolvedUpstreamTarget struct {
 	xbl        *xsapi.Client
 	playFab    *playfab.Client
 	friend     interface{ Close() error }
+	realm      bool // vanilla words a failed Realm join as its own
 }
+
+// realmJoinError marks a failure while joining a Realm.
+type realmJoinError struct{ err error }
+
+func (e *realmJoinError) Error() string { return e.err.Error() }
+func (e *realmJoinError) Unwrap() error { return e.err }
 
 // loginClientData contains only the field that must survive a P2P join. It is
 // applied to the normal downstream-derived Dialer after target resolution.
@@ -111,6 +118,16 @@ func resolveUpstreamTarget(ctx context.Context, address string, src oauth2.Token
 }
 
 func resolveRealmTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+	reportConnectStage(ctx, ConnectStageRealm)
+	target, err := lookupRealmTarget(ctx, address, src, logger)
+	if err != nil {
+		return nil, &realmJoinError{err: err}
+	}
+	target.realm = true
+	return target, nil
+}
+
+func lookupRealmTarget(ctx context.Context, address string, src oauth2.TokenSource, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
 	client := realms.NewClient(src, nil)
 	var realmAddress realms.RealmAddress
 	var err error

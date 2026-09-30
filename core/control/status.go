@@ -39,7 +39,7 @@ type Store struct {
 	applied   uint64 // attempt whose packs the client confirmed applying
 	transfer  *TransferV1
 	transfers uint64
-	download  *proxy.ResourcePackDownload // live while the newest attempt downloads packs
+	connect   *proxy.ConnectProgress // live while the newest attempt prepares a join
 
 	auth        AuthV1
 	disconnect  *DisconnectV1
@@ -76,15 +76,19 @@ func (store *Store) Observe(snapshot proxy.ResourcePackAdmissionSnapshot) {
 			store.disconnect = nil
 		}
 		store.latest = snapshot
-		store.download = nil // a reset or final snapshot ends the download
+		store.connect = nil // a reset or final snapshot ends the join's core stages
 	}
 	store.mu.Unlock()
 }
 
-// ObservePackDownload publishes the newest attempt's download progress.
-func (store *Store) ObservePackDownload(download proxy.ResourcePackDownload) {
+// ObserveConnectProgress publishes the preparing join's stage; a zero stage withdraws it.
+func (store *Store) ObserveConnectProgress(progress proxy.ConnectProgress) {
 	store.mu.Lock()
-	store.download = &download
+	if progress.Stage == "" {
+		store.connect = nil
+	} else {
+		store.connect = &progress
+	}
 	store.mu.Unlock()
 }
 

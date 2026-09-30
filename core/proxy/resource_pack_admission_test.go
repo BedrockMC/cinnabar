@@ -1853,8 +1853,8 @@ func cdnPackListener(t *testing.T, serve func(http.ResponseWriter, *http.Request
 		}
 		serve(w, r, archive)
 	}))
-	t.Cleanup(server.CloseClientConnections)
 	t.Cleanup(server.Close)
+	t.Cleanup(server.CloseClientConnections) // runs first so Close need not wait on a stalled handler
 	pack, err := resource.ReadURL(server.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -1947,21 +1947,46 @@ func TestStalledCDNPackDownloadWaitsForTheUserToCancel(t *testing.T) {
 	}
 }
 
-// Chunk bytes report against the admitted offer's total.
-func TestAcquisitionBudgetReportsChunkProgressAgainstTheAdmittedTotal(t *testing.T) {
-	var reports []ResourcePackDownload
-	budget, _ := observedBudget(t, packInfos(300, 700))
-	budget.onProgress = func(download ResourcePackDownload) { reports = append(reports, download) }
-	chunk := &packet.ResourcePackChunkData{UUID: "pack", Data: make([]byte, 250)}
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, encodeLatest(t, chunk))
-	budget.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, encodeLatest(t, chunk))
-	want := []ResourcePackDownload{{ReceivedBytes: 250, TotalBytes: 1000}, {ReceivedBytes: 500, TotalBytes: 1000}}
+// Like vanilla, totals grow as each download begins, cache hits leave the pack count, and a
+// pack finishes when its bytes arrive.
+func TestAcquisitionBudgetReportsVanillaPackProgress(t *testing.T) {
+	var reports []ConnectProgress
+	info := packInfos(300, 700, 50)
+	budget, _ := observedBudget(t, info)
+	budget.onProgress = func(progress ConnectProgress) { reports = append(reports, progress) }
+	first, second := info.TexturePacks[0].UUID.String(), info.TexturePacks[1].UUID.String()
+	budget.skip(minecraft.ResourcePackCacheKey{UUID: info.TexturePacks[2].UUID})
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(first, 300)))
+	chunk := func(id string, size int) {
+		budget.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, encodeLatest(t, &packet.ResourcePackChunkData{UUID: id + "_1.0.0", Data: make([]byte, size)}))
+	}
+	chunk(first, 200)
+	chunk(first, 100)
+	budget.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(second, 700)))
+	chunk(second, 350)
+	packs := func(done, total uint32, received, bytes uint64) ConnectProgress {
+		return ConnectProgress{Stage: ConnectStagePacks, PacksDone: done, PacksTotal: total, ReceivedBytes: received, TotalBytes: bytes}
+	}
+	want := []ConnectProgress{
+		packs(0, 2, 0, 0),
+		packs(0, 2, 0, 300),
+		packs(0, 2, 200, 300),
+		packs(1, 2, 300, 300),
+		packs(1, 2, 300, 1000),
+		packs(1, 2, 650, 1000),
+	}
 	if !slices.Equal(reports, want) {
-		t.Fatalf("reports = %+v, want %+v", reports, want)
+		t.Fatalf("reports = %+v\nwant %+v", reports, want)
+	}
+	budget.finish()
+	chunk(second, 350)
+	if len(reports) != len(want) {
+		t.Fatal("a callback after the dial returned was reported")
 	}
 }
 
-// CDN body bytes of an admitted pack count as progress, through redirects; other requests do not.
+// CDN body bytes of an admitted pack count as progress through redirects and finish it at EOF;
+// an abandoned CDN download is reverted so its chunk fallback is not counted twice.
 func TestAcquisitionBudgetCountsAdmittedCDNDownloads(t *testing.T) {
 	body := bytes.Repeat([]byte{7}, 4096)
 	mux := http.NewServeMux()
@@ -1974,22 +1999,29 @@ func TestAcquisitionBudgetCountsAdmittedCDNDownloads(t *testing.T) {
 	info := packInfos(uint64(len(body)))
 	info.TexturePacks[0].DownloadURL = server.URL + "/offered"
 	budget, _ := observedBudget(t, info)
-	var received atomic.Uint64
-	budget.onProgress = func(download ResourcePackDownload) { received.Store(download.ReceivedBytes) }
+	var last ConnectProgress
+	budget.onProgress = func(progress ConnectProgress) { last = progress }
 	client := budget.httpClient(nil)
-	for _, path := range []string{"/auth", "/offered"} {
+	fetch := func(path string, read int64) {
 		response, err := client.Get(server.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = io.Copy(io.Discard, response.Body)
+		_, _ = io.CopyN(io.Discard, response.Body, read)
 		_ = response.Body.Close()
-		if path == "/auth" && received.Load() != 0 {
-			t.Fatalf("a non-pack request reported %d bytes", received.Load())
-		}
 	}
-	if received.Load() != uint64(len(body)) {
-		t.Fatalf("received = %d, want the %d CDN bytes", received.Load(), len(body))
+	fetch("/auth", int64(len(body)))
+	if last.ReceivedBytes != 0 || last.TotalBytes != 0 {
+		t.Fatalf("a non-pack request reported %+v", last)
+	}
+	fetch("/offered", 100)
+	if last.ReceivedBytes != 0 || last.TotalBytes != 0 || last.PacksDone != 0 {
+		t.Fatalf("abandoned CDN download left %+v", last)
+	}
+	fetch("/offered", int64(len(body))+1)
+	want := ConnectProgress{Stage: ConnectStagePacks, PacksDone: 1, PacksTotal: 1, ReceivedBytes: uint64(len(body)), TotalBytes: uint64(len(body))}
+	if last != want {
+		t.Fatalf("progress = %+v, want %+v", last, want)
 	}
 }
 
@@ -2037,5 +2069,78 @@ func TestBudgetedDialerAcquiresRequiredOfferBeforeStartGame(t *testing.T) {
 	telemetry.observeOffer(result.conn)
 	if got := telemetry.snapshot(); got.Offer != ResourcePackOfferRequired || got.Acquisition != ResourcePackAcquisitionComplete {
 		t.Fatalf("telemetry = %#v, want complete required acquisition", got)
+	}
+}
+
+// A join reports vanilla's stages in order, and closing the client mid-download aborts the
+// core's upstream dial and CDN request.
+func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
+	aborted := make(chan struct{})
+	upstreamNetwork, _ := cdnPackListener(t, func(w http.ResponseWriter, r *http.Request, archive []byte) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		_, _ = w.Write(archive[:len(archive)/2])
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		close(aborted)
+	})
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
+	var mu sync.Mutex
+	var stages []ConnectStage
+	downloading := make(chan struct{})
+	var once sync.Once
+	connections.connectProgress = func(progress ConnectProgress) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(stages) == 0 || stages[len(stages)-1] != progress.Stage {
+			stages = append(stages, progress.Stage)
+		}
+		if progress.Stage == ConnectStagePacks {
+			once.Do(func() { close(downloading) })
+		}
+	}
+	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
+		reportConnectStage(ctx, ConnectStageRealm)
+		return &resolvedUpstreamTarget{network: upstreamNetwork, realm: true}, nil
+	}
+	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		return dialer.DialContextNetwork(ctx, target.network, "")
+	}
+	prepared := make(chan error, 1)
+	_, network := newAdmissionTestListener(t, func(ctx context.Context, conn *minecraft.Conn) error {
+		err := connections.prepare(ctx, conn)
+		prepared <- err
+		return err
+	})
+	clientCtx, cancelClient := context.WithCancel(context.Background())
+	go func() {
+		conn, err := (minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "Cancel"}, Protocol: minecraft.DefaultProtocol}).DialContextNetwork(clientCtx, network, "")
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+	select {
+	case <-downloading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the pack stage was never reported")
+	}
+	cancelClient()
+	select {
+	case err := <-prepared:
+		var cancelled *preparationCancellationError
+		if !errors.As(err, &cancelled) {
+			t.Fatalf("prepare error = %v, want a preparation cancellation", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("closing the client did not end the preparation")
+	}
+	select {
+	case <-aborted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the CDN request outlived the cancelled join")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []ConnectStage{ConnectStageRealm, ConnectStageConnecting, ConnectStagePacks, ""}; !slices.Equal(stages, want) {
+		t.Fatalf("stages = %q, want %q", stages, want)
 	}
 }
