@@ -396,7 +396,8 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
         &[
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                // The fragment stage reads the glint clock from the same uniform.
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
