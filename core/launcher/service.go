@@ -16,11 +16,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
+	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 	"golang.org/x/oauth2"
 )
 
@@ -43,13 +46,14 @@ type Config struct {
 	Gamertag func(context.Context, *authcache.Account) (string, error)
 	Remove   func(path string) error
 
-	Featured   func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
-	Gatherings func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
-	Profile    func(context.Context, *authcache.Account) (catalog.Profile, error)
-	CacheArt   func(ctx context.Context, directory string, images []*catalog.Image)
-	Ping       func(ctx context.Context, addresses []string) []catalog.PingResult
-	Home       func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
-	Report     func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
+	Featured      func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
+	Gatherings    func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
+	Profile       func(context.Context, *authcache.Account) (catalog.Profile, error)
+	CacheArt      func(ctx context.Context, directory string, images []*catalog.Image)
+	Ping          func(ctx context.Context, addresses []string) []catalog.PingResult
+	Home          func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
+	Report        func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
+	JoinGathering func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error)
 }
 
 // Service implements control.Services.
@@ -101,6 +105,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Report == nil {
 		cfg.Report = catalog.ReportMessageEvent
+	}
+	if cfg.JoinGathering == nil {
+		cfg.JoinGathering = catalog.JoinGathering
 	}
 	s := &Service{cfg: cfg, logger: cfg.Logger}
 	if s.logger == nil {
@@ -188,14 +195,21 @@ func (s *Service) cacheArt(ctx context.Context, images []*catalog.Image) {
 }
 
 // Connect selects the upstream for the next client connection and drops any pending transfer.
-func (s *Service) Connect(kind, value string) error {
+// A gathering is joined now, so its server assignment is fresh.
+func (s *Service) Connect(ctx context.Context, kind, value string) error {
 	target, err := upstreamTarget(kind, value)
 	if err != nil {
 		return err
 	}
 	if kind != control.TargetRakNet {
-		if _, err := s.source(); err != nil {
+		account, err := s.source()
+		if err != nil {
 			return err
+		}
+		if kind == control.TargetGathering {
+			if target, err = s.joinGathering(ctx, account, uuid.MustParse(target)); err != nil {
+				return err
+			}
 		}
 	}
 	if s.cfg.Selector != nil {
@@ -231,8 +245,49 @@ func upstreamTarget(kind, value string) (string, error) {
 			return "", control.ErrInvalidTarget
 		}
 		return "friend_xuid/" + value, nil
+	case control.TargetGathering:
+		id, err := uuid.Parse(value)
+		if err != nil || id == uuid.Nil {
+			return "", control.ErrInvalidTarget
+		}
+		return id.String(), nil
 	}
 	return "", control.ErrInvalidTarget
+}
+
+// joinGathering joins the experience and maps its typed assignment to the proxy target syntax.
+func (s *Service) joinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID) (string, error) {
+	address, err := s.cfg.JoinGathering(ctx, account, id)
+	if err != nil {
+		return "", fmt.Errorf("launcher: join gathering: %w", err)
+	}
+	target, err := gatheringTarget(address)
+	if err != nil {
+		return "", err
+	}
+	info := address.DestinationInfo
+	s.logger.Info("gathering joined", "experience", id, "protocol", address.NetworkProtocol,
+		"server_id", info.ServerID, "world_id", info.WorldID, "scenario_id", info.ScenarioID)
+	return target, nil
+}
+
+// gatheringTarget names the transport the assignment selects: host:port for RakNet, or the
+// NetherNet ID with its signaling dialect.
+func gatheringTarget(address *gatherings.Address) (string, error) {
+	if address == nil {
+		return "", errors.New("launcher: gathering returned no address")
+	}
+	dial, err := address.DialAddress()
+	if err != nil {
+		return "", err
+	}
+	switch realms.ParseNetworkProtocol(string(address.NetworkProtocol)) {
+	case realms.NetworkProtocolNetherNet:
+		return "nethernet/websocket/" + dial, nil
+	case realms.NetworkProtocolNetherNetJSONRPC:
+		return "nethernet/jsonrpc/" + dial, nil
+	}
+	return dial, nil
 }
 
 // SignOut deletes the cached Microsoft tokens and reports the signed-out state. The running

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
@@ -45,15 +46,13 @@ type Image struct {
 	Path string `json:"path,omitempty"`
 }
 
-// Gathering is a community experience; Address is empty when joining it
-// could not be resolved.
+// Gathering is a community experience; it is joined by ID only when the player connects.
 type Gathering struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Caption     string `json:"caption"`
 	Description string `json:"description,omitempty"`
 	Creator     string `json:"creator,omitempty"`
-	Address     string `json:"address,omitempty"`
 	Image       Image  `json:"image"`
 	StartUnix   int64  `json:"start_unix,omitempty"`
 	EndUnix     int64  `json:"end_unix,omitempty"`
@@ -85,7 +84,7 @@ func FeaturedServers(ctx context.Context, account *authcache.Account) ([]Feature
 	return result, err
 }
 
-// Gatherings lists the community experiences with their join addresses.
+// Gatherings lists the community experiences; listing never joins one.
 func Gatherings(ctx context.Context, account *authcache.Account) ([]Gathering, error) {
 	var result []Gathering
 	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
@@ -95,20 +94,23 @@ func Gatherings(ctx context.Context, account *authcache.Account) ([]Gathering, e
 		}
 		result = make([]Gathering, 0, len(values))
 		for _, experience := range values {
-			if experience == nil || !experience.Valid() {
-				continue
+			if experience != nil && experience.Valid() {
+				result = append(result, gathering(experience))
 			}
-			entry := gathering(experience)
-			joinContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-			if address, err := experience.Join(joinContext); err == nil && address != nil && address.String() != ":0" {
-				entry.Address = address.String()
-			}
-			cancel()
-			result = append(result, entry)
 		}
 		return nil
 	})
 	return result, err
+}
+
+// JoinGathering joins the experience now and returns its typed server assignment.
+func JoinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID) (*gatherings.Address, error) {
+	var address *gatherings.Address
+	err := withGatherings(ctx, account, func(client *gatherings.Client) (err error) {
+		address, err = client.JoinExperience(ctx, id)
+		return err
+	})
+	return address, err
 }
 
 // AccountProfile returns the signed-in gamertag, XUID and gamerpic; a missing
