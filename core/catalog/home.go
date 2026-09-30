@@ -18,8 +18,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 )
 
@@ -183,8 +183,6 @@ func (s *MessagingSession) advance(continuation string) {
 }
 
 const (
-	realmsHost      = "https://bedrock.frontendlegacy.realms.minecraft-services.net"
-	realmsParty     = "https://pocket.realms.minecraft.net/"
 	clientPlatform  = "Android"
 	clientSub       = "Google"
 	maxServiceBytes = 4 * 1024 * 1024
@@ -656,33 +654,7 @@ func (s *serviceSession) personaHead(ctx context.Context, artworkDir string) (Im
 	return Image{}, errors.New("no persona image")
 }
 
-// realmInvites reads the pending Realms invite count, a bare integer body.
-func realmInvites(ctx context.Context, src *authcache.Account) (int, error) {
-	live, err := src.Token()
-	if err != nil {
-		return 0, err
-	}
-	xbl, err := auth.RequestXBLToken(ctx, live, realmsParty)
-	if err != nil {
-		return 0, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, realmsHost+"/invites/count/pending", nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("User-Agent", "libhttpclient/1.0.0.0")
-	req.Header.Set("Client-Version", protocol.CurrentVersion)
-	req.Header.Set("X-ClientPlatform", clientPlatform)
-	req.Header.Set("X-NetworkProtocolVersion", strconv.Itoa(protocol.CurrentProtocol))
-	req.Header.Set("Content-Type", "application/json")
-	xbl.SetAuthHeader(req)
-	data, err := send(http.DefaultClient, req)
-	if err != nil {
-		return 0, err
-	}
-	count, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || count < 0 {
-		return 0, errors.New("invalid invite count")
-	}
-	return count, nil
+// realmInvites reads the pending Realms invite count through the Realms client.
+func realmInvites(ctx context.Context, account *authcache.Account) (int, error) {
+	return realms.NewClient(account, nil).PendingInviteCount(ctx)
 }
