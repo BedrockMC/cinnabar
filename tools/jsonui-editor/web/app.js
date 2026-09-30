@@ -3,6 +3,7 @@
 import init, { Editor } from "./pkg/jsonui_editor.js";
 import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
 import { EditorState } from "https://esm.sh/@codemirror/state@^6";
+import { placeholder } from "https://esm.sh/@codemirror/view@^6";
 import { javascript } from "https://esm.sh/@codemirror/lang-javascript@^6";
 import { forceLinting, linter, lintGutter } from "https://esm.sh/@codemirror/lint@^6";
 import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@^6";
@@ -71,11 +72,13 @@ function loadPrefs() {
 
 // ---------- CodeMirror ----------
 
+const PLACEHOLDER = "Open a ui/*.json file from the list, or type or paste a JSON-UI file here to start a scratch file.";
+
 function makeState(text) {
   return EditorState.create({
     doc: text,
     extensions: [
-      basicSetup, javascript(), oneDark, lintGutter(),
+      basicSetup, javascript(), oneDark, lintGutter(), placeholder(PLACEHOLDER),
       linter(lintBuffer, { delay: 300 }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && !loadingDoc) onEdit();
@@ -130,11 +133,50 @@ function openFile(layer, path, select) {
 }
 
 function onEdit() {
-  if (!state.open) return;
+  if (!state.open) { startScratch(); return; }
   state.editor.edit(state.open.layer, state.open.path, code.state.doc.toString());
   $("file-state").textContent = "edited";
   $("export").disabled = false;
   scheduleRender();
+  if (!document.querySelector('[data-panel="export"]').hidden) refreshExportSoon();
+}
+
+// Text typed or pasted with no file open becomes a scratch-layer file, on top
+// of whatever is loaded (the example when nothing is).
+let scratchPending = null;
+function startScratch() {
+  if (scratchPending) return;
+  scratchPending = (async () => {
+    if (!state.layers.length) await loadExample({ keepBuffer: true });
+    const text = code.state.doc.toString();
+    await createScratch(text);
+  })().catch((error) => setStatus(String(error))).finally(() => { scratchPending = null; });
+}
+
+async function createScratch(text) {
+  const created = JSON.parse(state.editor.new_scratch_file(text));
+  if (!state.layers[created.layer]?.scratch) {
+    state.layers.splice(created.layer, 0, { name: "scratch", scratch: true, files: new Map() });
+  }
+  state.open = null;
+  openFile(created.layer, created.path);
+  $("export").disabled = false;
+  $("file-state").textContent = "scratch";
+  afterLoad();
+  const picked = state.editor.pick_screen(created.layer, created.path);
+  if (picked) { $("screen").value = picked; state.selected = -1; }
+  scheduleRender(0);
+}
+
+async function newFile() {
+  if (!state.layers.length) await loadExample({ keepBuffer: true });
+  await createScratch("");
+}
+
+// A new layer goes below the scratch layer; keep our mirror and open file in step.
+function insertLayer(index, entry) {
+  state.layers.splice(index, 0, entry);
+  if (state.open && state.open.layer >= index) state.open.layer++;
 }
 
 // ---------- loading packs ----------
@@ -151,7 +193,7 @@ async function addLayer(name, entries) {
     }
   }
   state.editor.commit_files(index);
-  state.layers.push({ name, files });
+  insertLayer(index, { name, files });
 }
 
 async function addZip(name, file) {
@@ -162,7 +204,7 @@ async function addZip(name, file) {
     state.editor.remove_layer(index);
     throw new Error(`${name}: ${error}`);
   }
-  state.layers.push({ name, files: new Map() });
+  insertLayer(index, { name, files: new Map() });
 }
 
 async function loadEntries(groups) {
@@ -184,11 +226,29 @@ function afterLoad() {
   renderLayers();
   renderFiles();
   refreshScreens();
-  if (!$("screen").value && state.screens.length) {
-    const preferred = state.screens.find((s) => s.reference === "start.start_screen") ?? state.screens[0];
-    $("screen").value = preferred.reference;
-  }
   scheduleRender(0);
+}
+
+// When the screen box is empty or names nothing, preview the open file's
+// screen, else a loaded screen. Returns whether it changed the box.
+function autoPickScreen() {
+  const current = $("screen").value.trim();
+  if (current && state.editor.has_control(current)) return false;
+  let picked = state.open ? state.editor.pick_screen(state.open.layer, state.open.path) : undefined;
+  if (!picked && !current) {
+    picked = (state.screens.find((s) => s.reference === "start.start_screen") ?? state.screens.find((s) => s.screen))?.reference;
+  }
+  if (!picked || picked === current) return false;
+  $("screen").value = picked;
+  state.selected = -1;
+  setStatus(`Previewing ${picked} (picked automatically)`);
+  return true;
+}
+
+function showEmpty(message) {
+  $("empty").textContent = message;
+  $("empty").hidden = !message;
+  $("canvas").hidden = $("overlay").hidden = Boolean(message);
 }
 
 function folderGroups(fileList) {
@@ -239,7 +299,7 @@ async function onDrop(event) {
   if (groups.length) await loadEntries(groups);
 }
 
-async function loadExample() {
+async function loadExample(options = {}) {
   const listing = await (await fetch("examples/files.json")).json();
   const groups = [];
   for (const [name, paths] of Object.entries(listing.layers)) {
@@ -250,10 +310,16 @@ async function loadExample() {
     }
     groups.push({ name: `example ${name}`, entries });
   }
+  const buffer = options.keepBuffer ? code.state.doc.toString() : null;
   await loadEntries(groups);
   $("screen").value = listing.screen;
   $("mock-preset").value = "Example rows";
   applyMockPreset();
+  if (buffer !== null && !state.open) {
+    loadingDoc = true;
+    code.setState(makeState(buffer));
+    loadingDoc = false;
+  }
 }
 
 // Supply texture images the last render asked for, then render again.
@@ -302,9 +368,19 @@ function scheduleRender(delay = RENDER_DELAY) {
 }
 
 async function render() {
-  if (!state.editor || !state.layers.length) return;
+  if (!state.editor) return;
+  if (!state.layers.length) {
+    showEmpty("Nothing loaded: open a resource pack folder or zip, load the example, or paste a JSON-UI file into the editor.");
+    return;
+  }
+  autoPickScreen();
   const view = currentView();
-  if (!view.reference) return;
+  if (!view.reference) {
+    state.frame = null;
+    renderTree();
+    showEmpty("No screen selected: type namespace.control above, or click a file with a screen in it.");
+    return;
+  }
   try {
     state.editor.set_view(JSON.stringify(view));
   } catch (error) {
@@ -319,6 +395,13 @@ async function render() {
   }
   const laid = performance.now() - started;
   state.frame = frame;
+  if (!frame.boxes.length) {
+    renderTree();
+    renderDiagnostics();
+    showEmpty(`${view.reference} did not resolve. Check the name, or see Diagnostics.`);
+    return;
+  }
+  showEmpty("");
   if (state.selected >= frame.boxes.length) state.selected = -1;
   paint();
   const total = performance.now() - started;
@@ -656,6 +739,164 @@ function renderFlags() {
   }
 }
 
+function showTab(name) {
+  for (const tab of document.querySelectorAll("[role=tab]")) tab.setAttribute("aria-selected", String(tab.dataset.tab === name));
+  for (const panel of document.querySelectorAll(".panel")) panel.hidden = panel.dataset.panel !== name;
+  if (name === "export") refreshExport();
+}
+
+// ---------- export ----------
+
+let exportTimer = 0;
+function refreshExportSoon() {
+  clearTimeout(exportTimer);
+  exportTimer = setTimeout(refreshExport, 400);
+}
+
+const PACK_KEY = "jsonui-editor-pack";
+let packIcon = null;
+
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// The pack's settings persist per browser so re-exports update the same pack.
+function loadPack() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PACK_KEY) || "null");
+    if (saved && saved.header_uuid && saved.module_uuid) return saved;
+  } catch { /* storage unavailable */ }
+  return JSON.parse(state.editor.default_pack("My JSON-UI pack", uuid(), uuid()));
+}
+
+function savePack(pack) {
+  try { localStorage.setItem(PACK_KEY, JSON.stringify(pack)); } catch { /* storage unavailable */ }
+}
+
+function triple(id) { return [...$(id).querySelectorAll("input")].map((i) => Math.max(0, Number(i.value) | 0)); }
+function setTriple(id, values) { [...$(id).querySelectorAll("input")].forEach((input, i) => { input.value = values[i] ?? 0; }); }
+
+function showPack(pack) {
+  $("pack-name").value = pack.name;
+  $("pack-description").value = pack.description;
+  setTriple("pack-version", pack.version);
+  setTriple("pack-engine", pack.min_engine_version);
+  $("pack-header").value = pack.header_uuid;
+  $("pack-module").value = pack.module_uuid;
+}
+
+function formPack() {
+  return {
+    name: $("pack-name").value.trim(), description: $("pack-description").value.trim(),
+    version: triple("pack-version"), min_engine_version: triple("pack-engine"),
+    header_uuid: $("pack-header").value, module_uuid: $("pack-module").value,
+  };
+}
+
+function exportRequest() {
+  const mode = $("export-mode").value;
+  return {
+    mode, format: $("export-format").value, pack: formPack(),
+    layer: mode === "full" ? Number($("export-layer").value) : null,
+    own_layer: mode === "full" && $("export-own").checked,
+  };
+}
+
+function refreshExport() {
+  if ($("export-mode").value === "full") {
+    const select = $("export-layer");
+    const current = select.value;
+    select.replaceChildren(...state.layers.map((layer, i) => new Option(`${i}. ${layer.name}`, String(i))));
+    if (current && Number(current) < state.layers.length) select.value = current;
+    else if (state.layers.length) select.value = String(state.layers.length - 1);
+  }
+  $("full-options").hidden = $("export-mode").value !== "full";
+  const warnings = $("export-warnings");
+  warnings.replaceChildren();
+  let result;
+  try {
+    result = JSON.parse(state.editor.export_plan(JSON.stringify(exportRequest())));
+  } catch (error) {
+    $("export-preview").textContent = String(error);
+    $("export-download").disabled = true;
+    return;
+  }
+  const { plan, manifest } = result;
+  const lines = [];
+  const notes = [...plan.notes, ...(plan.skipped.length ? [`${plan.skipped.length} files left out (not yours to ship)`] : [])];
+  for (const d of result.warnings) notes.push(`error in ${d.location ? locationText(d.location) : d.stage}: ${d.message}`);
+  for (const note of notes) {
+    const li = document.createElement("li");
+    li.textContent = note;
+    warnings.append(li);
+  }
+  lines.push(`manifest.json\n${JSON.stringify(manifest, null, 2)}`);
+  if (packIcon) lines.push(`pack_icon.png (${packIcon.length} bytes)`);
+  const paths = Object.keys(plan.files);
+  for (const path of paths) lines.push(`${path}\n${plan.files[path]}`);
+  $("export-preview").textContent = paths.length ? lines.join("\n\n") : "Nothing to export yet: edit a file or paste into the editor.";
+  $("export-download").disabled = !paths.length;
+}
+
+function setupExport() {
+  const pack = loadPack();
+  showPack(pack);
+  for (const id of ["pack-name", "pack-description", "export-own"]) $(id).oninput = () => { savePack(formPack()); refreshExport(); };
+  for (const id of ["pack-version", "pack-engine"]) $(id).oninput = () => { savePack(formPack()); refreshExport(); };
+  $("export-mode").onchange = refreshExport;
+  $("export-layer").onchange = refreshExport;
+  $("export-format").onchange = refreshExport;
+  $("pack-regenerate").onclick = () => {
+    $("pack-header").value = uuid();
+    $("pack-module").value = uuid();
+    savePack(formPack());
+    refreshExport();
+  };
+  $("pack-icon").onchange = async (event) => {
+    const file = event.target.files[0];
+    packIcon = null;
+    $("pack-icon-note").textContent = "";
+    if (!file) return refreshExport();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    try {
+      const warnings = JSON.parse(state.editor.check_icon(bytes));
+      packIcon = bytes;
+      $("pack-icon-note").textContent = warnings.join(" ") || "Icon ready.";
+    } catch (error) {
+      $("pack-icon-note").textContent = String(error);
+    }
+    refreshExport();
+  };
+  $("export-form").onsubmit = (event) => {
+    event.preventDefault();
+    const request = exportRequest();
+    let bytes;
+    try {
+      bytes = state.editor.export_pack(JSON.stringify(request), packIcon ?? undefined);
+    } catch (error) {
+      $("export-status").textContent = String(error);
+      return;
+    }
+    const name = state.editor.pack_file_name(request.pack.name, request.format);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const next = JSON.parse(state.editor.bump_pack(JSON.stringify(request.pack)));
+    savePack(next);
+    showPack(next);
+    $("export-status").textContent = `Exported ${name} (v${request.pack.version.join(".")}); the next export will be v${next.version.join(".")}.`;
+    refreshExport();
+  };
+}
+
 function tick() {
   if (!state.playing) return;
   let t = (performance.now() - state.start) / 1000;
@@ -671,7 +912,7 @@ function tick() {
 async function main() {
   await init();
   state.editor = new Editor();
-  code = new EditorView({ state: makeState("// Open a ui/*.json file from the list.\n"), parent: $("editor") });
+  code = new EditorView({ state: makeState(""), parent: $("editor") });
   try {
     const response = await fetch("monocraft.mcbefont");
     if (response.ok) state.editor.load_font(new Uint8Array(await response.arrayBuffer()));
@@ -696,13 +937,9 @@ async function main() {
     e.target.value = "";
   };
   $("load-example").onclick = () => loadExample().catch((error) => setStatus(String(error)));
-  $("export").onclick = () => {
-    const bytes = state.editor.export_edits();
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
-    const a = Object.assign(document.createElement("a"), { href: url, download: "jsonui-edits.zip" });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  $("new-file").onclick = () => newFile().catch((error) => setStatus(String(error)));
+  $("export").onclick = () => showTab("export");
+  setupExport();
   $("file-filter").oninput = renderFiles;
   $("screen").onchange = () => { state.selected = -1; scheduleRender(0); };
   $("all-controls").onchange = refreshScreens;
@@ -743,12 +980,7 @@ async function main() {
     const index = state.editor.pick(x, y);
     if (index >= 0) select(index, true);
   };
-  for (const tab of document.querySelectorAll("[role=tab]")) {
-    tab.onclick = () => {
-      for (const other of document.querySelectorAll("[role=tab]")) other.setAttribute("aria-selected", String(other === tab));
-      for (const panel of document.querySelectorAll(".panel")) panel.hidden = panel.dataset.panel !== tab.dataset.tab;
-    };
-  }
+  for (const tab of document.querySelectorAll("[role=tab]")) tab.onclick = () => showTab(tab.dataset.tab);
   window.addEventListener("resize", layoutStage);
   let dragDepth = 0;
   window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("drop").hidden = false; });
@@ -756,6 +988,7 @@ async function main() {
   window.addEventListener("dragover", (e) => e.preventDefault());
   window.addEventListener("drop", (e) => { dragDepth = 0; onDrop(e); });
   setStatus(state.editor.has_font() ? "Ready" : $("status").textContent);
+  render();
 }
 
 main().catch((error) => setStatus(`Failed to start: ${error}`));

@@ -5,6 +5,7 @@
 
 pub mod api;
 pub mod diagnose;
+pub mod export;
 pub mod index;
 pub mod mock;
 pub mod outline;
