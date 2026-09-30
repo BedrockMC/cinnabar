@@ -18,8 +18,8 @@ use crate::{
 };
 
 const PLAYER: &str = "minecraft:player";
-/// Seconds between block hit sounds while mining; needs native measurement.
-const HIT_INTERVAL: f32 = 0.25;
+/// Seconds between block hit sounds while mining (`GameMode` 200 ms).
+const HIT_INTERVAL: f32 = 0.2;
 /// Seconds between eating/drinking sounds while an item is in use; needs native measurement.
 const CONSUME_INTERVAL: f32 = 0.25;
 /// Held seconds after which releasing a food item counts as finishing it; needs native measurement.
@@ -325,6 +325,12 @@ mod tests {
         assert_eq!(is_consumable("minecraft:bread"), Some("eat"));
         assert_eq!(is_consumable("minecraft:potion"), Some("drink"));
         assert_eq!(is_consumable("minecraft:stone"), None);
+    }
+
+    /// `GameMode` spaces mining hit sounds 200 ms apart.
+    #[test]
+    fn mining_hits_follow_the_reference_interval() {
+        assert_eq!(HIT_INTERVAL, 0.2);
     }
 
     #[test]

@@ -337,6 +337,11 @@ fn a_completion_predicts_the_break_and_a_rolled_back_block_is_mined_again() {
     let done = held(&mut machine, &dirt, Server);
     assert_eq!(kinds(&done), completion);
     assert_eq!(done.broken, Some([0, 3, 0]));
+    assert_eq!(
+        machine.destroying_target(),
+        None,
+        "hit sounds and particles stop with the break"
+    );
     for _ in 0..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &dirt, Server).is_empty());
     }
@@ -387,6 +392,7 @@ fn an_instant_destroy_uses_the_negotiated_completion() {
         "no legacy transaction beside PredictDestroy"
     );
     assert_eq!(server.broken, Some([3, 4, 5]));
+    assert_eq!(machine_target(&stone), None, "instant destroys never crack");
     let mut machine = DestroyMachine::default();
     let client = held(&mut machine, &stone, Client);
     assert_eq!(
@@ -398,6 +404,12 @@ fn an_instant_destroy_uses_the_negotiated_completion() {
         kinds(&machine.step(DestroyInput::Released, STILL, Client)),
         [(AbortDestroy, [3, 4, 5], 0)]
     );
+}
+
+fn machine_target(target: &DestroyTarget) -> Option<([i32; 3], u8)> {
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, target, Server);
+    machine.destroying_target()
 }
 
 /// Holding attack in Creative keeps destroying: after the delay when still,
