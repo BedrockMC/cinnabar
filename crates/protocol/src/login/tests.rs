@@ -774,12 +774,10 @@ fn allowlisted_daylight_cycle_rule_is_decoded_and_normalized() {
     .expect("decode gamerule event");
 
     assert!(decoder_called.get());
-    assert_eq!(
-        event,
-        Some(WorldEvent::DaylightCycle(crate::DaylightCycleUpdateEvent {
-            enabled: false
-        }))
-    );
+    let Some(WorldEvent::GameRules(rules)) = event else {
+        panic!("{event:?}")
+    };
+    assert_eq!(rules.daylight_cycle.map(|cycle| cycle.enabled), Some(false));
 }
 
 #[test]

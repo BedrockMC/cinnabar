@@ -25,6 +25,10 @@ type PublishExtras<'w> = (
     Res<'w, render::HandRigScene>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
+    (
+        Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
+        Res<'w, crate::environment::WorldClock>,
+    ),
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -43,7 +47,7 @@ pub(crate) fn publish_ui_runtime(
     camera_settings: Res<CameraSettingsAuthority>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig, collisions, profiler): PublishExtras,
+    (frame_poll, menu_runtime, hand_rig, collisions, profiler, (local_frame, clock)): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
     let _timer = profiler
@@ -169,6 +173,15 @@ pub(crate) fn publish_ui_runtime(
         &camera_settings,
         now_millis,
     );
+    // Floored feet position and absolute world tick for the HUD's position and days-played text.
+    presentation.hud_frame.player_block = local_frame.snapshot().map(|frame| {
+        let feet = frame.pose().translation;
+        [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
+    });
+    presentation.hud_frame.world_time = Some(crate::environment::visual_world_time(
+        *clock,
+        time.elapsed_secs_f64(),
+    ));
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
@@ -776,6 +789,9 @@ pub(crate) fn refresh_hud_frame(
         })
     });
     let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
+    let holding_filled_map = selected_stack
+        .and_then(resolve_identifier)
+        .is_some_and(|id| &*id == "minecraft:filled_map");
     let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
         stream
             .filter(|stream| {
@@ -818,6 +834,7 @@ pub(crate) fn refresh_hud_frame(
         .and_then(|stream| stream.actor(stream.local_player_runtime_id()))
         .map_or(0.0, |actor| actor.pitch);
     frame.selected_item_name = selected_item_name;
+    frame.holding_filled_map = holding_filled_map;
     frame.item_names = item_names;
     frame.mount_jump = mount_jump;
     frame.attack_indicator_charge = Some(1.0);

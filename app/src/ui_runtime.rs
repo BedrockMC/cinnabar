@@ -795,6 +795,10 @@ impl UiRuntime {
             ),
             UiEvent::GameMode(event) => self.apply_game_mode_update(event.update),
             UiEvent::DefaultGameMode(event) => self.apply_default_game_mode_update(event.update),
+            UiEvent::HudRules(rules) => {
+                self.apply_hud_rules(rules);
+                UiApplyOutcome::Applied
+            }
             UiEvent::Form(event) => {
                 self.forms.admit(
                     event,

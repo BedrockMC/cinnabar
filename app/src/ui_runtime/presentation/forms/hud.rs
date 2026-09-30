@@ -49,6 +49,11 @@ const SIDEBAR_TITLE_OPACITY: f64 = 0.4;
 const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
+/// Behind the position and days lines: the controls' authored alpha, as the
+/// text-background opacity option's default is unrecovered.
+const TEXT_BACKGROUND_ALPHA: f64 = 0.7;
+/// Ticks in one Minecraft day.
+const TICKS_PER_DAY: f64 = 24_000.0;
 
 /// One screen's resolved tree per catalog and its last layout per model.
 #[derive(Default)]
@@ -310,6 +315,7 @@ fn hud_model(
         })
         .collect();
     let now_tick = runtime.estimated_server_tick(now);
+    let (player_position, days_played) = world_text_lines(runtime, frame);
     HudModel {
         survival_ui: survival,
         armor_visible: runtime
@@ -360,7 +366,52 @@ fn hud_model(
                 },
             })
             .collect(),
+        player_position,
+        days_played,
+        text_background_alpha: TEXT_BACKGROUND_ALPHA,
     }
+}
+
+/// The position line (the `showcoordinates` rule or a held filled map) and the
+/// days-played line (`showdaysplayed`), both hidden while the player is dead.
+fn world_text_lines(runtime: &UiRuntime, frame: &HudFrame) -> (Option<String>, Option<String>) {
+    let alive = runtime
+        .hud()
+        .health()
+        .is_none_or(|health| health.current() > 0);
+    let rules = runtime.gameplay_hud();
+    let translate = |key: &str, fallback: &str, arguments: &[String]| {
+        let template = runtime
+            .translation(key)
+            .map_or_else(|| fallback.to_owned(), |text| text.to_string());
+        protocol::format_translation(&template, arguments)
+    };
+    let position = frame
+        .player_block
+        .filter(|_| alive && (rules.show_coordinates() || frame.holding_filled_map))
+        .map(|block| {
+            translate(
+                "map.position",
+                "Position: %s, %s, %s",
+                &block.map(|axis| axis.to_string()),
+            )
+        });
+    let days = frame
+        .world_time
+        .filter(|_| alive && rules.show_days_played())
+        .map(|time| {
+            let days = (time / TICKS_PER_DAY).floor();
+            if days < 0.0 {
+                translate("hudScreen.daysPlayed.overflow", "Too many to count!", &[])
+            } else {
+                translate(
+                    "hudScreen.daysPlayed",
+                    "Days played: %s",
+                    &[format!("{days:.0}")],
+                )
+            }
+        });
+    (position, days)
 }
 
 fn visible(text: Option<&TimedText>, now: u64) -> Option<&TimedText> {
