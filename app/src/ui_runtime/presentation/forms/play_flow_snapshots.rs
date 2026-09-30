@@ -87,6 +87,13 @@ fn fixture_view(dir: &std::path::Path) -> MenuView {
         realm("Steve's Realm", "open", false, 21, false),
         realm("Build Club", "closed", false, 3, false),
         realm("Alex's Realm", "open", true, 0, false),
+        realm(
+            "ADD ONYXJAVA AS A FRIEND TO JOIN ONYX!",
+            "open",
+            false,
+            10,
+            false,
+        ),
     ];
     view.friends = vec![
         MenuFriendCard {
@@ -171,6 +178,10 @@ fn fixture_view(dir: &std::path::Path) -> MenuView {
 }
 
 fn snapshot(view: &MenuView, name: &str) {
+    snapshot_at(view, name, 0);
+}
+
+fn snapshot_at(view: &MenuView, name: &str, now_millis: u64) {
     let Some(mut presentation) = engine_presentation() else {
         eprintln!("skipping: UI carrier absent");
         return;
@@ -188,10 +199,14 @@ fn snapshot(view: &MenuView, name: &str) {
     let dpi = DpiScale::new(2.0).unwrap();
     for _ in 0..2 {
         presentation.set_menu_view(Some(view.clone()));
-        presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+        presentation
+            .build(&runtime, now_millis, [2560, 1440], dpi)
+            .unwrap();
     }
     presentation.set_menu_view(Some(view.clone()));
-    let input = presentation.build(&runtime, 0, [2560, 1440], dpi).unwrap();
+    let input = presentation
+        .build(&runtime, now_millis, [2560, 1440], dpi)
+        .unwrap();
     super::snapshot::write(&input, name);
 }
 
@@ -226,4 +241,101 @@ fn snapshot_play_flow() {
     add.address = "192.168.1.20:19132".to_owned();
     add.editing = Some(0);
     snapshot(&add, "flow-edit-server");
+}
+
+// Writes PNGs of the settings screen, the signing-in start screen and two
+// frames of the connecting screen's loading bar (local only).
+#[test]
+fn snapshot_settings_signing_in_and_progress() {
+    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
+    std::fs::create_dir_all(&dir).unwrap();
+    let base = fixture_view(&dir);
+    let mut settings = base.clone();
+    settings.screen = MenuScreen::Settings;
+    snapshot(&settings, "flow-settings");
+    let mut signing_in = base.clone();
+    signing_in.screen = MenuScreen::Home;
+    signing_in.auth_state = AuthState::Checking;
+    snapshot(&signing_in, "flow-home-signing-in");
+    let mut connecting = base;
+    connecting.connecting = true;
+    connecting.message = Some("Connecting...".to_owned());
+    snapshot_at(&connecting, "flow-connecting-0", 1_000);
+    snapshot_at(&connecting, "flow-connecting-1", 1_350);
+}
+
+// The connecting screen's loading bar is a flip-book: later frames paint other
+// texels over the same cached layout.
+#[test]
+fn the_loading_bar_animates_over_its_cached_layout() {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut view = fixture_view(&dir);
+    view.connecting = true;
+    view.message = Some("Connecting...".to_owned());
+    let runtime = UiRuntime::new(1);
+    let dpi = DpiScale::new(1.0).unwrap();
+    let mut frame = |now_millis| {
+        presentation.set_menu_view(Some(view.clone()));
+        presentation
+            .build(&runtime, now_millis, [1280, 720], dpi)
+            .unwrap()
+    };
+    frame(1_000);
+    let first = frame(1_000);
+    let later = frame(1_350);
+    let positions = |input: &render::UiRenderInput| {
+        input
+            .vertices
+            .iter()
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>()
+    };
+    let uvs = |input: &render::UiRenderInput| {
+        input
+            .vertices
+            .iter()
+            .map(|vertex| vertex.uv)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(positions(&first), positions(&later), "one layout");
+    assert_ne!(uvs(&first), uvs(&later), "another frame of the strip");
+}
+
+// The disconnect screen words the failure as vanilla does and offers OK, which
+// leaves it for the menu.
+#[test]
+fn the_disconnect_screen_has_a_way_back() {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut view = fixture_view(&dir);
+    view.screen = MenuScreen::Play;
+    view.disconnect_message =
+        Some("network session failed: Bedrock session failed: Connection closed".to_owned());
+    snapshot(&view, "flow-disconnect");
+    presentation.set_menu_view(Some(view));
+    let runtime = UiRuntime::new(1);
+    let dpi = DpiScale::new(1.0).unwrap();
+    let metrics = super::super::TextMetrics::for_viewport([1280, 720], dpi, None);
+    let mut nodes = Vec::new();
+    let mut next = 1;
+    let hits = presentation
+        .append_menu(&runtime, &mut nodes, &mut next, metrics, 1280.0, 720.0)
+        .unwrap();
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == crate::menu::MenuAction::DismissDialog),
+        "{hits:?}"
+    );
+    let texts = super::pack_harness::drawn_texts(&nodes);
+    assert!(
+        !texts.iter().any(|text| text.contains("session failed")),
+        "the raw chain stays in the log: {texts:?}"
+    );
 }

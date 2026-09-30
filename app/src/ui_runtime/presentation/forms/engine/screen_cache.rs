@@ -1,9 +1,10 @@
 //! Laid-out engine screens reused while their inputs are unchanged, so a static
-//! menu only repaints each frame instead of resolving, binding and laying out.
+//! menu only repaints each frame, and resolved trees reused across hover and
+//! value changes, which only re-bind and re-lay out.
 
 use std::sync::{Arc, Mutex};
 
-use json_ui::{Catalog, Context, DataSource, FormRender, ViewState};
+use json_ui::{Catalog, Context, DataSource, FormRender, ResolvedControl, ViewState};
 
 /// Screens kept at once: a menu, its overlay and a dialog popup.
 const SLOTS: usize = 4;
@@ -46,8 +47,22 @@ impl Entry {
     }
 }
 
+/// A screen's resolved tree, which depends only on the catalog and context.
+struct Resolved {
+    reference: String,
+    catalog: Arc<Catalog>,
+    context: Context,
+    root: Arc<ResolvedControl>,
+}
+
 #[derive(Default)]
-pub(super) struct ScreenCache(Mutex<Vec<Entry>>);
+pub(super) struct ScreenCache {
+    laid: Mutex<Vec<Entry>>,
+    /// Shared with prewarm threads.
+    resolved: Arc<Mutex<Vec<Resolved>>>,
+    /// Screens a prewarm thread was started for.
+    warming: Mutex<Vec<String>>,
+}
 
 impl ScreenCache {
     /// The cached render for `key`, else `render()`'s, remembered in place of
@@ -57,7 +72,10 @@ impl ScreenCache {
         key: ScreenKey<'_>,
         render: impl FnOnce() -> Option<FormRender>,
     ) -> Option<Arc<FormRender>> {
-        let mut entries = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut entries = self
+            .laid
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         if let Some(index) = entries.iter().position(|entry| entry.matches(&key)) {
             let entry = entries.remove(index);
             let render = Arc::clone(&entry.render);
@@ -80,6 +98,108 @@ impl ScreenCache {
             render: Arc::clone(&rendered),
         });
         Some(rendered)
+    }
+
+    /// An allow-listed screen's render for `key`: cached, else bound and laid
+    /// out over its cached resolved tree.
+    pub(super) fn render(
+        &self,
+        key: ScreenKey<'_>,
+        env: &json_ui::LayoutEnv,
+    ) -> Option<Arc<FormRender>> {
+        let (reference, catalog, context, data, view, root) = (
+            key.reference,
+            key.catalog,
+            key.context,
+            key.data,
+            key.view,
+            key.root,
+        );
+        self.get_or_render(key, || {
+            if !json_ui::is_engine_screen(reference) {
+                return None;
+            }
+            let tree = self.resolved(reference, catalog, context, || {
+                json_ui::resolve(catalog, reference, context).control
+            })?;
+            let library = json_ui::CatalogLibrary { catalog, context };
+            let bound = json_ui::bind(&tree, data, &library);
+            Some(json_ui::render_bound(bound, root, env, view))
+        })
+    }
+
+    /// Resolve `reference` under `context` on a background thread, once, so
+    /// its first open does not stall a frame.
+    pub(super) fn prewarm(
+        &self,
+        reference: &'static str,
+        catalog: &Arc<Catalog>,
+        context: Context,
+    ) {
+        let mut warming = self
+            .warming
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if warming.iter().any(|started| started == reference) {
+            return;
+        }
+        warming.push(reference.to_owned());
+        let (resolved, catalog) = (Arc::clone(&self.resolved), Arc::clone(catalog));
+        std::thread::spawn(move || {
+            let Some(root) = json_ui::resolve(&catalog, reference, &context).control else {
+                return;
+            };
+            let mut entries = resolved.lock().unwrap_or_else(|poison| poison.into_inner());
+            let present = entries.iter().any(|entry| {
+                entry.reference == reference
+                    && Arc::ptr_eq(&entry.catalog, &catalog)
+                    && entry.context == context
+            });
+            if !present {
+                if entries.len() >= SLOTS {
+                    entries.remove(0);
+                }
+                entries.push(Resolved {
+                    reference: reference.to_owned(),
+                    catalog,
+                    context,
+                    root: Arc::new(root),
+                });
+            }
+        });
+    }
+
+    /// The resolved tree of `reference` under `context`, else `resolve()`'s;
+    /// resolving the settings screen alone takes hundreds of milliseconds.
+    pub(super) fn resolved(
+        &self,
+        reference: &str,
+        catalog: &Arc<Catalog>,
+        context: &Context,
+        resolve: impl FnOnce() -> Option<ResolvedControl>,
+    ) -> Option<Arc<ResolvedControl>> {
+        let mut entries = self
+            .resolved
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(entry) = entries.iter().find(|entry| {
+            entry.reference == reference
+                && Arc::ptr_eq(&entry.catalog, catalog)
+                && entry.context == *context
+        }) {
+            return Some(Arc::clone(&entry.root));
+        }
+        let root = Arc::new(resolve()?);
+        if entries.len() >= SLOTS {
+            entries.remove(0);
+        }
+        entries.push(Resolved {
+            reference: reference.to_owned(),
+            catalog: Arc::clone(catalog),
+            context: context.clone(),
+            root: Arc::clone(&root),
+        });
+        Some(root)
     }
 }
 
@@ -129,5 +249,15 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &again));
         let resized = cache.get_or_render(key([500.0, 300.0]), render).unwrap();
         assert!(!Arc::ptr_eq(&first, &resized));
+        let tree = || render().map(|render| render.bound);
+        let once = cache
+            .resolved("start.start_screen", &catalog, &context, tree)
+            .unwrap();
+        let again = cache
+            .resolved("start.start_screen", &catalog, &context, || {
+                panic!("resolved twice")
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(&once, &again));
     }
 }

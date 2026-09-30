@@ -9,13 +9,19 @@ use sim::{
 use thiserror::Error;
 
 mod correction;
+mod timeline;
+
+pub(crate) use timeline::ServerControlFlags;
 
 use super::anchor_probe::BeforeTick;
 use super::locomotion::{ModeIntent, ModeObservation, ModeTracker};
 use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
+/// Retained prediction window until StartGame supplies `RewindHistorySize`.
 const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
+/// Vanilla's ceiling on StartGame `RewindHistorySize`.
+const MAX_REWIND_HISTORY_SIZE: u16 = 1000;
 
 /// Maximum fixed simulation ticks allowed in one render frame.
 ///
@@ -61,7 +67,7 @@ pub fn physics_movement_input(
     jumping: bool,
     sneaking: bool,
     sprint_request: bool,
-    _use_held: bool,
+    item_use_movement_modifier: Option<f64>,
 ) -> MovementInput {
     if !active {
         return MovementInput::default();
@@ -76,11 +82,8 @@ pub fn physics_movement_input(
         sprinting,
         sneaking,
         move_vector_is_raw: true,
-        // Generic Use does not establish that the selected item is consumable
-        // or that its use phase has begun. Keep this dormant until inventory
-        // classification and authoritative use timing are available.
         using_consumable: false,
-        item_use_movement_modifier: None,
+        item_use_movement_modifier,
         movement_speed: None,
         effects: sim::MovementEffects::default(),
         ..MovementInput::default()
@@ -98,6 +101,8 @@ pub struct PhysicsSampleContext {
     /// Analog-axis sample of the controlling device.
     pub analogue_move_vector: [f32; 2],
     pub mode_intent: ModeIntent,
+    /// Physical sneak button, carried to the raw sneak flags.
+    pub sneak_button: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,6 +126,8 @@ pub struct PhysicsMovementSample {
     pub camera_orientation: [f32; 3],
     pub jumping: bool,
     pub sneaking: bool,
+    /// Physical sneak button, unlike toggle/forced/processed `sneaking`.
+    pub sneak_button: bool,
     pub sprinting: bool,
     pub input_mode: PlayerInputMode,
     pub grounded_before_tick: bool,
@@ -189,12 +196,6 @@ pub struct LocalPhysicsFrame {
     pub samples: Vec<PhysicsMovementSample>,
 }
 
-/// Bound on retained server motion overlays; floods drop the oldest first.
-///
-/// Overlays older than the replay horizon are evicted first, so the bound only
-/// ever bites on impulses a correction replay could still need.
-const LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY: usize = 2 * LOCAL_PHYSICS_HISTORY_CAPACITY;
-
 /// Locally predicted fixed-tick player state and render interpolation.
 ///
 /// This resource never owns a network sender or changes [`super::MovementTicker`]
@@ -216,7 +217,11 @@ pub struct LocalPhysicsController {
     dropped_tick_count: u64,
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
+    /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
+    history_capacity: usize,
+    /// Server sprint/sneak states awaiting adoption by the control latches.
+    server_control_flags: Option<ServerControlFlags>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
@@ -244,7 +249,9 @@ impl Default for LocalPhysicsController {
             dropped_tick_count: 0,
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
-            server_motions: VecDeque::with_capacity(LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY),
+            server_motions: VecDeque::new(),
+            history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
+            server_control_flags: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
@@ -264,6 +271,18 @@ impl LocalPhysicsController {
         self.state.is_some()
     }
 
+    /// Sizes the retained window from StartGame `RewindHistorySize` as vanilla's
+    /// entity initializer does: its low 16 bits, zero as one, capped at 1000.
+    /// Takes effect at the next reanchor.
+    pub fn set_rewind_history_size(&mut self, size: i32) {
+        self.history_capacity = usize::from((size as u16).clamp(1, MAX_REWIND_HISTORY_SIZE));
+    }
+
+    #[must_use]
+    pub const fn history_capacity(&self) -> usize {
+        self.history_capacity
+    }
+
     pub fn deactivate(&mut self) {
         self.state = None;
         self.accumulated_seconds = 0.0;
@@ -274,58 +293,12 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.server_motions.clear();
+        self.server_control_flags = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
         self.anchor_state.reset();
-        self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
+        self.history = PredictionHistory::new(self.history_capacity)
             .expect("local physics history capacity is non-zero");
-    }
-
-    /// Retains one server-authoritative velocity impulse (knockback, launch,
-    /// explosion) at the tick carried by `SetActorMotion`.
-    ///
-    /// The overlay is keyed by that tick so a correction rewind covering it
-    /// re-applies the same replacement deterministically. Non-finite impulses
-    /// are ignored; when inactive there is no prediction timeline to enter.
-    /// A zero or already-simulated wire tick replaces the current velocity now
-    /// and retains it at the next simulation boundary; retained past ticks go
-    /// through [`Self::replay_server_motion`] instead.
-    pub fn queue_server_motion(&mut self, motion: [f32; 3], applies_at_tick: u64) {
-        if !motion.into_iter().all(f32::is_finite) {
-            return;
-        }
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
-        let velocity = Vec3::new(
-            f64::from(motion[0]),
-            f64::from(motion[1]),
-            f64::from(motion[2]),
-        );
-        let applies_at_tick = if applies_at_tick <= state.tick {
-            let Some(next_tick) = state.tick.checked_add(1) else {
-                return;
-            };
-            state.velocity = velocity;
-            next_tick
-        } else {
-            applies_at_tick
-        };
-        self.retain_server_motion(sim::MotionOverlay {
-            tick: applies_at_tick,
-            velocity,
-        });
-    }
-
-    fn retain_server_motion(&mut self, overlay: sim::MotionOverlay) {
-        if let Some(oldest) = self.history.oldest_tick() {
-            self.server_motions
-                .retain(|retained| retained.tick >= oldest);
-        }
-        if self.server_motions.len() >= LOCAL_PHYSICS_MOTION_OVERLAY_CAPACITY {
-            self.server_motions.pop_front();
-        }
-        self.server_motions.push_back(overlay);
     }
 
     /// Replaces prediction state from a server network-position anchor.
@@ -374,7 +347,7 @@ impl LocalPhysicsController {
         // position is probed before its first simulated tick, and any prior
         // failure budget or frozen embedded-anchor hold is replaced.
         self.anchor_state.note_hard_anchor();
-        self.history = PredictionHistory::new(LOCAL_PHYSICS_HISTORY_CAPACITY)
+        self.history = PredictionHistory::new(self.history_capacity)
             .expect("local physics history capacity is non-zero");
     }
 
@@ -634,6 +607,7 @@ impl LocalPhysicsController {
                         camera_orientation: context.camera_orientation,
                         jumping: input.jumping,
                         sneaking: input.sneaking,
+                        sneak_button: context.sneak_button,
                         sprinting: input.sprinting,
                         input_mode: context.input_mode,
                         grounded_before_tick,
@@ -647,7 +621,7 @@ impl LocalPhysicsController {
                     if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
                         sample.movement = delta;
                     }
-                    if self.sample_history.len() == LOCAL_PHYSICS_HISTORY_CAPACITY {
+                    while self.sample_history.len() >= self.history_capacity {
                         self.sample_history.pop_front();
                     }
                     self.sample_history.push_back(

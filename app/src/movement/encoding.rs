@@ -4,16 +4,12 @@ use super::PhysicsMovementSample;
 
 /// Previous-tick input lanes used to derive per-family edges between ticks.
 ///
-/// Only the physical-button jump families (`JumpDown`, the raw pressed/
-/// released/current carriers, and the press announcement) track the raw
-/// button. The sneak and sprint lanes intentionally track each previous
-/// sample's *processed* states — exactly what [`input_flags`] compares
-/// against — so a future pose-gated rule that narrows processed state while
-/// the raw button stays held cannot re-emit stop edges every tick. Today no
-/// such rule exists, so these bytes are unchanged.
+/// The raw jump and sneak carriers track physical buttons; the processed
+/// sneak and sprint lanes track what the simulator acted on.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct HeldInput {
     jumping: bool,
+    sneak_button: bool,
     sneaking: bool,
     sprinting: bool,
     mode: sim::MovementMode,
@@ -23,6 +19,7 @@ impl From<&PhysicsMovementSample> for HeldInput {
     fn from(sample: &PhysicsMovementSample) -> Self {
         Self {
             jumping: sample.jumping,
+            sneak_button: sample.sneak_button,
             sneaking: sample.processed.sneaking,
             sprinting: sample.processed.sprinting,
             mode: sample.processed.mode,
@@ -111,15 +108,21 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::JUMPING;
     }
 
-    // No shared pose/mode authority exists yet (VPA-012), so processed sneak
-    // equals held sneak and these bytes are unchanged.
     if sample.processed.sneaking {
         flags |= PlayerInputFlags::SNEAKING | PlayerInputFlags::SNEAK_DOWN;
         if !previous.sneaking {
-            flags |= PlayerInputFlags::START_SNEAKING | PlayerInputFlags::SNEAK_PRESSED_RAW;
+            flags |= PlayerInputFlags::START_SNEAKING;
         }
     } else if previous.sneaking {
-        flags |= PlayerInputFlags::STOP_SNEAKING | PlayerInputFlags::SNEAK_RELEASED_RAW;
+        flags |= PlayerInputFlags::STOP_SNEAKING;
+    }
+    if sample.sneak_button {
+        flags |= PlayerInputFlags::SNEAK_CURRENT_RAW;
+        if !previous.sneak_button {
+            flags |= PlayerInputFlags::SNEAK_PRESSED_RAW;
+        }
+    } else if previous.sneak_button {
+        flags |= PlayerInputFlags::SNEAK_RELEASED_RAW;
     }
 
     if sample.processed.sprinting {

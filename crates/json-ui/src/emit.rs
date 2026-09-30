@@ -113,6 +113,9 @@ pub struct DrawNode {
     /// Animations scaling `alpha`, evaluated by the caller at paint time.
     #[serde(default)]
     pub fades: Vec<crate::anim::Fade>,
+    /// A sprite's `uv` flip-book, stepped by the caller at paint time.
+    #[serde(default)]
+    pub flip_book: Option<crate::anim::FlipBook>,
     pub draw: Draw,
     /// State children this node sits under, from [`emit_gated`]; see [`DrawNode::shown`].
     #[serde(default)]
@@ -244,6 +247,10 @@ fn emit_own(
                 layer: node.layer,
                 alpha: node.alpha,
                 fades: node.fades.clone(),
+                flip_book: match &draw {
+                    Draw::Sprite { texture, .. } => flip_book(node.control, texture, env),
+                    _ => None,
+                },
                 draw,
                 gates: Vec::new(),
             },
@@ -330,6 +337,22 @@ fn sprite_draws(
             },
         )],
     }
+}
+
+/// The control's flip-book with its frame step normalised to `texture`'s width.
+fn flip_book(
+    control: &ResolvedControl,
+    texture: &str,
+    env: &LayoutEnv,
+) -> Option<crate::anim::FlipBook> {
+    let value = control.properties.get(crate::anim::FLIP_BOOK_KEY)?;
+    let mut book: crate::anim::FlipBook = serde_json::from_value(value.clone()).ok()?;
+    let width = env.textures.texture(texture)?.base_size[0];
+    if book.frame_count <= 1 || width <= 0.0 {
+        return None;
+    }
+    book.step_u = (book.frame_step / width) as f32;
+    Some(book)
 }
 
 /// A literal `uv`/`uv_size` sub-rect of the texture, normalised.

@@ -13,7 +13,7 @@ use std::{
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound, render_screen,
+    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
@@ -31,8 +31,7 @@ use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 const UNWRAPPED_LOGICAL: f64 = 65_536.0;
-/// Tooltip placement relative to the pointer and its padding, in virtual px
-/// (needs native measurement).
+/// Tooltip offset from the pointer and padding, virtual px (needs native measurement).
 const TOOLTIP_OFFSET: [f32; 2] = [8.0, -12.0];
 const TOOLTIP_PAD: f32 = 2.0;
 const TOOLTIP_BACKGROUND: [u8; 4] = [16, 0, 16, 224];
@@ -226,10 +225,8 @@ impl FormEngine {
         self.catalog = Arc::new(catalog);
     }
 
-    /// Render `model` into `nodes`; `Ok(None)` when its template is missing, so the
-    /// caller can fall back to the programmatic dialog. The bound tree is reused
-    /// until the model or catalog changes and the layout until the view state,
-    /// viewport, or scale does, so a static form only repaints each frame.
+    /// Render `model` into `nodes`; `Ok(None)` when its template is missing. The
+    /// bound tree and layout are reused until their inputs change.
     pub(super) fn render(
         &mut self,
         model: &FormModel,
@@ -296,6 +293,11 @@ impl FormEngine {
         &self.assets
     }
 
+    /// Resolve `reference` under `context` in the background ahead of its first open.
+    pub(super) fn prewarm(&self, reference: &'static str, context: Context) {
+        self.screens.prewarm(reference, &self.catalog, context);
+    }
+
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
         self.splash
             .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
@@ -348,17 +350,13 @@ impl FormEngine {
                 px,
                 language,
             };
-            self.screens.get_or_render(key, || {
-                render_screen(reference, &self.catalog, context, data, root, env, view)
-            })
+            self.screens.render(key, env)
         })
     }
 }
 
-/// `vanilla` under the built-in Java HUD pack, less its files for any namespace
-/// in `withdrawn`: a server pack authored against vanilla that restyles a
-/// namespace gets vanilla beneath it there, so it looks as designed. The title
-/// panels then take the logo's shape and the Mojang footer is dropped.
+/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
+/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
 fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
     let mut catalog = vanilla.clone();
     let kept = super::hud::JAVA_HUD_PACK
@@ -480,10 +478,8 @@ fn render_with<R: Borrow<FormRender>>(
     }))
 }
 
-/// Caller art the custom renderers draw: the icon table `#item_renderer_data` indexes, the
-/// player preview, the pointer (virtual px) tooltips follow, the animation clock (seconds)
-/// fades evaluate at, the HUD's native state, downloaded artwork by local path (`images`)
-/// and the signed-in gamerpic (`portrait`).
+/// Caller art the custom renderers draw: `#item_renderer_data` icons, the player preview,
+/// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
@@ -506,16 +502,14 @@ pub(super) struct ScreenArt<'a> {
     pub(super) splash: Option<&'a str>,
 }
 
-/// Where a render writes its retained nodes, plus caller draw nodes painted on
-/// top (e.g. the held stack under the pointer).
+/// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).
 pub(super) struct EngineOutput<'a> {
     pub(super) nodes: &'a mut Vec<UiNode>,
     pub(super) next: &'a mut u32,
     pub(super) overlay: &'a [DrawNode],
 }
 
-/// A label's text after the vanilla localization rules. Empty lines drop, as
-/// the vanilla label splits on newlines and discards empty ones.
+/// A label's text after vanilla localization; empty lines drop as the vanilla label drops them.
 fn localized<'a>(text: &'a str, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Cow<'a, str> {
     let text = json_ui::localize_text(text, translate);
     if text.contains("\n\n") || text.starts_with('\n') || text.ends_with('\n') {
@@ -581,8 +575,7 @@ impl TextMeasure for Measure<'_, '_> {
     }
 }
 
-/// Turns engine draw nodes into retained UI nodes, opening a clip group whenever
-/// the clip rect changes so draw order is preserved.
+/// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep order.
 struct Painter<'a> {
     textures: Textures<'a>,
     solid_page: u16,
@@ -946,7 +939,13 @@ impl Painter<'_> {
                 dest,
             ),
             Draw::Sprite { texture, uv, color } => {
-                let Some(visual) = self.sprite(texture, *uv, alpha(*color)) else {
+                let mut uv = *uv;
+                if let Some(book) = &node.flip_book {
+                    let shift = book.step_u * book.frame(self.art.now) as f32;
+                    uv.u0 += shift;
+                    uv.u1 += shift;
+                }
+                let Some(visual) = self.sprite(texture, uv, alpha(*color)) else {
                     return Ok(());
                 };
                 (visual, dest)

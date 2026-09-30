@@ -26,7 +26,13 @@ pub(super) fn resolve_motion(
     let on_ground = was_on_ground || (normal_y_collision && velocity.y < 0.0);
 
     let (resolved_box, stepped) = if on_ground && normal_horizontal_collision {
-        let (step_box, step) = resolve_step(start, velocity, &colliders.value);
+        // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+        let envelope = bounded_collision_boxes(
+            world,
+            start.swept(Vec3::new(velocity.x, STEP_HEIGHT, velocity.z)),
+        )?;
+        identity = identity.merge(&envelope.identity)?;
+        let (step_box, step) = resolve_step(start, velocity, &envelope.value);
         let step_query = bounded_collision_boxes(world, step_box)?;
         identity = identity.merge(&step_query.identity)?;
         let step_blocked = !step_query.value.is_empty();

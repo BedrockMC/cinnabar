@@ -132,6 +132,12 @@ pub fn server_authoritative_block_breaking(game_data: &GameData) -> bool {
         .server_authoritative_block_breaking
 }
 
+/// StartGame's `RewindHistorySize`, the retained prediction window in ticks.
+#[must_use]
+pub fn rewind_history_size(game_data: &GameData) -> i32 {
+    game_data.start_game.movement_settings.rewind_history_size
+}
+
 /// Whether StartGame declares a hardcore world.
 #[must_use]
 pub fn is_hardcore(game_data: &GameData) -> bool {

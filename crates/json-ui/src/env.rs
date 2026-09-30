@@ -12,6 +12,10 @@ use serde_json::{Map, Value};
 #[derive(Clone, Debug, Default)]
 pub struct Env {
     vars: Arc<BTreeMap<String, Value>>,
+    /// Names whose value came from an ancestor's `|default`, which a nearer
+    /// `|default` replaces (`one_line_layout`'s `$label_offset` over
+    /// `option_generic_core`'s).
+    defaulted: Arc<std::collections::BTreeSet<String>>,
 }
 
 impl Env {
@@ -29,6 +33,9 @@ impl Env {
 
     pub fn set(&mut self, name: impl Into<String>, value: Value) {
         let name = name.into();
+        if self.defaulted.contains(&name) {
+            Arc::make_mut(&mut self.defaulted).remove(&name);
+        }
         if !self
             .vars
             .get(&name)
@@ -62,9 +69,9 @@ fn same_representation(left: &Value, right: &Value) -> bool {
     }
 }
 
-/// Apply a control's `$decl` properties onto `env`. A `$x|default` fills `x` only
-/// when it is otherwise unset (inherited or concrete definitions win); a plain
-/// `$x` always overrides. Values are substituted as they are applied, so a
+/// Apply a control's `$decl` properties onto `env`. A `$x|default` fills `x`
+/// when it is unset or holds only an ancestor's default (concrete definitions
+/// win); a plain `$x` always overrides. Values are substituted as they are applied, so a
 /// declaration may reference variables already in scope.
 pub fn apply_declarations(env: &mut Env, props: &Map<String, Value>) {
     let mut sink = Vec::new();
@@ -74,9 +81,10 @@ pub fn apply_declarations(env: &mut Env, props: &Map<String, Value>) {
             continue;
         };
         if is_default {
-            if !env.contains(&name) {
+            if !env.contains(&name) || env.defaulted.contains(&name) {
                 let resolved = fold_expression(value, substitute(value, env, &mut sink), env);
-                env.set(name, resolved);
+                env.set(name.clone(), resolved);
+                Arc::make_mut(&mut env.defaulted).insert(name);
             }
         } else {
             concretes.push((name, value));
@@ -345,6 +353,18 @@ mod tests {
         assert_eq!(env.get("provided"), Some(&json!("outer")));
         assert_eq!(env.get("fresh"), Some(&json!("made")));
         assert_eq!(env.get("explicit"), Some(&json!("set")));
+    }
+
+    // A nearer default replaces an inherited default but never a concrete value.
+    #[test]
+    fn a_nearer_default_replaces_an_inherited_default() {
+        let mut env = Env::new();
+        apply_declarations(&mut env, &props(json!({ "$offset|default": [0, 0] })));
+        apply_declarations(&mut env, &props(json!({ "$offset|default": [34, 3] })));
+        assert_eq!(env.get("offset"), Some(&json!([34, 3])));
+        apply_declarations(&mut env, &props(json!({ "$offset": [1, 1] })));
+        apply_declarations(&mut env, &props(json!({ "$offset|default": [9, 9] })));
+        assert_eq!(env.get("offset"), Some(&json!([1, 1])));
     }
 
     #[test]

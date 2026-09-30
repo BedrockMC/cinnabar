@@ -53,7 +53,6 @@ use crate::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode, ServerTeleportKind,
         reconcile_candidate_physics_correction, reconcile_committed_correction,
-        reconcile_server_motion,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -350,9 +349,35 @@ pub(crate) fn reconcile_world_stream_before_physics(
             sequence,
             dimension,
             current,
+            tick,
         } = control
         {
-            movement_speed.apply(clock.session_generation(), sequence, dimension, current);
+            if movement_speed.apply(clock.session_generation(), sequence, dimension, current)
+                && movement.physics_is_authorized()
+                && let Some(rewind) = local_physics.retime_movement_speed(tick, current)
+            {
+                control_apply::replay_timeline_edit(
+                    &mut movement,
+                    &mut local_physics,
+                    stream,
+                    &collisions,
+                    rewind,
+                );
+            }
+            continue;
+        }
+        if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
+            if movement.physics_is_authorized()
+                && let Some(rewind) = local_physics.apply_server_movement_flags(tick, flags)
+            {
+                control_apply::replay_timeline_edit(
+                    &mut movement,
+                    &mut local_physics,
+                    stream,
+                    &collisions,
+                    rewind,
+                );
+            }
             continue;
         }
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
@@ -368,18 +393,17 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             if movement.physics_is_authorized() {
                 crate::movement::note_motion(event.tick, event.motion);
-                let world = sim::PaletteWorld::new(
-                    stream.collision_store(),
-                    collisions.registry(stream.network_id_mode()),
-                    stream.current_dimension(),
-                );
-                reconcile_server_motion(
-                    &mut movement,
-                    &mut local_physics,
-                    event.motion,
-                    event.tick,
-                    &world,
-                );
+                if let Some(rewind) = local_physics.queue_server_motion(event.motion, event.tick)
+                    && !control_apply::replay_timeline_edit(
+                        &mut movement,
+                        &mut local_physics,
+                        stream,
+                        &collisions,
+                        rewind,
+                    )
+                {
+                    local_physics.replace_live_velocity(event.motion);
+                }
             }
             continue;
         }
@@ -402,12 +426,13 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     // Shape classification (confirming / replay / teleport)
                     // lives with the movement authority; a confirming
                     // correction deliberately mutates no prediction state.
-                    match reconcile_committed_correction(
+                    match crate::movement::reconcile_prediction_correction(
                         &mut movement,
                         &mut local_physics,
                         resolved.position,
                         correction.tick,
                         correction.on_ground,
+                        correction.delta,
                         &world,
                     ) {
                         Ok(Some(outcome)) => {
@@ -451,12 +476,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    // Only a MovePlayer explicitly flagged as a teleport hard
-                    // re-anchors. An unmarked MovePlayer is an ordinary position
-                    // sync: classify it (confirm / replay / far-teleport) like a
-                    // CorrectPlayerMovePrediction so a small server nudge replays
-                    // instead of forcing a hard snap. Opt-in HandledTeleport
-                    // acknowledgement arms on the teleport path only.
+                    // A teleport rewinds when nearby and retained, else snaps. An
+                    // unmarked MovePlayer is classified like a correction (Cinnabar
+                    // policy). HandledTeleport arms on the teleport path only.
                     let outcome = if correction.teleported {
                         movement.note_server_teleport(ServerTeleportKind::MovePlayer);
                         crate::movement::note_correction(
@@ -466,13 +488,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
                             correction.on_ground,
                             local_physics.sample_at(tick),
                         );
-                        reconcile_candidate_physics_correction(
+                        crate::movement::reconcile_move_player_teleport(
                             &mut movement,
                             &mut local_physics,
                             resolved.position,
                             tick,
                             correction.on_ground,
-                            PhysicsCorrectionMode::Snap,
                             &world,
                         )
                         .ok()
@@ -484,6 +505,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                             resolved.position,
                             tick,
                             correction.on_ground,
+                            None,
                             &world,
                         )
                         .ok()
@@ -590,6 +612,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }
+            | CommittedControlEvent::LocalMovementFlags { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
             | CommittedControlEvent::LocalHurt { .. }
             | CommittedControlEvent::PlayerListChanged { .. } => {
