@@ -3223,6 +3223,7 @@ dependencies = [
  "json-ui",
  "jsonui-editor",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
