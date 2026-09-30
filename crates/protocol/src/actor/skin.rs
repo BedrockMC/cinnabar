@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::SerializedSkinRef;
+use valentine::bedrock::version::v1_26_51::SerializedSkinRef;
 
 use super::{MAX_PLAYER_LIST_SKIN_BYTES, MAX_STANDARD_SKIN_SIDE};
 
@@ -66,7 +66,7 @@ pub struct CapeImage {
 const CAPE_DIMENSIONS: [(u32, u32); 4] = [(64, 32), (128, 64), (256, 128), (1024, 512)];
 
 fn normalize_cape(
-    image: &valentine::bedrock::version::v1_26_44::SkinImage,
+    image: &valentine::bedrock::version::v1_26_51::SkinImage,
     retained_bytes: &mut usize,
 ) -> Option<CapeImage> {
     let (width, height) = (image.width, image.height);

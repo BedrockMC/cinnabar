@@ -7,7 +7,7 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::Nbt;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket, AnimatePacket,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     EnumsAnimatePacketPayloadAction as AnimatePacketAction, ItemData, ItemRegistryPacket,
@@ -208,13 +208,13 @@ fn mob_equipment_rejects_unknown_and_sentinel_containers() {
 fn animate_known_row_and_unknown_actions_are_attributed() {
     for (action, expected) in [
         (AnimatePacketAction::Swing, ActorActionKind::SwingArm),
-        (AnimatePacketAction::WakeUp, ActorActionKind::Wake),
+        (AnimatePacketAction::Wakeup, ActorActionKind::Wake),
         (
-            AnimatePacketAction::CriticalHit,
+            AnimatePacketAction::Criticalhit,
             ActorActionKind::CriticalHit,
         ),
         (
-            AnimatePacketAction::MagicCriticalHit,
+            AnimatePacketAction::Magiccriticalhit,
             ActorActionKind::MagicCriticalHit,
         ),
         (AnimatePacketAction::Unknown(128), ActorActionKind::RowRight),

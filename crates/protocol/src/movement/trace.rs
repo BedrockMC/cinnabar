@@ -5,7 +5,7 @@
 //! names come from the encoder's own [`super::INPUT_FLAG_ITEMS`] table rather
 //! than a second spelling.
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsInputMode, EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData,
 };
 
@@ -45,7 +45,7 @@ pub fn player_auth_input_trace_sample(packet: &Packet) -> Option<PlayerAuthInput
     let McpePacketData::PlayerAuthInputPacket(input) = &packet.data else {
         return None;
     };
-    let flag_items = input.input_data.as_deref().unwrap_or(&[]);
+    let flag_items = input.input_data.as_slice();
     Some(PlayerAuthInputTraceSample {
         tick: input.client_tick.inputtick,
         position: [input.position.x, input.position.y, input.position.z],
@@ -83,8 +83,8 @@ fn input_mode_name(mode: EnumsInputMode) -> &'static str {
         EnumsInputMode::Undefined => "Undefined",
         EnumsInputMode::Mouse => "Mouse",
         EnumsInputMode::Touch => "Touch",
-        EnumsInputMode::GamePad => "GamePad",
-        EnumsInputMode::MotionController => "MotionController",
+        EnumsInputMode::Gamepad => "GamePad",
+        EnumsInputMode::Motioncontroller => "MotionController",
         EnumsInputMode::Count => "Count",
         EnumsInputMode::Unknown(_) => "Unknown",
     }

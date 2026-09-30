@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_44::{EnumsConnectionDisconnectFailReason, McpePacketData};
+use valentine::bedrock::version::v1_26_51::{EnumsConnectionDisconnectFailReason, McpePacketData};
 
 /// Longest retained server disconnect text per message field, in bytes.
 pub(crate) const MAX_DISCONNECT_TEXT_BYTES: usize = 512;
@@ -55,7 +55,7 @@ fn clamp_bytes(value: &str, max_bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_44::{DisconnectPacket, DisconnectPacketMessages};
+    use valentine::bedrock::version::v1_26_51::{DisconnectPacket, DisconnectPacketMessages};
 
     fn disconnect_data(
         reason: EnumsConnectionDisconnectFailReason,
@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn normalization_is_lenient_about_empty_and_oversized_text() {
         let empty = ServerDisconnectEvent::from_packet_data(&disconnect_data(
-            EnumsConnectionDisconnectFailReason::NoReason,
+            EnumsConnectionDisconnectFailReason::Noreason,
             "",
             "",
         ))
@@ -120,12 +120,12 @@ mod tests {
     #[test]
     fn normalization_labels_known_and_unknown_wire_reasons() {
         let known = ServerDisconnectEvent::from_packet_data(&disconnect_data(
-            EnumsConnectionDisconnectFailReason::KickedForExploit,
+            EnumsConnectionDisconnectFailReason::Kickedforexploit,
             "x",
             "",
         ))
         .expect("known reason normalizes");
-        assert_eq!(known.reason, "KickedForExploit");
+        assert_eq!(known.reason, "Kickedforexploit");
 
         let unknown = ServerDisconnectEvent::from_packet_data(&disconnect_data(
             EnumsConnectionDisconnectFailReason::UnknownValue(-7),
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn normalization_ignores_non_disconnect_packets() {
         let other =
-            McpePacketData::SetTimePacket(valentine::bedrock::version::v1_26_44::SetTimePacket {
+            McpePacketData::SetTimePacket(valentine::bedrock::version::v1_26_51::SetTimePacket {
                 time: 7,
             });
         assert!(ServerDisconnectEvent::from_packet_data(&other).is_none());

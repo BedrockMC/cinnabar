@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 /// Carriers the production runtime refuses to start without.
 pub(super) const REQUIRED_CARRIERS: &[&str] = &[
-    "vanilla-v2168.mcbea",
+    "vanilla-v2193.mcbea",
     "vanilla-v1.mcbeatm",
     "vanilla-v1.mcbeent",
     "vanilla-v1.mcbehud",
@@ -110,17 +110,17 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
                     ("source-manifest", VANILLA_MANIFEST.to_owned()),
                     (
                         "registry",
-                        format!("{REGISTRY_DIR}/block-registry-v2168.bin"),
+                        format!("{REGISTRY_DIR}/block-registry-v2193.bin"),
                     ),
                     (
                         "light-registry",
-                        format!("{REGISTRY_DIR}/block-light-registry-v2168.bin"),
+                        format!("{REGISTRY_DIR}/block-light-registry-v2193.bin"),
                     ),
                     (
                         "biome-registry",
-                        format!("{REGISTRY_DIR}/biome-registry-v2168.bin"),
+                        format!("{REGISTRY_DIR}/biome-registry-v2193.bin"),
                     ),
-                    ("out", out("vanilla-v2168.mcbea")),
+                    ("out", out("vanilla-v2193.mcbea")),
                 ],
             ),
             true,
@@ -206,7 +206,7 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
                     ("source-manifest", VANILLA_MANIFEST.to_owned()),
                     ("out", out("vanilla-v1.mcbeico")),
                     ("report", out("icon-assets.json")),
-                    ("block-assets", out("vanilla-v2168.mcbea")),
+                    ("block-assets", out("vanilla-v2193.mcbea")),
                 ],
             ),
             true,

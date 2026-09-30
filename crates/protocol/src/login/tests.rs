@@ -67,18 +67,18 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::codec::Nbt;
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AnimateEntityPacket,
     AnimatePacket, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockActorDataPacket,
     BlockPos, CerealizerNetworkItemStackDescriptorSerializedData, ClientCacheMissResponsePacket,
     CorrectPlayerMovePredictionPacket, EnumsAnimatePacketPayloadAction as AnimatePacketAction,
-    EnumsPlayerRespawnState as RespawnPacketState, GameRule, GameRuleRuleValue,
-    GameRulesChangedPacket, GameRulesChangedPacketData, ItemRegistryPacket, LevelChunkPacket,
-    LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName, MissingBlobData,
-    MobEquipmentPacket, MovePlayerPacket, PlaySoundPacket, PlayerInputTick, RespawnPacket,
-    SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly, UpdateBlockPacket,
-    Vec2, Vec3,
+    EnumsPlayerRespawnState as RespawnPacketState, EnumsTextPacketType, GameRule,
+    GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData, ItemRegistryPacket,
+    LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, LevelEventPacket, McpePacketName,
+    MissingBlobData, MobEquipmentPacket, MovePlayerPacket, PlaySoundPacket, PlayerInputTick,
+    RespawnPacket, SetTimePacket, TextPacket, TextPacketBody, TextPacketPayloadMessageOnly,
+    UpdateBlockPacket, Vec2, Vec3,
 };
 
 #[test]
@@ -344,7 +344,8 @@ fn ignored_play_packet_is_not_materialized() {
 fn allowlisted_ui_packet_is_validated_decoded_and_normalized() {
     let session = BedrockSession { shield_item_id: 0 };
     let packet: Packet = TextPacket {
-        body: TextPacketBody::Raw(TextPacketPayloadMessageOnly {
+        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
+            message_type: EnumsTextPacketType::Raw,
             message: "live UI".to_owned(),
         }),
         ..Default::default()
@@ -619,9 +620,6 @@ fn accepted_response_prefix(container_count: u32) -> BytesMut {
     wire::write_var_u32(&mut body, 1);
     body.put_u8(0);
     wire::write_var_u32(&mut body, 0);
-    // The container list is a DoubleOptionalFunc in 1.26.40: an outer bool that
-    // a Go writer always sets, then the optional-list presence and list itself.
-    body.put_u8(1);
     body.put_u8(1);
     wire::write_var_u32(&mut body, container_count);
     body
@@ -638,7 +636,7 @@ fn accepted_response_with_slot_count(slot_count: u32) -> BytesMut {
 fn accepted_response_with_name_lengths(unredacted: u32, redacted: u32) -> BytesMut {
     let mut body = accepted_response_with_slot_count(1);
     body.extend_from_slice(&[0, 0, 0]);
-    body.extend_from_slice(&[1, 0]);
+    body.put_u8(0);
     wire::write_var_u32(&mut body, unredacted);
     if unredacted <= crate::MAX_RESPONSE_NAME_BYTES as u32 {
         body.put_u8(1);
@@ -837,7 +835,7 @@ fn allowlisted_respawn_is_materialized_and_normalized() {
             y: 71.620_01,
             z: -4.25,
         },
-        state: RespawnPacketState::ReadyToSpawn,
+        state: RespawnPacketState::Readytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: 42,
         },

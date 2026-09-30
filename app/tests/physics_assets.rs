@@ -14,9 +14,9 @@ use sha2::{Digest, Sha256};
 fn make_client_acquires_and_builds_the_required_physics_registry() {
     let makefile = read_makefile();
     for contract in [
-        "PHYSICS_REGISTRY ?= .local/assets/block-physics-v2168.bin",
-        "PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2168.bin",
-        "PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2168.sha256",
+        "PHYSICS_REGISTRY ?= .local/assets/block-physics-v2193.bin",
+        "PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2193.bin",
+        "PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2193.sha256",
         "physics-assets: $(PHYSICS_REGISTRY)",
         "$(PHYSICS_REGISTRY): $(PHYSICS_REGISTRY_SOURCE) $(PHYSICS_REGISTRY_SHA256) $(BEDROCK_TARGET_MANIFEST)",
         "$(PHYSICS_REGISTRY_INSTALL)",
@@ -296,7 +296,7 @@ fn install_pinned_registry_once(root: &Path, shell: &RecipeShell, label: &str) {
     let invocation_log = temporary.join("invocations.log");
     let source = temporary.join("checked-in-block-physics.bin");
     let manifest = temporary.join("bedrock-target.json");
-    let pinned = b"protocol-2168-physics";
+    let pinned = b"protocol-2193-physics";
     fs::write(&source, pinned).unwrap();
     fs::write(&manifest, b"{}").unwrap();
     fs::write(&expected_sha, format!("{:x}\n", Sha256::digest(pinned))).unwrap();
@@ -338,7 +338,7 @@ fn production_installer_survives_apostrophes(root: &Path, shell: &RecipeShell) {
     let expected_sha = temporary.join("block-physics.sha256");
     let source = temporary.join("checked-in-block-physics.bin");
     let manifest = temporary.join("bedrock-target.json");
-    let pinned = b"protocol-2168-physics-production";
+    let pinned = b"protocol-2193-physics-production";
     fs::write(&source, pinned).unwrap();
     fs::write(&manifest, b"{}").unwrap();
     fs::write(&expected_sha, format!("{:x}\n", Sha256::digest(pinned))).unwrap();

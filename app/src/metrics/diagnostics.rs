@@ -59,7 +59,7 @@ fn active_protocol_catalog() -> &'static [DiagnosticCatalogEntry] {
     static CATALOG: OnceLock<Box<[DiagnosticCatalogEntry]>> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let records = assets::read_registry_for_protocol(
-            include_bytes!("../../../crates/assets/data/block-registry-v2168.bin"),
+            include_bytes!("../../../crates/assets/data/block-registry-v2193.bin"),
             crate::asset_startup::active_content_registry_protocol(),
         )
         .expect("checked-in active-protocol registry must remain valid");

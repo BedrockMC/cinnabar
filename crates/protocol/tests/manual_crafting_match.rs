@@ -3,7 +3,7 @@ use ::protocol::*;
 use bytes::{Bytes, BytesMut};
 use sha2::{Digest, Sha256};
 use std::{num::NonZeroU64, sync::Arc};
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
+use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 fn entries() -> Arc<[ItemRegistryEntry]> {
     [(6, "minecraft:oak_log"), (7, "minecraft:oak_planks")]
