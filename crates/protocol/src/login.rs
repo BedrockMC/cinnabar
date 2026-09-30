@@ -806,6 +806,7 @@ fn decode_world_raw_with(
             | McpePacketName::SetTimePacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
+            | McpePacketName::LevelEventGenericPacket
             | McpePacketName::SpawnParticleEffectPacket
             | McpePacketName::PlaySoundPacket
             | McpePacketName::StopSoundPacket

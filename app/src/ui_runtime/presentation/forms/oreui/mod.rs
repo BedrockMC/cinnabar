@@ -159,6 +159,7 @@ impl UiPresentationRuntime {
             // The local player is on the list too.
             remote_players: runtime.known_player_names().len() > 1,
             thunderstorm: self.hud_frame.thunderstorm,
+            status: runtime.sleep_status(),
             hovered,
             pressed: None,
         };

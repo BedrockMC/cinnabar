@@ -49,8 +49,7 @@ per screen) and `app/src/ui_runtime/oreui_assets.rs` (the dev-mode loader).
 
 ## Screenshot checks still needed
 
-- Bed: text colour and secondary-button theme colours (unrecovered); the status always reads
-  "Sleeping through the night/thunderstorm" until the sleep-status packet is tracked.
+- Bed: text colour and secondary-button theme colours (unrecovered).
 - Death: the radial vignette (drawn as nested bands), title and button placement, the missing
   death message and hardcore variant.
 - Profile: player-card banner and gamerpic sizes, the Overview rows (the original shows friend,

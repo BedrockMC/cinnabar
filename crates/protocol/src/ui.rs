@@ -157,6 +157,16 @@ pub enum UiEvent {
     /// mode is bound to the default follow it.
     DefaultGameMode(GameModeEvent),
     HudRules(HudRules),
+    /// The world's sleep status (LevelEventGeneric `SleepingPlayers`).
+    SleepStatus(SleepStatusEvent),
+}
+
+/// The `SleepingPlayers` level event's NetworkLittleEndian NBT compound
+/// (`sleepingPlayerCount`, `overworldPlayerCount`, `ableToSleep`), which the
+/// receiver decodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SleepStatusEvent {
+    pub nbt: std::sync::Arc<[u8]>,
 }
 
 /// The world rules that raise HUD text; `None` leaves a rule as it was.

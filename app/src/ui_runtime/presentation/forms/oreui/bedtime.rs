@@ -24,6 +24,14 @@ pub(crate) const INTERACTIVE_MILLIS: u64 = 1_500;
 
 const STATUS_NIGHT: &str = "Sleeping through the night";
 const STATUS_THUNDERSTORM: &str = "Sleeping through the thunderstorm";
+const WAITING_ONE_NIGHT: &str = "Night will be skipped when one other player sleeps.";
+const WAITING_ONE_THUNDERSTORM: &str = "Thunderstorm will be skipped when one other player sleeps.";
+const WAITING_MANY_NIGHT: &str = "Night will be skipped when %1$s more players sleep.";
+const WAITING_MANY_THUNDERSTORM: &str =
+    "Thunderstorm will be skipped when %1$s more players sleep.";
+/// A remote player is never the world owner who can change the rule.
+const SLEEPING_OFF: &str = "The 'Skip night by sleeping' setting is turned off. The owner of \
+this world needs to turn this setting on in edit world.";
 const LEAVE_BED: &str = "Leave bed";
 const OPEN_CHAT: &str = "Open chat";
 
@@ -40,6 +48,8 @@ pub(crate) struct Bedtime {
     pub(crate) elapsed: u64,
     pub(crate) remote_players: bool,
     pub(crate) thunderstorm: bool,
+    /// The server's last sleep status; none yet reads as everyone asleep.
+    pub(crate) status: Option<crate::ui_runtime::SleepStatus>,
     pub(crate) hovered: Option<BedHit>,
     pub(crate) pressed: Option<BedHit>,
 }
@@ -94,14 +104,10 @@ pub(super) fn draw(
     let column = canvas.r(36.0).min(width);
     let left = (width - column) * 0.5;
     canvas.alpha = fade(elapsed, STATUS_DELAY_MILLIS);
-    let status = if state.thunderstorm {
-        STATUS_THUNDERSTORM
-    } else {
-        STATUS_NIGHT
-    };
+    let status = status_message(state);
     let top = height * 0.258;
     canvas.text_centred(
-        status,
+        &status,
         [left, top, left + column, top + canvas.r(HEADER5.line)],
         HEADER5,
         TEXT,
@@ -135,9 +141,57 @@ pub(super) fn draw(
     Ok(hits)
 }
 
+/// The status line, chosen as the bedtime screen chooses it.
+fn status_message(state: &Bedtime) -> String {
+    let storm = state.thunderstorm;
+    let pick =
+        |night: &str, thunderstorm: &str| if storm { thunderstorm } else { night }.to_owned();
+    let Some(status) = state.status else {
+        return pick(STATUS_NIGHT, STATUS_THUNDERSTORM);
+    };
+    let (sleeping, required) = (status.sleeping, status.required);
+    if !status.able {
+        SLEEPING_OFF.to_owned()
+    } else if required > 1 && sleeping + 1 == required {
+        pick(WAITING_ONE_NIGHT, WAITING_ONE_THUNDERSTORM)
+    } else if required > 1 && sleeping < required {
+        pick(WAITING_MANY_NIGHT, WAITING_MANY_THUNDERSTORM)
+            .replace("%1$s", &(required - sleeping).to_string())
+    } else {
+        pick(STATUS_NIGHT, STATUS_THUNDERSTORM)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_follows_the_servers_sleep_counts() {
+        let state = |sleeping, required, able, thunderstorm| Bedtime {
+            elapsed: 0,
+            remote_players: true,
+            thunderstorm,
+            status: Some(crate::ui_runtime::SleepStatus {
+                sleeping,
+                required,
+                able,
+            }),
+            hovered: None,
+            pressed: None,
+        };
+        assert_eq!(
+            status_message(&state(1, 3, true, false)),
+            "Night will be skipped when 2 more players sleep."
+        );
+        assert_eq!(
+            status_message(&state(2, 3, true, true)),
+            WAITING_ONE_THUNDERSTORM
+        );
+        assert_eq!(status_message(&state(3, 3, true, false)), STATUS_NIGHT);
+        assert_eq!(status_message(&state(0, 1, true, false)), STATUS_NIGHT);
+        assert_eq!(status_message(&state(1, 3, false, false)), SLEEPING_OFF);
+    }
 
     #[test]
     fn ease_in_matches_the_css_curve_at_its_ends_and_middle() {
