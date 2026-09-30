@@ -9,6 +9,7 @@ const MAX_LICENSE: usize = 16 * 1024;
 pub(super) fn compile(
     font: &Path,
     fallback: Option<&Path>,
+    primary_only: bool,
     manifest_path: &Path,
     out: &Path,
     report: &Path,
@@ -39,7 +40,10 @@ pub(super) fn compile(
         },
     };
     let declared = source.get("fallback_font_sha256").is_some();
-    if declared != fallback.is_some() {
+    if primary_only && fallback.is_some() {
+        return Err("--primary-only takes no fallback source".into());
+    }
+    if declared != fallback.is_some() && !primary_only {
         return Err("declared fallback source must be supplied exactly once".into());
     }
     let secondary = if let Some(path) = fallback {

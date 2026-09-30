@@ -123,7 +123,7 @@ PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && c
 endif
 
 .PHONY: help vanilla-assets assets particle-assets atmosphere-assets entity-assets equipment-assets ui-assets block-entity-assets font-assets font-assets-local hud-assets hud-assets-local lang-assets language-assets audio-assets audio-bank icon-assets physics-assets core local-server client play client-windows client-macos client-linux client-wayland client-x11 dist-local FORCE_CINNABAR_CLOUDS_OVERRIDE
-.PHONY: registry-foundation-check
+.PHONY: registry-foundation-check jsonui-editor
 
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
@@ -154,12 +154,20 @@ help:
 	@echo make client-wayland  - Run on Wayland
 	@echo make client-x11      - Run on X11/XWayland
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
+	@echo make jsonui-editor   - Build the static JSON-UI editor site into JSONUI_EDITOR_OUT
 	@echo UPSTREAM=host:port is required for make core
 	@echo Override optional settings with SOCKET_DIR=..., AUTH_CACHE=..., and NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
 registry-foundation-check:
 	$(REGISTRY_FOUNDATION_CHECK)
+
+JSONUI_EDITOR_OUT ?= target/jsonui-editor-site
+
+jsonui-editor: $(UI_FONT_SOURCE) $(UI_FONT_DIR)/LICENSE
+	bash tools/jsonui-editor/build.sh "$(abspath $(JSONUI_EDITOR_OUT))" "$(abspath $(UI_FONT_SOURCE))"
+	@echo Serve it locally with: python3 -m http.server --directory $(JSONUI_EDITOR_OUT) 8000
+	@echo then open http://localhost:8000/
 
 vanilla-assets: $(PACK_SENTINEL)
 

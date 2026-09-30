@@ -139,11 +139,11 @@ fn cursor_content(stack: NetworkItemStack) -> InventoryEvent {
     })
 }
 
-fn cursor_slot_with_window_zero(stack: NetworkItemStack) -> InventoryEvent {
+fn cursor_slot_on_ui_window(stack: NetworkItemStack) -> InventoryEvent {
     InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity {
             container: ContainerIdentity {
-                window_id: Some(0),
+                window_id: Some(124),
                 slot_type: Some(59),
                 dynamic_id: None,
             },
@@ -572,7 +572,7 @@ fn place_and_swap_admitted_timeout_keep_prediction_until_full_authority() {
 }
 
 #[test]
-fn window_zero_cursor_slot_does_not_shadow_player_slot_recovery() {
+fn ui_window_cursor_slot_does_not_shadow_player_slot_recovery() {
     for cursor_first in [false, true] {
         let original = stack(5, 1, 44);
         let player_authority = stack(6, 3, 55);
@@ -584,7 +584,7 @@ fn window_zero_cursor_slot_does_not_shadow_player_slot_recovery() {
         assert!(ledger.resync_required());
 
         let player = complete_player_content(Some(player_authority.clone()), None);
-        let cursor = cursor_slot_with_window_zero(cursor_authority.clone());
+        let cursor = cursor_slot_on_ui_window(cursor_authority.clone());
         if cursor_first {
             ledger.apply(&cursor);
             assert_eq!(ledger.displayed_stack(0), Some(&original));
