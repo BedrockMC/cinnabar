@@ -347,8 +347,10 @@ fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_owners
         reset.textures.static_identity(),
         first.textures.static_identity()
     );
+    // Session pages clear; the art pages keep the launcher's title logo.
+    let dynamic = reset.textures.dynamic_start();
     assert!(
-        reset.textures.pages()[reset.textures.dynamic_start()..]
+        reset.textures.pages()[dynamic..dynamic + render::MAX_UI_DYNAMIC_PAGES]
             .iter()
             .all(|p| p.pixels().iter().all(|&v| v == 0))
     );

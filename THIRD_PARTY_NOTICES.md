@@ -11,6 +11,11 @@ directory. This notice is checked in and is not rewritten by the acquisition scr
 - Files: `assets/panorama/` (`panorama_0.jpg` .. `panorama_5.jpg`)
 - Provenance: original, generated for Cinnabar; not Mojang content.
 
+## Launcher title logo
+
+- Files: `assets/branding/` (`title.png`)
+- Provenance: original, generated for Cinnabar; not Mojang content.
+
 ## BedSim
 
 - Source: https://github.com/oomph-ac/bedsim
