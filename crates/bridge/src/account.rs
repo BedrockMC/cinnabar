@@ -118,12 +118,13 @@ pub struct Profile {
     pub real_name: String,
     #[serde(default)]
     pub presence_text: String,
+    /// Absent when the lookup failed, so the UI never shows a fabricated zero.
     #[serde(default)]
-    pub gamerscore: i64,
+    pub gamerscore: Option<i64>,
     #[serde(default)]
-    pub friends: u32,
+    pub friends: Option<u32>,
     #[serde(default)]
-    pub followers: u32,
+    pub followers: Option<u32>,
 }
 
 /// The start screen's service data: messaging surfaces, inbox counts,

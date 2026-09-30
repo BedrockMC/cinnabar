@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,5 +141,18 @@ func TestGatheringsClientUsesTheDiscoveredEndpoint(t *testing.T) {
 	_, _ = client.FeaturedServers(context.Background())
 	if len(recorder.hosts) == 0 || recorder.hosts[0] != "gatherings.discovered.example" {
 		t.Fatalf("requested hosts = %v", recorder.hosts)
+	}
+}
+
+// A failed count is omitted from the wire rather than sent as zero.
+func TestProfileOmitsUnavailableCounts(t *testing.T) {
+	zero := 0
+	raw, err := json.Marshal(Profile{Gamertag: "Steve", Friends: &zero})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"friends":0`) || strings.Contains(got, "followers") || strings.Contains(got, "gamerscore") {
+		t.Fatalf("profile = %s", got)
 	}
 }

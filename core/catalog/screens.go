@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,17 +59,22 @@ type Gathering struct {
 	EndUnix     int64  `json:"end_unix,omitempty"`
 }
 
-// Profile is the signed-in account as the start and profile screens show it.
+// Profile is the signed-in account as the start and profile screens show it. A count whose
+// lookup failed is omitted rather than reported as zero.
 type Profile struct {
 	Gamertag     string `json:"gamertag"`
 	XUID         string `json:"xuid"`
 	Gamerpic     Image  `json:"gamerpic"`
 	RealName     string `json:"real_name,omitempty"`
 	PresenceText string `json:"presence_text,omitempty"`
-	Gamerscore   int64  `json:"gamerscore"`
-	Friends      int    `json:"friends"`
-	Followers    int    `json:"followers"`
+	Gamerscore   *int64 `json:"gamerscore,omitempty"`
+	Friends      *int   `json:"friends,omitempty"`
+	Followers    *int   `json:"followers,omitempty"`
+	partial      error
 }
+
+// Partial returns why lookups failed; their fields are left unset. Callers redact it before logging.
+func (p Profile) Partial() error { return p.partial }
 
 // FeaturedServers lists the featured servers from the gatherings service.
 func FeaturedServers(ctx context.Context, account *authcache.Account) ([]FeaturedServer, error) {
@@ -124,7 +130,10 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	info := xbl.UserInfo()
 	profile := Profile{Gamertag: info.GamerTag, XUID: info.XUID}
 	social := xbl.Social()
-	if user, err := social.UserByXUID(ctx, info.XUID); err == nil {
+	var failures []error
+	if user, err := social.UserByXUID(ctx, info.XUID); err != nil {
+		failures = append(failures, fmt.Errorf("profile: %w", err))
+	} else {
 		if validArtworkURL(user.DisplayPictureRawURL) {
 			profile.Gamerpic.URL = user.DisplayPictureRawURL
 		}
@@ -133,16 +142,23 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 		}
 		profile.RealName = strings.TrimSpace(user.RealName)
 		profile.PresenceText = strings.TrimSpace(user.PresenceText)
-		if score, err := user.GamerScore.Int64(); err == nil && score > 0 {
-			profile.Gamerscore = score
+		if score, err := user.GamerScore.Int64(); err == nil && score >= 0 {
+			profile.Gamerscore = &score
 		}
 	}
-	if friends, err := social.Friends(ctx); err == nil {
-		profile.Friends = len(friends)
+	if friends, err := social.Friends(ctx); err != nil {
+		failures = append(failures, fmt.Errorf("friends: %w", err))
+	} else {
+		count := len(friends)
+		profile.Friends = &count
 	}
-	if followers, err := social.Followers(ctx); err == nil {
-		profile.Followers = len(followers)
+	if followers, err := social.Followers(ctx); err != nil {
+		failures = append(failures, fmt.Errorf("followers: %w", err))
+	} else {
+		count := len(followers)
+		profile.Followers = &count
 	}
+	profile.partial = errors.Join(failures...)
 	return profile, nil
 }
 

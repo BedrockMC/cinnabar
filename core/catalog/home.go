@@ -208,7 +208,7 @@ func HomeFeed(ctx context.Context, account *authcache.Account, session *Messagin
 		if token, err := s.tokens.ServiceToken(ctx); err == nil {
 			home.Treatments = append(home.Treatments, token.Treatments...)
 		} else {
-			home.failed |= partTreatments
+			fail(partTreatments, "Treatments", err)
 		}
 		if err := s.messages(ctx, session, &home); err != nil {
 			fail(partMessages, "Messaging", err)
