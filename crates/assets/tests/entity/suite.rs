@@ -663,6 +663,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 color: None,
                 overlay_color: None,
                 on_fire_color: None,
+                uv_anim: None,
             }]),
             slots: Box::new([entity::EntityRenderSlot {
                 first_candidate: 0,

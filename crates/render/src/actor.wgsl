@@ -11,9 +11,9 @@ struct BoneMatrix {
     row_2: vec4<f32>,
 }
 
-// ActorGpuInstance is deliberately read as 20 packed words. Its Rust contract
-// is 80 bytes; a WGSL struct containing vec4 rows would round the array stride
-// to 80 bytes under storage-buffer layout rules.
+// ActorGpuInstance is deliberately read as 24 packed words. Its Rust contract
+// is 96 bytes; a WGSL struct containing vec4 rows would round the array stride
+// to 96 bytes under storage-buffer layout rules.
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> instance_words: array<u32>;
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
@@ -33,6 +33,7 @@ struct VertexOutput {
     @location(4) back_uv: vec2<f32>,
     @location(5) @interpolate(flat) tint: u32,
     @location(6) @interpolate(flat) overlay: vec4<f32>,
+    @location(7) @interpolate(flat) uv_wrap: u32,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -71,7 +72,7 @@ fn actor_vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let instance_base = instance_index * 20u;
+    let instance_base = instance_index * 24u;
     let previous_bone_base = instance_words[instance_base + 12u];
     let current_bone_base = instance_words[instance_base + 13u];
     let geometry_id = instance_words[instance_base + 14u];
@@ -84,6 +85,10 @@ fn actor_vertex(
     out.skin_layer = texture_layer;
     out.tint = instance_words[instance_base + 18u];
     out.overlay = unpack4x8unorm(overlay_rgba8);
+    // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
+    let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
+    let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
+    out.uv_wrap = select(0u, 1u, any(uv_offset != vec2(0.0)) || any(uv_scale != vec2(1.0)));
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);
@@ -105,14 +110,14 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 4u]),
         bitcast<f32>(vertex_words[vertex_base + 5u]),
     );
-    out.uv = vec2(
+    out.uv = uv_offset + vec2(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
-    );
-    out.back_uv = vec2(
+    ) * uv_scale;
+    out.back_uv = uv_offset + vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),
         bitcast<f32>(vertex_words[vertex_base + 9u]),
-    );
+    ) * uv_scale;
     let bone_index = vertex_words[vertex_base + 10u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
@@ -147,7 +152,12 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (input.valid == 0u) {
         discard;
     }
-    var color = textureSample(skins, skin_sampler, select(input.back_uv, input.uv, front), i32(input.skin_layer));
+    var uv = select(input.back_uv, input.uv, front);
+    // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
+    if (input.uv_wrap != 0u) {
+        uv = fract(uv);
+    }
+    var color = textureSample(skins, skin_sampler, uv, i32(input.skin_layer));
     if ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0)) {
         discard;
     }

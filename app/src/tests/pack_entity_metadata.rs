@@ -26,6 +26,14 @@ const HOLOGRAM: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{
  "geometry":{"zero":"geometry.counter","one":"geometry.hologram_one"},
  "render_controllers":["controller.render.hologram"]}}}"#;
 
+// A flipbook: `uv_anim` steps down a four-frame strip with the actor's life time.
+const LOGO: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:logo",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"default":"textures/entity/counter_zero"},
+ "geometry":{"default":"geometry.counter"},
+ "render_controllers":["controller.render.logo"]}}}"#;
+
 const GEOMETRY: &str = r#"{"format_version":"1.12.0","minecraft:geometry":[
  {"description":{"identifier":"geometry.counter","texture_width":16,"texture_height":16},"bones":[
  {"name":"root","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,16,8],"uv":[0,0]}]}]},
@@ -41,7 +49,12 @@ const RENDER: &str = r#"{"format_version":"1.8.0","render_controllers":{
  "arrays":{"textures":{"Array.digits":["Texture.zero","Texture.one"]},
   "geometries":{"Array.models":["Geometry.zero","Geometry.one"]}},
  "geometry":"Array.models[query.variant]","materials":[{"*":"Material.default"}],
- "textures":["Array.digits[query.variant]"]}}}"#;
+ "textures":["Array.digits[query.variant]"]},
+ "controller.render.logo":{
+ "geometry":"Geometry.default","materials":[{"*":"Material.default"}],
+ "textures":["Texture.default"],
+ "uv_anim":{"offset":[0.0,"math.mod(math.floor(query.life_time * 120), 4) / 4"],
+  "scale":[1.0,"1 / 4"]}}}}"#;
 
 fn png(colour: [u8; 4]) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -60,6 +73,7 @@ fn pack() -> (Pack, ActorArtworkPages) {
     let files: Vec<(Box<str>, Vec<u8>)> = vec![
         ("entity/counter.entity.json".into(), COUNTER.into()),
         ("entity/hologram.entity.json".into(), HOLOGRAM.into()),
+        ("entity/logo.entity.json".into(), LOGO.into()),
         ("models/entity/counter.geo.json".into(), GEOMETRY.into()),
         (
             "render_controllers/counter.render_controllers.json".into(),
@@ -160,6 +174,7 @@ struct Drawn {
     model_scale: f32,
     /// Length of the drawn model's vertical axis, which the culling box follows.
     height_axis: f32,
+    uv_anim: [f32; 4],
 }
 
 fn drawn(world: &WorldStream, artwork: &ActorArtworkPages) -> Drawn {
@@ -176,6 +191,7 @@ fn drawn(world: &WorldStream, artwork: &ActorArtworkPages) -> Drawn {
         texture_layer: submission.texture_layer,
         model_scale,
         height_axis: (0..3).map(|row| matrix[row][1].powi(2)).sum::<f32>().sqrt(),
+        uv_anim: submission.uv_anim,
     }
 }
 
@@ -215,4 +231,17 @@ fn metadata_scale_multiplies_the_rendered_model() {
     let scaled = drawn(&world, &artwork);
     assert_eq!(scaled.model_scale, unscaled.model_scale * 2.0);
     assert!((scaled.height_axis - unscaled.height_axis * 2.0).abs() < 1e-5);
+}
+
+// `uv_anim` reaches the draw: the scale picks one frame and the offset follows the life time.
+#[test]
+fn render_controller_uv_anim_steps_the_flipbook_frame() {
+    let (pack, artwork) = pack();
+    let mut world = world(pack, "test:logo");
+    let first = drawn(&world, &artwork).uv_anim;
+    assert_eq!([first[0], first[2], first[3]], [0.0, 1.0, 0.25]);
+    world.advance_actor_interpolation_ticks(1);
+    let second = drawn(&world, &artwork).uv_anim;
+    // Six frames pass per tick at 120 frames a second, two past a whole strip of four.
+    assert_eq!((second[1] - first[1]).rem_euclid(1.0), 0.5);
 }

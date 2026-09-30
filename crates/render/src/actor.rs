@@ -40,8 +40,8 @@ pub use rig::{
     ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometry,
     ActorRigGeometryError, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
     ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRigVertex, EntityRigId,
-    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
+    IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
+    MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE,
     actor_rig_submission_is_visible, equipment_rig_id, item_mesh_rig_id, pack_equipment_rig_id,
     pack_overlay_rgba8, pack_rig_id, skin_rig_id,
 };
@@ -391,6 +391,7 @@ impl ActorRenderScene {
                 texture_layer: skin_layer,
                 route: ActorRigRoute::Diagnostic,
                 tint: 0,
+                uv_anim: crate::IDENTITY_UV_ANIM,
                 overlay_rgba8: 0,
             });
             skins.extend_from_slice(&normalize_skin(source.skin.as_ref()));

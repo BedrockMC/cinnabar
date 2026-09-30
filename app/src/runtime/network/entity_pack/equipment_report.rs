@@ -50,6 +50,7 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
+        uv_anim: render::IDENTITY_UV_ANIM,
         overlay_rgba8: 0,
     }
 }
