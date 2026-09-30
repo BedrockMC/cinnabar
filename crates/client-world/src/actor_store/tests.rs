@@ -1057,3 +1057,14 @@ fn remote_rotation_steps_the_short_way_across_the_wrap() {
     store.advance_interpolation_ticks(2);
     assert_eq!(store.get(42).unwrap().head_yaw, -170.0);
 }
+
+/// A player spawned without size metadata keeps its definition box, so it stays attackable.
+#[test]
+fn a_sizeless_player_uses_its_definition_collision_box() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(7, 70, 2.0));
+    let (min, max) = store.get(7).unwrap().bounding_box().unwrap();
+    let offset = store.get(7).unwrap().position;
+    assert!((max[0] - min[0] - 0.6).abs() < 1e-4 && (max[1] - min[1] - 1.8).abs() < 1e-4);
+    assert_eq!(min[1], offset[1]);
+}

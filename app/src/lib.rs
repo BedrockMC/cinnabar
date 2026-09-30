@@ -12,6 +12,7 @@ mod hotbar;
 mod hud_tools;
 mod install_layout;
 mod interaction_authority;
+mod item_use;
 pub mod lifecycle;
 pub mod local_player;
 mod local_player_camera_receipt;
