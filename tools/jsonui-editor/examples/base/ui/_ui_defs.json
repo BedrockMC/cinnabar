@@ -1,0 +1,6 @@
+{
+  "ui_defs": [
+    "ui/example_common.json",
+    "ui/example_screen.json"
+  ]
+}

@@ -1,21 +1,11 @@
-//! Pinned presentation tables and timing helpers: the GUI-scale rule, sprite
-//! selection, blink phases, and recorded color approximations.
+//! Pinned presentation tables and timing helpers: sprite selection, blink
+//! phases, and recorded color approximations.
 
 use assets::HudTextureRole;
 
 use crate::ui_runtime::gameplay_hud::{HeartVariant, HudEffect};
 
-/// Physical pixels per GUI pixel: Bedrock's desktop rule
-/// (`GuiData::calculateOptimalGuiScaleIndex`), `min(width/376, height/250)` in
-/// 1..=8, or a fixed preference no larger than that.
-#[must_use]
-pub(crate) fn gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
-    let auto = (physical[0] / 376).min(physical[1] / 250).clamp(1, 8);
-    match preference {
-        None | Some(0) => auto,
-        Some(fixed) => u32::from(fixed).clamp(1, auto),
-    }
-}
+pub(crate) use ui::gui_scale;
 
 /// Vanilla survival hotbar width in GUI px (start cap + nine slots + end cap).
 pub(super) const HOTBAR_WIDTH: f32 = 182.0;

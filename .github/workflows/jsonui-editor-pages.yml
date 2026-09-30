@@ -1,0 +1,76 @@
+name: JSON-UI editor site
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - tools/jsonui-editor/**
+      - crates/json-ui/**
+      - crates/ui/**
+      - crates/assets/**
+      - crates/input/**
+      - crates/asset-compiler/**
+      - assets/ui-font-source.json
+      - scripts/fetch-ui-font.sh
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - Makefile
+      - .github/workflows/jsonui-editor-pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: jsonui-editor-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Cache Rust dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: jsonui-editor-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            jsonui-editor-${{ runner.os }}-
+      - name: Install the wasm-bindgen CLI Cargo.lock pins
+        run: |
+          version="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)"
+          name="wasm-bindgen-${version}-x86_64-unknown-linux-musl"
+          curl --proto '=https' --tlsv1.2 -sSfL \
+            "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/${name}.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+      - name: Build the site
+        run: make jsonui-editor JSONUI_EDITOR_OUT=_site
+      - name: Fail on any file outside the editor's own set
+        run: bash tools/jsonui-editor/check-site.sh _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
