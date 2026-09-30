@@ -67,7 +67,9 @@ pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
     scroll_target,
 };
-pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_with};
+pub use layout::{
+    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
+};
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;

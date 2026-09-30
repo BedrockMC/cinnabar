@@ -398,21 +398,68 @@ fn hovering_slots_never_lays_the_screen_out_again() {
         presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
     }
     let layouts = presentation.engine_container_layouts();
-    let started = std::time::Instant::now();
-    let moves = 24u64;
-    for step in 0..moves {
+    let mut frames = Vec::new();
+    for step in 0..24u64 {
         let point = [
             60.0 + (step % 8) as f32 * 18.0,
             70.0 + (step / 8) as f32 * 18.0,
         ];
         runtime.set_inventory_pointer_gui(Some(point));
+        let started = std::time::Instant::now();
         presentation
             .build(&runtime, 1_000 + step, [1280, 720], dpi)
             .unwrap();
+        frames.push(started.elapsed());
     }
-    let per_move = started.elapsed() / moves as u32;
-    eprintln!("hover frame with 1500 catalog entries: {per_move:?}");
+    frames.sort();
+    eprintln!(
+        "hover frame with 1500 catalog entries: median {:?}, fastest {:?}",
+        frames[frames.len() / 2],
+        frames[0]
+    );
     assert_eq!(presentation.engine_container_layouts(), layouts);
+}
+
+// Scrolling the creative catalog lays out only what the viewport shows.
+#[test]
+fn scrolling_the_creative_catalog_stays_interactive() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = creative_with(1500);
+    let dpi = DpiScale::new(1.0).unwrap();
+    presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let frame = presentation.engine_container_frame().unwrap();
+    let (key, metrics) = frame
+        .report
+        .scrolls
+        .iter()
+        .max_by(|a, b| a.1.content.total_cmp(&b.1.content))
+        .map(|(key, metrics)| (key.clone(), *metrics))
+        .unwrap();
+    assert!(metrics.max_offset() > 700.0, "{metrics:?}");
+    let mut frames = Vec::new();
+    for step in 1..=12u64 {
+        runtime
+            .screen_state_mut()
+            .container_scroll
+            .insert(key.clone(), step as f64 * 60.0);
+        let started = std::time::Instant::now();
+        presentation
+            .build(&runtime, step, [1280, 720], dpi)
+            .unwrap();
+        frames.push(started.elapsed());
+    }
+    frames.sort();
+    eprintln!(
+        "scroll frame with 1500 catalog entries: median {:?}, fastest {:?}",
+        frames[frames.len() / 2],
+        frames[0]
+    );
+    let frame = presentation.engine_container_frame().unwrap();
+    assert_eq!(frame.report.scrolls[&key].offset, 720.0);
 }
 
 // The inventory's live player renderer faces the viewer and turns toward the
