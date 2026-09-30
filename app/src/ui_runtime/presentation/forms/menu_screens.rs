@@ -239,7 +239,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     data.set_global("#show_gamerpic", Scalar::Bool(portrait));
     flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
     super::start_feed::bind(view, data);
-    data.set_global("#version", text("v1.26.30"));
+    data.set_global("#version", text(version_label(protocol::GAME_VERSION)));
     data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
     data.set_global("#edu_demo_only_ui_visible", Scalar::Bool(false));
     // Retail Realms is enabled, so its row shows between Settings and
@@ -272,6 +272,14 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
         AuthState::Authenticated => flags(data, &["#gamertag_pic_and_label_visible"]),
         AuthState::AwaitingCode { .. } => {}
     }
+}
+
+/// The start screen's version: the release client shows `1.26.50` as `v26.50`.
+fn version_label(game_version: &str) -> String {
+    format!(
+        "v{}",
+        game_version.strip_prefix("1.").unwrap_or(game_version)
+    )
 }
 
 /// The vanilla two-button popup a launcher dialog opens, and the action its
@@ -556,6 +564,12 @@ mod tests {
 
     fn reference(view: &MenuView) -> Option<&'static str> {
         screen_data(view, &|_| None).map(|screen| screen.reference)
+    }
+
+    #[test]
+    fn the_version_reads_as_the_release_client_shows_it() {
+        assert_eq!(version_label("1.26.50"), "v26.50");
+        assert_eq!(version_label("26.60"), "v26.60");
     }
 
     #[test]
