@@ -150,6 +150,34 @@ pub(crate) fn reconcile_committed_correction(
     .map(Some)
 }
 
+/// Enters one `CorrectPlayerMovePrediction` into prediction.
+///
+/// Vanilla drops a zero, future or older-than-history tick outright
+/// (`ClientNetworkHandler` has no fallback once the rewind listener declines).
+pub(crate) fn reconcile_prediction_correction(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    network_position: [f32; 3],
+    correction_tick: u64,
+    on_ground: bool,
+    velocity: [f32; 3],
+    world: &impl CollisionWorld,
+) -> Result<Option<PhysicsCorrectionOutcome>, PhysicsAuthorityFault> {
+    if physics.is_active() && !physics.retains_tick(correction_tick) {
+        super::diagnostics::note_dropped_correction(correction_tick);
+        return Ok(None);
+    }
+    reconcile_committed_correction(
+        ticker,
+        physics,
+        network_position,
+        correction_tick,
+        on_ground,
+        Some(velocity),
+        world,
+    )
+}
+
 /// Authoritative end-of-tick player state carried by a correction.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PhysicsAnchor {

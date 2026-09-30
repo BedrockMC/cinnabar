@@ -905,3 +905,35 @@ fn a_correction_matching_position_and_velocity_within_the_vanilla_epsilon_confir
         CorrectionShape::Confirmed
     );
 }
+
+/// Vanilla drops corrections for zero, future and older-than-history ticks instead of snapping.
+#[test]
+fn corrections_outside_retained_history_are_dropped_without_touching_prediction() {
+    let world = VersionedFloor(1);
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let mut ticker = ticker_with_samples(frame.samples.iter().cloned());
+    let state = physics.state().cloned();
+    let pending = ticker.pending_count();
+    for tick in [0, 50, 100, 104, 500] {
+        let outcome = super::reconcile_prediction_correction(
+            &mut ticker,
+            &mut physics,
+            [30.0, 12.0, 30.0],
+            tick,
+            false,
+            [0.0; 3],
+            &world,
+        )
+        .unwrap();
+        assert_eq!(outcome, None, "tick {tick}");
+    }
+    assert_eq!(physics.state().cloned(), state);
+    assert_eq!(ticker.pending_count(), pending);
+}
