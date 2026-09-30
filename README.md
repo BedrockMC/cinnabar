@@ -73,6 +73,8 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/ui` | Renderer-independent UI primitives and text layout. |
 | `crates/world` | Palette-native chunk and world model. |
 | `tools/architecture` | Architecture gate: line limits, dependency rules, markers. |
+| `tools/jsonui-editor` | Browser JSON-UI editor on the client's own engine, live at <https://bedrock-mc.github.io/cinnabar/>. |
+| `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out and render screens. |
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
 | `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
@@ -86,6 +88,20 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `localworld` | Local worlds on BDS (a container on macOS). |
 | `packcache` | On-disk cache of server packs. |
 | `update`, `crashreport` | Signed update checks and crash reports. |
+
+## JSON-UI editor
+
+[bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/) previews and edits pack UI
+exactly as Cinnabar renders it; open your own vanilla or server pack, nothing is bundled or
+uploaded. `make jsonui-editor` builds it locally. For AI agents, `cargo build -p jsonui-mcp` gives a
+stdio MCP server:
+
+```json
+{ "mcpServers": { "jsonui": {
+  "command": "/path/to/cinnabar/target/debug/jsonui-mcp",
+  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-monocraft-v1.mcbefont"]
+} } }
+```
 
 ## Development
 

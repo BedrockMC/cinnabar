@@ -27,6 +27,8 @@ use valentine::bedrock::{codec::BedrockCodec, error::DecodeError};
 
 const CONTENT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_content.bin");
 const SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot.bin");
+/// A zeqa.net hotbar item: window 0 whose container name is `AnvilMaterial` (1).
+const LIVE_ZEQA_SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot_live_zeqa.bin");
 const HOTBAR_FIXTURE: &[u8] = include_bytes!("../fixtures/player_hotbar.bin");
 const RESPONSE_FIXTURE: &[u8] = include_bytes!("../fixtures/item_stack_response.bin");
 
@@ -186,6 +188,25 @@ fn pinned_inventory_slot_fixture_projects_through_the_canonical_address() {
     assert_eq!(
         project_container_cell(&slot.identity.container, slot.identity.slot),
         Some(CanonicalCell::PlayerInventory(4)),
+    );
+}
+
+/// A live server's arbitrary container name on window 0 still lands in the player hotbar.
+#[test]
+fn live_window_zero_slot_routes_by_window_despite_a_foreign_container_name() {
+    let InventoryEvent::Slot(slot) = (match decode_fixture(LIVE_ZEQA_SLOT_FIXTURE).data {
+        McpePacketData::InventorySlotPacket(packet) => normalize_slot(*packet).unwrap(),
+        other => panic!("expected InventorySlot, got {other:?}"),
+    }) else {
+        panic!("expected a Slot event")
+    };
+    assert_eq!(slot.identity.container.window_id, Some(0));
+    assert_eq!(slot.identity.container.slot_type, Some(1));
+    assert_eq!(slot.stack.network_id, 20_329);
+    assert_eq!(slot.stack.count, 1);
+    assert_eq!(
+        project_container_cell(&slot.identity.container, slot.identity.slot),
+        Some(CanonicalCell::PlayerInventory(0)),
     );
 }
 
@@ -520,8 +541,9 @@ fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
     );
 }
 
+/// Legacy windows route by window id whatever name rides them; a windowless default name stays unrouted.
 #[test]
-fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
+fn legacy_windows_ignore_their_container_name_and_windowless_defaults_stay_unrouted() {
     let default_foreign = normalize_content(InventoryContentPacket {
         container_id: 120,
         slots: vec![ItemStackDescriptor::default(); 5],
@@ -533,7 +555,10 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
         panic!("expected content event")
     };
     assert_eq!(default_foreign.container.slot_type, Some(0));
-    assert_eq!(project_container_cell(&default_foreign.container, 0), None);
+    assert_eq!(
+        project_container_cell(&default_foreign.container, 0),
+        Some(CanonicalCell::Armor(0))
+    );
 
     for dynamic_id in [0, 7] {
         let dynamic_default = normalize_content(InventoryContentPacket {
@@ -551,7 +576,10 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
         };
         assert_eq!(dynamic_default.container.slot_type, Some(0));
         assert_eq!(dynamic_default.container.dynamic_id, Some(dynamic_id));
-        assert_eq!(project_container_cell(&dynamic_default.container, 0), None);
+        assert_eq!(
+            project_container_cell(&dynamic_default.container, 0),
+            Some(CanonicalCell::PlayerInventory(0))
+        );
     }
 
     for name in [
@@ -569,10 +597,10 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
             panic!("expected content event")
         };
         assert!(content.container.slot_type.is_some());
-        assert!(!matches!(
+        assert_eq!(
             project_container_cell(&content.container, 0),
-            Some(CanonicalCell::PlayerInventory(_))
-        ));
+            Some(CanonicalCell::PlayerInventory(0))
+        );
     }
 
     let cursor = normalize_content(InventoryContentPacket {
@@ -587,7 +615,7 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
     };
     assert_eq!(
         project_container_cell(&cursor.container, 0),
-        Some(CanonicalCell::Cursor)
+        Some(CanonicalCell::PlayerInventory(0))
     );
 
     let response = normalize_response(ItemStackResponsePacket {

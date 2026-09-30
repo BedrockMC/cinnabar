@@ -85,10 +85,11 @@ fn player_content_with_first(stack: NetworkItemStack) -> InventoryEvent {
     })
 }
 
+/// Vanilla's cursor authority: the UI window naming the cursor container.
 fn cursor_content() -> InventoryEvent {
     InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity {
-            window_id: Some(0),
+            window_id: Some(124),
             slot_type: Some(59),
             dynamic_id: None,
         },
