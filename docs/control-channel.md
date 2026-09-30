@@ -15,7 +15,7 @@ upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher
 | `connect.v1` | `kind` = `raknet` (`host:port`), `realm` (id), `friend` (xuid); `value` | empty; next client connection dials it |
 | `account_status.v1` | none | `account` |
 | `sign_out.v1` | none | `account`; deletes cached tokens |
-| `events.v1` | none | `auth`, `disconnect?`, `transfer?` |
+| `events.v1` | none | `auth`, `disconnect?`, `transfer?`, `pack_download?` |
 | `featured_servers.v1` | none | `servers: [{name, address, caption, description?, news_title?, news?, logo, screenshots, games}]` |
 | `gatherings.v1` | none | `gatherings: [{id, name, caption, description?, creator?, address?, image, start_unix?, end_unix?}]` |
 | `profile.v1` | none | `profile: {gamertag, xuid, gamerpic, real_name?, presence_text?, gamerscore, friends, followers}` |
@@ -38,7 +38,8 @@ Feed sources: `docs/menus-services.md`.
 `account` / `auth`: `state` is `offline | signed_out | awaiting_code | signed_in | failed`, with
 `verification_uri` and `user_code` while awaiting a code, `gamertag` when signed in, `reason` on failure.
 `disconnect`: `{reason, message, sequence}` and `transfer`: `{host, port, sequence}` stay until the next
-connection attempt begins; poll and compare `sequence`.
+connection attempt begins; poll and compare `sequence`. `pack_download`: `{received_bytes, total_bytes}` while the
+newest attempt downloads the server's packs (chunk bytes against the admitted offer).
 
 `offer`: `{id, title, creator?, content_type?, thumbnail_url?, store_id?, prices: [{currency, amount}], rating?, tags?, owned}`.
 `store_purchase.v1` spends real Minecoins: it is rejected (`-32602`) unless `confirmed` is `true` and every field is well formed,

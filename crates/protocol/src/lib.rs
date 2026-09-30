@@ -63,9 +63,9 @@ pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
-    destroy_block_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet,
+    HeldItemRequest, ItemReleaseKind, ItemUseTrigger, SwingSource, click_air_packet,
+    click_block_packet, click_block_transaction_packet, destroy_block_packet, release_item_packet,
+    respawn_request_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle,
@@ -132,8 +132,8 @@ pub use item::{
     MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book, item_bundle_id,
     item_charged_projectile, item_components, item_custom_color, item_display,
-    item_enchantment_level, item_extra_damage, item_has_enchantment_list, item_icon_keys,
-    item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
+    item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,
+    item_icon_keys, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;
@@ -177,11 +177,11 @@ pub use ui::{
     MAX_FORM_JSON_DEPTH, MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES,
     MenuElement, ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton,
     NpcDialogueForm, NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction,
-    ScoreEntry, ScoreEvent, ScoreIdentity, ServerFormModel, TextCategory, TextEvent, TextKind,
-    TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
-    chat_input_packet, chat_text_packet, custom_form_submit_response, modal_form_busy_response,
-    modal_form_cancel_response, modal_form_submit_response, npc_request_packet,
-    server_settings_request_packet,
+    ScoreEntry, ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory,
+    TextEvent, TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError,
+    UnsupportedForm, chat_input_packet, chat_text_packet, custom_form_submit_response,
+    modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
+    npc_request_packet, server_settings_request_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use world::{

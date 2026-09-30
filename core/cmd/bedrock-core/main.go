@@ -246,6 +246,7 @@ func runWithResourcePackCacheFactory(
 		localTarget = localWorlds.Target
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
+	var resourcePackDownload func(proxy.ResourcePackDownload)
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
@@ -261,7 +262,7 @@ func runWithResourcePackCacheFactory(
 		service := launcher.New(launcher.Config{
 			TokenSource: tokenSource, AuthCache: opts.authCache,
 			Store: statusStore, Selector: selector, Transfers: transfers,
-			ArtworkDir: filepath.Join(opts.socketDir, "artwork"),
+			ArtworkDir:    filepath.Join(opts.socketDir, "artwork"),
 			StoreImageDir: storeImageDir(opts.authCache),
 		})
 		controlServer.SetServices(service)
@@ -271,6 +272,7 @@ func runWithResourcePackCacheFactory(
 		}
 		statusStore.SetLifecycle(control.LifecycleRunning)
 		resourcePackAdmissionUpdate = statusStore.Observe
+		resourcePackDownload = statusStore.ObservePackDownload
 		transfers.OnTransfer = statusStore.ObserveTransfer
 		onDisconnect = statusStore.ObserveDisconnect
 	}
@@ -302,6 +304,7 @@ func runWithResourcePackCacheFactory(
 			)
 		},
 		ResourcePackAdmissionUpdate: resourcePackAdmissionUpdate,
+		ResourcePackDownload:        resourcePackDownload,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

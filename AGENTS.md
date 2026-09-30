@@ -1,100 +1,60 @@
 # Repository agent instructions
 
-Cinnabar is a Rust Bedrock client plus Go server-side tooling. The product target
-is version-matched vanilla Bedrock parity — not a functional approximation —
-across UI/HUD, rendering, controls, camera, movement and physics, animation,
-interaction, inventory, audio, protocol behavior, timing, and server-authoritative
-reconciliation. Establish each parity contract from an identified authoritative
-vanilla Bedrock reference; Java Edition behavior, a custom aesthetic, and
-remembered behavior are not references. A provisional approximation may be
-committed only when labeled incomplete in `plan.md` and in user-facing status, and
-it never closes a vanilla acceptance gate.
-
-## Gameplay HUD: Java Edition parity exception
-
-By explicit owner decision, the gameplay HUD — chat, scoreboard, hearts and other
-status bars, crosshair, boss bars, hotbar, and the rest of the in-game HUD — targets
-Java Edition appearance and layout parity. This is a scoped exception; version-matched
-Bedrock parity still governs everything else. Bedrock textures remain acceptable, and
-the open font is an accepted permanent deviation for copyright reasons.
-
-
-These are the things that are not obvious from the code. Read the linked docs when
-the work touches them.
+Cinnabar is a Rust Bedrock client plus a Go core. The target is version-matched vanilla
+Bedrock parity in every system — UI, rendering, controls, camera, movement, animation,
+interaction, inventory, audio, protocol, timing. Base each behavior on an identified vanilla
+reference, never on Java Edition, a custom aesthetic, or memory. A provisional approximation
+may land only when labeled incomplete in `plan.md`; it never closes a parity gate.
 
 | Load this | When |
 | --- | --- |
-| `docs/agents/multi-agent-workflow.md` | Per-worktree target dirs, cache, and verify-before-push rules |
-| `docs/agents/live-testing.md` | Running the client or BDS on Windows, capturing frames, closing a native/visual/performance gate |
+| `docs/agents/multi-agent-workflow.md` | Worktrees, build limits, verify-before-push |
+| `docs/agents/live-testing.md` | Running the client or BDS, capturing frames, closing a visual/performance gate |
 
-## Remote server data: be lenient, not strict
+## Parity sources and UI
 
-Inbound server data is untrusted and imperfect. Malformed packet *framing*
-(truncation, bad lengths, envelope decode failures) is fatal. A semantically odd but
-well-formed packet (unexpected slot, sentinel id, non-finite float, unknown metadata
-key, custom world height) is not: skip that packet/field, log/count it, keep the
-session alive. Chunk payload contents follow the vanilla client's lenient decode
-exactly — clamp, zero-fill and skip as it does, never fail. Never disconnect over
-data the client doesn't even use.
 
-## Required local assets: fail closed at startup
+## No hardcoded duplicates
 
-The production runtime requires the compiled atmosphere, entity, HUD, and JSON-UI
-carriers. If one is missing, unreadable, malformed, or fails its pinned hash, abort
-via `bail!`/`?` → `main`, naming the exact carrier path and its rebuild command
-(`make hud-assets`, `make ui-assets`, or `make assets` for all). Carriers live under gitignored
-`.local/`, so `git pull` never delivers them and the fatal error is what tells a
-developer to rebuild. Never skip or hide required player-facing art; a blank HUD
-with only a log line is the failure this forbids. Two documented exceptions remain:
-an absent world carrier selects the programmatic diagnostic-texture mode, and an
-absent compiled font selects the bounded diagnostic font fallback. Apply the
-required-carrier rule to a future carrier only once production startup actually
-requires it.
+A value that must stay in sync — game/protocol version, pinned pack, registry versions, service
+hosts, carrier names, shared sizes — has exactly one source of truth (a constant, manifest, or
+generated file) that everything else imports or reads. Never restate it as a literal, including
+in UI text and tests.
 
-## Gophertunnel branch ownership
+## Server data: lenient
 
-Cinnabar-specific Gophertunnel work belongs on
-`HashimTheArab/gophertunnel:resource-pack-changes`, which is based on `lunar`.
-Never push Cinnabar changes directly to `lunar`; pull useful `lunar` updates into
-`resource-pack-changes`, and keep Cinnabar's Go module pinned to an exact commit
-reachable from `resource-pack-changes`. Promote a change back to `lunar` only on
-an explicit user request.
+Malformed framing (truncation, bad lengths, envelope failures) is fatal. Odd but well-formed data
+(unknown slot, sentinel id, non-finite float, unknown metadata, custom world height) is skipped,
+counted and logged; the session stays up. Chunk payloads follow the vanilla client's lenient
+decode exactly. Never disconnect over data the client doesn't use.
 
-## Rust build-cache discipline
+## Required carriers: fail closed
 
-Keep each concurrently active worktree on its own Cargo `target` directory — a
-shared `CARGO_TARGET_DIR` lets Cargo file locks and path-based fingerprints reuse
-incompatible local crate artifacts across branches. Share compiler results through
-the installed `sccache` (this machine disables incremental compilation and caps the
-cache at 20 GiB). Delete a worktree's reproducible `target` after its commit is
-reviewed and integrated, preserving the canonical checkout's
-`target/debug/bedrock-client.exe` and any actively compiling agent's directory. Use
-`git worktree` rather than another full clone.
+Startup requires the atmosphere, entity, HUD and JSON-UI carriers. If one is missing, malformed
+or fails its pinned hash, abort from `main` naming the carrier path and its rebuild command
+(`make assets`). Never hide required art behind a log line. Exceptions: no world carrier selects
+diagnostic textures; no compiled font selects the diagnostic font. New optional carriers degrade
+gracefully until startup truly requires them.
 
-## Keep local payloads out of git
+## Gophertunnel
 
-Mojang assets, screenshots, recordings, generated `.local/` carriers, credentials,
-and BDS binaries never enter git. Store captures under temporary or ignored paths
-and commit only compact lawful rules, provenance and checksums, and independently
-authored evidence descriptions.
+Cinnabar's Gophertunnel work lives on `HashimTheArab/gophertunnel:resource-pack-changes` (based on
+`lunar`); pin the Go module to a commit on it. Pull `lunar` into it; never push to `lunar` unless
+asked.
 
-## Verify before pushing, not after
+## Git and payloads
 
-CI is a backstop, not a compiler. Before pushing a shared branch, run what the push
-will trigger: the focused tests, `cargo fmt --all`, clippy, and
-`cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml`.
-The architecture gate is the one most often skipped and the one that most often
-fails, because nothing else catches its rules — per-file line limits, forbidden
-test-only public API, and marker registration are invisible to every test.
+Mojang assets, screenshots, recordings, `.local/` carriers, credentials and BDS binaries never
+enter git. Use `git worktree`, one Cargo `target` per active worktree, and delete a worktree's
+`target` once its work is integrated.
 
-When local verification is genuinely unavailable — a machine killing builds, a
-sandbox denying the toolchain — that does not convert CI into the check. Say the
-state is unverified, and either wait, hand the run to the user, or push while
-labeling it unverified in the same breath. A red CI run must never be the first
-thing that discovers whether the code compiles.
+## Verify before pushing
+
+Before pushing a shared branch run what CI runs: focused tests, `cargo fmt --all`, clippy, and
+`cargo run -p architecture -- check --root . --policy tools/architecture/policy.toml` — the gate
+most often forgotten (line limits, test-only public API, markers). If local verification is
+impossible, say the state is unverified; CI must never be the first compile.
 
 ## Report state precisely
 
-Distinguish pushed work, locally committed work, test-green uncommitted work, and
-work still in progress. Never describe locally committed or merely reviewed work as
-pushed or integrated.
+Distinguish pushed, locally committed, test-green uncommitted, and in-progress work.

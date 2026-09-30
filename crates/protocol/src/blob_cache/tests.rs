@@ -379,3 +379,97 @@ fn precounted_secondary_recovery_coalesces_without_double_counting() {
         "one inline recovery plus one coalesced queued recovery are observable"
     );
 }
+
+/// One trim examines each entry once instead of rescanning the cache per victim.
+#[test]
+fn trimming_many_small_blobs_examines_each_entry_once() {
+    const ENTRIES: usize = 4_096;
+    let limits = BlobCacheLimits {
+        trim_trigger_bytes: ENTRIES * 8,
+        trim_floor_bytes: ENTRIES * 4,
+    };
+    let mut store = CacheStore {
+        entries: HashMap::new(),
+        pins: HashMap::new(),
+        total_bytes: 0,
+        clock: 0,
+    };
+    for index in 0..ENTRIES as u64 {
+        store.clock += 1;
+        store.entries.insert(
+            index,
+            CacheEntry {
+                payload: Arc::from([0_u8; 8].as_slice()),
+                last_used: store.clock,
+            },
+        );
+        store.total_bytes += 8;
+    }
+    store.pins.insert(0, 1);
+    store.total_bytes += 1;
+
+    let examined = trim_if_needed(&mut store, limits, u64::MAX);
+
+    assert_eq!(examined, ENTRIES);
+    assert!(store.total_bytes <= limits.trim_floor_bytes);
+    assert!(store.entries.contains_key(&0), "pinned entries survive");
+    assert!(
+        !store.entries.contains_key(&1),
+        "the least recently used goes first"
+    );
+    assert!(store.entries.contains_key(&(ENTRIES as u64 - 1)));
+}
+
+/// Run: `cargo test -p protocol --lib blob_trim_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "benchmark"]
+fn blob_trim_cost_for_small_blobs() {
+    const ENTRIES: usize = 32_768;
+    let limits = BlobCacheLimits {
+        trim_trigger_bytes: ENTRIES * 64,
+        trim_floor_bytes: ENTRIES * 32,
+    };
+    let fill = || {
+        let mut store = CacheStore {
+            entries: HashMap::new(),
+            pins: HashMap::new(),
+            total_bytes: 1,
+            clock: 0,
+        };
+        for index in 0..ENTRIES as u64 {
+            store.clock += 1;
+            store.entries.insert(
+                index,
+                CacheEntry {
+                    payload: Arc::from([0_u8; 64].as_slice()),
+                    last_used: store.clock,
+                },
+            );
+            store.total_bytes += 64;
+        }
+        store
+    };
+    let mut store = fill();
+    let started = std::time::Instant::now();
+    while store.total_bytes > limits.trim_floor_bytes {
+        let Some((&evict, _)) = store
+            .entries
+            .iter()
+            .min_by_key(|(candidate, entry)| (entry.last_used, **candidate))
+        else {
+            break;
+        };
+        let removed = store.entries.remove(&evict).unwrap();
+        store.total_bytes -= removed.payload.len();
+    }
+    let old = started.elapsed();
+    let mut store = fill();
+    let started = std::time::Instant::now();
+    trim_if_needed(&mut store, limits, u64::MAX);
+    let new = started.elapsed();
+    eprintln!(
+        "FRAME_COST blob_trim_{ENTRIES}_entries: old={:.3}ms new={:.3}ms",
+        old.as_secs_f64() * 1e3,
+        new.as_secs_f64() * 1e3
+    );
+}

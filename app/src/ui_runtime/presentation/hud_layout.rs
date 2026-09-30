@@ -27,14 +27,12 @@ mod sleep;
 mod status_motion;
 mod status_rows;
 pub(super) use status_rows::capture as capture_hud_paint;
-mod toasts;
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
-pub(crate) use pinned::{BOSS_TINTS, effect_icon_role, java_gui_scale};
+pub(crate) use pinned::{BOSS_TINTS, effect_icon_role, gui_scale};
 use pinned::{BOTTOM_STACK_HEIGHT, HOTBAR_WIDTH, hsv_to_rgb};
 pub(crate) use sleep::SleepTimeline;
-pub(super) use sleep::leave_bed_bounds;
 pub(super) use windows::{Durability, TooltipLine, WindowIcons, WindowText, title_key};
 
 #[derive(Clone, Debug)]
@@ -101,14 +99,16 @@ pub(crate) struct HudFrame {
     /// ready); the reference hides the indicator at full charge, so it
     /// draws only for sub-full values.
     pub attack_indicator_charge: Option<f32>,
-    /// Whether the held player-list action keeps the tab overlay open.
-    pub tab_list_open: bool,
     /// The local player's floored feet position.
     pub player_block: Option<[i32; 3]>,
     /// The absolute world tick, when the session has a clock.
     pub world_time: Option<f64>,
     /// A held filled map shows the position whatever the world rule says.
     pub holding_filled_map: bool,
+    /// Lightning is falling: the bed screen talks of a thunderstorm.
+    pub thunderstorm: bool,
+    /// The stream's current dimension, which picks the loading backdrop.
+    pub dimension: i32,
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
@@ -136,7 +136,7 @@ impl HudGeometry {
         if physical_size.contains(&0) || !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return None;
         }
-        let k = java_gui_scale(physical_size, preference) as f32;
+        let k = gui_scale(physical_size, preference) as f32;
         let scale = k / dpi_scale;
         let logical_width = physical_size[0] as f32 / dpi_scale;
         let logical_height = physical_size[1] as f32 / dpi_scale;
@@ -214,7 +214,7 @@ impl<'a> HudLayout<'a> {
     }
 
     /// The Java-styled surfaces outside the engine HUD: inventory screens, the
-    /// sleep overlay, the first-person hands, and toasts.
+    /// sleep overlay, and the first-person hands.
     pub(super) fn append(
         &mut self,
         runtime: &UiRuntime,
@@ -231,7 +231,6 @@ impl<'a> HudLayout<'a> {
         if frame.first_person && mode_allows_hotbar {
             self.held_items(frame)?;
         }
-        self.toasts(runtime, frame.now_millis)?;
         Ok(())
     }
 

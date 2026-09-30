@@ -45,7 +45,9 @@ pub(crate) fn install_cloud_render(app: &mut App) {
             (
                 prepare_cloud_records.in_set(RenderSystems::PrepareResources),
                 prepare_cloud_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_clouds.in_set(RenderSystems::Queue),
+                queue_clouds
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
             ),
         );
 }

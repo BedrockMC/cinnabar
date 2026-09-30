@@ -32,6 +32,7 @@ mod screen_state;
 mod sign_editor;
 mod use_on_identity_evidence;
 
+pub(crate) use bed::SleepStatus;
 pub use forms::{
     FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
     ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
@@ -183,6 +184,7 @@ pub struct UiRuntime {
     chat_usage_hint: Option<Arc<str>>,
     local_sleeping: bool,
     wake_requested: bool,
+    sleep_status: Option<bed::SleepStatus>,
     chat_tab_cycling: bool,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
     chat_sends: ChatSendQueue,
@@ -266,6 +268,7 @@ impl UiRuntime {
             chat_usage_hint: None,
             local_sleeping: false,
             wake_requested: false,
+            sleep_status: None,
             chat_tab_cycling: false,
             pending_chat_autocomplete_request: None,
             chat_sends: ChatSendQueue::new(
@@ -479,6 +482,7 @@ impl UiRuntime {
 
     pub fn ui_focused(&self) -> bool {
         self.chat_focused
+            || self.local_sleeping
             || self.inventory_open
             || self.forms.owns_input()
             || self.sign_editor.is_open()
@@ -624,6 +628,7 @@ impl UiRuntime {
         self.chat_usage_hint = None;
         self.local_sleeping = false;
         self.wake_requested = false;
+        self.sleep_status = None;
         self.pending_chat_autocomplete_request = None;
         self.in_flight_chat_send = None;
         let dropped = self.chat_sends.begin_session(session_id);
@@ -802,6 +807,7 @@ impl UiRuntime {
                 self.apply_hud_rules(rules);
                 UiApplyOutcome::Applied
             }
+            UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
             UiEvent::Form(event) => {
                 self.forms.admit(
                     event,

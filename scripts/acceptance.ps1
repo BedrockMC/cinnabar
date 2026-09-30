@@ -33,8 +33,9 @@ $ExpectedBdsRelease = '1.26.52.3'
 $PinnedAxolotlStackCommit = 'c4540512dc47833bb40363da7ad1161110d64b67'
 $PinnedProtocolgenCommit = '0b8f17e3b321f7cb89e21dc8563398b9981e632f'
 $PinnedValentineLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
-$PinnedAssetSourceTag = 'v1.26.30.32-preview'
-$PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
+$PinnedAssetSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\assets\vanilla-source.json') | ConvertFrom-Json
+$PinnedAssetSourceTag = [string]$PinnedAssetSource.tag
+$PinnedAssetSourceSha256 = [string]$PinnedAssetSource.sha256
 $LeafStateSuffix = '["persistent_bit"=true,"update_bit"=false]'
 $LeafForestOffsetChunks = 65
 $LeafForestMutationZOffset = 12

@@ -70,13 +70,15 @@ impl AudioSettings {
         self.volumes[category.slot()]
     }
 
-    /// Effective gain of `category`: its own slider times master (master alone for `Master`).
+    /// Effective gain of `category` through vanilla's channel groups: music sits under master;
+    /// every other sound sits under the sound group, and each category group under that.
     pub(crate) fn effective(&self, category: AudioCategory) -> f32 {
         let master = self.volumes[AudioCategory::Master.slot()];
-        if category == AudioCategory::Master {
-            master
-        } else {
-            master * self.volumes[category.slot()]
+        let sound = self.volumes[AudioCategory::Sound.slot()];
+        match category {
+            AudioCategory::Master => master,
+            AudioCategory::Music | AudioCategory::Sound => master * self.volumes[category.slot()],
+            _ => master * sound * self.volumes[category.slot()],
         }
     }
 }
@@ -94,6 +96,27 @@ mod tests {
         assert!((settings.effective(AudioCategory::Blocks) - 0.5).abs() < 1e-6);
         settings.set(AudioCategory::Ui, f32::NAN);
         assert_eq!(settings.effective(AudioCategory::Ui), 0.5);
+    }
+
+    // The sound slider silenced only uncategorized definitions while music ignored it.
+    #[test]
+    fn sound_slider_gates_every_effect_but_not_music() {
+        let mut settings = AudioSettings::default();
+        settings.set(AudioCategory::Sound, 0.0);
+        for category in [
+            AudioCategory::Blocks,
+            AudioCategory::Players,
+            AudioCategory::Weather,
+            AudioCategory::Records,
+            AudioCategory::Ui,
+            AudioCategory::Sound,
+        ] {
+            assert_eq!(settings.effective(category), 0.0, "{category:?}");
+        }
+        assert_eq!(settings.effective(AudioCategory::Music), 1.0);
+        settings.set(AudioCategory::Sound, 0.5);
+        settings.set(AudioCategory::Hostile, 0.5);
+        assert!((settings.effective(AudioCategory::Hostile) - 0.25).abs() < 1e-6);
     }
 
     #[test]

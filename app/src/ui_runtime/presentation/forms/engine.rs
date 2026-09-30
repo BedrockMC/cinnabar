@@ -23,6 +23,8 @@ use super::super::player_preview::PreviewView;
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
 pub(crate) mod hud_renderers;
+mod menu_renderers;
+mod screen_cache;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
@@ -53,6 +55,9 @@ pub(crate) struct FormEngine {
     pub(super) cache: Option<FormCache>,
     /// Resolve+bind and layout passes run, for cache tests and profiling.
     pub(super) passes: [usize; 2],
+    /// The title splash, picked once per launch.
+    splash: std::sync::OnceLock<Option<String>>,
+    screens: screen_cache::ScreenCache,
 }
 
 pub(super) struct FormCache {
@@ -104,6 +109,8 @@ impl FormEngine {
             server_source: None,
             cache: None,
             passes: [0; 2],
+            splash: std::sync::OnceLock::new(),
+            screens: screen_cache::ScreenCache::default(),
         }
     }
 
@@ -289,6 +296,12 @@ impl FormEngine {
         &self.assets
     }
 
+    pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
+        self.splash
+            .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
+            .as_deref()
+    }
+
     pub(super) fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
     }
@@ -322,15 +335,30 @@ impl FormEngine {
         inputs: EngineInputs<'_>,
         out: EngineOutput<'_>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let language = (inputs.translate)("menu.play");
         render_with(self.art(), inputs, out, art, None, |env, root| {
-            render_screen(reference, &self.catalog, context, data, root, env, view)
+            let key = screen_cache::ScreenKey {
+                reference,
+                catalog: &self.catalog,
+                context,
+                data,
+                view,
+                root,
+                px,
+                language,
+            };
+            self.screens.get_or_render(key, || {
+                render_screen(reference, &self.catalog, context, data, root, env, view)
+            })
         })
     }
 }
 
 /// `vanilla` under the built-in Java HUD pack, less its files for any namespace
 /// in `withdrawn`: a server pack authored against vanilla that restyles a
-/// namespace gets vanilla beneath it there, so it looks as designed.
+/// namespace gets vanilla beneath it there, so it looks as designed. The title
+/// panels then take the logo's shape and the Mojang footer is dropped.
 fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
     let mut catalog = vanilla.clone();
     let kept = super::hud::JAVA_HUD_PACK
@@ -338,6 +366,14 @@ fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<Strin
         .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
         .map(|(path, _, bytes)| (*path, *bytes));
     catalog.apply_pack(kept);
+    catalog.apply_pack(
+        [(
+            "ui/cinnabar_title.json",
+            menu_renderers::TITLE_PANEL_OVERLAY,
+        )]
+        .into_iter()
+        .chain(menu_renderers::NO_COPYRIGHT_OVERLAYS),
+    );
     catalog
 }
 
@@ -444,11 +480,10 @@ fn render_with<R: Borrow<FormRender>>(
     }))
 }
 
-/// Caller art the custom renderers draw: the icon table `#item_renderer_data`
-/// indexes, the player preview, the pointer (virtual px) tooltips follow, the
-/// animation clock (seconds) fades evaluate at, and the HUD's native state.
-/// `images` backs image controls bound to a downloaded artwork's local path;
-/// `portrait` is the signed-in gamerpic.
+/// Caller art the custom renderers draw: the icon table `#item_renderer_data` indexes, the
+/// player preview, the pointer (virtual px) tooltips follow, the animation clock (seconds)
+/// fades evaluate at, the HUD's native state, downloaded artwork by local path (`images`)
+/// and the signed-in gamerpic (`portrait`).
 #[derive(Clone, Copy, Default)]
 pub(super) struct ScreenArt<'a> {
     pub(super) icons: &'a [IconRef],
@@ -468,6 +503,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
+    pub(super) splash: Option<&'a str>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -505,8 +541,9 @@ fn scaled_request<'a>(
     request
 }
 
+/// Rounded up, so text laid out at its own measured width does not wrap.
 fn width_64(logical: f64) -> u32 {
-    (logical.clamp(1.0, UNWRAPPED_LOGICAL) * 64.0) as u32
+    (logical.clamp(1.0, UNWRAPPED_LOGICAL) * 64.0).ceil() as u32
 }
 
 struct Measure<'a, 'b> {
@@ -633,10 +670,15 @@ impl Painter<'_> {
                 self.solid(track, alpha([0, 0, 0, 255])).ok()?;
                 let width = (dest[2] - dest[0]) * fraction as f32;
                 let fill = [dest[0], dest[1], dest[0] + width, dest[3]];
+                // A loading bar names its colour; an item's durability bar sweeps its hue.
+                let color = data
+                    .get("primary_color")
+                    .and_then(json_ui::color_value)
+                    .unwrap_or_else(|| durability_color(fraction));
                 Some((
                     UiVisual::Solid {
                         texture_page: self.solid_page,
-                        color: alpha(durability_color(fraction)),
+                        color: alpha(color),
                     },
                     fill,
                 ))
@@ -667,29 +709,14 @@ impl Painter<'_> {
                     dest,
                 ))
             }
-            // The model draws from the preview raster, posed as this renderer asks
-            // and framed as the vanilla renderers frame it.
             "live_player_renderer" | "paper_doll_renderer" => {
-                let (view, frame) = super::super::player_preview::renderer_frame(
-                    renderer,
-                    data,
-                    dest,
-                    self.px,
-                    self.art.pointer,
-                );
-                if let Some(request) = self.art.preview_view {
-                    request.set(Some(view));
-                }
-                let preview = self.art.preview?;
-                Some((
-                    UiVisual::Sprite {
-                        texture_page: preview.page,
-                        uv: preview.uv,
-                        color: alpha([255; 4]),
-                    },
-                    frame,
-                ))
+                self.player_preview(renderer, data, dest, &alpha)
             }
+            "splash_text_renderer" => {
+                self.splash(dest, &alpha);
+                None
+            }
+            "name_tag_renderer" => self.name_tag(data, dest, &alpha),
             "hover_text_renderer" => {
                 let text = self
                     .art

@@ -63,8 +63,9 @@ pub(crate) use resource_packs::{
     set_active_language, set_base_material_keys,
 };
 pub(crate) use session::{
-    NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle, PacketSendError,
-    SessionTransferTarget, WORLD_EVENT_CAPACITY, session_failure_display, spawn_network,
+    BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
+    PacketSendError, SessionTransferTarget, WORLD_EVENT_CAPACITY, session_failure_display,
+    spawn_network,
 };
 
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
@@ -989,7 +990,7 @@ mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    ActorFramePartialTick, HandRigBuilder, local_item_use, publish_actor_render_frame,
+    ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
 };
 
 #[cfg(test)]

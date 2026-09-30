@@ -1,7 +1,7 @@
 //! Container screens against the real vanilla templates. The `.local` pack is
 //! gitignored, so each test skips (not fails) when it is absent.
 
-use std::path::PathBuf;
+mod support;
 
 use json_ui::{
     Catalog, CollectionItem, Context, DataSource, Draw, LayoutEnv, Scalar, TextMeasure,
@@ -30,8 +30,7 @@ fn env() -> LayoutEnv<'static> {
 }
 
 fn catalog() -> Option<Catalog> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/ui");
+    let dir = support::vanilla_pack().join("ui");
     dir.is_dir()
         .then(|| Catalog::load_dir(&dir).expect("index files load"))
 }

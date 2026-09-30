@@ -241,7 +241,7 @@ mod status_tests {
         assert_eq!(short, "Social: Refresh…");
         assert!(extent <= 20.0);
         let large =
-            TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(3));
+            TextMetrics::for_viewport([1920, 1080], ui::DpiScale::new(1.0).unwrap(), Some(3));
         let (short, extent) = status_text(
             &mut layouts,
             &font,

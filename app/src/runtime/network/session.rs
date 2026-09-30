@@ -307,6 +307,13 @@ impl PacketSendError {
     }
 }
 
+/// Why a packet batch was not queued; nothing from it was sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BatchSendError {
+    Full,
+    Closed,
+}
+
 #[derive(Resource)]
 pub struct NetworkHandle {
     session_generation: u64,
@@ -331,6 +338,14 @@ impl NetworkHandle {
     #[cfg(test)]
     pub(crate) fn stub() -> (Self, watch::Receiver<u64>) {
         empty_network_channels()
+    }
+    /// A handle whose command queue holds `capacity` commands; the guard keeps it open.
+    #[cfg(test)]
+    pub(crate) fn with_command_capacity(capacity: usize) -> (Self, Box<dyn std::any::Any>) {
+        let (mut handle, _) = empty_network_channels();
+        let (commands, receiver) = mpsc::channel::<NetworkCommand>(capacity);
+        handle.commands = commands;
+        (handle, Box::new(receiver))
     }
     #[cfg(test)]
     pub(crate) fn shutdown_requested(&self) -> bool {
@@ -411,6 +426,35 @@ impl NetworkHandle {
     /// Queues an inventory, swing or interaction packet ahead of this frame's movement.
     pub(crate) fn send_inventory_packet(&self, packet: Packet) -> Result<(), PacketSendError> {
         self.send_packet_with_confirmation(packet, None, None, None, None, None)
+    }
+
+    /// Queues standalone packets together or not at all, so a swing never leaves without its
+    /// transaction.
+    pub(crate) fn send_inventory_packets(
+        &self,
+        packets: Vec<Packet>,
+    ) -> Result<(), BatchSendError> {
+        if packets.is_empty() {
+            return Ok(());
+        }
+        let permits =
+            self.commands
+                .try_reserve_many(packets.len())
+                .map_err(|error| match error {
+                    mpsc::error::TrySendError::Full(()) => BatchSendError::Full,
+                    mpsc::error::TrySendError::Closed(()) => BatchSendError::Closed,
+                })?;
+        for (permit, packet) in permits.zip(packets) {
+            permit.send(NetworkCommand::Send {
+                packet,
+                sub_chunk: None,
+                chat: None,
+                physics: None,
+                physics_reanchor: None,
+                interaction: None,
+            });
+        }
+        Ok(())
     }
 
     pub fn send_chat_packet(

@@ -46,7 +46,8 @@ pub use bind::{
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteQuad, StateGate, TextAlign, UvRect, emit, emit_gated, nine_slice,
+    Draw, DrawNode, RectOut, SpriteQuad, StateGate, TextAlign, UvRect, color_value, emit,
+    emit_gated, nine_slice,
 };
 pub use env::Env;
 pub use expr::{

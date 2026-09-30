@@ -47,6 +47,9 @@ const VIDEO_SECTION: u8 = 7;
 /// GUI scale choices the settings slider steps through (1..=4).
 const GUI_SCALE_STEPS: f64 = 4.0;
 
+/// The modal progress screen joining a server shows (bare `progress_screen` has no content).
+const JOIN_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
+
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 
@@ -54,6 +57,10 @@ const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 /// computes in code (`VanillaSceneFactory::createGlobalVars`).
 pub(super) fn retail_context() -> Context {
     Context::desktop()
+        .with_flag("win10_edition", !cfg!(target_os = "macos"))
+        .with_flag("osx_edition", cfg!(target_os = "macos"))
+        .with_flag("pocket_edition", false)
+        .with_flag("console_edition", false)
         .with_flag("trial", false)
         .with_flag("education_edition", false)
         .with_flag("store_disabled", false)
@@ -119,88 +126,128 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         "play_button_target",
         Value::String("button.menu_play".into()),
     );
-    let reference = if view.connecting {
-        data.set_global(
-            "#title_text",
-            text(translated(translate, "connect.connecting", "Connecting")),
-        );
-        data.set_global(
-            "#progress_text",
-            text(view.message.clone().unwrap_or_default()),
-        );
-        flags(
-            &mut data,
-            &["#progress_animation_visible", "#spinner_animation_visible"],
-        );
-        "progress.progress_screen"
-    } else if let Some(reason) = &view.disconnect_message {
-        data.set_global(
-            "#title_text",
-            text(translated(translate, "disconnect.lost", "Connection Lost")),
-        );
-        data.set_global("#disconnect_text", text(reason.clone()));
-        "disconnect.disconnect_screen"
-    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
-        data.set_global("#url", text(uri.clone()));
-        data.set_global("#code", text(code.clone()));
-        "xbl_console_signin.xbl_console_signin"
-    } else {
-        match view.screen {
-            MenuScreen::Death => {
-                flags(
-                    &mut data,
-                    &[
-                        "#buttons_and_deathmessage_visible",
-                        "#respawn_visible",
-                        "#respawn_enabled",
-                        "#quit_visible",
-                        "#quit_enabled",
-                    ],
-                );
-                "death.death_screen"
+    let reference =
+        if let Some((received, total)) = view.feeds.pack_download.filter(|_| view.connecting) {
+            pack_download(&mut data, translate, received, total);
+            JOIN_PROGRESS_SCREEN
+        } else if view.connecting {
+            data.set_global(
+                "#title_text",
+                text(translated(translate, "connect.connecting", "Connecting")),
+            );
+            data.set_global(
+                "#progress_text",
+                text(view.message.clone().unwrap_or_default()),
+            );
+            flags(&mut data, &["#bar_animation_visible"]);
+            JOIN_PROGRESS_SCREEN
+        } else if let Some(reason) = &view.disconnect_message {
+            data.set_global(
+                "#title_text",
+                text(translated(translate, "disconnect.lost", "Connection Lost")),
+            );
+            data.set_global("#disconnect_text", text(reason.clone()));
+            "disconnect.disconnect_screen"
+        } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
+            data.set_global("#url", text(uri.clone()));
+            data.set_global("#code", text(code.clone()));
+            "xbl_console_signin.xbl_console_signin"
+        } else {
+            match view.screen {
+                MenuScreen::Death => {
+                    flags(
+                        &mut data,
+                        &[
+                            "#buttons_and_deathmessage_visible",
+                            "#respawn_visible",
+                            "#respawn_enabled",
+                            "#quit_visible",
+                            "#quit_enabled",
+                        ],
+                    );
+                    "death.death_screen"
+                }
+                MenuScreen::Pause => {
+                    data.set_global("#playername", text(view.display_name.clone()));
+                    flags(&mut data, &["#playername_visible"]);
+                    data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
+                    // A non-edu client draws the retail pause content, not edu_pause's.
+                    context = unlock_text(context)
+                        .with_flag("ignore_edu_pause", true)
+                        .with_var("store_button_text", Value::String("menu.store".to_owned()));
+                    "pause.pause_screen"
+                }
+                MenuScreen::Home => {
+                    start_screen(view, &mut data, translate);
+                    context = start_screen_vars(context);
+                    "start.start_screen"
+                }
+                MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
+                    super::play_screen::bind(view, &mut data);
+                    "play.play_screen"
+                }
+                MenuScreen::AddServer => {
+                    add_server_screen(view, &mut data, translate);
+                    // The controller's edit mode swaps Play for Remove.
+                    context = context.with_flag("edit_mode", view.editing.is_some());
+                    "add_external_server.add_external_server_screen_new"
+                }
+                MenuScreen::Settings => {
+                    settings_screen(view, &mut data);
+                    return Some(MenuScreenData {
+                        reference: "settings.screen_controls_and_settings",
+                        context: settings_context(context),
+                        data,
+                        overlay: None,
+                    });
+                }
+                MenuScreen::Store => return store_screen(view, &context, translate),
+                MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
             }
-            MenuScreen::Pause => {
-                data.set_global("#playername", text(view.display_name.clone()));
-                flags(&mut data, &["#playername_visible"]);
-                data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
-                // The retail client takes the non-education pause layout.
-                context = unlock_text(context)
-                    .with_flag("ignore_edu_pause", true)
-                    .with_var("store_button_text", Value::String("menu.store".to_owned()));
-                "pause.pause_screen"
-            }
-            MenuScreen::Home => {
-                start_screen(view, &mut data, translate);
-                context = start_screen_vars(context);
-                "start.start_screen"
-            }
-            MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-                super::play_screen::bind(view, &mut data);
-                "play.play_screen"
-            }
-            MenuScreen::AddServer => {
-                add_server_screen(view, &mut data, translate);
-                "add_external_server.add_external_server_screen_new"
-            }
-            MenuScreen::Settings => {
-                settings_screen(view, &mut data);
-                return Some(MenuScreenData {
-                    reference: "settings.screen_controls_and_settings",
-                    context: settings_context(context),
-                    data,
-                    overlay: None,
-                });
-            }
-            MenuScreen::Store => return store_screen(view, &context, translate),
-            MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
-        }
-    };
+        };
     Some(MenuScreenData {
         reference,
         context,
         data,
         overlay: None,
     })
+}
+
+/// The progress screen while the core downloads the server's packs: the
+/// "Downloading packs" title with the percent and a determinate bar.
+fn pack_download(data: &mut DataSource, translate: Translate<'_>, received: u64, total: u64) {
+    let percent = if total == 0 {
+        0
+    } else {
+        (received.min(total) * 100 / total) as u32
+    };
+    let title = translated(
+        translate,
+        "progressScreen.title.downloading",
+        "Downloading packs %1",
+    );
+    data.set_global(
+        "#title_text",
+        text(title.replace("%1", &format!("{percent}%"))),
+    );
+    let megabytes = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
+    data.set_global(
+        "#progress_text",
+        text(format!(
+            "{:.1} / {:.1} MB",
+            megabytes(received),
+            megabytes(total)
+        )),
+    );
+    flags(data, &["#loading_bar_visible"]);
+    data.set_global(
+        "#loading_bar_total_amount",
+        Scalar::Num(total.max(1) as f64),
+    );
+    data.set_global(
+        "#loading_bar_current_amount",
+        Scalar::Num(received.min(total) as f64),
+    );
 }
 
 /// The Marketplace screen (and popup) for the published store state.
@@ -236,30 +283,47 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     data.set_global("#show_gamerpic", Scalar::Bool(portrait));
     flags(data, &["#show_paper_doll", "#persona_and_skins_enabled"]);
     super::start_feed::bind(view, data);
-    data.set_global("#version", text("v1.26.30"));
+    data.set_global("#version", text(version_label(protocol::GAME_VERSION)));
     data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
     data.set_global("#edu_demo_only_ui_visible", Scalar::Bool(false));
-    // The controller hardwires these: realms promo and upper online padding
-    // off, so Settings sits in the plain settings row.
+    // Retail Realms is enabled, so its row shows between Settings and
+    // Marketplace, as on the release client.
     flags(
         data,
         &[
             "#online_stack_visible",
+            "#realms_promo_visible",
             "#not_realms_promo_visible_and_supports_launching_legacy_version",
+            "#dressing_room_button_visible",
+            "#is_appearance_visible",
         ],
     );
     match &view.auth_state {
-        AuthState::SignedOut | AuthState::Failed(_) => flags(data, &["#sign_in_visible"]),
+        AuthState::SignedOut | AuthState::Failed(_) => {
+            flags(data, &["#sign_in_visible", "#upper_online_buttons_visible"])
+        }
         AuthState::Checking => {
             flags(data, &["#signingin_visible"]);
             data.set_global(
                 "#signingin_text",
-                text(translated(translate, "xbox.signingin", "Signing in...")),
+                text(translated(
+                    translate,
+                    "xbox.signingin",
+                    "Signing in with your Microsoft account...",
+                )),
             );
         }
         AuthState::Authenticated => flags(data, &["#gamertag_pic_and_label_visible"]),
         AuthState::AwaitingCode { .. } => {}
     }
+}
+
+/// The start screen's version: the release client shows `1.26.50` as `v26.50`.
+fn version_label(game_version: &str) -> String {
+    format!(
+        "v{}",
+        game_version.strip_prefix("1.").unwrap_or(game_version)
+    )
 }
 
 /// The vanilla two-button popup a launcher dialog opens, and the action its
@@ -281,16 +345,17 @@ pub(super) fn dialog_model(
             translated(translate, "gui.no", "No"),
             MenuAction::ConfirmExit,
         ),
+        // The popup's title is one line, so the server names it and the body asks.
         MenuDialog::RemoveSaved(index) => (
+            view.servers
+                .get(index)
+                .map(|server| server.name.clone())
+                .unwrap_or_default(),
             translated(
                 translate,
                 "addExternalServerScreen.removeConfirmation",
                 "Are you sure you want to remove this server?",
             ),
-            view.servers
-                .get(index)
-                .map(|server| server.name.clone())
-                .unwrap_or_default(),
             translated(
                 translate,
                 "addExternalServerScreen.removeButtonLabel",
@@ -409,7 +474,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             MenuAction::Navigate(MenuScreen::Friends)
         }
         "button.menu_store" => MenuAction::Store(crate::store::OPEN),
-        "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
+        "button.menu_play" => MenuAction::Navigate(MenuScreen::Play),
+        "button.menu_realms" => MenuAction::Navigate(MenuScreen::Social),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,
         "button.sign_out" => MenuAction::SignOut,
@@ -545,6 +611,12 @@ mod tests {
     }
 
     #[test]
+    fn the_version_reads_as_the_release_client_shows_it() {
+        assert_eq!(version_label("1.26.50"), "v26.50");
+        assert_eq!(version_label("26.60"), "v26.60");
+    }
+
+    #[test]
     fn menu_states_open_their_vanilla_screens() {
         assert_eq!(
             reference(&view(MenuScreen::Pause)),
@@ -564,7 +636,7 @@ mod tests {
         );
         let mut connecting = view(MenuScreen::Play);
         connecting.connecting = true;
-        assert_eq!(reference(&connecting), Some("progress.progress_screen"));
+        assert_eq!(reference(&connecting), Some(JOIN_PROGRESS_SCREEN));
         let mut dropped = view(MenuScreen::Play);
         dropped.disconnect_message = Some("Kicked".into());
         assert_eq!(reference(&dropped), Some("disconnect.disconnect_screen"));

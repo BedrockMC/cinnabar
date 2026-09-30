@@ -13,7 +13,9 @@ use protocol::{ActorUseAction, ActorUseRequest, BedrockSession, PlayerInputMode,
 use semantic_input::Action;
 
 use crate::{
-    interaction_authority::observe_block,
+    interaction_authority::{
+        BlockRayUnavailable, MAX_PENDING_INTERACTION_FRAMES, observe_block_ray,
+    },
     local_player::InteractionOriginSnapshot,
     menu::MenuRuntime,
     mining::{
@@ -23,7 +25,10 @@ use crate::{
     movement::{
         LocalMovementEffectTimeline, MiningEffects, MovementTicker, PhysicsCollisionRegistries,
     },
-    runtime::{network::NetworkHandle, world::ClientWorld},
+    runtime::{
+        network::{BatchSendError, NetworkHandle},
+        world::ClientWorld,
+    },
     semantic_controls::SemanticInputSnapshot,
     ui_runtime::UiRuntime,
 };
@@ -177,11 +182,15 @@ pub(crate) fn classify(
 
 /// Swing length in ticks under the current effects. Adjustments need independent measurement.
 pub(crate) fn swing_duration(effects: MiningEffects) -> i32 {
-    let level =
-        |amplifier: Option<i32>| amplifier.filter(|value| *value >= 0).map(|value| value + 1);
+    // Server amplifiers are untrusted; saturate instead of overflowing.
+    let level = |amplifier: Option<i32>| {
+        amplifier
+            .filter(|value| *value >= 0)
+            .map(|value| value.saturating_add(1))
+    };
     let haste = level(effects.haste).max(level(effects.conduit_power));
     let duration = match (haste, level(effects.mining_fatigue)) {
-        (Some(haste), _) => DEFAULT_SWING_TICKS - haste,
+        (Some(haste), _) => DEFAULT_SWING_TICKS.saturating_sub(haste),
         (None, Some(fatigue)) => DEFAULT_SWING_TICKS.saturating_add(fatigue.saturating_mul(2)),
         (None, None) => DEFAULT_SWING_TICKS,
     };
@@ -189,11 +198,11 @@ pub(crate) fn swing_duration(effects: MiningEffects) -> i32 {
 }
 
 /// The local arm-swing guard: a new swing starts once half the current one elapsed.
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub(crate) struct SwingTracker {
     last_swing_tick: Option<u64>,
-    /// A swing started since the local rig last took it.
-    started: bool,
+    /// Duration of a swing started since the local rig last took it.
+    started: Option<i32>,
 }
 
 impl SwingTracker {
@@ -204,14 +213,14 @@ impl SwingTracker {
             .is_none_or(|last| tick < last || tick - last >= half);
         if allowed {
             self.last_swing_tick = Some(tick);
-            self.started = true;
+            self.started = Some(duration);
         }
         allowed
     }
 
-    /// Whether a swing started since the last call; the local rig plays it.
-    pub(crate) fn take_started(&mut self) -> bool {
-        std::mem::take(&mut self.started)
+    /// The duration of a swing started since the last call; the local rig plays it.
+    pub(crate) fn take_started(&mut self) -> Option<i32> {
+        self.started.take()
     }
 }
 
@@ -235,12 +244,14 @@ pub(crate) struct MeleeOutcome {
 }
 
 /// Attack-press state; `actor_in_front` vetoes mining behind a targeted actor.
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub(crate) struct MeleeRuntime {
     latched_press: bool,
     actor_in_front: bool,
     last_attack_millis: Option<u64>,
     position_authority: Option<(u64, u64)>,
+    /// Input frame at which a latched press first waited on block evidence.
+    deferred_since: Option<u64>,
 }
 
 impl MeleeRuntime {
@@ -280,6 +291,18 @@ impl MeleeRuntime {
     pub(crate) fn cancel(&mut self) {
         self.latched_press = false;
         self.actor_in_front = false;
+        self.deferred_since = None;
+    }
+
+    /// Holds a latched press while block evidence is unavailable, for a bounded number of frames.
+    pub(crate) fn defer(&mut self, input_frame: u64) {
+        if !self.latched_press {
+            return;
+        }
+        let since = *self.deferred_since.get_or_insert(input_frame);
+        if input_frame.saturating_sub(since) > MAX_PENDING_INTERACTION_FRAMES {
+            self.cancel();
+        }
     }
 
     /// Resolves at most one latched press into packets; a held button never re-attacks.
@@ -290,6 +313,7 @@ impl MeleeRuntime {
         swings: &mut SwingTracker,
     ) -> MeleeOutcome {
         self.observe_crosshair(crosshair);
+        self.deferred_since = None;
         let mut outcome = MeleeOutcome::default();
         if !std::mem::take(&mut self.latched_press) {
             return outcome;
@@ -337,6 +361,31 @@ impl MeleeRuntime {
     }
 }
 
+/// Resolves the press and queues its swing and transaction as one batch.
+///
+/// A full queue restores the pre-press state so the same press retries, bounded like any
+/// deferred press; returns whether the tick reports a missed swing.
+pub(crate) fn resolve_and_send(
+    runtime: &mut MeleeRuntime,
+    swings: &mut SwingTracker,
+    crosshair: Crosshair,
+    press: &PressContext,
+    input_frame: u64,
+    send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
+) -> bool {
+    let (saved_runtime, saved_swings) = (runtime.clone(), swings.clone());
+    let outcome = runtime.resolve(crosshair, press, swings);
+    match send(outcome.packets) {
+        Ok(()) | Err(BatchSendError::Closed) => outcome.missed_swing,
+        Err(BatchSendError::Full) => {
+            *runtime = saved_runtime;
+            *swings = saved_swings;
+            runtime.defer(input_frame);
+            false
+        }
+    }
+}
+
 #[derive(SystemParam)]
 pub(crate) struct MeleeContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
@@ -367,7 +416,7 @@ pub(crate) fn produce_melee(
         focused
             && caps.is_some_and(|caps| caps.can_attack)
             && !context.ui.ui_focused()
-            && movement.accepts_creative_mining()
+            && movement.accepts_block_interactions()
     }) else {
         runtime.cancel();
         return;
@@ -378,7 +427,7 @@ pub(crate) fn produce_melee(
         return;
     }
     let input_mode = protocol_input_mode(input.input_mode);
-    let (Some(crosshair), Some(stream)) = (
+    let (Some(observation), Some(stream)) = (
         resolve_crosshair(
             &context,
             input_mode,
@@ -390,6 +439,11 @@ pub(crate) fn produce_melee(
         context.client_world.stream.as_ref(),
     ) else {
         runtime.cancel();
+        return;
+    };
+    // Unverified occlusion never admits an attack; the press waits for fresh evidence.
+    let Ok(crosshair) = observation else {
+        runtime.defer(input.frame_sequence);
         return;
     };
     runtime.observe_crosshair(crosshair);
@@ -406,11 +460,15 @@ pub(crate) fn produce_melee(
         swing_duration: swing_duration(context.effects.mining_effects()),
         now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
-    let outcome = runtime.resolve(crosshair, &press, &mut swings);
-    for packet in outcome.packets {
-        let _ = context.network.send_inventory_packet(packet);
-    }
-    if outcome.missed_swing {
+    let missed_swing = resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        crosshair,
+        &press,
+        input.frame_sequence,
+        |packets| context.network.send_inventory_packets(packets),
+    );
+    if missed_swing {
         movement.mark_missed_swing(sample.tick);
     }
 }
@@ -422,7 +480,7 @@ fn resolve_crosshair(
     creative_pick_reach: bool,
     input_authority: (std::num::NonZeroU64, u64),
     position_authority_generation: u64,
-) -> Option<Crosshair> {
+) -> Option<Result<Crosshair, BlockRayUnavailable>> {
     let ray = context.origin.outbound_ray()?;
     let stream = context.client_world.stream.as_ref()?;
     if ray.session_generation() != context.ui.session_id()
@@ -436,33 +494,35 @@ fn resolve_crosshair(
         survival_reach(input_mode)
     };
     let origin = ray.origin().to_array();
-    let block_distance = hand_interaction_selection(&context.ui)
-        .and_then(|selection| {
-            observe_block(
-                &context.origin,
-                &context.ui,
-                &context.client_world,
-                &context.collisions,
-                selection,
-                (
-                    input_mode,
-                    reach,
-                    input_authority,
-                    position_authority_generation,
-                ),
-            )
-        })
-        .map(|observed| {
-            let hit = observed.target.position;
-            let offset = observed.target.relative_hit;
-            (0..3)
-                .map(|axis| {
-                    (f64::from(hit[axis]) + f64::from(offset[axis]) - f64::from(origin[axis]))
-                        .powi(2)
-                })
-                .sum::<f64>()
-                .sqrt()
-        });
+    let Some(selection) = hand_interaction_selection(&context.ui) else {
+        return Some(Err(BlockRayUnavailable));
+    };
+    let observed = match observe_block_ray(
+        &context.origin,
+        &context.ui,
+        &context.client_world,
+        &context.collisions,
+        selection,
+        (
+            input_mode,
+            reach,
+            input_authority,
+            position_authority_generation,
+        ),
+    ) {
+        Ok(observed) => observed,
+        Err(unavailable) => return Some(Err(unavailable)),
+    };
+    let block_distance = observed.map(|observed| {
+        let hit = observed.target.position;
+        let offset = observed.target.relative_hit;
+        (0..3)
+            .map(|axis| {
+                (f64::from(hit[axis]) + f64::from(offset[axis]) - f64::from(origin[axis])).powi(2)
+            })
+            .sum::<f64>()
+            .sqrt()
+    });
     let actor = pick_actor(
         stream.remote_actors(),
         context.ui.gameplay_hud().mount_unique_id(),
@@ -470,7 +530,7 @@ fn resolve_crosshair(
         ray.direction().to_array(),
         reach,
     );
-    Some(classify(actor, block_distance, attack_reach))
+    Some(Ok(classify(actor, block_distance, attack_reach)))
 }
 
 #[cfg(test)]

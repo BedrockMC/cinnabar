@@ -23,6 +23,8 @@ pub enum HitKind {
     ScrollTrack,
     /// A `modal` input panel: swallows the pointer for everything beneath it.
     Modal,
+    /// An input panel a press routes somewhere (`button.menu_select` mapped on it).
+    Panel,
     /// A `custom` renderer cell (e.g. a container item) the caller interprets.
     Custom,
 }
@@ -199,6 +201,7 @@ fn kind_of(node: &LaidOut) -> Option<HitKind> {
         "scrollbar_box" => HitKind::ScrollBox,
         "scroll_track" => HitKind::ScrollTrack,
         "input_panel" if widgets::bound_bool(control, "modal") == Some(true) => HitKind::Modal,
+        "input_panel" if pressed_target(control).is_some() => HitKind::Panel,
         "custom" if control.properties.contains_key("collection_index") => HitKind::Custom,
         _ => return None,
     })

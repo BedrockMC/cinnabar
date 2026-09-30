@@ -13,3 +13,4 @@
 
 # Per-worktree Cargo target dirs (never commit build artifacts)
 target-*/
+__pycache__/

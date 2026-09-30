@@ -453,7 +453,7 @@ fn resolve_size(
         Axis::Y,
     );
     let height = pixels_or(eval_length(control, Axis::Y, &height_ctx), parent_rect.h);
-    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat);
+    let mut size = clamp_bounds(control, parent_rect, [width, height], content, nat, true);
     for (index, key) in ["inherit_max_sibling_width", "inherit_max_sibling_height"]
         .into_iter()
         .enumerate()
@@ -465,13 +465,21 @@ fn resolve_size(
     size
 }
 
+/// Clamp by min/max; while the parent's size is still unknown (it sizes to its
+/// children), a parent-relative bound does not constrain the child.
 fn clamp_bounds(
     control: &ResolvedControl,
     parent_rect: Rect,
     size: [f64; 2],
     content: [f64; 2],
     nat: Option<[f64; 2]>,
+    parent_known: bool,
 ) -> [f64; 2] {
+    // A childless label's `%c` is its text: `max_size: ["100%c", 10]` fits the text.
+    let content = match nat {
+        Some(text) if control.children.is_empty() => text,
+        _ => content,
+    };
     let mut out = size;
     // A leaf's content is its own natural size (a label's `max_size: 100%c`).
     let content = nat
@@ -479,11 +487,15 @@ fn clamp_bounds(
         .unwrap_or(content);
     for (index, axis) in [Axis::X, Axis::Y].into_iter().enumerate() {
         let parent = axis_of(parent_rect, axis);
-        let ctx = axis_context(parent, None, content, content, content, nat, axis);
-        if let Some(max) = eval_bound(control, "max_size", index, &ctx) {
+        let bound = |key: &str, unknown: f64| {
+            let parent = if parent_known { parent } else { unknown };
+            let ctx = axis_context(parent, None, content, content, content, nat, axis);
+            eval_bound(control, key, index, &ctx)
+        };
+        if let Some(max) = bound("max_size", f64::INFINITY) {
             out[index] = out[index].min(max);
         }
-        if let Some(min) = eval_bound(control, "min_size", index, &ctx) {
+        if let Some(min) = bound("min_size", 0.0) {
             out[index] = out[index].max(min);
         }
     }
@@ -592,7 +604,14 @@ fn intrinsic_uncached(
     let content = content_extent(control, env, known);
     let parent_rect = Rect::new(0.0, 0.0, parent, 0.0);
     let nat = natural(control, env, known);
-    clamp_bounds(control, parent_rect, [width, height], content, nat)
+    clamp_bounds(
+        control,
+        parent_rect,
+        [width, height],
+        content,
+        nat,
+        parent_width.is_some(),
+    )
 }
 
 /// The extent of a control's children, the value `%c` reports. A stack sums along

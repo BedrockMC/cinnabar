@@ -22,7 +22,7 @@ names them, so they default off. Evidence: the 26.30 reconstruction
 | Play | `/play/:tab` | **OreUI** (selected and supported) | OreUI, drawn natively |
 | Create / edit world, templates | `/create-new-world`, `/edit-world`, `/start-from-template` | **OreUI** | not built yet (create buttons are disabled) |
 | Death | `/gameplay/death` | **OreUI** | OreUI |
-| Bed | `/gameplay/bedtime` | **OreUI** | not built yet |
+| Bed | `/gameplay/bedtime` | **OreUI** | OreUI |
 | Settings | `/oreui-settings` | JSON-UI unless the `mc-new-settings-screen` treatment (default off; preference default unrecovered) | `settings_screen.json` |
 | Disconnected | `/disconnected` | JSON-UI unless treatment toggle 0x42 (default off) | `disconnect_screen.json` |
 | Send invites | invite screen | JSON-UI (dev override only) | not built |
@@ -49,6 +49,7 @@ per screen) and `app/src/ui_runtime/oreui_assets.rs` (the dev-mode loader).
 
 ## Screenshot checks still needed
 
+- Bed: text colour and secondary-button theme colours (unrecovered).
 - Death: the radial vignette (drawn as nested bands), title and button placement, the missing
   death message and hardcore variant.
 - Profile: player-card banner and gamerpic sizes, the Overview rows (the original shows friend,

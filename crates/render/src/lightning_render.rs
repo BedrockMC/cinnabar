@@ -48,7 +48,9 @@ pub(crate) fn install_lightning_render(app: &mut App) {
             (
                 prepare_lightning_records.in_set(RenderSystems::PrepareResources),
                 prepare_lightning_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_lightning.in_set(RenderSystems::Queue),
+                queue_lightning
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
             ),
         );
 }

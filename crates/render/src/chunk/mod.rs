@@ -120,15 +120,17 @@ pub use biome_tints::{
 use biome_tints::{ChunkBiomeTintResourceIdentity, MATERIAL_UV_ROTATION_MASK};
 use draw::{queue_chunks, queue_transparent_chunks};
 use extract::install_chunk_extraction;
+#[cfg(test)]
+use gpu::arena::plan_chunk_range_update;
 #[allow(unused_imports)]
 use gpu::arena::{
-    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, ChunkRangePlan, GPU_UPDATE_OVERDUE_FRAMES,
+    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreshChunkRanges, GPU_UPDATE_OVERDUE_FRAMES,
     GpuUpdateCandidate, GpuUpdateFairness, MAX_GPU_UPDATE_FAIRNESS_ENTRIES,
     allocate_aligned_quad_range, allocate_aligned_range_for_update, allocate_origin,
     allocate_quad_range, allocate_range_for_update, arena_limits_from_device_limits,
-    checked_geometry_range, chunk_tint_identity_is_active, commit_chunk_range_plan,
+    checked_geometry_range, chunk_tint_identity_is_active, commit_fresh_chunk_ranges,
     create_indirect_buffer, create_storage_buffer, init_chunk_gpu_arena, insert_free_quad_range,
-    plan_chunk_range_update, plan_gpu_chunk_updates, plan_origin_allocation,
+    plan_fresh_chunk_ranges, plan_gpu_chunk_updates, plan_origin_allocation,
     release_completed_transparent_retirements, release_origin, release_quad_range,
     take_free_quad_range,
 };
@@ -148,12 +150,12 @@ use gpu::bind_groups::{
 use gpu::layout::transparent_geometry_update_requires_cow;
 #[allow(unused_imports)]
 use gpu::layout::{
-    ArenaGrowthError, ArenaGrowthPlan, ArenaRequiredLengths, GeometryStreamCounts,
-    GeometryStreamLayout, GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS,
-    account_chunk_gpu_uploads, arena_growth_copy_ceiling, buffer_byte_len, checked_align_up,
-    copy_gpu_buffer, ensure_biome_capacity, ensure_geometry_stream_capacities,
-    ensure_origin_capacity, ensure_quad_capacity, ensure_stream_capacity, plan_arena_growth,
-    planned_arena_growth_copy_bytes, write_stream_records,
+    ARENA_MIGRATION_FRAME_BYTES, ArenaGrowthError, ArenaGrowthPlan, ArenaMigration,
+    ArenaRequiredLengths, ArenaStream, GeometryStreamCounts, GeometryStreamLayout,
+    GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS, account_chunk_gpu_uploads,
+    advance_arena_migration, arena_capacities, begin_arena_migration, buffer_byte_len,
+    checked_align_up, first_arena_growth, plan_arena_growth, write_geometry_stream_words,
+    write_stream_records,
 };
 #[allow(unused_imports)]
 use gpu::types::{
@@ -190,6 +192,7 @@ use pipeline::commands::{
     prepare_depth_liquid_indirect_batch_draws, prepare_indirect_batch_draws,
     prepare_model_indirect_batch_draws, record_visibility_direct_submission,
     record_visibility_mdi_submissions, sorted_visible_entities,
+    upload_indirect_commands_if_changed,
 };
 use pipeline::install_chunk_commands;
 #[allow(unused_imports)]

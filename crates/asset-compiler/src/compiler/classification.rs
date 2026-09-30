@@ -166,6 +166,7 @@ pub(in crate::compiler) const fn is_supported_button_name(name: &str) -> bool {
             | b"minecraft:mangrove_button"
             | b"minecraft:pale_oak_button"
             | b"minecraft:polished_blackstone_button"
+            | b"minecraft:poplar_button"
             | b"minecraft:spruce_button"
             | b"minecraft:stone_button"
             | b"minecraft:warped_button"

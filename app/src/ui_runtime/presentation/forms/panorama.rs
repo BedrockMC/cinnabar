@@ -1,5 +1,5 @@
-//! Feeds the launcher's panorama pass: decodes the carrier's six faces once and
-//! turns the camera each frame while a launcher screen is up.
+//! Feeds the launcher's panorama pass: decodes the six faces once and turns the
+//! camera each frame while a launcher screen is up.
 
 use std::{
     f32::consts::{PI, TAU},
@@ -31,10 +31,17 @@ const PITCH_SWAY_DEGREES: f32 = 5.0;
 /// Sway phase (radians) per degree turned.
 const SWAY_RATE: f32 = 0.001;
 
-/// Whether the carrier holds the panorama, so the launcher leaves its backdrop clear.
-pub(super) fn carried(assets: &RuntimeUiAssets) -> bool {
-    assets.ui_file("textures/ui/panorama_0.png").is_some()
-}
+/// Cinnabar's own panorama, in vanilla face order (-Z, +X, +Z, -X, up, down).
+const BUILT_IN_FACES: [&[u8]; 6] = [
+    include_bytes!("../../../../../assets/panorama/panorama_0.jpg"),
+    include_bytes!("../../../../../assets/panorama/panorama_1.jpg"),
+    include_bytes!("../../../../../assets/panorama/panorama_2.jpg"),
+    include_bytes!("../../../../../assets/panorama/panorama_3.jpg"),
+    include_bytes!("../../../../../assets/panorama/panorama_4.jpg"),
+    include_bytes!("../../../../../assets/panorama/panorama_5.jpg"),
+];
+/// Directory of `panorama_0..5.{png,jpg}` replacing the built-in faces.
+const OVERRIDE_DIR_ENV: &str = "CINNABAR_PANORAMA_DIR";
 
 /// Uploads the faces on first sight of the carrier and shows the panorama
 /// behind launcher screens (never behind the in-game pause or death screens).
@@ -55,7 +62,7 @@ pub(crate) fn drive_menu_panorama(
     if state.is_none() {
         let assets = engine.assets();
         *state = Some((Instant::now(), overlay_tint(assets)));
-        scene.set_faces(decode_faces(assets).map(Arc::new));
+        scene.set_faces(launcher_faces(assets).map(Arc::new));
     }
     let shown = menu.as_ref().is_some_and(|menu| {
         menu.is_visible() && !matches!(menu.screen(), MenuScreen::Pause | MenuScreen::Death)
@@ -82,13 +89,37 @@ pub(crate) fn drive_menu_panorama(
     }));
 }
 
+/// The user's override faces, else the built-in ones, else the pack's.
+fn launcher_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
+    let overridden = std::env::var_os(OVERRIDE_DIR_ENV).and_then(|dir| {
+        let dir = std::path::PathBuf::from(dir);
+        let faces = decode_faces(|face| {
+            ["png", "jpg"]
+                .iter()
+                .find_map(|ext| std::fs::read(dir.join(format!("panorama_{face}.{ext}"))).ok())
+        });
+        if faces.is_none() {
+            bevy::log::warn!(dir = %dir.display(), "panorama override unreadable; using the built-in faces");
+        }
+        faces
+    });
+    overridden
+        .or_else(|| decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec())))
+        .or_else(|| {
+            decode_faces(|face| {
+                assets
+                    .ui_file(&format!("textures/ui/panorama_{face}.png"))
+                    .map(<[u8]>::to_vec)
+            })
+        })
+}
+
 /// The six faces at their native, equal size; any missing or odd face drops them all.
-fn decode_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
+fn decode_faces(mut read: impl FnMut(usize) -> Option<Vec<u8>>) -> Option<PanoramaFaces> {
     let mut side = None;
     let mut faces = Vec::with_capacity(6);
     for face in 0..6 {
-        let bytes = assets.ui_file(&format!("textures/ui/panorama_{face}.png"))?;
-        let (width, height, pixels) = decode_png(bytes)?;
+        let (width, height, pixels) = decode_image(&read(face)?)?;
         if width != height || side.is_some_and(|side| side != width) {
             return None;
         }
@@ -103,15 +134,20 @@ fn decode_faces(assets: &RuntimeUiAssets) -> Option<PanoramaFaces> {
 fn overlay_tint(assets: &RuntimeUiAssets) -> [f32; 4] {
     assets
         .ui_file("textures/ui/panorama_overlay.png")
-        .and_then(decode_png)
+        .and_then(decode_image)
         .and_then(|(_, _, pixels)| pixels.get(..4).map(|p| p.to_vec()))
         .map_or([0.0; 4], |p| {
             [p[0], p[1], p[2], p[3]].map(|channel| f32::from(channel) / 255.0)
         })
 }
 
-fn decode_png(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png);
+/// PNG or JPEG, sniffed from the bytes.
+fn decode_image(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let format = image::guess_format(bytes).ok()?;
+    if !matches!(format, ImageFormat::Png | ImageFormat::Jpeg) {
+        return None;
+    }
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_PANORAMA_FACE_SIDE);
     limits.max_image_height = Some(MAX_PANORAMA_FACE_SIDE);
@@ -127,14 +163,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn built_in_faces_decode_as_one_cube() {
+        let faces = decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec()));
+        assert!(faces.is_some());
+    }
+
+    #[test]
     fn pngs_decode_to_rgba_with_their_size() {
         let mut bytes = Vec::new();
         image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 40]))
             .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
             .unwrap();
-        let (width, height, pixels) = decode_png(&bytes).unwrap();
+        let (width, height, pixels) = decode_image(&bytes).unwrap();
         assert_eq!((width, height), (2, 2));
         assert_eq!(&pixels[..4], &[10, 20, 30, 40]);
-        assert!(decode_png(b"not a png").is_none());
+        assert!(decode_image(b"not a png").is_none());
     }
 }

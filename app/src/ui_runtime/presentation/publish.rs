@@ -6,13 +6,10 @@ use bevy::prelude::Transform;
 pub(crate) fn observe_mount_jump_input(
     input: Res<crate::semantic_controls::SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
     time: Res<Time<Real>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
-    presentation.hud_frame_mut().tab_list_open =
-        input.phase(semantic_input::Action::PlayerList).held;
 }
 
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
@@ -30,6 +27,7 @@ type PublishExtras<'w> = (
         Res<'w, crate::runtime::network::ActorFramePartialTick>,
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
         Res<'w, crate::environment::WorldClock>,
+        Res<'w, crate::environment::WeatherState>,
     ),
 );
 
@@ -50,7 +48,14 @@ pub(crate) fn publish_ui_runtime(
     // The camera's Transform is this frame's; its GlobalTransform is propagated after Update.
     cameras: Query<(&Camera, &Transform), With<Camera3d>>,
     time: Res<Time<Real>>,
-    (frame_poll, menu_runtime, hand_rig, collisions, profiler, (actor_partial, local_frame, clock)): PublishExtras,
+    (
+        frame_poll,
+        menu_runtime,
+        hand_rig,
+        collisions,
+        profiler,
+        (actor_partial, local_frame, clock, weather),
+    ): PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
 ) {
     let _timer = profiler
@@ -78,7 +83,7 @@ pub(crate) fn publish_ui_runtime(
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
     if menu_runtime.is_visible() {
-        presentation.set_loading_message(None);
+        presentation.set_loading_stage(None);
         diagnostics_input.set_startup_probe_enabled(false);
     } else {
         let (connected, stream_work_drained) =
@@ -124,26 +129,34 @@ pub(crate) fn publish_ui_runtime(
             eprintln!("{milestone}");
         }
         diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
-        presentation.set_loading_message(if !connected {
-            Some("Connecting to server...")
+        presentation.set_loading_stage(if !connected {
+            Some(LoadingStage::Connecting)
         } else if startup_released {
             None
         } else {
-            Some("Loading terrain...")
+            Some(LoadingStage::BuildingTerrain)
         });
     }
     runtime.expire_gameplay_effects(now_millis);
-    let skin = client_world.stream.as_ref().and_then(|stream| {
-        let profile = stream.actor_player_profile(stream.local_player_runtime_id())?;
-        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
-            return None;
-        };
-        render::normalize_actor_skin_cached(&ActorSkinPixels {
-            width: skin.width,
-            height: skin.height,
-            rgba8: Arc::clone(&skin.rgba8),
-        })
-    });
+    // Off-world the launcher's paper doll wears the local skin.
+    let skin = match client_world.stream.as_ref() {
+        Some(stream) => stream
+            .actor_player_profile(stream.local_player_runtime_id())
+            .and_then(|profile| match &profile.skin {
+                protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
+                    width: skin.width,
+                    height: skin.height,
+                    rgba8: Arc::clone(&skin.rgba8),
+                }),
+                _ => None,
+            }),
+        None => Some(ActorSkinPixels {
+            width: menu_runtime.player_skin().width,
+            height: menu_runtime.player_skin().height,
+            rgba8: Arc::clone(&menu_runtime.player_skin().rgba8),
+        }),
+    }
+    .and_then(|pixels| render::normalize_actor_skin_cached(&pixels));
     let pose = client_world
         .stream
         .as_ref()
@@ -190,6 +203,11 @@ pub(crate) fn publish_ui_runtime(
         let feet = frame.pose().translation;
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
+    presentation.hud_frame.thunderstorm = weather.lightning_level() > 0.0;
+    presentation.hud_frame.dimension = client_world
+        .stream
+        .as_ref()
+        .map_or(0, |stream| stream.current_dimension());
     presentation.hud_frame.world_time = Some(crate::environment::visual_world_time(
         *clock,
         time.elapsed_secs_f64(),
@@ -205,7 +223,7 @@ pub(crate) fn publish_ui_runtime(
             &runtime,
             &client_world,
             presentation.hud_frame.first_person,
-            menu_runtime.is_visible() || presentation.loading_message.is_some(),
+            menu_runtime.is_visible() || presentation.loading_stage.is_some(),
             physical_size,
         );
     }

@@ -3,15 +3,16 @@ use std::sync::Arc;
 use bytes::Bytes;
 use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BedrockSession, BlockUsePacketError,
-    BlockUseRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack, SwingSource,
-    VerifiedNetworkItemStack, click_block_packet, click_block_transaction_packet, decode_batch,
-    destroy_block_packet, encode, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
+    BlockUseRequest, HeldItemRequest, InventoryPacketError, ItemReleaseKind, ItemUseTrigger,
+    NetworkItemStack, SwingSource, VerifiedNetworkItemStack, click_air_packet, click_block_packet,
+    click_block_transaction_packet, decode_batch, destroy_block_packet, encode,
+    release_item_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
     use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 use valentine::bedrock::version::v1_26_51::{
     ContainerClosePacket, EnumsAnimatePacketPayloadAction,
-    EnumsItemUseInventoryTransactionActionType,
+    EnumsItemReleaseInventoryTransactionActionType, EnumsItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
     EnumsItemUseOnActorInventoryTransactionActionType, EnumsPlayerActionType,
@@ -668,5 +669,81 @@ fn click_block_transaction_carries_trigger_and_prediction() {
         assert_eq!(built.client_interact_prediction, wire_prediction);
         assert_eq!(built.target_block_id, fixture.target_block_id);
         assert_eq!(built.click_position.z, 0.25);
+    }
+}
+
+fn decoded_transaction(packet: protocol::Packet) -> InventoryTransactionPacketTransaction {
+    let bytes = encode(&packet, &session()).unwrap();
+    let McpePacketData::InventoryTransactionPacket(built) =
+        decode_batch(bytes, &session()).unwrap().remove(0).data
+    else {
+        panic!("inventory transaction");
+    };
+    built.transaction
+}
+
+fn held_request() -> HeldItemRequest {
+    HeldItemRequest {
+        selected_slot: 3,
+        selected_item: VerifiedNetworkItemStack::try_new(
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty().nbt_digest,
+        )
+        .unwrap(),
+        player_position: [100.5, 65.62, -40.25],
+    }
+}
+
+/// Air use matches `GameMode::baseUseItem`: action 1, face 255, no trigger, no block.
+#[test]
+fn click_air_carries_vanilla_base_use_item_fields() {
+    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built) =
+        decoded_transaction(click_air_packet(held_request()).unwrap())
+    else {
+        panic!("item use");
+    };
+    assert_eq!(
+        built.action_type,
+        EnumsItemUseInventoryTransactionActionType::Use
+    );
+    assert_eq!(
+        built.trigger_type,
+        EnumsItemUseInventoryTransactionTriggerType::Unknown
+    );
+    assert_eq!(built.face, 255);
+    assert_eq!(built.slot, 3);
+    assert_eq!(
+        (built.position.x, built.position.y, built.position.z),
+        (0, 0, 0)
+    );
+    assert_eq!(built.target_block_id, 0);
+    assert_eq!(built.from_position.x, 100.5);
+    assert_eq!(
+        built.client_interact_prediction,
+        EnumsItemUseInventoryTransactionPredictedResult::Failure
+    );
+}
+
+/// Button-up releases with action 0; a depleted use duration completes with action 1.
+#[test]
+fn release_item_distinguishes_release_from_completion() {
+    for (kind, expected) in [
+        (
+            ItemReleaseKind::Release,
+            EnumsItemReleaseInventoryTransactionActionType::Release,
+        ),
+        (
+            ItemReleaseKind::Complete,
+            EnumsItemReleaseInventoryTransactionActionType::Use,
+        ),
+    ] {
+        let InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(built) =
+            decoded_transaction(release_item_packet(held_request(), kind).unwrap())
+        else {
+            panic!("item release");
+        };
+        assert_eq!(built.action_type, expected);
+        assert_eq!(built.slot, 3);
+        assert_eq!(built.from_position.z, -40.25);
     }
 }

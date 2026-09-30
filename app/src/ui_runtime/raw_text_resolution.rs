@@ -25,31 +25,9 @@ impl UiRuntime {
         self.known_player_names = known_player_names;
     }
 
-    /// Rows for the tab player-list overlay: every known player-list
-    /// username paired with its list-objective score, resolved through the
-    /// authoritative owner-name map. Bounded by the player-list cap.
-    pub(crate) fn player_list_overlay_rows(&self) -> Vec<(Arc<str>, Option<i32>)> {
-        let list = self.scoreboards.list();
-        self.known_player_names
-            .iter()
-            .take(protocol::MAX_PLAYER_LIST_RECORDS)
-            .map(|name| {
-                let score = list.as_ref().and_then(|projection| {
-                    projection.rows.iter().find_map(|row| {
-                        let owner_name = match &row.owner {
-                            ui::ScoreOwner::FakePlayer(fake) => Some(Arc::clone(fake)),
-                            ui::ScoreOwner::Player(unique_id)
-                            | ui::ScoreOwner::Entity(unique_id) => {
-                                self.score_owner_names.get(unique_id).cloned()
-                            }
-                            ui::ScoreOwner::None => None,
-                        };
-                        (owner_name.as_deref() == Some(name.as_ref())).then_some(row.score)
-                    })
-                });
-                (Arc::clone(name), score)
-            })
-            .collect()
+    /// The known player-list usernames.
+    pub(crate) fn known_player_names(&self) -> &[Arc<str>] {
+        &self.known_player_names
     }
 
     /// Resolves one typed rawtext document against the retained scoreboard
