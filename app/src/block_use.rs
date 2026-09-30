@@ -17,6 +17,7 @@ use semantic_input::Action;
 use sim::PaletteWorld;
 
 use crate::{
+    game_mode_capabilities::GameModeCapabilities,
     interaction_authority::{FrozenBlockObservation, observe_block, within_pick_range},
     local_player::InteractionOriginSnapshot,
     melee::{MeleeRuntime, SwingTracker, obstructs_placement, swing_duration},
@@ -67,8 +68,18 @@ const REPLACEABLE_BLOCKS: &[&str] = &[
     "minecraft:hanging_roots",
 ];
 
-/// Blocks whose own use succeeds locally. Provisional list; needs independent measurement.
-const INTERACTIVE_BLOCKS: &[&str] = &[
+/// Which ability a block's own use needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Interaction {
+    /// Doors, trapdoors, fence gates, buttons and levers.
+    Switch,
+    Container,
+    /// Uses no ability gates.
+    Other,
+}
+
+/// Container-screen blocks. Provisional list; needs independent measurement.
+const CONTAINER_BLOCKS: &[&str] = &[
     "minecraft:crafting_table",
     "minecraft:furnace",
     "minecraft:lit_furnace",
@@ -77,7 +88,6 @@ const INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:smoker",
     "minecraft:lit_smoker",
     "minecraft:barrel",
-    "minecraft:lever",
     "minecraft:anvil",
     "minecraft:enchanting_table",
     "minecraft:brewing_stand",
@@ -91,6 +101,10 @@ const INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:cartography_table",
     "minecraft:smithing_table",
     "minecraft:beacon",
+];
+
+/// Other blocks whose own use succeeds locally. Provisional list; needs independent measurement.
+const OTHER_INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:noteblock",
     "minecraft:unpowered_repeater",
     "minecraft:powered_repeater",
@@ -99,24 +113,33 @@ const INTERACTIVE_BLOCKS: &[&str] = &[
     "minecraft:daylight_detector",
     "minecraft:daylight_detector_inverted",
     "minecraft:bell",
+    "minecraft:bed",
 ];
 
-fn is_interactive(identifier: &str) -> bool {
+fn interaction(identifier: &str) -> Option<Interaction> {
     let metal = identifier == "minecraft:iron_door" || identifier == "minecraft:iron_trapdoor";
-    INTERACTIVE_BLOCKS.contains(&identifier)
-        || (!metal
-            && [
-                "_door",
-                "_trapdoor",
-                "_button",
-                "fence_gate",
-                "chest",
-                "shulker_box",
-                "_bed",
-            ]
-            .iter()
-            .any(|suffix| identifier.ends_with(suffix)))
-        || identifier == "minecraft:bed"
+    let ends = |suffixes: &[&str]| suffixes.iter().any(|suffix| identifier.ends_with(suffix));
+    if identifier == "minecraft:lever"
+        || (!metal && ends(&["_door", "_trapdoor", "_button", "fence_gate"]))
+    {
+        Some(Interaction::Switch)
+    } else if CONTAINER_BLOCKS.contains(&identifier) || ends(&["chest", "shulker_box"]) {
+        Some(Interaction::Container)
+    } else if OTHER_INTERACTIVE_BLOCKS.contains(&identifier) || identifier.ends_with("_bed") {
+        Some(Interaction::Other)
+    } else {
+        None
+    }
+}
+
+impl Interaction {
+    const fn permitted(self, caps: &GameModeCapabilities) -> bool {
+        match self {
+            Self::Switch => caps.can_use_switches,
+            Self::Container => caps.can_open_containers,
+            Self::Other => true,
+        }
+    }
 }
 
 /// Milliseconds until the next held-use repeat.
@@ -187,19 +210,25 @@ pub(crate) enum LocalUse {
 }
 
 impl LocalUse {
+    /// A block use the capabilities deny falls through to item use, as vanilla's does.
     pub(crate) fn resolve(
         item: &VerifiedNetworkItemStack,
         clicked: [i32; 3],
         face: u8,
         surroundings: &UseSurroundings,
+        caps: &GameModeCapabilities,
     ) -> Self {
         let clicked_identifier = surroundings.clicked_identifier.as_deref();
         let holding = item.network_id() != 0 && item.count() > 0;
         // Sneaking with an item uses the item instead of the block.
-        if clicked_identifier.is_some_and(is_interactive) && !(surroundings.sneaking && holding) {
+        if clicked_identifier
+            .and_then(interaction)
+            .is_some_and(|interaction| interaction.permitted(caps))
+            && !(surroundings.sneaking && holding)
+        {
             return Self::Interact;
         }
-        if item.block_runtime_id() == 0 || item.count() == 0 {
+        if !caps.can_build || item.block_runtime_id() == 0 || item.count() == 0 {
             return Self::Nothing;
         }
         let replaceable = |identifier: Option<&str>| {
@@ -348,10 +377,10 @@ pub(crate) fn produce_block_use(
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
     let game_mode = context.ui.player_game_mode();
     let caps = context.ui.game_mode_capabilities();
-    let Some(input) = context.input.snapshot().filter(|input| {
+    let Some((input, caps)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
         focused
             && !context.ui.ui_focused()
-            && caps.is_some_and(|caps| caps.can_edit)
+            && caps.can_use_blocks()
             && input.input_mode != semantic_input::InputMode::Touch
             && movement.accepts_block_interactions()
     }) else {
@@ -407,6 +436,7 @@ pub(crate) fn produce_block_use(
         observed.target.position,
         observed.target.face,
         &surroundings,
+        &caps,
     );
     runtime.record(trigger, due, sample.tick, local_use, clock);
     if local_use == LocalUse::Place {

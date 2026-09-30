@@ -669,7 +669,7 @@ mod gate {
     #[test]
     fn adventure_with_build_grant_mines() {
         let mut caps = GameModeCapabilities::for_mode(Adventure);
-        caps.can_edit = true;
+        caps.can_mine = true;
         assert!(mining_active(Some(caps), true, true));
     }
 
@@ -688,7 +688,7 @@ mod gate {
                 false,
                 false
             ),
-            Some("can_edit=false for this game mode")
+            Some("can_mine=false for this game mode")
         );
         assert_eq!(
             blocked_mining_reason(survival, false, true, false, false),
