@@ -16,8 +16,11 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     let home = &view.feeds.home;
     button_art(data, "play", home.play_art.as_ref());
     button_art(data, "store", home.store_art.as_ref());
-    data.set_global("#inbox_enabled", Scalar::Bool(true));
-    data.set_global("#friends_drawer_button_enabled", Scalar::Bool(true));
+    // The inbox and friends drawer need an Xbox Live session.
+    let signed_in = view.auth_state == crate::menu::auth::AuthState::Authenticated;
+    data.set_global("#inbox_enabled", Scalar::Bool(signed_in));
+    data.set_global("#friends_drawer_button_enabled", Scalar::Bool(signed_in));
+    friends_button(view, data);
     data.set_global(
         "#unread_notification_icon_visibility",
         Scalar::Bool(home.inbox_unread > 0),
@@ -50,6 +53,25 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
         event.caption.clone()
     };
     data.set_global("#gathering_countdown_text", text(caption));
+}
+
+/// The friends drawer button: the social glyph and the count of friends in a
+/// joinable world (the label's exact wording needs native measurement).
+fn friends_button(view: &MenuView, data: &mut DataSource) {
+    data.set_factory(
+        "social_icons_factory",
+        vec![json_ui::FactoryItem::new("social_button_control", 0.0)],
+    );
+    data.set_global("#social_icon_content", Scalar::Num(1.0));
+    data.set_global(
+        "#social_icon",
+        text("textures/ui/socialbuttonicon/social-default-icon"),
+    );
+    data.set_global(
+        "#social_icon_hovered",
+        text("textures/ui/socialbuttonicon/social-hover-icon"),
+    );
+    data.set_global("#social_button_text", text(view.friends.len().to_string()));
 }
 
 /// A main button's art layers; the hover layers stay hidden until hovered.

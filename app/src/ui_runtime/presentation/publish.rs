@@ -138,17 +138,25 @@ pub(crate) fn publish_ui_runtime(
         });
     }
     runtime.expire_gameplay_effects(now_millis);
-    let skin = client_world.stream.as_ref().and_then(|stream| {
-        let profile = stream.actor_player_profile(stream.local_player_runtime_id())?;
-        let protocol::PlayerSkin::Standard(skin) = &profile.skin else {
-            return None;
-        };
-        render::normalize_actor_skin_cached(&ActorSkinPixels {
-            width: skin.width,
-            height: skin.height,
-            rgba8: Arc::clone(&skin.rgba8),
-        })
-    });
+    // Off-world the launcher's paper doll wears the local skin.
+    let skin = match client_world.stream.as_ref() {
+        Some(stream) => stream
+            .actor_player_profile(stream.local_player_runtime_id())
+            .and_then(|profile| match &profile.skin {
+                protocol::PlayerSkin::Standard(skin) => Some(ActorSkinPixels {
+                    width: skin.width,
+                    height: skin.height,
+                    rgba8: Arc::clone(&skin.rgba8),
+                }),
+                _ => None,
+            }),
+        None => Some(ActorSkinPixels {
+            width: menu_runtime.player_skin().width,
+            height: menu_runtime.player_skin().height,
+            rgba8: Arc::clone(&menu_runtime.player_skin().rgba8),
+        }),
+    }
+    .and_then(|pixels| render::normalize_actor_skin_cached(&pixels));
     let pose = client_world
         .stream
         .as_ref()

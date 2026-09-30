@@ -133,6 +133,22 @@ impl Chain {
 
 /// Resolve `@ns.name` (following `next`) against `catalog` in `env`; `None` for
 /// an unknown reference, an event-started chain, or one with no alpha step.
+/// A flip-book's first frame (`initial_uv`), which the engine draws in place
+/// of the animation.
+pub(crate) fn flip_book_first_frame(
+    catalog: &Catalog,
+    reference: &str,
+    env: &Env,
+) -> Option<Value> {
+    let target = ControlRef::parse(reference, "");
+    let def = catalog.lookup(&target.namespace, &target.name)?;
+    let props = substitute(&Value::Object(def.props.clone()), env, &mut Vec::new());
+    if props.get("anim_type").and_then(Value::as_str) != Some("flip_book") {
+        return None;
+    }
+    props.get("initial_uv").cloned()
+}
+
 pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Option<Chain> {
     let mut steps = Vec::new();
     let mut seen: Vec<ControlRef> = Vec::new();

@@ -193,3 +193,37 @@ fn obfuscation_swaps_a_same_width_raster_and_animates_across_frames() {
     assert_eq!(plain.vertices.len(), 4);
     assert_eq!(plain.vertices[0].uv, [0, 0]);
 }
+
+// Rotated text turns each glyph quad about the node's centre.
+#[test]
+fn rotated_text_turns_glyphs_about_the_node_centre() {
+    let font = font();
+    let text = layout("A", TextStyle::default(), &font);
+    let draw = |angle_radians: f32| {
+        let mut tree = UiTree::new(vec![
+            UiNode::new(UiNodeId::new(1), None, rect(0.0, 0.0, 20.0, 20.0)).with_visual(
+                UiVisual::RotatedText {
+                    layout: Arc::clone(&text),
+                    color: [255; 4],
+                    shadow: TextShadow::None,
+                    angle_radians,
+                },
+            ),
+        ])
+        .unwrap();
+        tree.layout(
+            rect(0.0, 0.0, 200.0, 100.0),
+            UiScale::default(),
+            SafeArea::ZERO,
+        )
+        .unwrap();
+        tree.build_draw_list_with(TextEffects::default()).unwrap()
+    };
+    let flat = draw(0.0);
+    let turned = draw(std::f32::consts::PI);
+    for (flat, turned) in flat.vertices.iter().zip(&turned.vertices) {
+        let [x, y] = turned.position;
+        assert!((x - (20.0 - flat.position[0])).abs() < 1e-4);
+        assert!((y - (20.0 - flat.position[1])).abs() < 1e-4);
+    }
+}

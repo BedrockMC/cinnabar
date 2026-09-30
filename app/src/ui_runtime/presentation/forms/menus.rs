@@ -4,16 +4,17 @@
 //! screen, or a render that fails, fall back to the programmatic launcher.
 
 use json_ui::{HitRegion, ViewState};
-use ui::{UiNode, UiNodeId, UiRect, UiVisual};
+use ui::{UiNode, UiRect};
 
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
-use super::{engine, menu_screens, panorama};
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use super::{engine, menu_screens};
+use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::UiRuntime;
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
-/// Backdrop behind launcher screens when the carrier lacks the panorama.
-const LAUNCHER_BACKDROP: [u8; 4] = [8, 10, 14, 255];
+
+/// A menu frame's hit targets and, for hover next frame, their region keys.
+type MenuHits = (Vec<(MenuAction, UiRect)>, Vec<(MenuAction, String)>);
 
 impl UiPresentationRuntime {
     /// Draw the visible menu and return its window-logical hit targets.
@@ -79,7 +80,17 @@ impl UiPresentationRuntime {
         if let Some(hits) =
             self.append_oreui_screen(view, nodes, next, metrics, [width, height], portrait)?
         {
-            self.form_presentation.menu_keys.clear();
+            let popup = self.append_dialog(
+                runtime,
+                view,
+                &ViewState::default(),
+                nodes,
+                next,
+                metrics,
+                [width, height],
+            );
+            let (hits, keys) = popup.unwrap_or((hits, Vec::new()));
+            self.form_presentation.menu_keys = keys;
             return Ok(Some(hits));
         }
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
@@ -110,19 +121,6 @@ impl UiPresentationRuntime {
             ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
-        // Launcher screens sit on the panorama pass; in-game ones over the world.
-        if !matches!(view.screen, MenuScreen::Pause | MenuScreen::Death)
-            && !panorama::carried(renderer.assets())
-        {
-            nodes.push(
-                UiNode::new(UiNodeId::new(*next), None, rect(0.0, 0.0, width, height)?)
-                    .with_visual(UiVisual::Solid {
-                        texture_page: self.solid_texture_page,
-                        color: LAUNCHER_BACKDROP,
-                    }),
-            );
-            *next = next.saturating_add(1);
-        }
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
         let mut layers = vec![&screen];
         layers.extend(screen.overlay.as_deref());
@@ -154,6 +152,7 @@ impl UiPresentationRuntime {
                 ]
                 .into_iter()
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
+                splash: renderer.splash(&translate),
                 ..engine::ScreenArt::default()
             };
             match renderer.render_screen(
@@ -195,55 +194,78 @@ impl UiPresentationRuntime {
             }
         }
         // A launcher dialog opens the vanilla popup and takes over the input.
-        if let Some(dialog) = view.dialog {
-            let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
-            let context = json_ui::form_context(&model, &menu_screens::retail_context());
-            let data = json_ui::form_data_source(&model);
-            let inputs = engine::EngineInputs {
-                layouts: &mut self.layouts,
-                font: &self.font,
-                metrics,
-                solid_page: self.solid_texture_page,
-                safe_area: self.safe_area,
-                content: [width, height],
-                translate: &translate,
-            };
-            let out = engine::EngineOutput {
-                nodes: &mut *nodes,
-                next: &mut *next,
-                overlay: &[],
-            };
-            if let Ok(Some(popup)) = renderer.render_screen(
-                MODAL_POPUP,
-                &data,
-                &context,
-                &state,
-                engine::ScreenArt::default(),
-                inputs,
-                out,
-            ) {
-                let origin = [self.safe_area.left(), self.safe_area.top()];
-                hits.clear();
-                keys.clear();
-                for region in popup.hits.iter().filter(|region| region.enabled) {
-                    let action = match region.pressed.as_deref() {
-                        Some("popup_dialog.left_button") => confirm,
-                        Some(
-                            "popup_dialog.rightcancel_button"
-                            | "popup_dialog.escape"
-                            | "button.menu_exit",
-                        ) => MenuAction::DismissDialog,
-                        _ => continue,
-                    };
-                    if let Some(bounds) = window_rect(region, popup.scale, origin) {
-                        hits.push((action, bounds));
-                        keys.push((action, region.key.clone()));
-                    }
-                }
-            }
+        if let Some(popup) =
+            self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
+        {
+            (hits, keys) = popup;
         }
         self.form_presentation.menu_keys = keys;
         Ok(Some(hits))
+    }
+}
+
+impl UiPresentationRuntime {
+    /// The vanilla popup for `view`'s open dialog, drawn over its screen, with
+    /// the only hit targets that then count.
+    #[allow(clippy::too_many_arguments)]
+    fn append_dialog(
+        &mut self,
+        runtime: &UiRuntime,
+        view: &MenuView,
+        state: &ViewState,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        [width, height]: [f32; 2],
+    ) -> Option<MenuHits> {
+        let dialog = view.dialog?;
+        let renderer = self.form_presentation.engine.as_deref()?;
+        let translate = |key: &str| runtime.translation(key);
+        let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
+        let context = json_ui::form_context(&model, &menu_screens::retail_context());
+        let data = json_ui::form_data_source(&model);
+        let inputs = engine::EngineInputs {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content: [width, height],
+            translate: &translate,
+        };
+        let out = engine::EngineOutput {
+            nodes,
+            next,
+            overlay: &[],
+        };
+        let popup = renderer
+            .render_screen(
+                MODAL_POPUP,
+                &data,
+                &context,
+                state,
+                engine::ScreenArt::default(),
+                inputs,
+                out,
+            )
+            .ok()??;
+        let origin = [self.safe_area.left(), self.safe_area.top()];
+        let mut hits = Vec::new();
+        let mut keys = Vec::new();
+        for region in popup.hits.iter().filter(|region| region.enabled) {
+            let action = match region.pressed.as_deref() {
+                Some("popup_dialog.left_button") => confirm,
+                Some(
+                    "popup_dialog.rightcancel_button" | "popup_dialog.escape" | "button.menu_exit",
+                ) => MenuAction::DismissDialog,
+                _ => continue,
+            };
+            if let Some(bounds) = window_rect(region, popup.scale, origin) {
+                hits.push((action, bounds));
+                keys.push((action, region.key.clone()));
+            }
+        }
+        Some((hits, keys))
     }
 }
 

@@ -29,6 +29,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.held_viewmodel_source = None;
     runtime.offhand_viewmodel_source = None;
     runtime.menu_artwork_paths.clear();
+    runtime.menu_artwork_oversized.clear();
     runtime.menu_artwork_dirty = true;
     runtime.preview_dirty = true;
     rebuild(runtime);
@@ -186,7 +187,11 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
     let menu_changed = runtime.menu_artwork_dirty;
     let art_start = first_dynamic + render::MAX_UI_DYNAMIC_PAGES;
     if runtime.menu_artwork_dirty {
-        runtime.menu_artwork = menu_artwork::load(&runtime.menu_artwork_paths, art_start as u16);
+        runtime.menu_artwork = menu_artwork::load(
+            &runtime.menu_artwork_paths,
+            &runtime.menu_artwork_oversized,
+            art_start as u16,
+        );
         runtime.menu_artwork_dirty = false;
     }
     let previous = runtime.textures.pages();

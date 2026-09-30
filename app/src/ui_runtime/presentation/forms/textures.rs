@@ -62,6 +62,11 @@ impl TextureSet {
             .unwrap_or_else(|poison| poison.into_inner())
     }
 
+    /// Drawn textures too big for a server page, with their source bytes.
+    pub(super) fn oversized(&self) -> Vec<(String, std::sync::Arc<[u8]>)> {
+        self.lock().oversized()
+    }
+
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub(super) fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
         let atlas = atlas.with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()));

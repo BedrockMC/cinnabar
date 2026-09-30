@@ -94,6 +94,10 @@ pub fn compile_ui_assets(
             .filter(|relative| is_panorama_file(strip_extension(relative)))
             .cloned(),
     );
+    // Release packs carry the title splashes; preview packs have none.
+    if pack.join(SPLASHES).is_file() {
+        ui_paths.push(SPLASHES.to_owned());
+    }
 
     let (textures, textures_skipped_oversized, textures_skipped_undecodable) =
         read_textures(pack, &png_paths)?;
@@ -483,6 +487,8 @@ fn relative_posix(path: &Path, pack_root: &Path) -> Option<String> {
     Some(out)
 }
 
+const SPLASHES: &str = "splashes.json";
+
 /// The six panorama faces and their overlay tint.
 fn is_panorama_file(logical: &str) -> bool {
     logical
@@ -612,6 +618,19 @@ mod tests {
         assert_eq!(
             assets.ui_file("textures/ui/panorama_0.png").unwrap(),
             face.as_slice()
+        );
+    }
+
+    #[test]
+    fn a_release_pack_carries_its_splashes() {
+        let pack = synthetic_pack();
+        let splashes = br#"{"splashes":["Haley loves Elan!"]}"#;
+        write(pack.path(), "splashes.json", splashes);
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let assets = decode_ui_carrier(&compiled.bytes).unwrap();
+        assert_eq!(
+            assets.ui_file("splashes.json").unwrap(),
+            splashes.as_slice()
         );
     }
 }
