@@ -69,6 +69,54 @@ pub(crate) fn toggle_checked(control: &ResolvedControl) -> bool {
         .unwrap_or(false)
 }
 
+/// The state children `state` hides, or in a gated layout none but the
+/// [`state_masks`] that gate them instead.
+pub(crate) fn state_children(
+    control: &ResolvedControl,
+    key: &str,
+    state: &ViewState,
+    gated: bool,
+) -> (Vec<String>, Vec<(String, u8)>) {
+    if gated {
+        (Vec::new(), state_masks(control, key))
+    } else {
+        (hidden_state_children(control, key, state), Vec::new())
+    }
+}
+
+/// For each state child whose visibility follows interaction, the
+/// [`crate::StateGate::shown`] mask of states it shows in.
+fn state_masks(control: &ResolvedControl, key: &str) -> Vec<(String, u8)> {
+    let kind = control.control_type.as_deref().unwrap_or("");
+    if !matches!(
+        kind,
+        "button" | "edit_box" | "slider_box" | "toggle" | "dropdown" | "slider"
+    ) {
+        return Vec::new();
+    }
+    let mut masks: Vec<(String, u8)> = Vec::new();
+    for bits in 0..8u8 {
+        let who = |bit: u8| (bits & bit != 0).then(|| key.to_owned());
+        let state = ViewState {
+            hovered: who(1),
+            pressed: who(2),
+            focused: who(4),
+            ..ViewState::default()
+        };
+        for name in hidden_state_children(control, key, &state) {
+            match masks.iter_mut().find(|(known, _)| *known == name) {
+                Some((_, hidden)) => *hidden |= 1 << bits,
+                None => masks.push((name, 1 << bits)),
+            }
+        }
+    }
+    // Stored hidden bits flip to shown bits.
+    for (_, mask) in &mut masks {
+        *mask = !*mask;
+    }
+    masks
+}
+
 /// Names of state children to hide under `control` this frame; every other child
 /// keeps its own visibility. Non-stateful controls hide nothing.
 pub(crate) fn hidden_state_children(

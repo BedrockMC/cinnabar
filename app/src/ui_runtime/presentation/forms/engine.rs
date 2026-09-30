@@ -13,7 +13,7 @@ use std::{
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound,
+    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound_gated,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
@@ -174,7 +174,7 @@ impl FormEngine {
             .cache
             .iter()
             .flat_map(|cache| cache.laid.iter())
-            .flat_map(|laid| laid.render.nodes.iter())
+            .flat_map(|laid| laid.render.visible_nodes(&laid.view))
             .filter_map(|node| match &node.draw {
                 Draw::Sprite { texture, .. } => Some(view.canonical(texture).into_owned()),
                 _ => None,
@@ -262,17 +262,16 @@ impl FormEngine {
             art,
             inputs,
             out,
-            ScreenArt::default(),
+            (ScreenArt::default(), view),
             Some(identity),
             move |env, root| {
                 let cache = cache.as_mut()?;
-                let fresh = cache
-                    .laid
-                    .as_ref()
-                    .is_some_and(|laid| laid.view == *view && laid.root == root && laid.px == px);
+                let fresh = cache.laid.as_ref().is_some_and(|laid| {
+                    laid.view.same_geometry(view) && laid.root == root && laid.px == px
+                });
                 if !fresh {
                     *passes += 1;
-                    let render = render_bound(cache.bound.clone(), root, env, view);
+                    let render = render_bound_gated(cache.bound.clone(), root, env, view);
                     cache.laid = Some(LaidForm {
                         view: view.clone(),
                         root,
@@ -321,7 +320,14 @@ impl FormEngine {
         out: EngineOutput<'_>,
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
-        render_with(self.art(), inputs, out, art, None, draw)
+        render_with(
+            self.art(),
+            inputs,
+            out,
+            (art, &ViewState::default()),
+            None,
+            draw,
+        )
     }
 
     /// Render an allow-listed screen against `data`; `art` backs its custom
@@ -339,7 +345,7 @@ impl FormEngine {
     ) -> Result<Option<EngineFrame>, UiPresentationError> {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = (inputs.translate)("menu.play");
-        render_with(self.art(), inputs, out, art, None, |env, root| {
+        render_with(self.art(), inputs, out, (art, view), None, |env, root| {
             let key = screen_cache::ScreenKey {
                 reference,
                 catalog: &self.catalog,
@@ -379,7 +385,7 @@ fn render_with<R: Borrow<FormRender>>(
     textures: Art<'_>,
     inputs: EngineInputs<'_>,
     out: EngineOutput<'_>,
-    art: ScreenArt<'_>,
+    (art, view): (ScreenArt<'_>, &ViewState),
     identity: Option<ServerFormIdentity>,
     draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
 ) -> Result<Option<EngineFrame>, UiPresentationError> {
@@ -425,8 +431,7 @@ fn render_with<R: Borrow<FormRender>>(
     }
     .atlas_keys(
         render
-            .nodes
-            .iter()
+            .visible_nodes(view)
             .chain(out.overlay)
             .filter_map(|node| match &node.draw {
                 Draw::Sprite { texture, .. } => Some(texture.as_str()),
@@ -458,12 +463,12 @@ fn render_with<R: Borrow<FormRender>>(
         next: out.next,
         clip: None,
     };
-    for node in render.nodes.iter().chain(out.overlay) {
+    for node in render.visible_nodes(view).chain(out.overlay) {
         painter.paint(node)?;
     }
     Ok(Some(EngineFrame {
         identity,
-        hits: render.hits.clone(),
+        hits: render.visible_hits(view).cloned().collect(),
         report: render.report.clone(),
         cancel_target: render.cancel_target.clone(),
         origin: [inputs.safe_area.left(), inputs.safe_area.top()],

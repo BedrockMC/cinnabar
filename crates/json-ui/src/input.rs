@@ -47,6 +47,8 @@ impl HitKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct HitRegion {
     pub key: String,
+    /// The [`crate::StateGate`] this region shows under, in a gated layout.
+    pub gate: Option<u32>,
     pub name: String,
     pub kind: HitKind,
     pub rect: RectOut,
@@ -154,6 +156,7 @@ fn collect(
         };
         out.push(HitRegion {
             key: node.key.clone(),
+            gate: node.gate,
             name: control.name.clone(),
             kind,
             rect: node.rect.into(),

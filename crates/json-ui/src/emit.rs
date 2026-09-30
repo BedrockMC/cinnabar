@@ -102,6 +102,9 @@ pub enum Draw {
 /// One positioned primitive, in final draw order.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DrawNode {
+    /// The [`crate::StateGate`] this node shows under, in a gated layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<u32>,
     /// The source control's instance name, so a bound node can be traced back.
     pub name: String,
     /// The source control's layout key (see [`crate::state`]).
@@ -149,6 +152,7 @@ fn collect(
             node.layer,
             *order,
             DrawNode {
+                gate: node.gate,
                 name: node.control.name.clone(),
                 key: node.key.clone(),
                 dest: dest.into(),

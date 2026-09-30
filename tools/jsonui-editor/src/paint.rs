@@ -373,6 +373,7 @@ mod tests {
             h: r[3],
         };
         DrawNode {
+            gate: None,
             name: name.into(),
             key: format!("/{name}"),
             dest: rect(dest),

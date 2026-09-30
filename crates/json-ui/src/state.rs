@@ -32,6 +32,58 @@ impl ViewState {
     pub fn scroll_offset(&self, key: &str) -> f64 {
         self.scroll.get(key).copied().unwrap_or(0.0)
     }
+
+    /// `key`'s interaction bits as [`StateGate::shown`] indexes them.
+    pub fn interaction(&self, key: &str) -> u8 {
+        u8::from(self.is_hovered(key))
+            | u8::from(self.is_pressed(key)) << 1
+            | u8::from(self.is_focused(key)) << 2
+    }
+
+    /// Whether `other` lays out identically: hover, press and focus only pick
+    /// which state children show.
+    pub fn same_geometry(&self, other: &ViewState) -> bool {
+        self.scroll == other.scroll
+    }
+}
+
+/// A subtree shown only under some interaction states of its stateful control,
+/// so a laid-out screen repaints hover and press without laying out again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateGate {
+    /// The stateful control's layout key.
+    pub key: String,
+    /// The enclosing gate, which must pass too.
+    pub parent: Option<u32>,
+    /// Bit `ViewState::interaction` set for each state the subtree shows in.
+    pub shown: u8,
+}
+
+/// Appends a gate on `key`'s interaction inside `parent`, returning its index.
+pub(crate) fn push_gate(
+    gates: &mut Vec<StateGate>,
+    key: &str,
+    parent: Option<u32>,
+    shown: u8,
+) -> Option<u32> {
+    let index = u32::try_from(gates.len()).ok();
+    gates.push(StateGate {
+        key: key.to_owned(),
+        parent,
+        shown,
+    });
+    index
+}
+
+/// Whether `gate` and every enclosing gate pass under `state`.
+pub fn gate_open(gates: &[StateGate], mut gate: Option<u32>, state: &ViewState) -> bool {
+    while let Some(entry) = gate.and_then(|index| gates.get(index as usize)) {
+        if entry.shown >> state.interaction(&entry.key) & 1 == 0 {
+            return false;
+        }
+        gate = entry.parent;
+    }
+    true
 }
 
 /// A scroll view's measured extents after layout.
@@ -87,4 +139,6 @@ impl ScrollMetrics {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LayoutReport {
     pub scrolls: BTreeMap<String, ScrollMetrics>,
+    /// State gates a gated layout's nodes and hit regions index.
+    pub gates: Vec<StateGate>,
 }

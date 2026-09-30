@@ -521,6 +521,36 @@ pub fn render_bound(
     finish(bound, root_size, env, state)
 }
 
+/// [`render_bound`] for every interaction state at once: paint and hit-test it
+/// through [`FormRender::shown`], so hover and press never lay out again.
+pub fn render_bound_gated(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+) -> FormRender {
+    finish_mode(bound, root_size, env, state, true)
+}
+
+impl FormRender {
+    /// Whether what sits behind `gate` shows under `state`; always for an ungated render.
+    pub fn shown(&self, gate: Option<u32>, state: &ViewState) -> bool {
+        crate::state::gate_open(&self.report.gates, gate, state)
+    }
+
+    /// The draw nodes `state` shows.
+    pub fn visible_nodes<'a>(&'a self, state: &'a ViewState) -> impl Iterator<Item = &'a DrawNode> {
+        self.nodes
+            .iter()
+            .filter(|node| self.shown(node.gate, state))
+    }
+
+    /// The hit regions `state` shows.
+    pub fn visible_hits<'a>(&'a self, state: &'a ViewState) -> impl Iterator<Item = &'a HitRegion> {
+        self.hits.iter().filter(|hit| self.shown(hit.gate, state))
+    }
+}
+
 /// Lay out, emit, and collect input for a bound tree.
 pub(crate) fn finish(
     bound: ResolvedControl,
@@ -528,8 +558,22 @@ pub(crate) fn finish(
     env: &LayoutEnv,
     state: &ViewState,
 ) -> FormRender {
+    finish_mode(bound, root_size, env, state, false)
+}
+
+fn finish_mode(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    gated: bool,
+) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
-        let (laid, report) = layout_with(&bound, root_size, env, state);
+        let (laid, report) = if gated {
+            crate::layout::layout_gated(&bound, root_size, env, state)
+        } else {
+            layout_with(&bound, root_size, env, state)
+        };
         (
             emit(&laid, env),
             hit_regions(&laid),

@@ -660,6 +660,7 @@ mod tests {
             h: 10.0,
         };
         HitRegion {
+            gate: None,
             key: "/screen/button".to_owned(),
             name: "button".to_owned(),
             kind,
