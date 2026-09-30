@@ -125,6 +125,7 @@ fn surroundings(clicked: &str, neighbor: &str) -> UseSurroundings {
         player_box: ([0.2, 64.0, 0.2], [0.8, 65.8, 0.8]),
         actor_boxes: Vec::new(),
         sneaking: false,
+        placed_boxes: None,
     }
 }
 
@@ -172,6 +173,40 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &sneaking), LocalUse::Interact);
     let iron = surroundings("minecraft:iron_door", "minecraft:air");
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
+}
+
+/// Obstruction tests the placed block's own shape, and a replaced block is the destination.
+#[test]
+fn placement_obstruction_uses_the_placed_shape_and_resolved_cell() {
+    let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
+    let block = verified(network_item(2, 77));
+    // A sneaking player (1.5 tall) standing at y 64 reaches 65.5.
+    let around = |placed_boxes| UseSurroundings {
+        player_box: ([0.2, 64.0, 0.2], [0.8, 65.5, 0.8]),
+        placed_boxes,
+        sneaking: true,
+        ..surroundings("minecraft:stone", "minecraft:air")
+    };
+    let place =
+        |around: &UseSurroundings| LocalUse::resolve(&block, [0, 66, 0], 0, around, &survival);
+    assert_eq!(
+        place(&around(None)),
+        LocalUse::Nothing,
+        "a full cell overlaps"
+    );
+    let top_slab = vec![([0.0, 0.5, 0.0], [1.0, 1.0, 1.0])];
+    assert_eq!(place(&around(Some(top_slab))), LocalUse::Place);
+    let bottom_slab = vec![([0.0, 0.0, 0.0], [1.0, 0.5, 1.0])];
+    assert_eq!(place(&around(Some(bottom_slab))), LocalUse::Nothing);
+    assert_eq!(
+        place(&around(Some(Vec::new()))),
+        LocalUse::Place,
+        "no collision"
+    );
+    let grass = surroundings("minecraft:short_grass", "minecraft:stone");
+    assert_eq!(grass.destination([2, 64, 0], 4), ([2, 64, 0], true));
+    let stone = surroundings("minecraft:stone", "minecraft:air");
+    assert_eq!(stone.destination([2, 64, 0], 4), ([1, 64, 0], true));
 }
 
 /// Adventure uses doors and containers but cannot place; each ability gates only its own use.

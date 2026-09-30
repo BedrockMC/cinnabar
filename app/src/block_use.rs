@@ -181,13 +181,16 @@ pub(crate) const fn placement_cell(clicked: [i32; 3], face: u8) -> [i32; 3] {
 /// A feet-anchored box, as `(min, max)`.
 pub(crate) type BoxBounds = ([f64; 3], [f64; 3]);
 
-fn overlaps_cell(cell: [i32; 3], (min, max): BoxBounds) -> bool {
+/// Whether a block-local box placed in `cell` overlaps an actor box.
+fn overlaps(cell: [i32; 3], (local_min, local_max): BoxBounds, (min, max): BoxBounds) -> bool {
     (0..3).all(|axis| {
-        let low = f64::from(cell[axis]) + PLACEMENT_ACTOR_EPSILON;
-        let high = f64::from(cell[axis]) + 1.0 - PLACEMENT_ACTOR_EPSILON;
+        let low = f64::from(cell[axis]) + local_min[axis] + PLACEMENT_ACTOR_EPSILON;
+        let high = f64::from(cell[axis]) + local_max[axis] - PLACEMENT_ACTOR_EPSILON;
         low < max[axis] && min[axis] < high
     })
 }
+
+const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
 /// World facts one local use depends on.
 #[derive(Debug, Clone, PartialEq)]
@@ -199,6 +202,25 @@ pub(crate) struct UseSurroundings {
     /// Boxes of actors that obstruct placement.
     pub(crate) actor_boxes: Vec<BoxBounds>,
     pub(crate) sneaking: bool,
+    /// Block-local collision boxes of the held block; `None` when unknown, which
+    /// tests the whole cell.
+    pub(crate) placed_boxes: Option<Vec<BoxBounds>>,
+}
+
+impl UseSurroundings {
+    /// The cell a placement fills: the clicked block when it is replaceable,
+    /// otherwise the neighbor across the clicked face.
+    pub(crate) fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
+        let replaceable = |identifier: Option<&str>| {
+            identifier.is_some_and(|identifier| REPLACEABLE_BLOCKS.contains(&identifier))
+        };
+        if replaceable(self.clicked_identifier.as_deref()) {
+            (clicked, true)
+        } else {
+            let cell = placement_cell(clicked, face);
+            (cell, replaceable(self.neighbor_identifier.as_deref()))
+        }
+    }
 }
 
 /// What the local client does with one click, which sets prediction and swing.
@@ -231,18 +253,14 @@ impl LocalUse {
         if !caps.can_build || item.block_runtime_id() == 0 || item.count() == 0 {
             return Self::Nothing;
         }
-        let replaceable = |identifier: Option<&str>| {
-            identifier.is_some_and(|identifier| REPLACEABLE_BLOCKS.contains(&identifier))
-        };
-        let (cell, free) = if replaceable(clicked_identifier) {
-            (clicked, true)
-        } else {
-            let neighbor = surroundings.neighbor_identifier.as_deref();
-            (placement_cell(clicked, face), replaceable(neighbor))
-        };
+        let (cell, free) = surroundings.destination(clicked, face);
+        let placed = surroundings
+            .placed_boxes
+            .as_deref()
+            .unwrap_or(std::slice::from_ref(&FULL_CELL));
         let blocked = std::iter::once(&surroundings.player_box)
             .chain(&surroundings.actor_boxes)
-            .any(|bounds| overlaps_cell(cell, *bounds));
+            .any(|bounds| placed.iter().any(|local| overlaps(cell, *local, *bounds)));
         if free && !blocked {
             Self::Place
         } else {
@@ -440,10 +458,12 @@ pub(crate) fn produce_block_use(
     );
     runtime.record(trigger, due, sample.tick, local_use, clock);
     if local_use == LocalUse::Place {
+        let (position, _) =
+            surroundings.destination(observed.target.position, observed.target.face);
         context
             .audio_cues
             .write(crate::audio::LocalBlockCue::Place {
-                position: placement_cell(observed.target.position, observed.target.face),
+                position,
                 block_runtime_id: observed.selection.item.block_runtime_id(),
             });
     }
@@ -527,6 +547,30 @@ fn use_surroundings(
         f64::from(network_position[2]),
     ];
     let half_width = sim::PLAYER_WIDTH * 0.5;
+    let height = sim::MovementMode::Walking.hitbox_height(sneaking);
+    let placed_boxes = stream.and_then(|stream| {
+        let block = u32::try_from(observed.selection.item.block_runtime_id())
+            .ok()
+            .filter(|block| *block != 0)?;
+        let shapes = context
+            .collisions
+            .registry(stream.network_id_mode())
+            .collision_shapes(
+                Some(stream.resolve_block_network_id(block))
+                    .filter(|resolved| *resolved != stream.air_block_id())?,
+            )?;
+        Some(
+            shapes
+                .iter()
+                .map(|shape| {
+                    (
+                        [shape.min.x, shape.min.y, shape.min.z],
+                        [shape.max.x, shape.max.y, shape.max.z],
+                    )
+                })
+                .collect(),
+        )
+    });
     UseSurroundings {
         clicked_identifier: context
             .collisions
@@ -543,11 +587,7 @@ fn use_surroundings(
         )),
         player_box: (
             [feet[0] - half_width, feet[1], feet[2] - half_width],
-            [
-                feet[0] + half_width,
-                feet[1] + sim::PLAYER_HEIGHT,
-                feet[2] + half_width,
-            ],
+            [feet[0] + half_width, feet[1] + height, feet[2] + half_width],
         ),
         actor_boxes: stream
             .into_iter()
@@ -557,6 +597,7 @@ fn use_surroundings(
             .map(|(min, max)| (min.map(f64::from), max.map(f64::from)))
             .collect(),
         sneaking,
+        placed_boxes,
     }
 }
 
