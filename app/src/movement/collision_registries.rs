@@ -368,6 +368,16 @@ impl PhysicsCollisionRegistries {
             .map(|(identifier, _)| identifier.as_ref())
     }
 
+    /// Whether `runtime_id` is a cube-model block with one full collision box.
+    pub(crate) fn block_is_full_cube(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> bool {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)
+            .is_some_and(|(_, full_cube)| *full_cube)
+    }
+
     /// The registry's canonical state JSON for `runtime_id`, when it is a registered state.
     pub(crate) fn block_canonical_state(
         &self,
