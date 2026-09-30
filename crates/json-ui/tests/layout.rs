@@ -671,3 +671,31 @@ fn a_flip_book_uv_resolves_to_its_first_frame() {
         .expect("the flip-book rides along");
     assert_eq!(book["frame_count"], json!(28));
 }
+
+// `{ "$layout": {} }` with `$layout: "@s.panel"` instances that panel by name.
+#[test]
+fn a_variable_child_key_instances_the_control_it_names() {
+    let screen = br#"{
+        "namespace": "s",
+        "panel": { "type": "panel", "size": [10, 10] },
+        "root": { "type": "panel", "$layout": "@s.panel", "controls": [ { "$layout": {} } ] }
+    }"#;
+    let catalog = json_ui::Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/s.json"]}"#.as_slice(),
+        ),
+        ("ui/s.json", screen.as_slice()),
+    ])
+    .unwrap();
+    let root = resolve(&catalog, "s.root", &Context::desktop())
+        .control
+        .unwrap();
+    assert_eq!(root.children.len(), 1);
+    assert_eq!(root.children[0].name, "panel");
+    assert_eq!(
+        root.children[0].properties.get("size"),
+        Some(&json!([10, 10]))
+    );
+}
