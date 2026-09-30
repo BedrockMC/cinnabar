@@ -121,7 +121,7 @@ fn decode_raster(path: &str, bytes: &[u8], binary_alpha: bool) -> Option<Decoded
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_ACTOR_TEXTURE_SIDE.into());
     limits.max_image_height = Some(MAX_ACTOR_TEXTURE_SIDE.into());
-    limits.max_alloc = Some(4 * 1024 * 1024);
+    limits.max_alloc = Some(MAX_ACTOR_PIXEL_BYTES as u64);
     reader.limits(limits);
     let image = reader.decode().ok()?;
     let (width, height) = (

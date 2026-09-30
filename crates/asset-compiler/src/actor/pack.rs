@@ -77,6 +77,28 @@ mod tests {
         );
     }
 
+    // A tall flipbook (as display packs animate with `uv_anim`) keeps its artwork whole.
+    #[test]
+    fn a_tall_flipbook_texture_keeps_its_artwork() {
+        let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"test:logo","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/logo"},"geometry":{"default":"geometry.logo"},"render_controllers":["controller.render.logo"]}}}"#;
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.logo","texture_width":8,"texture_height":8},"bones":[{"name":"root","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[8,8,0],"uv":[0,0]}]}]}]}"#;
+        let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.logo":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(8, 1024, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let compiled = compile_actor_pack(vec![
+            ("entity/logo.json".into(), entity.to_vec()),
+            ("models/entity/logo.geo.json".into(), geometry.to_vec()),
+            ("render_controllers/logo.json".into(), controller.to_vec()),
+            ("textures/entity/logo.png".into(), png),
+        ])
+        .unwrap()
+        .expect("entity compiles");
+        assert_eq!(compiled.bindings.len(), 1, "{:?}", compiled.fallbacks);
+        assert_eq!(compiled.textures[0].height, 1024);
+    }
+
     // A pack shipping only attachables (custom armor) still yields its equipment bindings.
     #[test]
     fn an_attachable_only_pack_compiles_its_equipment() {
