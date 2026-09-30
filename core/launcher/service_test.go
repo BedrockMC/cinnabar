@@ -124,6 +124,9 @@ func TestSignOutRemovesCachesAndBlocksAccountCalls(t *testing.T) {
 	if _, err := f.service.Realms(context.Background()); !errors.Is(err, control.ErrSignedOut) {
 		t.Fatalf("Realms() after sign-out = %v", err)
 	}
+	if _, err := f.service.cfg.Account.PlayFab(context.Background()); !errors.Is(err, authcache.ErrAccountClosed) {
+		t.Fatalf("sign-out left the account runtime open: %v", err)
+	}
 	f.service.PublishSignedIn(context.Background())
 	if f.store.Auth().State != control.AuthSignedOut {
 		t.Fatal("late sign-in publication overwrote the signed-out state")

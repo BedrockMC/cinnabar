@@ -245,6 +245,7 @@ func (s *Service) SignOut() error {
 	s.signedOut.Store(true)
 	s.snap = snapshot{}
 	s.mu.Unlock()
+	_ = s.cfg.Account.Close()
 	var paths []string
 	if s.cfg.AuthCache != "" {
 		paths = append(paths, s.cfg.AuthCache, authcache.DerivedCachePath(s.cfg.AuthCache))

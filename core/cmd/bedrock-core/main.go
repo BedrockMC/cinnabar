@@ -203,6 +203,7 @@ func runWithResourcePackCacheFactory(
 		}
 		if account = authcache.NewAccount(ctx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
 			tokenSource = account
+			defer func() { _ = account.Close() }()
 		}
 		if statusStore != nil {
 			statusStore.SetAuth(control.AuthV1{State: control.AuthSignedIn})
