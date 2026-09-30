@@ -67,6 +67,7 @@ pub(super) struct CachedScreen {
 }
 
 struct Laid {
+    reference: String,
     catalog: Arc<Catalog>,
     data: DataSource,
     view: ViewState,
@@ -110,7 +111,8 @@ impl CachedScreen {
         view: &ViewState,
     ) -> Option<&FormRender> {
         let fresh = self.laid.as_ref().is_some_and(|laid| {
-            Arc::ptr_eq(&laid.catalog, catalog)
+            laid.reference == reference
+                && Arc::ptr_eq(&laid.catalog, catalog)
                 && laid.root == root
                 && laid.px == px
                 && laid.data == data
@@ -118,9 +120,13 @@ impl CachedScreen {
         });
         if !fresh {
             let current = self
-                .resolved
+                .laid
                 .as_ref()
-                .is_some_and(|(resolved_for, _)| Arc::ptr_eq(resolved_for, catalog));
+                .is_none_or(|laid| laid.reference == reference)
+                && self
+                    .resolved
+                    .as_ref()
+                    .is_some_and(|(resolved_for, _)| Arc::ptr_eq(resolved_for, catalog));
             if !current {
                 let tree = resolve(catalog, reference, context).control.map(Arc::new);
                 self.resolved = Some((Arc::clone(catalog), tree));
@@ -134,6 +140,7 @@ impl CachedScreen {
             let bound = bind_shared(tree, &data, &library);
             self.passes += 1;
             self.laid = Some(Laid {
+                reference: reference.to_owned(),
                 catalog: Arc::clone(catalog),
                 render: render_bound(bound, root, env, view),
                 data,
@@ -153,6 +160,8 @@ pub(super) struct HudScreens {
     crosshair: CachedScreen,
     /// The toast screen, drawn above everything in game.
     pub(super) toast: CachedScreen,
+    /// The world-loading screen shown while joining.
+    pub(super) loading: CachedScreen,
     /// This frame's fade clocks (title, action bar, item name).
     clocks: std::collections::BTreeMap<String, f64>,
 }

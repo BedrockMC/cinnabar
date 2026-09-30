@@ -43,6 +43,8 @@ type Config struct {
 	// ResourcePackAdmission receives one secret-safe final snapshot per upstream
 	// preparation attempt. Callbacks must return promptly.
 	ResourcePackAdmission func(ResourcePackAdmissionSnapshot)
+	// ResourcePackDownload receives the live progress of pack downloads.
+	ResourcePackDownload func(ResourcePackDownload)
 	// ResourcePackAdmissionUpdate receives an initial reset snapshot and the
 	// final snapshot for each attempt. It is intended for latest-status stores.
 	ResourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
@@ -91,6 +93,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackCache = cfg.ResourcePackCache
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
+	prepared.resourcePackDownload = cfg.ResourcePackDownload
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
 	transfers := cfg.Transfers
 	if transfers == nil {

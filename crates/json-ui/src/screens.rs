@@ -52,6 +52,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "settings.screen_controls_and_settings",
     "death.death_screen",
     "progress.progress_screen",
+    "progress.world_convert_modal_progress_screen",
     "disconnect.disconnect_screen",
     "xbl_console_signin.xbl_console_signin",
     "store_layout.store_data_driven_screen",

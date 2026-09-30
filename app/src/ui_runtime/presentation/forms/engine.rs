@@ -494,8 +494,9 @@ fn scaled_request<'a>(
     request
 }
 
+/// Rounded up, so text laid out at its own measured width does not wrap.
 fn width_64(logical: f64) -> u32 {
-    (logical.clamp(1.0, UNWRAPPED_LOGICAL) * 64.0) as u32
+    (logical.clamp(1.0, UNWRAPPED_LOGICAL) * 64.0).ceil() as u32
 }
 
 struct Measure<'a, 'b> {
@@ -619,10 +620,15 @@ impl Painter<'_> {
                 self.solid(track, alpha([0, 0, 0, 255])).ok()?;
                 let width = (dest[2] - dest[0]) * fraction as f32;
                 let fill = [dest[0], dest[1], dest[0] + width, dest[3]];
+                // A loading bar names its colour; an item's durability bar sweeps its hue.
+                let color = data
+                    .get("primary_color")
+                    .and_then(json_ui::color_value)
+                    .unwrap_or_else(|| durability_color(fraction));
                 Some((
                     UiVisual::Solid {
                         texture_page: self.solid_page,
-                        color: alpha(durability_color(fraction)),
+                        color: alpha(color),
                     },
                     fill,
                 ))

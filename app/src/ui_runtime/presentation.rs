@@ -66,7 +66,7 @@ mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
 pub(crate) use debug_overlay::DebugLines;
-pub(crate) use forms::{BedHit, ChatHit, drive_menu_panorama};
+pub(crate) use forms::{BedHit, ChatHit, LoadingStage, drive_menu_panorama};
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, java_gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
@@ -164,7 +164,7 @@ pub struct UiPresentationRuntime {
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     form_presentation: forms::FormPresentation,
     /// Window-space rect of the sign editor's Done button in the last build.
-    loading_message: Option<&'static str>,
+    loading_stage: Option<LoadingStage>,
     startup: StartupPresentationState,
 }
 
@@ -252,13 +252,13 @@ impl UiPresentationRuntime {
             menu_view: None,
             menu_hit_targets: Vec::new(),
             form_presentation: forms::FormPresentation::default(),
-            loading_message: None,
+            loading_stage: None,
             startup: StartupPresentationState::default(),
         })
     }
 
-    pub(crate) fn set_loading_message(&mut self, message: Option<&'static str>) {
-        self.loading_message = message;
+    pub(crate) fn set_loading_stage(&mut self, stage: Option<LoadingStage>) {
+        self.loading_stage = stage;
     }
 
     /// Updates the cached corner avatar. The raster is regenerated and the UI
@@ -495,15 +495,9 @@ impl UiPresentationRuntime {
             content_height,
         )?;
 
-        // Hit rects are compared against window-logical pointer positions, so
-        // translate the content-relative rows by the safe-area origin.
-        if !menu_visible && let Some(message) = self.loading_message {
-            // Keep the pre-world frame intentional: the sky clear color is a
-            // renderer fallback, not a user-facing loading screen. The opaque
-            // cover hides partial terrain and HUD state while the world cohort
-            // is still settling.
-            // Append it after the normal HUD/chat nodes so no partial terrain
-            // or UI leaks through while the world cohort is still settling.
+        if !menu_visible && let Some(stage) = self.loading_stage {
+            // An opaque cover under the loading screen: no partial terrain or
+            // HUD leaks through while the world settles.
             nodes.push(
                 UiNode::new(
                     UiNodeId::new(next_id),
@@ -516,29 +510,14 @@ impl UiPresentationRuntime {
                 }),
             );
             next_id = next_id.saturating_add(1);
-            let layout = self
-                .layouts
-                .layout(metrics.request(message, logical_width.max(1.0) as u32 * 64, &self.font))
-                .map_err(UiPresentationError::Text)?;
-            let width = layout.size_64()[0] as f32 / 64.0;
-            let height = layout.size_64()[1] as f32 / 64.0;
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(
-                        ((logical_width - width) * 0.5).max(0.0),
-                        (logical_height * 0.5 - height * 0.5).max(0.0),
-                        (logical_width + width) * 0.5,
-                        (logical_height * 0.5 + height * 0.5).max(height),
-                    )?,
-                )
-                .with_visual(UiVisual::Text {
-                    layout,
-                    color: [235, 238, 245, 255],
-                    shadow: metrics.shadow(),
-                }),
-            );
+            self.append_loading_screen(
+                runtime,
+                stage,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+            )?;
         }
 
         self.append_server_form(

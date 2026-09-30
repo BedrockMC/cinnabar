@@ -59,6 +59,10 @@ pub(crate) trait AccountControl {
     fn pings(&mut self) -> Option<Vec<(String, PingInfo)>> {
         None
     }
+    /// `(received, total)` pack bytes while the core downloads them.
+    fn pack_download(&mut self) -> Option<(u64, u64)> {
+        None
+    }
 }
 
 impl MenuRuntime {
@@ -115,6 +119,7 @@ impl MenuRuntime {
         if let Some(pings) = control.pings() {
             self.feeds.pings = pings.into_iter().collect();
         }
+        self.feeds.pack_download = control.pack_download().filter(|_| self.connecting);
         if let Some(status) = control.account_status() {
             self.control_auth = Some(status);
         }

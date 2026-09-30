@@ -83,6 +83,8 @@ type EventsV1 struct {
 	Auth          AuthV1        `json:"auth"`
 	Disconnect    *DisconnectV1 `json:"disconnect,omitempty"`
 	Transfer      *TransferV1   `json:"transfer,omitempty"`
+	// PackDownload is the live pack download progress while one runs.
+	PackDownload *proxy.ResourcePackDownload `json:"pack_download,omitempty"`
 }
 
 type accountResultV1 struct {
@@ -153,6 +155,10 @@ func (store *Store) Events() EventsV1 {
 	if store.transfer != nil {
 		pending := *store.transfer
 		events.Transfer = &pending
+	}
+	if store.download != nil {
+		download := *store.download
+		events.PackDownload = &download
 	}
 	return events
 }

@@ -106,6 +106,8 @@ pub(crate) struct MenuFeeds {
     pub(crate) description_expanded: bool,
     pub(crate) news_expanded: bool,
     pub(crate) home: MenuHome,
+    /// `(received, total)` bytes while the core downloads the server's packs.
+    pub(crate) pack_download: Option<(u64, u64)>,
 }
 
 /// The start screen's service data: messaging tile art, inbox and invite
