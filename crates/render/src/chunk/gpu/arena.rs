@@ -111,6 +111,7 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) retired_allocations: Vec<RetiredArenaAllocation>,
     pub(in crate::chunk) pending_removals: BTreeSet<Entity>,
     pub(in crate::chunk) retirement_budget: TransparentRetirementBudget,
+    pub(in crate::chunk) migration: Option<ArenaMigration>,
 }
 
 pub(in crate::chunk) fn init_chunk_gpu_arena(
@@ -188,6 +189,7 @@ impl ChunkGpuArena {
                 MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
                 MAX_TRANSPARENT_RETIRED_BYTES,
             ),
+            migration: None,
         }
     }
 }

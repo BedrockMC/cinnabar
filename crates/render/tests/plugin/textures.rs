@@ -243,7 +243,7 @@ fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
     assert_eq!(plugin.matches("render_queue.write_texture(").count(), 1);
     assert_eq!(
         plugin.matches("render_queue.write_buffer(").count(),
-        9,
+        10,
         "shared writers cover immutable geometry plus bounded liquid and model transparent sorts"
     );
     assert!(plugin.contains("render_queue.write_buffer(&gpu_clock.buffer"));

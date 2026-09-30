@@ -605,8 +605,9 @@ fn admitted_payload_reaches_real_gpu_preparation_with_one_linear_permit_and_exac
     assert_eq!(allowance.live_permits(), 0);
 }
 
+/// A permit sized to its own payload publishes even when that upload grows the arena.
 #[test]
-fn growth_deferred_for_frame_byte_authority_restores_the_linear_permit_then_acks_once() {
+fn arena_growth_is_charged_to_the_frame_not_to_an_exact_byte_permit() {
     use bevy::ecs::system::RunSystemOnce;
 
     let now = Instant::now();
@@ -670,44 +671,13 @@ fn growth_deferred_for_frame_byte_authority_restores_the_linear_permit_then_acks
         .run_system_once(prepare_gpu_chunks)
         .unwrap();
 
-    assert!(acknowledgements.is_empty());
-    assert_eq!(
-        gpu_app
-            .world()
-            .resource::<ChunkGpuArena>()
-            .allocations
-            .len(),
-        0
-    );
-    assert_eq!(slot.stage(), Some(PublicationPermitStage::RenderEntity));
-    assert_eq!(slot.bytes(), Some(bytes));
-    assert_eq!(allowance.live_permits(), 1);
-
-    allowance.begin_frame(
-        2,
-        0,
-        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_bytes,
-        0,
-        client_world::PublicationServiceConfig::PHASE2_GATE.maximum_frame_items,
-    );
-    gpu_app
-        .world_mut()
-        .run_system_once(prepare_gpu_chunks)
-        .unwrap();
-
     let completed = acknowledgements.drain();
     assert_eq!(completed.len(), 1);
     assert_eq!(completed[0].key, key);
     assert_eq!(completed[0].token.generation, 2);
     assert!(completed[0].uploaded_bytes >= bytes);
-    assert_eq!(
-        gpu_app
-            .world()
-            .resource::<ChunkGpuArena>()
-            .allocations
-            .len(),
-        1
-    );
+    let stats = *gpu_app.world().resource::<ChunkGpuUploadStats>();
+    assert!(stats.gpu_copy_bytes > 0, "the first upload grew the arena");
     assert_eq!(slot.stage(), None);
     assert_eq!(allowance.live_permits(), 0);
 
@@ -997,3 +967,95 @@ fn manual_transfer_downstream_gpu_subgate_prepares_exact_6951_allocation_manifes
     assert!(presented[0].is_exact());
     assert!(presented[0].forms_stable_exact_pair_with(&presented[1]));
 }
+
+/// A full 64 MiB arena must still grow under the 64 MiB frame ceiling and publish.
+#[test]
+fn full_64_mib_quad_arena_migrates_across_frames_then_publishes_a_positive_upload() {
+    use bevy::ecs::system::RunSystemOnce;
+
+    let config = client_world::PublicationServiceConfig::PHASE2_GATE;
+    let now = Instant::now();
+    let key = SubChunkKey::new(0, 15, 0, 12);
+    let mesh = solid_test_mesh();
+    let biome = PackedBiomeRecord::fallback();
+    let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
+    let allowance = client_world::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        1,
+        config.maximum_frame_bytes,
+        0,
+        config.maximum_frame_items,
+    );
+    let permit = allowance.try_admit_payload(bytes).unwrap();
+    let acknowledgements = ChunkUploadAcknowledgements::default();
+    let mut handoff_app = App::new();
+    handoff_app
+        .add_plugins(MinimalPlugins)
+        .insert_resource(ChunkRenderQueue::default())
+        .insert_resource(acknowledgements.clone())
+        .add_plugins(ChunkRenderPlugin::with_budget(ChunkUploadBudget::new(0, 0)));
+    handoff_app
+        .world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_update_tracked_with_biome_identity_permitted(
+            key,
+            mesh,
+            biome,
+            ChunkBiomeTintIdentity::default(),
+            ChunkUploadPriority::new(0.0),
+            ChunkUploadToken {
+                generation: 1,
+                dirty_since: now,
+            },
+            permit,
+        )
+        .unwrap();
+    handoff_app.update();
+    let instance = {
+        let world = handoff_app.world_mut();
+        let mut query = world.query::<&ChunkRenderInstance>();
+        query.single(world).unwrap().clone()
+    };
+    drop(handoff_app);
+
+    let mut gpu_app =
+        noop_gpu_publication_app(acknowledgements.clone(), ChunkGpuRemovalQueue::default());
+    let full_items = (config.maximum_frame_bytes / PACKED_QUAD_BYTES) as usize;
+    let full_buffer = create_storage_buffer(
+        gpu_app.world().resource::<RenderDevice>(),
+        "full packed chunk quads",
+        config.maximum_frame_bytes,
+    );
+    {
+        let mut arena = gpu_app.world_mut().resource_mut::<ChunkGpuArena>();
+        assert!(arena.limits.max_quad_items >= full_items * 2);
+        arena.quad_buffer = full_buffer;
+        arena.quad_capacity = full_items;
+        arena.quad_len = full_items;
+    }
+    gpu_app.world_mut().spawn(instance);
+
+    let mut published_frame = None;
+    for frame in 0..16 {
+        gpu_app
+            .world_mut()
+            .run_system_once(prepare_gpu_chunks)
+            .unwrap();
+        let stats = *gpu_app.world().resource::<ChunkGpuUploadStats>();
+        assert!(stats.total_bytes <= config.maximum_frame_bytes);
+        if !acknowledgements.drain().is_empty() {
+            published_frame = Some(frame);
+            break;
+        }
+    }
+
+    let frames = published_frame.expect("a legal arena growth must finish and publish");
+    assert!(frames <= 4, "migration took {frames} frames");
+    let arena = gpu_app.world().resource::<ChunkGpuArena>();
+    assert_eq!(arena.quad_capacity, full_items * 2);
+    assert!(arena.migration.is_none());
+    assert_eq!(arena.allocations.len(), 1);
+    assert_eq!(allowance.live_permits(), 0);
+}
+
