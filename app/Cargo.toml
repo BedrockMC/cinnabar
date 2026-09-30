@@ -43,6 +43,9 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 ui = { path = "../crates/ui" }
 world = { path = "../crates/world" }
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["std", "stdio"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
 

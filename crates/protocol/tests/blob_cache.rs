@@ -30,7 +30,7 @@ use protocol::{
     client_blob_hash,
 };
 use std::sync::{Arc, Barrier};
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ChunkPos, ClientCacheMissResponsePacket, DimensionType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult, LevelChunkPacket,
     LevelChunkPacketPayloadSubChunkMetadata, McpePacketData, MissingBlobData, SetTimePacket,
@@ -136,7 +136,7 @@ fn cached_subchunk(hash: u64, tail: &[u8]) -> protocol::Packet {
         // must ignore it because only `Success` entries reference a blob.
         sub_chunk_entry(
             (1, 2, 0),
-            SubChunkRequestResult::SuccessAllAir,
+            SubChunkRequestResult::Successallair,
             None,
             Some(u64::MAX),
         ),
@@ -448,7 +448,7 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
     );
     assert_eq!(
         entries[1].sub_chunk_request_result,
-        SubChunkRequestResult::SuccessAllAir
+        SubChunkRequestResult::Successallair
     );
     assert_eq!(entries[1].serialized_sub_chunk.as_deref(), Some(&[][..]));
     assert_eq!(resolver.stats().reconstructed_sub_chunks, 1);

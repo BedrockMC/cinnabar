@@ -52,7 +52,7 @@ pub(super) fn validate_world(
     count: usize,
 ) -> Result<(), AssetError> {
     let registry: [u8; 32] = Sha256::digest(include_bytes!(
-        "../../../assets/data/block-registry-v2168.bin"
+        "../../../assets/data/block-registry-v2193.bin"
     ))
     .into();
     let provenance = world.provenance();

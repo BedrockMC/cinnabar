@@ -593,10 +593,10 @@ fn actual_control_and_committed_drain_execute_transfer_fence_with_valid_old_fron
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
     bind_session_generation(&mut clock, &mut weather, 1);
-    let breg = include_bytes!("../../../../../crates/assets/data/block-registry-v2168.bin");
-    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2168.bin");
-    let records = assets::read_registry_for_protocol(breg, 2168).unwrap();
-    let collisions = PhysicsCollisionRegistries::from_assets(breg, &records, preg, 2168).unwrap();
+    let breg = include_bytes!("../../../../../crates/assets/data/block-registry-v2193.bin");
+    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2193.bin");
+    let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
+    let collisions = PhysicsCollisionRegistries::from_assets(breg, &records, preg, 2193).unwrap();
     let (network, sender) = NetworkHandle::stub_with_control_sender();
     sender
         .try_send(NetworkControlEvent::Transferred {

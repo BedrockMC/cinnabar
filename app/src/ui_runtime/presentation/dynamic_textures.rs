@@ -149,6 +149,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 player_preview::PREVIEW_WIDTH as u16,
                 player_preview::PREVIEW_HEIGHT as u16,
             ],
+            glint: false,
         });
         runtime.left_hand_icon = Some(IconRef {
             page,
@@ -158,6 +159,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 player_preview::HAND_WIDTH as u16,
                 player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
             ],
+            glint: false,
         });
         runtime.right_hand_icon = Some(IconRef {
             page,
@@ -167,6 +169,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 player_preview::HAND_WIDTH.saturating_mul(2) as u16,
                 player_preview::PREVIEW_HEIGHT as u16 + player_preview::HAND_HEIGHT as u16,
             ],
+            glint: false,
         });
     }
 

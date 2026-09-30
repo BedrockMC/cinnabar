@@ -99,7 +99,7 @@ func testProvisioner(t *testing.T, f *fakeMojang) *Provisioner {
 }
 
 func TestProvisionerRequiresEULAThenDownloadsVerifiesAndRecordsProvenance(t *testing.T) {
-	f := newFakeMojang(t, "1.26.44.1", buildZip(t, map[string]string{"bedrock_server": "bin", "server.properties": "x"}))
+	f := newFakeMojang(t, "1.26.52.3", buildZip(t, map[string]string{"bedrock_server": "bin", "server.properties": "x"}))
 	p := testProvisioner(t, f)
 	if st := p.Status(); st.State != SetupEULARequired || st.EULAAccepted {
 		t.Fatalf("status = %+v", st)
@@ -120,14 +120,14 @@ func TestProvisionerRequiresEULAThenDownloadsVerifiesAndRecordsProvenance(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(filepath.Dir(bin)) != "1.26.44.1" {
+	if filepath.Base(filepath.Dir(bin)) != "1.26.52.3" {
 		t.Fatalf("binary in %s", bin)
 	}
 	raw, err := os.ReadFile(filepath.Join(filepath.Dir(bin), "manifest.json"))
-	if err != nil || !strings.Contains(string(raw), `"zip_sha256"`) || !strings.Contains(string(raw), "/bin-linux/bedrock-server-1.26.44.1.zip") {
+	if err != nil || !strings.Contains(string(raw), `"zip_sha256"`) || !strings.Contains(string(raw), "/bin-linux/bedrock-server-1.26.52.3.zip") {
 		t.Fatalf("manifest = %s (%v)", raw, err)
 	}
-	if st := p.Status(); st.State != SetupReady || st.Version != "1.26.44.1" {
+	if st := p.Status(); st.State != SetupReady || st.Version != "1.26.52.3" {
 		t.Fatalf("status = %+v", st)
 	}
 	before := f.hits.Load()
@@ -143,7 +143,7 @@ func TestProvisionerRefusesVersionMismatch(t *testing.T) {
 	f := newFakeMojang(t, "1.27.0.2", buildZip(t, map[string]string{"bedrock_server": "bin"}))
 	p := testProvisioner(t, f)
 	_ = p.AcceptEULA()
-	if _, err := p.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), "1.26.44") {
+	if _, err := p.Ensure(context.Background()); err == nil || !strings.Contains(err.Error(), TargetVersionPrefix) {
 		t.Fatalf("err = %v", err)
 	}
 	if st := p.Status(); st.State != SetupFailed || strings.Contains(st.Error, "http") {
@@ -157,7 +157,7 @@ func TestProvisionerRejectsZipSlipAndMissingBinary(t *testing.T) {
 		"nobin":  {"readme.txt": "x"},
 		"absent": {},
 	} {
-		f := newFakeMojang(t, "1.26.44.1", buildZip(t, files))
+		f := newFakeMojang(t, "1.26.52.3", buildZip(t, files))
 		p := testProvisioner(t, f)
 		_ = p.AcceptEULA()
 		if _, err := p.Ensure(context.Background()); err == nil {
@@ -201,7 +201,7 @@ func installFakeBDS(t *testing.T) *Provisioner {
 	if err := p.AcceptEULA(); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(p.Root, "1.26.44.1")
+	dir := filepath.Join(p.Root, "1.26.52.3")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestBDSRunnerLifecycleWithFakeServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installDir := filepath.Join(p.Root, "1.26.44.1")
+	installDir := filepath.Join(p.Root, "1.26.52.3")
 	if raw, err := os.ReadFile(filepath.Join(installDir, "server.properties")); err != nil || !strings.Contains(string(raw), "online-mode=false") {
 		t.Fatalf("server.properties = %s (%v)", raw, err)
 	}
@@ -281,7 +281,7 @@ func TestBDSRunnerStartupFailuresCleanUpLink(t *testing.T) {
 	if _, err := runner.Start(context.Background(), spec); err == nil {
 		t.Fatal("expected startup failure")
 	}
-	if _, err := os.Lstat(filepath.Join(p.Root, "1.26.44.1", "worlds", spec.World.ID)); err == nil {
+	if _, err := os.Lstat(filepath.Join(p.Root, "1.26.52.3", "worlds", spec.World.ID)); err == nil {
 		t.Fatal("link left behind after failed start")
 	}
 }

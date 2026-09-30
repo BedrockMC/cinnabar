@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     CreativeContentPacket, EnumsSharedTypesCreativeItemCategory as Category,
 };
 
@@ -78,7 +78,7 @@ pub fn normalize_creative_content(
                 Category::Nature => CreativeCategory::Nature,
                 Category::Equipment => CreativeCategory::Equipment,
                 Category::Items => CreativeCategory::Items,
-                Category::ItemCommandOnly => CreativeCategory::CommandOnly,
+                Category::Itemcommandonly => CreativeCategory::CommandOnly,
                 Category::Unknown(code) => CreativeCategory::Unknown(code),
             },
             name: Arc::from(group.name),
@@ -128,7 +128,7 @@ pub fn normalize_creative_content(
 
 #[cfg(test)]
 mod tests {
-    use valentine::bedrock::version::v1_26_44::{
+    use valentine::bedrock::version::v1_26_51::{
         CerealizerNetworkItemInstanceDescriptorSerializedData, CreativeGroupInfoPayload,
         CreativeItemEntryPayload, TypedServerNetIdstructCreativeItemNetIdTag,
     };

@@ -162,6 +162,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
         skin_rgba8: Some(vec![skin; STANDARD_SKIN_BYTES].into()),
         artwork: None,
         model_scale: 1.0,
+        authored_scale: 1.0,
         head_over_body: 0.0,
     }
 }

@@ -14,25 +14,25 @@ import (
 const validBlockedFoundation = `{
   "schema": "cinnabar.registry-foundation.v1",
   "status": "blocked",
-  "game_version": "1.26.40",
-  "protocol": 2168,
+  "game_version": "1.26.50",
+  "protocol": 2193,
   "formats": {"block": "BREG1003", "light": "LREG1001", "biome": "BIOREG01"},
   "outputs": {
-    "block": "crates/assets/data/block-registry-v2168.bin",
-    "light": "crates/assets/data/block-light-registry-v2168.bin",
-    "biome": "crates/assets/data/biome-registry-v2168.bin"
+    "block": "crates/assets/data/block-registry-v2193.bin",
+    "light": "crates/assets/data/block-light-registry-v2193.bin",
+    "biome": "crates/assets/data/biome-registry-v2193.bin"
   },
   "sources": {
     "dragonfly": {
-      "commit": "0c2c404540fc651873c24a020b0a48778bd56295",
-      "blob": "7006d9d46217425aab8e7d998f70c370b6b9c4eb",
-      "sha256": "1dc6d7ea26b48b5b5e4702762e463b95e59eb109f26c0c3b74115d12cb1941a7",
-      "size": 2436125
+      "commit": "4c7b5074be94fa83a1cd98e9c752083ad04a6e21",
+      "blob": "ee29e5e039086c10bdfb964621a8e146b4f7af19",
+      "sha256": "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6",
+      "size": 3102889
     },
     "bds": {
-      "archive_sha256": "7b649671e1d88f8bd1499c580910f099e27533efc213f9faf5a5c68dd41a77c9",
-      "executable_sha256": "e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372",
-      "overlay_sha256": "c52bbdfa8c92679595b5e342bee556a891a8aab91d5173f8670ff15e47e3efbb"
+      "archive_sha256": "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825",
+      "executable_sha256": "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443",
+      "overlay_sha256": "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339"
     }
   },
   "missing": [
@@ -40,7 +40,7 @@ const validBlockedFoundation = `{
     "authoritative_light_projection"
   ],
   "projection_bindings": {
-    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"}
+    "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"}
   }
 }`
 
@@ -77,14 +77,14 @@ func TestRegistryFoundationRejectsMalformedAndTrailingJSON(t *testing.T) {
 
 func TestRegistryFoundationRejectsVersionHashMagicAndLegacyOutputs(t *testing.T) {
 	tests := map[string]string{
-		"game version":   strings.Replace(validBlockedFoundation, `"1.26.40"`, `"1.26.41"`, 1),
-		"protocol":       strings.Replace(validBlockedFoundation, `2168`, `2167`, 1),
-		"uppercase hash": strings.Replace(validBlockedFoundation, `1dc6d7ea`, `1DC6D7EA`, 1),
-		"short hash":     strings.Replace(validBlockedFoundation, `1dc6d7ea26b48b5b5e4702762e463b95e59eb109f26c0c3b74115d12cb1941a7`, `abcd`, 1),
+		"game version":   strings.Replace(validBlockedFoundation, `"1.26.50"`, `"1.26.51"`, 1),
+		"protocol":       strings.Replace(validBlockedFoundation, `2193`, `2192`, 1),
+		"uppercase hash": strings.Replace(validBlockedFoundation, `f0784a62`, `F0784A62`, 1),
+		"short hash":     strings.Replace(validBlockedFoundation, `f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6`, `abcd`, 1),
 		"block magic":    strings.Replace(validBlockedFoundation, `BREG1003`, `BREG1002`, 1),
 		"light magic":    strings.Replace(validBlockedFoundation, `LREG1001`, `LREG1002`, 1),
 		"biome magic":    strings.Replace(validBlockedFoundation, `BIOREG01`, `BIOREG02`, 1),
-		"legacy output":  strings.Replace(validBlockedFoundation, `block-registry-v2168.bin`, `block-registry-v1001.bin`, 1),
+		"legacy output":  strings.Replace(validBlockedFoundation, `block-registry-v2193.bin`, `block-registry-v1001.bin`, 1),
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
     "authoritative_light_projection"
   ],
   "projection_bindings": {
-    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"}
+    "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"}
   }`, ``, 1)
 	if _, err := ValidateRegistryFoundation(strings.NewReader(ready)); err == nil {
 		t.Fatal("accepted ready foundation without projection bindings")
@@ -125,12 +125,12 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 		t.Fatalf("ready result = %#v", result)
 	}
 	wrongBiome := strings.Replace(ready,
-		"5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c",
+		"e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
 	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBiome)); err == nil {
 		t.Fatal("accepted ready foundation with a different biome projection binding")
 	}
-	wrongBlock := strings.Replace(ready, v2168FoundationBlockSHA256,
+	wrongBlock := strings.Replace(ready, v2193FoundationBlockSHA256,
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
 	if _, err := ValidateRegistryFoundation(strings.NewReader(wrongBlock)); err == nil {
 		t.Fatal("accepted ready foundation with a different block projection binding")
@@ -140,8 +140,8 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 func TestRegistryFoundationValidationCreatesNoOutputs(t *testing.T) {
 	root := filepath.Join("..", "..")
 	outputs := []string{
-		"crates/assets/data/block-registry-v2168.bin",
-		"crates/assets/data/block-light-registry-v2168.bin",
+		"crates/assets/data/block-registry-v2193.bin",
+		"crates/assets/data/block-light-registry-v2193.bin",
 	}
 	before := make(map[string][]byte, len(outputs))
 	for _, output := range outputs {
@@ -172,7 +172,7 @@ func TestRegistryFoundationCommandExitContract(t *testing.T) {
 		t.Fatalf("build foundationcheck: %v\n%s", err, output)
 	}
 	dir := t.TempDir()
-	blocked := filepath.Join("..", "..", "assets", "registry-foundation-v2168.json")
+	blocked := filepath.Join("..", "..", "assets", "registry-foundation-v2193.json")
 	ready := filepath.Join(dir, "ready.json")
 	malformed := filepath.Join(dir, "malformed.json")
 	if err := os.WriteFile(ready, []byte(validReadyFoundation()), 0o600); err != nil {
@@ -235,12 +235,12 @@ func TestRegistryFoundationMakeTargetIsIsolatedAndReady(t *testing.T) {
 	text := string(makefile)
 	for _, required := range []string{
 		".DEFAULT_GOAL := help",
-		"REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2168.json",
+		"REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json",
 		"registry-foundation-check:",
-		"Validate the exact protocol-2168 registry foundation",
-		"BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2168.bin",
-		"LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2168.bin",
-		"BIOME_REGISTRY ?= crates/assets/data/biome-registry-v2168.bin",
+		"Validate the exact protocol-2193 registry foundation",
+		"BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2193.bin",
+		"LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2193.bin",
+		"BIOME_REGISTRY ?= crates/assets/data/biome-registry-v2193.bin",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Makefile missing %q", required)
@@ -283,12 +283,12 @@ func validReadyFoundation() string {
     "authoritative_light_projection"
   ],
   "projection_bindings": {
-    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"}
+    "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"}
   }`, `,
   "projection_bindings": {
-    "block": {"sha256": "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8"},
-    "biome": {"sha256": "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"},
-    "light": {"sha256": "f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab"}
+    "block": {"sha256": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"},
+    "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"},
+    "light": {"sha256": "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"}
   }`, 1)
 	return ready
 }

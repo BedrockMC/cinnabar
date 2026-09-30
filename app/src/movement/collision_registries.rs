@@ -94,7 +94,7 @@ impl PhysicsCollisionRegistries {
     /// [`PhysicsCollisionRegistryError::ProtocolMismatch`], naming both
     /// protocols and both artifact paths (the installed physics registry and
     /// the loaded world carrier). Without this comparison, a future partial
-    /// flip (world 2168 + physics 1001 or reverse) would recreate the live
+    /// flip (world 2193 + physics 1001 or reverse) would recreate the live
     /// block-identity aliasing mechanism with zero decode errors. Malformed
     /// headers fall through to the full decoder so structural errors keep
     /// their precise existing messages.
@@ -482,8 +482,8 @@ mod tests {
 
     const BREG_V1001: &[u8] =
         include_bytes!("../../../crates/assets/data/block-registry-v1001.bin");
-    const BREG_V2168: &[u8] =
-        include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
+    const BREG_V2193: &[u8] =
+        include_bytes!("../../../crates/assets/data/block-registry-v2193.bin");
 
     /// Minimal byte-valid PREG stamped for one protocol and bound to one BREG
     /// digest; shape mirrors the committed movement fixtures so no new
@@ -555,10 +555,10 @@ mod tests {
     #[test]
     fn session_custom_blocks_append_after_vanilla_ids() {
         let records =
-            assets::read_registry_for_protocol(BREG_V2168, active_content_registry_protocol())
+            assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol())
                 .unwrap();
-        let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2168, &records);
-        let mut registries = bind(BREG_V2168, &preg, active_content_registry_protocol()).unwrap();
+        let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2193, &records);
+        let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
         let first = u32::try_from(records.len()).unwrap();
         let appended = protocol::CustomBlocks {
             blocks: vec![
@@ -599,10 +599,10 @@ mod tests {
     #[test]
     fn session_hashed_custom_blocks_register_and_reset() {
         let records =
-            assets::read_registry_for_protocol(BREG_V2168, active_content_registry_protocol())
+            assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol())
                 .unwrap();
-        let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2168, &records);
-        let mut registries = bind(BREG_V2168, &preg, active_content_registry_protocol()).unwrap();
+        let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2193, &records);
+        let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
         let custom = protocol::CustomBlocks {
             blocks: vec![custom_block("test:hashed", 1)].into(),
             skipped: 0,
@@ -630,7 +630,7 @@ mod tests {
     fn valid_wrong_protocol_preg_fails_with_typed_cross_carrier_mismatch() {
         let legacy_records = assets::read_registry(BREG_V1001).unwrap();
         let preg_v1001 = synthetic_preg(1001, BREG_V1001, &legacy_records);
-        let error = bind(BREG_V2168, &preg_v1001, active_content_registry_protocol())
+        let error = bind(BREG_V2193, &preg_v1001, active_content_registry_protocol())
             .expect_err("a flipped physics registry must fail startup");
 
         let PhysicsCollisionRegistryError::ProtocolMismatch {
@@ -642,7 +642,7 @@ mod tests {
         else {
             panic!("expected ProtocolMismatch, got {error:?}");
         };
-        assert_eq!(*expected_protocol, 2168);
+        assert_eq!(*expected_protocol, 2193);
         assert_eq!(*actual_protocol, 1001);
         assert_eq!(
             physics_registry_path,
@@ -654,7 +654,7 @@ mod tests {
         );
         let message = format!("{error}");
         assert!(
-            message.contains("1001") && message.contains("2168"),
+            message.contains("1001") && message.contains("2193"),
             "{message}"
         );
         assert!(message.contains("block-physics.bin"), "{message}");
@@ -665,12 +665,12 @@ mod tests {
     #[test]
     fn coherent_active_protocol_pair_binds_completely() {
         let registries = bind(
-            BREG_V2168,
+            BREG_V2193,
             &synthetic_preg(
-                2168,
-                BREG_V2168,
-                &assets::read_registry_for_protocol(BREG_V2168, 2168)
-                    .expect("checked-in v2168 BREG"),
+                2193,
+                BREG_V2193,
+                &assets::read_registry_for_protocol(BREG_V2193, 2193)
+                    .expect("checked-in v2193 BREG"),
             ),
             active_content_registry_protocol(),
         )
@@ -680,18 +680,18 @@ mod tests {
         assert!(registries.available_record_count() > 0);
     }
 
-    /// Synthetic both-2168 acceptance at the pure binding seam: flipping the
-    /// single authority accepts a matching committed v2168 carrier pair
+    /// Synthetic both-2193 acceptance at the pure binding seam: flipping the
+    /// single authority accepts a matching committed v2193 carrier pair
     /// without any new artifact, proving the gate tracks the authority rather
     /// than a second hidden literal.
     #[test]
     fn coherent_flipped_authority_pair_is_accepted_at_the_binding_seam() {
         let records =
-            assets::read_registry_for_protocol(BREG_V2168, 2168).expect("checked-in v2168 BREG");
+            assets::read_registry_for_protocol(BREG_V2193, 2193).expect("checked-in v2193 BREG");
         let registries = bind(
-            BREG_V2168,
-            &synthetic_preg(2168, BREG_V2168, &records),
-            2168,
+            BREG_V2193,
+            &synthetic_preg(2193, BREG_V2193, &records),
+            2193,
         )
         .expect("a matched flipped pair must bind under the flipped expectation");
 
@@ -723,7 +723,7 @@ mod tests {
                 &assets::read_registry_for_protocol(BREG_V1001, 1001)
                     .expect("checked-in v1001 BREG"),
             ),
-            2168,
+            2193,
         )
         .is_err();
 

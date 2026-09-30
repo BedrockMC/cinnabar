@@ -785,31 +785,49 @@ fn unchanged_hud_reuses_its_layout_across_frames() {
     assert_eq!(presentation.hud_passes(), first + 1);
 }
 
-// A focused chat's editor stays above the status rows.
+// The position line follows the world rule or a held map; days follow theirs.
 #[test]
-fn focused_chat_editor_clears_the_status_rows() {
+fn world_rules_raise_the_position_and_days_lines() {
     let Some(mut presentation) = engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    full_stats(&mut runtime, 1);
-    runtime.open_chat();
-    let input = build_at(&mut presentation, &runtime, 0, [1280, 720], 1.5);
-    let nodes = presentation.hud_draw_nodes();
-    // Hearts start at H-39 GUI px, which is 201 * 3 physical px.
-    let hearts_top = (customs(nodes, "heart_renderer")[0].dest.y * 3.0) as f32;
-    let editor = input
-        .vertices
-        .chunks_exact(4)
-        .last()
-        .map(quad_bounds)
-        .unwrap();
+    presentation.hud_frame_mut().player_block = Some([12, 64, -7]);
+    presentation.hud_frame_mut().world_time = Some(24_000.0 * 3.0 + 5.0);
+    build(&mut presentation, &runtime, 0);
+    let shown = |presentation: &UiPresentationRuntime, wanted: &str| {
+        text(presentation.hud_draw_nodes(), wanted).is_some()
+    };
     assert!(
-        editor[3] <= hearts_top,
-        "editor bottom {} vs hearts {hearts_top}",
-        editor[3]
+        !shown(&presentation, "Position: 12, 64, -7"),
+        "off by default"
     );
+    runtime.apply_hud_rules(protocol::HudRules {
+        show_coordinates: Some(true),
+        show_days_played: Some(true),
+    });
+    build(&mut presentation, &runtime, 0);
+    assert!(shown(&presentation, "Position: 12, 64, -7"));
+    assert!(shown(&presentation, "Days played: 3"));
+    runtime.apply_hud_rules(protocol::HudRules {
+        show_coordinates: Some(false),
+        show_days_played: None,
+    });
+    presentation.hud_frame_mut().holding_filled_map = true;
+    build(&mut presentation, &runtime, 0);
+    assert!(
+        shown(&presentation, "Position: 12, 64, -7"),
+        "a held map shows it"
+    );
+    assert!(
+        shown(&presentation, "Days played: 3"),
+        "an absent rule keeps its value"
+    );
+    if let Some(mut real) = engine_presentation_with(super::super::forms::pack_harness::font()) {
+        *real.hud_frame_mut() = presentation.hud_frame().clone();
+        let input = build(&mut real, &runtime, 0);
+        super::super::forms::snapshot::write(&input, "hud_coordinates");
+    }
 }
 
 fn chat_line(sequence: u64, message: &str) -> SequencedUiEvent {

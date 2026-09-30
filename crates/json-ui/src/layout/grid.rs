@@ -76,6 +76,13 @@ pub(super) fn grid_children<'a>(
         })
     });
     let columns = fitted_columns(columns, Some(parent_rect.w), pitch[0], sizes.len());
+    // The grid sizes itself to its rows, so a bottom-anchored grid's rows end at its bottom edge.
+    let rows = sizes.len().div_ceil(columns) as f64;
+    let top = if bottom_anchored(parent) {
+        parent_rect.y + (parent_rect.h - rows * pitch[1]).max(0.0)
+    } else {
+        parent_rect.y
+    };
     parent
         .children
         .iter()
@@ -84,10 +91,7 @@ pub(super) fn grid_children<'a>(
         .map(|(index, (child, size))| {
             let [column, row] = number_pair(child, "grid_position")
                 .unwrap_or([(index % columns) as f64, (index / columns) as f64]);
-            let (x, y) = (
-                parent_rect.x + column * pitch[0],
-                parent_rect.y + row * pitch[1],
-            );
+            let (x, y) = (parent_rect.x + column * pitch[0], top + row * pitch[1]);
             let rect = cell.map_or(Rect::new(x, y, size[0], size[1]), |[w, h]| {
                 place_by_anchor(child, Rect::new(x, y, w, h), size, env)
             });
@@ -99,4 +103,12 @@ pub(super) fn grid_children<'a>(
 fn number_pair(control: &ResolvedControl, key: &str) -> Option<[f64; 2]> {
     let pair = control.properties.get(key)?.as_array()?;
     Some([pair.first()?.as_f64()?, pair.get(1)?.as_f64()?])
+}
+
+fn bottom_anchored(control: &ResolvedControl) -> bool {
+    control
+        .properties
+        .get("anchor_to")
+        .and_then(Value::as_str)
+        .is_some_and(|anchor| anchor.starts_with("bottom"))
 }

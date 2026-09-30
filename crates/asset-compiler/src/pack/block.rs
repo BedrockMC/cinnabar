@@ -282,6 +282,55 @@ pub fn resolve_texture_key(
     }
 }
 
+/// The texture key vanilla's `BlockItem` icon reads: `carried_textures`, else `textures`,
+/// down face.
+pub(crate) fn resolve_carried_down_key<'a>(
+    blocks: &'a BlockTextureMap,
+    record: &RegistryRecord,
+) -> Option<std::borrow::Cow<'a, str>> {
+    carried_or_world_key(blocks, record, BlockFace::Down, true)
+}
+
+/// A face of a block's `carried_textures`; `None` when the block declares none.
+pub(crate) fn resolve_carried_face_key(
+    blocks: &BlockTextureMap,
+    record: &RegistryRecord,
+    face: BlockFace,
+) -> Option<String> {
+    carried_or_world_key(blocks, record, face, false).map(std::borrow::Cow::into_owned)
+}
+
+fn carried_or_world_key<'a>(
+    blocks: &'a BlockTextureMap,
+    record: &RegistryRecord,
+    face: BlockFace,
+    world_fallback: bool,
+) -> Option<std::borrow::Cow<'a, str>> {
+    let block_name = record
+        .name
+        .strip_prefix("minecraft:")
+        .unwrap_or(&record.name);
+    let entry = blocks.entries.get(block_name).or_else(|| {
+        blocks
+            .entries
+            .get(legacy_resource_pack_block_alias(block_name)?)
+    })?;
+    let carried = entry
+        .extra
+        .get("carried_textures")
+        .and_then(|value| serde_json::from_value::<TextureValue>(value.clone()).ok());
+    let key: std::borrow::Cow<'a, str> = match carried {
+        Some(TextureValue::Key(key)) => key.into(),
+        Some(TextureValue::Faces(faces)) => faces.resolve(face)?.to_owned().into(),
+        None if world_fallback => match &entry.textures {
+            TextureValue::Key(key) => key.as_str().into(),
+            TextureValue::Faces(faces) => faces.resolve(face)?.into(),
+        },
+        None => return None,
+    };
+    (!key.is_empty()).then_some(key)
+}
+
 fn legacy_resource_pack_block_alias(block_name: &str) -> Option<&'static str> {
     match block_name {
         "grass_block" => Some("grass"),

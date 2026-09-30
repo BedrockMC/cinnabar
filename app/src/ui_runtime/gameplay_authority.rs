@@ -90,6 +90,10 @@ impl UiRuntime {
         self.gameplay_hud.set_hardcore(hardcore);
     }
 
+    pub(crate) fn apply_hud_rules(&mut self, rules: protocol::HudRules) {
+        self.gameplay_hud.apply_hud_rules(rules);
+    }
+
     /// Installs the StartGame game modes: the resolved player mode, the
     /// world's default mode, and whether the player is bound to that default
     /// (StartGame carried the level-default sentinel).
@@ -626,6 +630,30 @@ impl UiRuntime {
         self.session_icons.as_ref()
     }
 
+    pub(crate) fn set_session_items(
+        &mut self,
+        items: Option<Arc<super::item_facts::SessionItemComponents>>,
+    ) {
+        self.session_items = items;
+    }
+
+    /// The server's components for `identifier` this session.
+    pub(crate) fn item_components(&self, identifier: &str) -> Option<&protocol::ItemComponents> {
+        self.session_items.as_ref()?.get(identifier)
+    }
+
+    pub(crate) fn item_glint(&self, stack: &protocol::NetworkItemStack, identifier: &str) -> bool {
+        super::item_facts::is_glint(stack, identifier, self.item_components(identifier))
+    }
+
+    /// A damageable item's maximum: the server's durability component, else the vanilla table.
+    pub(crate) fn item_max_durability(&self, identifier: Option<&str>) -> Option<u32> {
+        let identifier = identifier?;
+        self.item_components(identifier)
+            .and_then(|components| components.max_durability)
+            .or_else(|| super::item_facts::max_durability(identifier))
+    }
+
     pub(crate) fn set_server_ui(&mut self, pack: Option<Arc<super::presentation::ServerUiPack>>) {
         self.server_ui = pack;
     }
@@ -651,6 +679,15 @@ impl UiRuntime {
     /// `item.<path>.name` / `tile.<path>.name` translation when present,
     /// otherwise the mechanical title-cased identifier.
     pub(crate) fn localized_item_name(&self, identifier: &str) -> String {
+        // A display_name component is a language key, shown literally when untranslated.
+        if let Some(name) = self
+            .item_components(identifier)
+            .and_then(|components| components.display_name.as_deref())
+        {
+            return self
+                .translation(name)
+                .map_or_else(|| name.to_owned(), |text| text.as_ref().to_owned());
+        }
         if self.server_lang.is_some() || self.lang_catalog.is_some() {
             let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
             for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {

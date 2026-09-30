@@ -6,7 +6,7 @@
 use protocol::{
     MovementCorrectionSubject, PlayerMovementCorrectionEvent, WorldEvent, into_world_event,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     CorrectPlayerMovePredictionPacket,
     EnumsRewindType as CorrectPlayerMovePredictionPacketPredictionType, PlayerInputTick, Vec2,
     Vec3,

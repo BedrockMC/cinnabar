@@ -4,7 +4,10 @@ use bevy::{
         ButtonState,
         gamepad::{Gamepad, GamepadButton},
         keyboard::KeyboardInput,
-        mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel},
+        mouse::{
+            AccumulatedMouseMotion, AccumulatedMouseScroll, MouseButtonInput, MouseScrollUnit,
+            MouseWheel,
+        },
         touch::Touches,
     },
     math::Vec2,
@@ -226,9 +229,10 @@ pub(crate) fn drive_chat_ui_actions(
     window: Single<&Window, With<PrimaryWindow>>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
+    wheel: Option<Res<AccumulatedMouseScroll>>,
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
-    presentation: Res<presentation::UiPresentationRuntime>,
+    mut presentation: ResMut<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
     if runtime.server_forms().owns_input() {
@@ -238,43 +242,60 @@ pub(crate) fn drive_chat_ui_actions(
         || !runtime.chat_focused()
         || !window.focused
     {
+        presentation.set_chat_pointer(None);
         return;
     }
     let logical_size = [window.width(), window.height()];
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
-
-    if mouse_buttons.just_pressed(MouseButton::Left)
-        && let Some(position) = window.cursor_position()
-        && let Ok(position) = UiPoint::new(position.x, position.y)
+    let pointer = window
+        .cursor_position()
+        .and_then(|position| UiPoint::new(position.x, position.y).ok());
+    presentation.set_chat_pointer(pointer);
+    if let Some(wheel) = wheel.as_deref()
+        && wheel.delta.y != 0.0
     {
-        if presentation.hit_test_leave_bed(position, logical_size) {
-            runtime.request_wake();
-        }
-        dispatch_chat_ui_action(
-            &mut runtime,
-            UiAction::PointerPrimary {
-                position,
-                phase: PointerPhase::Pressed,
-            },
-            presentation.hit_test_chat_suggestion(position, logical_size),
-            now_millis,
-        );
+        presentation.scroll_chat(wheel.delta.y, wheel.unit == MouseScrollUnit::Pixel);
+    }
+
+    let mut presses: Vec<UiPoint> = Vec::new();
+    if mouse_buttons.just_pressed(MouseButton::Left)
+        && let Some(position) = pointer
+    {
+        presses.push(position);
     }
     for touch in touches.iter_just_pressed() {
         let position = touch.position();
         if let Ok(position) = UiPoint::new(position.x, position.y) {
-            if presentation.hit_test_leave_bed(position, logical_size) {
-                runtime.request_wake();
+            presses.push(position);
+        }
+    }
+    for position in presses {
+        if presentation.hit_test_leave_bed(position, logical_size) {
+            runtime.request_wake();
+        }
+        let hit = presentation.hit_test_chat(position);
+        match hit {
+            Some(presentation::ChatHit::Send) => {
+                dispatch_chat_ui_action(&mut runtime, UiAction::Accept, None, now_millis);
             }
-            dispatch_chat_ui_action(
-                &mut runtime,
-                UiAction::PointerPrimary {
-                    position,
-                    phase: PointerPhase::Pressed,
-                },
-                presentation.hit_test_chat_suggestion(position, logical_size),
-                now_millis,
-            );
+            Some(presentation::ChatHit::Close) => {
+                dispatch_chat_ui_action(&mut runtime, UiAction::Cancel, None, now_millis);
+            }
+            _ => {
+                let suggestion = match hit {
+                    Some(presentation::ChatHit::Suggestion(index)) => Some(index),
+                    _ => None,
+                };
+                dispatch_chat_ui_action(
+                    &mut runtime,
+                    UiAction::PointerPrimary {
+                        position,
+                        phase: PointerPhase::Pressed,
+                    },
+                    suggestion,
+                    now_millis,
+                );
+            }
         }
     }
     for gamepad in &gamepads {

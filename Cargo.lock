@@ -525,6 +525,7 @@ dependencies = [
  "reqwest",
  "resource-pack",
  "rodio",
+ "rustix 1.1.4",
  "semantic-input",
  "serde",
  "serde_json",
@@ -5731,12 +5732,12 @@ dependencies = [
  "bytes",
  "serde",
  "uuid",
- "valentine_bedrock_1_26_44",
+ "valentine_bedrock_1_26_51",
  "valentine_bedrock_core",
 ]
 
 [[package]]
-name = "valentine_bedrock_1_26_44"
+name = "valentine_bedrock_1_26_51"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",

@@ -418,6 +418,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 player_game_mode_uses_world_default: false,
                 server_authoritative_block_breaking: true,
                 hardcore: false,
+                hud_rules: protocol::HudRules::default(),
                 packs: crate::runtime::network::PackApplication::default(),
             })
             .unwrap();
@@ -456,10 +457,10 @@ fn fixture_app() -> (App, Entity) {
         air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
-    let breg = include_bytes!("../../../../../crates/assets/data/block-registry-v2168.bin");
-    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2168.bin");
-    let records = assets::read_registry_for_protocol(breg, 2168).unwrap();
-    let collisions = PhysicsCollisionRegistries::from_assets(breg, &records, preg, 2168).unwrap();
+    let breg = include_bytes!("../../../../../crates/assets/data/block-registry-v2193.bin");
+    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2193.bin");
+    let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
+    let collisions = PhysicsCollisionRegistries::from_assets(breg, &records, preg, 2193).unwrap();
     let mut menu = MenuRuntime::new(false, 2, "Test".into());
     menu.set_visible(false);
     let mut app = App::new();

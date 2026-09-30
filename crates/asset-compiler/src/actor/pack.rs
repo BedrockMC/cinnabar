@@ -76,4 +76,18 @@ mod tests {
                 .is_none()
         );
     }
+
+    // A pack shipping only attachables (custom armor) still yields its equipment bindings.
+    #[test]
+    fn an_attachable_only_pack_compiles_its_equipment() {
+        let attachable = br#"{"format_version":"1.10.0","minecraft:attachable":{"description":{"identifier":"test:crown","materials":{"default":"armor"},"textures":{"default":"textures/models/crown"},"geometry":{"default":"geometry.test.crown"},"render_controllers":["controller.render.armor"]}}}"#;
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test.crown","texture_width":16,"texture_height":16},"bones":[{"name":"head","pivot":[0,24,0]}]}]}"#;
+        let compiled = compile_actor_pack(vec![
+            ("attachables/crown.json".into(), attachable.to_vec()),
+            ("models/entity/crown.geo.json".into(), geometry.to_vec()),
+        ])
+        .unwrap()
+        .expect("attachables compile");
+        assert_eq!(compiled.equipment_bindings.len(), 1);
+    }
 }

@@ -85,10 +85,11 @@ pub(super) fn tooltip_lines(
         .or_else(|| display.name.as_deref().map(str::to_owned))
         .or_else(|| identifier.map(|id| runtime.localized_item_name(id)))
         .unwrap_or_else(|| "Unknown Item".to_owned());
-    let mut lines = vec![TooltipLine {
-        text: name,
-        color: NAME_COLOR,
-    }];
+    let color = identifier
+        .and_then(|id| runtime.item_components(id))
+        .and_then(crate::ui_runtime::item_facts::name_format)
+        .map_or(NAME_COLOR, |(_, [r, g, b])| [r, g, b, 255]);
+    let mut lines = vec![TooltipLine { text: name, color }];
     for (id, level) in &display.enchantments {
         lines.push(TooltipLine {
             text: enchantment_name(runtime, *id, *level),

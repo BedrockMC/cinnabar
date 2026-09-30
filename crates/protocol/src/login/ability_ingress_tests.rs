@@ -1,5 +1,5 @@
 use bytes::BytesMut;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     SerializedAbilitiesData, SerializedAbilitiesDataSerializedLayer, UpdateAbilitiesPacket,
 };
 

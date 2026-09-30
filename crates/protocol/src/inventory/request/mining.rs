@@ -1,5 +1,5 @@
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsItemStackRequestActionType, EnumsTextProcessingEventOrigin,
     ItemStackRequestCerealMineBlockActionData, ItemStackRequestCerealRequestData,
     ItemStackRequestCerealRequestDataActionsItem,
@@ -68,7 +68,7 @@ impl MineBlockRequest {
             actions: vec![
                 ItemStackRequestCerealRequestDataActionsItem::MineBlockActionData(Box::new(
                     ItemStackRequestCerealMineBlockActionData {
-                        actiontype: EnumsItemStackRequestActionType::ScreenHudMineBlock,
+                        actiontype: EnumsItemStackRequestActionType::Screenhudmineblock,
                         slot: i32::from(self.hotbar_slot),
                         predicted_durability: self.predicted_durability,
                         net_id_variant: self.stack_network_id,

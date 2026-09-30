@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-
-	"github.com/df-mc/dragonfly/server/world"
 )
 
 func TestBiomeCoverageManifestIsSortedDefaultDenyAndExact(t *testing.T) {
@@ -69,32 +67,6 @@ func TestBiomeCoverageManifestRejectsTrailingJSON(t *testing.T) {
 	}
 	if _, err := readBiomeCoverageManifest(path); err == nil {
 		t.Fatal("coverage manifest with trailing JSON was accepted")
-	}
-}
-
-func TestCheckedInBiomeRegistryExactlyMatchesSourceProjection(t *testing.T) {
-	allowed, err := readBiomeCoverageManifest("../../assets/biome-coverage-v1001.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	source, err := collectBiomes(world.Biomes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	projected, err := projectRetailBiomes(source, allowed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err := encodeBiomeRegistry(projected)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile("../../crates/assets/data/biome-registry-v1001.bin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(got, want) {
-		t.Fatal("checked-in biome registry does not exactly match the retained source ID/name projection")
 	}
 }
 

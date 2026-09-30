@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorEventPacket, AddItemActorPacket, EnumsActorEvent, TakeItemActorPacket,
 };
 
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn add_item_actor_spawns_a_fixed_identifier_item_entity() {
-        let mut packet = valentine::bedrock::version::v1_26_44::AddItemActorPacket::default();
+        let mut packet = valentine::bedrock::version::v1_26_51::AddItemActorPacket::default();
         packet.target_actor_id.actor_unique_id = -5;
         packet.target_runtime_id.actor_runtime_id = 12;
         packet.position.y = 64.0;

@@ -1,0 +1,40 @@
+{
+  "schema": "cinnabar.registry-foundation.v1",
+  "status": "ready",
+  "game_version": "1.26.50",
+  "protocol": 2193,
+  "formats": {
+    "block": "BREG1003",
+    "light": "LREG1001",
+    "biome": "BIOREG01"
+  },
+  "outputs": {
+    "block": "crates/assets/data/block-registry-v2193.bin",
+    "light": "crates/assets/data/block-light-registry-v2193.bin",
+    "biome": "crates/assets/data/biome-registry-v2193.bin"
+  },
+  "sources": {
+    "dragonfly": {
+      "commit": "4c7b5074be94fa83a1cd98e9c752083ad04a6e21",
+      "blob": "ee29e5e039086c10bdfb964621a8e146b4f7af19",
+      "sha256": "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6",
+      "size": 3102889
+    },
+    "bds": {
+      "archive_sha256": "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825",
+      "executable_sha256": "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443",
+      "overlay_sha256": "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339"
+    }
+  },
+  "projection_bindings": {
+    "block": {
+      "sha256": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"
+    },
+    "biome": {
+      "sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
+    },
+    "light": {
+      "sha256": "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"
+    }
+  }
+}

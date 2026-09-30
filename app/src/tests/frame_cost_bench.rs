@@ -131,7 +131,7 @@ fn frame_cost_bench_block_entity_scene_400_static() {
 fn frame_cost_bench_sound_decode() {
     let path = crate::audio::sound_bank_path(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../.local/assets/compiled/vanilla-v2168.mcbea"),
+            .join("../.local/assets/compiled/vanilla-v2193.mcbea"),
     );
     let Ok(Some(mut bank)) = crate::audio::SoundBank::open(&path, None) else {
         eprintln!(
