@@ -307,6 +307,12 @@ impl json_ui::TextureSource for NoTextures {
 }
 
 fn pause_texts() -> Option<Vec<String>> {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.screen = crate::menu::MenuScreen::Pause;
+    screen_texts(&view)
+}
+
+fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
     let carrier = super::pack_harness::carrier()?;
     let catalog = json_ui::Catalog::from_files(
         carrier
@@ -315,15 +321,13 @@ fn pause_texts() -> Option<Vec<String>> {
             .map(|file| (&*file.path, &*file.bytes)),
     )
     .ok()?;
-    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
-    view.screen = crate::menu::MenuScreen::Pause;
-    let screen = super::menu_screens::screen_data(&view, &|_| None)?;
+    let screen = super::menu_screens::screen_data(view, &|_| None)?;
     let env = json_ui::LayoutEnv {
         text: &FixedText,
         textures: &NoTextures,
     };
     let render = json_ui::render_screen(
-        "pause.pause_screen",
+        screen.reference,
         &catalog,
         &screen.context,
         &screen.data,
@@ -350,6 +354,23 @@ fn pause_screen_draws_the_retail_buttons() {
         return;
     };
     for wanted in ["menu.returnToGame", "menu.settings", "pauseScreen.quit"] {
+        assert!(
+            texts.iter().any(|text| text == wanted),
+            "{wanted}: {texts:?}"
+        );
+    }
+}
+
+// A pack download shows vanilla's "Downloading packs" title with the percent and bytes.
+#[test]
+fn connecting_screen_reports_the_pack_download() {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.connecting = true;
+    view.feeds.pack_download = Some((5 * 1024 * 1024, 20 * 1024 * 1024));
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    for wanted in ["Downloading packs 25%", "5.0 / 20.0 MB"] {
         assert!(
             texts.iter().any(|text| text == wanted),
             "{wanted}: {texts:?}"

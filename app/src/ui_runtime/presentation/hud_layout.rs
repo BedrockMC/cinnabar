@@ -107,6 +107,8 @@ pub(crate) struct HudFrame {
     pub holding_filled_map: bool,
     /// Lightning is falling: the bed screen talks of a thunderstorm.
     pub thunderstorm: bool,
+    /// The stream's current dimension, which picks the loading backdrop.
+    pub dimension: i32,
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names

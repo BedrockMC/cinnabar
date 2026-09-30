@@ -45,7 +45,9 @@ pub use bind::{
     scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
-pub use emit::{Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, emit, nine_slice};
+pub use emit::{
+    Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, color_value, emit, nine_slice,
+};
 pub use env::Env;
 pub use expr::{
     AxisContext, ExprError, Length, Resolved, Term, Unit, length_from_value, parse_length,

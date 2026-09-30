@@ -83,7 +83,7 @@ pub(crate) fn publish_ui_runtime(
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.hud.expire(now_millis);
     if menu_runtime.is_visible() {
-        presentation.set_loading_message(None);
+        presentation.set_loading_stage(None);
         diagnostics_input.set_startup_probe_enabled(false);
     } else {
         let (connected, stream_work_drained) =
@@ -129,12 +129,12 @@ pub(crate) fn publish_ui_runtime(
             eprintln!("{milestone}");
         }
         diagnostics_input.set_startup_probe_enabled(presentation.startup.probe_enabled(connected));
-        presentation.set_loading_message(if !connected {
-            Some("Connecting to server...")
+        presentation.set_loading_stage(if !connected {
+            Some(LoadingStage::Connecting)
         } else if startup_released {
             None
         } else {
-            Some("Loading terrain...")
+            Some(LoadingStage::BuildingTerrain)
         });
     }
     runtime.expire_gameplay_effects(now_millis);
@@ -187,6 +187,10 @@ pub(crate) fn publish_ui_runtime(
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
     presentation.hud_frame.thunderstorm = weather.lightning_level() > 0.0;
+    presentation.hud_frame.dimension = client_world
+        .stream
+        .as_ref()
+        .map_or(0, |stream| stream.current_dimension());
     presentation.hud_frame.world_time = Some(crate::environment::visual_world_time(
         *clock,
         time.elapsed_secs_f64(),
@@ -202,7 +206,7 @@ pub(crate) fn publish_ui_runtime(
             &runtime,
             &client_world,
             presentation.hud_frame.first_person,
-            menu_runtime.is_visible() || presentation.loading_message.is_some(),
+            menu_runtime.is_visible() || presentation.loading_stage.is_some(),
             physical_size,
         );
     }

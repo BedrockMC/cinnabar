@@ -47,6 +47,13 @@ var (
 	errResourcePackTransferTooLarge   = errors.New("proxy: resource-pack transfers exceeded their memory bound")
 )
 
+// ResourcePackDownload is the live progress of the newest pack download: the
+// chunk bytes received against the admitted offer's total.
+type ResourcePackDownload struct {
+	ReceivedBytes uint64 `json:"received_bytes"`
+	TotalBytes    uint64 `json:"total_bytes"`
+}
+
 // resourcePackAcquisitionBudget admits offered packs for download in offer
 // order within the count and byte bounds; later packs are ignored, not fatal.
 // A pack whose transfer disagrees with its offer is dropped from the handoff so
@@ -63,6 +70,10 @@ type resourcePackAcquisitionBudget struct {
 	excluded    map[string]bool
 	transferred uint64
 	timer       *time.Timer
+	admitted    uint64 // offered bytes admitted for download
+	received    uint64 // chunk bytes received so far
+
+	onProgress func(ResourcePackDownload)
 }
 
 func newResourcePackAcquisitionBudget(proto minecraft.Protocol, cancel context.CancelCauseFunc) *resourcePackAcquisitionBudget {
@@ -84,6 +95,9 @@ func (budget *resourcePackAcquisitionBudget) observe(header packet.Header, paylo
 		}
 		budget.progress()
 	case packet.IDResourcePackChunkData:
+		if chunk, ok := decodeInboundPacket[*packet.ResourcePackChunkData](budget.proto, header.PacketID, payload); ok {
+			budget.observeChunk(len(chunk.Data))
+		}
 		budget.progress()
 	case packet.IDResourcePackStack, packet.IDStartGame:
 		budget.stop()
@@ -95,6 +109,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 	defer budget.mu.Unlock()
 	budget.accepted, budget.offered = nil, map[string]uint64{}
 	budget.excluded, budget.transferred = map[string]bool{}, 0
+	budget.admitted, budget.received = 0, 0
 	if !decoded {
 		return
 	}
@@ -107,6 +122,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 			continue
 		}
 		total += pack.Size
+		budget.admitted = total
 		admitted++
 		budget.accepted[index] = true
 		budget.offered[pack.UUID.String()] = pack.Size
@@ -156,6 +172,18 @@ func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index,
 }
 
 // progress restarts the stall bound while an admitted acquisition is running.
+// observeChunk counts received chunk bytes and reports the download's progress.
+func (budget *resourcePackAcquisitionBudget) observeChunk(size int) {
+	budget.mu.Lock()
+	budget.received = saturatingAdd(budget.received, uint64(size))
+	download := ResourcePackDownload{ReceivedBytes: budget.received, TotalBytes: budget.admitted}
+	report := budget.onProgress
+	budget.mu.Unlock()
+	if report != nil {
+		report(download)
+	}
+}
+
 func (budget *resourcePackAcquisitionBudget) progress() {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
@@ -418,6 +446,7 @@ type preparedConnections struct {
 	resourcePackCache           minecraft.ResourcePackCache
 	resourcePackAdmission       func(ResourcePackAdmissionSnapshot)
 	resourcePackAdmissionUpdate func(ResourcePackAdmissionSnapshot)
+	resourcePackDownload        func(ResourcePackDownload)
 	attempts                    atomic.Uint64
 
 	shutdownCtx    context.Context
@@ -569,6 +598,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	}
 	dialCtx, cancelDial := context.WithCancelCause(ctx)
 	budget := newResourcePackAcquisitionBudget(dialer.Protocol, cancelDial)
+	budget.onProgress = connections.resourcePackDownload
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)
 	budget.stop()

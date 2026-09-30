@@ -39,6 +39,7 @@ type Store struct {
 	applied   uint64 // attempt whose packs the client confirmed applying
 	transfer  *TransferV1
 	transfers uint64
+	download  *proxy.ResourcePackDownload // live while the newest attempt downloads packs
 
 	auth        AuthV1
 	disconnect  *DisconnectV1
@@ -75,7 +76,15 @@ func (store *Store) Observe(snapshot proxy.ResourcePackAdmissionSnapshot) {
 			store.disconnect = nil
 		}
 		store.latest = snapshot
+		store.download = nil // a reset or final snapshot ends the download
 	}
+	store.mu.Unlock()
+}
+
+// ObservePackDownload publishes the newest attempt's download progress.
+func (store *Store) ObservePackDownload(download proxy.ResourcePackDownload) {
+	store.mu.Lock()
+	store.download = &download
 	store.mu.Unlock()
 }
 

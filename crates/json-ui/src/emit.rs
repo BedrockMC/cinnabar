@@ -332,7 +332,9 @@ fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
     let data = control
         .properties
         .iter()
-        .filter(|(key, _)| key.starts_with('#') || key.as_str() == "collection_index")
+        .filter(|(key, _)| {
+            key.starts_with('#') || matches!(key.as_str(), "collection_index" | "primary_color")
+        })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     Some(Draw::Custom { renderer, data })
@@ -441,7 +443,8 @@ fn color_of(control: &ResolvedControl, fallback: [u8; 4]) -> [u8; 4] {
 
 /// JSON-UI colours are `[r, g, b]`/`[r, g, b, a]` floats in 0..1, a `#rrggbb` hex, or
 /// one of a few names. Anything else falls back.
-fn color_from_value(value: &Value, fallback: [u8; 4]) -> [u8; 4] {
+/// A JSON-UI colour value (`[r, g, b(, a)]` in 0..1, `#rrggbb`, or a name).
+pub fn color_value(value: &Value) -> Option<[u8; 4]> {
     match value {
         Value::Array(items) if items.len() == 3 || items.len() == 4 => {
             let channel = |index: usize| {
@@ -455,14 +458,15 @@ fn color_from_value(value: &Value, fallback: [u8; 4]) -> [u8; 4] {
             } else {
                 255
             };
-            match (channel(0), channel(1), channel(2)) {
-                (Some(r), Some(g), Some(b)) => [r, g, b, alpha],
-                _ => fallback,
-            }
+            Some([channel(0)?, channel(1)?, channel(2)?, alpha])
         }
-        Value::String(text) => named_color(text).unwrap_or(fallback),
-        _ => fallback,
+        Value::String(text) => named_color(text),
+        _ => None,
     }
+}
+
+fn color_from_value(value: &Value, fallback: [u8; 4]) -> [u8; 4] {
+    color_value(value).unwrap_or(fallback)
 }
 
 fn named_color(text: &str) -> Option<[u8; 4]> {

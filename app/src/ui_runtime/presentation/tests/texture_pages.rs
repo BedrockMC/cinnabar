@@ -114,7 +114,13 @@ fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
 fn mixed_font_shadow_and_fill_keep_logical_page_order() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let runtime = UiRuntime::new(1);
-    presentation.set_loading_message(Some("A一A"));
+    presentation.set_below_name_anchors([super::super::retained_hud::BelowNameAnchor {
+        x: 400.0,
+        y: 300.0,
+        name: Arc::from("A一A"),
+        score: 7,
+        objective: Arc::from(""),
+    }]);
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();

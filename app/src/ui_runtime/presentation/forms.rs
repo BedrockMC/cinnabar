@@ -6,6 +6,7 @@ mod containers;
 mod engine;
 mod fallback;
 mod hud;
+mod loading_screen;
 mod menu_screens;
 mod menus;
 mod model;
@@ -28,6 +29,7 @@ mod textures;
 mod toast_screen;
 
 pub(crate) use chat_screen::ChatHit;
+pub(crate) use loading_screen::LoadingStage;
 pub(crate) use oreui::BedHit;
 pub(crate) use panorama::drive_menu_panorama;
 
