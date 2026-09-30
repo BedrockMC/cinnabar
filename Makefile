@@ -375,14 +375,14 @@ package-binaries:
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
-package-macos: package-binaries
+package-macos: package-binaries $(UI_FONT_SOURCE)
 	bash packaging/macos/build-app.sh
 	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar.app
 	bash packaging/macos/make-dmg.sh .local/dist/macos-release/Cinnabar.app .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
 	bash packaging/macos/sign-notarize.sh .local/dist/macos-release/Cinnabar-$(PKG_VERSION).dmg
 
-package-windows: package-binaries
+package-windows: package-binaries $(UI_FONT_SOURCE)
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build-installer.ps1
 
-package-linux: package-binaries
+package-linux: package-binaries $(UI_FONT_SOURCE)
 	bash packaging/linux/build-appimage.sh
