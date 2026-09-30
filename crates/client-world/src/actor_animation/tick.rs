@@ -241,41 +241,51 @@ pub(super) fn evaluate_state(
     let direct_end = direct_first
         .checked_add(candidate.animation_count as usize)
         .ok_or(EvalError::Invalid)?;
-    for binding in assets
+    let direct = assets
         .rig_animations()
         .get(direct_first..direct_end)
-        .ok_or(EvalError::Invalid)?
-    {
-        budget.charge_work()?;
-        let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
-        if weight != 0.0 {
-            weighted_clips.push(WeightedClip {
-                clip: binding.clip as usize,
-                weight,
-                started_tick: 0,
-            });
-        }
-    }
+        .ok_or(EvalError::Invalid)?;
     let controller_first = candidate.first_controller as usize;
     let controller_end = controller_first
         .checked_add(candidate.controller_count as usize)
         .ok_or(EvalError::Invalid)?;
-    for binding in assets
+    let bound = assets
         .rig_controllers()
         .get(controller_first..controller_end)
-        .ok_or(EvalError::Invalid)?
-    {
+        .ok_or(EvalError::Invalid)?;
+    // Clips and controllers run interleaved in the authored `animate` order.
+    let (mut next_clip, mut next_controller) = (0, 0);
+    while next_clip < direct.len() || next_controller < bound.len() {
         budget.charge_work()?;
-        let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
-        if weight != 0.0 {
-            let mut walk = ControllerWalk {
-                evaluator: &evaluator,
-                variables: &mut variables,
-                controllers: &mut controllers,
-                clips: &mut weighted_clips,
-                budget,
-            };
-            walk.evaluate(binding.controller as usize, weight, 0)?;
+        let clip_first = match (direct.get(next_clip), bound.get(next_controller)) {
+            (Some(clip), Some(controller)) => clip.order <= controller.order,
+            (clip, _) => clip.is_some(),
+        };
+        if clip_first {
+            let binding = &direct[next_clip];
+            next_clip += 1;
+            let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
+            if weight != 0.0 {
+                weighted_clips.push(WeightedClip {
+                    clip: binding.clip as usize,
+                    weight,
+                    started_tick: 0,
+                });
+            }
+        } else {
+            let binding = &bound[next_controller];
+            next_controller += 1;
+            let weight = blend_weight(&evaluator, &mut variables, binding.weight, 1.0, budget)?;
+            if weight != 0.0 {
+                let mut walk = ControllerWalk {
+                    evaluator: &evaluator,
+                    variables: &mut variables,
+                    controllers: &mut controllers,
+                    clips: &mut weighted_clips,
+                    budget,
+                };
+                walk.evaluate(binding.controller as usize, weight, 0)?;
+            }
         }
     }
     let local = sample_clips(
