@@ -121,6 +121,21 @@ fn collect(
         .get("collection_scope")
         .and_then(Value::as_str)
         .or(collection);
+    // A `collection_details` binding names its own collection and index.
+    let details = control
+        .properties
+        .get(crate::bind::COLLECTION_NAME_KEY)
+        .and_then(Value::as_str)
+        .zip(
+            control
+                .properties
+                .get("#collection_index")
+                .and_then(Value::as_f64),
+        );
+    let (index, collection) = match details {
+        Some((name, at)) => (Some(at as usize), Some(name)),
+        None => (index, collection),
+    };
     if let Some(kind) = kind_of(node) {
         let text = |key: &str| {
             control

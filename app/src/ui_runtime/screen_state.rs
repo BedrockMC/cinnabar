@@ -37,6 +37,10 @@ pub(crate) struct ScreenState {
     pub(crate) book: Option<super::book_screen::BookState>,
     /// Page of the recipe book, in whole grids.
     pub(crate) book_page: usize,
+    /// Creative catalog groups the player expanded, by group index.
+    pub(crate) creative_expanded: std::collections::BTreeSet<u32>,
+    /// Scroll offsets of the engine-drawn screen's scroll views, by view key.
+    pub(crate) container_scroll: std::collections::BTreeMap<String, f64>,
     window: Option<u64>,
 }
 
@@ -54,6 +58,8 @@ impl ScreenState {
             self.anvil_name.clear();
             self.anvil_focused = false;
             self.beacon_level = None;
+            self.container_scroll.clear();
+            self.creative_expanded.clear();
         }
     }
 
@@ -61,6 +67,7 @@ impl ScreenState {
         self.search_focused = tab == SEARCH_TAB;
         self.creative_tab = tab;
         self.creative_row = 0;
+        self.container_scroll.clear();
     }
 
     /// Whether a text field owns the keyboard.
@@ -87,6 +94,7 @@ impl ScreenState {
             }
         }
         self.creative_row = 0;
+        self.container_scroll.clear();
     }
 
     pub(crate) fn backspace_text(&mut self) {
@@ -97,6 +105,7 @@ impl ScreenState {
         } else {
             self.search.pop();
             self.creative_row = 0;
+            self.container_scroll.clear();
         }
     }
 
@@ -180,14 +189,17 @@ mod tests {
                 CreativeGroup {
                     category: CreativeCategory::Construction,
                     name: Arc::from("a"),
+                    icon: None,
                 },
                 CreativeGroup {
                     category: CreativeCategory::Nature,
                     name: Arc::from("b"),
+                    icon: None,
                 },
                 CreativeGroup {
                     category: CreativeCategory::CommandOnly,
                     name: Arc::from("c"),
+                    icon: None,
                 },
             ]),
             items: Arc::from([item(1, 0), item(2, 1), item(3, 2), item(4, 0)]),
