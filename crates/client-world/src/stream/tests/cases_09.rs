@@ -137,6 +137,38 @@ fn stationary_dirty_storm_keeps_the_mesh_scan_bounded_by_live_work() {
     );
 }
 
+/// Evicted-but-running solves still occupy light worker slots.
+#[test]
+fn still_running_light_solves_hold_their_worker_slots() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let key = SubChunkKey::new(0, 0, -4, 0);
+    stream
+        .store
+        .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+        .unwrap();
+    stream.resident.insert(key);
+    stream.mark_light_changed_sources([key]);
+    assert!(stream.in_flight_light_batches.is_empty());
+
+    stream
+        .running_light_jobs
+        .store(MAX_IN_FLIGHT_LIGHT_JOBS, Ordering::Release);
+    assert_eq!(
+        stream.dispatch_light_jobs([0.0; 3], LIGHT_DISPATCH_BUDGET_PER_POLL),
+        0
+    );
+    stream.running_light_jobs.store(0, Ordering::Release);
+    assert!(stream.dispatch_light_jobs([0.0; 3], LIGHT_DISPATCH_BUDGET_PER_POLL) > 0);
+}
+
 /// Removal acks for evicted sub-chunks must not accumulate applied generations.
 #[test]
 fn evicted_removal_acks_leave_no_applied_generation_behind() {

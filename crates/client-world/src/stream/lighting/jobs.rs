@@ -13,7 +13,11 @@ impl WorldStream {
         } else {
             effective_light_job_cap()
         };
-        let worker_budget = light_job_cap.saturating_sub(self.in_flight_light_batches.len());
+        let occupied = self
+            .in_flight_light_batches
+            .len()
+            .max(self.running_light_jobs.load(Ordering::Acquire));
+        let worker_budget = light_job_cap.saturating_sub(occupied);
         let solve_budget = budget.min(worker_budget);
         if self.fatal_light_failure || solve_budget == 0 {
             return 0;
@@ -255,7 +259,9 @@ impl WorldStream {
             .saturating_add(dispatched as u64);
         for batch in prepared_batches {
             let tx = self.light_tx.clone();
+            let running = RunningLightJob::start(&self.running_light_jobs);
             rayon::spawn(move || {
+                let _running = running;
                 let started = Instant::now();
                 let solved = solve_prepared_light_batch(batch);
                 let duration = started.elapsed();
@@ -598,5 +604,21 @@ impl WorldStream {
                     .get(&above)
                     .is_some_and(|direct| is_uniform_direct_sky(light, direct.mask.as_ref()))
             })
+    }
+}
+
+/// Occupies one light worker slot until the solve itself finishes.
+struct RunningLightJob(Arc<AtomicUsize>);
+
+impl RunningLightJob {
+    fn start(running: &Arc<AtomicUsize>) -> Self {
+        running.fetch_add(1, Ordering::AcqRel);
+        Self(Arc::clone(running))
+    }
+}
+
+impl Drop for RunningLightJob {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
