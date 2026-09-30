@@ -74,7 +74,7 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `crates/world` | Palette-native chunk and world model. |
 | `tools/architecture` | Architecture gate: line limits, dependency rules, markers. |
 | `tools/jsonui-editor` | Browser JSON-UI editor on the client's own engine, live at <https://bedrock-mc.github.io/cinnabar/>. |
-| `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out and render screens. |
+| `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out, render and export packs. |
 | `tools/devtool` | `verify-affected`, which tests only what a change touches. |
 | `tools/dist` | Stages distributable bundles. |
 | `tools/phase2-evidence`, `tools/visualcoverage` | Frozen evidence replays from earlier milestones. |
@@ -93,7 +93,9 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 
 [bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/) previews and edits pack UI
 exactly as Cinnabar renders it; open your own vanilla or server pack, nothing is bundled or
-uploaded. `make jsonui-editor` builds it locally. For AI agents, `cargo build -p jsonui-mcp` gives a
+uploaded. Paste into the empty editor to start a scratch file; the Export tab packages edits as
+`.mcpack`, `.zip` or `.mcaddon`, by default an overlay of only the changed controls.
+`make jsonui-editor` builds it locally. For AI agents, `cargo build -p jsonui-mcp` gives a
 stdio MCP server:
 
 ```json
