@@ -63,9 +63,9 @@ pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
-    ItemUseTrigger, SwingSource, click_block_packet, click_block_transaction_packet,
-    destroy_block_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet,
+    HeldItemRequest, ItemReleaseKind, ItemUseTrigger, SwingSource, click_air_packet,
+    click_block_packet, click_block_transaction_packet, destroy_block_packet, release_item_packet,
+    respawn_request_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     CraftGridItem, CraftGridMatch, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeHandle,

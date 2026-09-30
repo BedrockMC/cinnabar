@@ -159,6 +159,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     crate::audio::configure(app);
     app.init_resource::<MiningRuntime>()
         .init_resource::<BlockUseRuntime>()
+        .init_resource::<crate::item_use::ItemUseRuntime>()
         .init_resource::<SurvivalMiningRuntime>()
         .init_resource::<MeleeRuntime>()
         .init_resource::<SwingTracker>()
@@ -262,6 +263,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 produce_creative_mining,
                 produce_survival_mining,
                 produce_block_use,
+                crate::item_use::produce_item_use,
                 send_player_auth_inputs,
                 crate::pick_block::produce_pick_block,
             )
