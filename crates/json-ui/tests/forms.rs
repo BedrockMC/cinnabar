@@ -3,7 +3,7 @@
 //! Assertions are structural (instance counts, order, presence of image/text nodes,
 //! content sizing) — never pixels.
 
-use std::path::PathBuf;
+mod support;
 
 use json_ui::{
     ActionElement, ActionForm, ButtonImage, Catalog, Context, CustomElement, CustomForm, Draw,
@@ -33,8 +33,7 @@ fn env() -> LayoutEnv<'static> {
 }
 
 fn catalog() -> Option<Catalog> {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/ui");
+    let dir = support::vanilla_pack().join("ui");
     dir.is_dir()
         .then(|| Catalog::load_dir(&dir).expect("index files load"))
 }

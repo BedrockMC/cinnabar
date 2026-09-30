@@ -17,8 +17,6 @@ use render::{
 use super::overlay::{OverlayKind, OverlayLayer, ScreenOverlays};
 use crate::install_layout::InstallLayout;
 
-use crate::install_layout::VANILLA_PACK_DIR as VANILLA_PACK;
-
 fn overlay_kind(kind: OverlayKind) -> ScreenOverlayKind {
     match kind {
         OverlayKind::Suffocation | OverlayKind::ServerFade => ScreenOverlayKind::Flat,
@@ -43,7 +41,7 @@ fn candidates(resource_root: &Path, name: &str, vanilla_dir: &str) -> [PathBuf; 
     [
         resource_root.join("overlays").join(name),
         resource_root
-            .join(VANILLA_PACK)
+            .join(crate::install_layout::vanilla_pack_relative())
             .join("textures")
             .join(vanilla_dir)
             .join(name),

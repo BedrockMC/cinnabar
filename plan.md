@@ -627,10 +627,15 @@ re-measured on BDS 1.26.52.3. **Provisional, incomplete against vanilla:**
   own collision/light are unverified against the reference client.
 - `shelf_mushroom` and `straw_bed` (retail in 1.26.50) have no reviewed fact
   source and stay reserved (invisible, passable).
-- The world/resource pack stays on `v1.26.30.32-preview`, so 1.26.50 blocks lack
-  textures and `dappled_forest` compiles no biome rule (fallback tint);
-  bedrock-samples `v1.26.50.4` exists but the pack bump (HUD, JSON-UI, lang and
-  visual pins) is a separate migration.
+- The pinned pack is bedrock-samples `v1.26.50.4` (release). New blocks draw
+  their own pack textures through their twin's model family, and
+  `dappled_forest` compiles its own biome rule (absent atmosphere/lighting
+  components fall back to the default settings). Still diagnostic:
+  `poplar_shelf` (other shelves use the provisional vanilla fallback, which has
+  no entry for it) and `red_shrub` (data-driven block whose texture lives only
+  in its behaviour-pack `material_instances`). The legacy icon crosswalk is
+  still the 26.30 client's, so poplar boats, cushions, and the poplar door and
+  hanging-sign icons lack their sprite routes.
 
 **Protocol-2168 target cutover (2026-08-26).** One canonical
 `assets/bedrock-target.json` now owns the active game/protocol/codec identity,

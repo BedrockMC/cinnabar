@@ -233,7 +233,7 @@ Mojangles or another unlicensed Minecraft font mirror.
 ## Vanilla HUD sprites
 
 The survival HUD uses exact sprites from Mojang's pinned official
-`bedrock-samples-v1.26.30.32-preview-full.zip` release. A normal `make assets`
+`bedrock-samples-v1.26.50.4-full.zip` release. A normal `make assets`
 or `make client` downloads and verifies that archive through the same EULA-gated
 vanilla asset acquisition step used by world assets, then automatically writes
 the ignored `.local/assets/compiled/vanilla-v1.mcbehud` carrier and
@@ -244,7 +244,7 @@ make hud-assets
 ```
 
 The tracked non-copyright
-[`assets/hud-source-v1001.json`](assets/hud-source-v1001.json) pins the official
+[`assets/hud-source-v2193.json`](assets/hud-source-v2193.json) pins the official
 release tag, commit, archive URL and hash, plus every required PNG byte count,
 SHA-256, and decoded dimension. Wrong-version, custom, missing, or stale inputs
 fail closed at compilation, and carriers with any other source identity fail
@@ -311,13 +311,13 @@ blob:
 
 ```powershell
 powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula
-cargo run -p asset-compiler --bin assetc -- compile --pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack --registry crates/assets/data/block-registry-v1001.bin --light-registry crates/assets/data/block-light-registry-v1001.bin --biome-registry crates/assets/data/biome-registry-v1001.bin --out .local/assets/compiled/vanilla-v1001.mcbea
+cargo run -p asset-compiler --bin assetc -- compile --pack .local/assets/bedrock-samples/v1.26.50.4/full/resource_pack --source-manifest assets/vanilla-source.json --registry crates/assets/data/block-registry-v2193.bin --light-registry crates/assets/data/block-light-registry-v2193.bin --biome-registry crates/assets/data/biome-registry-v2193.bin --out .local/assets/compiled/vanilla-v2193.mcbea
 ```
 
 Start the client with an explicit blob when needed:
 
 ```text
-cargo run -p bedrock-client --locked -- --socket-dir .local/run --assets .local/assets/compiled/vanilla-v1001.mcbea
+cargo run -p bedrock-client --locked -- --socket-dir .local/run --assets .local/assets/compiled/vanilla-v2193.mcbea
 ```
 
 To disable VSync through the Makefile client target, run `make client NO_VSYNC=1`.
