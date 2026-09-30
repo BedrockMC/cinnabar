@@ -2,8 +2,8 @@
 //!
 //! The local use outcome (interaction, placement or nothing) decides the
 //! transaction's prediction and swing. A placement or switch toggle whose state
-//! is certain is also applied locally; the server's block updates stay authoritative. Air use
-//! and item-use-on start/stop actions are not implemented.
+//! is certain is also applied locally; the server's block updates stay authoritative. Air
+//! use lives in `item_use`; item-use-on start/stop actions are not implemented.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -286,6 +286,8 @@ pub(crate) struct BlockUseRuntime {
     /// The last success was an interaction or a not-yet-lined placement.
     slow_repeat: bool,
     last_attempt_tick: Option<u64>,
+    /// Tick whose use press interacted with a block, which starts no item use.
+    interacted_tick: Option<u64>,
     position_authority: Option<(u64, u64)>,
 }
 
@@ -341,6 +343,11 @@ impl BlockUseRuntime {
         (clock.now_millis > due).then_some((ItemUseTrigger::SimulationTick, due))
     }
 
+    /// Whether the use press resolved on `tick` interacted with a block.
+    pub(crate) fn interacted_at(&self, tick: u64) -> bool {
+        self.interacted_tick == Some(tick)
+    }
+
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
     /// retries (and resends its transaction) on the next tick.
     pub(crate) fn record(
@@ -353,6 +360,9 @@ impl BlockUseRuntime {
     ) {
         self.latched_press = false;
         self.last_attempt_tick = Some(tick);
+        if trigger == ItemUseTrigger::PlayerInput && local_use == LocalUse::Interact {
+            self.interacted_tick = Some(tick);
+        }
         if local_use == LocalUse::Nothing {
             return;
         }
@@ -743,7 +753,7 @@ fn observe_use_target(
 }
 
 /// The selected stack, only while no inventory request or hotbar change is in flight.
-fn verified_use_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
+pub(crate) fn verified_use_selection(ui: &UiRuntime) -> Option<FrozenMiningSelection> {
     let ledger = ui.inventory_ledger();
     if ledger.pending_request_id().is_some()
         || ledger.resync_required()

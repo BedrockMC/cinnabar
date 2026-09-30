@@ -53,6 +53,7 @@ use crate::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries, PhysicsCorrectionMode, ServerTeleportKind,
         reconcile_candidate_physics_correction, reconcile_committed_correction,
+        reconcile_server_motion,
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
@@ -367,7 +368,18 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
             if movement.physics_is_authorized() {
                 crate::movement::note_motion(event.tick, event.motion);
-                local_physics.queue_server_motion(event.motion, event.tick);
+                let world = sim::PaletteWorld::new(
+                    stream.collision_store(),
+                    collisions.registry(stream.network_id_mode()),
+                    stream.current_dimension(),
+                );
+                reconcile_server_motion(
+                    &mut movement,
+                    &mut local_physics,
+                    event.motion,
+                    event.tick,
+                    &world,
+                );
             }
             continue;
         }

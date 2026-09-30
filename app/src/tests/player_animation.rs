@@ -572,7 +572,7 @@ fn a_local_swing_animates_the_first_and_third_person_arm() {
             !turned(arm(&mut world)),
             "first person {first_person}: rests"
         );
-        world.start_local_player_swing();
+        world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
         let swing = (0..3).map(|_| turned(arm(&mut world))).collect::<Vec<_>>();
         assert!(
             swing.contains(&true),
@@ -586,4 +586,160 @@ fn a_local_swing_animates_the_first_and_third_person_arm() {
             "first person {first_person}: settles"
         );
     }
+}
+
+/// The vanilla resource pack the local carriers compile from, when fetched.
+fn vanilla_entities() -> Option<Arc<RuntimeEntityAssets>> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack");
+    if !root.join("entity/player.entity.json").is_file() {
+        eprintln!(
+            "skipping: vanilla resource pack not fetched at {}",
+            root.display()
+        );
+        return None;
+    }
+    let manifest = include_bytes!("../../../assets/vanilla-source.json");
+    let compiled = asset_compiler::compile_entity_assets(&root, manifest).unwrap();
+    Some(Arc::new(
+        RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap(),
+    ))
+}
+
+/// A local skin carrying the vanilla humanoid model as its own geometry.
+fn vanilla_skin_geometry() -> Option<PlayerSkin> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/models/entity/humanoid.custom.geo.json",
+    );
+    let geometry_data = fs::read_to_string(path).ok()?;
+    Some(PlayerSkin::Standard(StandardSkin {
+        geometry: Some(Arc::new(SkinGeometrySource {
+            resource_patch: r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.into(),
+            geometry_data: geometry_data.into(),
+        })),
+        cape: None,
+        width: 64,
+        height: 64,
+        rgba8: vec![128; STANDARD_SKIN_BYTES].into(),
+    }))
+}
+
+// The vanilla pack's own player rig must swing the local arm in both perspectives, holding an
+// item or not, on the default model and on a skin's own model.
+#[test]
+fn a_local_swing_animates_the_vanilla_pack_arm() {
+    let Some(entities) = vanilla_entities() else {
+        return;
+    };
+    let skins = [
+        PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
+        vanilla_skin_geometry().expect("vanilla humanoid geometry"),
+    ];
+    for skin in skins {
+        for (first_person, held) in [
+            (true, None),
+            (false, None),
+            (true, Some("minecraft:diamond_sword")),
+            (false, Some("minecraft:diamond_sword")),
+        ] {
+            let mut world = stream(Arc::clone(&entities));
+            let feed = LocalPlayerFeed {
+                first_person,
+                skin: skin.clone(),
+                ..local_feed(held)
+            };
+            let arm = |world: &mut WorldStream| {
+                world.sync_local_player_pose(&feed);
+                world.advance_actor_interpolation_ticks(1);
+                let rig = world.actor_rig(1).unwrap();
+                let index = rig
+                    .bone_names
+                    .iter()
+                    .position(|name| &**name == "rightarm")
+                    .unwrap();
+                rig.current[index].rotation
+            };
+            for _ in 0..3 {
+                arm(&mut world);
+            }
+            let rest = arm(&mut world);
+            assert_eq!(
+                world.actor_rig(1).unwrap().skin_geometry.is_some(),
+                matches!(skin, PlayerSkin::Standard(_))
+            );
+            world.start_local_player_swing(client_world::ACTOR_SWING_TICKS);
+            let swing = (0..3).map(|_| arm(&mut world)).collect::<Vec<_>>();
+            assert!(
+                swing
+                    .iter()
+                    .any(|rotation| rotation.iter().zip(rest).any(|(a, b)| (a - b).abs() > 1e-3)),
+                "first person {first_person}, {held:?}: rest {rest:?}, swing {swing:?}"
+            );
+        }
+    }
+}
+
+// A melee press end to end: the swing packet goes out first and the same accepted swing turns
+// the local vanilla-pack arm.
+#[test]
+fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
+    use crate::melee::{ActorHit, Crosshair, MeleeRuntime, PressContext, SwingTracker};
+    let Some(entities) = vanilla_entities() else {
+        return;
+    };
+    let empty = protocol::NetworkItemStack::empty();
+    let press = PressContext {
+        tick: 101,
+        player_position: [0.0, 65.62, 0.0],
+        input_mode: protocol::PlayerInputMode::Mouse,
+        local_runtime_id: 1,
+        selection: Some(crate::mining::FrozenMiningSelection {
+            slot: 0,
+            item: protocol::VerifiedNetworkItemStack::try_new(empty.clone(), empty.nbt_digest)
+                .unwrap(),
+        }),
+        swing_duration: 6,
+        now_millis: 1_000,
+    };
+    let target = Crosshair::Actor(ActorHit {
+        runtime_id: 42,
+        distance: 2.0,
+        point: [0.0, 65.0, -2.0],
+    });
+    let mut world = stream(Arc::clone(&entities));
+    let feed = local_feed(None);
+    let arm = |world: &mut WorldStream| {
+        world.sync_local_player_pose(&feed);
+        world.advance_actor_interpolation_ticks(1);
+        let rig = world.actor_rig(1).unwrap();
+        let index = rig
+            .bone_names
+            .iter()
+            .position(|name| &**name == "rightarm")
+            .unwrap();
+        rig.current[index].rotation
+    };
+    for _ in 0..3 {
+        arm(&mut world);
+    }
+    let rest = arm(&mut world);
+
+    let mut melee = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    melee.observe_input(true, true);
+    let outcome = melee.resolve(target, &press, &mut swings);
+    let names: Vec<_> = outcome
+        .packets
+        .iter()
+        .map(|packet| format!("{:?}", packet.header.id))
+        .collect();
+    assert_eq!(names, ["AnimatePacket", "InventoryTransactionPacket"]);
+    world.start_local_player_swing(swings.take_started().expect("the attack swings"));
+    let swing = (0..3).map(|_| arm(&mut world)).collect::<Vec<_>>();
+    assert!(
+        swing
+            .iter()
+            .any(|rotation| rotation.iter().zip(rest).any(|(a, b)| (a - b).abs() > 1e-3)),
+        "rest {rest:?}, swing {swing:?}"
+    );
 }

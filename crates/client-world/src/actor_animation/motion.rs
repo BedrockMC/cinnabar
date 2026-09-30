@@ -39,6 +39,8 @@ pub(super) struct MotionState {
     pub(super) speed: f32,
     /// Swing counter; `-1` marks a swing requested since the last tick.
     swing: Option<i32>,
+    /// Length of the current swing in ticks, after haste and fatigue.
+    swing_ticks: i32,
     pub(super) body_yaw: f32,
     pub(super) previous_body_yaw: f32,
     stable_head_yaw: f32,
@@ -57,15 +59,16 @@ impl MotionState {
         }
     }
 
-    /// Restarts the swing unless one is still in its first half.
-    pub(super) fn start_swing(&mut self) {
+    /// Restarts a `ticks`-long swing unless one is still in its first half.
+    pub(super) fn start_swing(&mut self, ticks: i32) {
         if self
             .swing
-            .is_some_and(|counter| counter < ACTOR_SWING_TICKS / 2)
+            .is_some_and(|counter| counter < self.swing_ticks / 2)
         {
             return;
         }
         self.swing = Some(-1);
+        self.swing_ticks = ticks.max(1);
     }
 
     pub(super) fn walk_distance(self) -> f32 {
@@ -74,7 +77,7 @@ impl MotionState {
 
     pub(super) fn attack_time(self) -> f32 {
         self.swing.map_or(0.0, |counter| {
-            counter.max(0) as f32 / ACTOR_SWING_TICKS as f32
+            counter.max(0) as f32 / self.swing_ticks.max(1) as f32
         })
     }
 
@@ -82,7 +85,7 @@ impl MotionState {
         self.swing = self
             .swing
             .map(|counter| counter + 1)
-            .filter(|counter| *counter < ACTOR_SWING_TICKS);
+            .filter(|counter| *counter < self.swing_ticks);
         self.previous_body_yaw = self.body_yaw;
         if input.player {
             self.turn_player_body(input);
@@ -188,7 +191,7 @@ mod tests {
     #[test]
     fn swing_reads_zero_then_rises_by_sixths_then_idles() {
         let mut motion = MotionState::default();
-        motion.start_swing();
+        motion.start_swing(ACTOR_SWING_TICKS);
         let progress = (0..=ACTOR_SWING_TICKS)
             .map(|_| {
                 motion.advance(&input([0.0; 3], true, 0.0));
@@ -202,12 +205,26 @@ mod tests {
     #[test]
     fn a_second_swing_in_the_first_half_is_ignored() {
         let mut motion = MotionState::default();
-        motion.start_swing();
+        motion.start_swing(ACTOR_SWING_TICKS);
         motion.advance(&input([0.0; 3], true, 0.0));
         motion.advance(&input([0.0; 3], true, 0.0));
-        motion.start_swing();
+        motion.start_swing(ACTOR_SWING_TICKS);
         motion.advance(&input([0.0; 3], true, 0.0));
         assert_eq!(motion.attack_time(), 2.0 / 6.0);
+    }
+
+    /// Haste shortens the rendered swing to the same duration the packet guard uses.
+    #[test]
+    fn a_shortened_swing_completes_in_its_own_ticks() {
+        let mut motion = MotionState::default();
+        motion.start_swing(4);
+        let progress = (0..=4)
+            .map(|_| {
+                motion.advance(&input([0.0; 3], true, 0.0));
+                motion.attack_time()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(progress, [0.0, 0.25, 0.5, 0.75, 0.0]);
     }
 
     #[test]
