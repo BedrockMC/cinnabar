@@ -492,6 +492,12 @@ pub(crate) fn refresh_hud_frame(
             .inventory_ledger()
             .window_position()
             .and_then(|position| stream?.block_entity_custom_name(position));
+        window_text.custom_title.clone_from(&stated_title);
+        window_text.block_entity = runtime
+            .inventory_ledger()
+            .window_position()
+            .and_then(|position| stream?.block_entity_compound(position))
+            .and_then(|nbt| nbt.string("id").map(str::to_owned));
         window_text.inventory_label = runtime
             .translation("container.inventory")
             .map(|text| text.to_string());
@@ -552,6 +558,19 @@ pub(crate) fn refresh_hud_frame(
                 (*id, name)
             })
             .collect();
+        }
+        if matches!(
+            inventory_screen,
+            super::inventory_pointer::InventoryScreen::Personal
+                | super::inventory_pointer::InventoryScreen::Workbench
+                | super::inventory_pointer::InventoryScreen::Creative
+        ) && super::forms::recipe_book_shown(runtime)
+        {
+            window_icons.book_entries = super::forms::recipe_book_icons(runtime, |stack| {
+                resolve_identifier(stack)
+                    .as_deref()
+                    .and_then(|id| presentation.item_icon(id, stack.metadata))
+            });
         }
         if inventory_screen == super::inventory_pointer::InventoryScreen::Creative {
             let entries = crate::ui_runtime::inventory_actions::visible_creative_entries(
@@ -719,6 +738,7 @@ pub(crate) fn refresh_hud_frame(
                         (stack, None)
                     });
                 }
+                Hit::RecipeBook(index) => return super::forms::recipe_book_hover(runtime, index),
                 Hit::Widget(_) | Hit::CreativeTab(_) | Hit::CreativeSearch => (None, None),
             };
             stack.map(|stack| (stack.clone(), name))

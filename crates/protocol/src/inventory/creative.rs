@@ -28,6 +28,8 @@ pub enum CreativeCategory {
 pub struct CreativeGroup {
     pub category: CreativeCategory,
     pub name: Arc<str>,
+    /// The item a collapsed named group shows; `None` when absent or malformed.
+    pub icon: Option<NetworkItemStack>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +82,15 @@ pub fn normalize_creative_content(
                 Category::Unknown(code) => CreativeCategory::Unknown(code),
             },
             name: Arc::from(group.name),
+            icon: make_stack(
+                group.group_icon_item.id,
+                i32::from_ne_bytes(group.group_icon_item.auxvalue.to_ne_bytes()),
+                -1,
+                group.group_icon_item.stacksize,
+                group.group_icon_item.block_runtime_id,
+                group.group_icon_item.user_data_buffer,
+            )
+            .ok(),
         })
         .collect();
     let mut skipped = 0;

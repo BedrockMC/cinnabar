@@ -6,7 +6,7 @@ use crate::catalog::Catalog;
 use crate::form::{CatalogLibrary, FormRender, finish};
 use crate::layout::LayoutEnv;
 use crate::state::ViewState;
-use crate::{Context, resolve};
+use crate::{Context, ResolvedControl, resolve};
 
 /// A rendered engine screen: bound tree, draw nodes, hit regions, scroll report.
 pub type ScreenRender = FormRender;
@@ -43,6 +43,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "redstone.dropper_screen",
     "redstone.crafter_screen",
     "horse.horse_screen",
+    "book.book_screen",
     "npc_interact.npc_screen",
     "pause.pause_screen",
     "chat.chat_screen",
@@ -75,13 +76,33 @@ pub fn render_screen(
     env: &LayoutEnv,
     state: &ViewState,
 ) -> Option<ScreenRender> {
+    let root = resolve_screen(reference, catalog, context)?;
+    let bound = bind_screen(&root, catalog, context, data);
+    Some(finish(bound, root_size, env, state))
+}
+
+/// Resolve an allow-listed screen; `None` off the allow-list or when the
+/// catalog lacks it. The result depends only on its inputs, so callers may
+/// keep it while those stay the same.
+pub fn resolve_screen(
+    reference: &str,
+    catalog: &Catalog,
+    context: &Context,
+) -> Option<ResolvedControl> {
     if !is_engine_screen(reference) {
         return None;
     }
-    let root = resolve(catalog, reference, context).control?;
-    let library = CatalogLibrary { catalog, context };
-    let bound = bind(&root, data, &library);
-    Some(finish(bound, root_size, env, state))
+    resolve(catalog, reference, context).control
+}
+
+/// Bind a resolved screen against `data`, ready for [`crate::render_bound`].
+pub fn bind_screen(
+    root: &ResolvedControl,
+    catalog: &Catalog,
+    context: &Context,
+    data: &DataSource,
+) -> ResolvedControl {
+    bind(root, data, &CatalogLibrary { catalog, context })
 }
 
 #[cfg(test)]

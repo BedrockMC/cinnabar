@@ -6,6 +6,7 @@ use bevy::{
         keyboard::KeyboardInput,
         mouse::{
             AccumulatedMouseMotion, AccumulatedMouseScroll, MouseButtonInput, MouseScrollUnit,
+            MouseWheel,
         },
         touch::Touches,
     },
@@ -362,9 +363,20 @@ pub(crate) fn drive_inventory_ui_actions(
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut release_cursor: Local<MessageCursor<MouseButtonInput>>,
+    wheel_messages: Option<Res<Messages<MouseWheel>>>,
+    mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     presentation: Res<presentation::UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
 ) {
+    let notches: Vec<(f32, MouseScrollUnit)> = wheel_messages
+        .as_deref()
+        .map(|messages| {
+            wheel_cursor
+                .read(messages)
+                .map(|event| (event.y, event.unit))
+                .collect()
+        })
+        .unwrap_or_default();
     // Button state is reset below while the inventory owns the pointer, so a later
     // physical release no longer surfaces as `just_released`; read raw releases too.
     let (mut raw_primary_release, mut raw_secondary_release) = (false, false);
@@ -450,6 +462,9 @@ pub(crate) fn drive_inventory_ui_actions(
             })
     });
     runtime.screen_state_mut().hover = hit;
+    if let (Some(gui), Some(frame)) = (gui, presentation.engine_container_frame()) {
+        scroll_container(&mut runtime, frame, gui, &notches);
+    }
     for key in presses {
         let _ = dispatch_inventory_key(runtime.as_mut(), hit, key, control);
     }
@@ -484,6 +499,41 @@ pub(crate) fn drive_inventory_ui_actions(
                 .inventory_ledger_mut()
                 .begin_drop(DropSource::Cursor, amount);
         }
+    }
+}
+
+/// Wheel notches over an engine-drawn screen scroll the view under the pointer.
+fn scroll_container(
+    runtime: &mut UiRuntime,
+    frame: &super::forms::EngineFrame,
+    gui: [f32; 2],
+    notches: &[(f32, MouseScrollUnit)],
+) {
+    let point = [f64::from(gui[0]), f64::from(gui[1])];
+    let Some(view) = json_ui::scroll_target(&frame.hits, point) else {
+        return;
+    };
+    let Some(metrics) = frame.report.scrolls.get(&view.key) else {
+        return;
+    };
+    let mut offset = runtime
+        .screen_state()
+        .container_scroll
+        .get(&view.key)
+        .copied()
+        .unwrap_or(metrics.offset);
+    for (notch, unit) in notches {
+        offset -= match unit {
+            MouseScrollUnit::Line => f64::from(*notch) * metrics.speed,
+            MouseScrollUnit::Pixel => f64::from(*notch / frame.scale),
+        };
+    }
+    let offset = offset.clamp(0.0, metrics.max_offset());
+    if !notches.is_empty() {
+        runtime
+            .screen_state_mut()
+            .container_scroll
+            .insert(view.key.clone(), offset);
     }
 }
 

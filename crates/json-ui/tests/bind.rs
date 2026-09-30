@@ -464,3 +464,64 @@ fn a_scoped_collection_gives_each_enclosing_item_its_own_list() {
         .collect();
     assert_eq!(texts, [vec![&json!("A"), &json!("B")], vec![&json!("C")]]);
 }
+
+// A container cell outside any grid reads its collection's first item, as the
+// furnace's fuel and ingredient slots do.
+#[test]
+fn collection_bindings_outside_a_grid_read_the_first_item() {
+    let label = ctrl(
+        "fuel",
+        Some("label"),
+        json!({
+            "text": "#count",
+            "bindings": [
+                { "binding_type": "collection", "binding_collection_name": "fuel_items", "binding_name": "#count" },
+                { "binding_type": "collection_details", "binding_collection_name": "fuel_items" }
+            ],
+        }),
+    );
+    let mut data = DataSource::new();
+    data.set_collection(
+        "fuel_items",
+        vec![CollectionItem::new("item").with("#count", Scalar::Text("12".into()))],
+    );
+    let bound = bind(&label, &data, &EmptyLibrary);
+    assert_eq!(prop(&bound, "text"), &json!("12"));
+    assert_eq!(prop(&bound, "#collection_index"), &json!(0.0));
+    assert_eq!(prop(&bound, "#collection_name"), &json!("fuel_items"));
+}
+
+// A grid listing its cells indexes each by `grid_position`, row-major.
+#[test]
+fn listed_grid_cells_index_their_collection_by_position() {
+    let cell = |name: &str, position: [u64; 2]| {
+        ctrl(
+            name,
+            Some("label"),
+            json!({
+                "grid_position": position,
+                "text": "#name",
+                "bindings": [
+                    { "binding_type": "collection", "binding_collection_name": "grid_items", "binding_name": "#name" }
+                ],
+            }),
+        )
+    };
+    let grid = ctrl_children(
+        "grid",
+        Some("grid"),
+        json!({ "grid_dimensions": [2, 2], "collection_name": "grid_items" }),
+        vec![cell("bottom_right", [1, 1]), cell("top_right", [1, 0])],
+    );
+    let mut data = DataSource::new();
+    data.set_collection(
+        "grid_items",
+        ["a", "b", "c", "d"]
+            .into_iter()
+            .map(|name| CollectionItem::new("item").with("#name", Scalar::Text(name.into())))
+            .collect(),
+    );
+    let bound = bind(&grid, &data, &EmptyLibrary);
+    assert_eq!(prop(&bound.children[0], "text"), &json!("d"));
+    assert_eq!(prop(&bound.children[1], "text"), &json!("b"));
+}
