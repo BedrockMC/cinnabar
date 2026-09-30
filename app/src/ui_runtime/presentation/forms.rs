@@ -8,6 +8,7 @@ mod containers;
 mod engine;
 mod fallback;
 mod hud;
+mod join_progress;
 mod loading_screen;
 mod menu_screens;
 mod menus;

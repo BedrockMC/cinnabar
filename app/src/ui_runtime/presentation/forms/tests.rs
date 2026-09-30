@@ -361,16 +361,39 @@ fn pause_screen_draws_the_retail_buttons() {
     }
 }
 
-// A pack download shows vanilla's "Downloading packs" title with the percent and bytes.
+// A pack download shows vanilla's "Downloading packs" title with the pack count and sizes.
 #[test]
 fn connecting_screen_reports_the_pack_download() {
     let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
     view.connecting = true;
-    view.feeds.pack_download = Some((5 * 1024 * 1024, 20 * 1024 * 1024));
+    view.feeds.join.observe(Some(crate::menu::JoinStage::Packs {
+        done: 1,
+        total: 3,
+        received_bytes: 5 * 1024 * 1024,
+        total_bytes: 20 * 1024 * 1024,
+    }));
     let Some(texts) = screen_texts(&view) else {
         return;
     };
-    for wanted in ["Downloading packs 25%", "5.0 / 20.0 MB"] {
+    for wanted in ["Downloading packs [1 / 3]", "[5.0MB / 20.0MB]", "Cancel"] {
+        assert!(
+            texts.iter().any(|text| text == wanted),
+            "{wanted}: {texts:?}"
+        );
+    }
+}
+
+// A Realm join lays out vanilla's Realms loading screen with the lookup's words.
+#[test]
+fn realm_join_screen_reports_the_realm_lookup() {
+    let mut view = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned()).view();
+    view.connecting = true;
+    view.feeds.join = crate::menu::JoinProgress::new(crate::menu::JoinKind::Realm);
+    view.feeds.join.observe(Some(crate::menu::JoinStage::Realm));
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    for wanted in ["Joining Realm...", "This may take a few moments"] {
         assert!(
             texts.iter().any(|text| text == wanted),
             "{wanted}: {texts:?}"

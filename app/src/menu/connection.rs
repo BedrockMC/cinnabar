@@ -78,6 +78,8 @@ fn attempt_connect(
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.mark_disconnected();
     let generation = session.retire(menu);
+    menu.feeds.join =
+        super::view::JoinProgress::new(super::launcher_core::join_kind(&address, local_world));
     let launcher = session
         .launcher
         .as_deref()
@@ -234,10 +236,16 @@ pub(crate) fn drive_menu_connection(
         );
     }
     if menu.take_disconnect_request() {
+        // A disconnect while connecting is a cancelled join, which returns to the play screen.
+        let cancelled_join = menu.is_connecting();
         // Drop the old event receivers as well as stopping their worker: a
         // queued transfer must not undo this explicit disconnect later this frame.
         session.retire(&mut menu);
         menu.mark_disconnected();
+        if cancelled_join {
+            menu.pending_connect = None;
+            menu.enter(super::MenuScreen::Play);
+        }
     }
     if menu.take_exit_request() {
         session.retire(&mut menu);
