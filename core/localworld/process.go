@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ import (
 
 const defaultStartTimeout = 30 * time.Second
 
-// ProcessRunner hosts each world in a managed child running the local server binary.
+// ProcessRunner hosts each superflat world in a managed child running the local server binary.
 // The child prints "ready" on stdout once listening and reads "pause", "resume" and "stop"
 // lines on stdin; stdin EOF also stops it so it cannot outlive the core.
 type ProcessRunner struct {
@@ -31,6 +30,9 @@ type ProcessRunner struct {
 func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 	if r.Binary == "" {
 		return nil, errors.New("localworld: local server binary is not configured")
+	}
+	if spec.World.Generator != GeneratorFlat {
+		return nil, ErrVanillaNeedsBDS
 	}
 	log := r.Log
 	if log == nil {
@@ -49,9 +51,7 @@ func (r ProcessRunner) Start(ctx context.Context, spec StartSpec) (Instance, err
 		"-addr", address,
 		"-name", spec.World.Name,
 		"-game-mode", spec.World.GameMode,
-		"-generator", spec.World.Generator,
 		"-difficulty", spec.World.Difficulty,
-		"-seed", strconv.FormatInt(spec.World.Seed, 10),
 	)
 	cmd.Env = append(os.Environ(), r.Env...)
 	return launch(ctx, launchSpec{

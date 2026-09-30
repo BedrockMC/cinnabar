@@ -384,6 +384,7 @@ mod tests {
             flip_book: None,
             motions: Default::default(),
             draw,
+            gates: Vec::new(),
         }
     }
 

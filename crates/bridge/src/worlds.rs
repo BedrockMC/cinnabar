@@ -25,6 +25,7 @@ pub enum GameMode {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Generator {
+    /// Vanilla terrain; the core always runs these worlds on BDS.
     #[default]
     Normal,
     Flat,
@@ -47,7 +48,7 @@ pub enum Difficulty {
 pub enum Backend {
     /// Bedrock Dedicated Server: vanilla terrain and mobs.
     Bds,
-    /// Dragonfly: simpler terrain and no vanilla mob behavior.
+    /// Dragonfly: superflat only (older worlds may be normal and no longer open), no vanilla mobs.
     #[default]
     Dragonfly,
 }

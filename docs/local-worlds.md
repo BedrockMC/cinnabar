@@ -11,9 +11,12 @@ Each world records the backend that created it (`world.json`) and always reopens
 | --- | --- | --- |
 | `bds` native | Windows and Linux x86-64 | Official Bedrock Dedicated Server: vanilla terrain and mobs. |
 | `bds` container | macOS (or any host without a native build) with a Docker-compatible runtime | Linux BDS in `itzg/minecraft-bedrock-server`, `--platform linux/amd64`. |
-| `dragonfly` | fallback when neither can run, and worlds created on it | Simpler terrain, no vanilla mob behavior. |
+| `dragonfly` | fallback when neither can run, and worlds created on it | Superflat only (dragonfly's default generators), no vanilla mob behavior. |
 
-New worlds default to BDS when it can run (`-local-backend=auto`), else dragonfly; `world_create.v1` may pass `backend`.
+Default (`normal`) worlds always run on BDS; where BDS cannot run, creating one fails with a "create a superflat
+world" error and the create screen starts on Superflat. Superflat worlds default to BDS when it can run
+(`-local-backend=auto`), else dragonfly; `world_create.v1` may pass `backend`. Normal worlds saved on dragonfly by
+older builds no longer open rather than regenerate with approximate terrain.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 
 ## BDS acquisition
@@ -41,9 +44,10 @@ Never bundled or committed. `-bds-dir` (default `bds/` beside the worlds dir) ho
 - **Exposure:** BDS cannot bind loopback only; it listens on all interfaces on a random port, offline, one slot.
   The container maps its port to `127.0.0.1` only.
 - **Lifecycle:** ready on "Server started."; stop is `docker stop` (container) or `stop` on stdin, then kill after 30 s.
-- **Pause:** dragonfly freezes time and block/entity ticking on focus loss. BDS has no equivalent of the
-  single-player pause; freezing daylight or weather gamerules is not a pause and persists into `level.dat`, so BDS
-  worlds keep running and status reports `pause_supported: false`.
+- **Pause:** on focus loss dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
+  integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
+  continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
+  keep running and status reports `pause_supported: false`.
 - **Login:** the core dials without a Microsoft session for local play (offline chain from the client's identity);
   BDS accepts it because `online-mode=false`. Player-data persistence needs a stable client identity.
 
@@ -59,6 +63,5 @@ and control worker; the menu and JSON-UI screens bind to it.
 
 ## v1 limits
 
-dragonfly terrain is a seeded value-noise approximation or superflat; mob AI and other dragonfly parity gaps are
-accepted. Docker-mounted LevelDB on macOS can be slow. A killed core can leave a container running; the next start
+dragonfly hosts superflat worlds only; its mob AI and other parity gaps are accepted. Docker-mounted LevelDB on macOS can be slow. A killed core can leave a container running; the next start
 of that world removes it.

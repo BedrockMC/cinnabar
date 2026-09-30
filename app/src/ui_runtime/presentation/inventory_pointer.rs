@@ -24,6 +24,16 @@ pub(crate) enum InventoryCellHit {
     RecipeBook(u16),
 }
 
+impl InventoryCellHit {
+    /// Whether the hit is a cell holding an item (not a control or tab).
+    pub(crate) const fn is_item_cell(self) -> bool {
+        !matches!(
+            self,
+            Self::Widget(_) | Self::CreativeTab(_) | Self::CreativeSearch
+        )
+    }
+}
+
 /// Which inventory screen is drawn.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum InventoryScreen {

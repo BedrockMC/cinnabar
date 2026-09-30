@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/df-mc/go-playfab/v2"
@@ -103,16 +104,51 @@ func Gatherings(ctx context.Context, src oauth2.TokenSource) ([]Gathering, error
 				continue
 			}
 			entry := gathering(experience)
-			joinContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-			if address, err := experience.Join(joinContext); err == nil && address != nil && address.String() != ":0" {
-				entry.Address = address.String()
-			}
-			cancel()
+			entry.Address = joinAddresses.lookup(entry.ID, func() string {
+				joinContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				if address, err := experience.Join(joinContext); err == nil && address != nil && address.String() != ":0" {
+					return address.String()
+				}
+				return ""
+			})
 			result = append(result, entry)
 		}
 		return nil
 	}, nil)
 	return result, err
+}
+
+// joinTTL keeps an experience's join allocation for the rows, pings and
+// details keyed by it; a fresh Join may place the player on another server.
+const joinTTL = 10 * time.Minute
+
+type joinMemo struct {
+	mu      sync.Mutex
+	entries map[string]joinEntry
+}
+
+type joinEntry struct {
+	address string
+	at      time.Time
+}
+
+var joinAddresses = &joinMemo{entries: map[string]joinEntry{}}
+
+// lookup returns id's remembered address, joining again once it is stale or
+// failed.
+func (m *joinMemo) lookup(id string, join func() string) string {
+	m.mu.Lock()
+	entry, ok := m.entries[id]
+	m.mu.Unlock()
+	if ok && entry.address != "" && time.Since(entry.at) < joinTTL {
+		return entry.address
+	}
+	address := join()
+	m.mu.Lock()
+	m.entries[id] = joinEntry{address: address, at: time.Now()}
+	m.mu.Unlock()
+	return address
 }
 
 // AccountProfile returns the signed-in gamertag, XUID and gamerpic; a missing

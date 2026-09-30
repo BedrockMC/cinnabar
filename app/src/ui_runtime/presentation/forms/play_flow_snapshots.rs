@@ -7,6 +7,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use ui::DpiScale;
 
 use super::pack_harness::engine_presentation;
+use crate::menu::MenuAction;
 use crate::menu::{
     LiveEventCard, LocalWorldCard, MenuFriendCard, MenuGameCard, MenuRealmCard, MenuRuntime,
     MenuScreen, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails, auth::AuthState,
@@ -338,4 +339,73 @@ fn the_disconnect_screen_has_a_way_back() {
         !texts.iter().any(|text| text.contains("session failed")),
         "the raw chain stays in the log: {texts:?}"
     );
+}
+
+// An overflowing server list scrolls under the wheel, bringing hidden rows into reach.
+#[test]
+fn the_server_list_scrolls_under_the_wheel() {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut view = fixture_view(&dir);
+    view.screen = MenuScreen::Servers;
+    view.featured = (0..20)
+        .map(|index| {
+            let address = format!("s{index}.example.net:19132");
+            server(
+                &format!("Server {index}"),
+                &address,
+                "Minigames",
+                String::new(),
+            )
+        })
+        .collect();
+    let runtime = UiRuntime::new(1);
+    let dpi = DpiScale::new(1.0).unwrap();
+    let frame = |presentation: &mut super::super::UiPresentationRuntime| {
+        presentation.set_menu_view(Some(view.clone()));
+        let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+        (presentation.menu_hit_targets.clone(), input)
+    };
+    let row = |hits: &[(MenuAction, ui::UiRect)], index| {
+        hits.iter()
+            .find(|(action, _)| *action == MenuAction::SelectFeatured(index))
+            .map(|(_, bounds)| *bounds)
+    };
+    let (before, input) = frame(&mut presentation);
+    super::snapshot::write(&input, "flow-servers-top");
+    assert!(
+        row(&before, 19).is_none(),
+        "the last row starts below the fold"
+    );
+    let first = row(&before, 0).unwrap().min();
+    let point = ui::UiPoint::new(first.x() + 4.0, first.y() + 4.0).unwrap();
+    assert!(presentation.scroll_menu(point, -100.0, false));
+    let (after, input) = frame(&mut presentation);
+    super::snapshot::write(&input, "flow-servers-scrolled");
+    assert!(row(&after, 19).is_some(), "the last row scrolled into view");
+    assert!(row(&after, 0).is_none(), "the first row scrolled out");
+}
+
+// The settings screen's JSON-UI scroll views take the wheel like the OreUI lists.
+#[test]
+fn the_settings_panes_take_the_wheel() {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut view = fixture_view(&dir);
+    view.screen = MenuScreen::Settings;
+    let runtime = UiRuntime::new(1);
+    let dpi = DpiScale::new(1.0).unwrap();
+    presentation.set_menu_view(Some(view.clone()));
+    presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    let left = ui::UiPoint::new(200.0, 400.0).unwrap();
+    assert!(presentation.scroll_menu(left, -40.0, false));
+    presentation.set_menu_view(Some(view));
+    let input = presentation.build(&runtime, 0, [1280, 720], dpi).unwrap();
+    super::snapshot::write(&input, "flow-settings-scrolled");
 }

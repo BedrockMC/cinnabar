@@ -16,8 +16,8 @@ pub use v4::{
     EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
-    EntityRenderCandidate, EntityRenderData, EntityRenderLayer, EntityRenderSlot,
-    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
+    EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
@@ -36,8 +36,9 @@ pub use v4::{
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
 pub const ENTITY_BLOB_VERSION: u32 = 6;
 /// Actor rig id ranges (a rig id is a `u32`):
-/// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings.
-/// - `PACK_RIG_ID_BASE..0x8000_0000`: the session's server-pack entity catalog bindings.
+/// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
+///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).
+/// - `PACK_RIG_ID_BASE..0x8000_0000`: the same two ranges for the session's server-pack catalog.
 /// - `0x8000_0000..0xC000_0000`: equipment geometry, `0x8000_0000 + index`, where an index
 ///   below `PACK_EQUIPMENT_INDEX_BASE` is a vanilla entity-catalog geometry (skulls sit at
 ///   `0x00ff_0000`) and one at or above it is `PACK_EQUIPMENT_INDEX_BASE + ` a geometry index
