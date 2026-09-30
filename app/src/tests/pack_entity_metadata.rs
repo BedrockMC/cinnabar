@@ -111,6 +111,16 @@ const OVERRIDE: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{
  "scripts":{"animate":["lift","turn"]},
  "render_controllers":["controller.render.logo"]}}}"#;
 
+// The same clips authored override-first: the later lift survives the earlier override.
+const ORDERED: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
+ "identifier":"test:ordered",
+ "materials":{"default":"entity_alphatest"},
+ "textures":{"default":"textures/entity/counter_zero"},
+ "geometry":{"default":"geometry.counter"},
+ "animations":{"lift":"animation.test.lift_loop","turn":"animation.test.turn_override"},
+ "scripts":{"animate":["turn","lift"]},
+ "render_controllers":["controller.render.logo"]}}}"#;
+
 const OVERRIDE_ANIMATION: &str = r#"{"format_version":"1.8.0","animations":{
  "animation.test.lift_loop":{"loop":true,"bones":{"root":{"position":[0,8,0]}}},
  "animation.test.turn_override":{"loop":true,"override_previous_animation":true,
@@ -159,6 +169,7 @@ fn pack() -> (Pack, ActorArtworkPages) {
         ("entity/title.entity.json".into(), TITLE.into()),
         ("entity/once.entity.json".into(), ONCE.into()),
         ("entity/override.entity.json".into(), OVERRIDE.into()),
+        ("entity/ordered.entity.json".into(), ORDERED.into()),
         (
             "animations/override.animation.json".into(),
             OVERRIDE_ANIMATION.into(),
@@ -488,4 +499,14 @@ fn an_override_clip_resets_the_whole_bone_pose() {
     let rig = world.actor_rig(42).unwrap();
     let lift = rig.current[0].translation_scale[1] - rig.rest[0].translation_scale[1];
     assert!(lift.abs() < 1e-5, "{lift}");
+}
+
+// Root animations run in their authored `animate` order, not sorted by alias.
+#[test]
+fn root_animations_run_in_authored_order() {
+    let (pack, _) = pack();
+    let world = world(pack, "test:ordered");
+    let rig = world.actor_rig(42).unwrap();
+    let lift = rig.current[0].translation_scale[1] - rig.rest[0].translation_scale[1];
+    assert!((lift - 8.0).abs() < 1e-4, "{lift}");
 }

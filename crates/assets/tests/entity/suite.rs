@@ -624,12 +624,14 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             name: 0,
             clip: 0,
             weight: None,
+            order: 0,
         }]
         .into_boxed_slice(),
         rig_controllers: vec![EntityRigControllerBinding {
             name: 0,
             controller: 0,
             weight: None,
+            order: 0,
         }]
         .into_boxed_slice(),
         item_visuals: vec![ItemVisualDefinition {

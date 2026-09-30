@@ -257,6 +257,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             name: 0,
             controller: 0,
             weight: None,
+            order: 0,
         }]
         .into_boxed_slice(),
         item_visuals: Box::new([]),

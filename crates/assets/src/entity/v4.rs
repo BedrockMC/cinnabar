@@ -253,6 +253,13 @@ pub struct EntityRigAnimationBinding {
     pub name: u32,
     pub clip: u32,
     pub weight: Option<u32>,
+    /// Position in the entity's authored `animate` list, shared with controller bindings.
+    #[serde(default, skip_serializing_if = "is_zero_order")]
+    pub order: u16,
+}
+
+fn is_zero_order(order: &u16) -> bool {
+    *order == 0
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -261,6 +268,8 @@ pub struct EntityRigControllerBinding {
     pub name: u32,
     pub controller: u32,
     pub weight: Option<u32>,
+    #[serde(default, skip_serializing_if = "is_zero_order")]
+    pub order: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

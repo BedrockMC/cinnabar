@@ -44,8 +44,8 @@ struct PendingRig {
 struct PendingRigGeometry {
     geometry: u32,
     condition: Option<u32>,
-    animations: Vec<(Box<str>, u32, Option<u32>)>,
-    controllers: Vec<(Box<str>, Box<str>, Option<u32>)>,
+    animations: Vec<(Box<str>, u32, Option<u32>, u16)>,
+    controllers: Vec<(Box<str>, Box<str>, Option<u32>, u16)>,
 }
 
 pub(super) struct FinalRigPayload {
@@ -70,21 +70,23 @@ impl PendingRigPayload {
             let first_geometry = geometries.len() as u32;
             for candidate in rig.geometries {
                 let first_animation = animations.len() as u32;
-                for (name, clip, weight) in candidate.animations {
+                for (name, clip, weight, order) in candidate.animations {
                     animations.push(EntityRigAnimationBinding {
                         name: name_index(&name)?,
                         clip,
                         weight,
+                        order,
                     });
                 }
                 let first_controller = controllers.len() as u32;
-                for (name, controller, weight) in candidate.controllers {
+                for (name, controller, weight, order) in candidate.controllers {
                     controllers.push(EntityRigControllerBinding {
                         name: name_index(&name)?,
                         controller: *controller_indices
                             .get(&(controller, rig.entity_symbol, candidate.geometry))
                             .ok_or_else(|| invalid("rig controller is absent"))?,
                         weight,
+                        order,
                     });
                 }
                 geometries.push(EntityRigGeometryBinding {
@@ -237,6 +239,13 @@ pub(super) fn compile_rigs(
                 .as_ref()
                 .is_none_or(|roots| roots.iter().any(|root| root.alias == name))
         };
+        // Roots play in their authored order, clips and controllers interleaved.
+        let root_order = |name: &str| {
+            roots
+                .as_ref()
+                .and_then(|roots| roots.iter().position(|root| root.alias == name))
+                .map_or(0, |position| u16::try_from(position).unwrap_or(u16::MAX))
+        };
         let mut pending_geometries = Vec::new();
         for (candidate_geometry, condition) in geometry_candidates {
             let mut animation_bindings = Vec::new();
@@ -281,19 +290,24 @@ pub(super) fn compile_rigs(
                         candidate_geometry,
                     ))
                 {
-                    controller_bindings.push((name.clone(), target.clone(), weight));
+                    controller_bindings.push((
+                        name.clone(),
+                        target.clone(),
+                        weight,
+                        root_order(name),
+                    ));
                 } else if let Some(&clip) = (!is_controller)
                     .then(|| clip_indices.get(&(target.clone(), candidate_geometry)))
                     .flatten()
                 {
-                    animation_bindings.push((name.clone(), clip, weight));
+                    animation_bindings.push((name.clone(), clip, weight, root_order(name)));
                 } else {
                     // A reference the pack never defines leaves the rig static.
                     static_fallback = true;
                 }
             }
-            animation_bindings.sort_by(|left, right| left.0.cmp(&right.0));
-            controller_bindings.sort_by(|left, right| left.0.cmp(&right.0));
+            animation_bindings.sort_by(|left, right| (left.3, &left.0).cmp(&(right.3, &right.0)));
+            controller_bindings.sort_by(|left, right| (left.3, &left.0).cmp(&(right.3, &right.0)));
             controller_bindings.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
             pending_geometries.push(PendingRigGeometry {
                 geometry: candidate_geometry,
