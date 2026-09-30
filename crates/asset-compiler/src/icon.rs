@@ -13,7 +13,9 @@ use sha2::{Digest, Sha256};
 use crate::entity::compile_entity_assets;
 use crate::image::decode_texture;
 
+mod blocks;
 mod cube;
+mod model;
 
 #[derive(Debug)]
 pub struct CompiledIconCarrier {
@@ -34,7 +36,13 @@ pub struct IconCompileReport {
     /// Raster sources outside the flat-icon bounds, skipped and counted.
     pub skipped_oversized: usize,
     pub block_visuals: usize,
+    /// Block items drawn as their flat carried texture.
+    pub flat_block_visuals: usize,
+    /// Non-cube 3D block items drawn from their isolated world template.
+    pub model_block_visuals: usize,
     pub skipped_blocks: usize,
+    /// Item identifiers of block items left without an icon.
+    pub unresolved_block_items: Vec<Box<str>>,
     /// Geometry, material, texture, and alpha refusals in that order.
     pub block_refusals: [usize; 4],
     pub block_registry_sha256: Option<[u8; 32]>,
@@ -71,14 +79,22 @@ fn compile(
             compiled.block_visual_count as usize,
         )?;
     }
+    let icon_blocks = world.map(|_| blocks::IconBlocks::read(root)).transpose()?;
     let mut block_plan = BTreeMap::new();
-    if let Some(world) = world {
+    let mut flat_plan = BTreeMap::new();
+    if let (Some(world), Some(flat)) = (world, icon_blocks.as_ref()) {
         for visual in compiled.item_visuals.iter() {
-            if let ItemVisualDefinitionRoute::BlockItem {
+            let ItemVisualDefinitionRoute::BlockItem {
                 block_visual: block,
             } = visual.route
-                && !block_plan.contains_key(&block.0)
-            {
+            else {
+                continue;
+            };
+            if flat.is_flat(world, block) {
+                flat_plan
+                    .entry(block.0)
+                    .or_insert_with(|| flat.texture_path(block));
+            } else if !block_plan.contains_key(&block.0) {
                 if block_plan.len() == cube::MAX_BLOCK_ICONS {
                     return Err(cube::invalid("block icon route count exceeds 1024"));
                 }
@@ -100,36 +116,17 @@ fn compile(
             }
             let source = &compiled.sources[source_index as usize];
             let decoded = decode_texture(&root.join(source.path.as_ref()), &source.path)?;
-            let (width, height, rgba8) =
-                if decoded.width <= MAX_ICON_SIDE && decoded.height <= MAX_ICON_SIDE {
-                    (decoded.width, decoded.height, decoded.rgba8)
-                } else if decoded.width <= MAX_ICON_SIDE
-                    && decoded.height > decoded.width
-                    && decoded.height % decoded.width.max(1) == 0
-                {
-                    // A vertical animation strip (compass, clock): the flat inventory
-                    // icon is the strip's first recorded frame, never a guessed crop.
-                    animation_strips += 1;
-                    let frame_bytes = decoded.width as usize * decoded.width as usize * 4;
-                    (
-                        decoded.width,
-                        decoded.width,
-                        decoded.rgba8[..frame_bytes].to_vec().into_boxed_slice(),
-                    )
-                } else {
-                    skipped_oversized += 1;
-                    sprite_by_source.insert(source_index, None);
-                    return Ok(None);
-                };
+            let Some((sprite, strip)) = bounded_sprite(decoded) else {
+                skipped_oversized += 1;
+                sprite_by_source.insert(source_index, None);
+                return Ok(None);
+            };
+            animation_strips += usize::from(strip);
             let index =
                 u32::try_from(sprites.len()).map_err(|_| AssetError::InvalidCompiledAssets {
                     detail: "icon sprite count exceeds platform".into(),
                 })?;
-            sprites.push(IconSprite {
-                width: u16::try_from(width).expect("bounded by MAX_ICON_SIDE"),
-                height: u16::try_from(height).expect("bounded by MAX_ICON_SIDE"),
-                rgba8: Arc::from(rgba8),
-            });
+            sprites.push(sprite);
             sprite_by_source.insert(source_index, Some(index));
             Ok(Some(index))
         };
@@ -153,6 +150,49 @@ fn compile(
             });
         }
         visual_sprites.push(sprite);
+    }
+    let mut flat_by_path: BTreeMap<Box<str>, Option<u32>> = BTreeMap::new();
+    let mut flat_sprites = BTreeMap::new();
+    for (&visual, path) in &flat_plan {
+        let Some(path) = path else {
+            continue;
+        };
+        let sprite = match flat_by_path.get(path) {
+            Some(existing) => *existing,
+            None => {
+                let sprite = blocks::IconBlocks::sprite(root, path)?.map(|sprite| {
+                    let existing = sprites.iter().position(|known| *known == sprite);
+                    existing.unwrap_or_else(|| {
+                        sprites.push(sprite);
+                        sprites.len() - 1
+                    }) as u32
+                });
+                flat_by_path.insert(path.clone(), sprite);
+                sprite
+            }
+        };
+        if let Some(sprite) = sprite {
+            flat_sprites.insert(visual, sprite);
+        }
+    }
+    let mut model_sprites = BTreeMap::new();
+    if let Some(world) = world {
+        for (&visual, plan) in &block_plan {
+            if plan.is_ok() {
+                continue;
+            }
+            let Some(raster) = model_raster(root, world, icon_blocks.as_ref(), visual)? else {
+                continue;
+            };
+            let index = sprites
+                .iter()
+                .position(|known| *known == raster)
+                .unwrap_or_else(|| {
+                    sprites.push(raster);
+                    sprites.len() - 1
+                });
+            model_sprites.insert(visual, index as u32);
+        }
     }
     // The legacy sprite-only entry point retains its exact accepted-input
     // behavior: unsupported keys never occupied that carrier. Only the new
@@ -234,14 +274,24 @@ fn compile(
         block_sprites.insert(visual, sprite);
     }
     let mut block_visuals = 0usize;
+    let mut flat_block_visuals = 0usize;
+    let mut model_block_visuals = 0usize;
     let mut skipped_blocks = 0usize;
     let mut block_refusals = [0usize; 4];
+    let mut unresolved_block_items = Vec::new();
     for (index, visual) in compiled.item_visuals.iter().enumerate() {
         if let ItemVisualDefinitionRoute::BlockItem {
             block_visual: block,
         } = visual.route
         {
-            if let Some(&sprite) = block_sprites.get(&block.0) {
+            let flat_sprite = flat_sprites.get(&block.0);
+            let model_sprite = model_sprites.get(&block.0);
+            flat_block_visuals += usize::from(flat_sprite.is_some());
+            model_block_visuals += usize::from(model_sprite.is_some());
+            if let Some(&sprite) = flat_sprite
+                .or(model_sprite)
+                .or_else(|| block_sprites.get(&block.0))
+            {
                 block_visuals += 1;
                 visual_sprites[index] = Some(sprite);
                 entries.push(IconEntry {
@@ -251,6 +301,7 @@ fn compile(
                 });
             } else if world.is_some() {
                 skipped_blocks += 1;
+                unresolved_block_items.push(visual.key.identifier.clone());
                 if let Some(Err(reason)) = block_plan.get(&block.0) {
                     block_refusals[*reason as usize] += 1;
                 }
@@ -284,11 +335,67 @@ fn compile(
             animation_strips,
             skipped_oversized,
             block_visuals,
+            flat_block_visuals,
+            model_block_visuals,
             skipped_blocks,
+            unresolved_block_items,
             block_refusals,
             block_registry_sha256: world.map(|world| world.provenance().block_registry_sha256),
             block_policy: world.map(|_| cube::POLICY),
         },
         bytes,
     })
+}
+
+/// Bounds a decoded texture to a flat icon: as-is within `MAX_ICON_SIDE`, else a vertical
+/// animation strip's first frame (`true`); anything else is refused.
+fn bounded_sprite(decoded: crate::image::DecodedTexture) -> Option<(IconSprite, bool)> {
+    let (width, height, rgba8, strip) =
+        if decoded.width <= MAX_ICON_SIDE && decoded.height <= MAX_ICON_SIDE {
+            (decoded.width, decoded.height, decoded.rgba8, false)
+        } else if decoded.width <= MAX_ICON_SIDE
+            && decoded.height > decoded.width
+            && decoded.height.is_multiple_of(decoded.width.max(1))
+        {
+            // A vertical animation strip (compass, clock): the flat inventory icon is the
+            // strip's first recorded frame, never a guessed crop.
+            let frame_bytes = decoded.width as usize * decoded.width as usize * 4;
+            let frame = decoded.rgba8[..frame_bytes].to_vec().into_boxed_slice();
+            (decoded.width, decoded.width, frame, true)
+        } else {
+            return None;
+        };
+    let sprite = IconSprite {
+        width: u16::try_from(width).ok()?,
+        height: u16::try_from(height).ok()?,
+        rgba8: Arc::from(rgba8),
+    };
+    Some((sprite, strip))
+}
+
+/// A 3D thumbnail for a block item the opaque-cube path refused: the item's icon state from the
+/// world carrier, else a full cube of the block's carried textures (leaves).
+fn model_raster(
+    root: &Path,
+    world: &assets::RuntimeAssets,
+    blocks: Option<&blocks::IconBlocks>,
+    visual: u32,
+) -> Result<Option<IconSprite>, AssetError> {
+    let visual = assets::BlockVisualId(visual);
+    let state = blocks.map_or(visual, |blocks| blocks.icon_state(visual));
+    if let Ok(model) = model::Model::read(world, state) {
+        return Ok(Some(model.raster()));
+    }
+    let Some(paths) = blocks.and_then(|blocks| blocks.carried_faces(visual)) else {
+        return Ok(None);
+    };
+    let mut tiles = Vec::with_capacity(6);
+    for path in &paths {
+        let Some(tile) = blocks::IconBlocks::tile(root, path)? else {
+            return Ok(None);
+        };
+        tiles.push(tile);
+    }
+    let tiles: [Box<[u8]>; 6] = tiles.try_into().expect("six faces");
+    Ok(Some(model::Model::cube(tiles).raster()))
 }

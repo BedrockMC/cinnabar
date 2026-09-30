@@ -28,6 +28,8 @@ pub(super) struct IconAssetsReport {
     pub(super) block_policy: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) block_shading: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) unresolved_block_items: Option<Vec<Box<str>>>,
 }
 
 #[derive(Serialize)]
@@ -40,6 +42,8 @@ pub(super) struct IconAssetCounts {
     pub(super) skipped_oversized: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) block_visuals: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) flat_block_visuals: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) skipped_blocks: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,6 +93,9 @@ pub(super) fn compile_icon_assets_command(
             .block_registry_sha256
             .map(|hash| hex(&hash).into_boxed_str()),
         block_policy: compiled.report.block_policy,
+        unresolved_block_items: world
+            .as_ref()
+            .map(|_| compiled.report.unresolved_block_items.clone()),
         block_shading: world
             .as_ref()
             .map(|_| "provisional authored side shading; retail comparison pending"),
@@ -100,6 +107,7 @@ pub(super) fn compile_icon_assets_command(
             animation_strips: compiled.report.animation_strips,
             skipped_oversized: compiled.report.skipped_oversized,
             block_visuals: world.as_ref().map(|_| compiled.report.block_visuals),
+            flat_block_visuals: world.as_ref().map(|_| compiled.report.flat_block_visuals),
             skipped_blocks: world.as_ref().map(|_| compiled.report.skipped_blocks),
             block_refusals: world.as_ref().map(|_| compiled.report.block_refusals),
         },

@@ -8,6 +8,7 @@ use std::path::Path;
 use assets::AssetError;
 
 pub use block::{BlockTextureMap, TextureKey, resolve_texture_key};
+pub(crate) use block::{resolve_carried_down_key, resolve_carried_face_key};
 pub use flipbook::{FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS};
 pub use terrain::TerrainTextureMap;
 
