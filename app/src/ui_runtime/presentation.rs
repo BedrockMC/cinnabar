@@ -560,6 +560,16 @@ impl UiPresentationRuntime {
             content_width,
             content_height,
         )?;
+        if !menu_visible {
+            self.append_toast_screen(
+                runtime,
+                &mut nodes,
+                &mut next_id,
+                metrics,
+                [content_width, content_height],
+                now_millis,
+            )?;
+        }
         self.sync_server_ui_pages();
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)

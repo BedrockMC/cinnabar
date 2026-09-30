@@ -1,13 +1,15 @@
-//! Toast rows remain independent from the gameplay HUD node count.
+//! Server toasts through vanilla `toast_screen.json`: the popup slides down
+//! from above the top edge, holds, slides back, and the next one follows.
 
 use std::sync::Arc;
 
-use protocol::{HudEvent, PlayerGameMode, UiEvent};
-use ui::{BoundedStat, DpiScale};
+use json_ui::{Draw, DrawNode};
+use protocol::{HudEvent, UiEvent};
+use ui::DpiScale;
 
-use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
+use crate::ui_runtime::{SequencedUiEvent, UiRuntime, presentation::UiPresentationRuntime};
 
-fn push_toast(runtime: &mut UiRuntime, fifo_sequence: u64) {
+fn push_toast(runtime: &mut UiRuntime, fifo_sequence: u64, title: &str, message: &str) {
     runtime
         .apply(SequencedUiEvent {
             session_id: 1,
@@ -15,42 +17,69 @@ fn push_toast(runtime: &mut UiRuntime, fifo_sequence: u64) {
             local_millis: 0,
             server_tick: None,
             event: UiEvent::Hud(HudEvent::Toast {
-                title: Arc::from("0"),
-                message: Arc::from("2"),
+                title: Arc::from(title),
+                message: Arc::from(message),
             }),
         })
         .unwrap();
 }
 
+fn text<'a>(nodes: &'a [DrawNode], wanted: &str) -> Option<&'a DrawNode> {
+    nodes
+        .iter()
+        .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == wanted))
+}
+
+fn build(presentation: &mut UiPresentationRuntime, runtime: &UiRuntime, now: u64) {
+    presentation
+        .build(runtime, now, [1280, 720], DpiScale::new(1.0).unwrap())
+        .expect("a remote toast never makes presentation fatal");
+}
+
 #[test]
-fn populated_survival_hud_does_not_offset_or_reject_remote_toast_rows() {
+fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
     let Some(mut presentation) = super::engine_hud_tests::engine_presentation() else {
         return;
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(PlayerGameMode::Survival);
-    runtime.hud.set_stats(
-        BoundedStat::new(20, 20),
-        BoundedStat::new(20, 20),
-        BoundedStat::new(20, 20),
-        None,
-    );
+    push_toast(&mut runtime, 1, "Welcome", "to the server");
+    push_toast(&mut runtime, 2, "Second", "");
+    let start = runtime.hud().toasts()[0].received_millis;
+    let title_bottom = |presentation: &UiPresentationRuntime, wanted: &str| {
+        text(presentation.toast_draw_nodes(), wanted).map(|node| node.dest.y + node.dest.h)
+    };
+    build(&mut presentation, &runtime, start);
+    let hidden = title_bottom(&presentation, "Welcome").unwrap();
+    assert!(hidden <= 0.0, "starts above the top edge: {hidden}");
+    build(&mut presentation, &runtime, start + 1_000);
+    let shown = title_bottom(&presentation, "Welcome").unwrap();
+    assert!(shown > 0.0 && shown <= 32.0, "slid 32 px down: {shown}");
+    assert!(text(presentation.toast_draw_nodes(), "to the server").is_some());
+    // One at a time: the second waits for the first to slide away.
+    assert!(text(presentation.toast_draw_nodes(), "Second").is_none());
+    build(&mut presentation, &runtime, start + 3_400 + 1_000);
+    assert!(text(presentation.toast_draw_nodes(), "Second").is_some());
+    assert!(text(presentation.toast_draw_nodes(), "Welcome").is_none());
+}
 
-    let baseline = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
+/// Local-only: writes `toast_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
+#[test]
+fn toast_screen_snapshot() {
+    let Some(mut presentation) = super::engine_hud_tests::engine_presentation_with(
+        super::super::forms::pack_harness::font(),
+    ) else {
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    push_toast(&mut runtime, 1, "Welcome", "to the server");
+    let start = runtime.hud().toasts()[0].received_millis;
+    let input = presentation
+        .build(
+            &runtime,
+            start + 1_000,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
         .unwrap();
-    assert!(
-        baseline.vertices.len() / 4 >= 60,
-        "fixture must exercise the populated-HUD crash threshold"
-    );
-
-    push_toast(&mut runtime, 1);
-    let with_toast = presentation
-        .build(&runtime, 0, [1280, 720], DpiScale::new(1.0).unwrap())
-        .expect("a routine remote toast must not make presentation fatal");
-    // Border and fill quads plus a shadowed one-glyph title and message.
-    assert_eq!(
-        with_toast.vertices.len(),
-        baseline.vertices.len() + 2 * 4 + 2 * 8
-    );
+    super::super::forms::snapshot::write(&input, "toast_screen");
 }

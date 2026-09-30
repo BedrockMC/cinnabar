@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use ui::{
-    BoundedStat, HudStore, HudViewRole, MAX_TOASTS, PROVISIONAL_TOAST_DURATION_MILLIS,
-    TitleDurations, Toast,
+    BoundedStat, HudStore, HudViewRole, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
+    TOAST_SLIDE_OUT_MILLIS, TitleDurations, Toast,
 };
 
 #[test]
@@ -38,67 +38,70 @@ fn title_reset_clears_text_and_restores_vanilla_durations() {
 fn toast_queue_is_bounded_and_view_nodes_preserve_fifo_order() {
     let mut hud = HudStore::default();
     for sequence in 1..=(MAX_TOASTS as u64 + 1) {
-        hud.push_toast(Toast {
-            title: Arc::from(format!("title {sequence}")),
-            message: Arc::from(format!("message {sequence}")),
-            fifo_sequence: sequence,
-            received_millis: sequence,
-            expires_millis: u64::MAX,
-        });
+        hud.push_toast(Toast::new(
+            Arc::from(format!("title {sequence}")),
+            Arc::from(format!("message {sequence}")),
+            sequence,
+            sequence,
+        ));
     }
 
     assert_eq!(hud.toasts().len(), MAX_TOASTS);
     assert_eq!(hud.toasts().front().unwrap().fifo_sequence, 2);
-    let nodes = hud.view_nodes(0);
-    assert_eq!(nodes.len(), MAX_TOASTS * 2);
+    // One toast shows at a time; the rest wait their turn.
+    let nodes = hud.view_nodes(hud.toasts().front().unwrap().started_millis);
+    assert_eq!(nodes.len(), 2);
     assert_eq!(nodes[0].source_sequence, 2);
     assert_eq!(nodes[0].role, HudViewRole::ToastTitle);
     assert_eq!(nodes[1].role, HudViewRole::ToastMessage);
 }
 
+const TOAST_MILLIS: u64 = TOAST_DISPLAY_MILLIS + TOAST_SLIDE_OUT_MILLIS;
+
 #[test]
-fn toasts_expire_after_the_provisional_duration() {
+fn a_toast_slides_in_stays_and_slides_out_on_the_vanilla_timings() {
     let mut hud = HudStore::default();
     hud.push_toast(Toast::new(Arc::from("hello"), Arc::from("world"), 9, 1_000));
-
+    let toast = hud.toasts().front().unwrap().clone();
+    assert_eq!(toast.expires_millis, 1_000 + TOAST_MILLIS);
+    assert_eq!(toast.slide(1_000), 0.0);
+    assert_eq!(toast.slide(1_000 + TOAST_SLIDE_IN_MILLIS / 2), 0.5);
+    assert_eq!(toast.slide(1_000 + TOAST_SLIDE_IN_MILLIS), 1.0);
+    assert_eq!(toast.slide(1_000 + TOAST_DISPLAY_MILLIS), 1.0);
     assert_eq!(
-        hud.toasts().front().unwrap().expires_millis,
-        1_000 + PROVISIONAL_TOAST_DURATION_MILLIS
+        toast.slide(1_000 + TOAST_DISPLAY_MILLIS + TOAST_SLIDE_OUT_MILLIS / 2),
+        0.5
     );
-    assert!(!hud.view_nodes(5_999).is_empty());
-
-    // Exactly at expiry the toast stops rendering, and expire() removes it
-    // together with its retained-byte accounting.
-    assert!(
-        hud.view_nodes(1_000 + PROVISIONAL_TOAST_DURATION_MILLIS)
-            .is_empty()
-    );
-    hud.expire(1_000 + PROVISIONAL_TOAST_DURATION_MILLIS);
+    assert!(!hud.view_nodes(1_000 + TOAST_MILLIS - 1).is_empty());
+    // Exactly at expiry it stops rendering, and expire() removes it with its bytes.
+    assert!(hud.view_nodes(1_000 + TOAST_MILLIS).is_empty());
+    hud.expire(1_000 + TOAST_MILLIS);
     assert!(hud.toasts().is_empty());
 }
 
 #[test]
-fn toast_expiry_prunes_only_expired_fronts_in_order() {
+fn queued_toasts_show_one_after_another_and_expire_in_order() {
     let mut hud = HudStore::default();
-    let mut first = Toast::new(Arc::from("one"), Arc::from("m"), 1, 0);
-    first.expires_millis = 100;
-    let mut second = Toast::new(Arc::from("two"), Arc::from("m"), 2, 10);
-    second.expires_millis = 200;
-    let third = Toast::new(Arc::from("three"), Arc::from("m"), 3, 20);
-    hud.push_toast(first);
-    hud.push_toast(second);
-    hud.push_toast(third);
-
-    hud.expire(150);
-
-    assert_eq!(hud.toasts().len(), 2);
-    assert_eq!(hud.toasts().front().unwrap().fifo_sequence, 2);
-    let nodes = hud.view_nodes(150);
-    assert_eq!(nodes.len(), 4);
+    for (sequence, received) in [(1, 0), (2, 10), (3, 20)] {
+        hud.push_toast(Toast::new(
+            Arc::from("t"),
+            Arc::from("m"),
+            sequence,
+            received,
+        ));
+    }
+    let starts: Vec<u64> = hud
+        .toasts()
+        .iter()
+        .map(|toast| toast.started_millis)
+        .collect();
+    assert_eq!(starts, [0, TOAST_MILLIS, 2 * TOAST_MILLIS]);
+    let nodes = hud.view_nodes(TOAST_MILLIS + 5);
+    assert_eq!(nodes.len(), 2);
     assert_eq!(nodes[0].source_sequence, 2);
-
-    // The provisional duration keeps the last toast alive well past 250 ms.
-    hud.expire(20 + PROVISIONAL_TOAST_DURATION_MILLIS);
+    hud.expire(TOAST_MILLIS + 5);
+    assert_eq!(hud.toasts().front().unwrap().fifo_sequence, 2);
+    hud.expire(3 * TOAST_MILLIS);
     assert!(hud.toasts().is_empty());
 }
 

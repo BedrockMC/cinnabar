@@ -25,6 +25,7 @@ mod start_feed;
 #[cfg(test)]
 pub(crate) mod tests;
 mod textures;
+mod toast_screen;
 
 pub(crate) use chat_screen::ChatHit;
 pub(crate) use panorama::drive_menu_panorama;

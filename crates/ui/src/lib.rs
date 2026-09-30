@@ -21,8 +21,8 @@ pub use chat::{
 pub use geometry::{DpiScale, GeometryError, SafeArea, UiPoint, UiRect, UiScale};
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
-    MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, PROVISIONAL_TOAST_DURATION_MILLIS, TimedText,
-    TitleDurations, Toast,
+    MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
+    TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast,
 };
 pub use model::{
     FocusState, FocusTransition, TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiDrawList,

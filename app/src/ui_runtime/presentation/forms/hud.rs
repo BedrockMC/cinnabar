@@ -151,6 +151,8 @@ impl CachedScreen {
 pub(super) struct HudScreens {
     pub(super) hud: CachedScreen,
     crosshair: CachedScreen,
+    /// The toast screen, drawn above everything in game.
+    pub(super) toast: CachedScreen,
     /// This frame's fade clocks (title, action bar, item name).
     clocks: std::collections::BTreeMap<String, f64>,
 }

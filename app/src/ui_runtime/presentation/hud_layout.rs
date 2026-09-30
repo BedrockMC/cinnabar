@@ -27,7 +27,6 @@ mod sleep;
 mod status_motion;
 mod status_rows;
 pub(super) use status_rows::capture as capture_hud_paint;
-mod toasts;
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
@@ -212,7 +211,7 @@ impl<'a> HudLayout<'a> {
     }
 
     /// The Java-styled surfaces outside the engine HUD: inventory screens, the
-    /// sleep overlay, the first-person hands, and toasts.
+    /// sleep overlay, and the first-person hands.
     pub(super) fn append(
         &mut self,
         runtime: &UiRuntime,
@@ -229,7 +228,6 @@ impl<'a> HudLayout<'a> {
         if frame.first_person && mode_allows_hotbar {
             self.held_items(frame)?;
         }
-        self.toasts(runtime, frame.now_millis)?;
         Ok(())
     }
 
