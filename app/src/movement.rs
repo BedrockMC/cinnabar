@@ -28,8 +28,8 @@ mod trace;
 pub(crate) use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::PhysicsCollisionRegistries;
-pub(crate) use correction_shape::reconcile_committed_correction;
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
+pub(crate) use correction_shape::{reconcile_committed_correction, reconcile_server_motion};
 pub(crate) use diagnostics::{CorrectionKind, note_correction, note_motion};
 pub(crate) use effects::{LocalMovementEffectTimeline, MiningEffects};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
@@ -137,7 +137,6 @@ pub struct MovementTicker {
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
-    survival_epoch_publisher: watch::Sender<u64>,
 }
 
 #[cfg(test)]
@@ -151,7 +150,6 @@ impl Default for MovementTicker {
 impl MovementTicker {
     pub(crate) fn with_epoch_publisher(epoch_publisher: watch::Sender<u64>) -> Self {
         let (mining_epoch_publisher, _mining_epoch_receiver) = watch::channel(0);
-        let (survival_epoch_publisher, _survival_epoch_receiver) = watch::channel(0);
         Self {
             session_active: false,
             source: MovementSource::default(),
@@ -179,7 +177,6 @@ impl MovementTicker {
             unmarked_move_players_observed: 0,
             epoch_publisher,
             mining_epoch_publisher,
-            survival_epoch_publisher,
         }
     }
 

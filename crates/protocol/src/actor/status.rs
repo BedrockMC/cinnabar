@@ -11,6 +11,8 @@ use crate::{ActorEvent, ActorKind, ActorPacketError, ActorSpawnEvent, item::norm
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorStatusKind {
     Hurt,
+    /// Event 81: hurt animation and sound without the red damage flash.
+    HurtWithoutDamage,
     Death,
     /// Failed taming: smoke particles.
     TamingFailed,
@@ -101,9 +103,8 @@ pub(crate) fn normalize_add_item_actor(
 /// Maps an ActorEvent packet to a status event, or `None` for ids the client draws nothing for.
 pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEvent> {
     let kind = match packet.event_id {
-        EnumsActorEvent::Hurt | EnumsActorEvent::HurtWithoutReceivingDamage => {
-            ActorStatusKind::Hurt
-        }
+        EnumsActorEvent::Hurt => ActorStatusKind::Hurt,
+        EnumsActorEvent::HurtWithoutReceivingDamage => ActorStatusKind::HurtWithoutDamage,
         EnumsActorEvent::Death | EnumsActorEvent::InstantDeath => ActorStatusKind::Death,
         EnumsActorEvent::TamingFailed => ActorStatusKind::TamingFailed,
         EnumsActorEvent::TamingSucceeded => ActorStatusKind::TamingSucceeded,
@@ -157,6 +158,13 @@ mod tests {
                 data: 4,
             }))
         );
+        assert!(matches!(
+            normalize_actor_event(packet(EnumsActorEvent::HurtWithoutReceivingDamage)),
+            Some(ActorEvent::Status(ActorStatusEvent {
+                kind: ActorStatusKind::HurtWithoutDamage,
+                ..
+            }))
+        ));
         assert!(matches!(
             normalize_actor_event(packet(EnumsActorEvent::InstantDeath)),
             Some(ActorEvent::Status(ActorStatusEvent {

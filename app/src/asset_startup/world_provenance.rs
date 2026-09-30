@@ -65,7 +65,7 @@ pub(crate) fn active_content_registry_protocol() -> u32 {
         .wire_protocol
 }
 
-const VANILLA_SOURCE_JSON: &str = include_str!("../../../assets/vanilla-source.json");
+const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
 const BLOCK_REGISTRY_BYTES: &[u8] =
     include_bytes!("../../../crates/assets/data/block-registry-v2193.bin");
 const LIGHT_REGISTRY_BYTES: &[u8] =
@@ -129,7 +129,7 @@ pub(crate) fn verify_world_carrier(
                 component,
                 expected: format_sha256(expected),
                 actual: format_sha256(actual),
-                rebuild_command: COMPILE_COMMAND,
+                rebuild_command: COMPILE_COMMAND.as_str(),
             });
         }
     }

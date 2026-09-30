@@ -120,7 +120,7 @@ fn empty_slot(name: u8, slot: u16) -> InventoryEvent {
     InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity {
             container: ContainerIdentity {
-                window_id: Some(if name == 13 { 124 } else { 0 }),
+                window_id: Some(if matches!(name, 13 | 59) { 124 } else { 0 }),
                 slot_type: Some(name),
                 dynamic_id: None,
             },

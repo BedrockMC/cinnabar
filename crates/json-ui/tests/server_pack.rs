@@ -2,7 +2,9 @@
 //! unpacked resource packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest
 //! first). Skips when either is absent; packs are never committed.
 
-use std::path::{Path, PathBuf};
+mod support;
+
+use std::path::Path;
 
 use json_ui::{
     ActionElement, ActionForm, Catalog, Context, Draw, FormButton, FormModel, LayoutEnv,
@@ -53,8 +55,7 @@ fn files(root: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 fn overlaid() -> Option<Catalog> {
-    let vanilla = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/ui");
+    let vanilla = support::vanilla_pack().join("ui");
     let packs = std::env::var("CINNABAR_FORM_PACK_DIR").ok()?;
     let mut catalog = Catalog::load_dir(&vanilla).ok()?;
     let base = catalog.diagnostics().len();

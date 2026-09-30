@@ -66,6 +66,14 @@ impl FirstPersonArms {
             left: (main == Some(FILLED_MAP) && off != Some(SHIELD)) || off == Some(FILLED_MAP),
         }
     }
+
+    /// Shows the right arm when the main-hand item drew nothing, so the rig still swings.
+    pub(crate) fn with_undrawn_main(self, main_drawn: bool) -> Self {
+        Self {
+            right: self.right || !main_drawn,
+            ..self
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

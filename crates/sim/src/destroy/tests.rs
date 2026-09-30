@@ -224,3 +224,18 @@ fn flying_is_exempt_from_the_airborne_penalty_but_riding_is_not() {
     };
     assert_eq!(ticks("minecraft:stone", riding_flight), Some(113));
 }
+
+/// Bedrock swords clear bamboo in one tick, not at the generic sword speed.
+#[test]
+fn swords_clear_bamboo_at_the_bedrock_special_speed() {
+    let bamboo = block_destroy_info("minecraft:bamboo").unwrap();
+    let rate = destroy_progress_per_tick(&bamboo, &grounded(Some("minecraft:iron_sword")));
+    assert_eq!(rate, Some(1.0));
+    let sapling = block_destroy_info("minecraft:bamboo_sapling").unwrap();
+    assert_eq!(
+        destroy_progress_per_tick(&sapling, &grounded(Some("minecraft:wooden_sword"))),
+        Some(1.0)
+    );
+    // The special case is sword-only.
+    assert!(destroy_progress_per_tick(&bamboo, &grounded(None)).unwrap() < 0.1);
+}

@@ -1,0 +1,58 @@
+{
+  "namespace": "example_common",
+
+  // A filled rectangle; `$fill` picks its colour.
+  "fill": {
+    "type": "image",
+    "$fill|default": "$example_panel_color",
+    "color": "$fill"
+  },
+
+  "heading": {
+    "type": "label",
+    "$heading_text|default": "Heading",
+    "text": "$heading_text",
+    "color": "$example_accent",
+    "shadow": true,
+    "font_scale_factor": 1.5
+  },
+
+  // One list row; the factory creates it per `rows` collection item.
+  "row": {
+    "type": "panel",
+    "size": ["100%", 16],
+    "controls": [
+      { "row_bg@example_common.fill": { "$fill": [1, 1, 1, 0.08], "size": ["100% - 4px", "100% - 2px"] } },
+      {
+        "row_label": {
+          "type": "label",
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "offset": [6, 0],
+          "text": "#row_text",
+          "bindings": [
+            { "binding_type": "collection", "binding_collection_name": "rows", "binding_name": "#row_text" }
+          ]
+        }
+      }
+    ]
+  },
+
+  "pulse": {
+    "anim_type": "alpha",
+    "easing": "in_out_sine",
+    "duration": 1.2,
+    "from": 1.0,
+    "to": 0.25,
+    "next": "@example_common.pulse_back"
+  },
+
+  "pulse_back": {
+    "anim_type": "alpha",
+    "easing": "in_out_sine",
+    "duration": 1.2,
+    "from": 0.25,
+    "to": 1.0,
+    "next": "@example_common.pulse"
+  }
+}

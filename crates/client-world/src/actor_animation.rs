@@ -322,12 +322,12 @@ impl ActorAnimationStore {
     }
 
     /// Restarts the arm swing whose progress feeds `variable.attack_time`.
-    pub(crate) fn start_swing(&mut self, runtime_id: u64) {
+    pub(crate) fn start_swing(&mut self, runtime_id: u64, ticks: i32) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
             return;
         };
         if let Some(state) = self.rigs.get_mut(lifetime) {
-            state.motion.start_swing();
+            state.motion.start_swing(ticks);
         }
     }
 
@@ -833,6 +833,7 @@ mod render;
 mod skin;
 mod tick;
 use evaluation::{EngineSlots, Evaluator, MolangVariables, VariableLayout};
+pub use motion::ACTOR_SWING_TICKS;
 use motion::{MotionInput, MotionState};
 use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;

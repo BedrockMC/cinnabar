@@ -98,6 +98,8 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) origin_capacity: usize,
     pub(in crate::chunk) biome_capacity: usize,
     pub(in crate::chunk) indirect_capacity: usize,
+    /// What `indirect_buffer` currently holds, so an unchanged frame skips its write.
+    pub(in crate::chunk) uploaded_indirect_bytes: Vec<u8>,
     pub(in crate::chunk) quad_len: usize,
     pub(in crate::chunk) geometry_stream_len: usize,
     pub(in crate::chunk) origin_len: usize,
@@ -111,6 +113,7 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) retired_allocations: Vec<RetiredArenaAllocation>,
     pub(in crate::chunk) pending_removals: BTreeSet<Entity>,
     pub(in crate::chunk) retirement_budget: TransparentRetirementBudget,
+    pub(in crate::chunk) migration: Option<ArenaMigration>,
 }
 
 pub(in crate::chunk) fn init_chunk_gpu_arena(
@@ -172,6 +175,7 @@ impl ChunkGpuArena {
             origin_capacity: 1,
             biome_capacity: FALLBACK_BIOME_WORDS,
             indirect_capacity: 1,
+            uploaded_indirect_bytes: Vec::new(),
             quad_len: 0,
             geometry_stream_len: 0,
             origin_len: 0,
@@ -188,6 +192,7 @@ impl ChunkGpuArena {
                 MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
                 MAX_TRANSPARENT_RETIRED_BYTES,
             ),
+            migration: None,
         }
     }
 }
@@ -375,17 +380,173 @@ pub(in crate::chunk) fn plan_gpu_chunk_updates(
         .collect()
 }
 
-pub(in crate::chunk) fn commit_chunk_range_plan(
+/// Ranges for a fresh allocation, found without copying the free lists; the
+/// arena is only mutated by [`commit_fresh_chunk_ranges`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::chunk) struct FreshChunkRanges {
+    pub(in crate::chunk) quad_start: u32,
+    pub(in crate::chunk) quad_capacity: u32,
+    pub(in crate::chunk) geometry_stream_start: u32,
+    pub(in crate::chunk) geometry_stream_capacity: u32,
+    pub(in crate::chunk) model_start: u32,
+    pub(in crate::chunk) model_lighting_start: u32,
+    pub(in crate::chunk) model_draw_start: u32,
+    pub(in crate::chunk) transparent_model_draw_start: u32,
+    pub(in crate::chunk) liquid_start: u32,
+    pub(in crate::chunk) liquid_lighting_start: u32,
+    pub(in crate::chunk) cube_lighting_start: u32,
+    pub(in crate::chunk) biome_start: u32,
+    pub(in crate::chunk) biome_capacity: u32,
+    pub(in crate::chunk) quad_len: usize,
+    pub(in crate::chunk) geometry_stream_len: usize,
+    pub(in crate::chunk) biome_len: usize,
+}
+
+/// Where a fresh first-fit allocation of `required` would land and the
+/// resulting arena length.
+fn probe_range(
+    len: usize,
+    free: &[Range<u32>],
+    required: u32,
+    max_items: usize,
+) -> Option<(u32, usize)> {
+    if required == 0 {
+        return Some((0, len));
+    }
+    if let Some(range) = free
+        .iter()
+        .find(|range| range.end - range.start >= required)
+    {
+        return Some((range.start, len));
+    }
+    let next = len.checked_add(required as usize)?;
+    if next > max_items || len > u32::MAX as usize {
+        return None;
+    }
+    Some((len as u32, next))
+}
+
+fn probe_aligned_range(
+    len: usize,
+    free: &[Range<u32>],
+    required: u32,
+    max_items: usize,
+    alignment: u32,
+) -> Option<(u32, usize)> {
+    if required == 0 {
+        return Some((0, len));
+    }
+    for range in free {
+        let start = checked_align_up(range.start, alignment)?;
+        if start.checked_add(required)? <= range.end {
+            return Some((start, len));
+        }
+    }
+    let start = checked_align_up(u32::try_from(len).ok()?, alignment)?;
+    let end = start.checked_add(required)?;
+    if end as usize > max_items {
+        return None;
+    }
+    Some((start, end as usize))
+}
+
+/// Plans a fresh allocation by probing the free lists in place; the arena is
+/// only mutated when [`commit_fresh_chunk_ranges`] replays the same choice.
+pub(in crate::chunk) fn plan_fresh_chunk_ranges(
+    arena: &ChunkGpuArena,
+    required: GeometryStreamCounts,
+    biome_required: u32,
+) -> Option<FreshChunkRanges> {
+    let limits = arena.limits;
+    let (quad_start, quad_len) = probe_range(
+        arena.quad_len,
+        &arena.free_quads,
+        required.cube,
+        limits.max_quad_items,
+    )?;
+    let layout = required.layout()?;
+    let (geometry_stream_start, geometry_stream_len) = probe_aligned_range(
+        arena.geometry_stream_len,
+        &arena.free_geometry_stream_words,
+        layout.word_count,
+        limits.max_geometry_stream_words,
+        SHARED_GEOMETRY_ALIGNMENT_WORDS,
+    )?;
+    let (biome_start, biome_len) = probe_range(
+        arena.biome_len,
+        &arena.free_biomes,
+        biome_required,
+        limits.max_biome_words,
+    )?;
+    Some(FreshChunkRanges {
+        quad_start,
+        quad_capacity: required.cube,
+        geometry_stream_start,
+        geometry_stream_capacity: layout.word_count,
+        model_start: geometry_stream_start.checked_add(layout.model_offset)?,
+        model_lighting_start: geometry_stream_start.checked_add(layout.model_lighting_offset)?,
+        model_draw_start: geometry_stream_start.checked_add(layout.model_draw_offset)?,
+        transparent_model_draw_start: geometry_stream_start
+            .checked_add(layout.transparent_model_draw_offset)?,
+        liquid_start: geometry_stream_start.checked_add(layout.liquid_offset)?,
+        liquid_lighting_start: geometry_stream_start.checked_add(layout.liquid_lighting_offset)?,
+        cube_lighting_start: geometry_stream_start.checked_add(layout.cube_lighting_offset)?,
+        biome_start,
+        biome_capacity: biome_required,
+        quad_len,
+        geometry_stream_len,
+        biome_len,
+    })
+}
+
+/// Performs the allocation [`plan_fresh_chunk_ranges`] probed.
+pub(in crate::chunk) fn commit_fresh_chunk_ranges(
     arena: &mut ChunkGpuArena,
-    mut plan: ChunkRangePlan,
-) -> ChunkRangePlan {
-    arena.quad_len = plan.quad_len;
-    arena.free_quads = std::mem::take(&mut plan.free_quads);
-    arena.geometry_stream_len = plan.geometry_stream_len;
-    arena.free_geometry_stream_words = std::mem::take(&mut plan.free_geometry_stream_words);
-    arena.biome_len = plan.biome_len;
-    arena.free_biomes = std::mem::take(&mut plan.free_biomes);
-    plan
+    ranges: &FreshChunkRanges,
+) {
+    let limits = arena.limits;
+    let quad = allocate_range_for_update(
+        &mut arena.quad_len,
+        &mut arena.free_quads,
+        ranges.quad_capacity,
+        None,
+        limits.max_quad_items,
+        0,
+    );
+    let geometry = allocate_aligned_range_for_update(
+        &mut arena.geometry_stream_len,
+        &mut arena.free_geometry_stream_words,
+        ranges.geometry_stream_capacity,
+        None,
+        limits.max_geometry_stream_words,
+        0,
+        SHARED_GEOMETRY_ALIGNMENT_WORDS,
+    );
+    let biome = allocate_range_for_update(
+        &mut arena.biome_len,
+        &mut arena.free_biomes,
+        ranges.biome_capacity,
+        None,
+        limits.max_biome_words,
+        0,
+    );
+    debug_assert_eq!(quad, Some((ranges.quad_start, ranges.quad_capacity)));
+    debug_assert_eq!(
+        geometry,
+        Some((
+            ranges.geometry_stream_start,
+            ranges.geometry_stream_capacity
+        ))
+    );
+    debug_assert_eq!(biome, Some((ranges.biome_start, ranges.biome_capacity)));
+    debug_assert_eq!(
+        (arena.quad_len, arena.geometry_stream_len, arena.biome_len),
+        (
+            ranges.quad_len,
+            ranges.geometry_stream_len,
+            ranges.biome_len
+        )
+    );
 }
 
 pub(in crate::chunk) fn checked_geometry_range(start: u32, count: u32) -> Option<Range<u32>> {
@@ -395,6 +556,7 @@ pub(in crate::chunk) fn checked_geometry_range(start: u32, count: u32) -> Option
     start.checked_add(count).map(|end| start..end)
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkRangePlan {
     pub(in crate::chunk) quad_start: u32,
@@ -418,6 +580,7 @@ pub(in crate::chunk) struct ChunkRangePlan {
     pub(in crate::chunk) free_biomes: Vec<Range<u32>>,
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn plan_chunk_range_update(
     mut quad_len: usize,

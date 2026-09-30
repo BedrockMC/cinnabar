@@ -41,8 +41,8 @@ use serde_json::Value;
 
 pub use anim::{Chain, Fade, FlipBook, Step, StepKind, fade_factor, fade_factor_at};
 pub use bind::{
-    CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_shared,
-    scoped_key,
+    CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind, bind_reporting,
+    bind_shared, scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{
@@ -55,8 +55,8 @@ pub use expr::{
 pub use form::{
     ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
     CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
-    form_context, form_data_source, form_screen_cancel, form_template, render_bound, render_form,
-    render_form_with,
+    form_context, form_data_source, form_factory_id, form_screen_cancel, form_template,
+    render_bound, render_form, render_form_with,
 };
 pub use hud::{
     BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
@@ -97,6 +97,28 @@ impl Context {
             .with_flag("desktop_screen", true)
             .with_flag("pocket_screen", false)
             .with_flag("touch", false)
+    }
+
+    /// The desktop context plus the globals a retail, full-game, non-edu client
+    /// computes in code (`VanillaSceneFactory::createGlobalVars`).
+    pub fn retail(macos: bool) -> Self {
+        Self::desktop()
+            .with_flag("win10_edition", !macos)
+            .with_flag("osx_edition", macos)
+            .with_flag("pocket_edition", false)
+            .with_flag("console_edition", false)
+            .with_flag("trial", false)
+            .with_flag("education_edition", false)
+            .with_flag("store_disabled", false)
+            .with_flag("is_ios", false)
+            .with_flag("nx_os", false)
+            .with_flag("is_ps4", false)
+            .with_flag("is_publish", true)
+    }
+
+    /// The variables set so far, keyed without `$`.
+    pub fn vars(&self) -> &BTreeMap<String, Value> {
+        &self.vars
     }
 
     /// Set a boolean flag (stored under `name`, without a `$`).
