@@ -18,8 +18,8 @@ pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
 const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v2193.bin");
 const ROUTE_SCHEMA: u32 = 1;
 const ROUTE_PROTOCOL: u32 = 2193;
-const DRAGONFLY_VERSION: &str = "v0.11.1-0.20260714151819-dbbd8b787946";
-const DRAGONFLY_MODULE_SUM: &str = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY=";
+const DRAGONFLY_VERSION: &str = "v0.11.5";
+const DRAGONFLY_MODULE_SUM: &str = "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=";
 
 pub(super) struct ItemPayload {
     pub block_visual_count: u32,
