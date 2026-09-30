@@ -24,32 +24,32 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Config wires a Service. A nil TokenSource means the core runs without an account.
+// Config wires a Service. A nil Account means the core runs without one.
 type Config struct {
-	TokenSource oauth2.TokenSource
-	AuthCache   string // token cache path; sign-out deletes it and its derived cache
-	Store       *control.Store
-	Selector    *proxy.UpstreamSelector
-	Transfers   *proxy.TransferState
-	ArtworkDir  string // screen artwork cache; empty skips caching
-	CacheFile   string // last good catalog; empty keeps it in memory only
-	Logger      *slog.Logger
+	Account    *authcache.Account // shared per-account runtime; sign-out closes it
+	AuthCache  string             // token cache path; sign-out deletes it and its derived cache
+	Store      *control.Store
+	Selector   *proxy.UpstreamSelector
+	Transfers  *proxy.TransferState
+	ArtworkDir string // screen artwork cache; empty skips caching
+	CacheFile  string // last good catalog; empty keeps it in memory only
+	Logger     *slog.Logger
 	// StoreImageDir holds cached Marketplace images; empty disables them.
 	StoreImageDir string
 
 	// Injectable for tests; nil selects the real implementation.
-	Realms   func(context.Context, oauth2.TokenSource) ([]catalog.Realm, error)
-	Friends  func(context.Context, oauth2.TokenSource) ([]catalog.Friend, error)
-	Gamertag func(context.Context, oauth2.TokenSource) (string, error)
+	Realms   func(context.Context, *authcache.Account) ([]catalog.Realm, error)
+	Friends  func(context.Context, *authcache.Account) ([]catalog.Friend, error)
+	Gamertag func(context.Context, *authcache.Account) (string, error)
 	Remove   func(path string) error
 
-	Featured   func(context.Context, oauth2.TokenSource) ([]catalog.FeaturedServer, error)
-	Gatherings func(context.Context, oauth2.TokenSource) ([]catalog.Gathering, error)
-	Profile    func(context.Context, oauth2.TokenSource) (catalog.Profile, error)
+	Featured   func(context.Context, *authcache.Account) ([]catalog.FeaturedServer, error)
+	Gatherings func(context.Context, *authcache.Account) ([]catalog.Gathering, error)
+	Profile    func(context.Context, *authcache.Account) (catalog.Profile, error)
 	CacheArt   func(ctx context.Context, directory string, images []*catalog.Image)
 	Ping       func(ctx context.Context, addresses []string) []catalog.PingResult
-	Home       func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
-	Report     func(ctx context.Context, src oauth2.TokenSource, session *catalog.MessagingSession, event catalog.MessageEvent) error
+	Home       func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, artworkDir string) (catalog.Home, error)
+	Report     func(ctx context.Context, src *authcache.Account, session *catalog.MessagingSession, event catalog.MessageEvent) error
 }
 
 // Service implements control.Services.
@@ -110,11 +110,11 @@ func New(cfg Config) *Service {
 	return s
 }
 
-func (s *Service) source() (oauth2.TokenSource, error) {
-	if s.cfg.TokenSource == nil || s.signedOut.Load() {
+func (s *Service) source() (*authcache.Account, error) {
+	if s.cfg.Account == nil || s.signedOut.Load() {
 		return nil, control.ErrSignedOut
 	}
-	return s.cfg.TokenSource, nil
+	return s.cfg.Account, nil
 }
 
 // Realms lists the account's Realms.
@@ -238,7 +238,7 @@ func upstreamTarget(kind, value string) (string, error) {
 // SignOut deletes the cached Microsoft tokens and reports the signed-out state. The running
 // process stops using the account; a new sign-in needs the device-code flow and a core restart.
 func (s *Service) SignOut() error {
-	if s.cfg.TokenSource == nil {
+	if s.cfg.Account == nil {
 		return control.ErrSignedOut
 	}
 	s.mu.Lock()
@@ -274,11 +274,11 @@ func (s *Service) SignOut() error {
 
 // PublishSignedIn reports the signed-in state with the gamertag when it can be read.
 func (s *Service) PublishSignedIn(ctx context.Context) {
-	if s.cfg.Store == nil || s.cfg.TokenSource == nil {
+	if s.cfg.Store == nil || s.cfg.Account == nil {
 		return
 	}
 	state := control.AuthV1{State: control.AuthSignedIn}
-	if tag, err := s.cfg.Gamertag(ctx, s.cfg.TokenSource); err == nil {
+	if tag, err := s.cfg.Gamertag(ctx, s.cfg.Account); err == nil {
 		state.Gamertag = tag
 	}
 	if s.signedOut.Load() {

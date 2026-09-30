@@ -10,7 +10,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/df-mc/go-playfab/v2"
+	"github.com/df-mc/go-playfab/v2/entity"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/df-mc/go-xsapi/v2/xal/nsal"
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
@@ -57,7 +61,7 @@ func TestPersistentSourceRetainsCanonicalCachePath(t *testing.T) {
 		return canonical, nil
 	}}
 	source := persistentSource(context.Background(), raw, oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
-	persistent, ok := source.(*persistentAuthSource)
+	persistent, ok := source.(*Account)
 	if !ok {
 		t.Fatal("persistent source was not constructed")
 	}
@@ -78,7 +82,7 @@ func TestPersistentSourceRejectsUntrustedCanonicalization(t *testing.T) {
 	deps := derivedDeps{canonicalize: func(string) (string, error) {
 		return "", errors.New("untrusted alias")
 	}}
-	if got := persistentSource(context.Background(), filepath.Join(t.TempDir(), "derived"), oauth, nil, deps); got != oauth {
+	if got := persistentSource(context.Background(), filepath.Join(t.TempDir(), "derived"), oauth, nil, deps).(*Account); got.path != "" {
 		t.Fatal("persistent source retained an untrusted cache path")
 	}
 }
@@ -94,10 +98,10 @@ func TestPersistentSourceFreshInstanceReusesDerivedStateAndMintsPerKey(t *testin
 			discoveryCalls++
 			return testEnvironment(), nil
 		},
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			serviceCalls++
 			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
+		}),
 		mint: func(_ context.Context, _ *service.AuthorizationEnvironment, src service.TokenSource, key *ecdsa.PublicKey) (string, error) {
 			mintCalls++
 			if _, err := src.ServiceToken(context.Background()); err != nil {
@@ -147,10 +151,10 @@ func TestPersistentSourceExpiredServiceRefreshesOnlyServiceLayer(t *testing.T) {
 			discoveryCalls++
 			return testEnvironment(), nil
 		},
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			serviceCalls++
 			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
+		}),
 		mint: func(_ context.Context, _ *service.AuthorizationEnvironment, src service.TokenSource, _ *ecdsa.PublicKey) (string, error) {
 			_, err := src.ServiceToken(context.Background())
 			return "fresh-jwt", err
@@ -184,7 +188,7 @@ func TestPersistentSourceOAuthRotationInvalidatesInMemoryDerivedState(t *testing
 	if _, err := source.Token(); err != nil {
 		t.Fatal(err)
 	}
-	persistent := source.(*persistentAuthSource)
+	persistent := source.(*Account)
 	if persistent.binding != oauthBinding(newToken) {
 		t.Fatal("rotated OAuth material did not replace the in-memory binding")
 	}
@@ -311,7 +315,7 @@ func TestPersistentSourceBindingsAndUnsafeInputsAreConservativeMisses(t *testing
 			arrange(t, path, token)
 			var diagnostics bytes.Buffer
 			source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(token), &diagnostics, derivedDeps{})
-			persistent := source.(*persistentAuthSource)
+			persistent := source.(*Account)
 			if persistent.environment != nil || persistent.service != nil {
 				t.Fatal("unsafe or mismatched state was reused")
 			}
@@ -352,7 +356,7 @@ func TestPersistentSourceMalformedEnvironmentCannotPartiallyRestoreSISU(t *testi
 		t.Fatal(err)
 	}
 	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
-	restored := source.(*persistentAuthSource).ProofKey()
+	restored := source.(*Account).ProofKey()
 	if restored.D.Cmp(cachedKey.D) == 0 {
 		t.Fatal("valid SISU/proof key was partially restored from a bundle with an invalid environment")
 	}
@@ -366,13 +370,11 @@ func TestPersistentSourceMultiplayerCallChecksOAuthBindingBeforeReuse(t *testing
 	var serviceCalls int
 	deps := derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			serviceCalls++
 			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
-		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
-			return "fresh-jwt", nil
-		},
+		}),
+		mint: mintFromService,
 	}
 	source := persistentSource(context.Background(), path, &sequenceOAuthSource{tokens: []*oauth2.Token{oldToken, newToken}}, nil, deps)
 	key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -384,32 +386,32 @@ func TestPersistentSourceMultiplayerCallChecksOAuthBindingBeforeReuse(t *testing
 	}
 }
 
-func TestPersistentSourceUnauthorizedServiceTokenRefreshesOnce(t *testing.T) {
+// A service token a service rejected is evicted on disk too, so the next call issues a new one.
+func TestPersistentSourceInvalidatedServiceTokenIsReplaced(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
-	var serviceCalls, mintCalls int
+	var serviceCalls int
 	deps := derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			serviceCalls++
-			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
-		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
-			mintCalls++
-			if mintCalls == 1 {
-				return "", &service.ResponseError{StatusCode: http.StatusUnauthorized}
-			}
-			return "fresh-jwt", nil
-		},
+			return &service.Token{AuthorizationHeader: "MCToken replacement", ValidUntil: time.Now().Add(time.Hour)}, nil
+		}),
 	}
-	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
-	key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-	if _, err := source.(minecraft.MultiplayerTokenSource).MultiplayerToken(context.Background(), &key.PublicKey); err != nil {
-		t.Fatal(err)
+	account := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps).(*Account)
+	rejected, err := account.ServiceToken(context.Background())
+	if err != nil || serviceCalls != 0 {
+		t.Fatalf("restored token not reused: calls=%d err=%v", serviceCalls, err)
 	}
-	if serviceCalls != 1 || mintCalls != 2 {
-		t.Fatalf("calls = (service=%d mint=%d), want bounded (1,2)", serviceCalls, mintCalls)
+	var invalidator service.TokenInvalidator = account
+	invalidator.InvalidateServiceToken(rejected)
+	if state, err := loadDerived(path); err != nil || state.ServiceToken != nil {
+		t.Fatalf("persisted bundle kept the rejected token: err=%v", err)
+	}
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || serviceCalls != 1 || token.AuthorizationHeader != "MCToken replacement" {
+		t.Fatalf("token=%v calls=%d err=%v", token, serviceCalls, err)
 	}
 }
 
@@ -422,13 +424,11 @@ func TestPersistentSourceServiceEnvironmentMismatchDoesNotReuse(t *testing.T) {
 	different.ServiceURI, _ = url.Parse("https://replacement.example.test")
 	deps := derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return different, nil },
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			serviceCalls++
 			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
-		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
-			return "fresh-jwt", nil
-		},
+		}),
+		mint: mintFromService,
 	}
 	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
 	key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -452,10 +452,10 @@ func TestPersistentSourceCancellationDoesNotRetryOrLeak(t *testing.T) {
 			calls++
 			return testEnvironment(), nil
 		},
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			calls++
 			return nil, context.Canceled
-		},
+		}),
 		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
 			calls++
 			return "", context.Canceled
@@ -478,12 +478,10 @@ func TestPersistentSourceConcurrentFreshInstancesRemainUsable(t *testing.T) {
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	deps := derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
-		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
-			return "fresh-jwt", nil
-		},
+		}),
+		mint: mintFromService,
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 4)
@@ -518,14 +516,12 @@ func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 	var serviceCalls atomic.Int32
 	deps := derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			serviceCalls.Add(1)
 			time.Sleep(100 * time.Millisecond)
 			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
-		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
-			return "fresh-jwt", nil
-		},
+		}),
+		mint: mintFromService,
 	}
 	var diagnostics [2]bytes.Buffer
 	sources := []oauth2.TokenSource{
@@ -618,14 +614,12 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 	finishRefresh := make(chan struct{})
 	deps := derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
-		serviceToken: func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 			close(refreshing)
 			<-finishRefresh
 			return testServiceToken(time.Now().Add(time.Hour)), nil
-		},
-		mint: func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error) {
-			return "fresh-jwt", nil
-		},
+		}),
+		mint: mintFromService,
 	}
 	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
 	done := make(chan error, 1)
@@ -848,7 +842,7 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
-	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{}).(*persistentAuthSource)
+	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{}).(*Account)
 	var invalidator nsal.TokenInvalidator = source
 	rejected := source.session.Snapshot().XSTSTokens[cachedRelyingParty]
 	if rejected == nil {
@@ -865,7 +859,7 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 	if state.SISU.XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("persisted bundle kept the rejected token")
 	}
-	fresh := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{}).(*persistentAuthSource)
+	fresh := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{}).(*Account)
 	if fresh.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("a fresh process restored the rejected token")
 	}
@@ -877,4 +871,119 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("reload resurrected the rejected token")
 	}
+}
+
+// persistentSource returns the account through its OAuth face so tests reach it via interfaces.
+func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics io.Writer, deps derivedDeps) oauth2.TokenSource {
+	return newAccount(ctx, path, oauth, diagnostics, deps)
+}
+
+// fakeServices stands in for the native service-token source: a valid token is reused, otherwise
+// exchange issues the next one.
+func fakeServices(exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)) func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token) service.TokenSource {
+	return func(env *service.AuthorizationEnvironment, _ service.SessionTicketSource, token *service.Token) service.TokenSource {
+		return &fakeServiceSource{env: env, token: token, exchange: exchange}
+	}
+}
+
+type fakeServiceSource struct {
+	env      *service.AuthorizationEnvironment
+	token    *service.Token
+	exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)
+}
+
+func (f *fakeServiceSource) ServiceToken(ctx context.Context) (*service.Token, error) {
+	if f.token != nil && f.token.Valid() {
+		return f.token, nil
+	}
+	token, err := f.exchange(ctx, f.env, nil)
+	if err != nil {
+		return nil, err
+	}
+	f.token = token
+	return token, nil
+}
+
+func (f *fakeServiceSource) InvalidateServiceToken(rejected *service.Token) {
+	if f.token != nil && f.token.AuthorizationHeader == rejected.AuthorizationHeader {
+		f.token = nil
+	}
+}
+
+// mintFromService fetches the service token the way the native multiplayer source does.
+func mintFromService(ctx context.Context, _ *service.AuthorizationEnvironment, src service.TokenSource, _ *ecdsa.PublicKey) (string, error) {
+	if _, err := src.ServiceToken(ctx); err != nil {
+		return "", err
+	}
+	return "fresh-jwt", nil
+}
+
+type fakeIdentityProvider struct{ logins *atomic.Int32 }
+
+func (p fakeIdentityProvider) Login(context.Context, *http.Client, playfab.LoginRequest) (*playfab.LoginResult, error) {
+	p.logins.Add(1)
+	return &playfab.LoginResult{
+		EntityToken:   &entity.Token{Entity: entity.Key{Type: entity.TypeTitlePlayerAccount, ID: "title"}, Token: "entity", Expiration: time.Now().Add(time.Hour)},
+		PlayFabID:     "master",
+		SessionTicket: "ticket",
+	}, nil
+}
+
+type refusingTransport struct{}
+
+func (refusingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("offline test")
+}
+
+// Every consumer shares one PlayFab session, and Close ends it and refuses further service calls.
+func TestAccountSharesOnePlayFabSessionUntilClosed(t *testing.T) {
+	var logins atomic.Int32
+	var tickets []string
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		login: func(ctx context.Context, env *service.AuthorizationEnvironment, _ xsapi.TokenAndSignaturer) (*playfab.Client, error) {
+			return playfab.Login(ctx, env.PlayFabTitleID, fakeIdentityProvider{&logins}, playfab.ClientConfig{
+				HTTPClient: &http.Client{Transport: refusingTransport{}}, Logger: slog.New(slog.DiscardHandler),
+			})
+		},
+		services: func(_ *service.AuthorizationEnvironment, source service.SessionTicketSource, _ *service.Token) service.TokenSource {
+			return fakeServiceSourceFunc(func(ctx context.Context) (*service.Token, error) {
+				ticket, err := source.SessionTicket(ctx)
+				tickets = append(tickets, ticket)
+				return testServiceToken(time.Now().Add(time.Hour)), err
+			})
+		},
+	}
+	account := newAccount(context.Background(), "", oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
+	first, err := account.PlayFab(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := account.ServiceToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := account.PlayFab(context.Background())
+	if err != nil || first != second || logins.Load() != 1 || len(tickets) != 1 || tickets[0] != "ticket" {
+		t.Fatalf("shared=%v logins=%d tickets=%v err=%v", first == second, logins.Load(), tickets, err)
+	}
+	if err := account.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-first.TitlePlayerAccount().Context().Done():
+	case <-time.After(time.Second):
+		t.Fatal("Close left the PlayFab session running")
+	}
+	if _, err := account.PlayFab(context.Background()); !errors.Is(err, ErrAccountClosed) {
+		t.Fatalf("PlayFab after Close err = %v", err)
+	}
+	if _, err := account.ServiceToken(context.Background()); !errors.Is(err, ErrAccountClosed) {
+		t.Fatalf("ServiceToken after Close err = %v", err)
+	}
+}
+
+type fakeServiceSourceFunc func(context.Context) (*service.Token, error)
+
+func (f fakeServiceSourceFunc) ServiceToken(ctx context.Context) (*service.Token, error) {
+	return f(ctx)
 }

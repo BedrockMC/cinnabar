@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/service"
-	"golang.org/x/oauth2"
 )
 
 // Home is what the start screen shows from services: messaging surfaces and
@@ -192,21 +192,21 @@ const (
 
 // HomeFeed gathers the start screen's service data; the persona head is
 // written into artworkDir when the service returns image bytes.
-func HomeFeed(ctx context.Context, src oauth2.TokenSource, session *MessagingSession, artworkDir string) (Home, error) {
+func HomeFeed(ctx context.Context, account *authcache.Account, session *MessagingSession, artworkDir string) (Home, error) {
 	home := Home{Messages: []Message{}, Treatments: []string{}, LiveEvents: []LiveEvent{}}
-	if src == nil {
-		return home, errors.New("catalog authentication token source is nil")
+	if account == nil {
+		return home, errNoAccount
 	}
 	fail := func(part homePart, name string, err error) {
 		home.failed |= part
 		home.Errors = append(home.Errors, name+": "+err.Error())
 	}
-	if count, err := realmInvites(ctx, src); err != nil {
+	if count, err := realmInvites(ctx, account); err != nil {
 		fail(partInvites, "Realms invites", err)
 	} else {
 		home.RealmInvites = count
 	}
-	err := withServices(ctx, src, func(s *serviceSession) error {
+	err := withServices(ctx, account, func(s *serviceSession) error {
 		if token, err := s.tokens.ServiceToken(ctx); err == nil {
 			home.Treatments = append(home.Treatments, token.Treatments...)
 		} else {
@@ -234,8 +234,8 @@ func HomeFeed(ctx context.Context, src oauth2.TokenSource, session *MessagingSes
 }
 
 // ReportMessageEvent posts one messaging event (Impression, Click, Dismiss, ...).
-func ReportMessageEvent(ctx context.Context, src oauth2.TokenSource, session *MessagingSession, event MessageEvent) error {
-	return withServices(ctx, src, func(s *serviceSession) error {
+func ReportMessageEvent(ctx context.Context, account *authcache.Account, session *MessagingSession, event MessageEvent) error {
+	return withServices(ctx, account, func(s *serviceSession) error {
 		id, continuation := session.current()
 		entry := map[string]any{
 			"eventDateTime": time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
@@ -346,13 +346,18 @@ func send(client *http.Client, req *http.Request) ([]byte, error) {
 	return data, nil
 }
 
-// withServices signs in to Xbox Live, PlayFab and the Minecraft-services auth
-// environment and hands run a session.
-func withServices(ctx context.Context, src oauth2.TokenSource, run func(*serviceSession) error) error {
-	if src == nil {
-		return errors.New("catalog authentication token source is nil")
+// withServices hands run a session on the account's shared service token.
+func withServices(ctx context.Context, account *authcache.Account, run func(*serviceSession) error) error {
+	xbl, err := newXSAPIClient(ctx, account)
+	if err != nil {
+		return err
 	}
-	return withGatherings(ctx, src, nil, run)
+	defer xbl.Close()
+	discovery, err := service.Default(ctx)
+	if err != nil {
+		return fmt.Errorf("discover services: %w", err)
+	}
+	return run(&serviceSession{discovery: discovery, tokens: account, xuid: xbl.UserInfo().XUID, client: http.DefaultClient})
 }
 
 func (s *serviceSession) messages(ctx context.Context, session *MessagingSession, home *Home) error {
@@ -652,7 +657,7 @@ func (s *serviceSession) personaHead(ctx context.Context, artworkDir string) (Im
 }
 
 // realmInvites reads the pending Realms invite count, a bare integer body.
-func realmInvites(ctx context.Context, src oauth2.TokenSource) (int, error) {
+func realmInvites(ctx context.Context, src *authcache.Account) (int, error) {
 	live, err := src.Token()
 	if err != nil {
 		return 0, err
