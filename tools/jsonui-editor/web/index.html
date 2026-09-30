@@ -15,7 +15,7 @@
     <label class="button">Open zip<input id="open-zip" type="file" accept=".zip,.mcpack" multiple hidden></label>
     <button id="load-example" type="button">Load example</button>
     <button id="new-file" type="button">New file</button>
-    <button id="export" type="button" disabled>Export edits</button>
+    <button id="export" type="button" disabled>Export pack…</button>
     <span id="status" class="status" role="status"></span>
   </header>
   <p id="hint" class="hint">No packs are bundled: drop your own resource pack folder or .zip here (vanilla first, then server packs above it), or load the example.</p>
@@ -79,6 +79,7 @@
         <button role="tab" data-tab="diagnostics">Diagnostics <span id="diag-count" class="badge">0</span></button>
         <button role="tab" data-tab="mock">Mock data</button>
         <button role="tab" data-tab="context">Context</button>
+        <button role="tab" data-tab="export">Export</button>
       </div>
       <div class="panels">
         <div class="panel" data-panel="inspector">
@@ -102,6 +103,44 @@
             <span id="context-error" class="error"></span>
           </div>
           <textarea id="context" spellcheck="false" aria-label="Context variables JSON"></textarea>
+        </div>
+        <div class="panel" data-panel="export" hidden>
+          <div class="export">
+            <form id="export-form" class="export-form" autocomplete="off">
+              <label>Pack name <input id="pack-name" required></label>
+              <label>Description <input id="pack-description"></label>
+              <label>Version <span class="triple" id="pack-version"><input type="number" min="0"><input type="number" min="0"><input type="number" min="0"></span></label>
+              <label>Min engine version <span class="triple" id="pack-engine"><input type="number" min="0"><input type="number" min="0"><input type="number" min="0"></span></label>
+              <label>Header UUID <input id="pack-header" readonly></label>
+              <label>Module UUID <input id="pack-module" readonly></label>
+              <div class="row"><button id="pack-regenerate" type="button">Regenerate UUIDs</button><small class="muted">Keep them to update the same pack; new ones make a different pack.</small></div>
+              <label>pack_icon.png <input id="pack-icon" type="file" accept="image/png"></label>
+              <span id="pack-icon-note" class="muted"></span>
+              <label>Mode
+                <select id="export-mode">
+                  <option value="overlay" selected>Overlay: only changed controls (recommended for servers)</option>
+                  <option value="changed">Changed files: edited files in full</option>
+                  <option value="full">Full copy of one layer</option>
+                </select>
+              </label>
+              <div id="full-options" class="row" hidden>
+                <select id="export-layer" aria-label="Layer to copy"></select>
+                <label><input id="export-own" type="checkbox"> this layer is my own pack</label>
+              </div>
+              <label>Format
+                <select id="export-format">
+                  <option value="mcpack" selected>.mcpack</option>
+                  <option value="zip">.zip</option>
+                  <option value="mcaddon">.mcaddon</option>
+                </select>
+              </label>
+              <div class="row"><button id="export-download" type="submit">Export</button><span id="export-status" class="muted"></span></div>
+            </form>
+            <div class="export-preview">
+              <ul id="export-warnings" class="diagnostics"></ul>
+              <pre id="export-preview" class="preview-files">Edit a file to see what an export would contain.</pre>
+            </div>
+          </div>
         </div>
       </div>
     </section>

@@ -43,6 +43,23 @@ pub fn screens(session: &mut Session) -> Vec<ScreenEntry> {
     out
 }
 
+/// Errors in the files an export would ship, shown before exporting.
+pub fn export_warnings(session: &mut Session) -> Vec<Diagnostic> {
+    let edited: Vec<String> = session
+        .workspace
+        .layers()
+        .iter()
+        .flat_map(|layer| layer.edited_paths().map(str::to_owned))
+        .filter(|path| path.starts_with("ui/") && !path.starts_with("ui/_"))
+        .collect();
+    if edited.is_empty() {
+        return Vec::new();
+    }
+    let mut out = validate(session, &edited, &json_ui::Context::empty());
+    out.retain(|d| d.severity == diagnose::Severity::Error);
+    out
+}
+
 /// Whether `reference` names a top-level control the catalog holds.
 pub fn has_control(session: &mut Session, reference: &str) -> bool {
     let catalog = session.catalog();

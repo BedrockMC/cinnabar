@@ -43,6 +43,8 @@ pub struct Layer {
     /// Files known to exist whose bytes the host has not supplied yet.
     pending: BTreeSet<String>,
     edited: BTreeSet<String>,
+    /// Each edited file's bytes before its first edit; `None` for a new file.
+    originals: BTreeMap<String, Option<Arc<[u8]>>>,
     archive: Option<zip::ZipArchive<Cursor<Arc<[u8]>>>>,
     archive_paths: BTreeMap<String, String>,
     generation: u64,
@@ -75,6 +77,33 @@ impl Layer {
 
     pub fn is_edited(&self, path: &str) -> bool {
         self.edited.contains(path)
+    }
+
+    pub fn edited_paths(&self) -> impl Iterator<Item = &str> {
+        self.edited.iter().map(String::as_str)
+    }
+
+    /// An edited file's bytes before editing: `Some(None)` when the edit made it.
+    pub fn original(&self, path: &str) -> Option<Option<&Arc<[u8]>>> {
+        self.originals.get(path).map(Option::as_ref)
+    }
+
+    /// Every file the layer holds, loaded, archived or pending.
+    pub fn all_paths(&self) -> BTreeSet<String> {
+        self.files
+            .keys()
+            .chain(self.archive_paths.keys())
+            .chain(self.pending.iter())
+            .cloned()
+            .collect()
+    }
+
+    /// Whether the unedited layer has `path`.
+    pub fn had(&self, path: &str) -> bool {
+        match self.originals.get(path) {
+            Some(original) => original.is_some(),
+            None => self.has(path),
+        }
     }
 
     fn has(&self, path: &str) -> bool {
@@ -298,6 +327,10 @@ impl Workspace {
     /// Replace a file with edited text.
     pub fn edit(&mut self, layer: usize, path: &str, text: &str) {
         if let Some(target) = self.layers.get_mut(layer) {
+            if !target.edited.contains(path) {
+                let before = target.files.get(path).cloned();
+                target.originals.insert(path.to_owned(), before);
+            }
             target
                 .files
                 .insert(path.to_owned(), text.as_bytes().to_vec().into());
@@ -429,46 +462,17 @@ impl Workspace {
             .cloned()
     }
 
-    /// Edited files as a zip; paths gain a layer folder when several layers changed.
-    pub fn export_edits(&self) -> Result<Vec<u8>, String> {
-        use std::io::Write;
-        let edited: Vec<(usize, &str)> = self
-            .layers
-            .iter()
-            .enumerate()
-            .flat_map(|(index, layer)| layer.edited.iter().map(move |path| (index, path.as_str())))
-            .collect();
-        let layered = edited
-            .iter()
-            .map(|(index, _)| index)
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1;
-        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
-        for (index, path) in edited {
-            let layer = &self.layers[index];
-            let name = if layered {
-                format!("{}/{path}", sanitize(&layer.name))
-            } else {
-                path.to_owned()
-            };
-            writer
-                .start_file(name, options)
-                .map_err(|e| e.to_string())?;
-            writer
-                .write_all(layer.files.get(path).map_or(&[][..], |bytes| bytes))
-                .map_err(|e| e.to_string())?;
+    /// A file's bytes, extracting it from the layer's archive when needed;
+    /// `None` when absent or not yet supplied.
+    pub fn read_file(&mut self, layer: usize, path: &str) -> Option<Arc<[u8]>> {
+        let target = self.layers.get_mut(layer)?;
+        if !target.files.contains_key(path) {
+            target.extract(path);
         }
-        writer
-            .finish()
-            .map(Cursor::into_inner)
-            .map_err(|e| e.to_string())
+        target.files.get(path).cloned()
     }
 }
 
-/// The bottom layer's catalog, plus why it fell back to overlay loading.
 fn base_catalog(layer: &Layer) -> (Catalog, Option<String>) {
     let error = if layer.files.contains_key(UI_DEFS) && layer.files.contains_key(GLOBALS) {
         match Catalog::from_files(layer.ui_files()) {
@@ -554,18 +558,6 @@ fn parse_lang(text: &str, table: &mut HashMap<String, String>) {
             table.insert(key.to_owned(), value.to_owned());
         }
     }
-}
-
-fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || "-_.".contains(c) {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]

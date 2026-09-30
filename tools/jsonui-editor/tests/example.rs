@@ -3,9 +3,9 @@
 
 use std::path::Path;
 
-use jsonui_editor::api;
 use jsonui_editor::mock::MockData;
 use jsonui_editor::{Session, View};
+use jsonui_editor::{api, export};
 
 const SCREEN: &str = "example.example_screen";
 
@@ -218,19 +218,6 @@ fn syntax_errors_and_unknown_bases_are_located() {
 }
 
 #[test]
-fn edits_export_as_a_zip_of_changed_files() {
-    let mut session = session(&["base"]);
-    session.workspace.edit(0, "ui/example_screen.json", "{}");
-    let zip = session.workspace.export_edits().unwrap();
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
-    assert_eq!(archive.len(), 1);
-    assert_eq!(
-        archive.by_index(0).unwrap().name(),
-        "ui/example_screen.json"
-    );
-}
-
-#[test]
 fn screens_list_the_example_screen() {
     let mut session = session(&["base"]);
     let screens = api::screens(&mut session);
@@ -298,10 +285,8 @@ fn pasted_text_becomes_a_scratch_file_on_top() {
         Some("scratch_2.main_screen")
     );
 
-    let zip = session.workspace.export_edits().unwrap();
-    let archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
-    let mut names: Vec<&str> = archive.file_names().collect();
-    names.sort();
+    let plan = export::plan(&mut session.workspace, export::Mode::Changed, None, false);
+    let names: Vec<&str> = plan.files.keys().map(String::as_str).collect();
     assert_eq!(
         names,
         [
