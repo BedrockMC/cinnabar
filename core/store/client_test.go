@@ -491,3 +491,30 @@ func TestTokenNeverLeavesTheServiceOrigin(t *testing.T) {
 		t.Fatalf("other origin received %d requests", leaked.Load())
 	}
 }
+
+// Price options the purchase flow cannot express are refused, never flattened into separate prices.
+func TestOffersKeepOnlyWholeSingleCurrencyPrices(t *testing.T) {
+	item := func(options ...playfabcatalog.Price) *playfabcatalog.Item {
+		return &playfabcatalog.Item{ID: "offer-1", Title: map[string]string{"NEUTRAL": "Pack"}, PriceOptions: options}
+	}
+	mc := func(value int) playfabcatalog.PriceAmount {
+		return playfabcatalog.PriceAmount{Value: value, ItemID: "mc"}
+	}
+	combined := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100), {Value: 5, ItemID: "tokens"}}}
+	timed := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100)}, UnitDurationInSeconds: 86400}
+	bulk := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(100)}, UnitAmount: 5}
+	single := playfabcatalog.Price{Amounts: []playfabcatalog.PriceAmount{mc(320)}}
+
+	offer, ok := offerFromItem(item(combined, single, timed))
+	if !ok || len(offer.Prices) != 1 || offer.Prices[0] != (Price{Currency: "mc", Amount: 320}) {
+		t.Fatalf("offer = %+v ok = %v", offer, ok)
+	}
+	for name, option := range map[string]playfabcatalog.Price{"combined": combined, "timed": timed, "bulk": bulk} {
+		if _, ok := offerFromItem(item(option)); ok {
+			t.Fatalf("%s-only offer was listed", name)
+		}
+	}
+	if offer, ok := offerFromItem(item()); !ok || len(offer.Prices) != 0 {
+		t.Fatalf("an unpriced offer = %+v ok = %v", offer, ok)
+	}
+}
