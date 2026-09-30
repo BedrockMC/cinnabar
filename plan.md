@@ -608,6 +608,30 @@ Local worlds run dragonfly behind the same core, over the same client path.
 
 ## Current integration snapshot (2026-08-16)
 
+**Protocol-2193 content cutover (2026-09-30).** `assets/bedrock-target.json`
+now names Minecraft 1.26.50 / protocol 2193 (codec `bedrock_1_26_51`, measured
+server BDS 1.26.52.3) and every production consumer selects the v2193
+block/light/biome/physics/fallback/route carriers. Block states come from
+Dragonfly v0.11.5 (`4c7b5074`, 22,091 states; every network hash cross-checked
+against the 1,020 block items of a BDS 1.26.52.3 CreativeContent capture). Facts
+project from the reviewed protocol-1001 records in three classes: 15,963 exact
+keys, 3,440 states that differ only by the new `minecraft:connection_*` /
+`minecraft:corner` keys (fences, panes, bars, stairs, trip wire), and 2,026
+states of 119 new retail blocks borrowed from reviewed schema-identical twins
+(poplar family, wool/concrete slabs and stairs, red shrub). 662 states are
+reserved. Retail item, biome (adds `dappled_forest`) and item-capacity tables are
+re-measured on BDS 1.26.52.3. **Provisional, incomplete against vanilla:**
+- The client still derives fence/pane/stair/trip-wire shapes from neighbours and
+  ignores the server-sent 1.26.50 connection and corner states.
+- Twinned blocks use their twin's model, collision, light and friction; their
+  own collision/light are unverified against the reference client.
+- `shelf_mushroom` and `straw_bed` (retail in 1.26.50) have no reviewed fact
+  source and stay reserved (invisible, passable).
+- The world/resource pack stays on `v1.26.30.32-preview`, so 1.26.50 blocks lack
+  textures and `dappled_forest` compiles no biome rule (fallback tint);
+  bedrock-samples `v1.26.50.4` exists but the pack bump (HUD, JSON-UI, lang and
+  visual pins) is a separate migration.
+
 **Protocol-2168 target cutover (2026-08-26).** One canonical
 `assets/bedrock-target.json` now owns the active game/protocol/codec identity,
 carrier paths, and artifact hashes. Cinnabar's runtime world provenance,
@@ -617,7 +641,7 @@ consumer selects the v1001 block/light/biome/physics/world/item carriers.
 Registrygen verifies all manifest hashes and exhaustively guards each production
 consumer against legacy carrier drift. The ignored local world/entity carriers
 must be rebuilt before live testing. Deterministic closure does not itself close
-the LBSG live confirmation gate.
+the LBSG live confirmation gate. (Superseded by the protocol-2193 cutover.)
 
 **`dev/ox-alpha` branch audit closeout (2026-08-26).** The complete
 `59f1f8e2..dcf780f1` repair range closes the repository review findings across

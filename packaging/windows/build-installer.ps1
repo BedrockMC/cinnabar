@@ -16,12 +16,12 @@ $kit = Join-Path $resources "prep-kit"
 New-Item -ItemType Directory -Force (Join-Path $resources "assets"), (Join-Path $resources "licenses"), (Join-Path $kit "bin"), (Join-Path $kit "scripts"), (Join-Path $kit "assets"), (Join-Path $kit "data") | Out-Null
 Copy-Item (Join-Path $release "bedrock-client.exe"), (Join-Path $release "bedrock-core.exe") $payload
 Copy-Item (Join-Path $release "assetc.exe") (Join-Path $kit "bin")
-Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2168.bin") (Join-Path $resources "assets")
+Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2193.bin") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "assets/licenses/*") (Join-Path $resources "licenses")
 foreach ($name in "fetch-vanilla-assets.ps1", "fetch-ui-font.ps1") { Copy-Item (Join-Path $root "scripts/$name") (Join-Path $kit "scripts") }
 Copy-Item (Join-Path $root "assets/*.json") (Join-Path $kit "assets")
-foreach ($stem in "block-registry", "block-light-registry", "biome-registry") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2168.*") (Join-Path $kit "data") }
+foreach ($stem in "block-registry", "block-light-registry", "biome-registry") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2193.*") (Join-Path $kit "data") }
 if ($env:CINNABAR_UPDATE_URL) { Set-Content -NoNewline (Join-Path $resources "update-url") $env:CINNABAR_UPDATE_URL }
 if ($env:CINNABAR_SENTRY_DSN) { Set-Content -NoNewline (Join-Path $resources "sentry-dsn") $env:CINNABAR_SENTRY_DSN }
 

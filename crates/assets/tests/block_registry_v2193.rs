@@ -4,14 +4,14 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
-const BREG: &[u8] = include_bytes!("../data/block-registry-v2168.bin");
-const LREG: &[u8] = include_bytes!("../data/block-light-registry-v2168.bin");
+const BREG: &[u8] = include_bytes!("../data/block-registry-v2193.bin");
+const LREG: &[u8] = include_bytes!("../data/block-light-registry-v2193.bin");
 const LEGACY_BREG: &[u8] = include_bytes!("../data/block-registry-v1001.bin");
 
 #[test]
-fn checked_in_v2168_block_and_light_registries_are_exact_and_bound() {
-    let records = read_registry_for_protocol(BREG, 2168).expect("decode v2168 BREG1003");
-    assert_eq!(records.len(), 17_499);
+fn checked_in_v2193_block_and_light_registries_are_exact_and_bound() {
+    let records = read_registry_for_protocol(BREG, 2193).expect("decode v2193 BREG1003");
+    assert_eq!(records.len(), 22_091);
     assert!(
         records
             .iter()
@@ -23,24 +23,24 @@ fn checked_in_v2168_block_and_light_registries_are_exact_and_bound() {
             .iter()
             .filter(|record| record.name.as_ref() == "cinnabar:reserved")
             .count(),
-        969
+        662
     );
-    let lights = read_light_registry_for_protocol(LREG, BREG, records.len(), 2168)
-        .expect("decode exact BREG-bound v2168 LREG1001");
+    let lights = read_light_registry_for_protocol(LREG, BREG, records.len(), 2193)
+        .expect("decode exact BREG-bound v2193 LREG1001");
     assert_eq!(lights.len(), records.len());
     assert_eq!(
         format!("{:x}", Sha256::digest(BREG)),
-        "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8"
+        "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"
     );
     assert_eq!(
         format!("{:x}", Sha256::digest(LREG)),
-        "f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab"
+        "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"
     );
 }
 
 #[test]
-fn checked_in_v2168_registry_pins_the_unique_canonical_air_identity() {
-    let records = read_registry_for_protocol(BREG, 2168).expect("decode v2168 BREG1003");
+fn checked_in_v2193_registry_pins_the_unique_canonical_air_identity() {
+    let records = read_registry_for_protocol(BREG, 2193).expect("decode v2193 BREG1003");
     let air = records
         .iter()
         .filter(|record| record.name.as_ref() == "minecraft:air")
@@ -48,10 +48,10 @@ fn checked_in_v2168_registry_pins_the_unique_canonical_air_identity() {
     assert_eq!(
         air.len(),
         1,
-        "the checked-in v2168 registry must carry exactly one minecraft:air record"
+        "the checked-in v2193 registry must carry exactly one minecraft:air record"
     );
     let air = air[0];
-    assert_eq!(air.sequential_id, 13_629);
+    assert_eq!(air.sequential_id, 17_025);
     assert_eq!(air.canonical_state.as_ref(), "{}");
     assert_eq!(air.model_family, ModelFamily::Air);
     assert_eq!(air.contributor_role, ContributorRole::Air);
@@ -75,20 +75,20 @@ fn checked_in_v2168_registry_pins_the_unique_canonical_air_identity() {
 #[test]
 fn protocol_aware_decoders_reject_cross_version_and_cross_hash_inputs() {
     assert!(read_registry(BREG).is_err());
-    assert!(read_registry_for_protocol(LEGACY_BREG, 2168).is_err());
+    assert!(read_registry_for_protocol(LEGACY_BREG, 2193).is_err());
     assert!(read_registry_for_protocol(BREG, 999).is_err());
-    let records = read_registry_for_protocol(BREG, 2168).expect("v2168 BREG");
-    assert!(read_light_registry_for_protocol(LREG, LEGACY_BREG, records.len(), 2168).is_err());
+    let records = read_registry_for_protocol(BREG, 2193).expect("v2193 BREG");
+    assert!(read_light_registry_for_protocol(LREG, LEGACY_BREG, records.len(), 2193).is_err());
     assert!(read_light_registry_for_protocol(LREG, BREG, records.len(), 1001).is_err());
     assert!(read_light_registry_for_protocol(LREG, BREG, records.len(), 999).is_err());
 }
 
 #[test]
-fn v2168_decoders_reject_trailing_truncated_and_malformed_carriers() {
+fn v2193_decoders_reject_trailing_truncated_and_malformed_carriers() {
     let mut trailing = BREG.to_vec();
     trailing.push(0);
-    assert!(read_registry_for_protocol(&trailing, 2168).is_err());
-    assert!(read_registry_for_protocol(&BREG[..BREG.len() - 1], 2168).is_err());
+    assert!(read_registry_for_protocol(&trailing, 2193).is_err());
+    assert!(read_registry_for_protocol(&BREG[..BREG.len() - 1], 2193).is_err());
 
     let mut duplicate = BREG.to_vec();
     // The second record begins after the fixed header plus the first bounded
@@ -110,10 +110,10 @@ fn v2168_decoders_reject_trailing_truncated_and_malformed_carriers() {
         .try_into()
         .expect("first sequential ID");
     duplicate[second_prefix..second_prefix + 4].copy_from_slice(&first_id);
-    assert!(read_registry_for_protocol(&duplicate, 2168).is_err());
+    assert!(read_registry_for_protocol(&duplicate, 2193).is_err());
 
     let mut malformed_light = LREG.to_vec();
     malformed_light[48] ^= 1;
-    let records = read_registry_for_protocol(BREG, 2168).expect("v2168 BREG");
-    assert!(read_light_registry_for_protocol(&malformed_light, BREG, records.len(), 2168).is_err());
+    let records = read_registry_for_protocol(BREG, 2193).expect("v2193 BREG");
+    assert!(read_light_registry_for_protocol(&malformed_light, BREG, records.len(), 2193).is_err());
 }

@@ -3,18 +3,18 @@ use std::collections::BTreeSet;
 use assets::read_biome_registry;
 use sha2::{Digest, Sha256};
 
-const REGISTRY: &[u8] = include_bytes!("../data/biome-registry-v2168.bin");
-const ALLOWLIST: &str = include_str!("../../protocol/data/retail_biomes_1_26_40.txt");
+const REGISTRY: &[u8] = include_bytes!("../data/biome-registry-v2193.bin");
+const ALLOWLIST: &str = include_str!("../../protocol/data/retail_biomes_1_26_50.txt");
 
 #[test]
-fn checked_in_v2168_biome_registry_exactly_matches_the_retail_allowlist() {
-    let records = read_biome_registry(REGISTRY).expect("decode checked-in v2168 BIOREG01");
-    assert_eq!(records.len(), 88);
+fn checked_in_v2193_biome_registry_exactly_matches_the_retail_allowlist() {
+    let records = read_biome_registry(REGISTRY).expect("decode checked-in v2193 BIOREG01");
+    assert_eq!(records.len(), 89);
     assert!(records.windows(2).all(|pair| pair[0].id < pair[1].id));
-    assert_eq!(records.last().map(|record| record.id), Some(194));
+    assert_eq!(records.last().map(|record| record.id), Some(195));
     assert_eq!(
         format!("{:x}", Sha256::digest(REGISTRY)),
-        "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c"
+        "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
     );
 
     let decoded = records
@@ -26,7 +26,7 @@ fn checked_in_v2168_biome_registry_exactly_matches_the_retail_allowlist() {
 }
 
 #[test]
-fn production_decoder_rejects_malformed_duplicate_range_and_trailing_v2168_data() {
+fn production_decoder_rejects_malformed_duplicate_range_and_trailing_v2193_data() {
     let malformed = &REGISTRY[..REGISTRY.len() - 1];
     assert!(read_biome_registry(malformed).is_err());
 

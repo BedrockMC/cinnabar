@@ -49,14 +49,14 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 	return changed, nil
 }
 
-// relightV2168 rewrites an existing v2168 LREG with the retail corrections applied,
+// relightV2193 rewrites an existing v2193 LREG with the retail corrections applied,
 // bound to the same BREG; it returns the new LREG bytes and the changed-state count.
-func relightV2168(bregPath, lregPath, retailPath string) ([]byte, int, error) {
+func relightV2193(bregPath, lregPath, retailPath string) ([]byte, int, error) {
 	breg, err := os.ReadFile(bregPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("read BREG: %w", err)
 	}
-	_, records, err := decodeBREGRecords(breg, v2168BlockProtocol)
+	_, records, err := decodeBREGRecords(breg, v2193BlockProtocol)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -64,7 +64,7 @@ func relightV2168(bregPath, lregPath, retailPath string) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("read LREG: %w", err)
 	}
-	properties, err := decodeLREGProperties(lreg, breg, v2168BlockProtocol, len(records))
+	properties, err := decodeLREGProperties(lreg, breg, v2193BlockProtocol, len(records))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -76,7 +76,7 @@ func relightV2168(bregPath, lregPath, retailPath string) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	encoded, err := encodeResolvedLightRegistryForProtocol(v2168BlockProtocol, breg, records, properties)
+	encoded, err := encodeResolvedLightRegistryForProtocol(v2193BlockProtocol, breg, records, properties)
 	if err != nil {
 		return nil, 0, err
 	}
