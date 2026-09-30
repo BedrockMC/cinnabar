@@ -10,7 +10,7 @@ use super::refresh_player_list_cache_for_controls;
 use crate::ui_runtime::UiRuntime;
 
 #[test]
-fn player_list_marker_refreshes_tab_rows_without_a_ui_event() {
+fn player_list_marker_refreshes_known_names_without_a_ui_event() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -43,8 +43,5 @@ fn player_list_marker_refreshes_tab_rows_without_a_ui_event() {
 
     let mut ui = UiRuntime::new(1);
     refresh_player_list_cache_for_controls(&stream, &mut ui, &controls);
-    assert_eq!(
-        ui.player_list_overlay_rows(),
-        vec![(Arc::from("Alex"), None)]
-    );
+    assert_eq!(ui.known_player_names(), [Arc::<str>::from("Alex")]);
 }

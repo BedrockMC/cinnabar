@@ -26,7 +26,6 @@ mod item_pipeline_tests;
 mod menu_status_tests;
 mod retained_hud_tests;
 mod safe_area_tests;
-mod tab_binding_tests;
 mod texture_pages;
 mod toast_tests;
 

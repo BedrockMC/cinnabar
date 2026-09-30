@@ -45,6 +45,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "horse.horse_screen",
     "npc_interact.npc_screen",
     "pause.pause_screen",
+    "chat.chat_screen",
     "start.start_screen",
     "play.play_screen",
     "add_external_server.add_external_server_screen_new",
