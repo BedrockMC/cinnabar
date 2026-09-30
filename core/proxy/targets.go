@@ -2,14 +2,13 @@ package proxy
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
@@ -236,12 +235,7 @@ func newNetherNetTarget(ctx context.Context, address string, connectionType int,
 		_ = xbl.Close()
 		return nil, err
 	}
-	network := scopedNetherNetNetwork{
-		serviceSource:  serviceSource,
-		connectionType: connectionType,
-		networkID:      networkID,
-		logger:         logger,
-	}
+	network := newScopedNetherNetNetwork(serviceSource, connectionType, networkID, logger)
 	return &resolvedUpstreamTarget{
 		address: address,
 		network: network,
@@ -304,39 +298,62 @@ func isRawNetherNetAddress(address string) bool {
 	return uuid.Validate(address) == nil
 }
 
+// scopedNetherNetNetwork dials through gophertunnel's NetherNet so authenticated dials present
+// the Login's multiplayer token and key as the SDP identity, as vanilla's MinecraftIdentityAssertion does.
 type scopedNetherNetNetwork struct {
-	serviceSource  service.TokenSource
-	connectionType int
-	networkID      string
-	logger         *slog.Logger
+	signal minecraft.DialSignalingFunc // fresh signaling per dial; the transport owns and closes it
+	logger *slog.Logger
+}
+
+func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType int, networkID string, logger *slog.Logger) scopedNetherNetNetwork {
+	signal := func(ctx context.Context, _ string) (minecraft.SignalingConn, error) {
+		var (
+			conn minecraft.SignalingConn
+			err  error
+		)
+		switch connectionType {
+		case p2p.ConnectionTypeSignalingOverJSONRPC:
+			conn, err = messaging.Dialer{
+				NetworkID:                  networkID,
+				IgnoreDeliveryNotification: true,
+				Log:                        logger,
+			}.DialContext(ctx, serviceSource)
+		case p2p.ConnectionTypeSignalingOverWebSocket:
+			conn, err = signaling.Dialer{Log: logger}.DialContext(ctx, serviceSource)
+		default:
+			return nil, fmt.Errorf("unsupported NetherNet connection type %d", connectionType)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("establish NetherNet signaling: %w", err)
+		}
+		return conn, nil
+	}
+	return scopedNetherNetNetwork{signal: signal, logger: logger}
+}
+
+// transport accepts identityless answers like vanilla's ClientNegotiator::onRemoteAnswer, while
+// go-nethernet still verifies a server identity that is present.
+func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
+	return minecraft.NetherNet{
+		DialSignaling: network.signal,
+		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true},
+	}
 }
 
 func (network scopedNetherNetNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
-	var (
-		signalingConn nethernetSignalingConn
-		err           error
-	)
-	switch network.connectionType {
-	case p2p.ConnectionTypeSignalingOverJSONRPC:
-		signalingConn, err = messaging.Dialer{
-			NetworkID:                  network.networkID,
-			IgnoreDeliveryNotification: true,
-			Log:                        network.logger,
-		}.DialContext(ctx, network.serviceSource)
-	case p2p.ConnectionTypeSignalingOverWebSocket:
-		signalingConn, err = signaling.Dialer{Log: network.logger}.DialContext(ctx, network.serviceSource)
-	default:
-		return nil, fmt.Errorf("unsupported NetherNet connection type %d", network.connectionType)
-	}
+	return wrapNetherNetDial(network.transport().DialContext(ctx, address))
+}
+
+// DialContextIdentityProvider is used by minecraft.Dialer for authenticated dials.
+func (network scopedNetherNetNetwork) DialContextIdentityProvider(ctx context.Context, address, token string, key *ecdsa.PrivateKey, identityProvider string) (net.Conn, error) {
+	return wrapNetherNetDial(network.transport().DialContextIdentityProvider(ctx, address, token, key, identityProvider))
+}
+
+func wrapNetherNetDial(conn net.Conn, err error) (net.Conn, error) {
 	if err != nil {
-		return nil, fmt.Errorf("establish NetherNet signaling: %w", err)
-	}
-	conn, err := (nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true}).DialContext(ctx, address, signalingConn)
-	if err != nil {
-		_ = signalingConn.Close()
 		return nil, fmt.Errorf("dial NetherNet: %w", err)
 	}
-	return attachSignalingLifetime(conn, signalingConn), nil
+	return conn, nil
 }
 
 func (scopedNetherNetNetwork) PingContext(context.Context, string) ([]byte, error) {
@@ -345,33 +362,4 @@ func (scopedNetherNetNetwork) PingContext(context.Context, string) ([]byte, erro
 
 func (scopedNetherNetNetwork) Listen(string) (minecraft.NetworkListener, error) {
 	return nil, errors.New("NetherNet listen is unsupported")
-}
-
-type nethernetSignalingConn interface {
-	nethernet.Signaling
-	io.Closer
-}
-
-type signalingBackedConn struct {
-	net.Conn
-	signaling nethernetSignalingConn
-	once      sync.Once
-}
-
-func attachSignalingLifetime(conn net.Conn, signalingConn nethernetSignalingConn) net.Conn {
-	if transport, ok := conn.(*nethernet.Conn); ok {
-		go func() {
-			<-transport.Context().Done()
-			_ = signalingConn.Close()
-		}()
-		return transport
-	}
-	return &signalingBackedConn{Conn: conn, signaling: signalingConn}
-}
-
-func (conn *signalingBackedConn) Close() error {
-	var connErr, signalingErr error
-	conn.once.Do(func() { signalingErr = conn.signaling.Close() })
-	connErr = conn.Conn.Close()
-	return errors.Join(connErr, signalingErr)
 }
