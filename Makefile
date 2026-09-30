@@ -335,7 +335,7 @@ client: assets physics-assets
 	$(CLIENT_RUN)
 
 # Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
-play: assets physics-assets
+play: assets physics-assets audio-pcm-assets
 	$(GO) build -o "$(abspath $(DIST_CORE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
 	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --release -p bedrock-client --locked -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
