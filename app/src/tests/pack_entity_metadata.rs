@@ -353,3 +353,14 @@ fn clips_pose_bones_only_a_controller_model_has() {
         "{moved:?} vs {still:?}"
     );
 }
+
+// Render-controller array indices wrap past the end as Molang arrays do: variant 2 of a
+// two-texture array draws the first texture again, not the last.
+#[test]
+fn array_indices_past_the_end_wrap_to_the_first_member() {
+    let (pack, artwork) = pack();
+    let mut world = world(pack, "test:counter");
+    let zero = drawn(&world, &artwork).texture_layer;
+    update(&mut world, 2, ActorMetadataValue::Int(2));
+    assert_eq!(drawn(&world, &artwork).texture_layer, zero);
+}
