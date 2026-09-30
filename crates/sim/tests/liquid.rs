@@ -708,3 +708,40 @@ fn water_ledge_exit_does_not_treat_an_unavailable_liquid_probe_as_clear() {
     ));
     assert_eq!(state, before);
 }
+
+/// Pose swimming takes the same Depth Strider travel speed as other water movement.
+#[test]
+fn pose_swimming_uses_the_depth_strider_water_travel_speed() {
+    let world = FluidWorld {
+        facts: BlockPhysicsFacts {
+            friction: 0.6,
+            horizontal_speed_factor: 1.0,
+            vertical_speed_factor: 1.0,
+            fluid_height_blocks: 1.0,
+            flags: BlockPhysicsFlags::WATER,
+            surface_response: SurfaceResponse::None,
+        },
+    };
+    let travelled = |depth_strider| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        let input = MovementInput {
+            forward: 1.0,
+            sprinting: true,
+            mode: sim::MovementMode::Swimming,
+            depth_strider,
+            ..MovementInput::default()
+        };
+        for _ in 0..5 {
+            Simulator::default()
+                .tick(&mut state, input, &world)
+                .unwrap();
+        }
+        state.position.z.abs()
+    };
+    assert!(
+        travelled(3) > travelled(0) * 1.5,
+        "{} vs {}",
+        travelled(3),
+        travelled(0)
+    );
+}
