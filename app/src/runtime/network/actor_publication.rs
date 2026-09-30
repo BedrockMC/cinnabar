@@ -387,11 +387,6 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
             let input = local_input(stream, ui.as_deref(), local_runtime_id);
-            let arms = FirstPersonArms::for_hands(
-                input.main.as_ref().map(|item| item.identifier.as_ref()),
-                input.off.as_ref().map(|item| item.identifier.as_ref()),
-            );
-            let body = equipment.mask_first_person(&presentation.submission, arms);
             let item = input.main.as_ref().and_then(|item| {
                 let layer = equipment.first_person_item(&presentation.submission, item)?;
                 let page = usize::from(layer.location.page()).checked_sub(1)?;
@@ -405,6 +400,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
                 };
                 Some((layer, atlas))
             });
+            // Provisional: vanilla draws every held item; an undrawable one shows the bare arm.
+            let arms = FirstPersonArms::for_hands(
+                input.main.as_ref().map(|item| item.identifier.as_ref()),
+                input.off.as_ref().map(|item| item.identifier.as_ref()),
+            )
+            .with_undrawn_main(item.is_some());
+            let body = equipment.mask_first_person(&presentation.submission, arms);
             (body.is_some() || item.is_some()).then_some(HandSource {
                 presentation,
                 body,
