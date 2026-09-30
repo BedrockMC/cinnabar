@@ -278,7 +278,12 @@ pub(super) struct ScreenCache {
     reference: &'static str,
     context: json_ui::Context,
     resolved: json_ui::ResolvedControl,
-    bound: Option<(DataSource, json_ui::ResolvedControl)>,
+    /// The data `tree` or the layout's `FormRender::bound` was bound against.
+    data: Option<DataSource>,
+    /// The bound tree while no layout holds it, so a relayout never clones it.
+    tree: Option<json_ui::ResolvedControl>,
+    /// The tree's measurements at the laid root size, reused while scrolling.
+    measures: json_ui::MeasureCache,
     laid: Option<(ViewState, [f64; 2], Arc<json_ui::FormRender>)>,
     /// Layouts run for this screen, for cache tests.
     layouts: usize,
@@ -307,15 +312,23 @@ impl ScreenCache {
                 reference,
                 context: context.clone(),
                 resolved: json_ui::resolve_screen(reference, catalog, context)?,
-                bound: None,
+                data: None,
+                tree: None,
+                measures: json_ui::MeasureCache::default(),
                 laid: None,
                 layouts: 0,
             });
         }
         let cached = cache.as_mut()?;
-        if cached.bound.as_ref().is_none_or(|(bound, _)| bound != data) {
-            let tree = json_ui::bind_screen(&cached.resolved, catalog, context, data);
-            cached.bound = Some((data.clone(), tree));
+        if cached.data.as_ref() != Some(data) {
+            cached.tree = Some(json_ui::bind_screen(
+                &cached.resolved,
+                catalog,
+                context,
+                data,
+            ));
+            cached.data = Some(data.clone());
+            cached.measures = json_ui::MeasureCache::default();
             cached.laid = None;
         }
         // Hover, press and focus only filter the gated nodes; scroll lays out again.
@@ -323,8 +336,22 @@ impl ScreenCache {
             laid_view.scroll == view.scroll && *laid_root == root
         };
         if !cached.laid.as_ref().is_some_and(fresh) {
-            let tree = cached.bound.as_ref()?.1.clone();
-            let render = json_ui::render_bound_gated(tree, root, env, view);
+            if cached
+                .laid
+                .as_ref()
+                .is_some_and(|(_, laid_root, _)| *laid_root != root)
+            {
+                cached.measures = json_ui::MeasureCache::default();
+            }
+            let tree = match cached.tree.take() {
+                Some(tree) => tree,
+                None => {
+                    let (_, _, render) = cached.laid.take()?;
+                    Arc::try_unwrap(render)
+                        .map_or_else(|shared| shared.bound.clone(), |render| render.bound)
+                }
+            };
+            let render = json_ui::render_bound_gated(tree, root, env, view, &mut cached.measures);
             cached.layouts += 1;
             cached.laid = Some((view.clone(), root, Arc::new(render)));
         }
