@@ -1,12 +1,15 @@
 # Packaging
 
-Release installers ship the client, the Go core, the dragonfly local-world server beside it, and a
-prep kit. They never ship Mojang-derived carriers: on first launch `app/src/first_run` asks consent,
-fetches the pinned public `bedrock-samples` pack (`assets/vanilla-source.json`, hash-verified), runs
-the bundled `assetc`, and publishes carriers to the per-user data directory
-(`InstallLayout::prepared_assets_dir`). Status: `logs/first-run-status.json`; details:
-`logs/first-run.log`. On macOS and Linux a launch without a terminal (e.g. from Finder) sends the
-client's stderr to `logs/client.log`, rotated to `client.log.1` per launch and past 8 MiB.
+Release installers ship the client, the Go core, the dragonfly local-world server beside it, the
+Monocraft font and a prep kit, never Mojang-derived carriers. A packaged launch whose carriers are
+missing or stale runs `app/src/first_run`: a setup window (a `--first-run-setup` child process, or
+native dialogs if no window opens) asks consent, downloads the pinned `bedrock-samples` pack
+(`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
+carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). `prepared.json`
+there records each carrier's input identity, so an update rebuilds only stale carriers; the current
+pack archive is kept so carrier-only updates need no download. Status: `logs/first-run-status.json`;
+details: `logs/first-run.log`. On macOS and Linux a launch without a terminal (e.g. from Finder)
+sends the client's stderr to `logs/client.log`, rotated to `client.log.1` per launch and past 8 MiB.
 
 | Target | Command | Signing (env only) |
 | --- | --- | --- |
@@ -34,7 +37,7 @@ Signing is optional; each missing secret yields unsigned output instead of a fai
 
 Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Gatekeeper then blocks
 it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Applications/Cinnabar.app`
-(or uses System Settings > Privacy & Security > Open Anyway).
+(Open Anyway in System Settings clears only the app, so first-run helpers may still be blocked).
 
 ## Sign-in
 The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri, code }` exposes the
