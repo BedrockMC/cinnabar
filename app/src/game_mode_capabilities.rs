@@ -14,6 +14,8 @@ const CREATIVE_ATTACK_REACH: f64 = 7.0;
 mod ability_bit {
     pub(super) const BUILD: u32 = 1 << 0;
     pub(super) const MINE: u32 = 1 << 1;
+    pub(super) const DOORS_AND_SWITCHES: u32 = 1 << 2;
+    pub(super) const OPEN_CONTAINERS: u32 = 1 << 3;
     pub(super) const INVULNERABLE: u32 = 1 << 8;
     pub(super) const FLYING: u32 = 1 << 9;
     pub(super) const MAY_FLY: u32 = 1 << 10;
@@ -29,8 +31,11 @@ mod ability_bit {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 pub(crate) struct GameModeCapabilities {
-    pub(crate) can_edit: bool,
-    pub(crate) can_interact: bool,
+    pub(crate) can_build: bool,
+    pub(crate) can_mine: bool,
+    /// Doors, trapdoors, fence gates, buttons and levers.
+    pub(crate) can_use_switches: bool,
+    pub(crate) can_open_containers: bool,
     pub(crate) can_attack: bool,
     pub(crate) can_fly: bool,
     pub(crate) flying: bool,
@@ -48,8 +53,10 @@ impl GameModeCapabilities {
     pub(crate) const fn for_mode(mode: PlayerGameMode) -> Self {
         match mode {
             PlayerGameMode::Survival => Self {
-                can_edit: true,
-                can_interact: true,
+                can_build: true,
+                can_mine: true,
+                can_use_switches: true,
+                can_open_containers: true,
                 can_attack: true,
                 can_fly: false,
                 flying: false,
@@ -62,8 +69,10 @@ impl GameModeCapabilities {
                 creative_reach: false,
             },
             PlayerGameMode::Creative => Self {
-                can_edit: true,
-                can_interact: true,
+                can_build: true,
+                can_mine: true,
+                can_use_switches: true,
+                can_open_containers: true,
                 can_attack: true,
                 can_fly: true,
                 flying: false,
@@ -75,11 +84,13 @@ impl GameModeCapabilities {
                 attack_reach: CREATIVE_ATTACK_REACH,
                 creative_reach: true,
             },
-            // Adventure interacts and attacks; world editing waits for an
-            // explicit server Build/Mine grant.
+            // Adventure interacts and attacks; building and mining wait for
+            // explicit server grants.
             PlayerGameMode::Adventure => Self {
-                can_edit: false,
-                can_interact: true,
+                can_build: false,
+                can_mine: false,
+                can_use_switches: true,
+                can_open_containers: true,
                 can_attack: true,
                 can_fly: false,
                 flying: false,
@@ -92,8 +103,10 @@ impl GameModeCapabilities {
                 creative_reach: false,
             },
             PlayerGameMode::Spectator => Self {
-                can_edit: false,
-                can_interact: false,
+                can_build: false,
+                can_mine: false,
+                can_use_switches: false,
+                can_open_containers: false,
                 can_attack: false,
                 can_fly: true,
                 flying: true,
@@ -107,8 +120,10 @@ impl GameModeCapabilities {
             },
             // Fail closed on an unresolved mode: no interaction until one arrives.
             PlayerGameMode::Unknown => Self {
-                can_edit: false,
-                can_interact: false,
+                can_build: false,
+                can_mine: false,
+                can_use_switches: false,
+                can_open_containers: false,
                 can_attack: false,
                 can_fly: false,
                 flying: false,
@@ -123,6 +138,11 @@ impl GameModeCapabilities {
         }
     }
 
+    /// Whether any block use (placement or interaction) is permitted.
+    pub(crate) const fn can_use_blocks(&self) -> bool {
+        self.can_build || self.can_use_switches || self.can_open_containers
+    }
+
     /// Mode defaults with any server-sent ability bits folded in. Only bits an
     /// ability layer actually defines override a default; the rest stand.
     pub(crate) fn resolve(mode: PlayerGameMode, abilities: Option<&AbilitiesUpdate>) -> Self {
@@ -131,12 +151,15 @@ impl GameModeCapabilities {
             return caps;
         };
         let resolved = |bit: u32| resolved_ability(abilities, bit);
-        // Editing follows Build/Mine when either is present: adventure gains
-        // world editing only on an explicit grant.
-        let build = resolved(ability_bit::BUILD);
-        let mine = resolved(ability_bit::MINE);
-        if build.is_some() || mine.is_some() {
-            caps.can_edit = build.unwrap_or(false) || mine.unwrap_or(false);
+        for (bit, field) in [
+            (ability_bit::BUILD, &mut caps.can_build),
+            (ability_bit::MINE, &mut caps.can_mine),
+            (ability_bit::DOORS_AND_SWITCHES, &mut caps.can_use_switches),
+            (ability_bit::OPEN_CONTAINERS, &mut caps.can_open_containers),
+        ] {
+            if let Some(value) = resolved(bit) {
+                *field = value;
+            }
         }
         if let Some(may_fly) = resolved(ability_bit::MAY_FLY) {
             caps.can_fly = may_fly;
@@ -154,11 +177,6 @@ impl GameModeCapabilities {
             caps.has_collision = !no_clip;
         }
         caps
-    }
-
-    /// Held survival/adventure mining runs here; creative's instant break does not.
-    pub(crate) const fn uses_survival_mining(&self) -> bool {
-        self.can_edit && !self.instant_break
     }
 }
 

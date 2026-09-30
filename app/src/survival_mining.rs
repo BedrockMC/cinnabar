@@ -1,8 +1,9 @@
-//! Survival hold-to-mine: one destroy state-machine step per completed physics tick.
+//! Hold-to-mine for every game mode: one destroy state-machine step per completed
+//! physics tick. Instant (Creative) destroys complete on their start tick.
 //!
-//! Completion is only predicted from the provisional destroy table; inbound block
-//! updates remain the sole block-change authority. Unknown blocks keep cracking
-//! without a prediction so the server decides when they break.
+//! Completion, timed from the provisional destroy table, removes the block locally
+//! as vanilla's local destroy does; inbound block updates stay authoritative and
+//! replace the prediction. Unknown blocks keep cracking until the server breaks them.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -23,9 +24,13 @@ use crate::{
     melee::{MeleeRuntime, SwingTracker, swing_duration},
     menu::MenuRuntime,
     mining::{
-        FrozenMiningSelection, hand_interaction_selection, protocol_input_mode, survival_reach,
+        FrozenMiningSelection, creative_reach, hand_interaction_selection, protocol_input_mode,
+        survival_reach,
     },
-    movement::{LocalMovementEffectTimeline, MovementTicker, PhysicsCollisionRegistries},
+    movement::{
+        LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
+        PhysicsCollisionRegistries,
+    },
     runtime::{network::NetworkHandle, world::ClientWorld},
     semantic_controls::SemanticInputSnapshot,
     ui_runtime::UiRuntime,
@@ -36,11 +41,14 @@ pub(crate) const DESTROY_DELAY_TICKS: u8 = 5;
 /// Progress at which a destroy completes, absorbing float accumulation. Needs
 /// independent measurement.
 const COMPLETION_THRESHOLD: f64 = 0.99999;
+/// Below this speed (blocks/s) a held Creative destroy waits out the delay;
+/// above it, it destroys once per block travelled (`GameMode::continueDestroyBlock`).
+const CREATIVE_SLOW_SPEED: f32 = 0.5;
+const CREATIVE_TRAVEL_PER_DESTROY: f32 = 1.0;
 /// Bedrock enchantment ids.
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;
 const EFFICIENCY_ENCHANTMENT_ID: i16 = 15;
-/// How long a predicted break suppresses restarting on the unchanged block.
-const PREDICTED_BREAK_HOLD_TICKS: u8 = 20;
+const UNBREAKING_ENCHANTMENT_ID: i16 = 17;
 
 /// Which side StartGame's negotiation makes authoritative for block destruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,9 +82,12 @@ pub(crate) struct DestroyTarget {
     pub(crate) selection: FrozenMiningSelection,
     /// The held tool's wear from a non-instant destroy, when it is predictable.
     pub(crate) wear: Option<ToolWear>,
+    /// The game mode destroys instantly, as Creative does.
+    pub(crate) instant: bool,
 }
 
-/// Held-tool damage before a destroy and the damage one destroy adds.
+/// Held-tool damage before a destroy and the damage one destroy adds, after the
+/// Unbreakable and Unbreaking rolls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ToolWear {
     pub(crate) current_damage: i32,
@@ -107,6 +118,8 @@ pub(crate) struct SurvivalTickPayload {
     pub(crate) wear: Option<(u8, i32, i32)>,
     /// The request carrying `wear`, once a request id is allocated.
     pub(crate) mine_block: Option<protocol::MineBlockRequest>,
+    /// The block this tick's completion removes locally once the tick carries it.
+    pub(crate) broken: Option<[i32; 3]>,
 }
 
 impl SurvivalTickPayload {
@@ -151,6 +164,14 @@ impl SurvivalTickPayload {
     }
 }
 
+/// The player's motion over one stepped tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TickMotion {
+    pub(crate) on_ground: bool,
+    /// Distance moved this tick, in blocks.
+    pub(crate) moved: f32,
+}
+
 /// Attack input for one tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum DestroyInput<'a> {
@@ -164,6 +185,8 @@ struct Destroying {
     position: [i32; 3],
     face: u8,
     progress: f64,
+    /// The block broke; the destroy only waits for its next target.
+    completed: bool,
 }
 
 impl Destroying {
@@ -172,25 +195,28 @@ impl Destroying {
     }
 }
 
-/// Per-tick survival destroy sequencing.
+/// Per-tick destroy sequencing.
 ///
 /// Server authority: start, then silence while cracking, a continue on a new
 /// block, and continue plus predict on completion; aborts carry progress.
 /// Client authority: start, a crack every tick, and a stop plus item-use
-/// destroy transaction on completion.
+/// destroy transaction on completion. An instant destroy completes on its start
+/// tick with the same completion actions, then repeats while held.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct DestroyMachine {
     destroying: Option<Destroying>,
     delay: u8,
     pending_abort: Option<([i32; 3], u8)>,
-    /// A predicted break whose block update has not arrived yet.
-    predicted_break: Option<([i32; 3], u32, u8)>,
+    /// Blocks travelled toward the next moving Creative destroy.
+    travel: f32,
 }
 
 impl DestroyMachine {
-    /// The block and face currently being destroyed.
+    /// The block and face currently cracking; none once it broke, so hit
+    /// sounds and particles stop with the break.
     pub(crate) fn destroying_target(&self) -> Option<([i32; 3], u8)> {
         self.destroying
+            .filter(|destroying| !destroying.completed)
             .map(|destroying| (destroying.position, destroying.face))
     }
 
@@ -204,19 +230,14 @@ impl DestroyMachine {
     pub(crate) fn step(
         &mut self,
         input: DestroyInput<'_>,
-        on_ground: bool,
+        motion: TickMotion,
         authority: BlockBreakingAuthority,
     ) -> SurvivalTickPayload {
+        let on_ground = motion.on_ground;
         let mut payload = SurvivalTickPayload::default();
         if let Some((position, percent)) = self.pending_abort.take() {
             payload.push(BlockActionKind::AbortDestroy, position, percent);
         }
-        if let Some((_, _, remaining)) = &mut self.predicted_break {
-            *remaining = remaining.saturating_sub(1);
-        }
-        self.predicted_break = self
-            .predicted_break
-            .filter(|(_, _, remaining)| *remaining > 0);
         let delayed = self.delay > 0;
         self.delay = self.delay.saturating_sub(1);
         let target = match input {
@@ -225,6 +246,10 @@ impl DestroyMachine {
                 target
             }
             DestroyInput::Released | DestroyInput::Held(None) => {
+                if input == DestroyInput::Released {
+                    // stopDestroyBlock clears the destroy delay.
+                    self.delay = 0;
+                }
                 if let Some(destroying) = self.destroying.take() {
                     payload.push(
                         BlockActionKind::AbortDestroy,
@@ -235,8 +260,8 @@ impl DestroyMachine {
                 return payload;
             }
         };
-        // Locally the block is already gone; wait for its update or the hold.
-        if delayed || self.awaiting_update(target) {
+        let creative_continue = target.instant && self.destroying.is_some();
+        if delayed && !creative_continue {
             return payload;
         }
         match self.destroying {
@@ -246,14 +271,31 @@ impl DestroyMachine {
                     position: target.position,
                     face: target.face,
                     progress: 0.0,
+                    completed: false,
                 });
-                // A rate at the threshold breaks on the start tick, then delays.
-                if target.rate(on_ground) >= COMPLETION_THRESHOLD {
+                // Only zero hardness breaks on the start tick, then delays.
+                if target.instant || target.block.is_some_and(|block| block.hardness == 0.0) {
                     self.complete(&mut payload, target, authority, false);
                     self.delay = DESTROY_DELAY_TICKS;
+                    self.travel = 0.0;
                 } else if authority == BlockBreakingAuthority::Client {
                     payload.push(BlockActionKind::CrackBlock, target.position, target.face);
                 }
+            }
+            Some(_) if target.instant => {
+                let slow = motion.moved * sim::TICKS_PER_SECOND as f32 <= CREATIVE_SLOW_SPEED;
+                if !slow {
+                    self.travel += motion.moved;
+                }
+                if slow && !delayed {
+                    self.travel = 0.0;
+                } else if self.travel > CREATIVE_TRAVEL_PER_DESTROY {
+                    self.travel -= self.travel.trunc();
+                } else {
+                    return payload;
+                }
+                self.complete(&mut payload, target, authority, true);
+                self.delay = DESTROY_DELAY_TICKS;
             }
             Some(destroying) if destroying.position == target.position => {
                 let rate = target.rate(on_ground);
@@ -264,6 +306,7 @@ impl DestroyMachine {
                 } else {
                     self.destroying = Some(Destroying {
                         progress,
+                        completed: false,
                         ..destroying
                     });
                     if authority == BlockBreakingAuthority::Client {
@@ -292,17 +335,11 @@ impl DestroyMachine {
                     position: target.position,
                     face: target.face,
                     progress: 0.0,
+                    completed: false,
                 });
             }
         }
         payload
-    }
-
-    fn awaiting_update(&self, target: &DestroyTarget) -> bool {
-        self.predicted_break
-            .is_some_and(|(position, runtime_id, _)| {
-                position == target.position && runtime_id == target.runtime_id
-            })
     }
 
     /// The destroy stays active on the broken block, so the next target continues it.
@@ -346,19 +383,16 @@ impl DestroyMachine {
             position: target.position,
             face: target.face,
             progress: 0.0,
+            completed: true,
         });
-        self.predicted_break = Some((
-            target.position,
-            target.runtime_id,
-            PREDICTED_BREAK_HOLD_TICKS,
-        ));
+        payload.broken = Some(target.position);
     }
 }
 
 /// Wall-clock spacing between block-diagnostic lines while an attack is held.
 const BLOCKED_MINING_LOG_THROTTLE_MILLIS: u64 = 2000;
 
-/// Survival destroy sequencing bound to the current position authority.
+/// Destroy sequencing bound to the current position authority.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct SurvivalMiningRuntime {
     machine: DestroyMachine,
@@ -375,7 +409,8 @@ impl SurvivalMiningRuntime {
     }
 
     /// Steps every unsent tick once, attaching nonempty payloads to their
-    /// samples, and returns the mining request ids no tick carried.
+    /// samples, and returns the mining request ids no tick carried. A break is
+    /// predicted only once its tick carries it.
     pub(crate) fn step_ticks(
         &mut self,
         ticker: &mut MovementTicker,
@@ -383,6 +418,7 @@ impl SurvivalMiningRuntime {
         authority: BlockBreakingAuthority,
         mut swing: impl FnMut(u64),
         mut request_id: impl FnMut(u8, i32) -> Option<i32>,
+        mut predict_break: impl FnMut([i32; 3]),
     ) -> Vec<i32> {
         let mut unsent = Vec::new();
         let identity = ticker.interaction_authority_identity();
@@ -404,13 +440,13 @@ impl SurvivalMiningRuntime {
             return unsent;
         };
         self.last_stepped_tick = Some(newest);
-        if !ticker.accepts_creative_mining() {
+        if !ticker.accepts_block_interactions() {
             // Withheld ticks never reach the server, so neither may their actions.
             self.machine.interrupt();
             return unsent;
         }
-        for (tick, on_ground) in ticks {
-            let mut payload = self.machine.step(input, on_ground, authority);
+        for (tick, motion) in ticks {
+            let mut payload = self.machine.step(input, motion, authority);
             payload.mine_block = payload
                 .wear
                 .filter(|&(slot, damage, stack_network_id)| {
@@ -433,7 +469,13 @@ impl SurvivalMiningRuntime {
                 .mine_block
                 .as_ref()
                 .map(|request| request.request_id());
-            if !payload.is_empty() && !ticker.attach_survival_mining(tick, payload) {
+            let broken = payload.broken;
+            if payload.is_empty() {
+                continue;
+            }
+            if ticker.attach_survival_mining(tick, payload) {
+                broken.into_iter().for_each(&mut predict_break);
+            } else {
                 // A tick that cannot carry its actions desynchronizes the server's view.
                 self.machine.interrupt();
                 unsent.extend(mine_block);
@@ -461,8 +503,7 @@ impl SurvivalMiningRuntime {
             target: "bedrock_client::survival_mining",
             reason,
             game_mode_known = caps.is_some(),
-            can_edit = caps.is_some_and(|caps| caps.can_edit),
-            instant_break = caps.is_some_and(|caps| caps.instant_break),
+            can_mine = caps.is_some_and(|caps| caps.can_mine),
             authority = ?authority,
             "held attack produced no block break",
         );
@@ -476,9 +517,10 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     ui: ResMut<'w, UiRuntime>,
     menu: Res<'w, MenuRuntime>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
-    client_world: Res<'w, ClientWorld>,
+    client_world: ResMut<'w, ClientWorld>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     effects: Res<'w, LocalMovementEffectTimeline>,
+    physics: Option<Res<'w, LocalPhysicsController>>,
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
@@ -505,7 +547,7 @@ pub(crate) fn produce_survival_mining(
     let snapshot = context.input.snapshot();
     let snapshot_present = snapshot.is_some();
     let actor_in_front = context.melee.actor_in_front();
-    let active = survival_mining_active(caps, focused, snapshot_present);
+    let active = mining_active(caps, focused, snapshot_present);
     let target = match snapshot.filter(|_| active) {
         Some(input) => {
             runtime.latched_press |= attack.pressed;
@@ -515,6 +557,7 @@ pub(crate) fn produce_survival_mining(
                     .then(|| {
                         observe_destroy_target(
                             &context,
+                            caps,
                             input.input_mode,
                             (input.authority_generation, input.frame_sequence),
                             movement.interaction_authority_identity().1,
@@ -551,6 +594,7 @@ pub(crate) fn produce_survival_mining(
         .map(|stream| stream.local_player_runtime_id());
     let network = &context.network;
     let ui = &mut context.ui;
+    let client_world = &mut context.client_world;
     let unsent = runtime.step_ticks(
         &mut movement,
         input,
@@ -566,6 +610,12 @@ pub(crate) fn produce_survival_mining(
             }
         },
         |slot, damage| ui.begin_mining_request(slot, damage),
+        |position| {
+            if let Some(stream) = client_world.stream.as_mut() {
+                let air = stream.air_block_id();
+                stream.predict_block(position, 0, air);
+            }
+        },
     );
     for request_id in unsent {
         ui.cancel_mining_request(request_id);
@@ -575,12 +625,12 @@ pub(crate) fn produce_survival_mining(
 /// Whether held-mining should look for a destroy target this frame. The
 /// block-breaking wire mode is deliberately not an input here: it sequences a
 /// break, it never decides whether one may happen.
-fn survival_mining_active(
+fn mining_active(
     caps: Option<GameModeCapabilities>,
     focused: bool,
     snapshot_present: bool,
 ) -> bool {
-    focused && snapshot_present && caps.is_some_and(|caps| caps.uses_survival_mining())
+    focused && snapshot_present && caps.is_some_and(|caps| caps.can_mine)
 }
 
 /// Why a held attack yielded no destroy target, for the throttled diagnostic.
@@ -593,8 +643,7 @@ fn blocked_mining_reason(
 ) -> Option<&'static str> {
     match caps {
         None => Some("game mode unknown"),
-        Some(caps) if !caps.can_edit => Some("can_edit=false for this game mode"),
-        Some(caps) if caps.instant_break => Some("instant-break mode uses the creative path"),
+        Some(caps) if !caps.can_mine => Some("can_mine=false for this game mode"),
         _ if !focused => Some("window or menu not focused"),
         _ if !snapshot_present => Some("no input snapshot yet"),
         _ if actor_in_front => Some("an actor in front owns the press"),
@@ -605,13 +654,15 @@ fn blocked_mining_reason(
 
 fn observe_destroy_target(
     context: &SurvivalMiningContext,
+    caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (std::num::NonZeroU64, u64),
     position_authority_generation: u64,
 ) -> Option<DestroyTarget> {
     let ui = &context.ui;
-    // The capability gate in the producer already confirmed this mode edits and
-    // is not the instant-break path; here only an open UI blocks the pick.
+    // The capability gate in the producer already confirmed this mode edits;
+    // here only an open UI blocks the pick.
+    let caps = caps?;
     if ui.ui_focused() {
         return None;
     }
@@ -625,7 +676,11 @@ fn observe_destroy_target(
         selection,
         (
             input_mode,
-            survival_reach(input_mode),
+            if caps.creative_reach {
+                creative_reach(input_mode)
+            } else {
+                survival_reach(input_mode)
+            },
             input_authority,
             position_authority_generation,
         ),
@@ -640,13 +695,18 @@ fn observe_destroy_target(
         .block_identifier(mode, observed.target.runtime_id)
         .and_then(sim::block_destroy_info);
     let item = &observed.selection.item;
-    let tool = (item.network_id() != 0)
+    let identifier = (item.network_id() != 0)
         .then(|| {
             ui.inventory_ledger()
                 .negotiated_item_entry(item.network_id())
         })
         .flatten()
-        .and_then(|entry| HeldTool::from_identifier(entry.identifier.as_ref()));
+        .map(|entry| entry.identifier.as_ref());
+    let instant = caps.instant_break;
+    if instant && !destroys_in_creative(identifier) {
+        return None;
+    }
+    let tool = identifier.and_then(HeldTool::from_identifier);
     let world = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(mode),
@@ -654,7 +714,9 @@ fn observe_destroy_target(
     );
     let effects = context.effects.mining_effects();
     let helmet = ui.gameplay_hud().armor().map(|armor| &armor.helmet);
-    let wear = tool.and_then(|tool| {
+    let unbreaking =
+        protocol::item_enchantment_level(item.extra_data(), UNBREAKING_ENCHANTMENT_ID).unwrap_or(0);
+    let wear = tool.filter(|_| !instant).and_then(|tool| {
         (item.stack_network_id() > 0).then(|| ToolWear {
             // Outstanding and corrected predictions outrank the stack's own tag.
             current_damage: ui
@@ -665,7 +727,13 @@ fn observe_destroy_target(
                         .and_then(|damage| i32::try_from(damage).ok())
                 })
                 .unwrap_or(0),
-            break_damage: tool_break_damage(tool.kind),
+            break_damage: if protocol::item_extra_unbreakable(item.extra_data())
+                || !unbreaking_keeps_damage(unbreaking, percent_roll())
+            {
+                0
+            } else {
+                tool_break_damage(tool.kind)
+            },
         })
     });
     Some(DestroyTarget {
@@ -685,8 +753,9 @@ fn observe_destroy_target(
             conduit_power_amplifier: effects.conduit_power,
             mining_fatigue_amplifier: effects.mining_fatigue,
             on_ground: true,
-            // Local simulation has no flight and never reports starting to fly.
-            flying: false,
+            flying: exempt_from_airborne_penalty(
+                context.physics.as_ref().map(|physics| physics.mode()),
+            ),
             riding: ui.gameplay_hud().mount_unique_id().is_some(),
             eyes_in_water: eyes_in_water(&world, observed.ray.origin),
             // Unknown armor reads as absent, which only slows prediction.
@@ -697,7 +766,35 @@ fn observe_destroy_target(
         },
         selection: observed.selection,
         wear,
+        instant,
     })
+}
+
+/// Swords and the trident refuse Creative destruction, as `WeaponItem` and
+/// `TridentItem::canDestroyInCreative` do; unknown items may destroy.
+fn destroys_in_creative(identifier: Option<&str>) -> bool {
+    identifier.is_none_or(|identifier| {
+        identifier != "minecraft:trident"
+            && HeldTool::from_identifier(identifier)
+                .is_none_or(|tool| tool.kind != sim::ToolKind::Sword)
+    })
+}
+
+/// Flight, not mere airborne movement, exempts the destroy-speed penalty (`PlayerDestroy`).
+fn exempt_from_airborne_penalty(mode: Option<sim::MovementMode>) -> bool {
+    mode == Some(sim::MovementMode::Flying)
+}
+
+/// Whether Unbreaking at `level` lets a `roll` in `0..100` damage the item:
+/// `ItemStackBase::hurtAndBreak` keeps damage below `Item::getDamageChance`.
+fn unbreaking_keeps_damage(level: u8, roll: u32) -> bool {
+    level == 0 || roll < 100 / (u32::from(level) + 1)
+}
+
+/// A uniformly distributed roll in `0..100` from the process hash seed.
+fn percent_roll() -> u32 {
+    use std::hash::BuildHasher;
+    (std::collections::hash_map::RandomState::new().hash_one(()) % 100) as u32
 }
 
 /// Durability one destroy costs, per dragonfly's `item/*.go` durability info (MIT).

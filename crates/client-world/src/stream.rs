@@ -63,6 +63,7 @@ mod meshing;
 mod model;
 mod movement_attribute;
 mod polling;
+mod prediction;
 mod publication;
 #[path = "publication_config.rs"]
 mod publication_config;
@@ -263,6 +264,7 @@ pub struct WorldStream {
     pending_decode: VecDeque<QueuedDecodeJob>,
     in_flight_decode_jobs: usize,
     blocking_block_updates: Option<u64>,
+    predictions: prediction::DeferredPredictions,
     decode_tx: Sender<DecodeCompletion>,
     decode_rx: Receiver<DecodeCompletion>,
     light_tx: Sender<LightCompletion>,

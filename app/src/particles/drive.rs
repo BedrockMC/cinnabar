@@ -423,9 +423,7 @@ fn drive_particles(
             system.spawn(&named_request(RAIN_SPLASH_EFFECT, position, None));
         }
     }
-    *crack_timer += time.delta_secs();
-    if *crack_timer >= CRACK_INTERVAL_SECONDS {
-        *crack_timer = 0.0;
+    if crack_cadence_due(&mut crack_timer, time.delta_secs()) {
         let local_target = mining
             .as_ref()
             .and_then(|mining| mining.destroying_target());
@@ -450,4 +448,33 @@ fn route_critical(system: &mut ParticleSystem, stream: &WorldStream, runtime_id:
         "minecraft:critical_hit_emitter"
     };
     system.spawn(&named_request(effect, position, None));
+}
+
+/// Advances the crack cadence, keeping the remainder so it does not drift with
+/// the frame rate; a long stall yields one burst, not a backlog.
+fn crack_cadence_due(timer: &mut f32, delta_seconds: f32) -> bool {
+    *timer += delta_seconds;
+    if *timer < CRACK_INTERVAL_SECONDS {
+        return false;
+    }
+    *timer = (*timer - CRACK_INTERVAL_SECONDS).min(CRACK_INTERVAL_SECONDS);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::crack_cadence_due;
+
+    /// Frame times that straddle the interval keep a steady five bursts per second.
+    #[test]
+    fn crack_cadence_keeps_the_remainder() {
+        let mut timer = 0.0;
+        let bursts = (0..61)
+            .filter(|_| crack_cadence_due(&mut timer, 0.07))
+            .count();
+        assert_eq!(
+            bursts, 21,
+            "4.27 s at 0.2 s per burst, not one per three frames"
+        );
+    }
 }
