@@ -242,12 +242,32 @@ impl AudioEngine {
             || (self.voices.iter()).any(|voice| &*voice.name == name && !voice.shared.finished())
     }
 
-    /// Cancels every voice playing `name`.
+    /// Cancels every voice playing `name`, and starts of it requested earlier but not yet begun.
     pub(crate) fn stop_named(&mut self, name: &str) {
         for voice in self.voices.iter().filter(|voice| &*voice.name == name) {
             voice.shared.cancel();
         }
+        self.queue.retain(|request| &*request.name != name);
         self.pending.retain(|start| &*start.request.name != name);
+    }
+
+    /// Cancels every voice and not-yet-started sound of `category`.
+    pub(crate) fn stop_category(&mut self, category: AudioCategory) {
+        for voice in self
+            .voices
+            .iter()
+            .filter(|voice| voice.category == category)
+        {
+            voice.shared.cancel();
+        }
+        self.pending.retain(|start| start.category != category);
+        if let Some(bank) = self.bank.as_ref() {
+            self.queue.retain(|request| {
+                bank.definition(&request.name).is_none_or(|definition| {
+                    AudioCategory::from_definition(definition.category.as_deref()) != category
+                })
+            });
+        }
     }
 
     pub(crate) fn stop_all(&mut self) {
@@ -891,6 +911,29 @@ mod tests {
                 .is_none()
         );
         assert_eq!(engine.stats.no_pcm, 1, "the pick reached PCM lookup");
+    }
+
+    // A PlaySound then StopSound in one ingestion pass still started the sound on the next pump.
+    #[test]
+    fn stops_cancel_starts_queued_before_them() {
+        let mut engine = engine(&[("mob.cat", "neutral"), ("music.game", "music")]);
+        let settings = AudioSettings::default();
+        engine.enqueue(SoundRequest::new("mob.cat"));
+        engine.stop_named("mob.cat");
+        engine.enqueue(SoundRequest::new("music.game"));
+        engine.stop_category(AudioCategory::Music);
+        assert!(engine.pump(None, 0.05, &settings).is_empty());
+    }
+
+    #[test]
+    fn legacy_music_stop_leaves_effects_playing() {
+        let mut engine = engine(&[("mob.cat", "neutral"), ("music.game", "music")]);
+        engine.enqueue(SoundRequest::new("mob.cat"));
+        engine.enqueue(SoundRequest::new("music.game"));
+        let mut sources = engine.pump(None, 0.05, &AudioSettings::default());
+        engine.stop_category(AudioCategory::Music);
+        assert!(sources[0].next().is_some());
+        assert!(sources[1].next().is_none());
     }
 
     #[test]

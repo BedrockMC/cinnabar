@@ -213,6 +213,9 @@ pub(super) fn ingest_audio_events(
         let request = match &event.event {
             protocol::AudioEvent::Play(play) => Some(route::play_request(play)),
             protocol::AudioEvent::Stop(stop) => {
+                if stop.stop_music_legacy {
+                    engine.stop_category(AudioCategory::Music);
+                }
                 if stop.stop_all_sounds {
                     engine.stop_all();
                 } else {
