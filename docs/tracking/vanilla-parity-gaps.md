@@ -57,11 +57,12 @@ table, chest/large chest/barrel/shulker/ender chest by block entity, every stati
 (furnace family and brewing progress, anvil name, enchanting options, grindstone, loom
 patterns, smithing, cartography, stonecutter recipes, beacon powers, hopper, dispenser,
 dropper, crafter, horse), the creative inventory (tabs, search, collapsible groups) and the
-two-page book/lectern screen, with full item tooltips. Incomplete: the enchanting book
-model, rune font, horse/player live renderers in tests, banner pattern previews, anvil
-repair cost, crafter slot toggles, the survival book's filter toggle (fixed on), the wide
-creative layout; a hover change re-lays out the screen (about 14 ms dev profile at 300
-catalog entries). Needs native measurement: the virtual UI scale (engine
+two-page book/lectern screen, with full item tooltips, the recipe book filter toggle,
+crafter slot toggles/preview/powered arrow, creative's wide list and per-mount equip slots.
+A hover change never lays out again; scrolling lays out only visible scroll content.
+Incomplete: the enchanting book model, rune font, the live horse renderer, banner
+pattern previews, the anvil result preview and repair cost; the paper doll's held item is
+a flat quad and it draws no offhand or armor trims. Needs native measurement: the virtual UI scale (engine
 pixel = the HUD's GUI pixel), slider travel and `clip_direction`, slider `label: value`
 text, tooltip and durability placement/colours, the preview's size in its box, layer
 relativity, and the T2 inferences (omitted `size` = 100%, `anchor_to` = parent point). Menus (landed, uncompiled): start, play (worlds/friends/servers tabs), add/edit server,

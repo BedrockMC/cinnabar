@@ -130,6 +130,7 @@ impl UiPresentationRuntime {
         let mut layers = vec![&screen];
         layers.extend(screen.overlay.as_deref());
         let mut drawn = None;
+        let preview_view = std::cell::Cell::new(None);
         for layer in layers {
             let inputs = engine::EngineInputs {
                 layouts: &mut self.layouts,
@@ -148,6 +149,7 @@ impl UiPresentationRuntime {
             let art = engine::ScreenArt {
                 icons: &[],
                 preview: self.hud_frame.player_preview,
+                preview_view: Some(&preview_view),
                 pointer: None,
                 images: Some(&self.menu_artwork.refs),
                 // The gamerpic, else the rendered persona head.
@@ -177,6 +179,9 @@ impl UiPresentationRuntime {
                     return Ok(None);
                 }
             }
+        }
+        if let Some(view) = preview_view.get() {
+            self.player_preview_view = view.quantized();
         }
         let Some(frame) = drawn else {
             return Ok(None);

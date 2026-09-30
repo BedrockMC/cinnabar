@@ -142,6 +142,17 @@ pub struct UiPresentationRuntime {
     player_preview_page: Option<u16>,
     player_preview_source_hash: Option<[u8; 32]>,
     player_preview_pose: Option<player_preview::PlayerPreviewPose>,
+    /// How the UI last asked to show the model, and the idle sway it was drawn at.
+    player_preview_view: player_preview::PreviewView,
+    player_preview_drawn: Option<(
+        player_preview::PreviewView,
+        f32,
+        player_preview::PreviewEquipment,
+    )>,
+    player_preview_bob: f32,
+    /// Worn armor and the held item the model shows, and where armor art comes from.
+    player_preview_gear: player_preview::PreviewEquipment,
+    equipment_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     player_preview_pixels: Option<player_preview::PlayerPreviewRasters>,
     preview_dirty: bool,
     player_preview_icon: Option<IconRef>,
@@ -237,6 +248,11 @@ impl UiPresentationRuntime {
             player_preview_page: None,
             player_preview_source_hash: None,
             player_preview_pose: None,
+            player_preview_view: player_preview::PreviewView::default(),
+            player_preview_drawn: None,
+            player_preview_bob: 0.0,
+            player_preview_gear: player_preview::PreviewEquipment::default(),
+            equipment_catalog: None,
             player_preview_pixels: None,
             preview_dirty: false,
             player_preview_icon: None,
@@ -281,16 +297,23 @@ impl UiPresentationRuntime {
             .filter(|pixels| pixels.len() == render::STANDARD_SKIN_BYTES)
             .unwrap_or(default_skin.as_ref());
         let source_hash: [u8; 32] = Sha256::digest(skin).into();
+        let drawn = (
+            self.player_preview_view,
+            self.player_preview_bob,
+            self.player_preview_gear.clone(),
+        );
         if self.player_preview_source_hash == Some(source_hash)
             && self.player_preview_pose == Some(pose)
+            && self.player_preview_drawn.as_ref() == Some(&drawn)
         {
             return;
         }
         self.player_preview_pixels = Some(player_preview::PlayerPreviewRasters {
-            preview: player_preview::render(skin, pose),
+            preview: player_preview::render(skin, pose, drawn.0, drawn.1, &drawn.2),
             left_hand: player_preview::render_hand(skin, pose, true),
             right_hand: player_preview::render_hand(skin, pose, false),
         });
+        self.player_preview_drawn = Some(drawn);
         self.player_preview_source_hash = Some(source_hash);
         self.player_preview_pose = Some(pose);
         self.preview_dirty = true;
