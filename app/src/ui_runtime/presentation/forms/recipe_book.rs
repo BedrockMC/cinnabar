@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::super::{HudFrame, IconRef};
 use crate::ui_runtime::UiRuntime;
-use crate::ui_runtime::inventory_actions::recipe_book_entries;
+use crate::ui_runtime::inventory_actions::{BookEntry, recipe_book_entries};
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 use crate::ui_runtime::presentation::screens::{SEARCH_TAB, Widget};
 
@@ -34,12 +34,46 @@ const TAB_LABELS: [&str; 5] = [
     "craftingScreen.tab.items",
     "craftingScreen.tab.allItems",
 ];
+/// Cell backgrounds: a plain entry, a folded and an unfolded group head, and
+/// an entry under an unfolded head.
 const ITEM_BACKGROUND: &str = "textures/ui/recipe_book_item_bg";
+const GROUP_FOLDED: &str = "textures/ui/recipe_book_light_button";
+const GROUP_UNFOLDED: &str = "textures/ui/recipe_book_dark_button_pressed";
+const GROUP_ITEM: &str = "textures/ui/recipe_book_dark_button";
 
 /// Whether the panel shows: creative opens on it and the toggle flips either way.
 pub(crate) fn recipe_book_shown(runtime: &UiRuntime) -> bool {
     let creative = runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     creative != runtime.screen_state().book_open
+}
+
+/// The listed entries' icons, in list order.
+pub(crate) fn recipe_book_icons(
+    runtime: &UiRuntime,
+    icon: impl Fn(&protocol::NetworkItemStack) -> Option<IconRef>,
+) -> Vec<Option<IconRef>> {
+    recipe_book_entries(runtime)
+        .iter()
+        .map(|entry| icon(&entry.stack()))
+        .collect()
+}
+
+/// The stack a hovered entry's tooltip describes; a group head names its group.
+pub(crate) fn recipe_book_hover(
+    runtime: &UiRuntime,
+    index: u16,
+) -> Option<(protocol::NetworkItemStack, Option<std::sync::Arc<str>>)> {
+    let entries = recipe_book_entries(runtime);
+    let entry = entries.get(usize::from(index))?;
+    let name = match entry {
+        BookEntry::Group { group, .. } => Some(
+            runtime
+                .translation(&group.name)
+                .unwrap_or_else(|| std::sync::Arc::clone(&group.name)),
+        ),
+        _ => None,
+    };
+    Some((entry.stack(), name))
 }
 
 /// The crafting screens' static variables.
@@ -136,12 +170,23 @@ pub(super) fn book_data(
             .with("#is_creative_selected_slot", Scalar::Bool(false))
             .with(
                 "#container_item_background_texture",
-                Scalar::Text(ITEM_BACKGROUND.to_owned()),
+                Scalar::Text(background(entry).to_owned()),
             )
             .with("#recipe_book_total_items", Scalar::Num(total))
         })
         .collect();
     data.set_collection("recipe_book", items);
+}
+
+fn background(entry: &BookEntry<'_>) -> &'static str {
+    match entry {
+        BookEntry::Group {
+            expanded: false, ..
+        } => GROUP_FOLDED,
+        BookEntry::Group { expanded: true, .. } => GROUP_UNFOLDED,
+        BookEntry::Creative { grouped: true, .. } => GROUP_ITEM,
+        _ => ITEM_BACKGROUND,
+    }
 }
 
 /// The widget a recipe book control presses: an entry, a tab, the search

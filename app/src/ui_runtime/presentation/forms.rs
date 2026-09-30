@@ -34,7 +34,7 @@ use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::E
 use assets::RuntimeUiAssets;
 pub(crate) use containers::{engine_panel_contains, engine_screen_for};
 pub(crate) use engine::hud_renderers;
-pub(crate) use recipe_book::recipe_book_shown;
+pub(crate) use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
 pub(crate) use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};

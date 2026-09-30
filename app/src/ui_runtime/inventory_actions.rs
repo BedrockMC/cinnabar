@@ -1,7 +1,7 @@
 //! Dispatch of resolved inventory-screen gestures onto the ledger: cells,
 //! screen widgets, result cells and the creative catalog.
 
-use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
+use protocol::{CreativeGroup, CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
@@ -35,18 +35,28 @@ pub(super) const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTar
     })
 }
 
-/// One entry of the recipe book: a creative catalog item in creative, else a
-/// recipe the player can craft now.
+/// One entry of the recipe book: in creative a catalog item or a named group's
+/// head, else a recipe the player can craft now.
 pub(crate) enum BookEntry<'a> {
-    Creative(&'a CreativeItem),
+    Creative {
+        item: &'a CreativeItem,
+        /// Listed under an expanded group's head.
+        grouped: bool,
+    },
+    Group {
+        index: u32,
+        group: &'a CreativeGroup,
+        expanded: bool,
+    },
     Recipe(RecipeHandle),
 }
 
 impl BookEntry<'_> {
-    /// The stack the entry shows.
+    /// The stack the entry shows; a group head shows its icon.
     pub(crate) fn stack(&self) -> NetworkItemStack {
         match self {
-            Self::Creative(item) => item.stack.clone(),
+            Self::Creative { item, .. } => item.stack.clone(),
+            Self::Group { group, .. } => group.icon.clone().unwrap_or_default(),
             Self::Recipe(recipe) => {
                 let output = recipe.output();
                 NetworkItemStack {
@@ -62,27 +72,66 @@ impl BookEntry<'_> {
 }
 
 /// What the engine-drawn recipe book lists on the current tab: the creative
-/// catalog in creative, else the craftable recipes whose output the catalog
+/// catalog in creative (a named group folds into its head until expanded;
+/// search lists flat), else the craftable recipes whose output the catalog
 /// files under that tab (every one without a catalog), or matching the search.
 pub(crate) fn recipe_book_entries(runtime: &UiRuntime) -> Vec<BookEntry<'_>> {
     let ledger = runtime.inventory_ledger();
     let state = runtime.screen_state();
     if runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
-        && ledger.creative_catalog().is_some()
+        && let Some(catalog) = ledger.creative_catalog()
     {
-        return visible_creative_entries(ledger, state)
-            .into_iter()
-            .map(BookEntry::Creative)
-            .collect();
+        let items = visible_creative_entries(ledger, state);
+        if state.creative_tab == super::presentation::screens::SEARCH_TAB {
+            return items
+                .into_iter()
+                .map(|item| BookEntry::Creative {
+                    item,
+                    grouped: false,
+                })
+                .collect();
+        }
+        let mut entries = Vec::with_capacity(items.len());
+        let mut open: Option<u32> = None;
+        for item in items {
+            let group = catalog
+                .groups
+                .get(item.group as usize)
+                .filter(|group| !group.name.is_empty());
+            let Some(group) = group else {
+                open = None;
+                entries.push(BookEntry::Creative {
+                    item,
+                    grouped: false,
+                });
+                continue;
+            };
+            let expanded = state.creative_expanded.contains(&item.group);
+            if open != Some(item.group) {
+                open = Some(item.group);
+                entries.push(BookEntry::Group {
+                    index: item.group,
+                    group,
+                    expanded,
+                });
+            }
+            if expanded {
+                entries.push(BookEntry::Creative {
+                    item,
+                    grouped: true,
+                });
+            }
+        }
+        return entries;
     }
-    let shown: Vec<u32> = ledger
+    let shown: std::collections::HashSet<i32> = ledger
         .creative_catalog()
         .map(|catalog| {
             creative_entries(catalog, state.creative_tab, &state.search, |item| {
                 item_name(ledger, item)
             })
             .iter()
-            .map(|item| item.stack.network_id as u32)
+            .map(|item| item.stack.network_id)
             .collect()
         })
         .unwrap_or_default();
@@ -90,8 +139,7 @@ pub(crate) fn recipe_book_entries(runtime: &UiRuntime) -> Vec<BookEntry<'_>> {
         .book_recipes(0, usize::MAX)
         .into_iter()
         .filter(|recipe| {
-            ledger.creative_catalog().is_none()
-                || shown.contains(&(recipe.output().network_id as u32))
+            ledger.creative_catalog().is_none() || shown.contains(&recipe.output().network_id)
         })
         .map(BookEntry::Recipe)
         .collect()
@@ -101,6 +149,13 @@ fn item_name(ledger: &PlayerInventoryLedger, item: &CreativeItem) -> Option<Stri
     let entry = ledger.negotiated_item_entry(item.stack.network_id)?;
     let name = entry.identifier.strip_prefix("minecraft:")?;
     Some(name.replace('_', " "))
+}
+
+/// What a recipe book click lands on, detached from the runtime borrow.
+enum Clicked {
+    Item(u32),
+    Group(u32),
+    Recipe(RecipeHandle),
 }
 
 /// The catalog entries the creative screen currently lists, in grid order.
@@ -398,12 +453,24 @@ impl UiRuntime {
             .into_iter()
             .nth(usize::from(index))
             .map(|entry| match entry {
-                BookEntry::Creative(item) => Ok(item.creative_network_id),
-                BookEntry::Recipe(recipe) => Err(recipe),
+                BookEntry::Creative { item, .. } => Clicked::Item(item.creative_network_id),
+                BookEntry::Group { index, .. } => Clicked::Group(index),
+                BookEntry::Recipe(recipe) => Clicked::Recipe(recipe),
             });
         match entry {
-            Some(Ok(id)) => self.creative_take(id, into_inventory),
-            Some(Err(recipe)) => self.inventory_ledger_mut().begin_auto_craft(&recipe),
+            Some(Clicked::Item(id)) => self.creative_take(id, into_inventory),
+            // A head folds or unfolds its group; a held stack still deletes.
+            Some(Clicked::Group(_)) if self.inventory_ledger().cursor_stack().is_some() => {
+                self.inventory_ledger_mut().begin_destroy_cursor()
+            }
+            Some(Clicked::Group(index)) => {
+                let expanded = &mut self.screen_state_mut().creative_expanded;
+                if !expanded.remove(&index) {
+                    expanded.insert(index);
+                }
+                Ok(0)
+            }
+            Some(Clicked::Recipe(recipe)) => self.inventory_ledger_mut().begin_auto_craft(&recipe),
             None if self.inventory_ledger().cursor_stack().is_some() => {
                 self.inventory_ledger_mut().begin_destroy_cursor()
             }

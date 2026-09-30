@@ -98,7 +98,8 @@ fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
     runtime
 }
 
-/// The creative inventory over a 300-item catalog across the four tabs.
+/// The creative inventory over a 300-item catalog across the four tabs, whose
+/// first construction items fold into a named group, the second one unfolded.
 fn creative() -> UiRuntime {
     use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
     let mut runtime = session();
@@ -109,13 +110,23 @@ fn creative() -> UiRuntime {
         CreativeCategory::Equipment,
         CreativeCategory::Items,
     ];
-    let groups = categories
+    let group = |category: CreativeCategory, name: &str| CreativeGroup {
+        category,
+        name: name.into(),
+        icon: None,
+    };
+    let mut groups: Vec<CreativeGroup> = categories
         .iter()
-        .map(|category| CreativeGroup {
-            category: *category,
-            name: "".into(),
-        })
+        .map(|category| group(*category, ""))
         .collect();
+    groups.push(group(
+        CreativeCategory::Construction,
+        "itemGroup.name.planks",
+    ));
+    groups.push(group(
+        CreativeCategory::Construction,
+        "itemGroup.name.stone",
+    ));
     let items = (0..300u32)
         .map(|index| CreativeItem {
             creative_network_id: index + 1,
@@ -124,16 +135,21 @@ fn creative() -> UiRuntime {
                 count: 1,
                 ..NetworkItemStack::empty()
             },
-            group: index % 4,
+            group: match index {
+                0..20 if index % 4 == 0 => 4,
+                20..40 if index % 4 == 0 => 5,
+                _ => index % 4,
+            },
         })
-        .collect();
+        .collect::<Vec<_>>();
     runtime
         .inventory_ledger_mut()
         .apply(&InventoryEvent::Creative(CreativeContentEvent {
-            groups,
-            items,
+            groups: groups.into(),
+            items: items.into(),
             skipped: 0,
         }));
+    runtime.screen_state_mut().creative_expanded.insert(5);
     runtime.toggle_inventory();
     runtime
 }
