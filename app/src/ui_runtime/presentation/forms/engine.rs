@@ -19,6 +19,7 @@ use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
 };
 
+use super::super::player_preview::PreviewView;
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
 pub(crate) mod hud_renderers;
@@ -28,8 +29,6 @@ use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 const UNWRAPPED_LOGICAL: f64 = 65_536.0;
-/// Player preview height relative to its renderer box (needs native measurement).
-const PREVIEW_BOX_SCALE: f32 = 2.2;
 /// Tooltip placement relative to the pointer and its padding, in virtual px
 /// (needs native measurement).
 const TOOLTIP_OFFSET: [f32; 2] = [8.0, -12.0];
@@ -459,6 +458,8 @@ pub(super) struct ScreenArt<'a> {
     pub(super) view: Option<&'a ViewState>,
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
     pub(super) tooltip: Option<&'a str>,
+    /// Where a drawn player renderer records how it wants the model posed.
+    pub(super) preview_view: Option<&'a std::cell::Cell<Option<PreviewView>>>,
     pub(super) preview: Option<IconRef>,
     pub(super) pointer: Option<[f32; 2]>,
     pub(super) now: f64,
@@ -666,31 +667,27 @@ impl Painter<'_> {
                     dest,
                 ))
             }
-            // The live model is approximated by the cached preview raster, kept at
-            // its aspect and scaled to the renderer's box (needs native measurement).
+            // The model draws from the preview raster, posed as this renderer asks
+            // and framed as the vanilla renderers frame it.
             "live_player_renderer" | "paper_doll_renderer" => {
-                let preview = self.art.preview?;
-                let w = f32::from(preview.uv[2].saturating_sub(preview.uv[0]));
-                let h = f32::from(preview.uv[3].saturating_sub(preview.uv[1]));
-                if w <= 0.0 || h <= 0.0 {
-                    return None;
+                let (view, frame) = super::super::player_preview::renderer_frame(
+                    renderer,
+                    data,
+                    dest,
+                    self.px,
+                    self.art.pointer,
+                );
+                if let Some(request) = self.art.preview_view {
+                    request.set(Some(view));
                 }
-                let height = (dest[3] - dest[1]) * PREVIEW_BOX_SCALE;
-                let width = height * w / h;
-                let centre = (dest[0] + dest[2]) * 0.5;
-                let top = (dest[1] + dest[3]) * 0.5 - height * 0.5 + height * 0.25;
+                let preview = self.art.preview?;
                 Some((
                     UiVisual::Sprite {
                         texture_page: preview.page,
                         uv: preview.uv,
                         color: alpha([255; 4]),
                     },
-                    [
-                        centre - width * 0.5,
-                        top,
-                        centre + width * 0.5,
-                        top + height,
-                    ],
+                    frame,
                 ))
             }
             "hover_text_renderer" => {

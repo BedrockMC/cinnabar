@@ -168,6 +168,7 @@ pub(crate) fn publish_ui_runtime(
         pose,
         runtime.inventory_open() || menu_runtime.is_visible(),
         first_person && !hand_rig.is_active(),
+        now_millis as f64 / 1000.0,
     );
     refresh_hud_frame(
         &mut runtime,

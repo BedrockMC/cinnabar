@@ -414,3 +414,93 @@ fn hovering_slots_never_lays_the_screen_out_again() {
     eprintln!("hover frame with 1500 catalog entries: {per_move:?}");
     assert_eq!(presentation.engine_container_layouts(), layouts);
 }
+
+// The inventory's live player renderer faces the viewer and turns toward the
+// pointer: pointers on either side of the model draw different rasters.
+#[test]
+fn inventory_player_model_turns_toward_the_pointer() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = personal();
+    let dpi = DpiScale::new(1.0).unwrap();
+    let skin = steve_skin();
+    let mut rasters = Vec::new();
+    for (name, pointer) in [
+        ("left", [40.0, 60.0]),
+        ("centre", [178.0, 70.0]),
+        ("right", [400.0, 60.0]),
+    ] {
+        runtime.set_inventory_pointer_gui(Some(pointer));
+        for now in [0, 500] {
+            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+            presentation.sync_player_preview(skin.as_deref(), Default::default(), true, false, 0.0);
+            presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+        }
+        let input = presentation
+            .build(&runtime, 1_000, [1280, 720], dpi)
+            .unwrap();
+        super::super::forms::snapshot::write(&input, &format!("doll-{name}"));
+        rasters.push(presentation.player_preview_raster());
+        if let Ok(dir) = std::env::var("CINNABAR_FORM_SNAPSHOT_DIR") {
+            let raster = rasters.last().unwrap().clone();
+            image::RgbaImage::from_raw(96, 112, raster)
+                .unwrap()
+                .save(format!("{dir}/raster-{name}.png"))
+                .unwrap();
+        }
+    }
+    assert!(
+        rasters
+            .iter()
+            .all(|raster| raster.iter().any(|byte| *byte != 0))
+    );
+    assert_ne!(rasters[0], rasters[2], "the model turns with the pointer");
+}
+
+/// Steve from the local vanilla pack, else `None` (the built-in skin).
+fn steve_skin() -> Option<Vec<u8>> {
+    let steve = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack/textures/entity/steve.png",
+    );
+    image::open(steve)
+        .ok()
+        .map(|image| image.to_rgba8().into_raw())
+}
+
+// The pause screen's paper doll shows the model from the front, turned by its
+// starting rotation, not the player's world facing.
+#[test]
+fn pause_paper_doll_faces_the_viewer() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Player".to_owned());
+    menu.mark_connected();
+    menu.open_pause();
+    presentation.set_menu_view(Some(menu.view()));
+    let runtime = session();
+    let skin = steve_skin();
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+        // The world facing must not turn the doll.
+        let pose = super::super::player_preview::PlayerPreviewPose::new(97.0, 97.0, 0.0, false);
+        presentation.sync_player_preview(skin.as_deref(), pose, true, false, 0.0);
+        presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+    }
+    let input = presentation
+        .build(&runtime, 1_000, [1280, 720], dpi)
+        .unwrap();
+    super::super::forms::snapshot::write(&input, "pause-doll");
+    assert!(
+        presentation
+            .player_preview_raster()
+            .iter()
+            .any(|byte| *byte != 0)
+    );
+}

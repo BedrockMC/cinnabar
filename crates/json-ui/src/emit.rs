@@ -416,12 +416,19 @@ fn text_draw(control: &ResolvedControl) -> Draw {
     }
 }
 
+/// Plain properties a custom renderer reads besides its `#` bindings.
+const CUSTOM_PROPERTIES: [&str; 3] = [
+    "collection_index",
+    "starting_rotation",
+    "camera_tilt_degrees",
+];
+
 fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
     let renderer = control.properties.get("renderer")?.as_str()?.to_owned();
     let data = control
         .properties
         .iter()
-        .filter(|(key, _)| key.starts_with('#') || key.as_str() == "collection_index")
+        .filter(|(key, _)| key.starts_with('#') || CUSTOM_PROPERTIES.contains(&key.as_str()))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     Some(Draw::Custom { renderer, data })
