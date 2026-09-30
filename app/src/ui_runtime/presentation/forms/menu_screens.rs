@@ -293,16 +293,17 @@ pub(super) fn dialog_model(
             translated(translate, "gui.no", "No"),
             MenuAction::ConfirmExit,
         ),
+        // The popup's title is one line, so the server names it and the body asks.
         MenuDialog::RemoveSaved(index) => (
+            view.servers
+                .get(index)
+                .map(|server| server.name.clone())
+                .unwrap_or_default(),
             translated(
                 translate,
                 "addExternalServerScreen.removeConfirmation",
                 "Are you sure you want to remove this server?",
             ),
-            view.servers
-                .get(index)
-                .map(|server| server.name.clone())
-                .unwrap_or_default(),
             translated(
                 translate,
                 "addExternalServerScreen.removeButtonLabel",
@@ -421,7 +422,8 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             MenuAction::Navigate(MenuScreen::Friends)
         }
         "button.menu_store" => MenuAction::Store(crate::store::OPEN),
-        "button.menu_play" | "button.menu_realms" => MenuAction::Navigate(MenuScreen::Play),
+        "button.menu_play" => MenuAction::Navigate(MenuScreen::Play),
+        "button.menu_realms" => MenuAction::Navigate(MenuScreen::Social),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,
         "button.sign_out" => MenuAction::SignOut,

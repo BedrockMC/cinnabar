@@ -209,10 +209,17 @@ fn snapshot_play_flow() {
     snapshot(&at(MenuScreen::Home), "flow-home");
     snapshot(&at(MenuScreen::Play), "flow-play-worlds");
     snapshot(&at(MenuScreen::Social), "flow-play-realms");
+    let mut closed = at(MenuScreen::Social);
+    closed.feeds.selected_realm = Some(1);
+    snapshot(&closed, "flow-play-realms-closed");
     let mut servers = at(MenuScreen::Servers);
     snapshot(&servers, "flow-play-servers");
     servers.feeds.selected_featured = Some(0);
     snapshot(&servers, "flow-play-servers-featured");
+    servers.feeds.select_saved(0);
+    snapshot(&servers, "flow-play-servers-saved");
+    servers.dialog = Some(crate::menu::MenuDialog::RemoveSaved(0));
+    snapshot(&servers, "flow-remove-server");
     snapshot(&at(MenuScreen::Friends), "flow-friends");
     let mut add = at(MenuScreen::AddServer);
     add.name = "Home server".to_owned();

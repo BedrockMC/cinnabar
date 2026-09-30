@@ -1,6 +1,6 @@
 //! The play route's Realms tab: the side menu in four of twelve columns (Add
-//! or join, then your and joined Realms) and a Realm's details in eight (10:3
-//! image, name and tags, the hero Play button).
+//! or join with pending invites, then your and joined Realms) and the selected
+//! Realm's details in eight (10:3 image, name and tags, the hero Play button).
 
 use super::super::super::UiPresentationError;
 use super::grid::{Grid, space};
@@ -13,6 +13,8 @@ use crate::menu::{MenuAction, MenuRealmCard, MenuView};
 
 /// Owner and invited tag fill.
 const PRIMARY_TINT: [u8; 4] = [0x6c, 0xc3, 0x49, 255];
+/// Closed and expired tag fill (needs the OreUI reference).
+const WARNING_TINT: [u8; 4] = [0xd0, 0x3c, 0x3c, 255];
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -39,7 +41,20 @@ pub(super) fn draw(
         None,
     )?;
     y += add_height;
+    let invites = view.feeds.home.realm_invites;
+    if invites > 0 {
+        y = section_label(
+            canvas,
+            &format!("Realm invites ({invites})"),
+            [menu_left, menu_right],
+            y,
+        )?;
+    }
     let item_height = canvas.r(4.8);
+    let selected = view
+        .feeds
+        .selected_realm
+        .filter(|index| *index < view.realms.len());
     let mut first = None;
     for (label, member) in [("Your Realms", false), ("Joined Realms", true)] {
         let realms: Vec<(usize, &MenuRealmCard)> = view
@@ -69,8 +84,8 @@ pub(super) fn draw(
                 canvas,
                 view,
                 bounds,
-                first == Some(index),
-                Some(MenuAction::PlayRealm(index)),
+                selected.or(first) == Some(index),
+                Some(MenuAction::SelectRealm(index)),
             )?;
             let text_width = bounds[2] - bounds[0] - pad * 2.0;
             canvas.text(
@@ -101,7 +116,7 @@ pub(super) fn draw(
     let panel = [left, body[1], right, body[3]];
     canvas.fill(panel, NEUTRAL80.fill)?;
     canvas.frame(panel, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
-    let Some(index) = first else {
+    let Some(index) = selected.or(first) else {
         canvas.text_centred(
             "No Realms yet",
             [left, body[1], right, body[1] + canvas.r(10.0)],
@@ -142,7 +157,23 @@ pub(super) fn draw(
         false,
     )? + space(canvas, 1);
     let owner_tag = if realm.member { "Invited" } else { "Owner" };
-    tag(canvas, owner_tag, [left + pad, y], PRIMARY_TINT, TEXT_DARK)?;
+    let mut x = tag(canvas, owner_tag, [left + pad, y], PRIMARY_TINT, TEXT_DARK)?;
+    let open = !realm.expired && realm.state.eq_ignore_ascii_case("open");
+    if !open {
+        let state = if realm.expired { "Expired" } else { "Closed" };
+        x = tag(canvas, state, [x + canvas.r(0.8), y], WARNING_TINT, TEXT)?;
+    }
+    let detail = realm_detail(realm);
+    if !detail.is_empty() {
+        canvas.text(
+            &detail,
+            [x + canvas.r(0.8), y],
+            right - pad - x,
+            BODY,
+            TEXT_DIMMER,
+            false,
+        )?;
+    }
     y += canvas.r(2.0) + space(canvas, 3);
     let play_width = canvas.r(32.0).min((right - left) * 0.5);
     button(
@@ -151,6 +182,51 @@ pub(super) fn draw(
         [left + pad, y, left + pad + play_width, y + canvas.r(4.4)],
         Variant::Hero,
         "Play",
-        Some(MenuAction::PlayRealm(index)),
+        open.then_some(MenuAction::PlayRealm(index)),
     )
+}
+
+/// The owner of a joined Realm, or the time left on an owned one.
+fn realm_detail(realm: &MenuRealmCard) -> String {
+    if realm.member {
+        return if realm.owner.is_empty() {
+            String::new()
+        } else {
+            format!("Owner: {}", realm.owner)
+        };
+    }
+    match realm.days_left {
+        _ if realm.expired => String::new(),
+        1 => "1 day left".to_owned(),
+        days if days > 1 => format!("{days} days left"),
+        _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn realm(member: bool, days_left: i32, expired: bool) -> MenuRealmCard {
+        MenuRealmCard {
+            name: "Realm".to_owned(),
+            state: "open".to_owned(),
+            target: String::new(),
+            address: String::new(),
+            owner: "Alex".to_owned(),
+            online_players: 0,
+            max_players: 10,
+            days_left,
+            expired,
+            member,
+        }
+    }
+
+    #[test]
+    fn details_name_the_owner_or_the_time_left() {
+        assert_eq!(realm_detail(&realm(true, 0, false)), "Owner: Alex");
+        assert_eq!(realm_detail(&realm(false, 21, false)), "21 days left");
+        assert_eq!(realm_detail(&realm(false, 1, false)), "1 day left");
+        assert_eq!(realm_detail(&realm(false, 5, true)), "");
+    }
 }

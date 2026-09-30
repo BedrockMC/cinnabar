@@ -100,6 +100,10 @@ pub(crate) struct MenuFeeds {
     pub(crate) details: HashMap<String, ServerDetails>,
     pub(crate) profile: MenuProfile,
     pub(crate) selected_featured: Option<usize>,
+    /// The saved server the Servers tab's details show, instead of a featured one.
+    pub(crate) selected_saved: Option<usize>,
+    /// The Realm the Realms tab's details show.
+    pub(crate) selected_realm: Option<usize>,
     /// RakNet pongs keyed by the address the row joins.
     pub(crate) pings: HashMap<String, PingInfo>,
     /// The info panel's description and news are expanded past "read more".
@@ -161,6 +165,13 @@ impl MenuFeeds {
             self.news_expanded = false;
         }
         self.selected_featured = Some(index);
+        self.selected_saved = None;
+    }
+
+    /// Show a saved server's details in place of the featured one.
+    pub(crate) fn select_saved(&mut self, index: usize) {
+        self.selected_saved = Some(index);
+        self.selected_featured = None;
     }
 
     pub(crate) fn toggle_read_more(&mut self, section: u8) {
