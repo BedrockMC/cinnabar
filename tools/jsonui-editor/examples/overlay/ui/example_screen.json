@@ -1,0 +1,27 @@
+{
+  // No namespace: an overlay of a known path extends that file's namespace.
+  "example_screen/card": {
+    "$fill": [0.16, 0.1, 0.22, 0.95]
+  },
+
+  "example_screen/card/content": {
+    "modifications": [
+      {
+        "array_name": "controls",
+        "operation": "insert_after",
+        "control_name": "status",
+        "value": [
+          {
+            "footer": {
+              "type": "label",
+              "size": ["100%", "default"],
+              "text_alignment": "center",
+              "color": [0.7, 0.7, 0.8],
+              "text": "Overlay pack footer"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -81,20 +81,26 @@ impl CanonicalCell {
 /// Resolves one wire cell address onto its canonical cell, or `None` when the
 /// identity maps onto no canonical surface (callers count that as a skip).
 ///
-/// Named containers resolve by their decoded name, so a windowless response and
+/// The legacy player, offhand and armor windows route by window id alone and
+/// ignore the container name, as vanilla does; servers fill that name freely.
+/// Other addresses resolve by their decoded name, so a windowless response and
 /// a windowed Content/Slot event for the same surface converge. Generic storage
 /// is the one surface keyed by the dynamic id; every fixed surface ignores it,
 /// so a present zero routes exactly like an absent one. Player-inventory names
-/// bind only on bare window 0 or a windowless response; the same name on another
-/// window is the open container's, not the player's, and stays unrouted here.
-/// An unnamed address falls back to the legacy windows the client recognizes:
-/// window 0 as the player inventory, and the offhand and armor windows.
+/// bind only on a windowless response; the same name on another window is the
+/// open container's, not the player's, and stays unrouted here.
 ///
 /// Slot-index sanity is part of the mapping: cursor and offhand exist only at
 /// their single indices, the hotbar name covers only its nine cells, and
 /// player-inventory indices outside `0..36` are not player-inventory cells.
 #[must_use]
 pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option<CanonicalCell> {
+    match identity.window_id {
+        Some(PLAYER_INVENTORY_WINDOW_ID) => return player_inventory_cell(slot),
+        Some(OFFHAND_WINDOW_ID) => return (slot == 0).then_some(CanonicalCell::Offhand),
+        Some(ARMOR_WINDOW_ID) => return armor_cell(slot),
+        _ => {}
+    }
     match identity.slot_type {
         Some(CONTAINER_NAME_CRAFT_INPUT) => {
             let index = u8::try_from(slot.checked_sub(28)?).ok()?;
@@ -118,11 +124,11 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         // The three player-inventory names all fill the player container and
         // the dynamic id never discriminates among them; the hotbar name spans
         // only its nine cells, the other two the whole combined surface.
-        Some(CONTAINER_NAME_HOTBAR) if on_player_inventory_window(identity) => {
+        Some(CONTAINER_NAME_HOTBAR) if identity.window_id.is_none() => {
             (slot < 9).then(|| player_inventory_cell(slot)).flatten()
         }
         Some(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY | CONTAINER_NAME_INVENTORY)
-            if on_player_inventory_window(identity) =>
+            if identity.window_id.is_none() =>
         {
             player_inventory_cell(slot)
         }
@@ -139,22 +145,9 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         // Screen inputs at fixed UI slots; a name that disagrees with its slot
         // stays unrouted.
         Some(name) => ui_slot_for_name(name, slot).map(CanonicalCell::UiSlot),
-        // Trades, unreviewed codes, and a player name on a foreign window have
-        // no canonical mapping here.
-        None => match identity.window_id {
-            Some(PLAYER_INVENTORY_WINDOW_ID) => player_inventory_cell(slot),
-            Some(OFFHAND_WINDOW_ID) if slot == 0 => Some(CanonicalCell::Offhand),
-            Some(ARMOR_WINDOW_ID) => armor_cell(slot),
-            _ => None,
-        },
+        // Trades and unnamed foreign windows have no canonical mapping here.
+        None => None,
     }
-}
-
-/// The player inventory rides bare legacy window 0 (Content/Slot) or no window
-/// at all (a windowless response). Its names never carry a meaningful dynamic
-/// id, so — unlike generic storage — the dynamic id is not consulted here.
-fn on_player_inventory_window(identity: &ContainerIdentity) -> bool {
-    matches!(identity.window_id, None | Some(PLAYER_INVENTORY_WINDOW_ID))
 }
 
 fn armor_cell(slot: u16) -> Option<CanonicalCell> {
@@ -274,7 +267,16 @@ mod tests {
                 3,
                 Some(PlayerInventory(3)),
             ),
-            (Some(0), Some(CONTAINER_NAME_HOTBAR), 9, None),
+            // The legacy windows ignore their name, as vanilla does.
+            (
+                Some(0),
+                Some(CONTAINER_NAME_HOTBAR),
+                9,
+                Some(PlayerInventory(9)),
+            ),
+            (Some(0), Some(1), 3, Some(PlayerInventory(3))),
+            (Some(ARMOR_WINDOW_ID), Some(1), 2, Some(Armor(2))),
+            (Some(OFFHAND_WINDOW_ID), Some(1), 0, Some(Offhand)),
             (Some(5), Some(CONTAINER_NAME_INVENTORY), 0, None),
             (Some(5), Some(COMBINED), 0, None),
             // Fixed non-player surfaces, likewise dynamic-id-invariant.
@@ -307,7 +309,7 @@ mod tests {
             ),
             (None, Some(CONTAINER_NAME_CREATED_OUTPUT), 0, None),
             // Unreviewed name and bare legacy windows.
-            (Some(0), Some(211), 0, None),
+            (Some(0), Some(211), 0, Some(PlayerInventory(0))),
             (Some(0), None, 20, Some(PlayerInventory(20))),
             (Some(OFFHAND_WINDOW_ID), None, 0, Some(Offhand)),
             (Some(OFFHAND_WINDOW_ID), None, 1, None),
@@ -386,6 +388,15 @@ mod tests {
         ] {
             assert_eq!(personal_craft_content_indices(&invalid, 54), None);
             assert_eq!(personal_craft_slot_index(&invalid, 28), None);
+        }
+    }
+
+    /// A windowless (stack-response) address naming one container.
+    fn named(slot_type: u8) -> ContainerIdentity {
+        ContainerIdentity {
+            window_id: None,
+            slot_type: Some(slot_type),
+            dynamic_id: None,
         }
     }
 
@@ -521,26 +532,26 @@ mod tests {
     #[test]
     fn cursor_armor_offhand_and_storage_surfaces_stay_distinct_from_player_cells() {
         assert_eq!(
-            project_container_cell(&identity(0, Some(CONTAINER_NAME_CURSOR)), 0),
+            project_container_cell(&named(CONTAINER_NAME_CURSOR), 0),
             Some(CanonicalCell::Cursor)
         );
         // A cursor address beyond its single cell does not exist.
         assert_eq!(
-            project_container_cell(&identity(0, Some(CONTAINER_NAME_CURSOR)), 1),
+            project_container_cell(&named(CONTAINER_NAME_CURSOR), 1),
             None
         );
         assert_eq!(
-            project_container_cell(&identity(0, Some(CONTAINER_NAME_ARMOR)), 2),
+            project_container_cell(&named(CONTAINER_NAME_ARMOR), 2),
             Some(CanonicalCell::Armor(2))
         );
         assert_ne!(
-            project_container_cell(&identity(0, Some(CONTAINER_NAME_ARMOR)), 2),
+            project_container_cell(&named(CONTAINER_NAME_ARMOR), 2),
             project_container_cell(&identity(0, None), 2)
         );
 
         // Both offhand encodings converge; neither touches a player cell.
         assert_eq!(
-            project_container_cell(&identity(0, Some(CONTAINER_NAME_OFFHAND)), 0),
+            project_container_cell(&named(CONTAINER_NAME_OFFHAND), 0),
             Some(CanonicalCell::Offhand)
         );
         assert_eq!(
@@ -621,9 +632,9 @@ mod tests {
 
     #[test]
     fn unrouted_container_names_and_legacy_windows_resolve_to_none() {
-        assert_eq!(project_container_cell(&identity(0, Some(211)), 0), None);
+        assert_eq!(project_container_cell(&named(211), 0), None);
         assert_eq!(
-            project_container_cell(&identity(0, Some(CONTAINER_NAME_HOTBAR)), 9),
+            project_container_cell(&named(CONTAINER_NAME_HOTBAR), 9),
             None,
             "the hotbar name covers only the nine hotbar cells"
         );
