@@ -1,15 +1,25 @@
 use bedrock_client::{
     args::{ClientArgs, ParseOutcome},
-    run,
+    lifecycle, run,
 };
 
 fn main() {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == lifecycle::FIRST_RUN_SETUP_FLAG)
+    {
+        std::process::exit(lifecycle::run_first_run_setup());
+    }
     match ClientArgs::parse_env() {
         Ok(ParseOutcome::Help) => print!("{}", bedrock_client::args::HELP),
         Ok(ParseOutcome::Run(args)) => {
-            if let Err(error) = bedrock_client::lifecycle::before_run(args.assets.is_some()) {
-                eprintln!("bedrock-client failed: {error:#}");
-                std::process::exit(1);
+            match lifecycle::before_run(args.assets.is_some()) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(error) => {
+                    eprintln!("bedrock-client failed: {error:#}");
+                    std::process::exit(1);
+                }
             }
             if let Err(error) = run(*args) {
                 eprintln!("bedrock-client failed: {error:#}");
