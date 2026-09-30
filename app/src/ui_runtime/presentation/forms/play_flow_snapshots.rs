@@ -87,6 +87,7 @@ fn fixture_view(dir: &std::path::Path) -> MenuView {
         realm("Steve's Realm", "open", false, 21, false),
         realm("Build Club", "closed", false, 3, false),
         realm("Alex's Realm", "open", true, 0, false),
+        realm("ADD ONYXJAVA AS A FRIEND TO JOIN ONYX!", "open", false, 10, false),
     ];
     view.friends = vec![
         MenuFriendCard {

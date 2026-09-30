@@ -161,9 +161,11 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             .clone();
         let pings = (!targets.is_empty() && Instant::now() >= ping_due).then(|| {
             ping_due = Instant::now() + PING_INTERVAL;
-            runtime
-                .block_on(launcher_control::ping_servers(socket_dir, &targets))
-                .ok()
+            settle(
+                "ping",
+                runtime.block_on(launcher_control::ping_servers(socket_dir, &targets)),
+                &mut false,
+            )
         });
         let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
         if let Some(Some(pings)) = pings {

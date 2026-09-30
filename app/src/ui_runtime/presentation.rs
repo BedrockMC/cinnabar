@@ -151,7 +151,7 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_source: Option<IconRef>,
     held_viewmodel_icon: Option<IconRef>,
     offhand_viewmodel_icon: Option<IconRef>,
-    menu_artwork_paths: Vec<String>,
+    menu_artwork_paths: Vec<(String, u32)>,
     /// This frame's clock in seconds, for menu animations painted over cached layouts.
     menu_seconds: f64,
     /// Engine textures too big for a server page, keyed by texture path.
@@ -310,7 +310,7 @@ impl UiPresentationRuntime {
     }
 
     /// Service art at `paths`, plus the engine's oversized textures, on the art pages.
-    pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<String>) {
+    pub(crate) fn sync_menu_artwork(&mut self, paths: Vec<(String, u32)>) {
         let oversized = self.oversized_ui_textures();
         let same_oversized = oversized.len() == self.menu_artwork_oversized.len()
             && oversized

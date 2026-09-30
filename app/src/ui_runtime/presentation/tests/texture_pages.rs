@@ -385,7 +385,7 @@ fn preview_changes_do_not_reread_menu_files_or_copy_cached_menu_pages() {
         .unwrap();
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
     let name = path.to_string_lossy().into_owned();
-    presentation.sync_menu_artwork(vec![name.clone()]);
+    presentation.sync_menu_artwork(vec![(name.clone(), 512)]);
     let menu = presentation.menu_artwork_icon(&name).unwrap();
     let retained = Arc::clone(&presentation.textures);
     let menu_pixels = retained.pages()[menu.page as usize].pixels().as_ptr();
