@@ -605,6 +605,7 @@ fn held_stack(
         alpha: 1.0,
         fades: Vec::new(),
         flip_book: None,
+        motions: Default::default(),
         draw,
     };
     let mut nodes = vec![node(
