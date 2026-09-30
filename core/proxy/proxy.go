@@ -52,7 +52,6 @@ type Config struct {
 	LocalTarget LocalTargetFunc
 }
 
-const localRelayBatchPacketLimit = 1600
 const maxInitialTransferHops = 8
 
 type acceptResult struct {
@@ -738,7 +737,8 @@ func pumpPacketsWithCacheTelemetry(
 	if err := destination.Flush(); err != nil {
 		return attributeRelayError(err, fromDownstream)
 	}
-	outputBatch := make([]packet.Packet, 0, localRelayBatchPacketLimit)
+	// One source batch becomes one write; the library splits it at the per-batch packet limit.
+	var outputBatch []packet.Packet
 	flushOutputBatch := func() error {
 		if len(outputBatch) == 0 {
 			return nil
@@ -751,10 +751,7 @@ func pumpPacketsWithCacheTelemetry(
 	}
 	writePacket := func(value packet.Packet) error {
 		outputBatch = append(outputBatch, value)
-		if len(outputBatch) != localRelayBatchPacketLimit {
-			return nil
-		}
-		return flushOutputBatch()
+		return nil
 	}
 	var pendingInitialStart packet.Packet
 	for {

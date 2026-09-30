@@ -746,7 +746,8 @@ func TestRelayDropsInitialLoadingScreenPairAcrossAdjacentWireBatches(t *testing.
 	}
 }
 
-func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
+// A source batch is written once in order; splitting at the packet limit belongs to the library encoder.
+func TestRelayWritesEachUpstreamBatchOnceInOrder(t *testing.T) {
 	const packetLimit = 1600
 	up := newFakeUpstream(nil)
 	down := newFakeDownstream(nil)
@@ -771,16 +772,13 @@ func TestRelayCapsUpstreamToDownstreamBatches(t *testing.T) {
 	}
 
 	batches := down.flushedBatches()
-	wantSizes := []int{1, packetLimit, packetLimit, 1}
+	wantSizes := []int{1, packetLimit*2 + 1}
 	if len(batches) != len(wantSizes) {
 		t.Fatalf("batch count = %d, want %d; sizes = %v", len(batches), len(wantSizes), batchSizes(batches))
 	}
 	for index, batch := range batches {
 		if len(batch) != wantSizes[index] {
 			t.Fatalf("batch %d size = %d, want %d", index, len(batch), wantSizes[index])
-		}
-		if len(batch) > packetLimit {
-			t.Fatalf("batch %d size = %d, exceeds %d", index, len(batch), packetLimit)
 		}
 	}
 
