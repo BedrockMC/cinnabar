@@ -10,6 +10,14 @@ use crate::emit::RectOut;
 use crate::layout::{LaidOut, Rect};
 use crate::widgets;
 
+mod focus;
+mod mapping;
+
+pub use focus::FocusMeta;
+pub use mapping::{
+    InputComponent, InputMode, InputModeCondition, Mapping, MappingScope, MappingType,
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HitKind {
     Button,
@@ -23,7 +31,7 @@ pub enum HitKind {
     ScrollTrack,
     /// A `modal` input panel: swallows the pointer for everything beneath it.
     Modal,
-    /// An input panel a press routes somewhere (`button.menu_select` mapped on it).
+    /// Any other input panel; only one mapping `button.menu_select` takes the pointer.
     Panel,
     /// A `custom` renderer cell (e.g. a container item) the caller interprets.
     Custom,
@@ -68,6 +76,10 @@ pub struct HitRegion {
     pub group_index: Option<usize>,
     /// The `custom` renderer name for [`HitKind::Custom`].
     pub renderer: Option<String>,
+    pub input: InputComponent,
+    pub focus: Option<FocusMeta>,
+    /// Key of the nearest enclosing `modal` input panel (itself included).
+    pub modal_root: Option<String>,
 }
 
 impl HitRegion {
@@ -94,7 +106,7 @@ impl HitRegion {
 pub fn hit_regions(root: &LaidOut) -> Vec<HitRegion> {
     let mut out = Vec::new();
     let mut order = 0usize;
-    collect(root, None, None, &mut out, &mut order);
+    collect(root, None, None, None, &mut out, &mut order);
     out.sort_by_key(|region| (region.layer, region.order));
     out
 }
@@ -103,6 +115,7 @@ fn collect(
     node: &LaidOut,
     index: Option<usize>,
     collection: Option<&str>,
+    modal_root: Option<&str>,
     out: &mut Vec<HitRegion>,
     order: &mut usize,
 ) {
@@ -136,7 +149,13 @@ fn collect(
         Some((name, at)) => (Some(at as usize), Some(name)),
         None => (index, collection),
     };
-    if let Some(kind) = kind_of(node) {
+    let input = InputComponent::read(control);
+    let modal_root = if input.modal {
+        Some(node.key.as_str())
+    } else {
+        modal_root
+    };
+    if let Some(kind) = kind_of(node, &input) {
         let text = |key: &str| {
             control
                 .properties
@@ -160,7 +179,7 @@ fn collect(
             clip: node.clip.into(),
             layer: node.layer,
             order: *order,
-            pressed: pressed_target(control),
+            pressed: input.pressed_target("button.menu_select").map(str::to_owned),
             control_name,
             collection_index: index,
             collection: collection.map(str::to_owned),
@@ -181,15 +200,18 @@ fn collect(
             renderer: (kind == HitKind::Custom)
                 .then(|| text("renderer"))
                 .flatten(),
+            focus: FocusMeta::read(control),
+            input,
+            modal_root: modal_root.map(str::to_owned),
         });
         *order += 1;
     }
     for child in &node.children {
-        collect(child, index, collection, out, order);
+        collect(child, index, collection, modal_root, out, order);
     }
 }
 
-fn kind_of(node: &LaidOut) -> Option<HitKind> {
+fn kind_of(node: &LaidOut, input: &InputComponent) -> Option<HitKind> {
     let control = node.control;
     Some(match control.control_type.as_deref()? {
         "button" => HitKind::Button,
@@ -200,59 +222,21 @@ fn kind_of(node: &LaidOut) -> Option<HitKind> {
         "scroll_view" => HitKind::ScrollView,
         "scrollbar_box" => HitKind::ScrollBox,
         "scroll_track" => HitKind::ScrollTrack,
-        "input_panel" if widgets::bound_bool(control, "modal") == Some(true) => HitKind::Modal,
-        "input_panel" if pressed_target(control).is_some() => HitKind::Panel,
+        "input_panel" if input.modal => HitKind::Modal,
+        "input_panel" => HitKind::Panel,
         "custom" if control.properties.contains_key("collection_index") => HitKind::Custom,
         _ => return None,
-    })
-}
-
-/// The `to_button_id` of the `button.menu_select` → `pressed` mapping.
-fn pressed_target(control: &crate::tree::ResolvedControl) -> Option<String> {
-    mappings(control)
-        .find(|(from, _, kind)| *from == Some("button.menu_select") && *kind == "pressed")
-        .map(|(_, to, _)| to.to_owned())
-}
-
-/// `(from, to, mapping_type)` for each well-formed, unconditional mapping.
-fn mappings(
-    control: &crate::tree::ResolvedControl,
-) -> impl Iterator<Item = (Option<&str>, &str, &str)> {
-    let items: &[Value] = match control.properties.get("button_mappings") {
-        Some(Value::Array(items)) => items,
-        _ => &[],
-    };
-    items.iter().filter_map(|item| {
-        let item = item.as_object()?;
-        // A nested `ignored` keeps its substituted text (`(not false)`); fold it here.
-        let ignored = match item.get("ignored") {
-            Some(Value::Bool(flag)) => *flag,
-            Some(Value::String(expression)) => {
-                crate::predicate::eval(expression, &crate::env::Env::new()) == Some(true)
-            }
-            _ => false,
-        };
-        // A deselect-only entry (an edit box or slider letting go) applies only
-        // while its control is selected, which is the caller's state, not ours.
-        let flag = |key: &str| item.get(key).and_then(Value::as_bool);
-        if ignored || (flag("handle_deselect") == Some(true) && flag("handle_select") != Some(true))
-        {
-            return None;
-        }
-        let to = item.get("to_button_id")?.as_str()?;
-        let from = item.get("from_button_id").and_then(Value::as_str);
-        let kind = item
-            .get("mapping_type")
-            .and_then(Value::as_str)
-            .unwrap_or("global");
-        Some((from, to, kind))
     })
 }
 
 /// The topmost enabled region under `point`, or `None` when nothing (or a modal
 /// panel with nothing of its own there) is hit.
 pub fn hit_test(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegion> {
-    let top = regions.iter().rev().find(|region| region.contains(point))?;
+    let top = regions
+        .iter()
+        .rev()
+        .filter(|region| region.kind != HitKind::Panel || region.pressed.is_some())
+        .find(|region| region.contains(point))?;
     (top.kind != HitKind::Modal).then_some(top)
 }
 
@@ -293,10 +277,12 @@ fn find_global(node: &LaidOut, from: &str, found: &mut Option<String>) {
     if !node.visible {
         return;
     }
-    if let Some((_, to, _)) =
-        mappings(node.control).find(|(source, _, kind)| *source == Some(from) && *kind == "global")
+    if let Some(mapping) = InputComponent::read(node.control)
+        .mappings
+        .into_iter()
+        .find(|mapping| mapping.from == from && mapping.kind == MappingType::Global)
     {
-        *found = Some(to.to_owned());
+        *found = Some(mapping.to);
     }
     for child in &node.children {
         find_global(child, from, found);

@@ -67,7 +67,8 @@ pub use hud::{
     hud_context, hud_data_source,
 };
 pub use input::{
-    HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
+    FocusMeta, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,
+    MappingScope, MappingType, focus_order, global_mapping, hit_regions, hit_test, region_rect,
     scroll_target,
 };
 pub use layout::{
