@@ -664,8 +664,8 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if target.playFab != nil {
 		dialer.PlayFabClient = target.playFab
 	}
-	if target.clientData.nonce != "" {
-		dialer.ClientData.Nonce = target.clientData.nonce
+	if target.clientData != nil {
+		target.clientData(&dialer.ClientData)
 	}
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)

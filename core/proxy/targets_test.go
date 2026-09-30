@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -19,6 +20,8 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
+	"golang.org/x/oauth2"
 
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 )
@@ -215,3 +218,43 @@ func isIdentityNotAllowed(err error) bool {
 var _ interface {
 	DialContextIdentityProvider(context.Context, string, string, *ecdsa.PrivateKey, string) (net.Conn, error)
 } = scopedNetherNetNetwork{}
+
+// A raw NetherNet ID carries its signaling explicitly; a bare ID is refused rather than guessed.
+func TestNetherNetTargetsNameTheirSignaling(t *testing.T) {
+	id := "5db3882f-99fe-4648-97dd-1b55492e1cc9"
+	for address, want := range map[string]int{
+		"nethernet/jsonrpc/" + id:      p2p.ConnectionTypeSignalingOverJSONRPC,
+		"NetherNet/WebSocket/12345678": p2p.ConnectionTypeSignalingOverWebSocket,
+	} {
+		if _, got, err := parseNetherNetTarget(strings.ToLower(address)); err != nil || got != want {
+			t.Fatalf("%s = %d, %v; want %d", address, got, err, want)
+		}
+	}
+	for _, address := range []string{"nethernet/jsonrpc/", "nethernet/carrier/" + id, "nethernet/websocket/host:1"} {
+		if _, _, err := parseNetherNetTarget(address); err == nil {
+			t.Fatalf("%s parsed", address)
+		}
+	}
+	if _, err := resolveUpstreamTarget(context.Background(), id, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil); err == nil || !strings.Contains(err.Error(), "nethernet/jsonrpc/<id>") {
+		t.Fatalf("bare ID error = %v", err)
+	}
+}
+
+// A joined friend world's login fields (its nonce) reach the upstream Dialer through the native target.
+func TestConnectAppliesTheJoinedSessionClientData(t *testing.T) {
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
+	connections.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{network: minecraft.RakNet{}, clientData: func(data *login.ClientData) { data.Nonce = "joined-nonce" }}, nil
+	}
+	var nonce string
+	connections.dialTarget = func(_ context.Context, _ *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		nonce = dialer.ClientData.Nonce
+		return nil, errors.New("stop")
+	}
+	if _, err := connections.connect(context.Background(), dialerTestDownstream{protocol: minecraft.DefaultProtocol}); err == nil {
+		t.Fatal("connect succeeded without an upstream")
+	}
+	if nonce != "joined-nonce" {
+		t.Fatalf("dialer nonce = %q, want the joined session's", nonce)
+	}
+}
