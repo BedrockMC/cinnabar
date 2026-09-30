@@ -5,10 +5,8 @@
 use super::super::super::UiPresentationError;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
-use super::theme::{
-    BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DARK, TEXT_DIMMER,
-};
-use super::widgets::{Variant, button, row, section_label, side_menu, tag};
+use super::theme::{BODY, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DARK, TEXT_DIMMER};
+use super::widgets::{Variant, button, row, row_text, section_label, side_menu, tag};
 use crate::menu::{MenuAction, MenuRealmCard, MenuView};
 
 /// Owner and invited tag fill.
@@ -88,26 +86,17 @@ pub(super) fn draw(
                 Some(MenuAction::SelectRealm(index)),
             )?;
             let text_width = bounds[2] - bounds[0] - pad * 2.0;
-            canvas.text(
-                &realm.name,
-                [bounds[0] + pad, y + canvas.r(0.2)],
-                text_width,
-                BODY,
-                TEXT,
-                false,
-            )?;
             let detail = if member {
                 realm.owner.as_str()
             } else {
                 realm.state.as_str()
             };
-            canvas.text(
-                detail,
-                [bounds[0] + pad, y + canvas.r(2.4)],
+            row_text(
+                canvas,
+                [bounds[0] + pad, y],
                 text_width,
-                CAPTION,
-                TEXT_DIMMER,
-                false,
+                &realm.name,
+                detail,
             )?;
             y += item_height;
         }

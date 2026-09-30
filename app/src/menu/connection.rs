@@ -347,29 +347,30 @@ fn end_transfer_without_follow(
 #[cfg(test)]
 mod session_failure_message_tests {
     use super::super::MenuRuntime;
+    use super::super::disconnect::{DisconnectBody, describe};
 
     const KICK: &str =
         "server disconnected: We've detected movement cheats (network read failed: closed)";
 
     #[test]
-    fn launcher_renders_the_server_reason_in_the_menu_message() {
+    fn launcher_shows_the_server_reason_on_the_disconnect_screen() {
         let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
         assert!(menu.absorb_session_failure(KICK));
+        let error = menu.view().disconnect_message.unwrap();
         assert_eq!(
-            menu.view().message.as_deref(),
-            Some(
-                "Disconnected: server disconnected: We've detected movement cheats (network read failed: closed)"
-            )
+            describe(&error).body,
+            DisconnectBody::Server("We've detected movement cheats".to_owned())
         );
     }
 
     #[test]
-    fn launcher_falls_back_to_the_transport_failure_without_a_reason() {
+    fn launcher_words_a_transport_failure_as_vanilla_does() {
         let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
         assert!(menu.absorb_session_failure("network session failed: closed"));
+        let error = menu.view().disconnect_message.unwrap();
         assert_eq!(
-            menu.view().message.as_deref(),
-            Some("Disconnected: network session failed: closed")
+            describe(&error).body,
+            DisconnectBody::Key("disconnect.closed")
         );
     }
 }

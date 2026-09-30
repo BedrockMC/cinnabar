@@ -13,7 +13,7 @@ use std::{
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound, render_screen,
+    ResolvedControl, TextAlign, TextMeasure, ViewState, bind_form, render_bound,
 };
 use ui::{
     SafeArea, TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiScale, UiVisual,
@@ -225,10 +225,8 @@ impl FormEngine {
         self.catalog = Arc::new(catalog);
     }
 
-    /// Render `model` into `nodes`; `Ok(None)` when its template is missing, so the
-    /// caller can fall back to the programmatic dialog. The bound tree is reused
-    /// until the model or catalog changes and the layout until the view state,
-    /// viewport, or scale does, so a static form only repaints each frame.
+    /// Render `model` into `nodes`; `Ok(None)` when its template is missing. The
+    /// bound tree and layout are reused until their inputs change.
     pub(super) fn render(
         &mut self,
         model: &FormModel,
@@ -295,6 +293,11 @@ impl FormEngine {
         &self.assets
     }
 
+    /// Resolve `reference` under `context` in the background ahead of its first open.
+    pub(super) fn prewarm(&self, reference: &'static str, context: Context) {
+        self.screens.prewarm(reference, &self.catalog, context);
+    }
+
     pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
         self.splash
             .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
@@ -347,17 +350,13 @@ impl FormEngine {
                 px,
                 language,
             };
-            self.screens.get_or_render(key, || {
-                render_screen(reference, &self.catalog, context, data, root, env, view)
-            })
+            self.screens.render(key, env)
         })
     }
 }
 
-/// `vanilla` under the built-in Java HUD pack, less its files for any namespace
-/// in `withdrawn`: a server pack authored against vanilla that restyles a
-/// namespace gets vanilla beneath it there, so it looks as designed. The title
-/// panels then take the logo's shape and the Mojang footer is dropped.
+/// `vanilla` under the built-in Java HUD pack, less its files for namespaces in
+/// `withdrawn` (restyled by a server pack authored against vanilla); no Mojang footer.
 fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
     let mut catalog = vanilla.clone();
     let kept = super::hud::JAVA_HUD_PACK
@@ -935,7 +934,13 @@ impl Painter<'_> {
                 dest,
             ),
             Draw::Sprite { texture, uv, color } => {
-                let Some(visual) = self.sprite(texture, *uv, alpha(*color)) else {
+                let mut uv = *uv;
+                if let Some(book) = &node.flip_book {
+                    let shift = book.step_u * book.frame(self.art.now) as f32;
+                    uv.u0 += shift;
+                    uv.u1 += shift;
+                }
+                let Some(visual) = self.sprite(texture, uv, alpha(*color)) else {
                     return Ok(());
                 };
                 (visual, dest)

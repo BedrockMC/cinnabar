@@ -259,3 +259,56 @@ fn riding_freezes_player_motion_but_still_reports_a_tick() {
     assert_eq!(result.velocity, Vec3::ZERO);
     assert_eq!(state.tick, 1);
 }
+
+/// Water only above a low pose's box: fluid contact follows the pose box, not a standing one.
+struct WaterAboveFloor;
+
+impl CollisionWorld for WaterAboveFloor {
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let water = block[1] == 11;
+        Ok(BlockPhysicsSample {
+            layers: Box::new([BlockPhysicsFacts {
+                friction: 0.6,
+                horizontal_speed_factor: 1.0,
+                vertical_speed_factor: 1.0,
+                fluid_height_blocks: if water { 1.0 } else { 0.0 },
+                flags: if water {
+                    BlockPhysicsFlags::WATER
+                } else {
+                    BlockPhysicsFlags::default()
+                },
+                surface_response: SurfaceResponse::None,
+            }]),
+            identity: CollisionQuery::synthetic(()).identity,
+        })
+    }
+}
+
+#[test]
+fn fluid_contact_samples_the_current_pose_box() {
+    let in_water = |mode| {
+        let mut state = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        let input = MovementInput {
+            mode,
+            ..MovementInput::default()
+        };
+        Simulator::default()
+            .tick_with_controls(&mut state, input, &WaterAboveFloor)
+            .unwrap()
+            .tick_result
+            .environment
+            .in_water
+    };
+    assert!(
+        in_water(MovementMode::Walking),
+        "a standing body reaches the water"
+    );
+    assert!(
+        !in_water(MovementMode::Crawling),
+        "a 0.6-high crawler stays below it"
+    );
+}

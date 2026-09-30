@@ -14,36 +14,52 @@ use crate::menu::{
     MenuAction, MenuDialog, MenuScreen, MenuView, VOLUME_SLIDERS, VOLUME_STEPS, auth::AuthState,
 };
 
-/// Settings selector indices, fed to the screen as its `$*_forced_index` vars.
-/// Zero means "no section picked yet", which opens video.
-const SETTINGS_SECTIONS: &[&str] = &[
-    "accessibility",
-    "keyboard_and_mouse",
-    "controller_and_switch",
-    "touch",
-    "party",
-    "general",
-    "video",
-    "sound",
-    "account",
-    "view_subscriptions",
-    "global_texture_pack",
-    "storage_management",
-    "edu_cloud_storage",
-    "language",
-    "creator",
-    "preview",
-    "debug",
-    "discovery_debug",
-    "ui_debug",
-    "edu_debug",
-    "marketplace_debug",
-    "gatherings_debug",
-    "flighting_debug",
-    "realms_debug",
-    "automation",
+/// Settings selector indices as `SettingsScreenController::addStaticScreenVars`
+/// assigns them, fed to the screen as its `$*_forced_index` vars.
+const SETTINGS_SECTIONS: &[(&str, u8)] = &[
+    ("server", 1),
+    ("accessibility", 2),
+    ("game", 3),
+    ("classroom", 4),
+    ("edu_cloud_level", 5),
+    ("multiplayer", 6),
+    ("world", 7),
+    ("members", 8),
+    ("realms_saves", 9),
+    ("subscription", 10),
+    ("backup", 11),
+    ("dev_options", 12),
+    ("keyboard_and_mouse", 13),
+    ("controller_and_switch", 14),
+    ("touch", 15),
+    ("party", 16),
+    ("general", 17),
+    ("account", 18),
+    ("creator", 19),
+    ("video", 20),
+    ("view_subscriptions", 21),
+    ("sound", 22),
+    ("global_texture_pack", 23),
+    ("storage_management", 24),
+    ("edu_cloud_storage", 25),
+    ("language", 26),
+    ("preview", 27),
+    ("debug", 28),
+    ("discovery_debug", 29),
+    ("ui_debug", 30),
+    ("edu_debug", 31),
+    ("marketplace_debug", 32),
+    ("gatherings_debug", 33),
+    ("flighting_debug", 34),
+    ("realms_debug", 35),
+    ("automation", 36),
+    ("invite_links", 40),
+    ("general_invite_link", 41),
+    ("advanced_invite_link", 42),
+    ("realms_advanced", 43),
 ];
-const VIDEO_SECTION: u8 = 7;
+/// The section the settings screen opens on before one is picked.
+const VIDEO_SECTION: u8 = 20;
 /// GUI scale choices the settings slider steps through (1..=4).
 const GUI_SCALE_STEPS: f64 = 4.0;
 
@@ -110,87 +126,98 @@ fn flags(data: &mut DataSource, on: &[&str]) {
 pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<MenuScreenData> {
     let mut data = DataSource::new();
     data.set_strict(true);
-    let mut context = retail_context().with_flag("can_quit", true).with_var(
-        "play_button_target",
-        Value::String("button.menu_play".into()),
-    );
-    let reference =
-        if let Some((received, total)) = view.feeds.pack_download.filter(|_| view.connecting) {
-            pack_download(&mut data, translate, received, total);
-            JOIN_PROGRESS_SCREEN
-        } else if view.connecting {
-            data.set_global(
-                "#title_text",
-                text(translated(translate, "connect.connecting", "Connecting")),
-            );
-            data.set_global(
-                "#progress_text",
-                text(view.message.clone().unwrap_or_default()),
-            );
-            flags(&mut data, &["#bar_animation_visible"]);
-            JOIN_PROGRESS_SCREEN
-        } else if let Some(reason) = &view.disconnect_message {
-            data.set_global(
-                "#title_text",
-                text(translated(translate, "disconnect.lost", "Connection Lost")),
-            );
-            data.set_global("#disconnect_text", text(reason.clone()));
-            "disconnect.disconnect_screen"
-        } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
-            data.set_global("#url", text(uri.clone()));
-            data.set_global("#code", text(code.clone()));
-            "xbl_console_signin.xbl_console_signin"
-        } else {
-            match view.screen {
-                MenuScreen::Death => {
-                    flags(
-                        &mut data,
-                        &[
-                            "#buttons_and_deathmessage_visible",
-                            "#respawn_visible",
-                            "#respawn_enabled",
-                            "#quit_visible",
-                            "#quit_enabled",
-                        ],
-                    );
-                    "death.death_screen"
-                }
-                MenuScreen::Pause => {
-                    data.set_global("#playername", text(view.display_name.clone()));
-                    flags(&mut data, &["#playername_visible"]);
-                    data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
-                    // A non-edu client draws the retail pause content, not edu_pause's.
-                    context = unlock_text(context).with_flag("ignore_edu_pause", true);
-                    "pause.pause_screen"
-                }
-                MenuScreen::Home => {
-                    start_screen(view, &mut data, translate);
-                    context = start_screen_vars(context);
-                    "start.start_screen"
-                }
-                MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-                    super::play_screen::bind(view, &mut data);
-                    "play.play_screen"
-                }
-                MenuScreen::AddServer => {
-                    add_server_screen(view, &mut data, translate);
-                    // The controller's edit mode swaps Play for Remove.
-                    context = context.with_flag("edit_mode", view.editing.is_some());
-                    "add_external_server.add_external_server_screen_new"
-                }
-                MenuScreen::Settings => {
-                    settings_screen(view, &mut data);
-                    return Some(MenuScreenData {
-                        reference: "settings.screen_controls_and_settings",
-                        context: settings_context(context),
-                        data,
-                        overlay: None,
-                    });
-                }
-                MenuScreen::Store => return store_screen(view, &context, translate),
-                MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
-            }
+    let mut context = base_context();
+    let reference = if let Some((received, total)) =
+        view.feeds.pack_download.filter(|_| view.connecting)
+    {
+        pack_download(&mut data, translate, received, total);
+        JOIN_PROGRESS_SCREEN
+    } else if view.connecting {
+        data.set_global(
+            "#title_text",
+            text(translated(translate, "connect.connecting", "Connecting")),
+        );
+        data.set_global(
+            "#progress_text",
+            text(view.message.clone().unwrap_or_default()),
+        );
+        flags(&mut data, &["#bar_animation_visible"]);
+        JOIN_PROGRESS_SCREEN
+    } else if let Some(error) = &view.disconnect_message {
+        let words = crate::menu::disconnect::describe(error);
+        data.set_global(
+            "#title_text",
+            text(translated(translate, words.title, words.title)),
+        );
+        let body = match words.body {
+            crate::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
+            crate::menu::disconnect::DisconnectBody::Server(message) => message,
         };
+        data.set_global("#disconnect_text", text(body));
+        "disconnect.disconnect_screen"
+    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
+        data.set_global("#url", text(uri.clone()));
+        data.set_global("#code", text(code.clone()));
+        "xbl_console_signin.xbl_console_signin"
+    } else {
+        match view.screen {
+            MenuScreen::Death => {
+                flags(
+                    &mut data,
+                    &[
+                        "#buttons_and_deathmessage_visible",
+                        "#respawn_visible",
+                        "#respawn_enabled",
+                        "#quit_visible",
+                        "#quit_enabled",
+                    ],
+                );
+                "death.death_screen"
+            }
+            MenuScreen::Pause => {
+                data.set_global("#playername", text(view.display_name.clone()));
+                flags(&mut data, &["#playername_visible"]);
+                data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
+                // A non-edu client draws the retail pause content, not edu_pause's.
+                context = unlock_text(context)
+                    .with_flag("ignore_edu_pause", true)
+                    .with_var(
+                        "store_button_text",
+                        Value::String(server_store_text(translate)),
+                    );
+                "pause.pause_screen"
+            }
+            MenuScreen::Home => {
+                start_screen(view, &mut data, translate);
+                context = start_screen_vars(context);
+                "start.start_screen"
+            }
+            MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
+                super::play_screen::bind(view, &mut data);
+                "play.play_screen"
+            }
+            MenuScreen::AddServer => {
+                add_server_screen(view, &mut data, translate);
+                // The controller's edit mode swaps Play for Remove.
+                context = context.with_flag("edit_mode", view.editing.is_some());
+                "add_external_server.add_external_server_screen_new"
+            }
+            MenuScreen::Settings => {
+                settings_screen(view, &mut data);
+                super::settings_defaults::bind(&mut data, &|key: &str| {
+                    translated(translate, key, key)
+                });
+                return Some(MenuScreenData {
+                    reference: SETTINGS_SCREEN,
+                    context: settings_context(context),
+                    data,
+                    overlay: None,
+                });
+            }
+            MenuScreen::Store => return store_screen(view, &context, translate),
+            MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
+        }
+    };
     Some(MenuScreenData {
         reference,
         context,
@@ -304,6 +331,13 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     }
 }
 
+/// The pause store button on a third-party server, as `PauseScreenController`
+/// names it: "%s Store" with the server's store name, else the generic "Server".
+fn server_store_text(translate: Translate<'_>) -> String {
+    let server = translated(translate, "menu.serverGenericName", "Server");
+    translated(translate, "menu.serverStore", "%s Store").replacen("%s", &server, 1)
+}
+
 /// The start screen's version: the release client shows `1.26.50` as `v26.50`.
 fn version_label(game_version: &str) -> String {
     format!(
@@ -415,16 +449,69 @@ fn settings_screen(view: &MenuView, data: &mut DataSource) {
     }
 }
 
-fn settings_context(context: Context) -> Context {
-    SETTINGS_SECTIONS.iter().enumerate().fold(
-        context.with_flag("include_controls_and_settings_sections", true),
-        |context, (index, name)| {
-            context.with_var(
-                &format!("{name}_forced_index"),
-                Value::from(index as u64 + 1),
-            )
-        },
+const SETTINGS_SCREEN: &str = "settings.screen_controls_and_settings";
+
+/// Every launcher screen's context before its own vars.
+fn base_context() -> Context {
+    retail_context().with_flag("can_quit", true).with_var(
+        "play_button_target",
+        Value::String("button.menu_play".into()),
     )
+}
+
+/// The settings screen and the context it opens with, to resolve ahead of time.
+pub(super) fn settings_prewarm() -> (&'static str, Context) {
+    (SETTINGS_SCREEN, settings_context(base_context()))
+}
+
+/// The static vars `SettingsScreenController` sets for the global settings a
+/// desktop client opens from the start screen: no world, realm or creation state.
+fn settings_context(context: Context) -> Context {
+    let flags: &[(&str, bool)] = &[
+        ("include_controls_and_settings_sections", true),
+        ("is_world_create", false),
+        ("is_world_edit", false),
+        ("is_template_create", false),
+        ("is_realms_edit", false),
+        ("is_realm_slot", false),
+        ("is_mp_host", false),
+        ("is_mp_client", false),
+        ("non_config_realms_env", false),
+        ("realms_pack_feature_enabled", false),
+        ("gamepad_supported", true),
+        ("keyboard_and_mouse_supported", true),
+        ("touch_supported", false),
+        ("supports_flite_tts", false),
+        ("platform_tts_exists", false),
+        ("ignore_creator_section", false),
+        ("may_include_world_section", false),
+        ("ignore_global_resources_section", false),
+        ("ignore_storage_section", false),
+        ("ignore_profile_switch_account_button", false),
+        ("ignore_profile_sso_toggle", true),
+        ("ignore_profile_sign_out_button", false),
+        ("ignore_controller_layout", false),
+        ("edu_ignore_cloud_storage", true),
+        ("storage_location_switch_enabled", false),
+        ("copy_interal_storage_button_enabled", false),
+        ("show_preview_button", false),
+        ("show_preview_app1_button", false),
+        ("show_preview_app2_button", false),
+        ("debug_settings", false),
+        ("party_settings_enabled", false),
+        ("settings_spatial_pattern_fix_enabled", true),
+        ("display_copyright_info", false),
+        ("is_pregame", true),
+        ("is_editor_mode_enabled", false),
+    ];
+    let context = flags.iter().fold(context, |context, (name, value)| {
+        context.with_flag(name, *value)
+    });
+    SETTINGS_SECTIONS
+        .iter()
+        .fold(context, |context, (name, index)| {
+            context.with_var(&format!("{name}_forced_index"), Value::from(*index))
+        })
 }
 
 /// The menu action a pressed region means on `view`'s screen.
@@ -594,6 +681,11 @@ mod tests {
 
     fn reference(view: &MenuView) -> Option<&'static str> {
         screen_data(view, &|_| None).map(|screen| screen.reference)
+    }
+
+    #[test]
+    fn the_pause_store_button_names_the_server_store() {
+        assert_eq!(server_store_text(&|_| None), "Server Store");
     }
 
     #[test]

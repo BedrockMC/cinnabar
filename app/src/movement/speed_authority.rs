@@ -1,5 +1,9 @@
 use bevy::prelude::Resource;
 
+/// Largest walk speed prediction can simulate: steady sprint velocity reaches
+/// about 2.9x the speed, which must stay inside the collision query extent.
+const MAX_SIMULABLE_MOVEMENT_SPEED: f64 = sim::MAX_COLLISION_QUERY_EXTENT / 4.0;
+
 #[derive(Debug, Default, Resource)]
 pub(crate) struct LocalMovementSpeedAuthority {
     session_id: u64,
@@ -39,7 +43,8 @@ impl LocalMovementSpeedAuthority {
             return false;
         }
         self.last_sequence = Some(sequence);
-        if !current.is_finite() || current < 0.0 {
+        if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&current) {
+            super::diagnostics::note_skipped_authority("movement_speed", current);
             return false;
         }
         self.current = Some(current);
@@ -82,11 +87,11 @@ mod tests {
         let mut authority = LocalMovementSpeedAuthority::default();
         authority.begin_session(1, 0);
         assert!(authority.apply(1, 1, 0, 0.2));
-        for (sequence, value) in [(2, f64::NAN), (3, f64::INFINITY), (4, -0.1)] {
+        for (sequence, value) in [(2, f64::NAN), (3, f64::INFINITY), (4, -0.1), (5, 1.0e6)] {
             assert!(!authority.apply(1, sequence, 0, value));
             assert_eq!(authority.current(), Some(0.2));
         }
-        assert!(!authority.apply(1, 3, 0, 0.9));
+        assert!(!authority.apply(1, 5, 0, 0.9));
         assert_eq!(authority.current(), Some(0.2));
     }
 }

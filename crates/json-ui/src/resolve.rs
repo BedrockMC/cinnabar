@@ -133,15 +133,22 @@ impl<'a> Resolver<'a> {
     }
 
     /// Replace `@anim` references in `alpha`/`anims` with their resolved chains,
-    /// and an animated `uv` with its first frame.
+    /// and an animated `uv` with its first frame plus the flip-book that plays it.
     fn resolve_anims(&self, properties: &mut std::collections::BTreeMap<String, Value>, env: &Env) {
         if let Some(Value::String(reference)) = properties.get("uv")
             && reference.starts_with('@')
         {
-            match anim::flip_book_first_frame(self.catalog, reference, env) {
-                Some(first) => properties.insert("uv".to_owned(), first),
-                None => properties.remove("uv"),
-            };
+            match anim::resolve_flip_book(self.catalog, reference, env) {
+                Some(book) => {
+                    properties.insert("uv".to_owned(), serde_json::json!(book.initial_uv));
+                    if let Ok(value) = serde_json::to_value(book) {
+                        properties.insert(anim::FLIP_BOOK_KEY.to_owned(), value);
+                    }
+                }
+                None => {
+                    properties.remove("uv");
+                }
+            }
         }
         let mut chains = Vec::new();
         if let Some(Value::String(reference)) = properties.get("alpha")
@@ -241,6 +248,20 @@ impl<'a> Resolver<'a> {
         child: &RawControl,
         env: &Env,
     ) -> (RawControl, Option<ControlRef>, Option<String>) {
+        // `{ "$button_layout": {} }` with `$button_layout: "@ns.panel"` instances
+        // that panel, named as it is (the disconnect screen's buttons).
+        if child.base.is_none()
+            && let Some(Value::String(text)) = child
+                .name
+                .strip_prefix('$')
+                .and_then(|variable| env.get(variable))
+            && let Some(reference) = text.strip_prefix('@')
+        {
+            let mut named = child.clone();
+            named.name = ControlRef::parse(reference, &child.owner_ns).name;
+            named.base = Some(reference.to_owned());
+            return self.resolve_child_base(&named, env);
+        }
         let Some(base) = &child.base else {
             return (child.clone(), None, None);
         };

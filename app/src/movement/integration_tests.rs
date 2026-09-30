@@ -7,7 +7,7 @@ use super::{
     PhysicsAuthorityGate, PhysicsCollisionRegistries, PhysicsCorrectionMode,
     PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
     PhysicsTickEvidenceContext, ProcessedMovementState, flush_player_auth_inputs,
-    physics_movement_input, reconcile_candidate_physics_correction,
+    physics_movement_input, reconcile_candidate_physics_correction, reconcile_timeline_rewind,
 };
 use assets::{BlockPhysicsFlags, NetworkIdMode, RegistryRecord, read_registry_for_protocol};
 use protocol::{PlayerInputFlags, PlayerInputMode};
@@ -22,7 +22,7 @@ use crate::{
     acceptance::{AcceptanceRun, Phase3TerminalDrainDecision, TRANSPARENT_PRESENTATION_EXIT_GRACE},
     camera::CameraSettingsAuthority,
     environment::{WeatherState, WorldClock, replace_session},
-    runtime::network::reset_start_game_prediction,
+    movement::reset_start_game_prediction,
 };
 
 #[path = "transport_tests.rs"]
@@ -72,6 +72,7 @@ fn completed_sample(tick: u64, position: [f32; 3]) -> PhysicsMovementSample {
         camera_orientation: [0.0, 0.0, 1.0],
         jumping: false,
         sneaking: false,
+        sneak_button: false,
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: false,
@@ -150,3 +151,4 @@ include!("integration_tests/replay_retry.rs");
 include!("integration_tests/authority_reanchor.rs");
 include!("integration_tests/simulation.rs");
 include!("integration_tests/vector_carriers.rs");
+include!("integration_tests/timeline.rs");
