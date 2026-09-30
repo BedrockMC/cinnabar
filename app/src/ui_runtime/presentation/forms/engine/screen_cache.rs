@@ -1,6 +1,7 @@
 //! Laid-out engine screens reused while their inputs are unchanged, so a static
-//! menu only repaints each frame, and resolved trees reused across hover and
-//! value changes, which only re-bind and re-lay out.
+//! menu only repaints each frame; hover, press and focus are gated in the
+//! layout and only repaint. Resolved trees are reused across value changes,
+//! which only re-bind and re-lay out.
 
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +16,7 @@ pub(super) struct ScreenKey<'a> {
     pub(super) catalog: &'a Arc<Catalog>,
     pub(super) context: &'a Context,
     pub(super) data: &'a DataSource,
+    /// Only its scroll offsets key the layout.
     pub(super) view: &'a ViewState,
     pub(super) root: [f64; 2],
     pub(super) px: f32,
@@ -41,7 +43,7 @@ impl Entry {
             && self.root == key.root
             && self.px == key.px
             && self.language == key.language
-            && self.view == *key.view
+            && self.view.same_geometry(key.view)
             && self.context == *key.context
             && self.data == *key.data
     }
@@ -91,7 +93,10 @@ impl ScreenCache {
             catalog: Arc::clone(key.catalog),
             context: key.context.clone(),
             data: key.data.clone(),
-            view: key.view.clone(),
+            view: ViewState {
+                scroll: key.view.scroll.clone(),
+                ..ViewState::default()
+            },
             root: key.root,
             px: key.px,
             language: key.language,
@@ -124,7 +129,7 @@ impl ScreenCache {
             })?;
             let library = json_ui::CatalogLibrary { catalog, context };
             let bound = json_ui::bind(&tree, data, &library);
-            Some(json_ui::render_bound(bound, root, env, view))
+            Some(json_ui::render_bound_gated(bound, root, env, view))
         })
     }
 

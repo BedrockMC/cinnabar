@@ -597,6 +597,7 @@ fn held_stack(
     };
     let (x, y) = (f64::from(point[0]) - 8.0, f64::from(point[1]) - 8.0);
     let node = |dest: RectOut, draw: Draw| DrawNode {
+        gate: None,
         name: "held_item".to_owned(),
         key: String::new(),
         dest,

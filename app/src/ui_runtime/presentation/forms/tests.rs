@@ -55,9 +55,9 @@ pub(crate) fn mini_engine_presentation() -> UiPresentationRuntime {
     presentation
 }
 
-// A static form resolves once; only view-state changes re-run layout.
+// A static form resolves and lays out once; hovering a button only repaints.
 #[test]
-fn static_form_resolves_once_and_relayouts_only_on_view_changes() {
+fn static_form_resolves_once_and_hover_only_repaints() {
     let mut presentation = mini_engine_presentation();
     let mut runtime = super::pack_harness::action_form("Menu", &["A", "B", "C"]);
     let passes = |presentation: &UiPresentationRuntime| {
@@ -86,7 +86,13 @@ fn static_form_resolves_once_and_relayouts_only_on_view_changes() {
             .build(&runtime, 0, [1280, 720], ui::DpiScale::new(1.0).unwrap())
             .unwrap();
     }
-    assert_eq!(passes(&presentation), [1, 2]);
+    assert_eq!(passes(&presentation), [1, 1]);
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    assert_eq!(
+        frame.hits.len(),
+        3,
+        "gated hover children add no hit regions"
+    );
 }
 
 #[test]

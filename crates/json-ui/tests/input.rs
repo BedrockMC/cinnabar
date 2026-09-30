@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use json_ui::{
     HitKind, LaidOut, LayoutEnv, ResolvedControl, TextMeasure, TextureMeta, TextureSource,
-    ViewState, global_mapping, hit_regions, hit_test, layout_with, scroll_target,
+    ViewState, gate_open, global_mapping, hit_regions, hit_test, layout_gated, layout_with,
+    scroll_target,
 };
 use serde_json::{Value, json};
 
@@ -109,6 +110,36 @@ fn button_shows_exactly_the_state_child_for_its_interaction() {
         ..ViewState::default()
     };
     assert_eq!(shown(&pressed), [false, false, true]);
+}
+
+// One gated layout shows, per interaction, exactly what that state's own layout shows.
+#[test]
+fn a_gated_layout_matches_every_interaction_state() {
+    let root = screen(vec![button()]);
+    let (gated, report) = layout_gated(&root, [200.0, 100.0], &env(), &ViewState::default());
+    let key = "/root/button".to_owned();
+    let states = [
+        ViewState::default(),
+        ViewState {
+            hovered: Some(key.clone()),
+            ..ViewState::default()
+        },
+        ViewState {
+            hovered: Some(key.clone()),
+            pressed: Some(key),
+            ..ViewState::default()
+        },
+    ];
+    for state in &states {
+        let (laid, _) = layout_with(&root, [200.0, 100.0], &env(), state);
+        for name in ["default", "hover", "pressed"] {
+            let node = find(&gated, name);
+            let shown = node.visible && gate_open(&report.gates, node.gate, state);
+            assert_eq!(shown, find(&laid, name).visible, "{name} under {state:?}");
+            assert_eq!(find(&gated, name).rect, find(&laid, name).rect);
+        }
+    }
+    assert!(find(&gated, "button").gate.is_none());
 }
 
 #[test]

@@ -56,7 +56,7 @@ pub use form::{
     ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
     CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
     form_context, form_data_source, form_factory_id, form_screen_cancel, form_template,
-    render_bound, render_form, render_form_with,
+    render_bound, render_bound_gated, render_form, render_form_with,
 };
 pub use hud::{
     BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
@@ -66,7 +66,9 @@ pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
     scroll_target,
 };
-pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_with};
+pub use layout::{
+    LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_gated, layout_with,
+};
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
@@ -74,7 +76,7 @@ pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
 };
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
-pub use state::{LayoutReport, ScrollMetrics, ViewState};
+pub use state::{LayoutReport, ScrollMetrics, StateGate, ViewState, gate_open};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any

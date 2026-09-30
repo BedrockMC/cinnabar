@@ -359,6 +359,7 @@ mod tests {
             h: 1.0,
         };
         HitRegion {
+            gate: None,
             key: "/screen/item".to_owned(),
             name: "item".to_owned(),
             kind: HitKind::Button,

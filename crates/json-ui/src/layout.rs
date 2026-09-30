@@ -97,6 +97,8 @@ pub struct LaidOut<'a> {
     /// Animations scaling `alpha` at paint time, own and propagated.
     pub fades: Vec<Fade>,
     pub visible: bool,
+    /// The innermost [`crate::StateGate`] this control shows under, in a gated layout.
+    pub gate: Option<u32>,
     /// Fraction clipped off a progress image by its widget (`clip_direction`).
     pub clip_ratio: Option<f32>,
     pub children: Vec<LaidOut<'a>>,
@@ -121,6 +123,27 @@ pub fn layout_with<'a>(
     env: &LayoutEnv,
     state: &ViewState,
 ) -> (LaidOut<'a>, LayoutReport) {
+    layout_mode(root, root_size, env, state, false)
+}
+
+/// [`layout_with`] keeping every interaction state's children, each gated by
+/// the report's [`crate::StateGate`]s; only `state`'s scroll offsets apply.
+pub fn layout_gated<'a>(
+    root: &'a ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+) -> (LaidOut<'a>, LayoutReport) {
+    layout_mode(root, root_size, env, state, true)
+}
+
+fn layout_mode<'a>(
+    root: &'a ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    gated: bool,
+) -> (LaidOut<'a>, LayoutReport) {
     INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
     LENGTH_MEMO.with(|memo| memo.borrow_mut().clear());
     measure::reset();
@@ -134,6 +157,8 @@ pub fn layout_with<'a>(
         scrolls: Vec::new(),
         sliders: Vec::new(),
         ancestors: Vec::new(),
+        gated,
+        gate: None,
     };
     let key = child_key("", root);
     let laid = place_subtree(
@@ -157,6 +182,10 @@ struct PlaceCtx<'e, 'x> {
     sliders: Vec<(f64, [Option<String>; 3])>,
     /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
     ancestors: Vec<(String, Rect, Rect)>,
+    /// Keep every state child behind a gate instead of hiding by `state`.
+    gated: bool,
+    /// The gate the subtree being placed shows under.
+    gate: Option<u32>,
 }
 
 /// `parent/name`, with `[index]` on factory instances so repeated names stay unique.
@@ -204,12 +233,21 @@ fn place_subtree<'a>(
     if let Some(entry) = slider {
         ctx.sliders.push(entry);
     }
-    let hidden = widgets::hidden_state_children(control, &key, ctx.state);
+    let (hidden, masks) = widgets::state_children(control, &key, ctx.state, ctx.gated);
+    let gate = ctx.gate;
     let dropdown = widgets::dropdown_area(control);
     ctx.ancestors.push((control.name.clone(), rect, child_clip));
     let mut children = Vec::with_capacity(control.children.len());
     for (child, mut child_rect) in layout_children(control, rect, ctx.env) {
         let mut child_shown = !hidden.contains(&child.name);
+        ctx.gate = gate;
+        match masks.iter().find(|(name, _)| *name == child.name) {
+            Some((_, 0)) => child_shown = false,
+            Some((_, shown)) if *shown != u8::MAX => {
+                ctx.gate = crate::state::push_gate(&mut ctx.report.gates, &key, gate, *shown);
+            }
+            _ => {}
+        }
         let mut clip_for_child = child_clip;
         // A dropdown's content lays out inside its named area, not its parent.
         if let Some((area, content)) = &dropdown
@@ -250,6 +288,7 @@ fn place_subtree<'a>(
             ctx,
         ));
     }
+    ctx.gate = gate;
     ctx.ancestors.pop();
     if opened_slider {
         ctx.sliders.pop();
@@ -270,6 +309,7 @@ fn place_subtree<'a>(
         alpha: own_alpha,
         fades,
         visible: shown && visible(control),
+        gate,
         children,
     }
 }
