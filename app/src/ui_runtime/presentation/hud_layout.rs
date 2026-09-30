@@ -154,12 +154,6 @@ impl HudGeometry {
         })
     }
 
-    /// Logical y of the highest bottom-anchored HUD row (the selected-item
-    /// label zone), used by chat to avoid overlap.
-    pub(super) fn bottom_row_top_logical(&self) -> f32 {
-        (self.gui_height - BOTTOM_STACK_HEIGHT) * self.scale
-    }
-
     fn logical(&self, gui: [f32; 2]) -> [f32; 2] {
         [gui[0] * self.scale, gui[1] * self.scale]
     }

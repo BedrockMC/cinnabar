@@ -64,6 +64,7 @@ pub(super) struct CachedScreen {
 struct Laid {
     catalog: Arc<Catalog>,
     data: DataSource,
+    view: ViewState,
     root: [f64; 2],
     px: f32,
     render: FormRender,
@@ -77,14 +78,38 @@ impl CachedScreen {
         catalog: &Arc<Catalog>,
         context: &Context,
         data: DataSource,
+        at: ([f64; 2], f32),
+        env: &json_ui::LayoutEnv,
+    ) -> Option<&FormRender> {
+        self.render_with(
+            reference,
+            catalog,
+            context,
+            data,
+            at,
+            env,
+            &ViewState::default(),
+        )
+    }
+
+    /// [`Self::render`] under the caller's pointer, focus and scroll state.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_with(
+        &mut self,
+        reference: &str,
+        catalog: &Arc<Catalog>,
+        context: &Context,
+        data: DataSource,
         (root, px): ([f64; 2], f32),
         env: &json_ui::LayoutEnv,
+        view: &ViewState,
     ) -> Option<&FormRender> {
         let fresh = self.laid.as_ref().is_some_and(|laid| {
             Arc::ptr_eq(&laid.catalog, catalog)
                 && laid.root == root
                 && laid.px == px
                 && laid.data == data
+                && laid.view == *view
         });
         if !fresh {
             let current = self
@@ -105,8 +130,9 @@ impl CachedScreen {
             self.passes += 1;
             self.laid = Some(Laid {
                 catalog: Arc::clone(catalog),
-                render: render_bound(bound, root, env, &ViewState::default()),
+                render: render_bound(bound, root, env, view),
                 data,
+                view: view.clone(),
                 root,
                 px,
             });
@@ -373,15 +399,20 @@ fn boss_tint(color: ui::BossColor) -> String {
 }
 
 #[cfg(test)]
+impl CachedScreen {
+    /// The last laid-out draw nodes, in virtual px.
+    pub(super) fn nodes(&self) -> &[json_ui::DrawNode] {
+        self.laid
+            .as_ref()
+            .map_or(&[], |laid| laid.render.nodes.as_slice())
+    }
+}
+
+#[cfg(test)]
 impl UiPresentationRuntime {
     /// The engine HUD's last laid-out draw nodes, in GUI px.
     pub(crate) fn hud_draw_nodes(&self) -> &[json_ui::DrawNode] {
-        self.form_presentation
-            .hud
-            .hud
-            .laid
-            .as_ref()
-            .map_or(&[], |laid| laid.render.nodes.as_slice())
+        self.form_presentation.hud.hud.nodes()
     }
 
     /// Bind+layout passes the engine HUD ran.

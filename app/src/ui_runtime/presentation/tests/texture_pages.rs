@@ -113,9 +113,8 @@ fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
 #[test]
 fn mixed_font_shadow_and_fill_keep_logical_page_order() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
-    let mut runtime = UiRuntime::new(1);
-    runtime.open_chat();
-    runtime.insert_chat_text("A一A").unwrap();
+    let runtime = UiRuntime::new(1);
+    presentation.set_loading_message(Some("A一A"));
     let input = presentation
         .build(&runtime, 0, [800, 600], DpiScale::new(1.0).unwrap())
         .unwrap();
