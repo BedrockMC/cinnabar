@@ -94,6 +94,7 @@ fn install(app: &mut App) {
                 prepare_resources.in_set(RenderSystems::PrepareResources),
                 prepare_bind_groups.in_set(RenderSystems::PrepareBindGroups),
                 (queue_solid, queue_overlay, queue_crack, queue_additive)
+                    .distributive_run_if(crate::panorama::world_passes_enabled)
                     .in_set(RenderSystems::Queue),
             ),
         );

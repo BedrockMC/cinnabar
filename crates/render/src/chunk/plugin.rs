@@ -146,8 +146,12 @@ impl Plugin for ChunkRenderPlugin {
                         .after(RenderSystems::ExtractCommands)
                         .after(crate::present_mode::PresentModePolicySet)
                         .before(bevy::render::view::window::create_surfaces),
-                    queue_chunks.in_set(RenderSystems::Queue),
-                    queue_transparent_chunks.in_set(RenderSystems::Queue),
+                    queue_chunks
+                        .run_if(crate::panorama::world_passes_enabled)
+                        .in_set(RenderSystems::Queue),
+                    queue_transparent_chunks
+                        .run_if(crate::panorama::world_passes_enabled)
+                        .in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_animation_clock.in_set(RenderSystems::PrepareResources),
                     prepare_chunk_biome_tints.in_set(RenderSystems::PrepareResources),

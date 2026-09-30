@@ -84,7 +84,9 @@ fn install(app: &mut App) {
             (
                 prepare_items.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_items.in_set(RenderSystems::Queue),
+                queue_items
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
             ),
         );
 }

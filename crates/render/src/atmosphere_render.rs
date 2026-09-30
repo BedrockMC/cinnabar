@@ -107,7 +107,9 @@ pub(crate) fn install_atmosphere(app: &mut App) {
                 prepare_atmosphere_uniform.in_set(RenderSystems::PrepareResources),
                 prepare_atmosphere_textures.in_set(RenderSystems::PrepareResources),
                 prepare_atmosphere_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                queue_atmosphere.in_set(RenderSystems::Queue),
+                queue_atmosphere
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
             ),
         );
 }
