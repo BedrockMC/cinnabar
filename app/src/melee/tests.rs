@@ -318,3 +318,31 @@ fn a_press_deferred_on_unavailable_block_evidence_is_bounded() {
         "a press stale past the bound is dropped"
     );
 }
+
+/// A full send queue must not keep the swing while dropping the attack; the press retries.
+#[test]
+fn a_full_queue_rolls_back_the_press_and_the_swing_together() {
+    use crate::runtime::network::{BatchSendError, NetworkHandle};
+    let (network, _open) = NetworkHandle::with_command_capacity(1);
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    runtime.observe_input(true, true);
+    let press = press(PlayerInputMode::Mouse);
+    let missed = resolve_and_send(&mut runtime, &mut swings, ZOMBIE, &press, 1, |packets| {
+        assert_eq!(packets.len(), 2);
+        network.send_inventory_packets(packets)
+    });
+    assert!(!missed);
+    assert!(!swings.take_started(), "no swing without its transaction");
+    assert!(!runtime.blocks_use_at(press.now_millis));
+
+    let mut sent = Vec::new();
+    resolve_and_send(&mut runtime, &mut swings, ZOMBIE, &press, 2, |packets| {
+        sent = packets;
+        Ok::<(), BatchSendError>(())
+    });
+    assert_eq!(
+        kinds(&sent),
+        ["AnimatePacket", "InventoryTransactionPacket"]
+    );
+}
