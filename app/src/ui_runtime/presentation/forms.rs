@@ -34,6 +34,7 @@ mod textures;
 mod toast_screen;
 
 pub(crate) use chat_screen::ChatHit;
+pub(crate) use container_data::observe_station_block;
 pub(crate) use loading_screen::LoadingStage;
 pub(crate) use oreui::BedHit;
 pub(crate) use panorama::drive_menu_panorama;

@@ -30,6 +30,13 @@ const BEACON_PAYMENTS: [(i64, &str); 5] = [
     (266 << 16, "minecraft:gold_ingot"),
     (265 << 16, "minecraft:iron_ingot"),
 ];
+/// The `#item_id_aux` key the crafter's previewed result draws under; stonecutter keys are negative.
+const CRAFTER_OUTPUT_KEY: i64 = i64::MAX;
+const CRAFTER_ARROW_POWERED: &str = "textures/ui/redstone_arrow_powered";
+const CRAFTER_ARROW_UNPOWERED: &str = "textures/ui/redstone_arrow_unpowered";
+/// `$pressed_button_name` prefix of the crafter's disabled-slot buttons.
+const CRAFTER_DISABLED_BUTTON: &str = "disabled_slot_";
+const TOGGLABLE_SLOT_KEY: &str = "gui.togglable_slot";
 const CELL: &str = "textures/ui/cell_image";
 const CELL_NORMAL: &str = "textures/ui/cell_image_normal";
 const CELL_SELECTED: &str = "textures/ui/cell_image_invert";
@@ -40,6 +47,63 @@ const BREW_TICKS: f64 = 400.0;
 const DEFAULT_FUEL_TOTAL: f64 = 20.0;
 /// Bubble heights of the brewing cycle, of the 29 px column (provisional: Java's cycle).
 const BUBBLE_HEIGHTS: [f64; 7] = [29.0, 24.0, 20.0, 16.0, 11.0, 6.0, 0.0];
+
+/// Reads the open station's block for its screen: the beacon's pyramid level,
+/// the crafter's disabled slots and its `triggered_bit`.
+pub(crate) fn observe_station_block(
+    runtime: &mut UiRuntime,
+    stream: Option<&client_world::WorldStream>,
+    collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
+    now_millis: u64,
+) {
+    let ledger = runtime.inventory_ledger();
+    let (Some(kind), Some(position), Some(stream)) =
+        (ledger.window_kind(), ledger.window_position(), stream)
+    else {
+        return;
+    };
+    let nbt = stream.block_entity_compound(position);
+    let integer = |key: &str| nbt.as_ref().and_then(|nbt| nbt.integer(key));
+    match kind {
+        WindowKind::Beacon => {
+            runtime.screen_state_mut().beacon_level =
+                integer("Levels").and_then(|levels| u8::try_from(levels).ok());
+        }
+        WindowKind::Crafter => {
+            let disabled = integer("disabled_slots").map_or(0, |mask| mask as u16);
+            let powered = collisions
+                .and_then(|collisions| {
+                    let mode = stream.network_id_mode();
+                    let world = sim::PaletteWorld::new(
+                        stream.collision_store(),
+                        collisions.registry(mode),
+                        stream.current_dimension(),
+                    );
+                    let runtime_id = world.primary_runtime_id(position).ok()?;
+                    state_bit(
+                        collisions.block_canonical_state(mode, runtime_id)?,
+                        "triggered_bit",
+                    )
+                })
+                .unwrap_or(false);
+            runtime
+                .screen_state_mut()
+                .crafter
+                .observe(disabled, powered, now_millis);
+        }
+        _ => {}
+    }
+}
+
+/// A boolean block state from canonical state JSON, plain or typed.
+fn state_bit(canonical: &str, name: &str) -> Option<bool> {
+    let states = serde_json::from_str::<serde_json::Value>(canonical).ok()?;
+    let value = states.get(name)?;
+    let value = value.get("value").unwrap_or(value);
+    value
+        .as_bool()
+        .or_else(|| value.as_u64().map(|bit| bit != 0))
+}
 
 /// Globals for the open station's progress and layout.
 pub(super) fn station_globals(data: &mut DataSource, runtime: &UiRuntime, kind: WindowKind) {
@@ -113,11 +177,7 @@ pub(super) fn station_controls(
         WindowKind::Beacon => beacon_buttons(data, runtime),
         WindowKind::Loom => data.set_collection("patterns", patterns(runtime)),
         WindowKind::Cartography => data.set_global("#is_none_mode", Scalar::Bool(true)),
-        // The crafter's power state is not tracked; its arrow shows unpowered.
-        WindowKind::Crafter => data.set_global(
-            "#redstone_arrow_texture",
-            Scalar::Text("textures/ui/redstone_arrow_unpowered".to_owned()),
-        ),
+        WindowKind::Crafter => crafter_controls(data, runtime, frame),
         _ => {}
     }
 }
@@ -134,6 +194,13 @@ pub(super) fn id_aux_icons(
             .iter()
             .filter_map(|(key, id)| Some((*key, icon(id)?)))
             .collect(),
+        Some(WindowKind::Crafter) => frame
+            .window_icons
+            .recipe_output
+            .as_ref()
+            .and_then(|(icon, _)| *icon)
+            .map(|icon| vec![(CRAFTER_OUTPUT_KEY, icon)])
+            .unwrap_or_default(),
         Some(WindowKind::Stonecutter) => frame
             .window_icons
             .recipe
@@ -143,6 +210,46 @@ pub(super) fn id_aux_icons(
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// The crafter screen's disabled-slot buttons, powered arrow and previewed result.
+fn crafter_controls(data: &mut DataSource, runtime: &UiRuntime, frame: &HudFrame) {
+    let crafter = &runtime.screen_state().crafter;
+    for slot in 0..9u8 {
+        data.set_global(
+            format!("#button_visible{slot}"),
+            Scalar::Bool(crafter.is_disabled(slot)),
+        );
+    }
+    let arrow = if crafter.powered {
+        CRAFTER_ARROW_POWERED
+    } else {
+        CRAFTER_ARROW_UNPOWERED
+    };
+    data.set_global("#redstone_arrow_texture", Scalar::Text(arrow.to_owned()));
+    let output = frame.window_icons.recipe_output.as_ref();
+    let shown = output.filter(|(icon, _)| icon.is_some());
+    data.set_global(
+        "#crafter_output_item",
+        Scalar::Num(if shown.is_some() {
+            CRAFTER_OUTPUT_KEY as f64
+        } else {
+            0.0
+        }),
+    );
+    let count = output.map_or(0, |(_, stack)| stack.count);
+    data.set_global(
+        "#output_stack_count",
+        Scalar::Text(match count {
+            0 | 1 => String::new(),
+            2..=99 => count.to_string(),
+            _ => "99+".to_owned(),
+        }),
+    );
+    let name = output
+        .and_then(|(_, stack)| frame.item_names.get(&(stack.network_id, stack.metadata)))
+        .map_or_else(String::new, |name| name.to_string());
+    data.set_global("#crafting_preview_info", Scalar::Text(name));
 }
 
 fn stone_key(index: usize) -> i64 {
@@ -163,6 +270,13 @@ pub(super) fn widget_hit(screen: &str, region: &HitRegion) -> Option<Widget> {
         ("loom.loom_screen", Some("patterns")) => Widget::LoomPatternAt(u8::try_from(index).ok()?),
         ("stonecutter.stonecutter_screen", Some("stones")) if index < STONECUTTER_CELLS => {
             Widget::StonecutterRecipe(u8::try_from(index).ok()?)
+        }
+        ("redstone.crafter_screen", None) => {
+            let slot = region
+                .name
+                .strip_prefix(CRAFTER_DISABLED_BUTTON)?
+                .strip_suffix("_button")?;
+            Widget::CrafterSlot(slot.parse().ok()?)
         }
         ("beacon.beacon_screen", Some("extra")) => Widget::BeaconUpgrade,
         ("beacon.beacon_screen", Some("confirm")) => Widget::BeaconConfirm,
@@ -408,8 +522,23 @@ pub(super) fn collection_len(runtime: &UiRuntime, collection: &str, cells: usize
 }
 
 /// Empty-slot silhouettes and cell art the brewing stand and loom bind per cell.
-pub(super) fn decorate(collection: &str, empty: bool, item: CollectionItem) -> CollectionItem {
+pub(super) fn decorate(
+    runtime: &UiRuntime,
+    collection: &str,
+    empty: bool,
+    item: CollectionItem,
+) -> CollectionItem {
+    let crafter = runtime.inventory_ledger().window_kind() == Some(WindowKind::Crafter);
     match collection {
+        // An empty crafter slot offers to disable itself.
+        "container_items" if crafter && empty => item.with(
+            "#hover_text",
+            Scalar::Text(
+                runtime
+                    .translation(TOGGLABLE_SLOT_KEY)
+                    .map_or_else(|| TOGGLABLE_SLOT_KEY.to_owned(), |text| text.to_string()),
+            ),
+        ),
         "brewing_result_items" => item.with("#empty_bottle_image_visible", Scalar::Bool(empty)),
         "brewing_fuel_item" => item.with("#empty_fuel_image_visible", Scalar::Bool(empty)),
         "loom_input_items" | "loom_dye_items" | "loom_material_items" => {

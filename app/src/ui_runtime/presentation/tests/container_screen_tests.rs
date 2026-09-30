@@ -395,6 +395,56 @@ fn every_container_screen_draws_through_the_engine() {
     }
 }
 
+// A disabled crafter slot shows its button over the cell; pressing it asks
+// the server to re-enable the slot, and clicking an empty slot disables it.
+#[test]
+fn crafter_slots_toggle_through_their_buttons() {
+    use crate::ui_runtime::inventory_drag::PointerAction;
+    use crate::ui_runtime::presentation::screens::Widget as W;
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let mut runtime = opened(protocol::WINDOW_TYPE_CRAFTER, 9);
+    runtime.screen_state_mut().crafter.observe(0b101, true, 0);
+    let dpi = DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+    }
+    let frame = presentation.engine_container_frame().unwrap();
+    let reached: Vec<InventoryCellHit> = frame
+        .hits
+        .iter()
+        .filter_map(|region| {
+            let center = [
+                (region.rect.x + region.rect.w / 2.0) as f32,
+                (region.rect.y + region.rect.h / 2.0) as f32,
+            ];
+            presentation.engine_container_hit(center)
+        })
+        .collect();
+    for hit in [
+        InventoryCellHit::Widget(W::CrafterSlot(0)),
+        InventoryCellHit::Widget(W::CrafterSlot(2)),
+        InventoryCellHit::Storage(1),
+    ] {
+        assert!(reached.contains(&hit), "{hit:?} unreachable");
+    }
+    assert!(!reached.contains(&InventoryCellHit::Storage(0)));
+    runtime.perform_pointer_action(PointerAction::Click(InventoryCellHit::Widget(
+        W::CrafterSlot(0),
+    )));
+    runtime.perform_pointer_action(PointerAction::Click(InventoryCellHit::Storage(4)));
+    assert_eq!(runtime.screen_state().crafter.shown_disabled(), 0b1_0100);
+    let toggles: Vec<String> = std::iter::from_fn(|| runtime.take_client_packet())
+        .map(|packet| format!("{:?}", packet.data))
+        .collect();
+    assert_eq!(toggles.len(), 2);
+    assert!(toggles[0].contains("slot_index: 0") && toggles[0].contains("is_disabled: false"));
+    assert!(toggles[1].contains("slot_index: 4") && toggles[1].contains("is_disabled: true"));
+}
+
 // Moving the pointer across slots only changes which hover states show: the
 // screen never lays out again, however long the creative catalog.
 #[test]

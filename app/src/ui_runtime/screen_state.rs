@@ -32,6 +32,7 @@ pub(crate) struct ScreenState {
     pub(crate) anvil_focused: bool,
     /// The beacon's pyramid level, from its block entity.
     pub(crate) beacon_level: Option<u8>,
+    pub(crate) crafter: CrafterView,
     pub(crate) book_open: bool,
     /// The recipe book's filter toggle, once flipped on this screen.
     pub(crate) recipe_filtering: Option<bool>,
@@ -44,6 +45,45 @@ pub(crate) struct ScreenState {
     /// Scroll offsets of the engine-drawn screen's scroll views, by view key.
     pub(crate) container_scroll: std::collections::BTreeMap<String, f64>,
     window: Option<u64>,
+}
+
+/// What the open crafter's screen shows of its block.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CrafterView {
+    /// Disabled slots as the block entity reports them, one bit per slot.
+    pub(crate) disabled: u16,
+    /// The block's `triggered_bit`.
+    pub(crate) powered: bool,
+    /// Toggles not yet echoed: the local mask and when it was set, stamped on
+    /// the next observation.
+    pub(crate) pending: Option<(u16, Option<u64>)>,
+}
+
+/// How long local toggles override the block entity, as `CrafterScreenController::tick`.
+pub(crate) const CRAFTER_TOGGLE_HOLD_MILLIS: u64 = 1_000;
+
+impl CrafterView {
+    /// The disabled slots the screen shows.
+    pub(crate) fn shown_disabled(&self) -> u16 {
+        self.pending.map_or(self.disabled, |(mask, _)| mask)
+    }
+
+    pub(crate) fn is_disabled(&self, slot: u8) -> bool {
+        slot < 9 && self.shown_disabled() & (1 << slot) != 0
+    }
+
+    /// Adopts the block entity's state, keeping recent local toggles.
+    pub(crate) fn observe(&mut self, disabled: u16, powered: bool, now_millis: u64) {
+        self.disabled = disabled & 0x1ff;
+        self.powered = powered;
+        self.pending = match self.pending {
+            Some((mask, None)) => Some((mask, Some(now_millis))),
+            Some((mask, Some(at))) if now_millis <= at + CRAFTER_TOGGLE_HOLD_MILLIS => {
+                Some((mask, Some(at)))
+            }
+            _ => None,
+        };
+    }
 }
 
 impl ScreenState {
@@ -60,6 +100,7 @@ impl ScreenState {
             self.anvil_name.clear();
             self.anvil_focused = false;
             self.beacon_level = None;
+            self.crafter = CrafterView::default();
             self.container_scroll.clear();
             self.creative_expanded.clear();
             self.recipe_filtering = None;
@@ -180,6 +221,22 @@ mod tests {
     use protocol::{CreativeGroup, NetworkItemStack};
 
     use super::*;
+
+    // Local toggles show until the block entity has had a second to echo them.
+    #[test]
+    fn crafter_toggles_hold_before_the_block_entity_wins() {
+        let mut crafter = CrafterView {
+            pending: Some((0b10, None)),
+            ..CrafterView::default()
+        };
+        crafter.observe(0, false, 100);
+        assert_eq!(crafter.shown_disabled(), 0b10);
+        crafter.observe(0, false, 100 + CRAFTER_TOGGLE_HOLD_MILLIS);
+        assert_eq!(crafter.shown_disabled(), 0b10);
+        crafter.observe(0b1, true, 101 + CRAFTER_TOGGLE_HOLD_MILLIS);
+        assert_eq!(crafter.shown_disabled(), 0b1);
+        assert!(crafter.powered);
+    }
 
     fn catalog() -> CreativeContentEvent {
         let item = |id: u32, group: u32| CreativeItem {
