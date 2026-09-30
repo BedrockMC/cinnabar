@@ -253,9 +253,10 @@ fn actual_preview_updates_share_static_pages_and_retire_superseded_scenes() {
     let runtime = UiRuntime::new(1);
     let mut prior = None;
     for frame in 1..=100 {
+        // The view pitch redraws the hand rasters; world yaw no longer turns the model.
         presentation.set_player_preview_skin(
             None,
-            player_preview::PlayerPreviewPose::new(frame as f32, 40.0, 10.0, false),
+            player_preview::PlayerPreviewPose::new(40.0, 40.0, frame as f32, false),
         );
         assert_eq!(
             presentation.textures.pages()[0].pixels().as_ptr(),
@@ -286,7 +287,7 @@ fn actual_preview_updates_share_static_pages_and_retire_superseded_scenes() {
     let before = Arc::clone(&presentation.textures);
     presentation.set_player_preview_skin(
         None,
-        player_preview::PlayerPreviewPose::new(100.0, 40.0, 10.0, false),
+        player_preview::PlayerPreviewPose::new(40.0, 40.0, 100.0, false),
     );
     assert!(Arc::ptr_eq(&before, &presentation.textures));
     assert!(extracted.input.is_some());
@@ -298,22 +299,28 @@ fn hidden_preview_defers_pose_changes_until_shown() {
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
     let pose =
         |yaw: f32, pitch: f32| player_preview::PlayerPreviewPose::new(yaw, yaw, pitch, false);
-    presentation.sync_player_preview(None, pose(0.0, 0.0), false, false);
+    presentation.sync_player_preview(None, pose(0.0, 0.0), false, false, 0.0);
     let drawn = Arc::clone(&presentation.textures);
     for frame in 1..=100 {
         let turn = frame as f32;
-        presentation.sync_player_preview(None, pose(turn, turn / 4.0), false, false);
+        presentation.sync_player_preview(None, pose(turn, turn / 4.0), false, false, 0.0);
         // Yaw alone does not move the CPU hands.
-        presentation.sync_player_preview(None, pose(turn, 0.0), false, true);
+        presentation.sync_player_preview(None, pose(turn, 0.0), false, true, 0.0);
     }
     assert!(Arc::ptr_eq(&drawn, &presentation.textures));
-    presentation.sync_player_preview(None, pose(100.0, 0.0), true, false);
+    presentation.sync_player_preview(None, pose(100.0, 0.0), true, false, 0.0);
     assert!(!Arc::ptr_eq(&drawn, &presentation.textures));
     let shown = Arc::clone(&presentation.textures);
-    presentation.sync_player_preview(None, pose(100.0, 5.0), false, true);
+    presentation.sync_player_preview(None, pose(100.0, 5.0), false, true, 0.0);
     assert!(!Arc::ptr_eq(&shown, &presentation.textures));
     let hands = Arc::clone(&presentation.textures);
-    presentation.sync_player_preview(Some(&vec![255; 64 * 64 * 4]), pose(7.0, 5.0), false, false);
+    presentation.sync_player_preview(
+        Some(&vec![255; 64 * 64 * 4]),
+        pose(7.0, 5.0),
+        false,
+        false,
+        0.0,
+    );
     assert!(
         !Arc::ptr_eq(&hands, &presentation.textures),
         "skin changes still redraw"
@@ -630,7 +637,7 @@ fn frame_cost_bench_hidden_player_preview_while_turning() {
     }));
     let mut presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
     let new = time(Box::new(|frame| {
-        presentation.sync_player_preview(Some(&skin), pose(frame), false, false);
+        presentation.sync_player_preview(Some(&skin), pose(frame), false, false, 0.0);
     }));
     eprintln!("FRAME_COST player_preview_turning_hidden: old={old:.3}ms new={new:.3}ms");
 }

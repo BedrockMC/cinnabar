@@ -161,12 +161,14 @@ impl UiPresentationRuntime {
             .hover
             .filter(|hit| hit.is_item_cell())
             .and_then(|_| tooltip_text(&self.hud_frame.window_text.tooltip));
+        let preview_view = std::cell::Cell::new(None);
         let art = engine::ScreenArt {
             icons: &icons,
             id_aux: &id_aux,
             view: Some(&view),
             tooltip: tooltip.as_deref(),
             preview: self.hud_frame.player_preview,
+            preview_view: Some(&preview_view),
             pointer,
             ..engine::ScreenArt::default()
         };
@@ -191,6 +193,9 @@ impl UiPresentationRuntime {
         let drawn = renderer.draw(art, inputs, out, |env, root| {
             ScreenCache::render(cache, catalog, reference, &context, &data, &view, root, env)
         });
+        if let Some(view) = preview_view.get() {
+            self.player_preview_view = view.quantized();
+        }
         match drawn {
             Ok(Some(frame)) => {
                 self.form_presentation.container = Some((frame, layout));
