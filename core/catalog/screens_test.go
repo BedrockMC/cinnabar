@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -102,5 +103,26 @@ func TestFeaturedImagesPointIntoTheServers(t *testing.T) {
 	images[1].Path = "/cache/s.img"
 	if servers[0].Screenshots[0].Path != "/cache/s.img" {
 		t.Fatal("paths must land in the servers")
+	}
+}
+
+// A gathering keeps one join address across refreshes until it goes stale.
+func TestJoinMemoKeepsAnAddress(t *testing.T) {
+	memo := &joinMemo{entries: map[string]joinEntry{}}
+	joins := 0
+	join := func() string {
+		joins++
+		return fmt.Sprintf("10.0.0.%d:19132", joins)
+	}
+	first := memo.lookup("exp", join)
+	if again := memo.lookup("exp", join); again != first || joins != 1 {
+		t.Fatalf("rejoined: %q then %q after %d joins", first, again, joins)
+	}
+	memo.entries["exp"] = joinEntry{address: first, at: time.Now().Add(-2 * joinTTL)}
+	if fresh := memo.lookup("exp", join); fresh == first {
+		t.Fatalf("stale address %q kept", fresh)
+	}
+	if empty := memo.lookup("down", func() string { return "" }); empty != "" {
+		t.Fatalf("failed join gave %q", empty)
 	}
 }
