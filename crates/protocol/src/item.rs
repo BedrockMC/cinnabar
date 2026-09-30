@@ -14,10 +14,12 @@ use valentine::bedrock::{
 
 use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
 
+mod components;
 mod display;
 mod icons;
 mod registry_capacity;
 
+pub use components::{ItemComponents, item_components};
 pub use display::{ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display};
 pub use icons::item_icon_keys;
 
