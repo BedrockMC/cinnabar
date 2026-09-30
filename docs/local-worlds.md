@@ -11,9 +11,12 @@ Each world records the backend that created it (`world.json`) and always reopens
 | --- | --- | --- |
 | `bds` native | Windows and Linux x86-64 | Official Bedrock Dedicated Server: vanilla terrain and mobs. |
 | `bds` container | macOS (or any host without a native build) with a Docker-compatible runtime | Linux BDS in `itzg/minecraft-bedrock-server`, `--platform linux/amd64`. |
-| `dragonfly` | fallback when neither can run, and worlds created on it | Simpler terrain, no vanilla mob behavior. |
+| `dragonfly` | fallback when neither can run, and worlds created on it | Superflat only (dragonfly's default generators), no vanilla mob behavior. |
 
-New worlds default to BDS when it can run (`-local-backend=auto`), else dragonfly; `world_create.v1` may pass `backend`.
+Default (`normal`) worlds always run on BDS; where BDS cannot run, creating one fails with a "create a superflat
+world" error and the create screen starts on Superflat. Superflat worlds default to BDS when it can run
+(`-local-backend=auto`), else dragonfly; `world_create.v1` may pass `backend`. Normal worlds saved on dragonfly by
+older builds no longer open rather than regenerate with approximate terrain.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 
 ## BDS acquisition
@@ -60,6 +63,5 @@ and control worker; the menu and JSON-UI screens bind to it.
 
 ## v1 limits
 
-dragonfly terrain is a seeded value-noise approximation or superflat; mob AI and other dragonfly parity gaps are
-accepted. Docker-mounted LevelDB on macOS can be slow. A killed core can leave a container running; the next start
+dragonfly hosts superflat worlds only; its mob AI and other parity gaps are accepted. Docker-mounted LevelDB on macOS can be slow. A killed core can leave a container running; the next start
 of that world removes it.

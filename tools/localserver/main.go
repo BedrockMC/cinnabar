@@ -1,4 +1,5 @@
-// Command bedrock-local-server hosts one saved single-player world on dragonfly for the core.
+// Command bedrock-local-server hosts one saved superflat world on dragonfly's default generators for
+// the core; vanilla terrain runs on BDS instead.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin;
 // stdin EOF and SIGINT/SIGTERM also stop it.
 package main
@@ -34,7 +35,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("configure server: %w", err)
 	}
-	conf.Generator = cfg.dimensionGenerator
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
