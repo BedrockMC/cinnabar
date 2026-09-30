@@ -32,6 +32,8 @@ const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
 /// How often the screen feeds refresh; they change rarely and cost several calls.
 const FEED_INTERVAL: Duration = Duration::from_secs(300);
+/// How soon a feed that failed is asked again.
+const FEED_RETRY: Duration = Duration::from_secs(30);
 /// How often shown server rows are pinged.
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 
@@ -124,21 +126,32 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             )
         });
         let feeds = (Instant::now() >= feed_due).then(|| {
-            feed_due = Instant::now() + FEED_INTERVAL;
-            let home = runtime.block_on(launcher_control::home(socket_dir)).ok();
+            let mut failed = false;
+            let home = settle(
+                "home",
+                runtime.block_on(launcher_control::home(socket_dir)),
+                &mut failed,
+            );
             if let Some(home) = &home {
                 report_impressions(&runtime, socket_dir, home, &mut reported);
             }
-            (
-                home,
-                runtime
-                    .block_on(launcher_control::list_featured_servers(socket_dir))
-                    .ok(),
-                runtime
-                    .block_on(launcher_control::list_gatherings(socket_dir))
-                    .ok(),
-                runtime.block_on(launcher_control::profile(socket_dir)).ok(),
-            )
+            let featured = settle(
+                "featured servers",
+                runtime.block_on(launcher_control::list_featured_servers(socket_dir)),
+                &mut failed,
+            );
+            let gatherings = settle(
+                "gatherings",
+                runtime.block_on(launcher_control::list_gatherings(socket_dir)),
+                &mut failed,
+            );
+            let profile = settle(
+                "profile",
+                runtime.block_on(launcher_control::profile(socket_dir)),
+                &mut failed,
+            );
+            feed_due = Instant::now() + if failed { FEED_RETRY } else { FEED_INTERVAL };
+            (home, featured, gatherings, profile)
         });
         let targets = shared
             .lock()
@@ -187,6 +200,23 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             if friends.is_some() {
                 snapshot.friends = friends;
             }
+        }
+    }
+}
+
+/// A feed's value, or `None` after logging which feed failed; the core logs the
+/// upstream cause, redacted.
+fn settle<T, E: std::fmt::Display>(
+    feed: &str,
+    result: Result<T, E>,
+    failed: &mut bool,
+) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(error) => {
+            *failed = true;
+            bevy::log::warn!(feed, %error, "launcher feed failed; retrying soon");
+            None
         }
     }
 }
