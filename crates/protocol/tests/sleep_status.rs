@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use protocol::{SleepStatusEvent, UiEvent, WorldEvent, into_world_event};
 use valentine::bedrock::codec::Nbt;
-use valentine::bedrock::version::v1_26_44::LevelEventGenericPacket;
+use valentine::bedrock::version::v1_26_51::LevelEventGenericPacket;
 
 /// A NetworkLittleEndian root compound of int tags.
 fn int_compound(tags: &[(&str, i32)]) -> Vec<u8> {
