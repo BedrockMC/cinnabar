@@ -102,21 +102,59 @@ impl Context {
             .with_flag("touch", false)
     }
 
-    /// The desktop context plus the globals a retail, full-game, non-edu client
-    /// computes in code (`VanillaSceneFactory::createGlobalVars`).
+    /// The desktop context plus the globals a retail, full-game, non-edu desktop
+    /// client computes in code (1.26.50 `VanillaSceneFactory::createGlobalVars`,
+    /// RVA 0x076bf510). Unset variables read false, so every true one is listed.
     pub fn retail(macos: bool) -> Self {
-        Self::desktop()
-            .with_flag("win10_edition", !macos)
-            .with_flag("osx_edition", macos)
-            .with_flag("pocket_edition", false)
-            .with_flag("console_edition", false)
-            .with_flag("trial", false)
-            .with_flag("education_edition", false)
-            .with_flag("store_disabled", false)
-            .with_flag("is_ios", false)
-            .with_flag("nx_os", false)
-            .with_flag("is_ps4", false)
-            .with_flag("is_publish", true)
+        let platform: &[(&str, bool)] = &[
+            ("win10_edition", !macos),
+            ("microsoft_os", !macos),
+            ("ms_platform", !macos),
+            ("osx_edition", macos),
+            ("apple_os", macos),
+        ];
+        let constant: &[(&str, bool)] = &[
+            ("is_desktop", true),
+            ("mouse", true),
+            ("is_publish", true),
+            ("test_infrastructure_disabled", true),
+            ("new_video_settings", true),
+            ("is_improve_input_response_platform_supported", true),
+            ("is_xboxlive_enabled", true),
+            ("is_realms_enabled", true),
+            ("is_seeds_enabled", true),
+            ("is_creative_enabled", true),
+            ("is_multiplayer_enabled", true),
+            ("is_packs_enabled", true),
+            ("is_server_enabled", true),
+            ("is_store_enabled", true),
+            ("file_picking_supported", true),
+            ("supports_clipboard_set", true),
+            ("supports_add_friend", true),
+            ("supports_xbl_achievements", true),
+            // Channel flags: this is the release app, not Preview.
+            ("pre_release", false),
+            ("beta_build", false),
+            ("is_preview_app", false),
+            ("trial", false),
+            ("education_edition", false),
+            ("store_disabled", false),
+            ("creator_build", false),
+            ("pocket_edition", false),
+            ("console_edition", false),
+            ("is_console", false),
+            ("game_pad", false),
+            ("can_splitscreen", false),
+            ("is_secondary_client", false),
+            ("requires_xbl_signin_to_play", false),
+            ("is_editor_mode_enabled", false),
+        ];
+        platform
+            .iter()
+            .chain(constant)
+            .fold(Self::desktop(), |context, (name, value)| {
+                context.with_flag(name, *value)
+            })
     }
 
     /// The variables set so far, keyed without `$`.

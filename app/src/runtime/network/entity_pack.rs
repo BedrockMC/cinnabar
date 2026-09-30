@@ -207,3 +207,6 @@ mod pack_report;
 
 #[cfg(test)]
 mod equipment_report;
+
+#[cfg(test)]
+mod render_report;

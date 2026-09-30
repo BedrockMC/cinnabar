@@ -119,8 +119,8 @@ func (b *bdsInstance) Stop(ctx context.Context) error {
 	return err
 }
 
-// CanPause is false: BDS has no equivalent of the single-player pause, and freezing the daylight
-// cycle or weather is not one (mobs, redstone, crops and the clock's other users keep running).
+// CanPause is false: BDS does not register /globalpause (the integrated server's sim-time pause),
+// gamerules leave mobs and redstone running, and SIGSTOP would also freeze the connection.
 func (b *bdsInstance) CanPause() bool { return false }
 
 func portOf(address string) int {

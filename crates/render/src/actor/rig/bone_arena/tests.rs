@@ -58,6 +58,8 @@ fn submission(runtime_id: u64, bones: usize) -> ActorRigSubmission {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
+        uv_anim: crate::IDENTITY_UV_ANIM,
+        light: 0,
         overlay_rgba8: 0,
     }
 }
@@ -127,6 +129,8 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             partial_tick: 0.5,
             reset_generation: 1,
             tint: input.tint,
+            uv_anim: input.uv_anim,
+            light: input.light,
             overlay_rgba8: input.overlay_rgba8,
         });
         manifest.push(ActorDrawManifestEntry {

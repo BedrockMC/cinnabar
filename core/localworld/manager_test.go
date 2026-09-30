@@ -87,7 +87,7 @@ func waitState(t *testing.T, m *Manager, want State) Status {
 func newTestManager(t *testing.T, runner Runner) (*Manager, World) {
 	t.Helper()
 	m := NewManager(newTestStore(t), runner, nil)
-	world, err := m.Create(Spec{Name: "w"})
+	world, err := m.Create(Spec{Name: "w", Generator: GeneratorFlat})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestOpenRunsThenCloseStopsServer(t *testing.T) {
 
 func TestOpenAnotherWorldWhileRunningIsBusy(t *testing.T) {
 	m, world := newTestManager(t, &fakeRunner{})
-	other, _ := m.Create(Spec{Name: "other"})
+	other, _ := m.Create(Spec{Name: "other", Generator: GeneratorFlat})
 	_ = m.Open(world.ID)
 	waitState(t, m, StateRunning)
 	if err := m.Open(other.ID); !errors.Is(err, ErrBusy) {

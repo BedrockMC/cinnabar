@@ -6,10 +6,11 @@
 use json_ui::{HitRegion, ViewState};
 use ui::{UiNode, UiRect};
 
+use super::super::menu_scroll::ScrollArea;
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
 use super::{engine, menu_screens};
 use crate::menu::{MenuAction, MenuView};
-use crate::ui_runtime::UiRuntime;
+use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
 
@@ -30,6 +31,11 @@ impl UiPresentationRuntime {
         let Some(view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
+        self.menu_scrolls.begin_frame(format!(
+            "{:?}/{:?}/{}",
+            view.screen, view.server_tab, view.settings_section
+        ));
+        self.menu_scrolls.set_areas(Vec::new());
         let drawn = if view.visible {
             self.append_engine_menu(runtime, &view, nodes, next, metrics, width, height)
         } else {
@@ -114,7 +120,14 @@ impl UiPresentationRuntime {
                 .find(|(candidate, _)| *candidate == action)
                 .map(|(_, key)| key.clone())
         };
+        let scroll = self
+            .menu_scrolls
+            .offsets()
+            .iter()
+            .map(|(key, offset)| (key.clone(), f64::from(*offset)))
+            .collect();
         let state = ViewState {
+            scroll,
             hovered: key_of(view.hovered).or_else(|| key_of(view.focused_action)),
             pressed: key_of(view.pressed),
             focused: view.field.and_then(|field| {
@@ -123,7 +136,6 @@ impl UiPresentationRuntime {
                     crate::menu::MenuField::Address => MenuAction::AddAddress,
                 }))
             }),
-            ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
@@ -188,8 +200,9 @@ impl UiPresentationRuntime {
         };
         let mut hits = Vec::new();
         let mut keys = Vec::new();
+        let origin = [self.safe_area.left(), self.safe_area.top()];
+        self.menu_scrolls.set_areas(scroll_areas(&frame, origin));
         for region in frame.hits.iter().filter(|region| region.enabled) {
-            let origin = [self.safe_area.left(), self.safe_area.top()];
             if let Some(actions) = menu_screens::slider_actions(region) {
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
@@ -294,6 +307,38 @@ pub(super) fn window_rect(region: &HitRegion, scale: f32, origin: [f32; 2]) -> O
     }
     let to = |value: f64, axis: usize| value as f32 * scale + origin[axis];
     rect(to(x0, 0), to(y0, 1), to(x1, 0), to(y1, 1)).ok()
+}
+
+/// The frame's scroll views in window-logical pixels, offsets in virtual px.
+fn scroll_areas(frame: &EngineFrame, origin: [f32; 2]) -> Vec<ScrollArea> {
+    let window = |r: [f64; 4]| {
+        let to = |value: f64, axis: usize| value as f32 * frame.scale + origin[axis];
+        rect(
+            to(r[0], 0),
+            to(r[1], 1),
+            to(r[0] + r[2], 0),
+            to(r[1] + r[3], 1),
+        )
+        .ok()
+    };
+    frame
+        .hits
+        .iter()
+        .filter(|region| region.kind == json_ui::HitKind::ScrollView)
+        .filter_map(|region| {
+            let metrics = frame.report.scrolls.get(&region.key)?;
+            Some(ScrollArea {
+                key: region.key.clone(),
+                viewport: window_rect(region, frame.scale, origin)?,
+                scale: frame.scale,
+                offset: metrics.offset as f32,
+                max: metrics.max_offset() as f32,
+                speed: metrics.speed as f32,
+                track: metrics.track.and_then(window),
+                thumb: metrics.thumb.and_then(window),
+            })
+        })
+        .collect()
 }
 
 /// A slider split into `steps` equal hit rects, one per value.
