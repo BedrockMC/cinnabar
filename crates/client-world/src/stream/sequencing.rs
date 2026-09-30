@@ -664,6 +664,7 @@ impl WorldStream {
                             sequence,
                             dimension: update.dimension,
                             current,
+                            tick: update.tick,
                         });
                     }
                 }

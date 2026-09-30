@@ -350,6 +350,25 @@ impl LocalPhysicsController {
         rewind
     }
 
+    /// Rewrites the movement speed of retained ticks after an `UpdateAttributes`
+    /// stamped `tick`; returns the tick to replay from when anything changed.
+    ///
+    /// Live and stale stamps need no rewrite: the live authority already
+    /// carries the value into future ticks.
+    pub(crate) fn retime_movement_speed(&mut self, tick: u64, speed: f64) -> Option<u64> {
+        let TimelineSlot::Rewind(tick) = self.timeline_slot(tick) else {
+            return None;
+        };
+        let mut changed = false;
+        for input in self.history.retained_inputs_after_mut(tick) {
+            if input.movement_speed != Some(speed) {
+                input.movement_speed = Some(speed);
+                changed = true;
+            }
+        }
+        changed.then_some(tick)
+    }
+
     /// Replaces the live velocity, for timeline edits whose replay failed.
     pub(crate) fn replace_live_velocity(&mut self, motion: [f32; 3]) {
         if let Some(state) = self.state.as_mut()

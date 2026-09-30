@@ -337,9 +337,27 @@ pub(crate) fn reconcile_world_stream_before_physics(
             sequence,
             dimension,
             current,
+            tick,
         } = control
         {
-            movement_speed.apply(clock.session_generation(), sequence, dimension, current);
+            if movement_speed.apply(clock.session_generation(), sequence, dimension, current)
+                && movement.physics_is_authorized()
+                && let Some(rewind) = local_physics.retime_movement_speed(tick, current)
+            {
+                let world = sim::PaletteWorld::new(
+                    stream.collision_store(),
+                    collisions.registry(stream.network_id_mode()),
+                    stream.current_dimension(),
+                );
+                if let Err(fault) = crate::movement::reconcile_timeline_rewind(
+                    &mut movement,
+                    &mut local_physics,
+                    rewind,
+                    &world,
+                ) {
+                    debug!(?fault, tick, "movement speed replay failed; applied live");
+                }
+            }
             continue;
         }
         if apply_environment_control(control, &mut clock, &mut weather, time.elapsed_secs_f64()) {
