@@ -4,11 +4,27 @@ use std::{
     fs::{self, File},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
 
 use super::plan::{Action, Step};
+
+const CANCEL_POLL: Duration = Duration::from_millis(100);
+
+/// The user stopped setup; running steps are killed and nothing is published.
+#[derive(Debug)]
+pub(super) struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("setup was cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
 
 /// Runs `steps` in order; a failed required step aborts, a failed optional step is returned as skipped.
 pub(super) fn execute_steps(
@@ -20,6 +36,9 @@ pub(super) fn execute_steps(
     for (index, step) in steps.iter().enumerate() {
         progress(index, step);
         if let Err(error) = exec(step) {
+            if error.is::<Cancelled>() {
+                return Err(error);
+            }
             if step.required {
                 return Err(error.context(step.label));
             }
@@ -29,14 +48,34 @@ pub(super) fn execute_steps(
     Ok(skipped)
 }
 
+/// Kit directories and the repo-relative workspace paths they stage to.
+const KIT_LAYOUT: [(&str, &str); 3] = [
+    ("scripts", "scripts"),
+    ("assets", "assets"),
+    ("data", "crates/assets/data"),
+];
+
 /// Copies the bundled scripts, manifests and registries into the workspace at repo-relative paths.
 pub(super) fn stage_kit(kit: &Path, workspace: &Path) -> Result<()> {
-    for (from, to) in [
-        ("scripts", "scripts"),
-        ("assets", "assets"),
-        ("data", "crates/assets/data"),
-    ] {
+    for (from, to) in KIT_LAYOUT {
         copy_tree(&kit.join(from), &workspace.join(to))?;
+    }
+    Ok(())
+}
+
+/// The kit file a workspace-relative path stages from, if the kit ships one.
+pub(super) fn kit_file(kit: &Path, relative: &str) -> Option<PathBuf> {
+    KIT_LAYOUT.iter().find_map(|(from, to)| {
+        let rest = relative.strip_prefix(to)?.strip_prefix('/')?;
+        let path = kit.join(from).join(rest);
+        path.is_file().then_some(path)
+    })
+}
+
+/// Copies the published carriers into `staged` so steps that are still current keep them.
+pub(super) fn seed(prepared: &Path, staged: &Path) -> Result<()> {
+    if prepared.is_dir() {
+        copy_tree(prepared, staged)?;
     }
     Ok(())
 }
@@ -56,25 +95,60 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Moves the fully built carrier directory into place, replacing any earlier one.
+fn previous(final_dir: &Path) -> PathBuf {
+    final_dir.with_extension("previous")
+}
+
+/// Swaps the fully built carrier directory into place. The earlier set is only moved aside, so an
+/// interruption leaves either set recoverable by [`recover`].
 pub(super) fn publish(staged: &Path, final_dir: &Path) -> Result<()> {
     if let Some(parent) = final_dir.parent() {
         fs::create_dir_all(parent)?;
     }
-    if final_dir.exists() {
-        fs::remove_dir_all(final_dir).with_context(|| format!("remove {}", final_dir.display()))?;
+    let old = previous(final_dir);
+    if old.exists() {
+        fs::remove_dir_all(&old).with_context(|| format!("remove {}", old.display()))?;
     }
-    fs::rename(staged, final_dir)
-        .with_context(|| format!("move {} to {}", staged.display(), final_dir.display()))
+    if final_dir.exists() {
+        fs::rename(final_dir, &old)
+            .with_context(|| format!("move {} aside", final_dir.display()))?;
+    }
+    if let Err(error) = fs::rename(staged, final_dir) {
+        let _ = fs::rename(&old, final_dir);
+        return Err(error)
+            .with_context(|| format!("move {} to {}", staged.display(), final_dir.display()));
+    }
+    let _ = fs::remove_dir_all(&old);
+    Ok(())
 }
 
-pub(super) struct ProcessExec {
+/// Restores the earlier carrier set when a publish was interrupted between its two renames.
+pub(super) fn recover(final_dir: &Path) {
+    let old = previous(final_dir);
+    if !final_dir.exists() && old.is_dir() {
+        let _ = fs::rename(&old, final_dir);
+    }
+}
+
+/// Deletes a step's earlier outputs so a failed optional rerun cannot leave a stale carrier.
+pub(super) fn clear_output(staged: &Path, name: &str) {
+    let path = staged.join(name);
+    let _ = if path.is_dir() {
+        fs::remove_dir_all(&path)
+    } else {
+        fs::remove_file(&path)
+    };
+}
+
+pub(super) struct ProcessExec<'a> {
     pub workspace: PathBuf,
     pub kit: PathBuf,
     pub log: File,
+    /// Set to kill the running step and stop.
+    pub cancel: &'a AtomicBool,
 }
 
-impl ProcessExec {
+impl ProcessExec<'_> {
     pub(super) fn run(&self, step: &Step) -> Result<()> {
         let mut command = self.command(&step.action)?;
         command
@@ -82,9 +156,20 @@ impl ProcessExec {
             .stdin(Stdio::null())
             .stdout(self.log.try_clone()?)
             .stderr(self.log.try_clone()?);
-        let status = command
-            .status()
+        let mut child = command
+            .spawn()
             .with_context(|| format!("start {}", step.label))?;
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if self.cancel.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Cancelled.into());
+            }
+            std::thread::sleep(CANCEL_POLL);
+        };
         if !status.success() {
             bail!("{} exited with {status}; see the first-run log", step.label);
         }
@@ -149,6 +234,23 @@ mod tests {
     }
 
     #[test]
+    fn cancelling_an_optional_step_stops_the_run() {
+        let steps = [step("a", false), step("b", true)];
+        let mut ran = Vec::new();
+        let error = execute_steps(
+            &steps,
+            |s| {
+                ran.push(s.label);
+                Err(Cancelled.into())
+            },
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert!(error.is::<Cancelled>());
+        assert_eq!(ran, ["a"]);
+    }
+
+    #[test]
     fn required_failure_aborts_and_optional_failure_is_skipped() {
         let steps = [step("a", true), step("b", false), step("c", true)];
         let skipped = execute_steps(
@@ -204,6 +306,34 @@ mod tests {
     }
 
     #[test]
+    fn an_interrupted_publish_recovers_the_earlier_set() {
+        let dir = Dir::new("recover");
+        let final_dir = dir.path().join("compiled");
+        // Crash after the old set moved aside but before the new one landed.
+        fs::create_dir_all(previous(&final_dir)).unwrap();
+        fs::write(previous(&final_dir).join("old"), b"1").unwrap();
+        recover(&final_dir);
+        assert!(final_dir.join("old").is_file() && !previous(&final_dir).exists());
+        // With the final set present, a leftover aside copy is ignored.
+        fs::create_dir_all(previous(&final_dir)).unwrap();
+        recover(&final_dir);
+        assert!(final_dir.join("old").is_file());
+    }
+
+    #[test]
+    fn kit_files_resolve_through_the_staging_layout() {
+        let dir = Dir::new("kit-file");
+        fs::create_dir_all(dir.path().join("data")).unwrap();
+        fs::write(dir.path().join("data/reg.bin"), b"r").unwrap();
+        assert_eq!(
+            kit_file(dir.path(), "crates/assets/data/reg.bin"),
+            Some(dir.path().join("data/reg.bin"))
+        );
+        assert_eq!(kit_file(dir.path(), "crates/assets/data/missing.bin"), None);
+        assert_eq!(kit_file(dir.path(), ".local/assets/compiled/x"), None);
+    }
+
+    #[test]
     fn publish_replaces_an_earlier_directory() {
         let dir = Dir::new("publish");
         let (staged, final_dir) = (dir.path().join("staged"), dir.path().join("out/final"));
@@ -213,5 +343,6 @@ mod tests {
         fs::write(final_dir.join("old"), b"1").unwrap();
         publish(&staged, &final_dir).unwrap();
         assert!(final_dir.join("new").is_file() && !final_dir.join("old").exists());
+        assert!(!previous(&final_dir).exists());
     }
 }

@@ -20,9 +20,9 @@ func TestCheckUpdateRequiresTrustedKeys(t *testing.T) {
 	}
 }
 
-func TestUploadCrashRequiresDSN(t *testing.T) {
-	t.Setenv("CINNABAR_SENTRY_DSN", "")
-	if handled, code := helperMode(context.Background(), []string{"upload-crash", "-file", "x"}, &bytes.Buffer{}, &bytes.Buffer{}); !handled || code != 1 {
-		t.Fatalf("handled=%v code=%d", handled, code)
+// Crash reports stay on disk; no helper may upload them.
+func TestUploadCrashIsNotAHelper(t *testing.T) {
+	if handled, _ := helperMode(context.Background(), []string{"upload-crash", "-file", "x"}, &bytes.Buffer{}, &bytes.Buffer{}); handled {
+		t.Fatal("upload-crash must not be a helper")
 	}
 }

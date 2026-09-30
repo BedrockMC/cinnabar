@@ -212,12 +212,14 @@ fn actor_rig_presentation_inner(
                 reset_generation: rig.reset_generation,
             },
             world_from_actor: death_tilted(
-                rig_world_from_actor(position, yaw, scale),
+                scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
                 actor.status.death_progress(alpha),
             ),
             texture_layer: u32::MAX,
             route,
             tint: 0,
+            uv_anim: render::IDENTITY_UV_ANIM,
+            light: 0,
             overlay_rgba8: if actor.status.overlay_active() {
                 pack_overlay_rgba8(HURT_OVERLAY_RGBA)
             } else {
@@ -292,6 +294,8 @@ pub(crate) fn local_diagnostic_presentation(
             texture_layer: u32::MAX,
             route: ActorRigRoute::Diagnostic,
             tint: 0,
+            uv_anim: render::IDENTITY_UV_ANIM,
+            light: 0,
             overlay_rgba8: 0,
         },
         skin_rgba8: Some(default_actor_skin_rgba8()),
@@ -425,6 +429,21 @@ pub(crate) fn select_actor_presentations_for_view(
     }
 }
 
+/// Lights each body by the solved world light at its feet; a body without solved light yet
+/// keeps drawing unlit rather than black.
+pub(crate) fn light_bodies(
+    batch: &mut ActorPresentationBatch,
+    stream: &client_world::WorldStream,
+    daylight: f32,
+) {
+    for submission in &mut batch.submissions {
+        let feet = submission.world_from_actor.map(|row| row[3]);
+        if let Some((block, sky)) = stream.solved_light_at(feet) {
+            submission.light = render::pack_actor_light(block, sky, daylight);
+        }
+    }
+}
+
 fn convert_bones(bones: &[client_world::BoneTransform]) -> Option<Arc<[RenderBoneTransform]>> {
     bones
         .iter()
@@ -452,6 +471,16 @@ pub(crate) fn rig_world_from_actor(
         [0.0, scale, 0.0, position[1]],
         [-sine * scale, 0.0, -cosine * scale, position[2]],
     ]
+}
+
+/// Scales the model's own axes (`scaleX`, `scaleY`, `scaleZ`) about its feet.
+fn scaled_axes(mut rows: [[f32; 4]; 3], axis_scale: [f32; 3]) -> [[f32; 4]; 3] {
+    for row in &mut rows {
+        for (value, scale) in row.iter_mut().zip(axis_scale) {
+            *value *= scale;
+        }
+    }
+    rows
 }
 
 /// Tips the rig sideways about its feet as death progresses; the ease-out curve needs measurement.
