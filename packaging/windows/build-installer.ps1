@@ -1,5 +1,5 @@
 # Builds the unsigned Windows payload and MSI. Requires: WiX v4 (`dotnet tool install --global wix`) and ImageMagick.
-# Usage: build-installer.ps1 [-Out <dir>]. Env: CINNABAR_UPDATE_URL, CINNABAR_SENTRY_DSN (optional).
+# Usage: build-installer.ps1 [-Out <dir>]. Env: CINNABAR_UPDATE_URL (optional).
 param([string]$Out = ".local/dist/windows-release")
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "../..")
@@ -23,7 +23,6 @@ foreach ($name in "fetch-vanilla-assets.ps1", "fetch-ui-font.ps1") { Copy-Item (
 Copy-Item (Join-Path $root "assets/*.json") (Join-Path $kit "assets")
 foreach ($stem in "block-registry", "block-light-registry", "biome-registry") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2193.*") (Join-Path $kit "data") }
 if ($env:CINNABAR_UPDATE_URL) { Set-Content -NoNewline (Join-Path $resources "update-url") $env:CINNABAR_UPDATE_URL }
-if ($env:CINNABAR_SENTRY_DSN) { Set-Content -NoNewline (Join-Path $resources "sentry-dsn") $env:CINNABAR_SENTRY_DSN }
 
 $icon = Join-Path $Out "cinnabar.ico"
 magick -background none -density 384 (Join-Path $PSScriptRoot "../icons/cinnabar.svg") -define icon:auto-resize=256,128,64,48,32,16 $icon

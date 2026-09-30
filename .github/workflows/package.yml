@@ -11,7 +11,6 @@ permissions:
 
 env:
   CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
-  CINNABAR_SENTRY_DSN: ${{ secrets.CINNABAR_SENTRY_DSN }}
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
 
 jobs:

@@ -6,7 +6,7 @@ mod update;
 
 use anyhow::{Context, Result};
 
-use crate::{first_run, install_layout::InstallLayout, native_dialog::NativePrompter};
+use crate::{first_run, install_layout::InstallLayout};
 
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
@@ -17,7 +17,7 @@ pub fn before_run(assets_overridden: bool) -> Result<()> {
     }
     core_health::capture_client_stderr(&layout);
     crash::install_panic_hook(&layout);
-    crash::upload_pending(&layout, &NativePrompter);
+    crash::prune_reports(&layout);
     if !assets_overridden {
         first_run::ensure_prepared(&layout)?;
     }
