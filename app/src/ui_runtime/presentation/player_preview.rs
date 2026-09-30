@@ -5,7 +5,14 @@
 //! and uploaded as one UI texture layer only when the authoritative skin or
 //! pose changes, so it does not add a per-frame GPU upload or a second camera.
 
+use std::sync::Arc;
+
+use assets::RuntimeEquipmentCatalog;
+
 use super::{IconRef, UiPresentationRuntime};
+
+mod equipment;
+pub(crate) use equipment::{PreviewEquipment, PreviewTexture};
 use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 
 impl UiPresentationRuntime {
@@ -42,6 +49,75 @@ impl UiPresentationRuntime {
         self.set_player_preview_skin(skin, pose);
     }
 
+    /// Where worn armor textures come from; without it the model wears none.
+    pub(crate) fn set_equipment_catalog(&mut self, catalog: Option<Arc<RuntimeEquipmentCatalog>>) {
+        self.equipment_catalog = catalog;
+    }
+
+    /// Dresses the model in the local player's armor and held item, naming each
+    /// stack's item through `identify`.
+    pub(crate) fn dress_player_preview(
+        &mut self,
+        runtime: &crate::ui_runtime::UiRuntime,
+        identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
+    ) {
+        use crate::ui_runtime::inventory_ledger::InventoryTarget;
+        let ledger = runtime.inventory_ledger();
+        let named = |stack: Option<&protocol::NetworkItemStack>| {
+            stack.and_then(|stack| Some((identify(stack)?, stack.clone())))
+        };
+        let armor: [_; 4] = std::array::from_fn(|slot| {
+            named(ledger.target_stack(InventoryTarget::Armor(slot as u8)))
+        });
+        let held = named(
+            runtime
+                .selected_hotbar_slot()
+                .and_then(|slot| ledger.displayed_stack(slot)),
+        );
+        self.set_player_preview_gear(
+            armor.each_ref().map(|worn| {
+                worn.as_ref()
+                    .map(|(id, stack)| (&**id, protocol::item_custom_color(&stack.extra_data)))
+            }),
+            held.as_ref().map(|(id, stack)| (&**id, stack.metadata)),
+        );
+    }
+
+    /// Dresses the model: each armor slot's item identifier (helmet to boots)
+    /// with its leather dye, and the held item's identifier and metadata.
+    pub(crate) fn set_player_preview_gear(
+        &mut self,
+        armor: [Option<(&str, Option<u32>)>; 4],
+        held: Option<(&str, u32)>,
+    ) {
+        let catalog = self.equipment_catalog.as_deref();
+        let armor = armor.map(|worn| {
+            let (identifier, dye) = worn?;
+            let binding = catalog?.binding(identifier)?;
+            let texture = catalog?.texture(&binding.texture.identifier)?;
+            // Undyed leather takes the default dye colour.
+            let tint = dye
+                .or_else(|| identifier.contains("leather").then_some(LEATHER_RGB))
+                .map(|rgb| [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);
+            Some(PreviewTexture {
+                rgba: Arc::clone(&texture.rgba8),
+                width: texture.width,
+                height: texture.height,
+                tint,
+            })
+        });
+        let held = held.and_then(|(identifier, metadata)| {
+            let sprite = self.icon_catalog.as_ref()?.lookup(identifier, metadata)?;
+            Some(PreviewTexture {
+                rgba: Arc::clone(&sprite.rgba8),
+                width: sprite.width,
+                height: sprite.height,
+                tint: None,
+            })
+        });
+        self.player_preview_gear = PreviewEquipment { armor, held };
+    }
+
     /// The current model raster's RGBA pixels, empty before the first.
     #[cfg(test)]
     pub(crate) fn player_preview_raster(&self) -> Vec<u8> {
@@ -61,6 +137,8 @@ pub(crate) const PREVIEW_PIXELS_PER_BLOCK: f32 = 48.0;
 pub(crate) const PREVIEW_FEET_Y: f32 = 106.0;
 /// A player's eye height above its feet, the point a live renderer centres.
 pub(crate) const PLAYER_EYE_HEIGHT: f32 = 1.62;
+/// Undyed leather armor's colour (the equipment renderer's default).
+const LEATHER_RGB: u32 = 0x00a0_6540;
 /// The player entity's render scale.
 const PLAYER_MODEL_SCALE: f32 = 0.9375;
 /// Half a player's height, the point a paper doll centres.
@@ -211,7 +289,13 @@ struct ProjectedVertex {
 /// Renders a nearest-neighbour, orthographic 3-D biped preview from a
 /// validated 64x64 player skin, facing the viewer as `view` turns it, its
 /// arms swayed by `bob` degrees. Transparent pixels remain transparent.
-pub(crate) fn render(skin: &[u8], pose: PlayerPreviewPose, view: PreviewView, bob: f32) -> Vec<u8> {
+pub(crate) fn render(
+    skin: &[u8],
+    pose: PlayerPreviewPose,
+    view: PreviewView,
+    bob: f32,
+    gear: &PreviewEquipment,
+) -> Vec<u8> {
     let width = PREVIEW_WIDTH as usize;
     let height = PREVIEW_HEIGHT as usize;
     let mut pixels = vec![0u8; width * height * 4];
@@ -226,10 +310,25 @@ pub(crate) fn render(skin: &[u8], pose: PlayerPreviewPose, view: PreviewView, bo
         model_pitch: model_pitch.to_radians(),
         bob: bob.to_radians(),
         sneaking: pose.sneaking,
+        holding: gear.held.is_some(),
     };
-    for triangle in vertices.chunks_exact(3) {
-        let projected = [0, 1, 2].map(|corner| rig.project(triangle[corner]));
-        rasterize_triangle(&mut pixels, &mut depth, width, height, skin, projected);
+    let mut draw = |vertices: &[ActorVertex], sample: &dyn Fn([f32; 2]) -> Option<[u8; 4]>| {
+        for triangle in vertices.chunks_exact(3) {
+            let projected = [0, 1, 2].map(|corner| rig.project(triangle[corner]));
+            rasterize_triangle(&mut pixels, &mut depth, width, height, sample, projected);
+        }
+    };
+    draw(&vertices, &|uv| sample_skin(skin, uv));
+    for (slot, texture) in gear.armor.iter().enumerate() {
+        if let Some(texture) = texture {
+            let size = [f32::from(texture.width), f32::from(texture.height)];
+            draw(&equipment::armor_vertices(slot, size), &|uv| {
+                texture.sample(uv)
+            });
+        }
+    }
+    if let Some(item) = &gear.held {
+        draw(&equipment::held_vertices(), &|uv| item.sample(uv));
     }
     pixels
 }
@@ -242,6 +341,8 @@ struct Rig {
     model_pitch: f32,
     bob: f32,
     sneaking: bool,
+    /// A held item raises the right arm (`animation.player.holding`: -18 degrees).
+    holding: bool,
 }
 
 impl Rig {
@@ -256,7 +357,13 @@ impl Rig {
                 local = rotate_y(local, self.head_yaw, [0.0, 1.5, 0.0]);
             }
             // The arms sway out from the shoulders.
-            2 => local = rotate_z(local, -self.bob, [-5.0 / 16.0, 22.0 / 16.0, 0.0]),
+            2 => {
+                let shoulder = [-5.0 / 16.0, 22.0 / 16.0, 0.0];
+                if self.holding {
+                    local = rotate_x(local, -18f32.to_radians(), shoulder);
+                }
+                local = rotate_z(local, -self.bob, shoulder);
+            }
             3 => local = rotate_z(local, self.bob, [5.0 / 16.0, 22.0 / 16.0, 0.0]),
             _ => {}
         }
@@ -302,7 +409,14 @@ pub(crate) fn render_hand(skin: &[u8], pose: PlayerPreviewPose, left: bool) -> V
             project_hand(triangle[1], pose, left),
             project_hand(triangle[2], pose, left),
         ];
-        rasterize_triangle(&mut pixels, &mut depth, width, height, skin, projected);
+        rasterize_triangle(
+            &mut pixels,
+            &mut depth,
+            width,
+            height,
+            &|uv| sample_skin(skin, uv),
+            projected,
+        );
     }
     pixels
 }
@@ -312,7 +426,7 @@ fn rasterize_triangle(
     depth: &mut [f32],
     width: usize,
     height: usize,
-    skin: &[u8],
+    sample: &dyn Fn([f32; 2]) -> Option<[u8; 4]>,
     projected: [ProjectedVertex; 3],
 ) {
     let area = edge(
@@ -377,7 +491,7 @@ fn rasterize_triangle(
                     + weights[1] * projected[1].uv[axis]
                     + weights[2] * projected[2].uv[axis]
             });
-            let Some(mut color) = sample_skin(skin, uv) else {
+            let Some(mut color) = sample(uv) else {
                 continue;
             };
             if color[3] < 10 {

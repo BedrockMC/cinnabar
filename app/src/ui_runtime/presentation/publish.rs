@@ -160,6 +160,14 @@ pub(crate) fn publish_ui_runtime(
                 sneaking,
             )
         });
+    // The model wears the local player's armor and held item.
+    presentation.dress_player_preview(&runtime, |stack| {
+        client_world
+            .stream
+            .as_ref()?
+            .canonical_item_stack(stack)?
+            .identifier
+    });
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;

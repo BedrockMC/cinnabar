@@ -504,3 +504,72 @@ fn pause_paper_doll_faces_the_viewer() {
             .any(|byte| *byte != 0)
     );
 }
+
+/// A pack texture as preview art, when the local vanilla pack has it.
+fn pack_texture(path: &str) -> Option<super::super::player_preview::PreviewTexture> {
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../.local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack")
+        .join(path);
+    let image = image::open(file).ok()?.to_rgba8();
+    Some(super::super::player_preview::PreviewTexture {
+        width: image.width() as u16,
+        height: image.height() as u16,
+        rgba: image.into_raw().into(),
+        tint: None,
+    })
+}
+
+// Worn armor and the held item draw on the model over the bare skin.
+#[test]
+fn inventory_player_model_wears_armor_and_holds_items() {
+    let Some(mut presentation) =
+        engine_presentation_with(super::super::forms::pack_harness::font())
+    else {
+        return;
+    };
+    let (Some(layer_1), Some(layer_2), Some(sword)) = (
+        pack_texture("textures/models/armor/diamond_1.png"),
+        pack_texture("textures/models/armor/diamond_2.png"),
+        pack_texture("textures/items/diamond_sword.png"),
+    ) else {
+        return;
+    };
+    let mut runtime = personal();
+    runtime.set_inventory_pointer_gui(Some([260.0, 40.0]));
+    let skin = steve_skin();
+    let dpi = DpiScale::new(1.0).unwrap();
+    let mut rasters = Vec::new();
+    for gear in [
+        super::super::player_preview::PreviewEquipment::default(),
+        super::super::player_preview::PreviewEquipment {
+            armor: [
+                Some(layer_1.clone()),
+                Some(layer_1.clone()),
+                Some(layer_2),
+                Some(layer_1),
+            ],
+            held: Some(sword),
+        },
+    ] {
+        presentation.player_preview_gear = gear;
+        for now in [0, 500] {
+            presentation.build(&runtime, now, [1280, 720], dpi).unwrap();
+            presentation.sync_player_preview(skin.as_deref(), Default::default(), true, false, 0.0);
+            presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
+        }
+        let input = presentation
+            .build(&runtime, 1_000, [1280, 720], dpi)
+            .unwrap();
+        let name = if rasters.is_empty() {
+            "doll-bare"
+        } else {
+            "doll-armored"
+        };
+        super::super::forms::snapshot::write(&input, name);
+        rasters.push(presentation.player_preview_raster());
+    }
+    assert_ne!(
+        rasters[0], rasters[1],
+        "armor and the held item change the model"
+    );
+}
