@@ -177,6 +177,7 @@ impl WorldStream {
         }
 
         let mut dispatched = 0;
+        let now = Instant::now();
         for (candidate, pending) in resident_candidates {
             let key = candidate.key;
             if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES || dispatched >= worker_budget {
@@ -186,6 +187,10 @@ impl WorldStream {
             if !self.revisions.is_current(key, pending.revision)
                 || self.in_flight.contains_key(&key)
             {
+                self.pending_resident_mesh_deferred.push(candidate);
+                continue;
+            }
+            if self.mesh_neighbour_is_due(key, now) {
                 self.pending_resident_mesh_deferred.push(candidate);
                 continue;
             }
@@ -295,6 +300,13 @@ impl WorldStream {
                 .saturating_add(1);
         }
         dispatched
+    }
+    /// Faces, AO and smooth light sample all 26 neighbours; meshing before one the server still
+    /// owes arrives bakes a hole or dark corner, so the mesh waits for it.
+    pub(in crate::stream) fn mesh_neighbour_is_due(&self, key: SubChunkKey, now: Instant) -> bool {
+        key.mesh_neighbourhood_dependents()
+            .filter(|neighbour| *neighbour != key)
+            .any(|neighbour| self.sub_chunk_is_due(neighbour, now))
     }
     pub(in crate::stream) fn mesh_snapshot(
         &self,
