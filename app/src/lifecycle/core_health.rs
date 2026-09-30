@@ -1,7 +1,8 @@
-//! Core-process supervision helpers: crash-loop backoff and a size-bounded stderr log.
+//! Process supervision helpers: core crash-loop backoff and the bounded core and client logs.
 
 use std::{
     fs::{self, File, OpenOptions},
+    path::Path,
     time::Duration,
 };
 
@@ -12,6 +13,10 @@ const MAX_DELAY: Duration = Duration::from_secs(8);
 const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 const STABLE_RUN: Duration = Duration::from_secs(60);
 const MAX_LOG_BYTES: u64 = 1 << 20;
+#[cfg(unix)]
+const MAX_CLIENT_LOG_BYTES: u64 = 8 << 20;
+#[cfg(unix)]
+const CLIENT_LOG_CHECK: Duration = Duration::from_secs(30);
 
 /// Exponential restart delay that resets once a core stays up for a stable interval.
 #[derive(Debug, Default)]
@@ -37,11 +42,46 @@ impl RestartBackoff {
 
 /// Opens the core's append-only stderr log, rotating one previous generation past the size bound.
 pub(crate) fn open_core_log(layout: &InstallLayout) -> Option<File> {
+    open_log(&layout.log_dir(), "core.log", MAX_LOG_BYTES)
+}
+
+/// Sends stderr to `logs/client.log` when no terminal is attached, as in a Finder launch. Each launch,
+/// and each overflow of the size bound, moves the current file to `client.log.1`.
+#[cfg(unix)]
+pub(crate) fn capture_client_stderr(layout: &InstallLayout) {
+    use std::io::IsTerminal;
+    if std::io::stderr().is_terminal() {
+        return;
+    }
     let dir = layout.log_dir();
-    fs::create_dir_all(&dir).ok()?;
-    let path = dir.join("core.log");
-    if fs::metadata(&path).is_ok_and(|meta| meta.len() > MAX_LOG_BYTES) {
-        let _ = fs::rename(&path, dir.join("core.log.1"));
+    let redirect = move |rotate_past| {
+        open_log(&dir, "client.log", rotate_past)
+            .is_some_and(|log| rustix::stdio::dup2_stderr(&log).is_ok())
+    };
+    if !redirect(0) {
+        return;
+    }
+    let path = layout.log_dir().join("client.log");
+    let _ = std::thread::Builder::new()
+        .name("client-log-rotate".to_owned())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(CLIENT_LOG_CHECK);
+                if fs::metadata(&path).is_ok_and(|meta| meta.len() > MAX_CLIENT_LOG_BYTES) {
+                    redirect(MAX_CLIENT_LOG_BYTES);
+                }
+            }
+        });
+}
+
+#[cfg(not(unix))]
+pub(crate) fn capture_client_stderr(_layout: &InstallLayout) {}
+
+fn open_log(dir: &Path, name: &str, rotate_past: u64) -> Option<File> {
+    fs::create_dir_all(dir).ok()?;
+    let path = dir.join(name);
+    if fs::metadata(&path).is_ok_and(|meta| meta.len() > rotate_past) {
+        let _ = fs::rename(&path, dir.join(format!("{name}.1")));
     }
     OpenOptions::new().create(true).append(true).open(path).ok()
 }

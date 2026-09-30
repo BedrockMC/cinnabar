@@ -14,5 +14,7 @@
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <!-- Finder launches log to client.log; keep ANSI colour codes out of it. -->
+  <key>LSEnvironment</key><dict><key>NO_COLOR</key><string>1</string></dict>
 </dict>
 </plist>
