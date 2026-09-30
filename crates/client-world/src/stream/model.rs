@@ -342,11 +342,20 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
+    /// Movement flags from one local-player SetActorData.
+    LocalMovementFlags {
+        sequence: u64,
+        /// Local input tick the server stamped; zero when unstamped.
+        tick: u64,
+        flags: crate::MovementFlagUpdate,
+    },
     /// Valid current `minecraft:movement` authority for local prediction.
     LocalMovementSpeed {
         sequence: u64,
         dimension: i32,
         current: f64,
+        /// Local input tick the server stamped; zero when unstamped.
+        tick: u64,
     },
     MovePlayer {
         sequence: u64,
@@ -438,12 +447,6 @@ pub enum CommittedUiEvent {
     LocalEffect {
         sequence: u64,
         event: protocol::ActorEffectEvent,
-    },
-    /// Local-player MobArmorEquipment stacks. Boxed so the five item stacks
-    /// do not dominate every committed UI event.
-    LocalArmor {
-        sequence: u64,
-        event: Box<protocol::ArmorEquipmentEvent>,
     },
     /// The local player's authoritative mount after a link or actor-lifetime change.
     /// `None` means the player is no longer riding anything.

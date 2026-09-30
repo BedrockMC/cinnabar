@@ -82,7 +82,7 @@ pub use inventory::{
 };
 pub use inventory::{
     BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
-    lectern_update_packet,
+    crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
@@ -199,5 +199,5 @@ pub use world::{
     SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
     WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, WorldWireError, air_network_id,
     block_name_sort_key, into_world_event, is_hardcore, request_sub_chunk_column,
-    server_authoritative_block_breaking, vanilla_dimension_range,
+    rewind_history_size, server_authoritative_block_breaking, vanilla_dimension_range,
 };

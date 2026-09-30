@@ -386,6 +386,7 @@ impl PlayerInventoryLedger {
             window_type: open.window_type,
             kind,
             position: open.position,
+            actor_unique_id: open.runtime_entity_id,
             data: std::collections::BTreeMap::new(),
             generation,
             identity: None,

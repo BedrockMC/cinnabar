@@ -49,8 +49,12 @@ fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
         text(presentation.toast_draw_nodes(), wanted).map(|node| node.dest.y + node.dest.h)
     };
     build(&mut presentation, &runtime, start);
-    let hidden = title_bottom(&presentation, "Welcome").unwrap();
-    assert!(hidden <= 0.0, "starts above the top edge: {hidden}");
+    // Wholly above the screen, the title is culled or drawn off the top edge.
+    let hidden = title_bottom(&presentation, "Welcome");
+    assert!(
+        hidden.is_none_or(|bottom| bottom <= 0.0),
+        "starts above the top edge: {hidden:?}"
+    );
     build(&mut presentation, &runtime, start + 1_000);
     let shown = title_bottom(&presentation, "Welcome").unwrap();
     assert!(shown > 0.0 && shown <= 32.0, "slid 32 px down: {shown}");

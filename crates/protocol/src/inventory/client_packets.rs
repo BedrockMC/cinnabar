@@ -3,7 +3,7 @@
 use valentine::bedrock::version::v1_26_51::{
     BlockPickRequestPacket, BlockPos, BookEditActionAddPage, BookEditActionDeletePage,
     BookEditActionFinalize, BookEditActionReplacePage, BookEditActionSwapPages, BookEditPacket,
-    BookEditPacketOperation, LecternUpdatePacket,
+    BookEditPacketOperation, LecternUpdatePacket, PlayerToggleCrafterSlotRequestPacket,
 };
 
 /// Longest page text a book edit carries.
@@ -35,6 +35,19 @@ pub fn lectern_update_packet(page: u8, total_pages: u8, position: [i32; 3]) -> c
             y: position[1],
             z: position[2],
         },
+    }
+    .into()
+}
+
+/// Asks the server to disable or enable one slot of the crafter at `position`.
+#[must_use]
+pub fn crafter_slot_toggle_packet(position: [i32; 3], slot: u8, disabled: bool) -> crate::Packet {
+    PlayerToggleCrafterSlotRequestPacket {
+        pos_x: position[0],
+        pos_y: position[1],
+        pos_z: position[2],
+        slot_index: slot,
+        is_disabled: disabled,
     }
     .into()
 }
@@ -151,5 +164,16 @@ mod tests {
             (pick.position.x, pick.position.y, pick.position.z),
             (1, 2, 3)
         );
+    }
+
+    #[test]
+    fn crafter_toggle_names_the_block_and_slot() {
+        let McpePacketData::PlayerToggleCrafterSlotRequestPacket(toggle) =
+            crafter_slot_toggle_packet([4, 5, 6], 7, true).data
+        else {
+            panic!("a crafter toggle");
+        };
+        assert_eq!((toggle.pos_x, toggle.pos_y, toggle.pos_z), (4, 5, 6));
+        assert_eq!((toggle.slot_index, toggle.is_disabled), (7, true));
     }
 }

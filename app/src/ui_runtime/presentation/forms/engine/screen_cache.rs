@@ -43,7 +43,7 @@ impl Entry {
             && self.root == key.root
             && self.px == key.px
             && self.language == key.language
-            && self.view.same_geometry(key.view)
+            && self.view.scroll == key.view.scroll
             && self.context == *key.context
             && self.data == *key.data
     }
@@ -129,7 +129,10 @@ impl ScreenCache {
             })?;
             let library = json_ui::CatalogLibrary { catalog, context };
             let bound = json_ui::bind(&tree, data, &library);
-            Some(json_ui::render_bound_gated(bound, root, env, view))
+            let measures = &mut json_ui::MeasureCache::default();
+            Some(json_ui::render_bound_gated(
+                bound, root, env, view, measures,
+            ))
         })
     }
 

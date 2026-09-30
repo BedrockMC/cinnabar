@@ -577,6 +577,50 @@ fn stack_children_inherit_the_largest_sibling_cross_size() {
     assert_eq!((anchor.rect.y, anchor.rect.h), (laid.rect.y, 166.0));
 }
 
+// A button laid out once emits both its default and hover looks, gated: the
+// hover state picks one by filtering, with no second layout.
+#[test]
+fn gated_emission_filters_state_children_by_interaction() {
+    let look = |name: &str, color: &str| {
+        ctrl(
+            name,
+            Some("image"),
+            json!({ "size": [10, 10], "color": color, "texture": "textures/ui/x" }),
+            vec![],
+        )
+    };
+    let button = ctrl(
+        "button",
+        Some("button"),
+        json!({
+            "size": [10, 10],
+            "default_control": "default",
+            "hover_control": "hover",
+            "pressed_control": "hover",
+        }),
+        vec![look("default", "red"), look("hover", "blue")],
+    );
+    let env = LayoutEnv {
+        text: &ZeroText,
+        textures: &NoTextures,
+    };
+    let laid = layout(&button, [10.0, 10.0], &env);
+    let nodes = json_ui::emit_gated(&laid, &env);
+    let shown = |state: &json_ui::ViewState| -> Vec<String> {
+        nodes
+            .iter()
+            .filter(|node| node.shown(state))
+            .map(|node| node.name.clone())
+            .collect()
+    };
+    assert_eq!(shown(&json_ui::ViewState::default()), ["default"]);
+    let hovered = json_ui::ViewState {
+        hovered: Some(laid.key.clone()),
+        ..json_ui::ViewState::default()
+    };
+    assert_eq!(shown(&hovered), ["hover"]);
+}
+
 // --- end to end -------------------------------------------------------------
 
 fn pack_root() -> Option<PathBuf> {

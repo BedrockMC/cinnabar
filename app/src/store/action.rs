@@ -123,7 +123,6 @@ mod tests {
             h: 1.0,
         };
         HitRegion {
-            gate: None,
             key: key.to_owned(),
             name: "b".to_owned(),
             kind: HitKind::Button,

@@ -55,25 +55,35 @@ pub(crate) fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipm
     }
 }
 
-/// The local player's equipment: held stacks from the client-owned inventory, armor from the
-/// authoritative armor event.
+/// The local player's equipment, all from its own containers as vanilla draws it: the selected
+/// hotbar stack, the offhand (window 119) and the armor (window 120).
 pub(crate) fn local_input(
     stream: &WorldStream,
     ui: Option<&UiRuntime>,
     runtime_id: u64,
 ) -> ActorEquipmentInput {
+    use crate::ui_runtime::inventory_ledger::InventoryTarget;
     let actor = stream.actor(runtime_id);
-    let resolve = |stack: &protocol::NetworkItemStack| {
+    let resolve = |stack: &protocol::NetworkItemStack, dye_rgb: Option<u32>| {
         stream
             .canonical_item_stack(stack)
-            .and_then(|item| worn_item(&item, None))
+            .and_then(|item| worn_item(&item, dye_rgb))
     };
+    let armor = ui.map(UiRuntime::local_armor).unwrap_or_default();
     ActorEquipmentInput {
-        main: ui.and_then(UiRuntime::selected_stack).and_then(resolve),
+        main: ui
+            .and_then(UiRuntime::selected_stack)
+            .and_then(|stack| resolve(stack, None)),
         off: ui
-            .and_then(|ui| ui.gameplay_hud().offhand_stack())
-            .and_then(resolve),
-        armor: armor_slots(stream.actor_armor(runtime_id)),
+            .and_then(|ui| ui.inventory_ledger().target_stack(InventoryTarget::Offhand))
+            .and_then(|stack| resolve(stack, None)),
+        armor: [
+            &armor.helmet,
+            &armor.chestplate,
+            &armor.leggings,
+            &armor.boots,
+        ]
+        .map(|stack| resolve(stack, protocol::item_custom_color(&stack.extra_data))),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
     }

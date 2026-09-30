@@ -518,6 +518,7 @@ pub(crate) fn completed(tick: u64) -> PhysicsMovementSample {
         camera_orientation: [0.0, 0.0, -1.0],
         jumping: false,
         sneaking: false,
+        sneak_button: false,
         sprinting: false,
         input_mode: PlayerInputMode::Mouse,
         grounded_before_tick: true,
