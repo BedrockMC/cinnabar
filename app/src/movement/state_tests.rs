@@ -26,7 +26,7 @@ use super::{
 const TICK: Duration = Duration::from_millis(50);
 
 /// Every raw and processed jump family the outbound encoder can emit.
-fn all_jump_flags() -> u64 {
+fn all_jump_flags() -> u128 {
     (PlayerInputFlags::JUMP_DOWN
         | PlayerInputFlags::JUMP_CURRENT_RAW
         | PlayerInputFlags::START_JUMPING
@@ -59,7 +59,7 @@ impl CollisionWorld for CooldownFloor {
 
 /// Raw jump-button carriers that mean "the physical button is down" plus the
 /// discrete press announcement. They track held input, never the arc.
-fn raw_held_jump_mask() -> u64 {
+fn raw_held_jump_mask() -> u128 {
     (PlayerInputFlags::JUMP_DOWN
         | PlayerInputFlags::JUMP_CURRENT_RAW
         | PlayerInputFlags::START_JUMPING
@@ -87,7 +87,7 @@ fn flag_harness() -> Harness {
 /// the wire-visible flag set alongside the completed simulator sample. The
 /// admitted admission stays queued for correction witnesses that reconcile a
 /// retained range.
-fn step_retained(harness: &mut Harness, input: MovementInput) -> (u64, PhysicsMovementSample) {
+fn step_retained(harness: &mut Harness, input: MovementInput) -> (u128, PhysicsMovementSample) {
     let frame = harness.physics.advance(TICK, input, &VersionedFloor(1));
     assert!(
         frame.blocked.is_none(),
@@ -114,7 +114,7 @@ fn step_retained(harness: &mut Harness, input: MovementInput) -> (u64, PhysicsMo
 
 /// [`step_retained`] that consumes the admission afterwards so bounded
 /// outboxes can absorb the long sequences these witnesses drive.
-fn step(harness: &mut Harness, input: MovementInput) -> (u64, PhysicsMovementSample) {
+fn step(harness: &mut Harness, input: MovementInput) -> (u128, PhysicsMovementSample) {
     let witnessed = step_retained(harness, input);
     harness.ticker.pop_pending().expect("queued admission");
     witnessed
@@ -329,8 +329,8 @@ fn held_jump_claims_jumping_only_while_an_arc_is_in_progress() {
 #[test]
 fn sprint_flags_keep_the_forward_gated_sequence_byte_identical() {
     let mut harness = flag_harness();
-    let sprint_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, false);
-    let walk_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, false, false);
+    let sprint_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, None);
+    let walk_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, false, None);
 
     let (first, _) = step(&mut harness, sprint_forward);
     for mask in [
@@ -373,7 +373,7 @@ fn sprint_flags_keep_the_forward_gated_sequence_byte_identical() {
     // sprint requests still never produce sprint flags.
     let mut backward_harness = flag_harness();
     let backward_sprint =
-        physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, false);
+        physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, None);
     for _ in 0..2 {
         let (flags, _) = step(&mut backward_harness, backward_sprint);
         assert_eq!(
@@ -389,10 +389,7 @@ fn sprint_flags_keep_the_forward_gated_sequence_byte_identical() {
 }
 
 #[test]
-fn sneak_flags_track_the_simulator_state_pending_pose_authority() {
-    // No shared pose/mode authority exists yet (VPA-012), so processed sneak
-    // equals held sneak and these bytes are unchanged. Any future pose-gated
-    // rule must replace this witness deliberately.
+fn sneak_flags_track_the_simulator_state() {
     let mut harness = flag_harness();
 
     let (first, _) = step(&mut harness, sneak_input(true));
@@ -400,7 +397,6 @@ fn sneak_flags_track_the_simulator_state_pending_pose_authority() {
         PlayerInputFlags::START_SNEAKING,
         PlayerInputFlags::SNEAK_DOWN,
         PlayerInputFlags::SNEAKING,
-        PlayerInputFlags::SNEAK_PRESSED_RAW,
     ] {
         assert_ne!(first & mask.bits(), 0);
     }
@@ -417,7 +413,11 @@ fn sneak_flags_track_the_simulator_state_pending_pose_authority() {
 
     let (stop, _) = step(&mut harness, sneak_input(false));
     assert_ne!(stop & PlayerInputFlags::STOP_SNEAKING.bits(), 0);
-    assert_ne!(stop & PlayerInputFlags::SNEAK_RELEASED_RAW.bits(), 0);
+    assert_eq!(
+        stop & PlayerInputFlags::SNEAK_RELEASED_RAW.bits(),
+        0,
+        "a processed stop without a physical button is no raw release"
+    );
     assert_eq!(stop & PlayerInputFlags::SNEAKING.bits(), 0);
     let (settled, _) = step(&mut harness, sneak_input(false));
     assert_eq!(
@@ -949,6 +949,7 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
     // Both buttons physically held while the processed states are active.
     let mut held = settled_sample(41, [0.0; 3]);
     held.sneaking = true;
+    held.sneak_button = true;
     held.sprinting = true;
     held.processed.sneaking = true;
     held.processed.sprinting = true;
@@ -994,10 +995,14 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
         0,
         "the first processed drop reports stop edges exactly once"
     );
-    assert_ne!(
+    assert_eq!(
         narrowed_snapshot.flags.bits() & PlayerInputFlags::SNEAK_RELEASED_RAW.bits(),
         0,
-        "the physical release edge is reported when processed drops while raw stays held"
+        "the raw carriers follow the physical button, which stays held"
+    );
+    assert_ne!(
+        narrowed_snapshot.flags.bits() & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(),
+        0
     );
     assert_ne!(
         narrowed_snapshot.flags.bits() & PlayerInputFlags::STOP_SPRINTING.bits(),
@@ -1022,5 +1027,45 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
             & (PlayerInputFlags::START_SNEAKING | PlayerInputFlags::START_SPRINTING).bits(),
         0,
         "no fresh start edges exist without a physical change"
+    );
+}
+
+/// Raw sneak carriers follow the physical button, not toggled or forced sneak.
+#[test]
+fn raw_sneak_carriers_follow_the_physical_button() {
+    let encode = |sample: &PhysicsMovementSample, previous: &PhysicsMovementSample| {
+        super::encoding::input_flags(sample, super::encoding::HeldInput::from(previous)).bits()
+    };
+    let idle = settled_sample(41, [0.0; 3]);
+    let mut toggled = settled_sample(42, [0.0; 3]);
+    toggled.sneaking = true;
+    toggled.processed.sneaking = true;
+    let toggled_flags = encode(&toggled, &idle);
+    assert_ne!(toggled_flags & PlayerInputFlags::SNEAKING.bits(), 0);
+    let raw = (PlayerInputFlags::SNEAK_PRESSED_RAW
+        | PlayerInputFlags::SNEAK_CURRENT_RAW
+        | PlayerInputFlags::SNEAK_RELEASED_RAW)
+        .bits();
+    assert_eq!(toggled_flags & raw, 0, "a latched sneak holds no button");
+
+    let mut pressed = toggled.clone();
+    pressed.sneak_button = true;
+    let pressed_flags = encode(&pressed, &toggled);
+    assert_ne!(
+        pressed_flags & PlayerInputFlags::SNEAK_PRESSED_RAW.bits(),
+        0
+    );
+    assert_ne!(
+        pressed_flags & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(),
+        0
+    );
+    let released_flags = encode(&toggled, &pressed);
+    assert_ne!(
+        released_flags & PlayerInputFlags::SNEAK_RELEASED_RAW.bits(),
+        0
+    );
+    assert_eq!(
+        released_flags & PlayerInputFlags::SNEAK_CURRENT_RAW.bits(),
+        0
     );
 }

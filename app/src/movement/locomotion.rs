@@ -96,6 +96,13 @@ impl ModeTracker {
         self.mode
     }
 
+    /// Ends `mode` when it is current, as a server flag clear does.
+    pub(super) fn end(&mut self, mode: MovementMode) {
+        if self.mode == mode {
+            self.mode = MovementMode::Walking;
+        }
+    }
+
     /// Picks this tick's mode. `fly_toggle` must be true only on the first tick of its frame.
     pub(super) fn select(
         &mut self,
@@ -124,11 +131,13 @@ impl ModeTracker {
                 MovementMode::Gliding => true,
                 _ => observed.jump_edge && observed.velocity_y < 0.0,
             };
+        // `SwimTriggerSystem` only starts a swim with the head in water.
         let swimming = !flying
             && !gliding
             && observed.in_water
             && observed.sprinting
-            && observed.moving_forward;
+            && observed.moving_forward
+            && (self.mode == MovementMode::Swimming || head_in_water(world, observed.feet)?);
 
         let (mode, forced_sneak) = if intent.ride.is_some() {
             (MovementMode::Riding, false)
@@ -155,9 +164,20 @@ impl ModeTracker {
     }
 }
 
+/// Whether the standing eye sits below the water surface of its block.
+fn head_in_water(world: &impl CollisionWorld, feet: Vec3) -> Result<bool, WorldQueryError> {
+    let eye_y = feet.y + f64::from(protocol::STANDING_PLAYER_EYE_HEIGHT);
+    let block = [feet.x, eye_y, feet.z].map(|axis| axis.floor() as i32);
+    let sample = world.block_physics(block)?;
+    Ok(sample.layers.iter().any(|facts| {
+        facts.flags.contains(sim::BlockPhysicsFlags::WATER)
+            && eye_y < f64::from(block[1]) + facts.fluid_height_blocks
+    }))
+}
+
 #[cfg(test)]
 mod tests {
-    use sim::{Aabb, CollisionQuery};
+    use sim::{Aabb, BlockPhysicsFacts, BlockPhysicsSample, CollisionQuery};
 
     use super::*;
 
@@ -175,6 +195,33 @@ mod tests {
                     .into_iter()
                     .collect(),
             ))
+        }
+    }
+
+    /// Open water up to `surface`.
+    struct Pool(f64);
+
+    impl CollisionWorld for Pool {
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(Vec::new()))
+        }
+
+        fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+            let depth = (self.0 - f64::from(block[1])).clamp(0.0, 1.0);
+            let mut sample = Ceiling(None).block_physics(block)?;
+            sample.layers = Box::new([BlockPhysicsFacts {
+                fluid_height_blocks: depth,
+                flags: if depth > 0.0 {
+                    sim::BlockPhysicsFlags::WATER
+                } else {
+                    sim::BlockPhysicsFlags::default()
+                },
+                ..sample.layers[0]
+            }]);
+            Ok(sample)
         }
     }
 
@@ -399,8 +446,9 @@ mod tests {
             ..airborne()
         };
         let intent = ModeIntent::default();
+        let deep = Pool(20.0);
         assert_eq!(
-            pick(&mut tracker, intent, false, swim),
+            tracker.select(intent, false, swim, &deep).unwrap().mode,
             MovementMode::Swimming
         );
         let stopped = ModeObservation {
@@ -408,7 +456,7 @@ mod tests {
             ..swim
         };
         assert_eq!(
-            pick(&mut tracker, intent, false, stopped),
+            tracker.select(intent, false, stopped, &deep).unwrap().mode,
             MovementMode::Walking
         );
     }
@@ -462,5 +510,31 @@ mod tests {
             .unwrap();
         assert_eq!(choice.mode, MovementMode::Walking);
         assert!(choice.forced_sneak);
+    }
+
+    /// Shallow water with the head above the surface never starts a swim; a swimmer keeps going.
+    #[test]
+    fn a_swim_starts_only_with_the_head_in_water() {
+        let sprinting = ModeObservation {
+            in_water: true,
+            sprinting: true,
+            moving_forward: true,
+            ..airborne()
+        };
+        let shallow = Pool(10.9);
+        let mut walker = ModeTracker::default();
+        let choice = walker
+            .select(ModeIntent::default(), false, sprinting, &shallow)
+            .unwrap();
+        assert_eq!(choice.mode, MovementMode::Walking);
+
+        let mut swimmer = ModeTracker {
+            mode: MovementMode::Swimming,
+            ..ModeTracker::default()
+        };
+        let choice = swimmer
+            .select(ModeIntent::default(), false, sprinting, &shallow)
+            .unwrap();
+        assert_eq!(choice.mode, MovementMode::Swimming);
     }
 }

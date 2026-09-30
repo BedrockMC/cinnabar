@@ -228,9 +228,10 @@ impl ActorStore {
                     runtime_id: rider_id,
                     position: std::array::from_fn(|axis| mount.position[axis] + offset[axis]),
                     body_yaw: wrap_degrees(mount.yaw + seat.rotate_by.unwrap_or(0.0)),
+                    // A negative lock is odd server data and is skipped.
                     lock_degrees: seat
                         .lock_degrees
-                        .filter(|degrees| *degrees < UNLOCKED_HEAD_DEGREES),
+                        .filter(|degrees| (0.0..UNLOCKED_HEAD_DEGREES).contains(degrees)),
                 })
             })
             .collect();

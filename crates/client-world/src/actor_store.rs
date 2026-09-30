@@ -39,6 +39,8 @@ const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SWIMMING: u32 = 57;
 const ACTOR_FLAG_USING_ITEM: u32 = 4;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
+const ACTOR_FLAG_GLIDING: u32 = 32;
+const ACTOR_FLAG_CRAWLING: u32 = 114;
 
 const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.5;
@@ -437,6 +439,54 @@ pub struct PlayerProfile {
     pub username: std::sync::Arc<str>,
     pub verified: bool,
     pub skin: PlayerSkin,
+}
+
+/// Movement-affecting flags one local-player metadata update carries; `None`
+/// when the flag word holding it was absent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MovementFlagUpdate {
+    pub sneaking: Option<bool>,
+    pub sprinting: Option<bool>,
+    pub gliding: Option<bool>,
+    pub swimming: Option<bool>,
+    pub crawling: Option<bool>,
+}
+
+impl MovementFlagUpdate {
+    /// Reads the flag words from `metadata`; `None` when neither word is present.
+    #[must_use]
+    pub fn from_metadata(metadata: &[protocol::ActorMetadata]) -> Option<Self> {
+        let word = |key| {
+            metadata.iter().rev().find_map(|item| match item.value {
+                ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)
+                    if item.key == key =>
+                {
+                    Some(flags)
+                }
+                _ => None,
+            })
+        };
+        let primary = word(0);
+        let extended = word(EXTENDED_FLAGS_METADATA_KEY);
+        if primary.is_none() && extended.is_none() {
+            return None;
+        }
+        let bit = |bit: u32| {
+            let (flags, bit) = if bit < 64 {
+                (primary, bit)
+            } else {
+                (extended, bit - 64)
+            };
+            flags.map(|flags| flags & (1_u64 << bit) != 0)
+        };
+        Some(Self {
+            sneaking: bit(ACTOR_FLAG_SNEAKING),
+            sprinting: bit(ACTOR_FLAG_SPRINTING),
+            gliding: bit(ACTOR_FLAG_GLIDING),
+            swimming: bit(ACTOR_FLAG_SWIMMING),
+            crawling: bit(ACTOR_FLAG_CRAWLING),
+        })
+    }
 }
 
 /// Client-authored identity and pose for the local player's own third-person rig, which the

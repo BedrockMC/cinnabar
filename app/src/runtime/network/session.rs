@@ -78,6 +78,8 @@ pub enum NetworkControlEvent {
         world_default_game_mode: PlayerGameMode,
         player_game_mode_uses_world_default: bool,
         server_authoritative_block_breaking: bool,
+        /// StartGame `RewindHistorySize`, raw.
+        rewind_history_size: i32,
         hardcore: bool,
         hud_rules: protocol::HudRules,
         packs: super::resource_packs::PackApplication,
@@ -677,6 +679,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
                         world_default_game_mode,
                         player_game_mode_uses_world_default,
                         server_authoritative_block_breaking,
+                        rewind_history_size: protocol::rewind_history_size(&game_data),
                         hardcore,
                         hud_rules,
                         packs,
