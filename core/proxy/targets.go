@@ -24,12 +24,17 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// A raw NetherNet target names its signaling and ID: NetherNetTargetPrefix + signaling + "/" + id.
+const (
+	NetherNetTargetPrefix       = "nethernet/"
+	NetherNetSignalingJSONRPC   = "jsonrpc"
+	NetherNetSignalingWebSocket = "websocket"
+)
+
 const (
 	friendTargetPrefix = "friend_xuid/"
 	realmTargetPrefix  = "realm_id/"
 	realmCodePrefix    = "realm/"
-	// netherNetTargetPrefix names a raw NetherNet ID with its signaling, as nethernet/jsonrpc/<id>.
-	netherNetTargetPrefix = "nethernet/"
 )
 
 // LocalTargetFunc returns the address of a local game server; ok is false when none is selected.
@@ -105,10 +110,10 @@ func resolveUpstreamTarget(ctx context.Context, address string, src oauth2.Token
 	case strings.HasPrefix(strings.ToLower(address), realmTargetPrefix),
 		strings.HasPrefix(strings.ToLower(address), realmCodePrefix):
 		return resolveRealmTarget(resolveContext, address, src, logger)
-	case strings.HasPrefix(strings.ToLower(address), netherNetTargetPrefix):
+	case strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix):
 		return resolveRawNetherNetTarget(resolveContext, address, src, logger)
 	case isRawNetherNetAddress(address):
-		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, netherNetTargetPrefix, netherNetTargetPrefix)
+		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
 		return &resolvedUpstreamTarget{address: address, network: minecraft.RakNet{}}, nil
 	}
@@ -237,13 +242,13 @@ func resolveRawNetherNetTarget(ctx context.Context, address string, src oauth2.T
 
 // parseNetherNetTarget splits nethernet/<signaling>/<id>; the signaling is never inferred from the ID.
 func parseNetherNetTarget(address string) (string, int, error) {
-	signaling, id, _ := strings.Cut(address[len(netherNetTargetPrefix):], "/")
+	signaling, id, _ := strings.Cut(address[len(NetherNetTargetPrefix):], "/")
 	connectionType, ok := map[string]int{
-		"jsonrpc":   p2p.ConnectionTypeSignalingOverJSONRPC,
-		"websocket": p2p.ConnectionTypeSignalingOverWebSocket,
+		NetherNetSignalingJSONRPC:   p2p.ConnectionTypeSignalingOverJSONRPC,
+		NetherNetSignalingWebSocket: p2p.ConnectionTypeSignalingOverWebSocket,
 	}[strings.ToLower(signaling)]
 	if !ok || !isRawNetherNetAddress(id) {
-		return "", 0, fmt.Errorf("invalid NetherNet target %q: want %sjsonrpc/<id> or %swebsocket/<id>", address, netherNetTargetPrefix, netherNetTargetPrefix)
+		return "", 0, fmt.Errorf("invalid NetherNet target %q: want %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	}
 	return id, connectionType, nil
 }
