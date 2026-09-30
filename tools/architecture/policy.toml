@@ -15,6 +15,11 @@ forbidden_artifacts = [
     "*.mcworld",
 ]
 
+# Original art, never Mojang content.
+[[owned_artifacts]]
+path = "assets/panorama/"
+ownership_record = "THIRD_PARTY_NOTICES.md"
+
 # Existing oversized files may only shrink. New files and files below their
 # category limit remain governed by the strict limits above.
 [[line_baselines]]
