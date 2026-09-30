@@ -105,3 +105,28 @@ fn shrinking_confirmed_radius_evicts_columns_that_leave_the_grid() {
     assert!(stream.tracked_columns().contains(&inner));
     assert!(!stream.tracked_columns().contains(&outer));
 }
+
+/// Removal acks for evicted sub-chunks must not accumulate applied generations.
+#[test]
+fn evicted_removal_acks_leave_no_applied_generation_behind() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let now = Instant::now();
+    let resident = SubChunkKey::new(0, 0, 0, 0);
+    let evicted = SubChunkKey::new(0, 40, 0, 0);
+    stream.resident.insert(resident);
+    for key in [resident, evicted] {
+        let generation = stream.mark_dirty_exact(key, now);
+        stream.acknowledge_mesh_upload(key, generation, now, now);
+    }
+    assert!(stream.applied_mesh_generations.contains_key(&resident));
+    assert!(!stream.applied_mesh_generations.contains_key(&evicted));
+    assert_eq!(stream.applied_mesh_generations.len(), 1);
+}
