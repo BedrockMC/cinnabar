@@ -659,20 +659,18 @@ fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
 
 #[test]
 fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
-    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true, true);
+    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true, Some(0.35));
     assert_eq!(active.strafe, -1.0, "D is bedsim's negative strafe");
     assert_eq!(active.forward, 1.0);
     assert_eq!(active.yaw_degrees, 180.0);
     assert!(active.jumping);
     assert!(active.sneaking);
     assert!(active.sprinting);
-    assert!(
-        !active.using_consumable,
-        "generic Use is not evidence that the held item is consumable"
-    );
+    assert!(!active.using_consumable);
+    assert_eq!(active.item_use_movement_modifier, Some(0.35));
 
     assert_eq!(
-        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, true),
+        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, Some(0.35)),
         MovementInput::default()
     );
 }
@@ -682,21 +680,21 @@ fn processed_sprint_requires_forward_movement_input() {
     // Vanilla sprints only while moving forward. A held sprint request with
     // backward, strafe-only, or no movement input is not an active sprint:
     // neither the simulator speed nor the outbound flags may claim one.
-    let backward = physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, false);
+    let backward = physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, None);
     assert!(!backward.sprinting, "backward input cannot sprint");
-    let strafe_only = physics_movement_input([1.0, 0.0], 180.0, true, false, false, true, false);
+    let strafe_only = physics_movement_input([1.0, 0.0], 180.0, true, false, false, true, None);
     assert!(!strafe_only.sprinting, "strafe-only input cannot sprint");
-    let stationary = physics_movement_input([0.0, 0.0], 180.0, true, false, false, true, false);
+    let stationary = physics_movement_input([0.0, 0.0], 180.0, true, false, false, true, None);
     assert!(!stationary.sprinting, "stationary input cannot sprint");
 
-    let forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, false);
+    let forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, None);
     assert!(forward.sprinting);
     assert_eq!(forward.forward, 1.0);
 
     // Sneaking does not cancel an active sprint: vanilla keeps the faster
     // sneak-sprint pace, so the forward gate alone decides processed sprint.
     let sneaking_forward =
-        physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, false);
+        physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, None);
     assert!(sneaking_forward.sprinting);
 }
 

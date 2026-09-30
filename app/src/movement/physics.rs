@@ -67,7 +67,7 @@ pub fn physics_movement_input(
     jumping: bool,
     sneaking: bool,
     sprint_request: bool,
-    _use_held: bool,
+    item_use_movement_modifier: Option<f64>,
 ) -> MovementInput {
     if !active {
         return MovementInput::default();
@@ -82,11 +82,8 @@ pub fn physics_movement_input(
         sprinting,
         sneaking,
         move_vector_is_raw: true,
-        // Generic Use does not establish that the selected item is consumable
-        // or that its use phase has begun. Keep this dormant until inventory
-        // classification and authoritative use timing are available.
         using_consumable: false,
-        item_use_movement_modifier: None,
+        item_use_movement_modifier,
         movement_speed: None,
         effects: sim::MovementEffects::default(),
         ..MovementInput::default()
