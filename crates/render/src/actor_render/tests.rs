@@ -213,10 +213,17 @@ fn app_with_noop_render_sub_app() -> App {
 
 #[test]
 fn actor_shader_parses_as_wgsl() {
-    let source = ACTOR_SHADER_SOURCE.replace(
-        "#import bevy_render::view::View",
-        "struct View { clip_from_world: mat4x4<f32>, }",
-    );
+    let lighting =
+        include_str!("../lighting.wgsl").replacen("#define_import_path cinnabar::lighting", "", 1);
+    let source = ACTOR_SHADER_SOURCE
+        .replace(
+            "#import bevy_render::view::View",
+            "struct View { clip_from_world: mat4x4<f32>, }",
+        )
+        .replace(
+            "#import cinnabar::lighting::{lit_colour, light_brightness}",
+            &lighting,
+        );
     naga::front::wgsl::parse_str(&source).expect("actor shader parses");
 }
 
@@ -287,9 +294,16 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
         std::mem::offset_of!(crate::actor::ActorRigVertex, bone_index),
         40
     );
-    assert!(ACTOR_SHADER_SOURCE.contains("instance_index * 20u"));
+    assert!(ACTOR_SHADER_SOURCE.contains(&format!(
+        "instance_index * {}u",
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS
+    )));
     assert!(ACTOR_SHADER_SOURCE.contains("(span.first_vertex + vertex_index) * 11u"));
     assert!(ACTOR_SHADER_SOURCE.contains("vertex_words[vertex_base + 10u]"));
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));
+    assert!(ACTOR_SHADER_SOURCE.contains("(input.light & 0x80000000u) != 0u"));
+    // The one-sided plane sentinel lies below the shader's discard threshold.
+    assert!(ACTOR_SHADER_SOURCE.contains("input.back_uv.x < -1.0e8"));
+    const { assert!(crate::actor::ONE_SIDED_BACK_UV[0] < -1.0e8) };
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 1u && color.a == 0.0"));
 }

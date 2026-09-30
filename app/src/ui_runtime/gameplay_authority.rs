@@ -5,8 +5,7 @@
 use std::sync::Arc;
 
 use protocol::{
-    ActorEffectEvent, ActorMetadata, ArmorEquipmentEvent, CanonicalCell, InventoryEvent,
-    project_container_cell,
+    ActorEffectEvent, ActorMetadata, CanonicalCell, InventoryEvent, project_container_cell,
 };
 use ui::BoundedStat;
 
@@ -543,17 +542,22 @@ impl UiRuntime {
         Ok(())
     }
 
-    /// Applies the committed local-player MobArmorEquipment stacks.
-    pub fn apply_local_armor(
-        &mut self,
-        session_id: u64,
-        fifo_sequence: u64,
-        event: &ArmorEquipmentEvent,
-    ) -> Result<(), UiRuntimeError> {
-        self.guard_local_apply(session_id, fifo_sequence)?;
-        self.gameplay_hud.apply_armor(event);
-        self.last_fifo_sequence = Some(fifo_sequence);
-        Ok(())
+    /// The local player's worn armor, helmet to boots, from its armor
+    /// container as the inventory shows it.
+    #[must_use]
+    pub fn local_armor(&self) -> super::gameplay_hud::ArmorSlots {
+        let worn = |slot: u8| {
+            self.inventory_ledger
+                .target_stack(super::inventory_ledger::InventoryTarget::Armor(slot))
+                .cloned()
+                .unwrap_or_default()
+        };
+        super::gameplay_hud::ArmorSlots {
+            helmet: worn(0),
+            chestplate: worn(1),
+            leggings: worn(2),
+            boots: worn(3),
+        }
     }
 
     /// Applies the committed local mount change from SetActorLink.

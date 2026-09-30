@@ -26,6 +26,8 @@ mod grid;
 mod measure;
 mod place;
 
+pub use measure::MeasureCache;
+
 use grid::{fitted_columns, grid_children, grid_columns};
 use place::{anchor_frac, anchor_from, anchor_to, motion, offset, place_by_anchor};
 
@@ -125,15 +127,43 @@ pub fn layout_with<'a>(
     env: &LayoutEnv,
     state: &ViewState,
 ) -> (LaidOut<'a>, LayoutReport) {
-    INTRINSIC_MEMO.with(|memo| memo.borrow_mut().clear());
-    LENGTH_MEMO.with(|memo| memo.borrow_mut().clear());
-    measure::reset();
+    lay_out(root, root_size, env, state, false)
+}
+
+/// [`layout_with`] over `cache`'s measurements that omits hidden controls'
+/// subtrees and scroll content wholly outside its viewport, so a long list costs
+/// only what it shows.
+pub(crate) fn layout_culled<'a>(
+    root: &'a ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    cache: &mut MeasureCache,
+) -> (LaidOut<'a>, LayoutReport) {
+    cache.enter(root);
+    let laid = lay_out(root, root_size, env, state, true);
+    cache.leave();
+    laid
+}
+
+/// A culling layout keeps the memos its caller entered.
+fn lay_out<'a>(
+    root: &'a ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    cull: bool,
+) -> (LaidOut<'a>, LayoutReport) {
+    if !cull {
+        measure::reset();
+    }
     let screen = Rect::new(0.0, 0.0, root_size[0], root_size[1]);
-    let own = resolve_size(root, screen, intrinsic(root, env, [None; 2]), env);
+    let own = resolve_size(root, screen, measure::intrinsic(root, env, [None; 2]), env);
     let rect = place_by_anchor(root, screen, own, env);
     let mut ctx = PlaceCtx {
         env,
         state,
+        cull,
         report: LayoutReport::default(),
         scrolls: Vec::new(),
         sliders: Vec::new(),
@@ -155,6 +185,8 @@ pub fn layout_with<'a>(
 struct PlaceCtx<'e, 'x> {
     env: &'e LayoutEnv<'x>,
     state: &'e ViewState,
+    /// Skip placing scroll content wholly outside its viewport.
+    cull: bool,
     report: LayoutReport,
     scrolls: Vec<ScrollFrame>,
     /// Enclosing sliders: their fraction plus progress child names.
@@ -228,8 +260,14 @@ fn place_subtree<'a>(
     let hidden = widgets::hidden_state_children(control, &key, ctx.state);
     let dropdown = widgets::dropdown_area(control);
     ctx.ancestors.push((control.name.clone(), rect, child_clip));
-    let mut children = Vec::with_capacity(control.children.len());
-    for (child, mut child_rect) in layout_children(control, rect, ctx.env) {
+    // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
+    let placed = if ctx.cull && !visible(control) {
+        Vec::new()
+    } else {
+        measure::placed_children(control, rect, ctx.env)
+    };
+    let mut children = Vec::with_capacity(placed.len());
+    for (child, mut child_rect) in placed {
         let mut child_shown = !hidden.contains(&child.name);
         let mut clip_for_child = child_clip;
         // A dropdown's content lays out inside its named area, not its parent.
@@ -259,6 +297,16 @@ fn place_subtree<'a>(
             && names[0].as_deref() == Some(child.name.as_str())
         {
             child_rect = widgets::slider_box_rect(rect, child_rect, *fraction);
+        }
+        // Scroll content wholly outside its viewport neither draws nor takes input.
+        if ctx.cull
+            && ctx
+                .scrolls
+                .last()
+                .is_some_and(|frame| frame.metrics.is_some())
+            && disjoint(child_rect, clip_for_child)
+        {
+            continue;
         }
         let next_key = child_key(&key, child);
         children.push(place_subtree(
@@ -294,6 +342,14 @@ fn place_subtree<'a>(
         visible: shown && visible(control),
         children,
     }
+}
+
+/// True when `rect` and `clip` share no area.
+fn disjoint(rect: Rect, clip: Rect) -> bool {
+    rect.x >= clip.x + clip.w
+        || rect.y >= clip.y + clip.h
+        || rect.x + rect.w <= clip.x
+        || rect.y + rect.h <= clip.y
 }
 
 /// A bound `clip_ratio`, or a slider progress image revealing its fraction.
@@ -610,23 +666,6 @@ fn clamp_bounds(
     out
 }
 
-std::thread_local! {
-    /// Per-`layout` memo of [`intrinsic`], keyed by control address and the known
-    /// parent width. Intrinsic size is a pure function of the subtree, `env`, and
-    /// that width, but `content_extent`/`children_max` each re-derive it, so without
-    /// this the cost is exponential in tree depth. The borrowed tree is stable for
-    /// one `layout` call; `layout` clears the memo first.
-    static INTRINSIC_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u64, u64), [f64; 2]>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
-}
-
-std::thread_local! {
-    /// Per-`layout` memo of parsed `size`/`min_size`/`max_size` lengths, keyed by
-    /// control address and slot, so each is read and parsed once per layout.
-    static LENGTH_MEMO: std::cell::RefCell<std::collections::HashMap<(usize, u8), Option<Length>>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
-}
-
 fn memo_length<R>(
     control: &ResolvedControl,
     slot: u8,
@@ -634,7 +673,7 @@ fn memo_length<R>(
     eval: impl FnOnce(Option<&Length>) -> R,
 ) -> R {
     let key = (control as *const ResolvedControl as usize, slot);
-    LENGTH_MEMO.with(|memo| {
+    measure::LENGTHS.with(|memo| {
         let mut memo = memo.borrow_mut();
         let length = memo.entry(key).or_insert_with(read);
         eval(length.as_ref())
@@ -662,69 +701,6 @@ fn eval_bound(
         slot,
         || bound_length(control, key, index),
         |length| length.map(|length| length.eval_pixels(ctx)),
-    )
-}
-
-/// Intrinsic size used when a parent aggregates this child for its own `%c`/`%cm`.
-/// With `parent_width` known, percent widths resolve against it (so wrapped text
-/// measures correctly); unknown parent-relative units resolve to zero.
-fn intrinsic(control: &ResolvedControl, env: &LayoutEnv, parent: [Option<f64>; 2]) -> [f64; 2] {
-    let key = (
-        control as *const ResolvedControl as usize,
-        parent[0].map_or(u64::MAX, f64::to_bits),
-        parent[1].map_or(u64::MAX, f64::to_bits),
-    );
-    if let Some(cached) = INTRINSIC_MEMO.with(|memo| memo.borrow().get(&key).copied()) {
-        return cached;
-    }
-    let value = intrinsic_uncached(control, env, parent);
-    INTRINSIC_MEMO.with(|memo| memo.borrow_mut().insert(key, value));
-    value
-}
-
-fn intrinsic_uncached(
-    control: &ResolvedControl,
-    env: &LayoutEnv,
-    parent: [Option<f64>; 2],
-) -> [f64; 2] {
-    // A size is only known downstream when the parent axis it resolved against is.
-    let known = |own: [Option<f64>; 2]| {
-        [
-            own[0].filter(|_| parent[0].is_some()),
-            own[1].filter(|_| parent[1].is_some()),
-        ]
-    };
-    let axis = |axis: Axis, other: Option<(Axis, f64)>| {
-        let axis_parent = parent[axis_index(axis)].unwrap_or(0.0);
-        let own = known(known_size(other));
-        let ctx = axis_context(
-            axis_parent,
-            other,
-            content_extent(control, env, own),
-            children_max(control, env, own),
-            [0.0; 2],
-            natural(control, env, own[0]),
-            axis,
-        );
-        pixels_or(eval_length(control, axis, &ctx), axis_parent)
-    };
-    let [width, height] = in_dependency_order(control, axis);
-    let own = known(if height_first(control) {
-        [Some(width), Some(height)]
-    } else {
-        [Some(width), None]
-    });
-    // A parent aggregating this child sees it after its own min/max clamp.
-    let content = content_extent(control, env, own);
-    let parent_rect = Rect::new(0.0, 0.0, parent[0].unwrap_or(0.0), parent[1].unwrap_or(0.0));
-    let nat = natural(control, env, parent[0].map(|_| width));
-    clamp_bounds(
-        control,
-        parent_rect,
-        [width, height],
-        content,
-        nat,
-        parent[0].is_some(),
     )
 }
 
@@ -911,6 +887,10 @@ fn alpha(control: &ResolvedControl) -> f32 {
 
 /// `visible` honours a literal bool or `"true"`/`"false"`; an undecidable binding
 /// stays visible, matching the lenient-remote-data rule.
+pub(crate) fn own_visible(control: &ResolvedControl) -> bool {
+    visible(control)
+}
+
 fn visible(control: &ResolvedControl) -> bool {
     match control.properties.get("visible") {
         Some(Value::Bool(flag)) => *flag,

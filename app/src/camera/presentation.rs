@@ -184,12 +184,10 @@ pub(super) fn update_screen_overlays(
             }
         }
         freezing = hud.freezing_strength();
-        pumpkin = hud
-            .armor()
-            .map(|armor| &armor.helmet)
-            .filter(|helmet| !helmet.is_empty())
-            .zip(stream)
-            .and_then(|(helmet, stream)| stream.canonical_item_stack(helmet)?.identifier)
+        let helmet = ui.local_armor().helmet;
+        pumpkin = stream
+            .filter(|_| !helmet.is_empty())
+            .and_then(|stream| stream.canonical_item_stack(&helmet)?.identifier)
             .is_some_and(|identifier| &*identifier == CARVED_PUMPKIN_IDENTIFIER);
     }
     let step = if dt.is_finite() && dt > 0.0 {

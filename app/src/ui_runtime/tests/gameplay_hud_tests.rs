@@ -3,8 +3,8 @@
 
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorHandedness, ActorMetadata, ActorMetadataValue,
-    ArmorEquipmentEvent, ContainerIdentity, EquipmentEvent, InventoryContentEvent, InventoryEvent,
-    InventorySlotEvent, NetworkItemStack, SelectedSlotEvent, SlotIdentity,
+    ContainerIdentity, EquipmentEvent, InventoryContentEvent, InventoryEvent, InventorySlotEvent,
+    NetworkItemStack, SelectedSlotEvent, SlotIdentity,
 };
 use sha2::Digest;
 
@@ -243,24 +243,6 @@ fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
         HeartVariant::Frozen
     );
 
-    runtime
-        .apply_local_armor(
-            4,
-            4,
-            &ArmorEquipmentEvent {
-                actor_runtime_id: 1,
-                helmet: stack(100),
-                chestplate: NetworkItemStack::empty(),
-                leggings: NetworkItemStack::empty(),
-                boots: stack(101),
-                body: NetworkItemStack::empty(),
-            },
-        )
-        .unwrap();
-    let armor = runtime.gameplay_hud().armor().expect("armor retained");
-    assert_eq!(armor.helmet.network_id, 100);
-    assert!(armor.chestplate.is_empty());
-
     runtime.apply_local_mount(4, 5, Some(-9)).unwrap();
     assert_eq!(runtime.gameplay_hud().mount_unique_id(), Some(-9));
     runtime.apply_local_mount(4, 6, None).unwrap();
@@ -269,7 +251,6 @@ fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
     // Session replacement clears every retained gameplay-HUD surface.
     runtime.begin_session(5);
     assert!(runtime.gameplay_hud().effects().is_empty());
-    assert_eq!(runtime.gameplay_hud().armor(), None);
     assert_eq!(runtime.gameplay_hud().air_ticks(), None);
     assert_eq!(runtime.gameplay_hud().mount_unique_id(), None);
 }
@@ -432,6 +413,55 @@ fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
             .offhand_stack()
             .map(|stack| stack.network_id),
         Some(60)
+    );
+}
+
+// The local player's armor is window 120's content, whatever container name
+// the server gives it, and a later slot update replaces one piece.
+#[test]
+fn window_120_is_the_local_armor() {
+    let mut runtime = UiRuntime::new(1);
+    let armor = ContainerIdentity {
+        window_id: Some(protocol::ARMOR_WINDOW_ID),
+        slot_type: Some(1),
+        dynamic_id: None,
+    };
+    runtime
+        .enqueue_inventory_event(
+            1,
+            1,
+            InventoryEvent::Content(InventoryContentEvent {
+                container: armor,
+                slots: vec![
+                    stack(100),
+                    stack(101),
+                    NetworkItemStack::empty(),
+                    stack(103),
+                ]
+                .into(),
+                storage_item: NetworkItemStack::empty(),
+            }),
+        )
+        .unwrap();
+    runtime
+        .enqueue_inventory_event(
+            1,
+            2,
+            InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: armor,
+                    slot: 2,
+                },
+                stack: stack(102),
+                storage_item: None,
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory();
+    let worn = runtime.local_armor();
+    assert_eq!(
+        [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots].map(|stack| stack.network_id),
+        [100, 101, 102, 103]
     );
 }
 

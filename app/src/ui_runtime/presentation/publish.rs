@@ -173,6 +173,14 @@ pub(crate) fn publish_ui_runtime(
                 sneaking,
             )
         });
+    // The model wears the local player's armor and held item.
+    presentation.dress_player_preview(&runtime, |stack| {
+        client_world
+            .stream
+            .as_ref()?
+            .canonical_item_stack(stack)?
+            .identifier
+    });
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
@@ -181,6 +189,13 @@ pub(crate) fn publish_ui_runtime(
         pose,
         runtime.inventory_open() || menu_runtime.is_visible(),
         first_person && !hand_rig.is_active(),
+        now_millis as f64 / 1000.0,
+    );
+    super::forms::observe_station_block(
+        &mut runtime,
+        client_world.stream.as_ref(),
+        collisions.as_deref(),
+        now_millis,
     );
     refresh_hud_frame(
         &mut runtime,
@@ -325,21 +340,16 @@ pub(crate) fn refresh_hud_frame(
     let resolve_identifier = |stack: &protocol::NetworkItemStack| {
         stream.and_then(|stream| stream.canonical_item_stack(stack)?.identifier)
     };
-    let derived_armor = runtime.gameplay_hud().armor().map(|slots| {
-        let identifiers = [
-            &slots.helmet,
-            &slots.chestplate,
-            &slots.leggings,
-            &slots.boots,
-        ]
-        .map(|stack| {
-            (!stack.is_empty())
-                .then(|| resolve_identifier(stack))
-                .flatten()
-        });
-        item_facts::total_armor_points(identifiers.iter().map(|id| id.as_deref()))
+    let worn = runtime.local_armor();
+    let worn = [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots];
+    let identifiers = worn.map(|stack| {
+        (!stack.is_empty())
+            .then(|| resolve_identifier(stack))
+            .flatten()
     });
-    runtime.set_derived_armor(derived_armor);
+    runtime.set_derived_armor(Some(item_facts::total_armor_points(
+        identifiers.iter().map(|id| id.as_deref()),
+    )));
     let mount_health = runtime
         .gameplay_hud()
         .mount_unique_id()
@@ -609,15 +619,6 @@ pub(crate) fn refresh_hud_frame(
                 window_icons.creative_tabs[tab] = presentation.item_icon(id, 0);
             }
         }
-        if runtime.inventory_ledger().window_kind() == Some(protocol::WindowKind::Beacon) {
-            let level = runtime
-                .inventory_ledger()
-                .window_position()
-                .and_then(|position| stream?.block_entity_compound(position))
-                .and_then(|nbt| nbt.integer("Levels"))
-                .and_then(|levels| u8::try_from(levels).ok());
-            runtime.screen_state_mut().beacon_level = level;
-        }
         if let Some(kind) = runtime.inventory_ledger().window_kind() {
             let output_stack = |output: protocol::RecipeOutput| protocol::NetworkItemStack {
                 network_id: output.network_id,
@@ -642,15 +643,8 @@ pub(crate) fn refresh_hud_frame(
                     }
                 }
             }
-            if matches!(
-                kind,
-                protocol::WindowKind::Stonecutter
-                    | protocol::WindowKind::Smithing
-                    | protocol::WindowKind::Cartography
-            ) && runtime.inventory_ledger().created_output_stack().is_none()
-                && let Some(output) = runtime
-                    .active_screen_recipe()
-                    .and_then(|recipe| recipe.output)
+            if runtime.inventory_ledger().created_output_stack().is_none()
+                && let Some(output) = runtime.predicted_screen_output()
             {
                 let stack = output_stack(output);
                 let icon = resolve_identifier(&stack)
@@ -827,7 +821,8 @@ pub(crate) fn refresh_hud_frame(
             .as_deref()
             .and_then(|id| stack_icon(runtime, presentation, stack, id))
     });
-    let armor_icons = runtime.gameplay_hud().armor().map_or([None; 4], |armor| {
+    let armor_icons = {
+        let armor = runtime.local_armor();
         [
             &armor.helmet,
             &armor.chestplate,
@@ -839,7 +834,7 @@ pub(crate) fn refresh_hud_frame(
                 .as_deref()
                 .and_then(|id| stack_icon(runtime, presentation, stack, id))
         })
-    });
+    };
     let held_item_icon = selected_stack.and_then(|stack| {
         resolve_identifier(stack)
             .as_deref()
