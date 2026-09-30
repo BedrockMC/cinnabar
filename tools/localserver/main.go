@@ -1,4 +1,5 @@
-// Command bedrock-local-server hosts one saved single-player world on dragonfly for the core.
+// Command bedrock-local-server hosts one saved superflat world on dragonfly's default generators for
+// the core; vanilla terrain runs on BDS instead.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin;
 // stdin EOF and SIGINT/SIGTERM also stop it.
 package main
@@ -17,8 +18,6 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 )
 
-const defaultTickRange = 6 // dragonfly's default; the API has no getter to restore from
-
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "bedrock-local-server:", err)
@@ -36,7 +35,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("configure server: %w", err)
 	}
-	conf.Generator = cfg.dimensionGenerator
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
@@ -85,15 +83,9 @@ func serveCommands(ctx context.Context, stdin io.Reader, pause func(bool)) {
 	}
 }
 
-// setPaused freezes time and block/entity ticking; connected players stay connected.
+// setPaused suspends every dimension's simulation; connected players stay connected.
 func setPaused(worlds []*world.World, paused bool) {
 	for _, w := range worlds {
-		if paused {
-			w.SetTickRange(0)
-			w.StopTime()
-		} else {
-			w.SetTickRange(defaultTickRange)
-			w.StartTime()
-		}
+		w.SetPaused(paused)
 	}
 }

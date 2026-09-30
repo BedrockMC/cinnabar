@@ -87,7 +87,7 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `catalog`, `store`, `launcher`, `control` | Menu data: featured servers, Realms, friends, marketplace. |
 | `localworld` | Local worlds on BDS (a container on macOS). |
 | `packcache` | On-disk cache of server packs. |
-| `update`, `crashreport` | Signed update checks and crash reports. |
+| `update` | Signed update checks. |
 
 ## JSON-UI editor
 
