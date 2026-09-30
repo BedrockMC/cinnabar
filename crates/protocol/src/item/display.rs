@@ -110,6 +110,15 @@ fn read_pages(mut list: &[u8], book: &mut ItemBook) {
     })();
 }
 
+/// Whether the stack's user data carries an `ench` list, which glints an item even when empty.
+#[must_use]
+pub fn item_has_enchantment_list(extra_data: &[u8]) -> bool {
+    decode_extra_nbt(extra_data).is_some_and(|nbt| {
+        let mut cursor = &nbt[..];
+        root_tag(&mut cursor, TAG_LIST, b"ench").is_some()
+    })
+}
+
 /// Reads the `bundle_id` int that ties a bundle item to its dynamic container.
 #[must_use]
 pub fn item_bundle_id(extra_data: &[u8]) -> Option<u32> {
@@ -243,6 +252,7 @@ mod tests {
             }
             nbt.push(0);
         });
+        assert!(item_has_enchantment_list(&data));
         let display = item_display(&data);
         assert_eq!(display.name.as_deref(), Some("Blade"));
         assert_eq!(display.lore.len(), 2);
@@ -279,6 +289,7 @@ mod tests {
         });
         assert_eq!(item_bundle_id(&data), Some(42));
         assert_eq!(item_bundle_id(&[]), None);
+        assert!(!item_has_enchantment_list(&data));
     }
 
     #[test]

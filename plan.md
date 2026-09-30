@@ -3203,6 +3203,25 @@ potion icons by aux, each row citing its call site. Still open: cooked foods and
 other 1.10 JSON items (icon from resource-pack data), spawn eggs (per-entity
 map), bow/crossbow draw frames, animated compass/clock frames, trimmed armor and
 broken elytra overrides, and native icon acceptance.
+Block items (provisional, incomplete): an item the retail client gives a legacy
+icon, or one placing a differently named block, keeps its sprite over its block
+route. Flat-shape blocks (cross plants, torches, rails, panes, ladders, lanterns,
+candles, chains) draw `BlockItem::getIconInfo`'s icon: carried texture, else
+texture, down face. Other non-cube shapes draw their isolated world template (a
+wall item shows post plus east/west arms, a fence post plus arms); leaves draw
+their carried cube. Retail block items missing from the Dragonfly route table
+bind to their block's first canonical state. `assetc icon-assets` reports the
+leftovers: block-entity items (chests, shulkers, beds, banners, pots, statues),
+world-diagnostic cubes, grass (overlay tint), and seeds without a sprite source.
+Shape classification, stair orientation and GUI shading are unverified against
+the retail GUI tessellator.
+Server item components (StartGame registry) drive display names, rarity and
+hover colours, durability maxima, stack-merge capacity, held grip, wearable
+slots and use durations. Item glint (provisional): stacks `Item::isGlint`
+marks (an `ench` list, the glint component, always-glinting vanilla items)
+draw a procedural scrolling purple overlay in HUD and JSON-UI item cells, not
+the retail glint texture; held items and the item viewmodel do not glint.
+`minecraft:render_offsets` is not applied.
 Initial negotiated item-registry binding for world item visuals is also separate
 from the inventory-ledger bootstrap fix. The visual resolver still starts from
 built-in mappings and only replaces them on a later registry event. Preserve

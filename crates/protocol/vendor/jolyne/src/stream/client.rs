@@ -48,7 +48,9 @@ use crate::valentine::{
     McpePacket, McpePacketData, McpePacketName, NetworkSettingsPacketCompressionAlgorithm,
 };
 
-const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+// Backstop only: the local core cancels a join whose resource-pack download stalls, and slow
+// servers can take several minutes to stream their packs on a first join.
+const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
 const EXEMPTED_RESOURCE_PACKS: &[(&str, &str)] = &[
     ("0fba4063-dba1-4281-9b89-ff9390653530", "1.0.0"),

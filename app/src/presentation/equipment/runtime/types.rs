@@ -27,6 +27,8 @@ pub(crate) enum HeldKind {
 pub(super) enum MeshKey {
     Sprite(usize),
     Block(u32),
+    /// A session icon, by its index in the session layer.
+    Session(usize),
 }
 
 #[derive(Clone, Debug, Default)]

@@ -25,10 +25,15 @@ use crate::{
         update_actor_rig_scene,
     },
     presentation::equipment::{
-        EquipmentPresentation, EquipmentRuntime, FirstPersonArms, local_input, remote_input,
+        EquipmentPresentation, EquipmentRuntime, FirstPersonArms, StagedSessionIcons, local_input,
+        remote_input,
     },
     runtime::world::ClientWorld,
 };
+
+/// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
+#[derive(Resource, Default)]
+pub(crate) struct ActorFramePartialTick(pub(crate) f32);
 
 /// The local player's own first-person rig, built as a single instance placed in camera space.
 #[derive(Resource)]
@@ -77,8 +82,12 @@ fn apply_session_pack(
     scene: &mut ActorRenderScene,
     base: &render::ActorArtworkPages,
     pack: Option<&super::entity_pack::SessionEntityPack>,
+    session_icons: Option<StagedSessionIcons>,
     effective: &mut Option<render::ActorArtworkPages>,
     equipment: Option<&mut EquipmentRuntime>,
+) -> (
+    Option<StagedSessionIcons>,
+    Vec<Option<render::ActorArtworkLocation>>,
 ) {
     if let Err(error) = scene.replace_pack_entities(pack.map(|pack| &*pack.assets)) {
         bevy::log::warn!(?error, "server pack entity geometry was not applied");
@@ -106,8 +115,15 @@ fn apply_session_pack(
     if let Some(equipment) = equipment {
         equipment.set_pack_layer(layer);
     }
+    let mut icon_locations = Vec::new();
+    if let Some(icons) = &session_icons {
+        let (extended, locations) = pages.with_equipment_rasters(icons.rasters());
+        pages = extended;
+        icon_locations = locations;
+    }
     scene.configure_artwork(pages.clone());
-    *effective = pack.map(|_| pages);
+    *effective = (pack.is_some() || session_icons.is_some()).then_some(pages);
+    (session_icons, icon_locations)
 }
 
 #[derive(SystemParam)]
@@ -136,6 +152,7 @@ pub(crate) struct ActorFramePublication<'w, 's> {
     semantic_input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
+    partial_tick: ResMut<'w, ActorFramePartialTick>,
 }
 
 pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
@@ -163,6 +180,7 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         ui,
         mut dropped_items,
         profiler,
+        mut partial_tick,
     } = params;
     let _timer = profiler
         .as_deref()
@@ -188,18 +206,28 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
             stream.set_actor_seat_defaults(super::seat_defaults::seat_defaults());
         }
         let pack = session_id.and_then(|_| client_world.pack_entities.clone());
-        if pack.is_some() || session_artwork.is_some() {
+        let items = session_id.and_then(|_| client_world.session_items.clone());
+        let staged = StagedSessionIcons::stage(items.as_deref());
+        let (staged, locations) = if pack.is_some() || staged.is_some() || session_artwork.is_some()
+        {
             apply_session_pack(
                 &mut scene,
                 &artwork,
                 pack.as_deref(),
+                staged,
                 &mut session_artwork,
                 equipment.as_deref_mut(),
-            );
+            )
+        } else {
+            (None, Vec::new())
+        };
+        if let Some(equipment) = equipment.as_deref_mut() {
+            equipment.set_session_items(items.as_deref(), staged, locations);
         }
     }
     let artwork = session_artwork.as_ref().unwrap_or(&artwork);
     let step = actor_clock.advance(time.delta());
+    partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
     let item_use = client_world
@@ -599,7 +627,7 @@ fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let placement = hand_camera_from_rig(source.presentation.model_scale, source.motion);
+    let placement = hand_camera_from_rig(source.presentation.authored_scale, source.motion);
     let mut submissions = Vec::new();
     if let Some(mut body) = source.body {
         body.world_from_actor = placement;

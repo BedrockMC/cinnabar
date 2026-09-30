@@ -117,10 +117,12 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
     let main_item = IconRef {
         page: 1,
         uv: [0, 0, 16, 16],
+        glint: false,
     };
     let offhand = IconRef {
         page: 2,
         uv: [0, 0, 16, 16],
+        glint: false,
     };
     presentation.hud_frame_mut().held_item_icon = Some(main_item);
     presentation.hud_frame_mut().offhand_viewmodel_icon = Some(offhand);

@@ -442,6 +442,10 @@ pub(crate) fn receive_network_events(
                 }));
                 stream.seed_property_defaults(&packs.property_defaults);
                 client_world.pack_entities = packs.entities.clone();
+                client_world.session_items = Some(Arc::new(entity_pack::SessionItems {
+                    components: packs.item_components.clone().unwrap_or_default(),
+                    icons: packs.item_icons.clone(),
+                }));
                 if let Some(registry) = world_item_registry
                     && !stream.seed_item_registry(registry)
                 {
@@ -530,6 +534,7 @@ pub(crate) fn receive_network_events(
                     &mut ui_runtime,
                     session_generation,
                     packs.item_icons,
+                    packs.item_components,
                     client_world.fatal_error.is_none(),
                 );
                 resource_packs::install_server_ui(
@@ -983,7 +988,9 @@ mod local_pack;
 mod resource_packs;
 mod seat_defaults;
 pub(crate) mod session;
-pub(crate) use actor_publication::{HandRigBuilder, local_item_use, publish_actor_render_frame};
+pub(crate) use actor_publication::{
+    ActorFramePartialTick, HandRigBuilder, local_item_use, publish_actor_render_frame,
+};
 
 #[cfg(test)]
 pub(crate) use drain::drain_network_ingress;
