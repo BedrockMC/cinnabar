@@ -11,7 +11,7 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, BedrockSafetyRedactableString, BedrockSafetyRedactableStringView, BlockPos,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
@@ -232,7 +232,7 @@ fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
 #[test]
 fn response_filtered_name_preserves_optional_wire_shape() {
     use valentine::bedrock::codec::BedrockSized;
-    use valentine::bedrock::version::v1_26_44::ItemStackResponseSlotInfoView;
+    use valentine::bedrock::version::v1_26_51::ItemStackResponseSlotInfoView;
     for filtered in [None, Some(String::new()), Some("filtered".to_owned())] {
         let slot = ItemStackResponseSlotInfo {
             custom_name: "original".to_owned(),
@@ -333,7 +333,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             item(6, 3, 12, item_user_data(&["minecraft:dirt"])),
         ],
         full_container_name: full_container(
-            FullContainerNameContainerName::CombinedHotbarAndInventoryContainer,
+            FullContainerNameContainerName::Combinedhotbarandinventorycontainer,
             Some(7),
         ),
         storage_item: ItemStackDescriptor::default(),
@@ -354,7 +354,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
         container_id: INVENTORY_CONTAINER,
         slot: 8,
         full_container_name: Some(full_container(
-            FullContainerNameContainerName::InventoryContainer,
+            FullContainerNameContainerName::Inventorycontainer,
             None,
         )),
         storage_item: None,
@@ -383,7 +383,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             44,
             vec![ItemStackResponseContainerInfo {
                 full_container_name: full_container(
-                    FullContainerNameContainerName::HotbarContainer,
+                    FullContainerNameContainerName::Hotbarcontainer,
                     Some(9),
                 ),
                 slots: vec![response_slot(2, 5, 13, "named", "filtered", -3)],
@@ -563,7 +563,7 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
     }
 
     for name in [
-        FullContainerNameContainerName::CraftingInputContainer,
+        FullContainerNameContainerName::Craftinginputcontainer,
         FullContainerNameContainerName::Unknown(211),
     ] {
         let event = normalize_content(InventoryContentPacket {
@@ -586,7 +586,7 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
     let cursor = normalize_content(InventoryContentPacket {
         container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![ItemStackDescriptor::default()],
-        full_container_name: full_container(FullContainerNameContainerName::CursorContainer, None),
+        full_container_name: full_container(FullContainerNameContainerName::Cursorcontainer, None),
         storage_item: ItemStackDescriptor::default(),
     })
     .unwrap();
@@ -740,7 +740,7 @@ fn accepted_response_preserves_zero_stack_id_for_a_newly_empty_slot() {
         2,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::HotbarContainer,
+                FullContainerNameContainerName::Hotbarcontainer,
                 None,
             ),
             slots: vec![response_slot(3, 0, 0, "", "", 0)],
@@ -763,7 +763,7 @@ fn accepted_response_rejects_negative_stack_ids() {
         3,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::HotbarContainer,
+                FullContainerNameContainerName::Hotbarcontainer,
                 None,
             ),
             slots: vec![ItemStackResponseSlotInfo {

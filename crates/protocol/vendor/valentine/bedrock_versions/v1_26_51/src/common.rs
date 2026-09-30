@@ -238,4 +238,6 @@ pub enum PacketId {
     ClientboundUpdateSoundDataPacket = 348u32,
     SendPartyDestinationCookiePacket = 349u32,
     PartyDestinationCookieResponsePacket = 350u32,
+    SetPlayerFurnaceOptionsPacket = 351u32,
+    RecordStartedPacket = 352u32,
 }

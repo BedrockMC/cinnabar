@@ -263,8 +263,8 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        valentine = @('bedrock_1_26_44')
-        jolyne = @('client', 'bedrock_1_26_44')
+        valentine = @('bedrock_1_26_51')
+        jolyne = @('client', 'bedrock_1_26_51')
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {

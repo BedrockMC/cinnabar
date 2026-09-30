@@ -8,7 +8,7 @@ use protocol::{
     vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, BiomeDefinitionData, BiomeDefinitionListPacket,
     BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
     ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, DimensionType,
@@ -472,7 +472,7 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
             protocol::MovePlayerMode::Teleport,
         ),
         (
-            MovePlayerPacketPositionMode::OnlyHeadRot,
+            MovePlayerPacketPositionMode::Onlyheadrot,
             protocol::MovePlayerMode::Rotation,
         ),
         (
@@ -768,12 +768,12 @@ fn resolves_non_cached_sub_chunk_entries_to_absolute_keys() {
             ),
             sub_chunk_entry(
                 [0, 1, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir,
+                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
                 None,
             ),
             sub_chunk_entry(
                 [1, 0, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::LevelChunkDoesntExist,
+                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Levelchunkdoesntexist,
                 None,
             ),
         ],
@@ -827,7 +827,7 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
         },
         sub_chunk_data: vec![sub_chunk_entry(
             [1, 0, 0],
-            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir,
+            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
             None,
         )],
         ..Default::default()
@@ -963,7 +963,7 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
             z: -4.25,
         },
         // gophertunnel packet/respawn.go: ReadyToSpawn is wire value 1.
-        state: RespawnPacketState::ReadyToSpawn,
+        state: RespawnPacketState::Readytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: 42,
         },

@@ -1,14 +1,14 @@
 use bytes::{Bytes, BytesMut};
 use std::fmt::Debug;
 use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_44::types::{
+use valentine::bedrock::version::v1_26_51::types::{
     BookEditActionAddPage, BookEditActionReplacePage, EnumsActorEvent, EnumsActorType,
     EnumsConnectionDisconnectFailReason, EnumsContainerEnumName, EnumsItemStackRequestActionType,
     EnumsLegacyTelemetryEventPacketPayloadType, EnumsPhotoType, EnumsPlayStatus,
-    ResourcePackClientResponsePacketPayloadCancel,
-    ResourcePackClientResponsePacketPayloadDownloading,
-    ResourcePackClientResponsePacketPayloadDownloadingFinished,
-    ResourcePackClientResponsePacketPayloadResourcePackStackFinished,
+    ResourcePackClientResponseCanceljson,
+    ResourcePackClientResponseDownloadingjson,
+    ResourcePackClientResponseDownloadingFinishedjson,
+    ResourcePackClientResponseResourcePackStackFinishedjson,
     ResourcePackClientResponsePacketResponse,
 };
 
@@ -99,7 +99,7 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
     // server read `downloading` as `downloadingfinished` and abandon the pack list.
     assert_wire(
         ResourcePackClientResponsePacketResponse::Cancel(
-            ResourcePackClientResponsePacketPayloadCancel {
+            ResourcePackClientResponseCanceljson {
                 response_type: "cancel".to_string(),
             },
         ),
@@ -107,7 +107,7 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
     );
     assert_wire(
         ResourcePackClientResponsePacketResponse::Downloading(
-            ResourcePackClientResponsePacketPayloadDownloading {
+            ResourcePackClientResponseDownloadingjson {
                 response_type: "downloading".to_string(),
                 downloading_packs: vec!["a_1.0.0".to_string()],
             },
@@ -119,7 +119,7 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
     );
     assert_wire(
         ResourcePackClientResponsePacketResponse::DownloadingFinished(
-            ResourcePackClientResponsePacketPayloadDownloadingFinished {
+            ResourcePackClientResponseDownloadingFinishedjson {
                 response_type: "downloadingfinished".to_string(),
             },
         ),
@@ -130,7 +130,7 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
     );
     assert_wire(
         ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(
-            ResourcePackClientResponsePacketPayloadResourcePackStackFinished {
+            ResourcePackClientResponseResourcePackStackFinishedjson {
                 response_type: "resourcepackstackfinished".to_string(),
             },
         ),

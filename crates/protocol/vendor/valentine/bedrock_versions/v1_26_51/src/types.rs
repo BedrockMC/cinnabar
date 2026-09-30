@@ -381,6 +381,7 @@ impl crate::bedrock::codec::BedrockCodec for SkinImage {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumspersonaAnimatedTextureType {
+    None,
     Face,
     Body32X32,
     Body128X128,
@@ -389,6 +390,7 @@ pub enum EnumspersonaAnimatedTextureType {
 impl crate::bedrock::codec::BedrockSized for EnumspersonaAnimatedTextureType {
     fn encoded_size(&self) -> usize {
         let _val: u32 = match self {
+            EnumspersonaAnimatedTextureType::None => 0,
             EnumspersonaAnimatedTextureType::Face => 1,
             EnumspersonaAnimatedTextureType::Body32X32 => 2,
             EnumspersonaAnimatedTextureType::Body128X128 => 3,
@@ -403,6 +405,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumspersonaAnimatedTextureType {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u32 = match self {
+            EnumspersonaAnimatedTextureType::None => 0,
             EnumspersonaAnimatedTextureType::Face => 1,
             EnumspersonaAnimatedTextureType::Body32X32 => 2,
             EnumspersonaAnimatedTextureType::Body128X128 => 3,
@@ -420,6 +423,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumspersonaAnimatedTextureType {
         )?;
         let val = raw.0 as u32;
         match val {
+            0 => Ok(EnumspersonaAnimatedTextureType::None),
             1 => Ok(EnumspersonaAnimatedTextureType::Face),
             2 => Ok(EnumspersonaAnimatedTextureType::Body32X32),
             3 => Ok(EnumspersonaAnimatedTextureType::Body128X128),
@@ -429,7 +433,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumspersonaAnimatedTextureType {
 }
 impl Default for EnumspersonaAnimatedTextureType {
     fn default() -> Self {
-        Self::Face
+        Self::None
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1318,11 +1322,11 @@ impl crate::bedrock::codec::BedrockCodec
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct EasBoolAttributeData {
+pub struct BoolAttributeDatajson {
     pub value: bool,
     pub operation: String,
 }
-impl crate::bedrock::codec::BedrockSized for EasBoolAttributeData {
+impl crate::bedrock::codec::BedrockSized for BoolAttributeDatajson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += 1usize;
@@ -1335,7 +1339,7 @@ impl crate::bedrock::codec::BedrockSized for EasBoolAttributeData {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for EasBoolAttributeData {
+impl crate::bedrock::codec::BedrockCodec for BoolAttributeDatajson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -1373,13 +1377,13 @@ impl crate::bedrock::codec::BedrockCodec for EasBoolAttributeData {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct EasFloatAttributeData {
+pub struct FloatAttributeDatajson {
     pub value: f32,
     pub operation: String,
     pub constraint_min: Option<f32>,
     pub constraint_max: Option<f32>,
 }
-impl crate::bedrock::codec::BedrockSized for EasFloatAttributeData {
+impl crate::bedrock::codec::BedrockSized for FloatAttributeDatajson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += 4usize;
@@ -1406,7 +1410,7 @@ impl crate::bedrock::codec::BedrockSized for EasFloatAttributeData {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for EasFloatAttributeData {
+impl crate::bedrock::codec::BedrockCodec for FloatAttributeDatajson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -1493,11 +1497,11 @@ impl crate::bedrock::codec::BedrockCodec for EasFloatAttributeData {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct EasColorAttributeData {
+pub struct ColorAttributeDatajson {
     pub value: [i32; 4],
     pub operation: String,
 }
-impl crate::bedrock::codec::BedrockSized for EasColorAttributeData {
+impl crate::bedrock::codec::BedrockSized for ColorAttributeDatajson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += (&self.value).iter().map(|_item| 4usize).sum::<usize>();
@@ -1510,7 +1514,7 @@ impl crate::bedrock::codec::BedrockSized for EasColorAttributeData {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for EasColorAttributeData {
+impl crate::bedrock::codec::BedrockCodec for ColorAttributeDatajson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -1566,9 +1570,9 @@ impl crate::bedrock::codec::BedrockCodec for EasColorAttributeData {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum EasEnvironmentAttributeDataFromAttribute {
-    BoolAttributeData(EasBoolAttributeData),
-    FloatAttributeData(Box<EasFloatAttributeData>),
-    ColorAttributeData(EasColorAttributeData),
+    BoolAttributeData(BoolAttributeDatajson),
+    FloatAttributeData(Box<FloatAttributeDatajson>),
+    ColorAttributeData(ColorAttributeDatajson),
 }
 impl Default for EasEnvironmentAttributeDataFromAttribute {
     fn default() -> Self {
@@ -1632,11 +1636,11 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeDataFromAttr
             .0 as i64;
         match control_value {
             0 => Ok(EasEnvironmentAttributeDataFromAttribute::BoolAttributeData(
-                <EasBoolAttributeData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <BoolAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             )),
             1 => Ok(
                 EasEnvironmentAttributeDataFromAttribute::FloatAttributeData(Box::new(
-                    <EasFloatAttributeData as crate::bedrock::codec::BedrockCodec>::decode(
+                    <FloatAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?,
@@ -1644,7 +1648,7 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeDataFromAttr
             ),
             2 => Ok(
                 EasEnvironmentAttributeDataFromAttribute::ColorAttributeData(
-                    <EasColorAttributeData as crate::bedrock::codec::BedrockCodec>::decode(
+                    <ColorAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?,
@@ -1659,9 +1663,9 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeDataFromAttr
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum EasEnvironmentAttributeDataAttribute {
-    BoolAttributeData(EasBoolAttributeData),
-    FloatAttributeData(Box<EasFloatAttributeData>),
-    ColorAttributeData(EasColorAttributeData),
+    BoolAttributeData(BoolAttributeDatajson),
+    FloatAttributeData(Box<FloatAttributeDatajson>),
+    ColorAttributeData(ColorAttributeDatajson),
 }
 impl Default for EasEnvironmentAttributeDataAttribute {
     fn default() -> Self {
@@ -1725,18 +1729,18 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeDataAttribut
             .0 as i64;
         match control_value {
             0 => Ok(EasEnvironmentAttributeDataAttribute::BoolAttributeData(
-                <EasBoolAttributeData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <BoolAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             )),
             1 => Ok(EasEnvironmentAttributeDataAttribute::FloatAttributeData(
                 Box::new(
-                    <EasFloatAttributeData as crate::bedrock::codec::BedrockCodec>::decode(
+                    <FloatAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?,
                 ),
             )),
             2 => Ok(EasEnvironmentAttributeDataAttribute::ColorAttributeData(
-                <EasColorAttributeData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <ColorAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             )),
             _ => Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
                 enum_name: stringify!(EasEnvironmentAttributeDataAttribute),
@@ -1747,9 +1751,9 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeDataAttribut
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum EasEnvironmentAttributeDataToAttribute {
-    BoolAttributeData(EasBoolAttributeData),
-    FloatAttributeData(Box<EasFloatAttributeData>),
-    ColorAttributeData(EasColorAttributeData),
+    BoolAttributeData(BoolAttributeDatajson),
+    FloatAttributeData(Box<FloatAttributeDatajson>),
+    ColorAttributeData(ColorAttributeDatajson),
 }
 impl Default for EasEnvironmentAttributeDataToAttribute {
     fn default() -> Self {
@@ -1813,24 +1817,102 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeDataToAttrib
             .0 as i64;
         match control_value {
             0 => Ok(EasEnvironmentAttributeDataToAttribute::BoolAttributeData(
-                <EasBoolAttributeData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <BoolAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             )),
             1 => Ok(EasEnvironmentAttributeDataToAttribute::FloatAttributeData(
                 Box::new(
-                    <EasFloatAttributeData as crate::bedrock::codec::BedrockCodec>::decode(
+                    <FloatAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?,
                 ),
             )),
             2 => Ok(EasEnvironmentAttributeDataToAttribute::ColorAttributeData(
-                <EasColorAttributeData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <ColorAttributeDatajson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             )),
             _ => Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
                 enum_name: stringify!(EasEnvironmentAttributeDataToAttribute),
                 value: control_value,
             }),
         }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnumsEasNoiseAlignmentType {
+    Minlocaltransitionend,
+    Unknown(u8),
+}
+impl crate::bedrock::codec::BedrockSized for EnumsEasNoiseAlignmentType {
+    fn encoded_size(&self) -> usize {
+        let _val: u8 = match self {
+            EnumsEasNoiseAlignmentType::Minlocaltransitionend => 0,
+            EnumsEasNoiseAlignmentType::Unknown(v) => *v,
+        };
+        1usize
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for EnumsEasNoiseAlignmentType {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: u8 = match self {
+            EnumsEasNoiseAlignmentType::Minlocaltransitionend => 0,
+            EnumsEasNoiseAlignmentType::Unknown(v) => *v,
+        };
+        val.encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        match val {
+            0 => Ok(EnumsEasNoiseAlignmentType::Minlocaltransitionend),
+            other => Ok(EnumsEasNoiseAlignmentType::Unknown(other)),
+        }
+    }
+}
+impl Default for EnumsEasNoiseAlignmentType {
+    fn default() -> Self {
+        Self::Minlocaltransitionend
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct EasNoiseAlignment {
+    pub type_: EnumsEasNoiseAlignmentType,
+    pub value: u32,
+}
+impl crate::bedrock::codec::BedrockSized for EasNoiseAlignment {
+    fn encoded_size(&self) -> usize {
+        let mut size = 0usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.type_);
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+            self.value,
+        ));
+        size
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for EasNoiseAlignment {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        self.type_.encode(buf)?;
+        crate::bedrock::codec::VarUInt(self.value).encode(buf)?;
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = buf;
+        let type_ =
+            <EnumsEasNoiseAlignmentType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let value =
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0;
+        Ok(Self { type_, value })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -1844,6 +1926,7 @@ pub struct EasEnvironmentAttributeData {
     pub easing: String,
     pub local_transition_ticks: u32,
     pub noise_transition: bool,
+    pub noise_alignment: EasNoiseAlignment,
 }
 impl crate::bedrock::codec::BedrockSized for EasEnvironmentAttributeData {
     fn encoded_size(&self) -> usize {
@@ -1879,6 +1962,7 @@ impl crate::bedrock::codec::BedrockSized for EasEnvironmentAttributeData {
         };
         size += 4usize;
         size += 1usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.noise_alignment);
         size
     }
 }
@@ -1913,6 +1997,7 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeData {
         buf.put_slice(bytes);
         crate::bedrock::codec::U32LE(self.local_transition_ticks).encode(buf)?;
         self.noise_transition.encode(buf)?;
+        self.noise_alignment.encode(buf)?;
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -1995,6 +2080,8 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeData {
             <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
         let noise_transition = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let noise_alignment =
+            <EasNoiseAlignment as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
             attribute_name,
             from_attribute,
@@ -2005,6 +2092,7 @@ impl crate::bedrock::codec::BedrockCodec for EasEnvironmentAttributeData {
             easing,
             local_transition_ticks,
             noise_transition,
+            noise_alignment,
         })
     }
 }
@@ -3717,7 +3805,7 @@ impl crate::bedrock::codec::BedrockCodec for BedrockProfileWhiskerDiagnosticsSco
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BedrockSafetyRedactableString {
     pub unredacted: String,
-    pub redacted: String,
+    pub redacted: Option<String>,
 }
 impl crate::bedrock::codec::BedrockSized for BedrockSafetyRedactableString {
     fn encoded_size(&self) -> usize {
@@ -3729,10 +3817,16 @@ impl crate::bedrock::codec::BedrockSized for BedrockSafetyRedactableString {
             )) + _len
         };
         size += {
-            let _len = (&self.redacted).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
+            1usize
+                + match &self.redacted {
+                    Some(_v) => {
+                        let _len = (_v).as_bytes().len();
+                        crate::bedrock::codec::BedrockSized::encoded_size(
+                            &crate::bedrock::codec::VarUInt(_len as u32),
+                        ) + _len
+                    }
+                    None => 0usize,
+                }
         };
         size
     }
@@ -3745,10 +3839,16 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
         let len = bytes.len();
         crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
         buf.put_slice(bytes);
-        let bytes = (&self.redacted).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
+        match &self.redacted {
+            Some(v) => {
+                buf.put_u8(1);
+                let bytes = (v).as_bytes();
+                let len = bytes.len();
+                crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+                buf.put_slice(bytes);
+            }
+            None => buf.put_u8(0),
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -3774,21 +3874,27 @@ impl crate::bedrock::codec::BedrockCodec for BedrockSafetyRedactableString {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         let redacted = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
+            let present = u8::decode(buf, ())?;
+            if present != 0 {
+                Some({
+                    let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                            buf,
+                            (),
+                        )?
+                        .0) as usize;
+                    if buf.remaining() < len {
+                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                            declared: len,
+                            available: buf.remaining(),
+                        });
+                    }
+                    let mut bytes = vec![0u8; len];
+                    buf.copy_to_slice(&mut bytes);
+                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                })
+            } else {
+                None
             }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         Ok(Self {
             unredacted,
@@ -4147,24 +4253,24 @@ impl crate::bedrock::codec::BedrockCodec for BiomeConditionalTransformationData 
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSharedTypesv12110RandomDistributionType {
-    SingleValued,
+    Singlevalued,
     Uniform,
     Gaussian,
-    InverseGaussian,
-    FixedGrid,
-    JitteredGrid,
+    Inversegaussian,
+    Fixedgrid,
+    Jitteredgrid,
     Triangle,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSharedTypesv12110RandomDistributionType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsSharedTypesv12110RandomDistributionType::SingleValued => 0,
+            EnumsSharedTypesv12110RandomDistributionType::Singlevalued => 0,
             EnumsSharedTypesv12110RandomDistributionType::Uniform => 1,
             EnumsSharedTypesv12110RandomDistributionType::Gaussian => 2,
-            EnumsSharedTypesv12110RandomDistributionType::InverseGaussian => 3,
-            EnumsSharedTypesv12110RandomDistributionType::FixedGrid => 4,
-            EnumsSharedTypesv12110RandomDistributionType::JitteredGrid => 5,
+            EnumsSharedTypesv12110RandomDistributionType::Inversegaussian => 3,
+            EnumsSharedTypesv12110RandomDistributionType::Fixedgrid => 4,
+            EnumsSharedTypesv12110RandomDistributionType::Jitteredgrid => 5,
             EnumsSharedTypesv12110RandomDistributionType::Triangle => 6,
             EnumsSharedTypesv12110RandomDistributionType::Unknown(v) => *v,
         };
@@ -4177,12 +4283,12 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypesv12110RandomDistrib
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsSharedTypesv12110RandomDistributionType::SingleValued => 0,
+            EnumsSharedTypesv12110RandomDistributionType::Singlevalued => 0,
             EnumsSharedTypesv12110RandomDistributionType::Uniform => 1,
             EnumsSharedTypesv12110RandomDistributionType::Gaussian => 2,
-            EnumsSharedTypesv12110RandomDistributionType::InverseGaussian => 3,
-            EnumsSharedTypesv12110RandomDistributionType::FixedGrid => 4,
-            EnumsSharedTypesv12110RandomDistributionType::JitteredGrid => 5,
+            EnumsSharedTypesv12110RandomDistributionType::Inversegaussian => 3,
+            EnumsSharedTypesv12110RandomDistributionType::Fixedgrid => 4,
+            EnumsSharedTypesv12110RandomDistributionType::Jitteredgrid => 5,
             EnumsSharedTypesv12110RandomDistributionType::Triangle => 6,
             EnumsSharedTypesv12110RandomDistributionType::Unknown(v) => *v,
         };
@@ -4198,12 +4304,12 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypesv12110RandomDistrib
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(EnumsSharedTypesv12110RandomDistributionType::SingleValued),
+            0 => Ok(EnumsSharedTypesv12110RandomDistributionType::Singlevalued),
             1 => Ok(EnumsSharedTypesv12110RandomDistributionType::Uniform),
             2 => Ok(EnumsSharedTypesv12110RandomDistributionType::Gaussian),
-            3 => Ok(EnumsSharedTypesv12110RandomDistributionType::InverseGaussian),
-            4 => Ok(EnumsSharedTypesv12110RandomDistributionType::FixedGrid),
-            5 => Ok(EnumsSharedTypesv12110RandomDistributionType::JitteredGrid),
+            3 => Ok(EnumsSharedTypesv12110RandomDistributionType::Inversegaussian),
+            4 => Ok(EnumsSharedTypesv12110RandomDistributionType::Fixedgrid),
+            5 => Ok(EnumsSharedTypesv12110RandomDistributionType::Jitteredgrid),
             6 => Ok(EnumsSharedTypesv12110RandomDistributionType::Triangle),
             other => Ok(EnumsSharedTypesv12110RandomDistributionType::Unknown(other)),
         }
@@ -4211,7 +4317,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypesv12110RandomDistrib
 }
 impl Default for EnumsSharedTypesv12110RandomDistributionType {
     fn default() -> Self {
-        Self::SingleValued
+        Self::Singlevalued
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -8835,7 +8941,7 @@ impl Default for EnumsControlSchemeScheme {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct SharedTypesv12190CameraPreset {
+pub struct SharedTypesv12650CameraPreset {
     pub name: String,
     pub inherit_from: String,
     pub pos_x: Option<f32>,
@@ -8858,8 +8964,10 @@ pub struct SharedTypesv12190CameraPreset {
     pub player_effects: Option<bool>,
     pub aim_assist: Option<SharedTypesv12150CameraAimAssistCommandPresetDefinition>,
     pub control_scheme: Option<EnumsControlSchemeScheme>,
+    pub apply_inherited_starting_rotation: bool,
+    pub starting_rotation: Option<Vec2>,
 }
-impl crate::bedrock::codec::BedrockSized for SharedTypesv12190CameraPreset {
+impl crate::bedrock::codec::BedrockSized for SharedTypesv12650CameraPreset {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -9014,10 +9122,18 @@ impl crate::bedrock::codec::BedrockSized for SharedTypesv12190CameraPreset {
                     None => 0usize,
                 }
         };
+        size += 1usize;
+        size += {
+            1usize
+                + match &self.starting_rotation {
+                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
+                    None => 0usize,
+                }
+        };
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for SharedTypesv12190CameraPreset {
+impl crate::bedrock::codec::BedrockCodec for SharedTypesv12650CameraPreset {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -9163,6 +9279,14 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesv12190CameraPreset {
             None => buf.put_u8(0),
         }
         match &self.control_scheme {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
+        self.apply_inherited_starting_rotation.encode(buf)?;
+        match &self.starting_rotation {
             Some(v) => {
                 buf.put_u8(1);
                 v.encode(buf)?;
@@ -9466,6 +9590,19 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesv12190CameraPreset {
                 None
             }
         };
+        let apply_inherited_starting_rotation =
+            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let starting_rotation = {
+            let present = u8::decode(buf, ())?;
+            if present != 0 {
+                Some(<Vec2 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?)
+            } else {
+                None
+            }
+        };
         Ok(Self {
             name,
             inherit_from,
@@ -9489,12 +9626,14 @@ impl crate::bedrock::codec::BedrockCodec for SharedTypesv12190CameraPreset {
             player_effects,
             aim_assist,
             control_scheme,
+            apply_inherited_starting_rotation,
+            starting_rotation,
         })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CameraPresets {
-    pub presets: Vec<SharedTypesv12190CameraPreset>,
+    pub presets: Vec<SharedTypesv12650CameraPreset>,
 }
 impl crate::bedrock::codec::BedrockSized for CameraPresets {
     fn encoded_size(&self) -> usize {
@@ -9539,7 +9678,7 @@ impl crate::bedrock::codec::BedrockCodec for CameraPresets {
             for _ in 0..len {
                 crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
-                    <SharedTypesv12190CameraPreset as crate::bedrock::codec::BedrockCodec>::decode(
+                    <SharedTypesv12650CameraPreset as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?,
@@ -9585,14 +9724,14 @@ impl crate::bedrock::codec::BedrockCodec for ScoreboardId {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ChangeEntityScore {
+pub struct ChangeEntityScorejson {
     pub action: String,
     pub scoreboard_id: ScoreboardId,
     pub objective_name: String,
     pub score_value: i32,
     pub actor_id: ActorUniqueId,
 }
-impl crate::bedrock::codec::BedrockSized for ChangeEntityScore {
+impl crate::bedrock::codec::BedrockSized for ChangeEntityScorejson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -9613,7 +9752,7 @@ impl crate::bedrock::codec::BedrockSized for ChangeEntityScore {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for ChangeEntityScore {
+impl crate::bedrock::codec::BedrockCodec for ChangeEntityScorejson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -9684,14 +9823,14 @@ impl crate::bedrock::codec::BedrockCodec for ChangeEntityScore {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ChangeFakePlayerScore {
+pub struct ChangeFakePlayerScorejson {
     pub action: String,
     pub scoreboard_id: ScoreboardId,
     pub objective_name: String,
     pub score_value: i32,
     pub fake_player_name: String,
 }
-impl crate::bedrock::codec::BedrockSized for ChangeFakePlayerScore {
+impl crate::bedrock::codec::BedrockSized for ChangeFakePlayerScorejson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -9717,7 +9856,7 @@ impl crate::bedrock::codec::BedrockSized for ChangeFakePlayerScore {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for ChangeFakePlayerScore {
+impl crate::bedrock::codec::BedrockCodec for ChangeFakePlayerScorejson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -9841,14 +9980,14 @@ impl crate::bedrock::codec::BedrockCodec for PlayerScoreboardId {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ChangePlayerScore {
+pub struct ChangePlayerScorejson {
     pub action: String,
     pub scoreboard_id: ScoreboardId,
     pub objective_name: String,
     pub score_value: i32,
     pub player_unique_id: PlayerScoreboardId,
 }
-impl crate::bedrock::codec::BedrockSized for ChangePlayerScore {
+impl crate::bedrock::codec::BedrockSized for ChangePlayerScorejson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -9869,7 +10008,7 @@ impl crate::bedrock::codec::BedrockSized for ChangePlayerScore {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for ChangePlayerScore {
+impl crate::bedrock::codec::BedrockCodec for ChangePlayerScorejson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -9981,6 +10120,57 @@ impl crate::bedrock::codec::BedrockCodec for ChunkPos {
         )?
         .0;
         Ok(Self { x, z })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ClearOverridejson {
+    pub type_: String,
+}
+impl crate::bedrock::codec::BedrockSized for ClearOverridejson {
+    fn encoded_size(&self) -> usize {
+        let mut size = 0usize;
+        size += {
+            let _len = (&self.type_).as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + _len
+        };
+        size
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for ClearOverridejson {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        let bytes = (&self.type_).as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        buf.put_slice(bytes);
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = buf;
+        let type_ = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
+        Ok(Self { type_ })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -10257,12 +10447,12 @@ impl crate::bedrock::codec::BedrockCodec for CommandOriginDatajson {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct CommandOutputMessage {
+pub struct CommandOutputMessagejson {
     pub message_id: String,
     pub successful: bool,
     pub parameters: Vec<String>,
 }
-impl crate::bedrock::codec::BedrockSized for CommandOutputMessage {
+impl crate::bedrock::codec::BedrockSized for CommandOutputMessagejson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -10289,7 +10479,7 @@ impl crate::bedrock::codec::BedrockSized for CommandOutputMessage {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for CommandOutputMessage {
+impl crate::bedrock::codec::BedrockCodec for CommandOutputMessagejson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -10370,13 +10560,13 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutputMessage {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct CommandOutput {
+pub struct CommandOutputjson {
     pub output_type: String,
     pub success_count: u32,
-    pub output_messages: Vec<CommandOutputMessage>,
+    pub output_messages: Vec<CommandOutputMessagejson>,
     pub data_set: Option<String>,
 }
-impl crate::bedrock::codec::BedrockSized for CommandOutput {
+impl crate::bedrock::codec::BedrockSized for CommandOutputjson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -10410,7 +10600,7 @@ impl crate::bedrock::codec::BedrockSized for CommandOutput {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for CommandOutput {
+impl crate::bedrock::codec::BedrockCodec for CommandOutputjson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -10473,7 +10663,10 @@ impl crate::bedrock::codec::BedrockCodec for CommandOutput {
             for _ in 0..len {
                 crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
                 tmp_vec.push(
-                    <CommandOutputMessage as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                    <CommandOutputMessagejson as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?,
                 );
             }
             tmp_vec
@@ -10667,7 +10860,7 @@ pub enum EnumsSharedTypesCreativeItemCategory {
     Nature,
     Equipment,
     Items,
-    ItemCommandOnly,
+    Itemcommandonly,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSharedTypesCreativeItemCategory {
@@ -10677,7 +10870,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsSharedTypesCreativeItemCategor
             EnumsSharedTypesCreativeItemCategory::Nature => 2,
             EnumsSharedTypesCreativeItemCategory::Equipment => 3,
             EnumsSharedTypesCreativeItemCategory::Items => 4,
-            EnumsSharedTypesCreativeItemCategory::ItemCommandOnly => 5,
+            EnumsSharedTypesCreativeItemCategory::Itemcommandonly => 5,
             EnumsSharedTypesCreativeItemCategory::Unknown(v) => *v,
         };
         1usize
@@ -10691,7 +10884,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypesCreativeItemCategor
             EnumsSharedTypesCreativeItemCategory::Nature => 2,
             EnumsSharedTypesCreativeItemCategory::Equipment => 3,
             EnumsSharedTypesCreativeItemCategory::Items => 4,
-            EnumsSharedTypesCreativeItemCategory::ItemCommandOnly => 5,
+            EnumsSharedTypesCreativeItemCategory::Itemcommandonly => 5,
             EnumsSharedTypesCreativeItemCategory::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -10706,7 +10899,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypesCreativeItemCategor
             2 => Ok(EnumsSharedTypesCreativeItemCategory::Nature),
             3 => Ok(EnumsSharedTypesCreativeItemCategory::Equipment),
             4 => Ok(EnumsSharedTypesCreativeItemCategory::Items),
-            5 => Ok(EnumsSharedTypesCreativeItemCategory::ItemCommandOnly),
+            5 => Ok(EnumsSharedTypesCreativeItemCategory::Itemcommandonly),
             other => Ok(EnumsSharedTypesCreativeItemCategory::Unknown(other)),
         }
     }
@@ -11019,7 +11212,7 @@ pub enum EnumsDataItemType {
     Int,
     Float,
     String,
-    CompoundTag,
+    Compoundtag,
     Pos,
     Int64,
     Vec3,
@@ -11033,7 +11226,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsDataItemType {
             EnumsDataItemType::Int => 2,
             EnumsDataItemType::Float => 3,
             EnumsDataItemType::String => 4,
-            EnumsDataItemType::CompoundTag => 5,
+            EnumsDataItemType::Compoundtag => 5,
             EnumsDataItemType::Pos => 6,
             EnumsDataItemType::Int64 => 7,
             EnumsDataItemType::Vec3 => 8,
@@ -11051,7 +11244,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsDataItemType {
             EnumsDataItemType::Int => 2,
             EnumsDataItemType::Float => 3,
             EnumsDataItemType::String => 4,
-            EnumsDataItemType::CompoundTag => 5,
+            EnumsDataItemType::Compoundtag => 5,
             EnumsDataItemType::Pos => 6,
             EnumsDataItemType::Int64 => 7,
             EnumsDataItemType::Vec3 => 8,
@@ -11070,7 +11263,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsDataItemType {
             2 => Ok(EnumsDataItemType::Int),
             3 => Ok(EnumsDataItemType::Float),
             4 => Ok(EnumsDataItemType::String),
-            5 => Ok(EnumsDataItemType::CompoundTag),
+            5 => Ok(EnumsDataItemType::Compoundtag),
             6 => Ok(EnumsDataItemType::Pos),
             7 => Ok(EnumsDataItemType::Int64),
             8 => Ok(EnumsDataItemType::Vec3),
@@ -11426,31 +11619,49 @@ impl crate::bedrock::codec::BedrockSized for DataItemEntryPayload {
     fn encoded_size(&self) -> usize {
         match self {
             DataItemEntryPayload::DataItemBytePayload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    0 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemShortPayload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    1 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemIntPayload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    2 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemFloatPayload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    3 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemStringPayload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    4 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemCompoundTagPayload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    5 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemPosPayload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    6 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemInt64Payload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    7 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             DataItemEntryPayload::DataItemVec3Payload(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    8 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
         }
     }
@@ -11461,55 +11672,55 @@ impl crate::bedrock::codec::BedrockCodec for DataItemEntryPayload {
         match self {
             DataItemEntryPayload::DataItemBytePayload(value) => {
                 let control_value = 0 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemShortPayload(value) => {
                 let control_value = 1 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemIntPayload(value) => {
                 let control_value = 2 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemFloatPayload(value) => {
                 let control_value = 3 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemStringPayload(value) => {
                 let control_value = 4 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemCompoundTagPayload(value) => {
                 let control_value = 5 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemPosPayload(value) => {
                 let control_value = 6 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemInt64Payload(value) => {
                 let control_value = 7 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             DataItemEntryPayload::DataItemVec3Payload(value) => {
                 let control_value = 8 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
@@ -11519,7 +11730,12 @@ impl crate::bedrock::codec::BedrockCodec for DataItemEntryPayload {
         buf: &mut B,
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let control_value = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? as i64;
+        let control_value =
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0 as i64;
         match control_value {
             0 => Ok(DataItemEntryPayload::DataItemBytePayload(
                 <DataItemBytePayload as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
@@ -11602,7 +11818,7 @@ pub enum EnumsGeneratorType {
     Overworld,
     Flat,
     Nether,
-    TheEnd,
+    Theend,
     Void,
     Undefined,
     Unknown(i32),
@@ -11614,7 +11830,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsGeneratorType {
             EnumsGeneratorType::Overworld => 1,
             EnumsGeneratorType::Flat => 2,
             EnumsGeneratorType::Nether => 3,
-            EnumsGeneratorType::TheEnd => 4,
+            EnumsGeneratorType::Theend => 4,
             EnumsGeneratorType::Void => 5,
             EnumsGeneratorType::Undefined => 6,
             EnumsGeneratorType::Unknown(v) => *v,
@@ -11632,7 +11848,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsGeneratorType {
             EnumsGeneratorType::Overworld => 1,
             EnumsGeneratorType::Flat => 2,
             EnumsGeneratorType::Nether => 3,
-            EnumsGeneratorType::TheEnd => 4,
+            EnumsGeneratorType::Theend => 4,
             EnumsGeneratorType::Void => 5,
             EnumsGeneratorType::Undefined => 6,
             EnumsGeneratorType::Unknown(v) => *v,
@@ -11653,7 +11869,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsGeneratorType {
             1 => Ok(EnumsGeneratorType::Overworld),
             2 => Ok(EnumsGeneratorType::Flat),
             3 => Ok(EnumsGeneratorType::Nether),
-            4 => Ok(EnumsGeneratorType::TheEnd),
+            4 => Ok(EnumsGeneratorType::Theend),
             5 => Ok(EnumsGeneratorType::Void),
             6 => Ok(EnumsGeneratorType::Undefined),
             other => Ok(EnumsGeneratorType::Unknown(other)),
@@ -11667,24 +11883,31 @@ impl Default for EnumsGeneratorType {
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DimensionDefinitionGroupDimensionDefinition {
-    pub height_maximum: i32,
-    pub height_minimum: i32,
+    pub minimum_y: i32,
+    pub height_range: i32,
     pub generator_type: EnumsGeneratorType,
     pub dimension_type: DimensionType,
     pub pack_id: MceUuiDjson,
+    pub default_biome: String,
 }
 impl crate::bedrock::codec::BedrockSized for DimensionDefinitionGroupDimensionDefinition {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.height_maximum),
+            &crate::bedrock::codec::ZigZag32(self.minimum_y),
         );
         size += crate::bedrock::codec::BedrockSized::encoded_size(
-            &crate::bedrock::codec::ZigZag32(self.height_minimum),
+            &crate::bedrock::codec::ZigZag32(self.height_range),
         );
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.generator_type);
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.dimension_type);
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.pack_id);
+        size += {
+            let _len = (&self.default_biome).as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + _len
+        };
         size
     }
 }
@@ -11692,11 +11915,15 @@ impl crate::bedrock::codec::BedrockCodec for DimensionDefinitionGroupDimensionDe
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        crate::bedrock::codec::ZigZag32(self.height_maximum).encode(buf)?;
-        crate::bedrock::codec::ZigZag32(self.height_minimum).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(self.minimum_y).encode(buf)?;
+        crate::bedrock::codec::ZigZag32(self.height_range).encode(buf)?;
         self.generator_type.encode(buf)?;
         self.dimension_type.encode(buf)?;
         self.pack_id.encode(buf)?;
+        let bytes = (&self.default_biome).as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        buf.put_slice(bytes);
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -11704,13 +11931,13 @@ impl crate::bedrock::codec::BedrockCodec for DimensionDefinitionGroupDimensionDe
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let height_maximum =
+        let minimum_y =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
             )?
             .0;
-        let height_minimum =
+        let height_range =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
                 (),
@@ -11721,12 +11948,30 @@ impl crate::bedrock::codec::BedrockCodec for DimensionDefinitionGroupDimensionDe
         let dimension_type =
             <DimensionType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let pack_id = <MceUuiDjson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let default_biome = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
         Ok(Self {
-            height_maximum,
-            height_minimum,
+            minimum_y,
+            height_range,
             generator_type,
             dimension_type,
             pack_id,
+            default_biome,
         })
     }
 }
@@ -11818,6 +12063,8 @@ pub struct EcsProfilingDiagnosticsEntityDiagnosticTimingInfo {
     pub entity: String,
     pub timein_ns: u64,
     pub percentof_total: u8,
+    pub position: Option<Vec3>,
+    pub dimension: Option<String>,
 }
 impl crate::bedrock::codec::BedrockSized for EcsProfilingDiagnosticsEntityDiagnosticTimingInfo {
     fn encoded_size(&self) -> usize {
@@ -11836,6 +12083,25 @@ impl crate::bedrock::codec::BedrockSized for EcsProfilingDiagnosticsEntityDiagno
         };
         size += 8usize;
         size += 1usize;
+        size += {
+            1usize
+                + match &self.position {
+                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
+                    None => 0usize,
+                }
+        };
+        size += {
+            1usize
+                + match &self.dimension {
+                    Some(_v) => {
+                        let _len = (_v).as_bytes().len();
+                        crate::bedrock::codec::BedrockSized::encoded_size(
+                            &crate::bedrock::codec::VarUInt(_len as u32),
+                        ) + _len
+                    }
+                    None => 0usize,
+                }
+        };
         size
     }
 }
@@ -11853,6 +12119,23 @@ impl crate::bedrock::codec::BedrockCodec for EcsProfilingDiagnosticsEntityDiagno
         buf.put_slice(bytes);
         crate::bedrock::codec::U64LE(self.timein_ns).encode(buf)?;
         self.percentof_total.encode(buf)?;
+        match &self.position {
+            Some(v) => {
+                buf.put_u8(1);
+                v.encode(buf)?;
+            }
+            None => buf.put_u8(0),
+        }
+        match &self.dimension {
+            Some(v) => {
+                buf.put_u8(1);
+                let bytes = (v).as_bytes();
+                let len = bytes.len();
+                crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+                buf.put_slice(bytes);
+            }
+            None => buf.put_u8(0),
+        }
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -11898,11 +12181,47 @@ impl crate::bedrock::codec::BedrockCodec for EcsProfilingDiagnosticsEntityDiagno
             <crate::bedrock::codec::U64LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
                 .0;
         let percentof_total = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let position = {
+            let present = u8::decode(buf, ())?;
+            if present != 0 {
+                Some(<Vec3 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?)
+            } else {
+                None
+            }
+        };
+        let dimension = {
+            let present = u8::decode(buf, ())?;
+            if present != 0 {
+                Some({
+                    let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                            buf,
+                            (),
+                        )?
+                        .0) as usize;
+                    if buf.remaining() < len {
+                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                            declared: len,
+                            available: buf.remaining(),
+                        });
+                    }
+                    let mut bytes = vec![0u8; len];
+                    buf.copy_to_slice(&mut bytes);
+                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+                })
+            } else {
+                None
+            }
+        };
         Ok(Self {
             display_name,
             entity,
             timein_ns,
             percentof_total,
+            position,
+            dimension,
         })
     }
 }
@@ -12528,98 +12847,98 @@ impl crate::bedrock::codec::BedrockCodec for EllipsoidDataPayload {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsEnchantType {
     Protection,
-    FireProtection,
-    FeatherFalling,
-    BlastProtection,
-    ProjectileProtection,
+    Fireprotection,
+    Featherfalling,
+    Blastprotection,
+    Projectileprotection,
     Thorns,
     Respiration,
-    DepthStrider,
-    AquaAffinity,
+    Depthstrider,
+    Aquaaffinity,
     Sharpness,
     Smite,
-    BaneOfArthropods,
+    Baneofarthropods,
     Knockback,
-    FireAspect,
+    Fireaspect,
     Looting,
     Efficiency,
-    SilkTouch,
+    Silktouch,
     Unbreaking,
     Fortune,
     Power,
     Punch,
     Flame,
     Infinity,
-    LuckOfTheSea,
+    Luckofthesea,
     Lure,
-    FrostWalker,
+    Frostwalker,
     Mending,
-    CurseOfBinding,
-    CurseOfVanishing,
+    Curseofbinding,
+    Curseofvanishing,
     Impaling,
     Riptide,
     Loyalty,
     Channeling,
     Multishot,
     Piercing,
-    QuickCharge,
-    SoulSpeed,
-    SwiftSneak,
-    WindBurst,
+    Quickcharge,
+    Soulspeed,
+    Swiftsneak,
+    Windburst,
     Density,
     Breach,
     Lunge,
-    NumEnchantments,
-    InvalidEnchantment,
+    Numenchantments,
+    Invalidenchantment,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsEnchantType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsEnchantType::Protection => 0,
-            EnumsEnchantType::FireProtection => 1,
-            EnumsEnchantType::FeatherFalling => 2,
-            EnumsEnchantType::BlastProtection => 3,
-            EnumsEnchantType::ProjectileProtection => 4,
+            EnumsEnchantType::Fireprotection => 1,
+            EnumsEnchantType::Featherfalling => 2,
+            EnumsEnchantType::Blastprotection => 3,
+            EnumsEnchantType::Projectileprotection => 4,
             EnumsEnchantType::Thorns => 5,
             EnumsEnchantType::Respiration => 6,
-            EnumsEnchantType::DepthStrider => 7,
-            EnumsEnchantType::AquaAffinity => 8,
+            EnumsEnchantType::Depthstrider => 7,
+            EnumsEnchantType::Aquaaffinity => 8,
             EnumsEnchantType::Sharpness => 9,
             EnumsEnchantType::Smite => 10,
-            EnumsEnchantType::BaneOfArthropods => 11,
+            EnumsEnchantType::Baneofarthropods => 11,
             EnumsEnchantType::Knockback => 12,
-            EnumsEnchantType::FireAspect => 13,
+            EnumsEnchantType::Fireaspect => 13,
             EnumsEnchantType::Looting => 14,
             EnumsEnchantType::Efficiency => 15,
-            EnumsEnchantType::SilkTouch => 16,
+            EnumsEnchantType::Silktouch => 16,
             EnumsEnchantType::Unbreaking => 17,
             EnumsEnchantType::Fortune => 18,
             EnumsEnchantType::Power => 19,
             EnumsEnchantType::Punch => 20,
             EnumsEnchantType::Flame => 21,
             EnumsEnchantType::Infinity => 22,
-            EnumsEnchantType::LuckOfTheSea => 23,
+            EnumsEnchantType::Luckofthesea => 23,
             EnumsEnchantType::Lure => 24,
-            EnumsEnchantType::FrostWalker => 25,
+            EnumsEnchantType::Frostwalker => 25,
             EnumsEnchantType::Mending => 26,
-            EnumsEnchantType::CurseOfBinding => 27,
-            EnumsEnchantType::CurseOfVanishing => 28,
+            EnumsEnchantType::Curseofbinding => 27,
+            EnumsEnchantType::Curseofvanishing => 28,
             EnumsEnchantType::Impaling => 29,
             EnumsEnchantType::Riptide => 30,
             EnumsEnchantType::Loyalty => 31,
             EnumsEnchantType::Channeling => 32,
             EnumsEnchantType::Multishot => 33,
             EnumsEnchantType::Piercing => 34,
-            EnumsEnchantType::QuickCharge => 35,
-            EnumsEnchantType::SoulSpeed => 36,
-            EnumsEnchantType::SwiftSneak => 37,
-            EnumsEnchantType::WindBurst => 38,
+            EnumsEnchantType::Quickcharge => 35,
+            EnumsEnchantType::Soulspeed => 36,
+            EnumsEnchantType::Swiftsneak => 37,
+            EnumsEnchantType::Windburst => 38,
             EnumsEnchantType::Density => 39,
             EnumsEnchantType::Breach => 40,
             EnumsEnchantType::Lunge => 41,
-            EnumsEnchantType::NumEnchantments => 42,
-            EnumsEnchantType::InvalidEnchantment => 43,
+            EnumsEnchantType::Numenchantments => 42,
+            EnumsEnchantType::Invalidenchantment => 43,
             EnumsEnchantType::Unknown(v) => *v,
         };
         1usize
@@ -12630,49 +12949,49 @@ impl crate::bedrock::codec::BedrockCodec for EnumsEnchantType {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsEnchantType::Protection => 0,
-            EnumsEnchantType::FireProtection => 1,
-            EnumsEnchantType::FeatherFalling => 2,
-            EnumsEnchantType::BlastProtection => 3,
-            EnumsEnchantType::ProjectileProtection => 4,
+            EnumsEnchantType::Fireprotection => 1,
+            EnumsEnchantType::Featherfalling => 2,
+            EnumsEnchantType::Blastprotection => 3,
+            EnumsEnchantType::Projectileprotection => 4,
             EnumsEnchantType::Thorns => 5,
             EnumsEnchantType::Respiration => 6,
-            EnumsEnchantType::DepthStrider => 7,
-            EnumsEnchantType::AquaAffinity => 8,
+            EnumsEnchantType::Depthstrider => 7,
+            EnumsEnchantType::Aquaaffinity => 8,
             EnumsEnchantType::Sharpness => 9,
             EnumsEnchantType::Smite => 10,
-            EnumsEnchantType::BaneOfArthropods => 11,
+            EnumsEnchantType::Baneofarthropods => 11,
             EnumsEnchantType::Knockback => 12,
-            EnumsEnchantType::FireAspect => 13,
+            EnumsEnchantType::Fireaspect => 13,
             EnumsEnchantType::Looting => 14,
             EnumsEnchantType::Efficiency => 15,
-            EnumsEnchantType::SilkTouch => 16,
+            EnumsEnchantType::Silktouch => 16,
             EnumsEnchantType::Unbreaking => 17,
             EnumsEnchantType::Fortune => 18,
             EnumsEnchantType::Power => 19,
             EnumsEnchantType::Punch => 20,
             EnumsEnchantType::Flame => 21,
             EnumsEnchantType::Infinity => 22,
-            EnumsEnchantType::LuckOfTheSea => 23,
+            EnumsEnchantType::Luckofthesea => 23,
             EnumsEnchantType::Lure => 24,
-            EnumsEnchantType::FrostWalker => 25,
+            EnumsEnchantType::Frostwalker => 25,
             EnumsEnchantType::Mending => 26,
-            EnumsEnchantType::CurseOfBinding => 27,
-            EnumsEnchantType::CurseOfVanishing => 28,
+            EnumsEnchantType::Curseofbinding => 27,
+            EnumsEnchantType::Curseofvanishing => 28,
             EnumsEnchantType::Impaling => 29,
             EnumsEnchantType::Riptide => 30,
             EnumsEnchantType::Loyalty => 31,
             EnumsEnchantType::Channeling => 32,
             EnumsEnchantType::Multishot => 33,
             EnumsEnchantType::Piercing => 34,
-            EnumsEnchantType::QuickCharge => 35,
-            EnumsEnchantType::SoulSpeed => 36,
-            EnumsEnchantType::SwiftSneak => 37,
-            EnumsEnchantType::WindBurst => 38,
+            EnumsEnchantType::Quickcharge => 35,
+            EnumsEnchantType::Soulspeed => 36,
+            EnumsEnchantType::Swiftsneak => 37,
+            EnumsEnchantType::Windburst => 38,
             EnumsEnchantType::Density => 39,
             EnumsEnchantType::Breach => 40,
             EnumsEnchantType::Lunge => 41,
-            EnumsEnchantType::NumEnchantments => 42,
-            EnumsEnchantType::InvalidEnchantment => 43,
+            EnumsEnchantType::Numenchantments => 42,
+            EnumsEnchantType::Invalidenchantment => 43,
             EnumsEnchantType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -12684,49 +13003,49 @@ impl crate::bedrock::codec::BedrockCodec for EnumsEnchantType {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsEnchantType::Protection),
-            1 => Ok(EnumsEnchantType::FireProtection),
-            2 => Ok(EnumsEnchantType::FeatherFalling),
-            3 => Ok(EnumsEnchantType::BlastProtection),
-            4 => Ok(EnumsEnchantType::ProjectileProtection),
+            1 => Ok(EnumsEnchantType::Fireprotection),
+            2 => Ok(EnumsEnchantType::Featherfalling),
+            3 => Ok(EnumsEnchantType::Blastprotection),
+            4 => Ok(EnumsEnchantType::Projectileprotection),
             5 => Ok(EnumsEnchantType::Thorns),
             6 => Ok(EnumsEnchantType::Respiration),
-            7 => Ok(EnumsEnchantType::DepthStrider),
-            8 => Ok(EnumsEnchantType::AquaAffinity),
+            7 => Ok(EnumsEnchantType::Depthstrider),
+            8 => Ok(EnumsEnchantType::Aquaaffinity),
             9 => Ok(EnumsEnchantType::Sharpness),
             10 => Ok(EnumsEnchantType::Smite),
-            11 => Ok(EnumsEnchantType::BaneOfArthropods),
+            11 => Ok(EnumsEnchantType::Baneofarthropods),
             12 => Ok(EnumsEnchantType::Knockback),
-            13 => Ok(EnumsEnchantType::FireAspect),
+            13 => Ok(EnumsEnchantType::Fireaspect),
             14 => Ok(EnumsEnchantType::Looting),
             15 => Ok(EnumsEnchantType::Efficiency),
-            16 => Ok(EnumsEnchantType::SilkTouch),
+            16 => Ok(EnumsEnchantType::Silktouch),
             17 => Ok(EnumsEnchantType::Unbreaking),
             18 => Ok(EnumsEnchantType::Fortune),
             19 => Ok(EnumsEnchantType::Power),
             20 => Ok(EnumsEnchantType::Punch),
             21 => Ok(EnumsEnchantType::Flame),
             22 => Ok(EnumsEnchantType::Infinity),
-            23 => Ok(EnumsEnchantType::LuckOfTheSea),
+            23 => Ok(EnumsEnchantType::Luckofthesea),
             24 => Ok(EnumsEnchantType::Lure),
-            25 => Ok(EnumsEnchantType::FrostWalker),
+            25 => Ok(EnumsEnchantType::Frostwalker),
             26 => Ok(EnumsEnchantType::Mending),
-            27 => Ok(EnumsEnchantType::CurseOfBinding),
-            28 => Ok(EnumsEnchantType::CurseOfVanishing),
+            27 => Ok(EnumsEnchantType::Curseofbinding),
+            28 => Ok(EnumsEnchantType::Curseofvanishing),
             29 => Ok(EnumsEnchantType::Impaling),
             30 => Ok(EnumsEnchantType::Riptide),
             31 => Ok(EnumsEnchantType::Loyalty),
             32 => Ok(EnumsEnchantType::Channeling),
             33 => Ok(EnumsEnchantType::Multishot),
             34 => Ok(EnumsEnchantType::Piercing),
-            35 => Ok(EnumsEnchantType::QuickCharge),
-            36 => Ok(EnumsEnchantType::SoulSpeed),
-            37 => Ok(EnumsEnchantType::SwiftSneak),
-            38 => Ok(EnumsEnchantType::WindBurst),
+            35 => Ok(EnumsEnchantType::Quickcharge),
+            36 => Ok(EnumsEnchantType::Soulspeed),
+            37 => Ok(EnumsEnchantType::Swiftsneak),
+            38 => Ok(EnumsEnchantType::Windburst),
             39 => Ok(EnumsEnchantType::Density),
             40 => Ok(EnumsEnchantType::Breach),
             41 => Ok(EnumsEnchantType::Lunge),
-            42 => Ok(EnumsEnchantType::NumEnchantments),
-            43 => Ok(EnumsEnchantType::InvalidEnchantment),
+            42 => Ok(EnumsEnchantType::Numenchantments),
+            43 => Ok(EnumsEnchantType::Invalidenchantment),
             other => Ok(EnumsEnchantType::Unknown(other)),
         }
     }
@@ -13008,147 +13327,204 @@ impl crate::bedrock::codec::BedrockCodec for FeatureRegistryFeatureBinaryJsonFor
         })
     }
 }
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FloatOverridejson {
+    pub type_: String,
+    pub value: f32,
+}
+impl crate::bedrock::codec::BedrockSized for FloatOverridejson {
+    fn encoded_size(&self) -> usize {
+        let mut size = 0usize;
+        size += {
+            let _len = (&self.type_).as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + _len
+        };
+        size += 4usize;
+        size
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for FloatOverridejson {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        let bytes = (&self.type_).as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        buf.put_slice(bytes);
+        crate::bedrock::codec::F32LE(self.value).encode(buf)?;
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = buf;
+        let type_ = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
+        let value =
+            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+                .0;
+        Ok(Self { type_, value })
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsContainerEnumName {
-    AnvilInputContainer,
-    AnvilMaterialContainer,
-    AnvilResultPreviewContainer,
-    SmithingTableInputContainer,
-    SmithingTableMaterialContainer,
-    SmithingTableResultPreviewContainer,
-    ArmorContainer,
-    LevelEntityContainer,
-    BeaconPaymentContainer,
-    BrewingStandInputContainer,
-    BrewingStandResultContainer,
-    BrewingStandFuelContainer,
-    CombinedHotbarAndInventoryContainer,
-    CraftingInputContainer,
-    CraftingOutputPreviewContainer,
-    RecipeConstructionContainer,
-    RecipeNatureContainer,
-    RecipeItemsContainer,
-    RecipeSearchContainer,
-    RecipeSearchBarContainer,
-    RecipeEquipmentContainer,
-    RecipeBookContainer,
-    EnchantingInputContainer,
-    EnchantingMaterialContainer,
-    FurnaceFuelContainer,
-    FurnaceIngredientContainer,
-    FurnaceResultContainer,
-    HorseEquipContainer,
-    HotbarContainer,
-    InventoryContainer,
-    ShulkerBoxContainer,
-    TradeIngredient1Container,
-    TradeIngredient2Container,
-    TradeResultPreviewContainer,
-    OffhandContainer,
+    Anvilinputcontainer,
+    Anvilmaterialcontainer,
+    Anvilresultpreviewcontainer,
+    Smithingtableinputcontainer,
+    Smithingtablematerialcontainer,
+    Smithingtableresultpreviewcontainer,
+    Armorcontainer,
+    Levelentitycontainer,
+    Beaconpaymentcontainer,
+    Brewingstandinputcontainer,
+    Brewingstandresultcontainer,
+    Brewingstandfuelcontainer,
+    Combinedhotbarandinventorycontainer,
+    Craftinginputcontainer,
+    Craftingoutputpreviewcontainer,
+    Recipeconstructioncontainer,
+    Recipenaturecontainer,
+    Recipeitemscontainer,
+    Recipesearchcontainer,
+    Recipesearchbarcontainer,
+    Recipeequipmentcontainer,
+    Recipebookcontainer,
+    Enchantinginputcontainer,
+    Enchantingmaterialcontainer,
+    Furnacefuelcontainer,
+    Furnaceingredientcontainer,
+    Furnaceresultcontainer,
+    Horseequipcontainer,
+    Hotbarcontainer,
+    Inventorycontainer,
+    Shulkerboxcontainer,
+    Tradeingredient1Container,
+    Tradeingredient2Container,
+    Traderesultpreviewcontainer,
+    Offhandcontainer,
     Reserved35,
     Reserved36,
     Reserved37,
     Reserved38,
     Reserved39,
     Reserved40,
-    LoomInputContainer,
-    LoomDyeContainer,
-    LoomMaterialContainer,
-    LoomResultPreviewContainer,
-    BlastFurnaceIngredientContainer,
-    SmokerIngredientContainer,
+    Loominputcontainer,
+    Loomdyecontainer,
+    Loommaterialcontainer,
+    Loomresultpreviewcontainer,
+    Blastfurnaceingredientcontainer,
+    Smokeringredientcontainer,
     Trade2Ingredient1Container,
     Trade2Ingredient2Container,
-    Trade2ResultPreviewContainer,
-    GrindstoneInputContainer,
-    GrindstoneAdditionalContainer,
-    GrindstoneResultPreviewContainer,
-    StonecutterInputContainer,
-    StonecutterResultPreviewContainer,
-    CartographyInputContainer,
-    CartographyAdditionalContainer,
-    CartographyResultPreviewContainer,
-    BarrelContainer,
-    CursorContainer,
-    CreatedOutputContainer,
-    SmithingTableTemplateContainer,
-    CrafterLevelEntityContainer,
-    DynamicContainer,
-    RecipeFoodContainer,
-    RecipeBlocksContainer,
-    RecipeFurnaceItemsContainer,
+    Trade2Resultpreviewcontainer,
+    Grindstoneinputcontainer,
+    Grindstoneadditionalcontainer,
+    Grindstoneresultpreviewcontainer,
+    Stonecutterinputcontainer,
+    Stonecutterresultpreviewcontainer,
+    Cartographyinputcontainer,
+    Cartographyadditionalcontainer,
+    Cartographyresultpreviewcontainer,
+    Barrelcontainer,
+    Cursorcontainer,
+    Createdoutputcontainer,
+    Smithingtabletemplatecontainer,
+    Crafterlevelentitycontainer,
+    Dynamiccontainer,
+    Recipefoodcontainer,
+    Recipeblockscontainer,
+    Recipefurnaceitemscontainer,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsContainerEnumName {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsContainerEnumName::AnvilInputContainer => 0,
-            EnumsContainerEnumName::AnvilMaterialContainer => 1,
-            EnumsContainerEnumName::AnvilResultPreviewContainer => 2,
-            EnumsContainerEnumName::SmithingTableInputContainer => 3,
-            EnumsContainerEnumName::SmithingTableMaterialContainer => 4,
-            EnumsContainerEnumName::SmithingTableResultPreviewContainer => 5,
-            EnumsContainerEnumName::ArmorContainer => 6,
-            EnumsContainerEnumName::LevelEntityContainer => 7,
-            EnumsContainerEnumName::BeaconPaymentContainer => 8,
-            EnumsContainerEnumName::BrewingStandInputContainer => 9,
-            EnumsContainerEnumName::BrewingStandResultContainer => 10,
-            EnumsContainerEnumName::BrewingStandFuelContainer => 11,
-            EnumsContainerEnumName::CombinedHotbarAndInventoryContainer => 12,
-            EnumsContainerEnumName::CraftingInputContainer => 13,
-            EnumsContainerEnumName::CraftingOutputPreviewContainer => 14,
-            EnumsContainerEnumName::RecipeConstructionContainer => 15,
-            EnumsContainerEnumName::RecipeNatureContainer => 16,
-            EnumsContainerEnumName::RecipeItemsContainer => 17,
-            EnumsContainerEnumName::RecipeSearchContainer => 18,
-            EnumsContainerEnumName::RecipeSearchBarContainer => 19,
-            EnumsContainerEnumName::RecipeEquipmentContainer => 20,
-            EnumsContainerEnumName::RecipeBookContainer => 21,
-            EnumsContainerEnumName::EnchantingInputContainer => 22,
-            EnumsContainerEnumName::EnchantingMaterialContainer => 23,
-            EnumsContainerEnumName::FurnaceFuelContainer => 24,
-            EnumsContainerEnumName::FurnaceIngredientContainer => 25,
-            EnumsContainerEnumName::FurnaceResultContainer => 26,
-            EnumsContainerEnumName::HorseEquipContainer => 27,
-            EnumsContainerEnumName::HotbarContainer => 28,
-            EnumsContainerEnumName::InventoryContainer => 29,
-            EnumsContainerEnumName::ShulkerBoxContainer => 30,
-            EnumsContainerEnumName::TradeIngredient1Container => 31,
-            EnumsContainerEnumName::TradeIngredient2Container => 32,
-            EnumsContainerEnumName::TradeResultPreviewContainer => 33,
-            EnumsContainerEnumName::OffhandContainer => 34,
+            EnumsContainerEnumName::Anvilinputcontainer => 0,
+            EnumsContainerEnumName::Anvilmaterialcontainer => 1,
+            EnumsContainerEnumName::Anvilresultpreviewcontainer => 2,
+            EnumsContainerEnumName::Smithingtableinputcontainer => 3,
+            EnumsContainerEnumName::Smithingtablematerialcontainer => 4,
+            EnumsContainerEnumName::Smithingtableresultpreviewcontainer => 5,
+            EnumsContainerEnumName::Armorcontainer => 6,
+            EnumsContainerEnumName::Levelentitycontainer => 7,
+            EnumsContainerEnumName::Beaconpaymentcontainer => 8,
+            EnumsContainerEnumName::Brewingstandinputcontainer => 9,
+            EnumsContainerEnumName::Brewingstandresultcontainer => 10,
+            EnumsContainerEnumName::Brewingstandfuelcontainer => 11,
+            EnumsContainerEnumName::Combinedhotbarandinventorycontainer => 12,
+            EnumsContainerEnumName::Craftinginputcontainer => 13,
+            EnumsContainerEnumName::Craftingoutputpreviewcontainer => 14,
+            EnumsContainerEnumName::Recipeconstructioncontainer => 15,
+            EnumsContainerEnumName::Recipenaturecontainer => 16,
+            EnumsContainerEnumName::Recipeitemscontainer => 17,
+            EnumsContainerEnumName::Recipesearchcontainer => 18,
+            EnumsContainerEnumName::Recipesearchbarcontainer => 19,
+            EnumsContainerEnumName::Recipeequipmentcontainer => 20,
+            EnumsContainerEnumName::Recipebookcontainer => 21,
+            EnumsContainerEnumName::Enchantinginputcontainer => 22,
+            EnumsContainerEnumName::Enchantingmaterialcontainer => 23,
+            EnumsContainerEnumName::Furnacefuelcontainer => 24,
+            EnumsContainerEnumName::Furnaceingredientcontainer => 25,
+            EnumsContainerEnumName::Furnaceresultcontainer => 26,
+            EnumsContainerEnumName::Horseequipcontainer => 27,
+            EnumsContainerEnumName::Hotbarcontainer => 28,
+            EnumsContainerEnumName::Inventorycontainer => 29,
+            EnumsContainerEnumName::Shulkerboxcontainer => 30,
+            EnumsContainerEnumName::Tradeingredient1Container => 31,
+            EnumsContainerEnumName::Tradeingredient2Container => 32,
+            EnumsContainerEnumName::Traderesultpreviewcontainer => 33,
+            EnumsContainerEnumName::Offhandcontainer => 34,
             EnumsContainerEnumName::Reserved35 => 35,
             EnumsContainerEnumName::Reserved36 => 36,
             EnumsContainerEnumName::Reserved37 => 37,
             EnumsContainerEnumName::Reserved38 => 38,
             EnumsContainerEnumName::Reserved39 => 39,
             EnumsContainerEnumName::Reserved40 => 40,
-            EnumsContainerEnumName::LoomInputContainer => 41,
-            EnumsContainerEnumName::LoomDyeContainer => 42,
-            EnumsContainerEnumName::LoomMaterialContainer => 43,
-            EnumsContainerEnumName::LoomResultPreviewContainer => 44,
-            EnumsContainerEnumName::BlastFurnaceIngredientContainer => 45,
-            EnumsContainerEnumName::SmokerIngredientContainer => 46,
+            EnumsContainerEnumName::Loominputcontainer => 41,
+            EnumsContainerEnumName::Loomdyecontainer => 42,
+            EnumsContainerEnumName::Loommaterialcontainer => 43,
+            EnumsContainerEnumName::Loomresultpreviewcontainer => 44,
+            EnumsContainerEnumName::Blastfurnaceingredientcontainer => 45,
+            EnumsContainerEnumName::Smokeringredientcontainer => 46,
             EnumsContainerEnumName::Trade2Ingredient1Container => 47,
             EnumsContainerEnumName::Trade2Ingredient2Container => 48,
-            EnumsContainerEnumName::Trade2ResultPreviewContainer => 49,
-            EnumsContainerEnumName::GrindstoneInputContainer => 50,
-            EnumsContainerEnumName::GrindstoneAdditionalContainer => 51,
-            EnumsContainerEnumName::GrindstoneResultPreviewContainer => 52,
-            EnumsContainerEnumName::StonecutterInputContainer => 53,
-            EnumsContainerEnumName::StonecutterResultPreviewContainer => 54,
-            EnumsContainerEnumName::CartographyInputContainer => 55,
-            EnumsContainerEnumName::CartographyAdditionalContainer => 56,
-            EnumsContainerEnumName::CartographyResultPreviewContainer => 57,
-            EnumsContainerEnumName::BarrelContainer => 58,
-            EnumsContainerEnumName::CursorContainer => 59,
-            EnumsContainerEnumName::CreatedOutputContainer => 60,
-            EnumsContainerEnumName::SmithingTableTemplateContainer => 61,
-            EnumsContainerEnumName::CrafterLevelEntityContainer => 62,
-            EnumsContainerEnumName::DynamicContainer => 63,
-            EnumsContainerEnumName::RecipeFoodContainer => 64,
-            EnumsContainerEnumName::RecipeBlocksContainer => 65,
-            EnumsContainerEnumName::RecipeFurnaceItemsContainer => 66,
+            EnumsContainerEnumName::Trade2Resultpreviewcontainer => 49,
+            EnumsContainerEnumName::Grindstoneinputcontainer => 50,
+            EnumsContainerEnumName::Grindstoneadditionalcontainer => 51,
+            EnumsContainerEnumName::Grindstoneresultpreviewcontainer => 52,
+            EnumsContainerEnumName::Stonecutterinputcontainer => 53,
+            EnumsContainerEnumName::Stonecutterresultpreviewcontainer => 54,
+            EnumsContainerEnumName::Cartographyinputcontainer => 55,
+            EnumsContainerEnumName::Cartographyadditionalcontainer => 56,
+            EnumsContainerEnumName::Cartographyresultpreviewcontainer => 57,
+            EnumsContainerEnumName::Barrelcontainer => 58,
+            EnumsContainerEnumName::Cursorcontainer => 59,
+            EnumsContainerEnumName::Createdoutputcontainer => 60,
+            EnumsContainerEnumName::Smithingtabletemplatecontainer => 61,
+            EnumsContainerEnumName::Crafterlevelentitycontainer => 62,
+            EnumsContainerEnumName::Dynamiccontainer => 63,
+            EnumsContainerEnumName::Recipefoodcontainer => 64,
+            EnumsContainerEnumName::Recipeblockscontainer => 65,
+            EnumsContainerEnumName::Recipefurnaceitemscontainer => 66,
             EnumsContainerEnumName::Unknown(v) => *v,
         };
         1usize
@@ -13158,73 +13534,73 @@ impl crate::bedrock::codec::BedrockCodec for EnumsContainerEnumName {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsContainerEnumName::AnvilInputContainer => 0,
-            EnumsContainerEnumName::AnvilMaterialContainer => 1,
-            EnumsContainerEnumName::AnvilResultPreviewContainer => 2,
-            EnumsContainerEnumName::SmithingTableInputContainer => 3,
-            EnumsContainerEnumName::SmithingTableMaterialContainer => 4,
-            EnumsContainerEnumName::SmithingTableResultPreviewContainer => 5,
-            EnumsContainerEnumName::ArmorContainer => 6,
-            EnumsContainerEnumName::LevelEntityContainer => 7,
-            EnumsContainerEnumName::BeaconPaymentContainer => 8,
-            EnumsContainerEnumName::BrewingStandInputContainer => 9,
-            EnumsContainerEnumName::BrewingStandResultContainer => 10,
-            EnumsContainerEnumName::BrewingStandFuelContainer => 11,
-            EnumsContainerEnumName::CombinedHotbarAndInventoryContainer => 12,
-            EnumsContainerEnumName::CraftingInputContainer => 13,
-            EnumsContainerEnumName::CraftingOutputPreviewContainer => 14,
-            EnumsContainerEnumName::RecipeConstructionContainer => 15,
-            EnumsContainerEnumName::RecipeNatureContainer => 16,
-            EnumsContainerEnumName::RecipeItemsContainer => 17,
-            EnumsContainerEnumName::RecipeSearchContainer => 18,
-            EnumsContainerEnumName::RecipeSearchBarContainer => 19,
-            EnumsContainerEnumName::RecipeEquipmentContainer => 20,
-            EnumsContainerEnumName::RecipeBookContainer => 21,
-            EnumsContainerEnumName::EnchantingInputContainer => 22,
-            EnumsContainerEnumName::EnchantingMaterialContainer => 23,
-            EnumsContainerEnumName::FurnaceFuelContainer => 24,
-            EnumsContainerEnumName::FurnaceIngredientContainer => 25,
-            EnumsContainerEnumName::FurnaceResultContainer => 26,
-            EnumsContainerEnumName::HorseEquipContainer => 27,
-            EnumsContainerEnumName::HotbarContainer => 28,
-            EnumsContainerEnumName::InventoryContainer => 29,
-            EnumsContainerEnumName::ShulkerBoxContainer => 30,
-            EnumsContainerEnumName::TradeIngredient1Container => 31,
-            EnumsContainerEnumName::TradeIngredient2Container => 32,
-            EnumsContainerEnumName::TradeResultPreviewContainer => 33,
-            EnumsContainerEnumName::OffhandContainer => 34,
+            EnumsContainerEnumName::Anvilinputcontainer => 0,
+            EnumsContainerEnumName::Anvilmaterialcontainer => 1,
+            EnumsContainerEnumName::Anvilresultpreviewcontainer => 2,
+            EnumsContainerEnumName::Smithingtableinputcontainer => 3,
+            EnumsContainerEnumName::Smithingtablematerialcontainer => 4,
+            EnumsContainerEnumName::Smithingtableresultpreviewcontainer => 5,
+            EnumsContainerEnumName::Armorcontainer => 6,
+            EnumsContainerEnumName::Levelentitycontainer => 7,
+            EnumsContainerEnumName::Beaconpaymentcontainer => 8,
+            EnumsContainerEnumName::Brewingstandinputcontainer => 9,
+            EnumsContainerEnumName::Brewingstandresultcontainer => 10,
+            EnumsContainerEnumName::Brewingstandfuelcontainer => 11,
+            EnumsContainerEnumName::Combinedhotbarandinventorycontainer => 12,
+            EnumsContainerEnumName::Craftinginputcontainer => 13,
+            EnumsContainerEnumName::Craftingoutputpreviewcontainer => 14,
+            EnumsContainerEnumName::Recipeconstructioncontainer => 15,
+            EnumsContainerEnumName::Recipenaturecontainer => 16,
+            EnumsContainerEnumName::Recipeitemscontainer => 17,
+            EnumsContainerEnumName::Recipesearchcontainer => 18,
+            EnumsContainerEnumName::Recipesearchbarcontainer => 19,
+            EnumsContainerEnumName::Recipeequipmentcontainer => 20,
+            EnumsContainerEnumName::Recipebookcontainer => 21,
+            EnumsContainerEnumName::Enchantinginputcontainer => 22,
+            EnumsContainerEnumName::Enchantingmaterialcontainer => 23,
+            EnumsContainerEnumName::Furnacefuelcontainer => 24,
+            EnumsContainerEnumName::Furnaceingredientcontainer => 25,
+            EnumsContainerEnumName::Furnaceresultcontainer => 26,
+            EnumsContainerEnumName::Horseequipcontainer => 27,
+            EnumsContainerEnumName::Hotbarcontainer => 28,
+            EnumsContainerEnumName::Inventorycontainer => 29,
+            EnumsContainerEnumName::Shulkerboxcontainer => 30,
+            EnumsContainerEnumName::Tradeingredient1Container => 31,
+            EnumsContainerEnumName::Tradeingredient2Container => 32,
+            EnumsContainerEnumName::Traderesultpreviewcontainer => 33,
+            EnumsContainerEnumName::Offhandcontainer => 34,
             EnumsContainerEnumName::Reserved35 => 35,
             EnumsContainerEnumName::Reserved36 => 36,
             EnumsContainerEnumName::Reserved37 => 37,
             EnumsContainerEnumName::Reserved38 => 38,
             EnumsContainerEnumName::Reserved39 => 39,
             EnumsContainerEnumName::Reserved40 => 40,
-            EnumsContainerEnumName::LoomInputContainer => 41,
-            EnumsContainerEnumName::LoomDyeContainer => 42,
-            EnumsContainerEnumName::LoomMaterialContainer => 43,
-            EnumsContainerEnumName::LoomResultPreviewContainer => 44,
-            EnumsContainerEnumName::BlastFurnaceIngredientContainer => 45,
-            EnumsContainerEnumName::SmokerIngredientContainer => 46,
+            EnumsContainerEnumName::Loominputcontainer => 41,
+            EnumsContainerEnumName::Loomdyecontainer => 42,
+            EnumsContainerEnumName::Loommaterialcontainer => 43,
+            EnumsContainerEnumName::Loomresultpreviewcontainer => 44,
+            EnumsContainerEnumName::Blastfurnaceingredientcontainer => 45,
+            EnumsContainerEnumName::Smokeringredientcontainer => 46,
             EnumsContainerEnumName::Trade2Ingredient1Container => 47,
             EnumsContainerEnumName::Trade2Ingredient2Container => 48,
-            EnumsContainerEnumName::Trade2ResultPreviewContainer => 49,
-            EnumsContainerEnumName::GrindstoneInputContainer => 50,
-            EnumsContainerEnumName::GrindstoneAdditionalContainer => 51,
-            EnumsContainerEnumName::GrindstoneResultPreviewContainer => 52,
-            EnumsContainerEnumName::StonecutterInputContainer => 53,
-            EnumsContainerEnumName::StonecutterResultPreviewContainer => 54,
-            EnumsContainerEnumName::CartographyInputContainer => 55,
-            EnumsContainerEnumName::CartographyAdditionalContainer => 56,
-            EnumsContainerEnumName::CartographyResultPreviewContainer => 57,
-            EnumsContainerEnumName::BarrelContainer => 58,
-            EnumsContainerEnumName::CursorContainer => 59,
-            EnumsContainerEnumName::CreatedOutputContainer => 60,
-            EnumsContainerEnumName::SmithingTableTemplateContainer => 61,
-            EnumsContainerEnumName::CrafterLevelEntityContainer => 62,
-            EnumsContainerEnumName::DynamicContainer => 63,
-            EnumsContainerEnumName::RecipeFoodContainer => 64,
-            EnumsContainerEnumName::RecipeBlocksContainer => 65,
-            EnumsContainerEnumName::RecipeFurnaceItemsContainer => 66,
+            EnumsContainerEnumName::Trade2Resultpreviewcontainer => 49,
+            EnumsContainerEnumName::Grindstoneinputcontainer => 50,
+            EnumsContainerEnumName::Grindstoneadditionalcontainer => 51,
+            EnumsContainerEnumName::Grindstoneresultpreviewcontainer => 52,
+            EnumsContainerEnumName::Stonecutterinputcontainer => 53,
+            EnumsContainerEnumName::Stonecutterresultpreviewcontainer => 54,
+            EnumsContainerEnumName::Cartographyinputcontainer => 55,
+            EnumsContainerEnumName::Cartographyadditionalcontainer => 56,
+            EnumsContainerEnumName::Cartographyresultpreviewcontainer => 57,
+            EnumsContainerEnumName::Barrelcontainer => 58,
+            EnumsContainerEnumName::Cursorcontainer => 59,
+            EnumsContainerEnumName::Createdoutputcontainer => 60,
+            EnumsContainerEnumName::Smithingtabletemplatecontainer => 61,
+            EnumsContainerEnumName::Crafterlevelentitycontainer => 62,
+            EnumsContainerEnumName::Dynamiccontainer => 63,
+            EnumsContainerEnumName::Recipefoodcontainer => 64,
+            EnumsContainerEnumName::Recipeblockscontainer => 65,
+            EnumsContainerEnumName::Recipefurnaceitemscontainer => 66,
             EnumsContainerEnumName::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -13235,80 +13611,80 @@ impl crate::bedrock::codec::BedrockCodec for EnumsContainerEnumName {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsContainerEnumName::AnvilInputContainer),
-            1 => Ok(EnumsContainerEnumName::AnvilMaterialContainer),
-            2 => Ok(EnumsContainerEnumName::AnvilResultPreviewContainer),
-            3 => Ok(EnumsContainerEnumName::SmithingTableInputContainer),
-            4 => Ok(EnumsContainerEnumName::SmithingTableMaterialContainer),
-            5 => Ok(EnumsContainerEnumName::SmithingTableResultPreviewContainer),
-            6 => Ok(EnumsContainerEnumName::ArmorContainer),
-            7 => Ok(EnumsContainerEnumName::LevelEntityContainer),
-            8 => Ok(EnumsContainerEnumName::BeaconPaymentContainer),
-            9 => Ok(EnumsContainerEnumName::BrewingStandInputContainer),
-            10 => Ok(EnumsContainerEnumName::BrewingStandResultContainer),
-            11 => Ok(EnumsContainerEnumName::BrewingStandFuelContainer),
-            12 => Ok(EnumsContainerEnumName::CombinedHotbarAndInventoryContainer),
-            13 => Ok(EnumsContainerEnumName::CraftingInputContainer),
-            14 => Ok(EnumsContainerEnumName::CraftingOutputPreviewContainer),
-            15 => Ok(EnumsContainerEnumName::RecipeConstructionContainer),
-            16 => Ok(EnumsContainerEnumName::RecipeNatureContainer),
-            17 => Ok(EnumsContainerEnumName::RecipeItemsContainer),
-            18 => Ok(EnumsContainerEnumName::RecipeSearchContainer),
-            19 => Ok(EnumsContainerEnumName::RecipeSearchBarContainer),
-            20 => Ok(EnumsContainerEnumName::RecipeEquipmentContainer),
-            21 => Ok(EnumsContainerEnumName::RecipeBookContainer),
-            22 => Ok(EnumsContainerEnumName::EnchantingInputContainer),
-            23 => Ok(EnumsContainerEnumName::EnchantingMaterialContainer),
-            24 => Ok(EnumsContainerEnumName::FurnaceFuelContainer),
-            25 => Ok(EnumsContainerEnumName::FurnaceIngredientContainer),
-            26 => Ok(EnumsContainerEnumName::FurnaceResultContainer),
-            27 => Ok(EnumsContainerEnumName::HorseEquipContainer),
-            28 => Ok(EnumsContainerEnumName::HotbarContainer),
-            29 => Ok(EnumsContainerEnumName::InventoryContainer),
-            30 => Ok(EnumsContainerEnumName::ShulkerBoxContainer),
-            31 => Ok(EnumsContainerEnumName::TradeIngredient1Container),
-            32 => Ok(EnumsContainerEnumName::TradeIngredient2Container),
-            33 => Ok(EnumsContainerEnumName::TradeResultPreviewContainer),
-            34 => Ok(EnumsContainerEnumName::OffhandContainer),
+            0 => Ok(EnumsContainerEnumName::Anvilinputcontainer),
+            1 => Ok(EnumsContainerEnumName::Anvilmaterialcontainer),
+            2 => Ok(EnumsContainerEnumName::Anvilresultpreviewcontainer),
+            3 => Ok(EnumsContainerEnumName::Smithingtableinputcontainer),
+            4 => Ok(EnumsContainerEnumName::Smithingtablematerialcontainer),
+            5 => Ok(EnumsContainerEnumName::Smithingtableresultpreviewcontainer),
+            6 => Ok(EnumsContainerEnumName::Armorcontainer),
+            7 => Ok(EnumsContainerEnumName::Levelentitycontainer),
+            8 => Ok(EnumsContainerEnumName::Beaconpaymentcontainer),
+            9 => Ok(EnumsContainerEnumName::Brewingstandinputcontainer),
+            10 => Ok(EnumsContainerEnumName::Brewingstandresultcontainer),
+            11 => Ok(EnumsContainerEnumName::Brewingstandfuelcontainer),
+            12 => Ok(EnumsContainerEnumName::Combinedhotbarandinventorycontainer),
+            13 => Ok(EnumsContainerEnumName::Craftinginputcontainer),
+            14 => Ok(EnumsContainerEnumName::Craftingoutputpreviewcontainer),
+            15 => Ok(EnumsContainerEnumName::Recipeconstructioncontainer),
+            16 => Ok(EnumsContainerEnumName::Recipenaturecontainer),
+            17 => Ok(EnumsContainerEnumName::Recipeitemscontainer),
+            18 => Ok(EnumsContainerEnumName::Recipesearchcontainer),
+            19 => Ok(EnumsContainerEnumName::Recipesearchbarcontainer),
+            20 => Ok(EnumsContainerEnumName::Recipeequipmentcontainer),
+            21 => Ok(EnumsContainerEnumName::Recipebookcontainer),
+            22 => Ok(EnumsContainerEnumName::Enchantinginputcontainer),
+            23 => Ok(EnumsContainerEnumName::Enchantingmaterialcontainer),
+            24 => Ok(EnumsContainerEnumName::Furnacefuelcontainer),
+            25 => Ok(EnumsContainerEnumName::Furnaceingredientcontainer),
+            26 => Ok(EnumsContainerEnumName::Furnaceresultcontainer),
+            27 => Ok(EnumsContainerEnumName::Horseequipcontainer),
+            28 => Ok(EnumsContainerEnumName::Hotbarcontainer),
+            29 => Ok(EnumsContainerEnumName::Inventorycontainer),
+            30 => Ok(EnumsContainerEnumName::Shulkerboxcontainer),
+            31 => Ok(EnumsContainerEnumName::Tradeingredient1Container),
+            32 => Ok(EnumsContainerEnumName::Tradeingredient2Container),
+            33 => Ok(EnumsContainerEnumName::Traderesultpreviewcontainer),
+            34 => Ok(EnumsContainerEnumName::Offhandcontainer),
             35 => Ok(EnumsContainerEnumName::Reserved35),
             36 => Ok(EnumsContainerEnumName::Reserved36),
             37 => Ok(EnumsContainerEnumName::Reserved37),
             38 => Ok(EnumsContainerEnumName::Reserved38),
             39 => Ok(EnumsContainerEnumName::Reserved39),
             40 => Ok(EnumsContainerEnumName::Reserved40),
-            41 => Ok(EnumsContainerEnumName::LoomInputContainer),
-            42 => Ok(EnumsContainerEnumName::LoomDyeContainer),
-            43 => Ok(EnumsContainerEnumName::LoomMaterialContainer),
-            44 => Ok(EnumsContainerEnumName::LoomResultPreviewContainer),
-            45 => Ok(EnumsContainerEnumName::BlastFurnaceIngredientContainer),
-            46 => Ok(EnumsContainerEnumName::SmokerIngredientContainer),
+            41 => Ok(EnumsContainerEnumName::Loominputcontainer),
+            42 => Ok(EnumsContainerEnumName::Loomdyecontainer),
+            43 => Ok(EnumsContainerEnumName::Loommaterialcontainer),
+            44 => Ok(EnumsContainerEnumName::Loomresultpreviewcontainer),
+            45 => Ok(EnumsContainerEnumName::Blastfurnaceingredientcontainer),
+            46 => Ok(EnumsContainerEnumName::Smokeringredientcontainer),
             47 => Ok(EnumsContainerEnumName::Trade2Ingredient1Container),
             48 => Ok(EnumsContainerEnumName::Trade2Ingredient2Container),
-            49 => Ok(EnumsContainerEnumName::Trade2ResultPreviewContainer),
-            50 => Ok(EnumsContainerEnumName::GrindstoneInputContainer),
-            51 => Ok(EnumsContainerEnumName::GrindstoneAdditionalContainer),
-            52 => Ok(EnumsContainerEnumName::GrindstoneResultPreviewContainer),
-            53 => Ok(EnumsContainerEnumName::StonecutterInputContainer),
-            54 => Ok(EnumsContainerEnumName::StonecutterResultPreviewContainer),
-            55 => Ok(EnumsContainerEnumName::CartographyInputContainer),
-            56 => Ok(EnumsContainerEnumName::CartographyAdditionalContainer),
-            57 => Ok(EnumsContainerEnumName::CartographyResultPreviewContainer),
-            58 => Ok(EnumsContainerEnumName::BarrelContainer),
-            59 => Ok(EnumsContainerEnumName::CursorContainer),
-            60 => Ok(EnumsContainerEnumName::CreatedOutputContainer),
-            61 => Ok(EnumsContainerEnumName::SmithingTableTemplateContainer),
-            62 => Ok(EnumsContainerEnumName::CrafterLevelEntityContainer),
-            63 => Ok(EnumsContainerEnumName::DynamicContainer),
-            64 => Ok(EnumsContainerEnumName::RecipeFoodContainer),
-            65 => Ok(EnumsContainerEnumName::RecipeBlocksContainer),
-            66 => Ok(EnumsContainerEnumName::RecipeFurnaceItemsContainer),
+            49 => Ok(EnumsContainerEnumName::Trade2Resultpreviewcontainer),
+            50 => Ok(EnumsContainerEnumName::Grindstoneinputcontainer),
+            51 => Ok(EnumsContainerEnumName::Grindstoneadditionalcontainer),
+            52 => Ok(EnumsContainerEnumName::Grindstoneresultpreviewcontainer),
+            53 => Ok(EnumsContainerEnumName::Stonecutterinputcontainer),
+            54 => Ok(EnumsContainerEnumName::Stonecutterresultpreviewcontainer),
+            55 => Ok(EnumsContainerEnumName::Cartographyinputcontainer),
+            56 => Ok(EnumsContainerEnumName::Cartographyadditionalcontainer),
+            57 => Ok(EnumsContainerEnumName::Cartographyresultpreviewcontainer),
+            58 => Ok(EnumsContainerEnumName::Barrelcontainer),
+            59 => Ok(EnumsContainerEnumName::Cursorcontainer),
+            60 => Ok(EnumsContainerEnumName::Createdoutputcontainer),
+            61 => Ok(EnumsContainerEnumName::Smithingtabletemplatecontainer),
+            62 => Ok(EnumsContainerEnumName::Crafterlevelentitycontainer),
+            63 => Ok(EnumsContainerEnumName::Dynamiccontainer),
+            64 => Ok(EnumsContainerEnumName::Recipefoodcontainer),
+            65 => Ok(EnumsContainerEnumName::Recipeblockscontainer),
+            66 => Ok(EnumsContainerEnumName::Recipefurnaceitemscontainer),
             other => Ok(EnumsContainerEnumName::Unknown(other)),
         }
     }
 }
 impl Default for EnumsContainerEnumName {
     fn default() -> Self {
-        Self::AnvilInputContainer
+        Self::Anvilinputcontainer
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -13368,6 +13744,164 @@ impl crate::bedrock::codec::BedrockCodec for FullContainerName {
         Ok(Self {
             container_name,
             dynamic_id,
+        })
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnumsFurnaceLeftTabIndex {
+    None,
+    Recipefood,
+    Recipeitems,
+    Recipeblocks,
+    Recipesearch,
+    Inventory,
+    Unknown(i32),
+}
+impl crate::bedrock::codec::BedrockSized for EnumsFurnaceLeftTabIndex {
+    fn encoded_size(&self) -> usize {
+        let _val: i32 = match self {
+            EnumsFurnaceLeftTabIndex::None => 0,
+            EnumsFurnaceLeftTabIndex::Recipefood => 1,
+            EnumsFurnaceLeftTabIndex::Recipeitems => 2,
+            EnumsFurnaceLeftTabIndex::Recipeblocks => 3,
+            EnumsFurnaceLeftTabIndex::Recipesearch => 4,
+            EnumsFurnaceLeftTabIndex::Inventory => 5,
+            EnumsFurnaceLeftTabIndex::Unknown(v) => *v,
+        };
+        crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
+            _val as i32,
+        ))
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for EnumsFurnaceLeftTabIndex {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: i32 = match self {
+            EnumsFurnaceLeftTabIndex::None => 0,
+            EnumsFurnaceLeftTabIndex::Recipefood => 1,
+            EnumsFurnaceLeftTabIndex::Recipeitems => 2,
+            EnumsFurnaceLeftTabIndex::Recipeblocks => 3,
+            EnumsFurnaceLeftTabIndex::Recipesearch => 4,
+            EnumsFurnaceLeftTabIndex::Inventory => 5,
+            EnumsFurnaceLeftTabIndex::Unknown(v) => *v,
+        };
+        crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let raw = <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?;
+        let val = raw.0 as i32;
+        match val {
+            0 => Ok(EnumsFurnaceLeftTabIndex::None),
+            1 => Ok(EnumsFurnaceLeftTabIndex::Recipefood),
+            2 => Ok(EnumsFurnaceLeftTabIndex::Recipeitems),
+            3 => Ok(EnumsFurnaceLeftTabIndex::Recipeblocks),
+            4 => Ok(EnumsFurnaceLeftTabIndex::Recipesearch),
+            5 => Ok(EnumsFurnaceLeftTabIndex::Inventory),
+            other => Ok(EnumsFurnaceLeftTabIndex::Unknown(other)),
+        }
+    }
+}
+impl Default for EnumsFurnaceLeftTabIndex {
+    fn default() -> Self {
+        Self::None
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnumsFurnaceLayout {
+    None,
+    Inventoryonly,
+    Default,
+    Unknown(i32),
+}
+impl crate::bedrock::codec::BedrockSized for EnumsFurnaceLayout {
+    fn encoded_size(&self) -> usize {
+        let _val: i32 = match self {
+            EnumsFurnaceLayout::None => 0,
+            EnumsFurnaceLayout::Inventoryonly => 1,
+            EnumsFurnaceLayout::Default => 2,
+            EnumsFurnaceLayout::Unknown(v) => *v,
+        };
+        crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
+            _val as i32,
+        ))
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for EnumsFurnaceLayout {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: i32 = match self {
+            EnumsFurnaceLayout::None => 0,
+            EnumsFurnaceLayout::Inventoryonly => 1,
+            EnumsFurnaceLayout::Default => 2,
+            EnumsFurnaceLayout::Unknown(v) => *v,
+        };
+        crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let raw = <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?;
+        let val = raw.0 as i32;
+        match val {
+            0 => Ok(EnumsFurnaceLayout::None),
+            1 => Ok(EnumsFurnaceLayout::Inventoryonly),
+            2 => Ok(EnumsFurnaceLayout::Default),
+            other => Ok(EnumsFurnaceLayout::Unknown(other)),
+        }
+    }
+}
+impl Default for EnumsFurnaceLayout {
+    fn default() -> Self {
+        Self::None
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FurnaceOptions {
+    pub left_furnace_tab: EnumsFurnaceLeftTabIndex,
+    pub filtering: bool,
+    pub layout: EnumsFurnaceLayout,
+}
+impl crate::bedrock::codec::BedrockSized for FurnaceOptions {
+    fn encoded_size(&self) -> usize {
+        let mut size = 0usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.left_furnace_tab);
+        size += 1usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.layout);
+        size
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for FurnaceOptions {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        self.left_furnace_tab.encode(buf)?;
+        self.filtering.encode(buf)?;
+        self.layout.encode(buf)?;
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = buf;
+        let left_furnace_tab =
+            <EnumsFurnaceLeftTabIndex as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let filtering = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let layout = <EnumsFurnaceLayout as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        Ok(Self {
+            left_furnace_tab,
+            filtering,
+            layout,
         })
     }
 }
@@ -13595,23 +14129,80 @@ impl crate::bedrock::codec::BedrockCodec for GameRulesChangedPacketData {
         Ok(Self { rules_list })
     }
 }
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct IntOverridejson {
+    pub type_: String,
+    pub value: i32,
+}
+impl crate::bedrock::codec::BedrockSized for IntOverridejson {
+    fn encoded_size(&self) -> usize {
+        let mut size = 0usize;
+        size += {
+            let _len = (&self.type_).as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + _len
+        };
+        size += 4usize;
+        size
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for IntOverridejson {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        let bytes = (&self.type_).as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        buf.put_slice(bytes);
+        crate::bedrock::codec::I32LE(self.value).encode(buf)?;
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = buf;
+        let type_ = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
+        let value =
+            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+                .0;
+        Ok(Self { type_, value })
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsInventorySourceType {
-    ContainerInventory,
-    GlobalInventory,
-    WorldInteraction,
-    CreativeInventory,
-    NonImplementedFeatureTodo,
+    Containerinventory,
+    Globalinventory,
+    Worldinteraction,
+    Creativeinventory,
+    Nonimplementedfeaturetodo,
     Unknown(u32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsInventorySourceType {
     fn encoded_size(&self) -> usize {
         let _val: u32 = match self {
-            EnumsInventorySourceType::ContainerInventory => 0,
-            EnumsInventorySourceType::GlobalInventory => 1,
-            EnumsInventorySourceType::WorldInteraction => 2,
-            EnumsInventorySourceType::CreativeInventory => 3,
-            EnumsInventorySourceType::NonImplementedFeatureTodo => 99999,
+            EnumsInventorySourceType::Containerinventory => 0,
+            EnumsInventorySourceType::Globalinventory => 1,
+            EnumsInventorySourceType::Worldinteraction => 2,
+            EnumsInventorySourceType::Creativeinventory => 3,
+            EnumsInventorySourceType::Nonimplementedfeaturetodo => 99999,
             EnumsInventorySourceType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -13623,11 +14214,11 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventorySourceType {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u32 = match self {
-            EnumsInventorySourceType::ContainerInventory => 0,
-            EnumsInventorySourceType::GlobalInventory => 1,
-            EnumsInventorySourceType::WorldInteraction => 2,
-            EnumsInventorySourceType::CreativeInventory => 3,
-            EnumsInventorySourceType::NonImplementedFeatureTodo => 99999,
+            EnumsInventorySourceType::Containerinventory => 0,
+            EnumsInventorySourceType::Globalinventory => 1,
+            EnumsInventorySourceType::Worldinteraction => 2,
+            EnumsInventorySourceType::Creativeinventory => 3,
+            EnumsInventorySourceType::Nonimplementedfeaturetodo => 99999,
             EnumsInventorySourceType::Unknown(v) => *v,
         };
         crate::bedrock::codec::VarUInt(val as u32).encode(buf)
@@ -13642,31 +14233,31 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventorySourceType {
         )?;
         let val = raw.0 as u32;
         match val {
-            0 => Ok(EnumsInventorySourceType::ContainerInventory),
-            1 => Ok(EnumsInventorySourceType::GlobalInventory),
-            2 => Ok(EnumsInventorySourceType::WorldInteraction),
-            3 => Ok(EnumsInventorySourceType::CreativeInventory),
-            99999 => Ok(EnumsInventorySourceType::NonImplementedFeatureTodo),
+            0 => Ok(EnumsInventorySourceType::Containerinventory),
+            1 => Ok(EnumsInventorySourceType::Globalinventory),
+            2 => Ok(EnumsInventorySourceType::Worldinteraction),
+            3 => Ok(EnumsInventorySourceType::Creativeinventory),
+            99999 => Ok(EnumsInventorySourceType::Nonimplementedfeaturetodo),
             other => Ok(EnumsInventorySourceType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsInventorySourceType {
     fn default() -> Self {
-        Self::ContainerInventory
+        Self::Containerinventory
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsInventorySourceInventorySourceFlags {
-    NoFlag,
-    WorldInteractionRandom,
+    Noflag,
+    Worldinteractionrandom,
     Unknown(u32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsInventorySourceInventorySourceFlags {
     fn encoded_size(&self) -> usize {
         let _val: u32 = match self {
-            EnumsInventorySourceInventorySourceFlags::NoFlag => 0,
-            EnumsInventorySourceInventorySourceFlags::WorldInteractionRandom => 1,
+            EnumsInventorySourceInventorySourceFlags::Noflag => 0,
+            EnumsInventorySourceInventorySourceFlags::Worldinteractionrandom => 1,
             EnumsInventorySourceInventorySourceFlags::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -13678,8 +14269,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventorySourceInventorySource
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u32 = match self {
-            EnumsInventorySourceInventorySourceFlags::NoFlag => 0,
-            EnumsInventorySourceInventorySourceFlags::WorldInteractionRandom => 1,
+            EnumsInventorySourceInventorySourceFlags::Noflag => 0,
+            EnumsInventorySourceInventorySourceFlags::Worldinteractionrandom => 1,
             EnumsInventorySourceInventorySourceFlags::Unknown(v) => *v,
         };
         crate::bedrock::codec::VarUInt(val as u32).encode(buf)
@@ -13694,22 +14285,22 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventorySourceInventorySource
         )?;
         let val = raw.0 as u32;
         match val {
-            0 => Ok(EnumsInventorySourceInventorySourceFlags::NoFlag),
-            1 => Ok(EnumsInventorySourceInventorySourceFlags::WorldInteractionRandom),
+            0 => Ok(EnumsInventorySourceInventorySourceFlags::Noflag),
+            1 => Ok(EnumsInventorySourceInventorySourceFlags::Worldinteractionrandom),
             other => Ok(EnumsInventorySourceInventorySourceFlags::Unknown(other)),
         }
     }
 }
 impl Default for EnumsInventorySourceInventorySourceFlags {
     fn default() -> Self {
-        Self::NoFlag
+        Self::Noflag
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct InventorySource {
     pub source_type: EnumsInventorySourceType,
-    pub container_id: Option<Option<i8>>,
-    pub bit_flags: Option<Option<EnumsInventorySourceInventorySourceFlags>>,
+    pub container_id: Option<i8>,
+    pub bit_flags: Option<EnumsInventorySourceInventorySourceFlags>,
 }
 impl crate::bedrock::codec::BedrockSized for InventorySource {
     fn encoded_size(&self) -> usize {
@@ -13718,26 +14309,14 @@ impl crate::bedrock::codec::BedrockSized for InventorySource {
         size += {
             1usize
                 + match &self.container_id {
-                    Some(_v) => {
-                        1usize
-                            + match _v {
-                                Some(_v) => 1usize,
-                                None => 0usize,
-                            }
-                    }
+                    Some(_v) => 1usize,
                     None => 0usize,
                 }
         };
         size += {
             1usize
                 + match &self.bit_flags {
-                    Some(_v) => {
-                        1usize
-                            + match _v {
-                                Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
-                                None => 0usize,
-                            }
-                    }
+                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
                     None => 0usize,
                 }
         };
@@ -13752,26 +14331,14 @@ impl crate::bedrock::codec::BedrockCodec for InventorySource {
         match &self.container_id {
             Some(v) => {
                 buf.put_u8(1);
-                match v {
-                    Some(v) => {
-                        buf.put_u8(1);
-                        (*v).encode(buf)?;
-                    }
-                    None => buf.put_u8(0),
-                }
+                (*v).encode(buf)?;
             }
             None => buf.put_u8(0),
         }
         match &self.bit_flags {
             Some(v) => {
                 buf.put_u8(1);
-                match v {
-                    Some(v) => {
-                        buf.put_u8(1);
-                        v.encode(buf)?;
-                    }
-                    None => buf.put_u8(0),
-                }
+                v.encode(buf)?;
             }
             None => buf.put_u8(0),
         }
@@ -13787,17 +14354,10 @@ impl crate::bedrock::codec::BedrockCodec for InventorySource {
         let container_id = {
             let present = u8::decode(buf, ())?;
             if present != 0 {
-                Some({
-                    let present = u8::decode(buf, ())?;
-                    if present != 0 {
-                        Some(<i8 as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?)
-                    } else {
-                        None
-                    }
-                })
+                Some(<i8 as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?)
             } else {
                 None
             }
@@ -13805,19 +14365,12 @@ impl crate::bedrock::codec::BedrockCodec for InventorySource {
         let bit_flags = {
             let present = u8::decode(buf, ())?;
             if present != 0 {
-                Some({
-                    let present = u8::decode(buf, ())?;
-                    if present != 0 {
-                        Some(
-                            <EnumsInventorySourceInventorySourceFlags as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        )
-                    } else {
-                        None
-                    }
-                })
+                Some(
+                    <EnumsInventorySourceInventorySourceFlags as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?,
+                )
             } else {
                 None
             }
@@ -14010,25 +14563,19 @@ impl crate::bedrock::codec::BedrockCodec for InventoryAction {
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct InventoryTransaction {
-    pub actions: Option<Vec<InventoryAction>>,
+    pub actions: Vec<InventoryAction>,
 }
 impl crate::bedrock::codec::BedrockSized for InventoryTransaction {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
-            1usize
-                + match &self.actions {
-                    Some(_v) => {
-                        let _len = (_v).len();
-                        crate::bedrock::codec::BedrockSized::encoded_size(
-                            &crate::bedrock::codec::VarUInt(_len as u32),
-                        ) + (_v)
-                            .iter()
-                            .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
-                            .sum::<usize>()
-                    }
-                    None => 0usize,
-                }
+            let _len = (&self.actions).len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + (&self.actions)
+                .iter()
+                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                .sum::<usize>()
         };
         size
     }
@@ -14037,16 +14584,10 @@ impl crate::bedrock::codec::BedrockCodec for InventoryTransaction {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        match &self.actions {
-            Some(v) => {
-                buf.put_u8(1);
-                let len = v.len();
-                crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-                for item in v {
-                    item.encode(buf)?;
-                }
-            }
-            None => buf.put_u8(0),
+        let len = self.actions.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        for item in &self.actions {
+            item.encode(buf)?;
         }
         Ok(())
     }
@@ -14056,30 +14597,21 @@ impl crate::bedrock::codec::BedrockCodec for InventoryTransaction {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
         let actions = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some({
-                    let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?
-                        .0) as usize;
-                    let mut tmp_vec =
-                        crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), None)?;
-                    for _ in 0..len {
-                        crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
-                        tmp_vec.push(
-                            <InventoryAction as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        );
-                    }
-                    tmp_vec
-                })
-            } else {
-                None
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            let mut tmp_vec =
+                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), None)?;
+            for _ in 0..len {
+                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
+                tmp_vec.push(
+                    <InventoryAction as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                );
             }
+            tmp_vec
         };
         Ok(Self { actions })
     }
@@ -14115,11 +14647,11 @@ impl crate::bedrock::codec::BedrockCodec for InventoryMismatchData {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsInventoryLeftTabIndex {
     None,
-    RecipeConstruction,
-    RecipeEquipment,
-    RecipeItems,
-    RecipeNature,
-    RecipeSearch,
+    Recipeconstruction,
+    Recipeequipment,
+    Recipeitems,
+    Recipenature,
+    Recipesearch,
     Survival,
     Unknown(i32),
 }
@@ -14127,11 +14659,11 @@ impl crate::bedrock::codec::BedrockSized for EnumsInventoryLeftTabIndex {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsInventoryLeftTabIndex::None => 0,
-            EnumsInventoryLeftTabIndex::RecipeConstruction => 1,
-            EnumsInventoryLeftTabIndex::RecipeEquipment => 2,
-            EnumsInventoryLeftTabIndex::RecipeItems => 3,
-            EnumsInventoryLeftTabIndex::RecipeNature => 4,
-            EnumsInventoryLeftTabIndex::RecipeSearch => 5,
+            EnumsInventoryLeftTabIndex::Recipeconstruction => 1,
+            EnumsInventoryLeftTabIndex::Recipeequipment => 2,
+            EnumsInventoryLeftTabIndex::Recipeitems => 3,
+            EnumsInventoryLeftTabIndex::Recipenature => 4,
+            EnumsInventoryLeftTabIndex::Recipesearch => 5,
             EnumsInventoryLeftTabIndex::Survival => 6,
             EnumsInventoryLeftTabIndex::Unknown(v) => *v,
         };
@@ -14145,11 +14677,11 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventoryLeftTabIndex {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsInventoryLeftTabIndex::None => 0,
-            EnumsInventoryLeftTabIndex::RecipeConstruction => 1,
-            EnumsInventoryLeftTabIndex::RecipeEquipment => 2,
-            EnumsInventoryLeftTabIndex::RecipeItems => 3,
-            EnumsInventoryLeftTabIndex::RecipeNature => 4,
-            EnumsInventoryLeftTabIndex::RecipeSearch => 5,
+            EnumsInventoryLeftTabIndex::Recipeconstruction => 1,
+            EnumsInventoryLeftTabIndex::Recipeequipment => 2,
+            EnumsInventoryLeftTabIndex::Recipeitems => 3,
+            EnumsInventoryLeftTabIndex::Recipenature => 4,
+            EnumsInventoryLeftTabIndex::Recipesearch => 5,
             EnumsInventoryLeftTabIndex::Survival => 6,
             EnumsInventoryLeftTabIndex::Unknown(v) => *v,
         };
@@ -14166,11 +14698,11 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventoryLeftTabIndex {
         let val = raw.0 as i32;
         match val {
             0 => Ok(EnumsInventoryLeftTabIndex::None),
-            1 => Ok(EnumsInventoryLeftTabIndex::RecipeConstruction),
-            2 => Ok(EnumsInventoryLeftTabIndex::RecipeEquipment),
-            3 => Ok(EnumsInventoryLeftTabIndex::RecipeItems),
-            4 => Ok(EnumsInventoryLeftTabIndex::RecipeNature),
-            5 => Ok(EnumsInventoryLeftTabIndex::RecipeSearch),
+            1 => Ok(EnumsInventoryLeftTabIndex::Recipeconstruction),
+            2 => Ok(EnumsInventoryLeftTabIndex::Recipeequipment),
+            3 => Ok(EnumsInventoryLeftTabIndex::Recipeitems),
+            4 => Ok(EnumsInventoryLeftTabIndex::Recipenature),
+            5 => Ok(EnumsInventoryLeftTabIndex::Recipesearch),
             6 => Ok(EnumsInventoryLeftTabIndex::Survival),
             other => Ok(EnumsInventoryLeftTabIndex::Unknown(other)),
         }
@@ -14184,7 +14716,7 @@ impl Default for EnumsInventoryLeftTabIndex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsInventoryRightTabIndex {
     None,
-    FullScreen,
+    Fullscreen,
     Crafting,
     Armor,
     Unknown(i32),
@@ -14193,7 +14725,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsInventoryRightTabIndex {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsInventoryRightTabIndex::None => 0,
-            EnumsInventoryRightTabIndex::FullScreen => 1,
+            EnumsInventoryRightTabIndex::Fullscreen => 1,
             EnumsInventoryRightTabIndex::Crafting => 2,
             EnumsInventoryRightTabIndex::Armor => 3,
             EnumsInventoryRightTabIndex::Unknown(v) => *v,
@@ -14208,7 +14740,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventoryRightTabIndex {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsInventoryRightTabIndex::None => 0,
-            EnumsInventoryRightTabIndex::FullScreen => 1,
+            EnumsInventoryRightTabIndex::Fullscreen => 1,
             EnumsInventoryRightTabIndex::Crafting => 2,
             EnumsInventoryRightTabIndex::Armor => 3,
             EnumsInventoryRightTabIndex::Unknown(v) => *v,
@@ -14226,7 +14758,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventoryRightTabIndex {
         let val = raw.0 as i32;
         match val {
             0 => Ok(EnumsInventoryRightTabIndex::None),
-            1 => Ok(EnumsInventoryRightTabIndex::FullScreen),
+            1 => Ok(EnumsInventoryRightTabIndex::Fullscreen),
             2 => Ok(EnumsInventoryRightTabIndex::Crafting),
             3 => Ok(EnumsInventoryRightTabIndex::Armor),
             other => Ok(EnumsInventoryRightTabIndex::Unknown(other)),
@@ -14241,18 +14773,18 @@ impl Default for EnumsInventoryRightTabIndex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsInventoryLayout {
     None,
-    InventoryOnly,
+    Inventoryonly,
     Default,
-    RecipeBookOnly,
+    Recipebookonly,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsInventoryLayout {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsInventoryLayout::None => 0,
-            EnumsInventoryLayout::InventoryOnly => 1,
+            EnumsInventoryLayout::Inventoryonly => 1,
             EnumsInventoryLayout::Default => 2,
-            EnumsInventoryLayout::RecipeBookOnly => 3,
+            EnumsInventoryLayout::Recipebookonly => 3,
             EnumsInventoryLayout::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -14265,9 +14797,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventoryLayout {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsInventoryLayout::None => 0,
-            EnumsInventoryLayout::InventoryOnly => 1,
+            EnumsInventoryLayout::Inventoryonly => 1,
             EnumsInventoryLayout::Default => 2,
-            EnumsInventoryLayout::RecipeBookOnly => 3,
+            EnumsInventoryLayout::Recipebookonly => 3,
             EnumsInventoryLayout::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -14283,9 +14815,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInventoryLayout {
         let val = raw.0 as i32;
         match val {
             0 => Ok(EnumsInventoryLayout::None),
-            1 => Ok(EnumsInventoryLayout::InventoryOnly),
+            1 => Ok(EnumsInventoryLayout::Inventoryonly),
             2 => Ok(EnumsInventoryLayout::Default),
-            3 => Ok(EnumsInventoryLayout::RecipeBookOnly),
+            3 => Ok(EnumsInventoryLayout::Recipebookonly),
             other => Ok(EnumsInventoryLayout::Unknown(other)),
         }
     }
@@ -14352,7 +14884,7 @@ pub type HashedStringjson = String;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsItemVersion {
     Legacy,
-    DataDriven,
+    Datadriven,
     None,
     Unknown(i32),
 }
@@ -14360,7 +14892,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsItemVersion {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsItemVersion::Legacy => 0,
-            EnumsItemVersion::DataDriven => 1,
+            EnumsItemVersion::Datadriven => 1,
             EnumsItemVersion::None => 2,
             EnumsItemVersion::Unknown(v) => *v,
         };
@@ -14374,7 +14906,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemVersion {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsItemVersion::Legacy => 0,
-            EnumsItemVersion::DataDriven => 1,
+            EnumsItemVersion::Datadriven => 1,
             EnumsItemVersion::None => 2,
             EnumsItemVersion::Unknown(v) => *v,
         };
@@ -14391,7 +14923,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemVersion {
         let val = raw.0 as i32;
         match val {
             0 => Ok(EnumsItemVersion::Legacy),
-            1 => Ok(EnumsItemVersion::DataDriven),
+            1 => Ok(EnumsItemVersion::Datadriven),
             2 => Ok(EnumsItemVersion::None),
             other => Ok(EnumsItemVersion::Unknown(other)),
         }
@@ -14795,19 +15327,19 @@ pub enum EnumsItemStackRequestActionType {
     Destroy,
     Consume,
     Create,
-    PlaceInItemContainer,
-    TakeFromItemContainer,
+    Placeinitemcontainer,
+    Takefromitemcontainer,
     Reserved9,
-    ScreenBeaconPayment,
-    ScreenHudMineBlock,
-    CraftRecipe,
-    CraftRecipeAuto,
-    CraftCreative,
-    CraftRecipeOptional,
-    CraftRepairAndDisenchant,
-    CraftLoom,
-    CraftNonImplemented,
-    CraftResults,
+    Screenbeaconpayment,
+    Screenhudmineblock,
+    Craftrecipe,
+    Craftrecipeauto,
+    Craftcreative,
+    Craftrecipeoptional,
+    Craftrepairanddisenchant,
+    Craftloom,
+    Craftnonimplemented,
+    Craftresults,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsItemStackRequestActionType {
@@ -14820,19 +15352,19 @@ impl crate::bedrock::codec::BedrockSized for EnumsItemStackRequestActionType {
             EnumsItemStackRequestActionType::Destroy => 4,
             EnumsItemStackRequestActionType::Consume => 5,
             EnumsItemStackRequestActionType::Create => 6,
-            EnumsItemStackRequestActionType::PlaceInItemContainer => 7,
-            EnumsItemStackRequestActionType::TakeFromItemContainer => 8,
+            EnumsItemStackRequestActionType::Placeinitemcontainer => 7,
+            EnumsItemStackRequestActionType::Takefromitemcontainer => 8,
             EnumsItemStackRequestActionType::Reserved9 => 9,
-            EnumsItemStackRequestActionType::ScreenBeaconPayment => 10,
-            EnumsItemStackRequestActionType::ScreenHudMineBlock => 11,
-            EnumsItemStackRequestActionType::CraftRecipe => 12,
-            EnumsItemStackRequestActionType::CraftRecipeAuto => 13,
-            EnumsItemStackRequestActionType::CraftCreative => 14,
-            EnumsItemStackRequestActionType::CraftRecipeOptional => 15,
-            EnumsItemStackRequestActionType::CraftRepairAndDisenchant => 16,
-            EnumsItemStackRequestActionType::CraftLoom => 17,
-            EnumsItemStackRequestActionType::CraftNonImplemented => 18,
-            EnumsItemStackRequestActionType::CraftResults => 19,
+            EnumsItemStackRequestActionType::Screenbeaconpayment => 10,
+            EnumsItemStackRequestActionType::Screenhudmineblock => 11,
+            EnumsItemStackRequestActionType::Craftrecipe => 12,
+            EnumsItemStackRequestActionType::Craftrecipeauto => 13,
+            EnumsItemStackRequestActionType::Craftcreative => 14,
+            EnumsItemStackRequestActionType::Craftrecipeoptional => 15,
+            EnumsItemStackRequestActionType::Craftrepairanddisenchant => 16,
+            EnumsItemStackRequestActionType::Craftloom => 17,
+            EnumsItemStackRequestActionType::Craftnonimplemented => 18,
+            EnumsItemStackRequestActionType::Craftresults => 19,
             EnumsItemStackRequestActionType::Unknown(v) => *v,
         };
         1usize
@@ -14849,19 +15381,19 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemStackRequestActionType {
             EnumsItemStackRequestActionType::Destroy => 4,
             EnumsItemStackRequestActionType::Consume => 5,
             EnumsItemStackRequestActionType::Create => 6,
-            EnumsItemStackRequestActionType::PlaceInItemContainer => 7,
-            EnumsItemStackRequestActionType::TakeFromItemContainer => 8,
+            EnumsItemStackRequestActionType::Placeinitemcontainer => 7,
+            EnumsItemStackRequestActionType::Takefromitemcontainer => 8,
             EnumsItemStackRequestActionType::Reserved9 => 9,
-            EnumsItemStackRequestActionType::ScreenBeaconPayment => 10,
-            EnumsItemStackRequestActionType::ScreenHudMineBlock => 11,
-            EnumsItemStackRequestActionType::CraftRecipe => 12,
-            EnumsItemStackRequestActionType::CraftRecipeAuto => 13,
-            EnumsItemStackRequestActionType::CraftCreative => 14,
-            EnumsItemStackRequestActionType::CraftRecipeOptional => 15,
-            EnumsItemStackRequestActionType::CraftRepairAndDisenchant => 16,
-            EnumsItemStackRequestActionType::CraftLoom => 17,
-            EnumsItemStackRequestActionType::CraftNonImplemented => 18,
-            EnumsItemStackRequestActionType::CraftResults => 19,
+            EnumsItemStackRequestActionType::Screenbeaconpayment => 10,
+            EnumsItemStackRequestActionType::Screenhudmineblock => 11,
+            EnumsItemStackRequestActionType::Craftrecipe => 12,
+            EnumsItemStackRequestActionType::Craftrecipeauto => 13,
+            EnumsItemStackRequestActionType::Craftcreative => 14,
+            EnumsItemStackRequestActionType::Craftrecipeoptional => 15,
+            EnumsItemStackRequestActionType::Craftrepairanddisenchant => 16,
+            EnumsItemStackRequestActionType::Craftloom => 17,
+            EnumsItemStackRequestActionType::Craftnonimplemented => 18,
+            EnumsItemStackRequestActionType::Craftresults => 19,
             EnumsItemStackRequestActionType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -14879,19 +15411,19 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemStackRequestActionType {
             4 => Ok(EnumsItemStackRequestActionType::Destroy),
             5 => Ok(EnumsItemStackRequestActionType::Consume),
             6 => Ok(EnumsItemStackRequestActionType::Create),
-            7 => Ok(EnumsItemStackRequestActionType::PlaceInItemContainer),
-            8 => Ok(EnumsItemStackRequestActionType::TakeFromItemContainer),
+            7 => Ok(EnumsItemStackRequestActionType::Placeinitemcontainer),
+            8 => Ok(EnumsItemStackRequestActionType::Takefromitemcontainer),
             9 => Ok(EnumsItemStackRequestActionType::Reserved9),
-            10 => Ok(EnumsItemStackRequestActionType::ScreenBeaconPayment),
-            11 => Ok(EnumsItemStackRequestActionType::ScreenHudMineBlock),
-            12 => Ok(EnumsItemStackRequestActionType::CraftRecipe),
-            13 => Ok(EnumsItemStackRequestActionType::CraftRecipeAuto),
-            14 => Ok(EnumsItemStackRequestActionType::CraftCreative),
-            15 => Ok(EnumsItemStackRequestActionType::CraftRecipeOptional),
-            16 => Ok(EnumsItemStackRequestActionType::CraftRepairAndDisenchant),
-            17 => Ok(EnumsItemStackRequestActionType::CraftLoom),
-            18 => Ok(EnumsItemStackRequestActionType::CraftNonImplemented),
-            19 => Ok(EnumsItemStackRequestActionType::CraftResults),
+            10 => Ok(EnumsItemStackRequestActionType::Screenbeaconpayment),
+            11 => Ok(EnumsItemStackRequestActionType::Screenhudmineblock),
+            12 => Ok(EnumsItemStackRequestActionType::Craftrecipe),
+            13 => Ok(EnumsItemStackRequestActionType::Craftrecipeauto),
+            14 => Ok(EnumsItemStackRequestActionType::Craftcreative),
+            15 => Ok(EnumsItemStackRequestActionType::Craftrecipeoptional),
+            16 => Ok(EnumsItemStackRequestActionType::Craftrepairanddisenchant),
+            17 => Ok(EnumsItemStackRequestActionType::Craftloom),
+            18 => Ok(EnumsItemStackRequestActionType::Craftnonimplemented),
+            19 => Ok(EnumsItemStackRequestActionType::Craftresults),
             other => Ok(EnumsItemStackRequestActionType::Unknown(other)),
         }
     }
@@ -15245,18 +15777,18 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealCraftRecipeAc
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsItemStackRequestCerealItemDescriptorType {
     Empty,
-    ItemName,
+    Itemname,
     Molang,
-    ItemTag,
+    Itemtag,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsItemStackRequestCerealItemDescriptorType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsItemStackRequestCerealItemDescriptorType::Empty => 0,
-            EnumsItemStackRequestCerealItemDescriptorType::ItemName => 1,
+            EnumsItemStackRequestCerealItemDescriptorType::Itemname => 1,
             EnumsItemStackRequestCerealItemDescriptorType::Molang => 2,
-            EnumsItemStackRequestCerealItemDescriptorType::ItemTag => 3,
+            EnumsItemStackRequestCerealItemDescriptorType::Itemtag => 3,
             EnumsItemStackRequestCerealItemDescriptorType::Unknown(v) => *v,
         };
         1usize
@@ -15267,9 +15799,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemStackRequestCerealItemDesc
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsItemStackRequestCerealItemDescriptorType::Empty => 0,
-            EnumsItemStackRequestCerealItemDescriptorType::ItemName => 1,
+            EnumsItemStackRequestCerealItemDescriptorType::Itemname => 1,
             EnumsItemStackRequestCerealItemDescriptorType::Molang => 2,
-            EnumsItemStackRequestCerealItemDescriptorType::ItemTag => 3,
+            EnumsItemStackRequestCerealItemDescriptorType::Itemtag => 3,
             EnumsItemStackRequestCerealItemDescriptorType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -15281,9 +15813,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemStackRequestCerealItemDesc
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsItemStackRequestCerealItemDescriptorType::Empty),
-            1 => Ok(EnumsItemStackRequestCerealItemDescriptorType::ItemName),
+            1 => Ok(EnumsItemStackRequestCerealItemDescriptorType::Itemname),
             2 => Ok(EnumsItemStackRequestCerealItemDescriptorType::Molang),
-            3 => Ok(EnumsItemStackRequestCerealItemDescriptorType::ItemTag),
+            3 => Ok(EnumsItemStackRequestCerealItemDescriptorType::Itemtag),
             other => Ok(EnumsItemStackRequestCerealItemDescriptorType::Unknown(
                 other,
             )),
@@ -15401,42 +15933,42 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealItemNameDescr
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsMolangVersion {
     Invalid,
-    BeforeVersioning,
+    Beforeversioning,
     Initial,
-    FixedItemRemainingUseDurationQuery,
-    ExpressionErrorMessages,
-    UnexpectedOperatorErrors,
-    ConditionalOperatorAssociativity,
-    ComparisonAndLogicalOperatorPrecedence,
-    DivideByNegativeValue,
-    FixedCapeFlapAmountQuery,
-    QueryBlockPropertyRenamedToState,
-    DeprecateOldBlockQueryNames,
-    DeprecatedSnifferAndCamelQueries,
-    LeafSupportingInFirstSolidBlockBelow,
+    Fixeditemremainingusedurationquery,
+    Expressionerrormessages,
+    Unexpectedoperatorerrors,
+    Conditionaloperatorassociativity,
+    Comparisonandlogicaloperatorprecedence,
+    Dividebynegativevalue,
+    Fixedcapeflapamountquery,
+    Queryblockpropertyrenamedtostate,
+    Deprecateoldblockquerynames,
+    Deprecatedsnifferandcamelqueries,
+    Leafsupportinginfirstsolidblockbelow,
     Latest,
-    NumValidVersions,
+    Numvalidversions,
     Unknown(i16),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsMolangVersion {
     fn encoded_size(&self) -> usize {
         let _val: i16 = match self {
             EnumsMolangVersion::Invalid => -1,
-            EnumsMolangVersion::BeforeVersioning => 0,
+            EnumsMolangVersion::Beforeversioning => 0,
             EnumsMolangVersion::Initial => 1,
-            EnumsMolangVersion::FixedItemRemainingUseDurationQuery => 2,
-            EnumsMolangVersion::ExpressionErrorMessages => 3,
-            EnumsMolangVersion::UnexpectedOperatorErrors => 4,
-            EnumsMolangVersion::ConditionalOperatorAssociativity => 5,
-            EnumsMolangVersion::ComparisonAndLogicalOperatorPrecedence => 6,
-            EnumsMolangVersion::DivideByNegativeValue => 7,
-            EnumsMolangVersion::FixedCapeFlapAmountQuery => 8,
-            EnumsMolangVersion::QueryBlockPropertyRenamedToState => 9,
-            EnumsMolangVersion::DeprecateOldBlockQueryNames => 10,
-            EnumsMolangVersion::DeprecatedSnifferAndCamelQueries => 11,
-            EnumsMolangVersion::LeafSupportingInFirstSolidBlockBelow => 12,
+            EnumsMolangVersion::Fixeditemremainingusedurationquery => 2,
+            EnumsMolangVersion::Expressionerrormessages => 3,
+            EnumsMolangVersion::Unexpectedoperatorerrors => 4,
+            EnumsMolangVersion::Conditionaloperatorassociativity => 5,
+            EnumsMolangVersion::Comparisonandlogicaloperatorprecedence => 6,
+            EnumsMolangVersion::Dividebynegativevalue => 7,
+            EnumsMolangVersion::Fixedcapeflapamountquery => 8,
+            EnumsMolangVersion::Queryblockpropertyrenamedtostate => 9,
+            EnumsMolangVersion::Deprecateoldblockquerynames => 10,
+            EnumsMolangVersion::Deprecatedsnifferandcamelqueries => 11,
+            EnumsMolangVersion::Leafsupportinginfirstsolidblockbelow => 12,
             EnumsMolangVersion::Latest => 13,
-            EnumsMolangVersion::NumValidVersions => 14,
+            EnumsMolangVersion::Numvalidversions => 14,
             EnumsMolangVersion::Unknown(v) => *v,
         };
         2usize
@@ -15447,21 +15979,21 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMolangVersion {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i16 = match self {
             EnumsMolangVersion::Invalid => -1,
-            EnumsMolangVersion::BeforeVersioning => 0,
+            EnumsMolangVersion::Beforeversioning => 0,
             EnumsMolangVersion::Initial => 1,
-            EnumsMolangVersion::FixedItemRemainingUseDurationQuery => 2,
-            EnumsMolangVersion::ExpressionErrorMessages => 3,
-            EnumsMolangVersion::UnexpectedOperatorErrors => 4,
-            EnumsMolangVersion::ConditionalOperatorAssociativity => 5,
-            EnumsMolangVersion::ComparisonAndLogicalOperatorPrecedence => 6,
-            EnumsMolangVersion::DivideByNegativeValue => 7,
-            EnumsMolangVersion::FixedCapeFlapAmountQuery => 8,
-            EnumsMolangVersion::QueryBlockPropertyRenamedToState => 9,
-            EnumsMolangVersion::DeprecateOldBlockQueryNames => 10,
-            EnumsMolangVersion::DeprecatedSnifferAndCamelQueries => 11,
-            EnumsMolangVersion::LeafSupportingInFirstSolidBlockBelow => 12,
+            EnumsMolangVersion::Fixeditemremainingusedurationquery => 2,
+            EnumsMolangVersion::Expressionerrormessages => 3,
+            EnumsMolangVersion::Unexpectedoperatorerrors => 4,
+            EnumsMolangVersion::Conditionaloperatorassociativity => 5,
+            EnumsMolangVersion::Comparisonandlogicaloperatorprecedence => 6,
+            EnumsMolangVersion::Dividebynegativevalue => 7,
+            EnumsMolangVersion::Fixedcapeflapamountquery => 8,
+            EnumsMolangVersion::Queryblockpropertyrenamedtostate => 9,
+            EnumsMolangVersion::Deprecateoldblockquerynames => 10,
+            EnumsMolangVersion::Deprecatedsnifferandcamelqueries => 11,
+            EnumsMolangVersion::Leafsupportinginfirstsolidblockbelow => 12,
             EnumsMolangVersion::Latest => 13,
-            EnumsMolangVersion::NumValidVersions => 14,
+            EnumsMolangVersion::Numvalidversions => 14,
             EnumsMolangVersion::Unknown(v) => *v,
         };
         crate::bedrock::codec::I16LE(val as i16).encode(buf)
@@ -15475,21 +16007,21 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMolangVersion {
         let val = raw.0 as i16;
         match val {
             -1 => Ok(EnumsMolangVersion::Invalid),
-            0 => Ok(EnumsMolangVersion::BeforeVersioning),
+            0 => Ok(EnumsMolangVersion::Beforeversioning),
             1 => Ok(EnumsMolangVersion::Initial),
-            2 => Ok(EnumsMolangVersion::FixedItemRemainingUseDurationQuery),
-            3 => Ok(EnumsMolangVersion::ExpressionErrorMessages),
-            4 => Ok(EnumsMolangVersion::UnexpectedOperatorErrors),
-            5 => Ok(EnumsMolangVersion::ConditionalOperatorAssociativity),
-            6 => Ok(EnumsMolangVersion::ComparisonAndLogicalOperatorPrecedence),
-            7 => Ok(EnumsMolangVersion::DivideByNegativeValue),
-            8 => Ok(EnumsMolangVersion::FixedCapeFlapAmountQuery),
-            9 => Ok(EnumsMolangVersion::QueryBlockPropertyRenamedToState),
-            10 => Ok(EnumsMolangVersion::DeprecateOldBlockQueryNames),
-            11 => Ok(EnumsMolangVersion::DeprecatedSnifferAndCamelQueries),
-            12 => Ok(EnumsMolangVersion::LeafSupportingInFirstSolidBlockBelow),
+            2 => Ok(EnumsMolangVersion::Fixeditemremainingusedurationquery),
+            3 => Ok(EnumsMolangVersion::Expressionerrormessages),
+            4 => Ok(EnumsMolangVersion::Unexpectedoperatorerrors),
+            5 => Ok(EnumsMolangVersion::Conditionaloperatorassociativity),
+            6 => Ok(EnumsMolangVersion::Comparisonandlogicaloperatorprecedence),
+            7 => Ok(EnumsMolangVersion::Dividebynegativevalue),
+            8 => Ok(EnumsMolangVersion::Fixedcapeflapamountquery),
+            9 => Ok(EnumsMolangVersion::Queryblockpropertyrenamedtostate),
+            10 => Ok(EnumsMolangVersion::Deprecateoldblockquerynames),
+            11 => Ok(EnumsMolangVersion::Deprecatedsnifferandcamelqueries),
+            12 => Ok(EnumsMolangVersion::Leafsupportinginfirstsolidblockbelow),
             13 => Ok(EnumsMolangVersion::Latest),
-            14 => Ok(EnumsMolangVersion::NumValidVersions),
+            14 => Ok(EnumsMolangVersion::Numvalidversions),
             other => Ok(EnumsMolangVersion::Unknown(other)),
         }
     }
@@ -17204,44 +17736,44 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackRequestCerealRequestDataAc
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsTextProcessingEventOrigin {
     Unknown,
-    ServerChatPublic,
-    ServerChatWhisper,
-    SignText,
-    AnvilText,
-    BookAndQuillText,
-    CommandBlockText,
-    BlockActorDataText,
-    JoinEventText,
-    LeaveEventText,
-    SlashCommandChat,
-    CartographyText,
-    KickCommand,
-    TitleCommand,
-    SummonCommand,
-    ServerForm,
-    DataDrivenUi,
+    Serverchatpublic,
+    Serverchatwhisper,
+    Signtext,
+    Anviltext,
+    Bookandquilltext,
+    Commandblocktext,
+    Blockactordatatext,
+    Joineventtext,
+    Leaveeventtext,
+    Slashcommandchat,
+    Cartographytext,
+    Kickcommand,
+    Titlecommand,
+    Summoncommand,
+    Serverform,
+    Datadrivenui,
     UnknownValue(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsTextProcessingEventOrigin {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsTextProcessingEventOrigin::Unknown => -1,
-            EnumsTextProcessingEventOrigin::ServerChatPublic => 0,
-            EnumsTextProcessingEventOrigin::ServerChatWhisper => 1,
-            EnumsTextProcessingEventOrigin::SignText => 2,
-            EnumsTextProcessingEventOrigin::AnvilText => 3,
-            EnumsTextProcessingEventOrigin::BookAndQuillText => 4,
-            EnumsTextProcessingEventOrigin::CommandBlockText => 5,
-            EnumsTextProcessingEventOrigin::BlockActorDataText => 6,
-            EnumsTextProcessingEventOrigin::JoinEventText => 7,
-            EnumsTextProcessingEventOrigin::LeaveEventText => 8,
-            EnumsTextProcessingEventOrigin::SlashCommandChat => 9,
-            EnumsTextProcessingEventOrigin::CartographyText => 10,
-            EnumsTextProcessingEventOrigin::KickCommand => 11,
-            EnumsTextProcessingEventOrigin::TitleCommand => 12,
-            EnumsTextProcessingEventOrigin::SummonCommand => 13,
-            EnumsTextProcessingEventOrigin::ServerForm => 14,
-            EnumsTextProcessingEventOrigin::DataDrivenUi => 15,
+            EnumsTextProcessingEventOrigin::Serverchatpublic => 0,
+            EnumsTextProcessingEventOrigin::Serverchatwhisper => 1,
+            EnumsTextProcessingEventOrigin::Signtext => 2,
+            EnumsTextProcessingEventOrigin::Anviltext => 3,
+            EnumsTextProcessingEventOrigin::Bookandquilltext => 4,
+            EnumsTextProcessingEventOrigin::Commandblocktext => 5,
+            EnumsTextProcessingEventOrigin::Blockactordatatext => 6,
+            EnumsTextProcessingEventOrigin::Joineventtext => 7,
+            EnumsTextProcessingEventOrigin::Leaveeventtext => 8,
+            EnumsTextProcessingEventOrigin::Slashcommandchat => 9,
+            EnumsTextProcessingEventOrigin::Cartographytext => 10,
+            EnumsTextProcessingEventOrigin::Kickcommand => 11,
+            EnumsTextProcessingEventOrigin::Titlecommand => 12,
+            EnumsTextProcessingEventOrigin::Summoncommand => 13,
+            EnumsTextProcessingEventOrigin::Serverform => 14,
+            EnumsTextProcessingEventOrigin::Datadrivenui => 15,
             EnumsTextProcessingEventOrigin::UnknownValue(v) => *v,
         };
         4usize
@@ -17252,22 +17784,22 @@ impl crate::bedrock::codec::BedrockCodec for EnumsTextProcessingEventOrigin {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsTextProcessingEventOrigin::Unknown => -1,
-            EnumsTextProcessingEventOrigin::ServerChatPublic => 0,
-            EnumsTextProcessingEventOrigin::ServerChatWhisper => 1,
-            EnumsTextProcessingEventOrigin::SignText => 2,
-            EnumsTextProcessingEventOrigin::AnvilText => 3,
-            EnumsTextProcessingEventOrigin::BookAndQuillText => 4,
-            EnumsTextProcessingEventOrigin::CommandBlockText => 5,
-            EnumsTextProcessingEventOrigin::BlockActorDataText => 6,
-            EnumsTextProcessingEventOrigin::JoinEventText => 7,
-            EnumsTextProcessingEventOrigin::LeaveEventText => 8,
-            EnumsTextProcessingEventOrigin::SlashCommandChat => 9,
-            EnumsTextProcessingEventOrigin::CartographyText => 10,
-            EnumsTextProcessingEventOrigin::KickCommand => 11,
-            EnumsTextProcessingEventOrigin::TitleCommand => 12,
-            EnumsTextProcessingEventOrigin::SummonCommand => 13,
-            EnumsTextProcessingEventOrigin::ServerForm => 14,
-            EnumsTextProcessingEventOrigin::DataDrivenUi => 15,
+            EnumsTextProcessingEventOrigin::Serverchatpublic => 0,
+            EnumsTextProcessingEventOrigin::Serverchatwhisper => 1,
+            EnumsTextProcessingEventOrigin::Signtext => 2,
+            EnumsTextProcessingEventOrigin::Anviltext => 3,
+            EnumsTextProcessingEventOrigin::Bookandquilltext => 4,
+            EnumsTextProcessingEventOrigin::Commandblocktext => 5,
+            EnumsTextProcessingEventOrigin::Blockactordatatext => 6,
+            EnumsTextProcessingEventOrigin::Joineventtext => 7,
+            EnumsTextProcessingEventOrigin::Leaveeventtext => 8,
+            EnumsTextProcessingEventOrigin::Slashcommandchat => 9,
+            EnumsTextProcessingEventOrigin::Cartographytext => 10,
+            EnumsTextProcessingEventOrigin::Kickcommand => 11,
+            EnumsTextProcessingEventOrigin::Titlecommand => 12,
+            EnumsTextProcessingEventOrigin::Summoncommand => 13,
+            EnumsTextProcessingEventOrigin::Serverform => 14,
+            EnumsTextProcessingEventOrigin::Datadrivenui => 15,
             EnumsTextProcessingEventOrigin::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::I32LE(val as i32).encode(buf)
@@ -17281,22 +17813,22 @@ impl crate::bedrock::codec::BedrockCodec for EnumsTextProcessingEventOrigin {
         let val = raw.0 as i32;
         match val {
             -1 => Ok(EnumsTextProcessingEventOrigin::Unknown),
-            0 => Ok(EnumsTextProcessingEventOrigin::ServerChatPublic),
-            1 => Ok(EnumsTextProcessingEventOrigin::ServerChatWhisper),
-            2 => Ok(EnumsTextProcessingEventOrigin::SignText),
-            3 => Ok(EnumsTextProcessingEventOrigin::AnvilText),
-            4 => Ok(EnumsTextProcessingEventOrigin::BookAndQuillText),
-            5 => Ok(EnumsTextProcessingEventOrigin::CommandBlockText),
-            6 => Ok(EnumsTextProcessingEventOrigin::BlockActorDataText),
-            7 => Ok(EnumsTextProcessingEventOrigin::JoinEventText),
-            8 => Ok(EnumsTextProcessingEventOrigin::LeaveEventText),
-            9 => Ok(EnumsTextProcessingEventOrigin::SlashCommandChat),
-            10 => Ok(EnumsTextProcessingEventOrigin::CartographyText),
-            11 => Ok(EnumsTextProcessingEventOrigin::KickCommand),
-            12 => Ok(EnumsTextProcessingEventOrigin::TitleCommand),
-            13 => Ok(EnumsTextProcessingEventOrigin::SummonCommand),
-            14 => Ok(EnumsTextProcessingEventOrigin::ServerForm),
-            15 => Ok(EnumsTextProcessingEventOrigin::DataDrivenUi),
+            0 => Ok(EnumsTextProcessingEventOrigin::Serverchatpublic),
+            1 => Ok(EnumsTextProcessingEventOrigin::Serverchatwhisper),
+            2 => Ok(EnumsTextProcessingEventOrigin::Signtext),
+            3 => Ok(EnumsTextProcessingEventOrigin::Anviltext),
+            4 => Ok(EnumsTextProcessingEventOrigin::Bookandquilltext),
+            5 => Ok(EnumsTextProcessingEventOrigin::Commandblocktext),
+            6 => Ok(EnumsTextProcessingEventOrigin::Blockactordatatext),
+            7 => Ok(EnumsTextProcessingEventOrigin::Joineventtext),
+            8 => Ok(EnumsTextProcessingEventOrigin::Leaveeventtext),
+            9 => Ok(EnumsTextProcessingEventOrigin::Slashcommandchat),
+            10 => Ok(EnumsTextProcessingEventOrigin::Cartographytext),
+            11 => Ok(EnumsTextProcessingEventOrigin::Kickcommand),
+            12 => Ok(EnumsTextProcessingEventOrigin::Titlecommand),
+            13 => Ok(EnumsTextProcessingEventOrigin::Summoncommand),
+            14 => Ok(EnumsTextProcessingEventOrigin::Serverform),
+            15 => Ok(EnumsTextProcessingEventOrigin::Datadrivenui),
             other => Ok(EnumsTextProcessingEventOrigin::UnknownValue(other)),
         }
     }
@@ -18116,9 +18648,8 @@ pub struct ItemStackResponseSlotInfo {
     pub requested_slot: u8,
     pub slot: u8,
     pub amount: u8,
-    pub item_stack_net_id: Option<Option<TypedServerNetIdstructItemStackNetIdTagint32T0>>,
-    pub custom_name: String,
-    pub filtered_custom_name: Option<String>,
+    pub item_stack_net_id: Option<TypedServerNetIdstructItemStackNetIdTagint32T0>,
+    pub custom_name: BedrockSafetyRedactableString,
     pub durability_correction: i32,
 }
 impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfo {
@@ -18130,24 +18661,11 @@ impl crate::bedrock::codec::BedrockSized for ItemStackResponseSlotInfo {
         size += {
             1usize
                 + match &self.item_stack_net_id {
-                    Some(_v) => {
-                        1usize
-                            + match _v {
-                                Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
-                                None => 0usize,
-                            }
-                    }
+                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
                     None => 0usize,
                 }
         };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-            self.custom_name.len() as u32,
-        )) + self.custom_name.len();
-        size += 1 + self.filtered_custom_name.as_ref().map_or(0, |name| {
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                name.len() as u32,
-            )) + name.len()
-        });
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.custom_name);
         size += crate::bedrock::codec::BedrockSized::encoded_size(
             &crate::bedrock::codec::ZigZag32(self.durability_correction),
         );
@@ -18164,23 +18682,11 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseSlotInfo {
         match &self.item_stack_net_id {
             Some(v) => {
                 buf.put_u8(1);
-                match v {
-                    Some(v) => {
-                        buf.put_u8(1);
-                        v.encode(buf)?;
-                    }
-                    None => buf.put_u8(0),
-                }
+                v.encode(buf)?;
             }
             None => buf.put_u8(0),
         }
-        crate::bedrock::codec::VarUInt(self.custom_name.len() as u32).encode(buf)?;
-        buf.put_slice(self.custom_name.as_bytes());
-        self.filtered_custom_name.is_some().encode(buf)?;
-        if let Some(name) = &self.filtered_custom_name {
-            crate::bedrock::codec::VarUInt(name.len() as u32).encode(buf)?;
-            buf.put_slice(name.as_bytes());
-        }
+        self.custom_name.encode(buf)?;
         crate::bedrock::codec::ZigZag32(self.durability_correction).encode(buf)?;
         Ok(())
     }
@@ -18195,62 +18701,21 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseSlotInfo {
         let item_stack_net_id = {
             let present = u8::decode(buf, ())?;
             if present != 0 {
-                Some({
-                    let present = u8::decode(buf, ())?;
-                    if present != 0 {
-                        Some(
-                            <TypedServerNetIdstructItemStackNetIdTagint32T0 as crate::bedrock::codec::BedrockCodec>::decode(
-                                buf,
-                                (),
-                            )?,
-                        )
-                    } else {
-                        None
-                    }
-                })
+                Some(
+                    <TypedServerNetIdstructItemStackNetIdTagint32T0 as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?,
+                )
             } else {
                 None
             }
         };
-        let custom_name = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let filtered_custom_name =
-            if <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? {
-                Some({
-                    let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-                    if buf.remaining() < len {
-                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                            declared: len,
-                            available: buf.remaining(),
-                        });
-                    }
-                    let mut bytes = vec![0u8; len];
-                    buf.copy_to_slice(&mut bytes);
-                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-                })
-            } else {
-                None
-            };
+        let custom_name =
+            <BedrockSafetyRedactableString as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?;
         let durability_correction =
             <crate::bedrock::codec::ZigZag32 as crate::bedrock::codec::BedrockCodec>::decode(
                 buf,
@@ -18263,7 +18728,6 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseSlotInfo {
             amount,
             item_stack_net_id,
             custom_name,
-            filtered_custom_name,
             durability_correction,
         })
     }
@@ -18338,72 +18802,72 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseContainerInfo {
 pub enum EnumsItemStackNetResult {
     Success,
     Error,
-    InvalidRequestActionType,
-    ActionRequestNotAllowed,
-    ScreenHandlerEndRequestFailed,
-    ItemRequestActionHandlerCommitFailed,
-    InvalidRequestCraftActionType,
-    InvalidCraftRequest,
-    InvalidCraftRequestScreen,
-    InvalidCraftResult,
-    InvalidCraftResultIndex,
-    InvalidCraftResultItem,
-    InvalidItemNetId,
-    MissingCreatedOutputContainer,
-    FailedToSetCreatedItemOutputSlot,
-    RequestAlreadyInProgress,
-    FailedToInitSparseContainer,
-    ResultTransferFailed,
-    ExpectedItemSlotNotFullyConsumed,
-    ExpectedAnywhereItemNotFullyConsumed,
-    ItemAlreadyConsumedFromSlot,
-    ConsumedTooMuchFromSlot,
-    MismatchSlotExpectedConsumedItem,
-    MismatchSlotExpectedConsumedItemNetIdVariant,
-    FailedToMatchExpectedSlotConsumedItem,
-    FailedToMatchExpectedAllowedAnywhereConsumedItem,
-    ConsumedItemOutOfAllowedSlotRange,
-    ConsumedItemNotAllowed,
-    PlayerNotInCreativeMode,
-    InvalidExperimentalRecipeRequest,
-    FailedToCraftCreative,
-    FailedToGetLevelRecipe,
-    FailedToFindRecipeByNetId,
-    MismatchedCraftingSize,
-    MissingInputSparseContainer,
-    MismatchedRecipeForInputGridItems,
-    EmptyCraftResults,
-    FailedToEnchant,
-    MissingInputItem,
-    InsufficientPlayerLevelToEnchant,
-    MissingMaterialItem,
-    MissingActor,
-    UnknownPrimaryEffect,
-    PrimaryEffectOutOfRange,
-    PrimaryEffectUnavailable,
-    SecondaryEffectOutOfRange,
-    SecondaryEffectUnavailable,
-    DstContainerEqualToCreatedOutputContainer,
-    DstContainerAndSlotEqualToSrcContainerAndSlot,
-    FailedToValidateSrcSlot,
-    FailedToValidateDstSlot,
-    InvalidAdjustedAmount,
-    InvalidItemSetType,
-    InvalidTransferAmount,
-    CannotSwapItem,
-    CannotPlaceItem,
-    UnhandledItemSetType,
-    InvalidRemovedAmount,
-    InvalidRegion,
-    CannotDropItem,
-    CannotDestroyItem,
-    InvalidSourceContainer,
-    ItemNotConsumed,
-    InvalidNumCrafts,
-    InvalidCraftResultStackSize,
-    CannotRemoveItem,
-    CannotConsumeItem,
-    ScreenStackError,
+    Invalidrequestactiontype,
+    Actionrequestnotallowed,
+    Screenhandlerendrequestfailed,
+    Itemrequestactionhandlercommitfailed,
+    Invalidrequestcraftactiontype,
+    Invalidcraftrequest,
+    Invalidcraftrequestscreen,
+    Invalidcraftresult,
+    Invalidcraftresultindex,
+    Invalidcraftresultitem,
+    Invaliditemnetid,
+    Missingcreatedoutputcontainer,
+    Failedtosetcreateditemoutputslot,
+    Requestalreadyinprogress,
+    Failedtoinitsparsecontainer,
+    Resulttransferfailed,
+    Expecteditemslotnotfullyconsumed,
+    Expectedanywhereitemnotfullyconsumed,
+    Itemalreadyconsumedfromslot,
+    Consumedtoomuchfromslot,
+    Mismatchslotexpectedconsumeditem,
+    Mismatchslotexpectedconsumeditemnetidvariant,
+    Failedtomatchexpectedslotconsumeditem,
+    Failedtomatchexpectedallowedanywhereconsumeditem,
+    Consumeditemoutofallowedslotrange,
+    Consumeditemnotallowed,
+    Playernotincreativemode,
+    Invalidexperimentalreciperequest,
+    Failedtocraftcreative,
+    Failedtogetlevelrecipe,
+    Failedtofindrecipebynetid,
+    Mismatchedcraftingsize,
+    Missinginputsparsecontainer,
+    Mismatchedrecipeforinputgriditems,
+    Emptycraftresults,
+    Failedtoenchant,
+    Missinginputitem,
+    Insufficientplayerleveltoenchant,
+    Missingmaterialitem,
+    Missingactor,
+    Unknownprimaryeffect,
+    Primaryeffectoutofrange,
+    Primaryeffectunavailable,
+    Secondaryeffectoutofrange,
+    Secondaryeffectunavailable,
+    Dstcontainerequaltocreatedoutputcontainer,
+    Dstcontainerandslotequaltosrccontainerandslot,
+    Failedtovalidatesrcslot,
+    Failedtovalidatedstslot,
+    Invalidadjustedamount,
+    Invaliditemsettype,
+    Invalidtransferamount,
+    Cannotswapitem,
+    Cannotplaceitem,
+    Unhandleditemsettype,
+    Invalidremovedamount,
+    Invalidregion,
+    Cannotdropitem,
+    Cannotdestroyitem,
+    Invalidsourcecontainer,
+    Itemnotconsumed,
+    Invalidnumcrafts,
+    Invalidcraftresultstacksize,
+    Cannotremoveitem,
+    Cannotconsumeitem,
+    Screenstackerror,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsItemStackNetResult {
@@ -18411,72 +18875,72 @@ impl crate::bedrock::codec::BedrockSized for EnumsItemStackNetResult {
         let _val: u8 = match self {
             EnumsItemStackNetResult::Success => 0,
             EnumsItemStackNetResult::Error => 1,
-            EnumsItemStackNetResult::InvalidRequestActionType => 2,
-            EnumsItemStackNetResult::ActionRequestNotAllowed => 3,
-            EnumsItemStackNetResult::ScreenHandlerEndRequestFailed => 4,
-            EnumsItemStackNetResult::ItemRequestActionHandlerCommitFailed => 5,
-            EnumsItemStackNetResult::InvalidRequestCraftActionType => 6,
-            EnumsItemStackNetResult::InvalidCraftRequest => 7,
-            EnumsItemStackNetResult::InvalidCraftRequestScreen => 8,
-            EnumsItemStackNetResult::InvalidCraftResult => 9,
-            EnumsItemStackNetResult::InvalidCraftResultIndex => 10,
-            EnumsItemStackNetResult::InvalidCraftResultItem => 11,
-            EnumsItemStackNetResult::InvalidItemNetId => 12,
-            EnumsItemStackNetResult::MissingCreatedOutputContainer => 13,
-            EnumsItemStackNetResult::FailedToSetCreatedItemOutputSlot => 14,
-            EnumsItemStackNetResult::RequestAlreadyInProgress => 15,
-            EnumsItemStackNetResult::FailedToInitSparseContainer => 16,
-            EnumsItemStackNetResult::ResultTransferFailed => 17,
-            EnumsItemStackNetResult::ExpectedItemSlotNotFullyConsumed => 18,
-            EnumsItemStackNetResult::ExpectedAnywhereItemNotFullyConsumed => 19,
-            EnumsItemStackNetResult::ItemAlreadyConsumedFromSlot => 20,
-            EnumsItemStackNetResult::ConsumedTooMuchFromSlot => 21,
-            EnumsItemStackNetResult::MismatchSlotExpectedConsumedItem => 22,
-            EnumsItemStackNetResult::MismatchSlotExpectedConsumedItemNetIdVariant => 23,
-            EnumsItemStackNetResult::FailedToMatchExpectedSlotConsumedItem => 24,
-            EnumsItemStackNetResult::FailedToMatchExpectedAllowedAnywhereConsumedItem => 25,
-            EnumsItemStackNetResult::ConsumedItemOutOfAllowedSlotRange => 26,
-            EnumsItemStackNetResult::ConsumedItemNotAllowed => 27,
-            EnumsItemStackNetResult::PlayerNotInCreativeMode => 28,
-            EnumsItemStackNetResult::InvalidExperimentalRecipeRequest => 29,
-            EnumsItemStackNetResult::FailedToCraftCreative => 30,
-            EnumsItemStackNetResult::FailedToGetLevelRecipe => 31,
-            EnumsItemStackNetResult::FailedToFindRecipeByNetId => 32,
-            EnumsItemStackNetResult::MismatchedCraftingSize => 33,
-            EnumsItemStackNetResult::MissingInputSparseContainer => 34,
-            EnumsItemStackNetResult::MismatchedRecipeForInputGridItems => 35,
-            EnumsItemStackNetResult::EmptyCraftResults => 36,
-            EnumsItemStackNetResult::FailedToEnchant => 37,
-            EnumsItemStackNetResult::MissingInputItem => 38,
-            EnumsItemStackNetResult::InsufficientPlayerLevelToEnchant => 39,
-            EnumsItemStackNetResult::MissingMaterialItem => 40,
-            EnumsItemStackNetResult::MissingActor => 41,
-            EnumsItemStackNetResult::UnknownPrimaryEffect => 42,
-            EnumsItemStackNetResult::PrimaryEffectOutOfRange => 43,
-            EnumsItemStackNetResult::PrimaryEffectUnavailable => 44,
-            EnumsItemStackNetResult::SecondaryEffectOutOfRange => 45,
-            EnumsItemStackNetResult::SecondaryEffectUnavailable => 46,
-            EnumsItemStackNetResult::DstContainerEqualToCreatedOutputContainer => 47,
-            EnumsItemStackNetResult::DstContainerAndSlotEqualToSrcContainerAndSlot => 48,
-            EnumsItemStackNetResult::FailedToValidateSrcSlot => 49,
-            EnumsItemStackNetResult::FailedToValidateDstSlot => 50,
-            EnumsItemStackNetResult::InvalidAdjustedAmount => 51,
-            EnumsItemStackNetResult::InvalidItemSetType => 52,
-            EnumsItemStackNetResult::InvalidTransferAmount => 53,
-            EnumsItemStackNetResult::CannotSwapItem => 54,
-            EnumsItemStackNetResult::CannotPlaceItem => 55,
-            EnumsItemStackNetResult::UnhandledItemSetType => 56,
-            EnumsItemStackNetResult::InvalidRemovedAmount => 57,
-            EnumsItemStackNetResult::InvalidRegion => 58,
-            EnumsItemStackNetResult::CannotDropItem => 59,
-            EnumsItemStackNetResult::CannotDestroyItem => 60,
-            EnumsItemStackNetResult::InvalidSourceContainer => 61,
-            EnumsItemStackNetResult::ItemNotConsumed => 62,
-            EnumsItemStackNetResult::InvalidNumCrafts => 63,
-            EnumsItemStackNetResult::InvalidCraftResultStackSize => 64,
-            EnumsItemStackNetResult::CannotRemoveItem => 65,
-            EnumsItemStackNetResult::CannotConsumeItem => 66,
-            EnumsItemStackNetResult::ScreenStackError => 67,
+            EnumsItemStackNetResult::Invalidrequestactiontype => 2,
+            EnumsItemStackNetResult::Actionrequestnotallowed => 3,
+            EnumsItemStackNetResult::Screenhandlerendrequestfailed => 4,
+            EnumsItemStackNetResult::Itemrequestactionhandlercommitfailed => 5,
+            EnumsItemStackNetResult::Invalidrequestcraftactiontype => 6,
+            EnumsItemStackNetResult::Invalidcraftrequest => 7,
+            EnumsItemStackNetResult::Invalidcraftrequestscreen => 8,
+            EnumsItemStackNetResult::Invalidcraftresult => 9,
+            EnumsItemStackNetResult::Invalidcraftresultindex => 10,
+            EnumsItemStackNetResult::Invalidcraftresultitem => 11,
+            EnumsItemStackNetResult::Invaliditemnetid => 12,
+            EnumsItemStackNetResult::Missingcreatedoutputcontainer => 13,
+            EnumsItemStackNetResult::Failedtosetcreateditemoutputslot => 14,
+            EnumsItemStackNetResult::Requestalreadyinprogress => 15,
+            EnumsItemStackNetResult::Failedtoinitsparsecontainer => 16,
+            EnumsItemStackNetResult::Resulttransferfailed => 17,
+            EnumsItemStackNetResult::Expecteditemslotnotfullyconsumed => 18,
+            EnumsItemStackNetResult::Expectedanywhereitemnotfullyconsumed => 19,
+            EnumsItemStackNetResult::Itemalreadyconsumedfromslot => 20,
+            EnumsItemStackNetResult::Consumedtoomuchfromslot => 21,
+            EnumsItemStackNetResult::Mismatchslotexpectedconsumeditem => 22,
+            EnumsItemStackNetResult::Mismatchslotexpectedconsumeditemnetidvariant => 23,
+            EnumsItemStackNetResult::Failedtomatchexpectedslotconsumeditem => 24,
+            EnumsItemStackNetResult::Failedtomatchexpectedallowedanywhereconsumeditem => 25,
+            EnumsItemStackNetResult::Consumeditemoutofallowedslotrange => 26,
+            EnumsItemStackNetResult::Consumeditemnotallowed => 27,
+            EnumsItemStackNetResult::Playernotincreativemode => 28,
+            EnumsItemStackNetResult::Invalidexperimentalreciperequest => 29,
+            EnumsItemStackNetResult::Failedtocraftcreative => 30,
+            EnumsItemStackNetResult::Failedtogetlevelrecipe => 31,
+            EnumsItemStackNetResult::Failedtofindrecipebynetid => 32,
+            EnumsItemStackNetResult::Mismatchedcraftingsize => 33,
+            EnumsItemStackNetResult::Missinginputsparsecontainer => 34,
+            EnumsItemStackNetResult::Mismatchedrecipeforinputgriditems => 35,
+            EnumsItemStackNetResult::Emptycraftresults => 36,
+            EnumsItemStackNetResult::Failedtoenchant => 37,
+            EnumsItemStackNetResult::Missinginputitem => 38,
+            EnumsItemStackNetResult::Insufficientplayerleveltoenchant => 39,
+            EnumsItemStackNetResult::Missingmaterialitem => 40,
+            EnumsItemStackNetResult::Missingactor => 41,
+            EnumsItemStackNetResult::Unknownprimaryeffect => 42,
+            EnumsItemStackNetResult::Primaryeffectoutofrange => 43,
+            EnumsItemStackNetResult::Primaryeffectunavailable => 44,
+            EnumsItemStackNetResult::Secondaryeffectoutofrange => 45,
+            EnumsItemStackNetResult::Secondaryeffectunavailable => 46,
+            EnumsItemStackNetResult::Dstcontainerequaltocreatedoutputcontainer => 47,
+            EnumsItemStackNetResult::Dstcontainerandslotequaltosrccontainerandslot => 48,
+            EnumsItemStackNetResult::Failedtovalidatesrcslot => 49,
+            EnumsItemStackNetResult::Failedtovalidatedstslot => 50,
+            EnumsItemStackNetResult::Invalidadjustedamount => 51,
+            EnumsItemStackNetResult::Invaliditemsettype => 52,
+            EnumsItemStackNetResult::Invalidtransferamount => 53,
+            EnumsItemStackNetResult::Cannotswapitem => 54,
+            EnumsItemStackNetResult::Cannotplaceitem => 55,
+            EnumsItemStackNetResult::Unhandleditemsettype => 56,
+            EnumsItemStackNetResult::Invalidremovedamount => 57,
+            EnumsItemStackNetResult::Invalidregion => 58,
+            EnumsItemStackNetResult::Cannotdropitem => 59,
+            EnumsItemStackNetResult::Cannotdestroyitem => 60,
+            EnumsItemStackNetResult::Invalidsourcecontainer => 61,
+            EnumsItemStackNetResult::Itemnotconsumed => 62,
+            EnumsItemStackNetResult::Invalidnumcrafts => 63,
+            EnumsItemStackNetResult::Invalidcraftresultstacksize => 64,
+            EnumsItemStackNetResult::Cannotremoveitem => 65,
+            EnumsItemStackNetResult::Cannotconsumeitem => 66,
+            EnumsItemStackNetResult::Screenstackerror => 67,
             EnumsItemStackNetResult::Unknown(v) => *v,
         };
         1usize
@@ -18488,72 +18952,72 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemStackNetResult {
         let val: u8 = match self {
             EnumsItemStackNetResult::Success => 0,
             EnumsItemStackNetResult::Error => 1,
-            EnumsItemStackNetResult::InvalidRequestActionType => 2,
-            EnumsItemStackNetResult::ActionRequestNotAllowed => 3,
-            EnumsItemStackNetResult::ScreenHandlerEndRequestFailed => 4,
-            EnumsItemStackNetResult::ItemRequestActionHandlerCommitFailed => 5,
-            EnumsItemStackNetResult::InvalidRequestCraftActionType => 6,
-            EnumsItemStackNetResult::InvalidCraftRequest => 7,
-            EnumsItemStackNetResult::InvalidCraftRequestScreen => 8,
-            EnumsItemStackNetResult::InvalidCraftResult => 9,
-            EnumsItemStackNetResult::InvalidCraftResultIndex => 10,
-            EnumsItemStackNetResult::InvalidCraftResultItem => 11,
-            EnumsItemStackNetResult::InvalidItemNetId => 12,
-            EnumsItemStackNetResult::MissingCreatedOutputContainer => 13,
-            EnumsItemStackNetResult::FailedToSetCreatedItemOutputSlot => 14,
-            EnumsItemStackNetResult::RequestAlreadyInProgress => 15,
-            EnumsItemStackNetResult::FailedToInitSparseContainer => 16,
-            EnumsItemStackNetResult::ResultTransferFailed => 17,
-            EnumsItemStackNetResult::ExpectedItemSlotNotFullyConsumed => 18,
-            EnumsItemStackNetResult::ExpectedAnywhereItemNotFullyConsumed => 19,
-            EnumsItemStackNetResult::ItemAlreadyConsumedFromSlot => 20,
-            EnumsItemStackNetResult::ConsumedTooMuchFromSlot => 21,
-            EnumsItemStackNetResult::MismatchSlotExpectedConsumedItem => 22,
-            EnumsItemStackNetResult::MismatchSlotExpectedConsumedItemNetIdVariant => 23,
-            EnumsItemStackNetResult::FailedToMatchExpectedSlotConsumedItem => 24,
-            EnumsItemStackNetResult::FailedToMatchExpectedAllowedAnywhereConsumedItem => 25,
-            EnumsItemStackNetResult::ConsumedItemOutOfAllowedSlotRange => 26,
-            EnumsItemStackNetResult::ConsumedItemNotAllowed => 27,
-            EnumsItemStackNetResult::PlayerNotInCreativeMode => 28,
-            EnumsItemStackNetResult::InvalidExperimentalRecipeRequest => 29,
-            EnumsItemStackNetResult::FailedToCraftCreative => 30,
-            EnumsItemStackNetResult::FailedToGetLevelRecipe => 31,
-            EnumsItemStackNetResult::FailedToFindRecipeByNetId => 32,
-            EnumsItemStackNetResult::MismatchedCraftingSize => 33,
-            EnumsItemStackNetResult::MissingInputSparseContainer => 34,
-            EnumsItemStackNetResult::MismatchedRecipeForInputGridItems => 35,
-            EnumsItemStackNetResult::EmptyCraftResults => 36,
-            EnumsItemStackNetResult::FailedToEnchant => 37,
-            EnumsItemStackNetResult::MissingInputItem => 38,
-            EnumsItemStackNetResult::InsufficientPlayerLevelToEnchant => 39,
-            EnumsItemStackNetResult::MissingMaterialItem => 40,
-            EnumsItemStackNetResult::MissingActor => 41,
-            EnumsItemStackNetResult::UnknownPrimaryEffect => 42,
-            EnumsItemStackNetResult::PrimaryEffectOutOfRange => 43,
-            EnumsItemStackNetResult::PrimaryEffectUnavailable => 44,
-            EnumsItemStackNetResult::SecondaryEffectOutOfRange => 45,
-            EnumsItemStackNetResult::SecondaryEffectUnavailable => 46,
-            EnumsItemStackNetResult::DstContainerEqualToCreatedOutputContainer => 47,
-            EnumsItemStackNetResult::DstContainerAndSlotEqualToSrcContainerAndSlot => 48,
-            EnumsItemStackNetResult::FailedToValidateSrcSlot => 49,
-            EnumsItemStackNetResult::FailedToValidateDstSlot => 50,
-            EnumsItemStackNetResult::InvalidAdjustedAmount => 51,
-            EnumsItemStackNetResult::InvalidItemSetType => 52,
-            EnumsItemStackNetResult::InvalidTransferAmount => 53,
-            EnumsItemStackNetResult::CannotSwapItem => 54,
-            EnumsItemStackNetResult::CannotPlaceItem => 55,
-            EnumsItemStackNetResult::UnhandledItemSetType => 56,
-            EnumsItemStackNetResult::InvalidRemovedAmount => 57,
-            EnumsItemStackNetResult::InvalidRegion => 58,
-            EnumsItemStackNetResult::CannotDropItem => 59,
-            EnumsItemStackNetResult::CannotDestroyItem => 60,
-            EnumsItemStackNetResult::InvalidSourceContainer => 61,
-            EnumsItemStackNetResult::ItemNotConsumed => 62,
-            EnumsItemStackNetResult::InvalidNumCrafts => 63,
-            EnumsItemStackNetResult::InvalidCraftResultStackSize => 64,
-            EnumsItemStackNetResult::CannotRemoveItem => 65,
-            EnumsItemStackNetResult::CannotConsumeItem => 66,
-            EnumsItemStackNetResult::ScreenStackError => 67,
+            EnumsItemStackNetResult::Invalidrequestactiontype => 2,
+            EnumsItemStackNetResult::Actionrequestnotallowed => 3,
+            EnumsItemStackNetResult::Screenhandlerendrequestfailed => 4,
+            EnumsItemStackNetResult::Itemrequestactionhandlercommitfailed => 5,
+            EnumsItemStackNetResult::Invalidrequestcraftactiontype => 6,
+            EnumsItemStackNetResult::Invalidcraftrequest => 7,
+            EnumsItemStackNetResult::Invalidcraftrequestscreen => 8,
+            EnumsItemStackNetResult::Invalidcraftresult => 9,
+            EnumsItemStackNetResult::Invalidcraftresultindex => 10,
+            EnumsItemStackNetResult::Invalidcraftresultitem => 11,
+            EnumsItemStackNetResult::Invaliditemnetid => 12,
+            EnumsItemStackNetResult::Missingcreatedoutputcontainer => 13,
+            EnumsItemStackNetResult::Failedtosetcreateditemoutputslot => 14,
+            EnumsItemStackNetResult::Requestalreadyinprogress => 15,
+            EnumsItemStackNetResult::Failedtoinitsparsecontainer => 16,
+            EnumsItemStackNetResult::Resulttransferfailed => 17,
+            EnumsItemStackNetResult::Expecteditemslotnotfullyconsumed => 18,
+            EnumsItemStackNetResult::Expectedanywhereitemnotfullyconsumed => 19,
+            EnumsItemStackNetResult::Itemalreadyconsumedfromslot => 20,
+            EnumsItemStackNetResult::Consumedtoomuchfromslot => 21,
+            EnumsItemStackNetResult::Mismatchslotexpectedconsumeditem => 22,
+            EnumsItemStackNetResult::Mismatchslotexpectedconsumeditemnetidvariant => 23,
+            EnumsItemStackNetResult::Failedtomatchexpectedslotconsumeditem => 24,
+            EnumsItemStackNetResult::Failedtomatchexpectedallowedanywhereconsumeditem => 25,
+            EnumsItemStackNetResult::Consumeditemoutofallowedslotrange => 26,
+            EnumsItemStackNetResult::Consumeditemnotallowed => 27,
+            EnumsItemStackNetResult::Playernotincreativemode => 28,
+            EnumsItemStackNetResult::Invalidexperimentalreciperequest => 29,
+            EnumsItemStackNetResult::Failedtocraftcreative => 30,
+            EnumsItemStackNetResult::Failedtogetlevelrecipe => 31,
+            EnumsItemStackNetResult::Failedtofindrecipebynetid => 32,
+            EnumsItemStackNetResult::Mismatchedcraftingsize => 33,
+            EnumsItemStackNetResult::Missinginputsparsecontainer => 34,
+            EnumsItemStackNetResult::Mismatchedrecipeforinputgriditems => 35,
+            EnumsItemStackNetResult::Emptycraftresults => 36,
+            EnumsItemStackNetResult::Failedtoenchant => 37,
+            EnumsItemStackNetResult::Missinginputitem => 38,
+            EnumsItemStackNetResult::Insufficientplayerleveltoenchant => 39,
+            EnumsItemStackNetResult::Missingmaterialitem => 40,
+            EnumsItemStackNetResult::Missingactor => 41,
+            EnumsItemStackNetResult::Unknownprimaryeffect => 42,
+            EnumsItemStackNetResult::Primaryeffectoutofrange => 43,
+            EnumsItemStackNetResult::Primaryeffectunavailable => 44,
+            EnumsItemStackNetResult::Secondaryeffectoutofrange => 45,
+            EnumsItemStackNetResult::Secondaryeffectunavailable => 46,
+            EnumsItemStackNetResult::Dstcontainerequaltocreatedoutputcontainer => 47,
+            EnumsItemStackNetResult::Dstcontainerandslotequaltosrccontainerandslot => 48,
+            EnumsItemStackNetResult::Failedtovalidatesrcslot => 49,
+            EnumsItemStackNetResult::Failedtovalidatedstslot => 50,
+            EnumsItemStackNetResult::Invalidadjustedamount => 51,
+            EnumsItemStackNetResult::Invaliditemsettype => 52,
+            EnumsItemStackNetResult::Invalidtransferamount => 53,
+            EnumsItemStackNetResult::Cannotswapitem => 54,
+            EnumsItemStackNetResult::Cannotplaceitem => 55,
+            EnumsItemStackNetResult::Unhandleditemsettype => 56,
+            EnumsItemStackNetResult::Invalidremovedamount => 57,
+            EnumsItemStackNetResult::Invalidregion => 58,
+            EnumsItemStackNetResult::Cannotdropitem => 59,
+            EnumsItemStackNetResult::Cannotdestroyitem => 60,
+            EnumsItemStackNetResult::Invalidsourcecontainer => 61,
+            EnumsItemStackNetResult::Itemnotconsumed => 62,
+            EnumsItemStackNetResult::Invalidnumcrafts => 63,
+            EnumsItemStackNetResult::Invalidcraftresultstacksize => 64,
+            EnumsItemStackNetResult::Cannotremoveitem => 65,
+            EnumsItemStackNetResult::Cannotconsumeitem => 66,
+            EnumsItemStackNetResult::Screenstackerror => 67,
             EnumsItemStackNetResult::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -18566,72 +19030,72 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemStackNetResult {
         match val {
             0 => Ok(EnumsItemStackNetResult::Success),
             1 => Ok(EnumsItemStackNetResult::Error),
-            2 => Ok(EnumsItemStackNetResult::InvalidRequestActionType),
-            3 => Ok(EnumsItemStackNetResult::ActionRequestNotAllowed),
-            4 => Ok(EnumsItemStackNetResult::ScreenHandlerEndRequestFailed),
-            5 => Ok(EnumsItemStackNetResult::ItemRequestActionHandlerCommitFailed),
-            6 => Ok(EnumsItemStackNetResult::InvalidRequestCraftActionType),
-            7 => Ok(EnumsItemStackNetResult::InvalidCraftRequest),
-            8 => Ok(EnumsItemStackNetResult::InvalidCraftRequestScreen),
-            9 => Ok(EnumsItemStackNetResult::InvalidCraftResult),
-            10 => Ok(EnumsItemStackNetResult::InvalidCraftResultIndex),
-            11 => Ok(EnumsItemStackNetResult::InvalidCraftResultItem),
-            12 => Ok(EnumsItemStackNetResult::InvalidItemNetId),
-            13 => Ok(EnumsItemStackNetResult::MissingCreatedOutputContainer),
-            14 => Ok(EnumsItemStackNetResult::FailedToSetCreatedItemOutputSlot),
-            15 => Ok(EnumsItemStackNetResult::RequestAlreadyInProgress),
-            16 => Ok(EnumsItemStackNetResult::FailedToInitSparseContainer),
-            17 => Ok(EnumsItemStackNetResult::ResultTransferFailed),
-            18 => Ok(EnumsItemStackNetResult::ExpectedItemSlotNotFullyConsumed),
-            19 => Ok(EnumsItemStackNetResult::ExpectedAnywhereItemNotFullyConsumed),
-            20 => Ok(EnumsItemStackNetResult::ItemAlreadyConsumedFromSlot),
-            21 => Ok(EnumsItemStackNetResult::ConsumedTooMuchFromSlot),
-            22 => Ok(EnumsItemStackNetResult::MismatchSlotExpectedConsumedItem),
-            23 => Ok(EnumsItemStackNetResult::MismatchSlotExpectedConsumedItemNetIdVariant),
-            24 => Ok(EnumsItemStackNetResult::FailedToMatchExpectedSlotConsumedItem),
-            25 => Ok(EnumsItemStackNetResult::FailedToMatchExpectedAllowedAnywhereConsumedItem),
-            26 => Ok(EnumsItemStackNetResult::ConsumedItemOutOfAllowedSlotRange),
-            27 => Ok(EnumsItemStackNetResult::ConsumedItemNotAllowed),
-            28 => Ok(EnumsItemStackNetResult::PlayerNotInCreativeMode),
-            29 => Ok(EnumsItemStackNetResult::InvalidExperimentalRecipeRequest),
-            30 => Ok(EnumsItemStackNetResult::FailedToCraftCreative),
-            31 => Ok(EnumsItemStackNetResult::FailedToGetLevelRecipe),
-            32 => Ok(EnumsItemStackNetResult::FailedToFindRecipeByNetId),
-            33 => Ok(EnumsItemStackNetResult::MismatchedCraftingSize),
-            34 => Ok(EnumsItemStackNetResult::MissingInputSparseContainer),
-            35 => Ok(EnumsItemStackNetResult::MismatchedRecipeForInputGridItems),
-            36 => Ok(EnumsItemStackNetResult::EmptyCraftResults),
-            37 => Ok(EnumsItemStackNetResult::FailedToEnchant),
-            38 => Ok(EnumsItemStackNetResult::MissingInputItem),
-            39 => Ok(EnumsItemStackNetResult::InsufficientPlayerLevelToEnchant),
-            40 => Ok(EnumsItemStackNetResult::MissingMaterialItem),
-            41 => Ok(EnumsItemStackNetResult::MissingActor),
-            42 => Ok(EnumsItemStackNetResult::UnknownPrimaryEffect),
-            43 => Ok(EnumsItemStackNetResult::PrimaryEffectOutOfRange),
-            44 => Ok(EnumsItemStackNetResult::PrimaryEffectUnavailable),
-            45 => Ok(EnumsItemStackNetResult::SecondaryEffectOutOfRange),
-            46 => Ok(EnumsItemStackNetResult::SecondaryEffectUnavailable),
-            47 => Ok(EnumsItemStackNetResult::DstContainerEqualToCreatedOutputContainer),
-            48 => Ok(EnumsItemStackNetResult::DstContainerAndSlotEqualToSrcContainerAndSlot),
-            49 => Ok(EnumsItemStackNetResult::FailedToValidateSrcSlot),
-            50 => Ok(EnumsItemStackNetResult::FailedToValidateDstSlot),
-            51 => Ok(EnumsItemStackNetResult::InvalidAdjustedAmount),
-            52 => Ok(EnumsItemStackNetResult::InvalidItemSetType),
-            53 => Ok(EnumsItemStackNetResult::InvalidTransferAmount),
-            54 => Ok(EnumsItemStackNetResult::CannotSwapItem),
-            55 => Ok(EnumsItemStackNetResult::CannotPlaceItem),
-            56 => Ok(EnumsItemStackNetResult::UnhandledItemSetType),
-            57 => Ok(EnumsItemStackNetResult::InvalidRemovedAmount),
-            58 => Ok(EnumsItemStackNetResult::InvalidRegion),
-            59 => Ok(EnumsItemStackNetResult::CannotDropItem),
-            60 => Ok(EnumsItemStackNetResult::CannotDestroyItem),
-            61 => Ok(EnumsItemStackNetResult::InvalidSourceContainer),
-            62 => Ok(EnumsItemStackNetResult::ItemNotConsumed),
-            63 => Ok(EnumsItemStackNetResult::InvalidNumCrafts),
-            64 => Ok(EnumsItemStackNetResult::InvalidCraftResultStackSize),
-            65 => Ok(EnumsItemStackNetResult::CannotRemoveItem),
-            66 => Ok(EnumsItemStackNetResult::CannotConsumeItem),
-            67 => Ok(EnumsItemStackNetResult::ScreenStackError),
+            2 => Ok(EnumsItemStackNetResult::Invalidrequestactiontype),
+            3 => Ok(EnumsItemStackNetResult::Actionrequestnotallowed),
+            4 => Ok(EnumsItemStackNetResult::Screenhandlerendrequestfailed),
+            5 => Ok(EnumsItemStackNetResult::Itemrequestactionhandlercommitfailed),
+            6 => Ok(EnumsItemStackNetResult::Invalidrequestcraftactiontype),
+            7 => Ok(EnumsItemStackNetResult::Invalidcraftrequest),
+            8 => Ok(EnumsItemStackNetResult::Invalidcraftrequestscreen),
+            9 => Ok(EnumsItemStackNetResult::Invalidcraftresult),
+            10 => Ok(EnumsItemStackNetResult::Invalidcraftresultindex),
+            11 => Ok(EnumsItemStackNetResult::Invalidcraftresultitem),
+            12 => Ok(EnumsItemStackNetResult::Invaliditemnetid),
+            13 => Ok(EnumsItemStackNetResult::Missingcreatedoutputcontainer),
+            14 => Ok(EnumsItemStackNetResult::Failedtosetcreateditemoutputslot),
+            15 => Ok(EnumsItemStackNetResult::Requestalreadyinprogress),
+            16 => Ok(EnumsItemStackNetResult::Failedtoinitsparsecontainer),
+            17 => Ok(EnumsItemStackNetResult::Resulttransferfailed),
+            18 => Ok(EnumsItemStackNetResult::Expecteditemslotnotfullyconsumed),
+            19 => Ok(EnumsItemStackNetResult::Expectedanywhereitemnotfullyconsumed),
+            20 => Ok(EnumsItemStackNetResult::Itemalreadyconsumedfromslot),
+            21 => Ok(EnumsItemStackNetResult::Consumedtoomuchfromslot),
+            22 => Ok(EnumsItemStackNetResult::Mismatchslotexpectedconsumeditem),
+            23 => Ok(EnumsItemStackNetResult::Mismatchslotexpectedconsumeditemnetidvariant),
+            24 => Ok(EnumsItemStackNetResult::Failedtomatchexpectedslotconsumeditem),
+            25 => Ok(EnumsItemStackNetResult::Failedtomatchexpectedallowedanywhereconsumeditem),
+            26 => Ok(EnumsItemStackNetResult::Consumeditemoutofallowedslotrange),
+            27 => Ok(EnumsItemStackNetResult::Consumeditemnotallowed),
+            28 => Ok(EnumsItemStackNetResult::Playernotincreativemode),
+            29 => Ok(EnumsItemStackNetResult::Invalidexperimentalreciperequest),
+            30 => Ok(EnumsItemStackNetResult::Failedtocraftcreative),
+            31 => Ok(EnumsItemStackNetResult::Failedtogetlevelrecipe),
+            32 => Ok(EnumsItemStackNetResult::Failedtofindrecipebynetid),
+            33 => Ok(EnumsItemStackNetResult::Mismatchedcraftingsize),
+            34 => Ok(EnumsItemStackNetResult::Missinginputsparsecontainer),
+            35 => Ok(EnumsItemStackNetResult::Mismatchedrecipeforinputgriditems),
+            36 => Ok(EnumsItemStackNetResult::Emptycraftresults),
+            37 => Ok(EnumsItemStackNetResult::Failedtoenchant),
+            38 => Ok(EnumsItemStackNetResult::Missinginputitem),
+            39 => Ok(EnumsItemStackNetResult::Insufficientplayerleveltoenchant),
+            40 => Ok(EnumsItemStackNetResult::Missingmaterialitem),
+            41 => Ok(EnumsItemStackNetResult::Missingactor),
+            42 => Ok(EnumsItemStackNetResult::Unknownprimaryeffect),
+            43 => Ok(EnumsItemStackNetResult::Primaryeffectoutofrange),
+            44 => Ok(EnumsItemStackNetResult::Primaryeffectunavailable),
+            45 => Ok(EnumsItemStackNetResult::Secondaryeffectoutofrange),
+            46 => Ok(EnumsItemStackNetResult::Secondaryeffectunavailable),
+            47 => Ok(EnumsItemStackNetResult::Dstcontainerequaltocreatedoutputcontainer),
+            48 => Ok(EnumsItemStackNetResult::Dstcontainerandslotequaltosrccontainerandslot),
+            49 => Ok(EnumsItemStackNetResult::Failedtovalidatesrcslot),
+            50 => Ok(EnumsItemStackNetResult::Failedtovalidatedstslot),
+            51 => Ok(EnumsItemStackNetResult::Invalidadjustedamount),
+            52 => Ok(EnumsItemStackNetResult::Invaliditemsettype),
+            53 => Ok(EnumsItemStackNetResult::Invalidtransferamount),
+            54 => Ok(EnumsItemStackNetResult::Cannotswapitem),
+            55 => Ok(EnumsItemStackNetResult::Cannotplaceitem),
+            56 => Ok(EnumsItemStackNetResult::Unhandleditemsettype),
+            57 => Ok(EnumsItemStackNetResult::Invalidremovedamount),
+            58 => Ok(EnumsItemStackNetResult::Invalidregion),
+            59 => Ok(EnumsItemStackNetResult::Cannotdropitem),
+            60 => Ok(EnumsItemStackNetResult::Cannotdestroyitem),
+            61 => Ok(EnumsItemStackNetResult::Invalidsourcecontainer),
+            62 => Ok(EnumsItemStackNetResult::Itemnotconsumed),
+            63 => Ok(EnumsItemStackNetResult::Invalidnumcrafts),
+            64 => Ok(EnumsItemStackNetResult::Invalidcraftresultstacksize),
+            65 => Ok(EnumsItemStackNetResult::Cannotremoveitem),
+            66 => Ok(EnumsItemStackNetResult::Cannotconsumeitem),
+            67 => Ok(EnumsItemStackNetResult::Screenstackerror),
             other => Ok(EnumsItemStackNetResult::Unknown(other)),
         }
     }
@@ -18645,7 +19109,7 @@ impl Default for EnumsItemStackNetResult {
 pub struct ItemStackResponseInfo {
     pub result: EnumsItemStackNetResult,
     pub client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0,
-    pub containers: Option<Option<Vec<ItemStackResponseContainerInfo>>>,
+    pub containers: Option<Vec<ItemStackResponseContainerInfo>>,
 }
 impl crate::bedrock::codec::BedrockSized for ItemStackResponseInfo {
     fn encoded_size(&self) -> usize {
@@ -18656,21 +19120,13 @@ impl crate::bedrock::codec::BedrockSized for ItemStackResponseInfo {
             1usize
                 + match &self.containers {
                     Some(_v) => {
-                        1usize
-                            + match _v {
-                                Some(_v) => {
-                                    let _len = (_v).len();
-                                    crate::bedrock::codec::BedrockSized::encoded_size(
-                                        &crate::bedrock::codec::VarUInt(_len as u32),
-                                    ) + (_v)
-                                        .iter()
-                                        .map(|_item| {
-                                            crate::bedrock::codec::BedrockSized::encoded_size(_item)
-                                        })
-                                        .sum::<usize>()
-                                }
-                                None => 0usize,
-                            }
+                        let _len = (_v).len();
+                        crate::bedrock::codec::BedrockSized::encoded_size(
+                            &crate::bedrock::codec::VarUInt(_len as u32),
+                        ) + (_v)
+                            .iter()
+                            .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
+                            .sum::<usize>()
                     }
                     None => 0usize,
                 }
@@ -18687,16 +19143,10 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseInfo {
         match &self.containers {
             Some(v) => {
                 buf.put_u8(1);
-                match v {
-                    Some(v) => {
-                        buf.put_u8(1);
-                        let len = v.len();
-                        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-                        for item in v {
-                            item.encode(buf)?;
-                        }
-                    }
-                    None => buf.put_u8(0),
+                let len = v.len();
+                crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+                for item in v {
+                    item.encode(buf)?;
                 }
             }
             None => buf.put_u8(0),
@@ -18718,34 +19168,24 @@ impl crate::bedrock::codec::BedrockCodec for ItemStackResponseInfo {
             let present = u8::decode(buf, ())?;
             if present != 0 {
                 Some({
-                    let present = u8::decode(buf, ())?;
-                    if present != 0 {
-                        Some({
-                            let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                            buf,
+                            (),
+                        )?
+                        .0) as usize;
+                    let mut tmp_vec =
+                        crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), None)?;
+                    for _ in 0..len {
+                        crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
+                        tmp_vec
+                            .push(
+                                <ItemStackResponseContainerInfo as crate::bedrock::codec::BedrockCodec>::decode(
                                     buf,
                                     (),
-                                )?
-                                .0) as usize;
-                            let mut tmp_vec = crate::bedrock::codec::prepare_decode_vec(
-                                len,
-                                buf.remaining(),
-                                None,
-                            )?;
-                            for _ in 0..len {
-                                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
-                                tmp_vec
-                                    .push(
-                                        <ItemStackResponseContainerInfo as crate::bedrock::codec::BedrockCodec>::decode(
-                                            buf,
-                                            (),
-                                        )?,
-                                    );
-                            }
-                            tmp_vec
-                        })
-                    } else {
-                        None
+                                )?,
+                            );
                     }
+                    tmp_vec
                 })
             } else {
                 None
@@ -18763,7 +19203,7 @@ pub enum EnumsItemUseInventoryTransactionActionType {
     Place,
     Use,
     Destroy,
-    UseAsAttack,
+    Useasattack,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsItemUseInventoryTransactionActionType {
@@ -18772,7 +19212,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsItemUseInventoryTransactionAct
             EnumsItemUseInventoryTransactionActionType::Place => 0,
             EnumsItemUseInventoryTransactionActionType::Use => 1,
             EnumsItemUseInventoryTransactionActionType::Destroy => 2,
-            EnumsItemUseInventoryTransactionActionType::UseAsAttack => 3,
+            EnumsItemUseInventoryTransactionActionType::Useasattack => 3,
             EnumsItemUseInventoryTransactionActionType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -18787,7 +19227,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemUseInventoryTransactionAct
             EnumsItemUseInventoryTransactionActionType::Place => 0,
             EnumsItemUseInventoryTransactionActionType::Use => 1,
             EnumsItemUseInventoryTransactionActionType::Destroy => 2,
-            EnumsItemUseInventoryTransactionActionType::UseAsAttack => 3,
+            EnumsItemUseInventoryTransactionActionType::Useasattack => 3,
             EnumsItemUseInventoryTransactionActionType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -18805,7 +19245,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemUseInventoryTransactionAct
             0 => Ok(EnumsItemUseInventoryTransactionActionType::Place),
             1 => Ok(EnumsItemUseInventoryTransactionActionType::Use),
             2 => Ok(EnumsItemUseInventoryTransactionActionType::Destroy),
-            3 => Ok(EnumsItemUseInventoryTransactionActionType::UseAsAttack),
+            3 => Ok(EnumsItemUseInventoryTransactionActionType::Useasattack),
             other => Ok(EnumsItemUseInventoryTransactionActionType::Unknown(other)),
         }
     }
@@ -18818,16 +19258,16 @@ impl Default for EnumsItemUseInventoryTransactionActionType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsItemUseInventoryTransactionTriggerType {
     Unknown,
-    PlayerInput,
-    SimulationTick,
+    Playerinput,
+    Simulationtick,
     UnknownValue(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsItemUseInventoryTransactionTriggerType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsItemUseInventoryTransactionTriggerType::Unknown => 0,
-            EnumsItemUseInventoryTransactionTriggerType::PlayerInput => 1,
-            EnumsItemUseInventoryTransactionTriggerType::SimulationTick => 2,
+            EnumsItemUseInventoryTransactionTriggerType::Playerinput => 1,
+            EnumsItemUseInventoryTransactionTriggerType::Simulationtick => 2,
             EnumsItemUseInventoryTransactionTriggerType::UnknownValue(v) => *v,
         };
         1usize
@@ -18838,8 +19278,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemUseInventoryTransactionTri
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsItemUseInventoryTransactionTriggerType::Unknown => 0,
-            EnumsItemUseInventoryTransactionTriggerType::PlayerInput => 1,
-            EnumsItemUseInventoryTransactionTriggerType::SimulationTick => 2,
+            EnumsItemUseInventoryTransactionTriggerType::Playerinput => 1,
+            EnumsItemUseInventoryTransactionTriggerType::Simulationtick => 2,
             EnumsItemUseInventoryTransactionTriggerType::UnknownValue(v) => *v,
         };
         val.encode(buf)
@@ -18851,8 +19291,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemUseInventoryTransactionTri
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsItemUseInventoryTransactionTriggerType::Unknown),
-            1 => Ok(EnumsItemUseInventoryTransactionTriggerType::PlayerInput),
-            2 => Ok(EnumsItemUseInventoryTransactionTriggerType::SimulationTick),
+            1 => Ok(EnumsItemUseInventoryTransactionTriggerType::Playerinput),
+            2 => Ok(EnumsItemUseInventoryTransactionTriggerType::Simulationtick),
             other => Ok(EnumsItemUseInventoryTransactionTriggerType::UnknownValue(
                 other,
             )),
@@ -18862,6 +19302,49 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemUseInventoryTransactionTri
 impl Default for EnumsItemUseInventoryTransactionTriggerType {
     fn default() -> Self {
         Self::Unknown
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnumsHandSlot {
+    Mainhand,
+    Offhand,
+    Unknown(u8),
+}
+impl crate::bedrock::codec::BedrockSized for EnumsHandSlot {
+    fn encoded_size(&self) -> usize {
+        let _val: u8 = match self {
+            EnumsHandSlot::Mainhand => 0,
+            EnumsHandSlot::Offhand => 1,
+            EnumsHandSlot::Unknown(v) => *v,
+        };
+        1usize
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for EnumsHandSlot {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: u8 = match self {
+            EnumsHandSlot::Mainhand => 0,
+            EnumsHandSlot::Offhand => 1,
+            EnumsHandSlot::Unknown(v) => *v,
+        };
+        val.encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        match val {
+            0 => Ok(EnumsHandSlot::Mainhand),
+            1 => Ok(EnumsHandSlot::Offhand),
+            other => Ok(EnumsHandSlot::Unknown(other)),
+        }
+    }
+}
+impl Default for EnumsHandSlot {
+    fn default() -> Self {
+        Self::Mainhand
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -18960,6 +19443,7 @@ pub struct ItemUseInventoryTransaction {
     pub position: BlockPos,
     pub face: u8,
     pub slot: i32,
+    pub hand: EnumsHandSlot,
     pub item: CerealizerNetworkItemStackDescriptorSerializedData,
     pub from_position: Vec3,
     pub click_position: Vec3,
@@ -18978,6 +19462,7 @@ impl crate::bedrock::codec::BedrockSized for ItemUseInventoryTransaction {
         size += crate::bedrock::codec::BedrockSized::encoded_size(
             &crate::bedrock::codec::ZigZag32(self.slot),
         );
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.hand);
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.item);
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.from_position);
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.click_position);
@@ -18999,6 +19484,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemUseInventoryTransaction {
         self.position.encode(buf)?;
         self.face.encode(buf)?;
         crate::bedrock::codec::ZigZag32(self.slot).encode(buf)?;
+        self.hand.encode(buf)?;
         self.item.encode(buf)?;
         self.from_position.encode(buf)?;
         self.click_position.encode(buf)?;
@@ -19030,6 +19516,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemUseInventoryTransaction {
                 (),
             )?
             .0;
+        let hand = <EnumsHandSlot as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let item = <CerealizerNetworkItemStackDescriptorSerializedData as crate::bedrock::codec::BedrockCodec>::decode(
             buf,
             (),
@@ -19057,6 +19544,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemUseInventoryTransaction {
             position,
             face,
             slot,
+            hand,
             item,
             from_position,
             click_position,
@@ -19070,7 +19558,7 @@ impl crate::bedrock::codec::BedrockCodec for ItemUseInventoryTransaction {
 pub enum EnumsItemUseOnActorInventoryTransactionActionType {
     Interact,
     Attack,
-    ItemInteract,
+    Iteminteract,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsItemUseOnActorInventoryTransactionActionType {
@@ -19078,7 +19566,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsItemUseOnActorInventoryTransac
         let _val: i32 = match self {
             EnumsItemUseOnActorInventoryTransactionActionType::Interact => 0,
             EnumsItemUseOnActorInventoryTransactionActionType::Attack => 1,
-            EnumsItemUseOnActorInventoryTransactionActionType::ItemInteract => 2,
+            EnumsItemUseOnActorInventoryTransactionActionType::Iteminteract => 2,
             EnumsItemUseOnActorInventoryTransactionActionType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -19092,7 +19580,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemUseOnActorInventoryTransac
         let val: i32 = match self {
             EnumsItemUseOnActorInventoryTransactionActionType::Interact => 0,
             EnumsItemUseOnActorInventoryTransactionActionType::Attack => 1,
-            EnumsItemUseOnActorInventoryTransactionActionType::ItemInteract => 2,
+            EnumsItemUseOnActorInventoryTransactionActionType::Iteminteract => 2,
             EnumsItemUseOnActorInventoryTransactionActionType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -19109,7 +19597,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsItemUseOnActorInventoryTransac
         match val {
             0 => Ok(EnumsItemUseOnActorInventoryTransactionActionType::Interact),
             1 => Ok(EnumsItemUseOnActorInventoryTransactionActionType::Attack),
-            2 => Ok(EnumsItemUseOnActorInventoryTransactionActionType::ItemInteract),
+            2 => Ok(EnumsItemUseOnActorInventoryTransactionActionType::Iteminteract),
             other => Ok(EnumsItemUseOnActorInventoryTransactionActionType::Unknown(
                 other,
             )),
@@ -19258,175 +19746,175 @@ impl crate::bedrock::codec::BedrockCodec for LegacySetSlot {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsMinecraftEventingAchievementIds {
-    ChestFullOfCobblestone,
-    DiamondForYou,
-    IronBelly,
-    IronMan,
-    OnARail,
+    Chestfullofcobblestone,
+    Diamondforyou,
+    Ironbelly,
+    Ironman,
+    Onarail,
     Overkill,
-    ReturnToSender,
-    SniperDuel,
-    StayinFrosty,
-    TakeInventory,
-    MapRoom,
-    FreightStation,
-    SmeltEverything,
-    TasteOfYourOwnMedicine,
-    WhenPigsFly,
+    Returntosender,
+    Sniperduel,
+    Stayinfrosty,
+    Takeinventory,
+    Maproom,
+    Freightstation,
+    Smelteverything,
+    Tasteofyourownmedicine,
+    Whenpigsfly,
     Inception,
-    ArtificialSelection,
-    FreeDiver,
-    SpawnTheWither,
+    Artificialselection,
+    Freediver,
+    Spawnthewither,
     Beaconator,
-    GreatView,
-    SuperSonic,
-    TheEndAgain,
-    TreasureHunter,
-    ShootingStar,
-    FashionShow,
-    SelfPublishedAuthor,
-    AlternativeFuel,
-    SleepWithTheFishes,
+    Greatview,
+    Supersonic,
+    Theendagain,
+    Treasurehunter,
+    Shootingstar,
+    Fashionshow,
+    Selfpublishedauthor,
+    Alternativefuel,
+    Sleepwiththefishes,
     Castaway,
-    ImAMarineBiologist,
-    SailThe7Seas,
-    MeGold,
+    Imamarinebiologist,
+    Sailthe7Seas,
+    Megold,
     Ahoy,
     Atlantis,
-    OnePickleTwoPickleSeaPickleFour,
-    DoaBarrelRoll,
+    Onepickletwopickleseapicklefour,
+    Doabarrelroll,
     Moskstraumen,
     Echolocation,
-    WhereHaveYouBeen,
-    TopOfTheWorld,
-    FruitOnTheLoom,
-    SoundTheAlarm,
-    BuyLowSellHigh,
+    Wherehaveyoubeen,
+    Topoftheworld,
+    Fruitontheloom,
+    Soundthealarm,
+    Buylowsellhigh,
     Disenchanted,
-    TimeForStew,
-    BeeOurGuest,
-    TotalBeeLocation,
-    StickySituation,
-    CoverMeInDebris,
-    FloatYourGoat,
+    Timeforstew,
+    Beeourguest,
+    Totalbeelocation,
+    Stickysituation,
+    Covermeindebris,
+    Floatyourgoat,
     Friend,
-    WaxOnWaxOff,
-    StriderRiddenInLavaInOverworld,
-    GoatHornAcquired,
-    JukeboxUsedInMeadows,
-    TradedAtWorldHeight,
-    SurvivedFallFromWorldHeight,
-    SneakCloseToSculkSensor,
-    ItSpreads,
-    BirthdaySong,
-    WithOurPowersCombined,
-    PlantingThePast,
-    CarefulRestoration,
+    Waxonwaxoff,
+    Striderriddeninlavainoverworld,
+    Goathornacquired,
+    Jukeboxusedinmeadows,
+    Tradedatworldheight,
+    Survivedfallfromworldheight,
+    Sneakclosetosculksensor,
+    Itspreads,
+    Birthdaysong,
+    Withourpowerscombined,
+    Plantingthepast,
+    Carefulrestoration,
     Revaulting,
-    CraftersCraftingCrafters,
-    WhoNeedsRockets,
-    OverOverkill,
-    HeartTransplanter,
-    StayHydrated,
-    MobKabob,
-    AdventuringTime,
-    UhOh,
-    GettingWood,
-    BenchMaking,
-    TimeToMine,
-    HotTopic,
-    AcquireHardware,
-    GettingAnUpgrade,
-    MonsterHunter,
+    Crafterscraftingcrafters,
+    Whoneedsrockets,
+    Overoverkill,
+    Hearttransplanter,
+    Stayhydrated,
+    Mobkabob,
+    Adventuringtime,
+    Uhoh,
+    Gettingwood,
+    Benchmaking,
+    Timetomine,
+    Hottopic,
+    Acquirehardware,
+    Gettinganupgrade,
+    Monsterhunter,
     Diamonds,
-    PlethoraOfCats,
+    Plethoraofcats,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsMinecraftEventingAchievementIds {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsMinecraftEventingAchievementIds::ChestFullOfCobblestone => 7,
-            EnumsMinecraftEventingAchievementIds::DiamondForYou => 10,
-            EnumsMinecraftEventingAchievementIds::IronBelly => 20,
-            EnumsMinecraftEventingAchievementIds::IronMan => 21,
-            EnumsMinecraftEventingAchievementIds::OnARail => 29,
+            EnumsMinecraftEventingAchievementIds::Chestfullofcobblestone => 7,
+            EnumsMinecraftEventingAchievementIds::Diamondforyou => 10,
+            EnumsMinecraftEventingAchievementIds::Ironbelly => 20,
+            EnumsMinecraftEventingAchievementIds::Ironman => 21,
+            EnumsMinecraftEventingAchievementIds::Onarail => 29,
             EnumsMinecraftEventingAchievementIds::Overkill => 30,
-            EnumsMinecraftEventingAchievementIds::ReturnToSender => 37,
-            EnumsMinecraftEventingAchievementIds::SniperDuel => 38,
-            EnumsMinecraftEventingAchievementIds::StayinFrosty => 39,
-            EnumsMinecraftEventingAchievementIds::TakeInventory => 40,
-            EnumsMinecraftEventingAchievementIds::MapRoom => 50,
-            EnumsMinecraftEventingAchievementIds::FreightStation => 52,
-            EnumsMinecraftEventingAchievementIds::SmeltEverything => 53,
-            EnumsMinecraftEventingAchievementIds::TasteOfYourOwnMedicine => 54,
-            EnumsMinecraftEventingAchievementIds::WhenPigsFly => 56,
+            EnumsMinecraftEventingAchievementIds::Returntosender => 37,
+            EnumsMinecraftEventingAchievementIds::Sniperduel => 38,
+            EnumsMinecraftEventingAchievementIds::Stayinfrosty => 39,
+            EnumsMinecraftEventingAchievementIds::Takeinventory => 40,
+            EnumsMinecraftEventingAchievementIds::Maproom => 50,
+            EnumsMinecraftEventingAchievementIds::Freightstation => 52,
+            EnumsMinecraftEventingAchievementIds::Smelteverything => 53,
+            EnumsMinecraftEventingAchievementIds::Tasteofyourownmedicine => 54,
+            EnumsMinecraftEventingAchievementIds::Whenpigsfly => 56,
             EnumsMinecraftEventingAchievementIds::Inception => 58,
-            EnumsMinecraftEventingAchievementIds::ArtificialSelection => 60,
-            EnumsMinecraftEventingAchievementIds::FreeDiver => 61,
-            EnumsMinecraftEventingAchievementIds::SpawnTheWither => 62,
+            EnumsMinecraftEventingAchievementIds::Artificialselection => 60,
+            EnumsMinecraftEventingAchievementIds::Freediver => 61,
+            EnumsMinecraftEventingAchievementIds::Spawnthewither => 62,
             EnumsMinecraftEventingAchievementIds::Beaconator => 63,
-            EnumsMinecraftEventingAchievementIds::GreatView => 64,
-            EnumsMinecraftEventingAchievementIds::SuperSonic => 65,
-            EnumsMinecraftEventingAchievementIds::TheEndAgain => 66,
-            EnumsMinecraftEventingAchievementIds::TreasureHunter => 67,
-            EnumsMinecraftEventingAchievementIds::ShootingStar => 68,
-            EnumsMinecraftEventingAchievementIds::FashionShow => 69,
-            EnumsMinecraftEventingAchievementIds::SelfPublishedAuthor => 71,
-            EnumsMinecraftEventingAchievementIds::AlternativeFuel => 72,
-            EnumsMinecraftEventingAchievementIds::SleepWithTheFishes => 73,
+            EnumsMinecraftEventingAchievementIds::Greatview => 64,
+            EnumsMinecraftEventingAchievementIds::Supersonic => 65,
+            EnumsMinecraftEventingAchievementIds::Theendagain => 66,
+            EnumsMinecraftEventingAchievementIds::Treasurehunter => 67,
+            EnumsMinecraftEventingAchievementIds::Shootingstar => 68,
+            EnumsMinecraftEventingAchievementIds::Fashionshow => 69,
+            EnumsMinecraftEventingAchievementIds::Selfpublishedauthor => 71,
+            EnumsMinecraftEventingAchievementIds::Alternativefuel => 72,
+            EnumsMinecraftEventingAchievementIds::Sleepwiththefishes => 73,
             EnumsMinecraftEventingAchievementIds::Castaway => 74,
-            EnumsMinecraftEventingAchievementIds::ImAMarineBiologist => 75,
-            EnumsMinecraftEventingAchievementIds::SailThe7Seas => 76,
-            EnumsMinecraftEventingAchievementIds::MeGold => 77,
+            EnumsMinecraftEventingAchievementIds::Imamarinebiologist => 75,
+            EnumsMinecraftEventingAchievementIds::Sailthe7Seas => 76,
+            EnumsMinecraftEventingAchievementIds::Megold => 77,
             EnumsMinecraftEventingAchievementIds::Ahoy => 78,
             EnumsMinecraftEventingAchievementIds::Atlantis => 79,
-            EnumsMinecraftEventingAchievementIds::OnePickleTwoPickleSeaPickleFour => 80,
-            EnumsMinecraftEventingAchievementIds::DoaBarrelRoll => 81,
+            EnumsMinecraftEventingAchievementIds::Onepickletwopickleseapicklefour => 80,
+            EnumsMinecraftEventingAchievementIds::Doabarrelroll => 81,
             EnumsMinecraftEventingAchievementIds::Moskstraumen => 82,
             EnumsMinecraftEventingAchievementIds::Echolocation => 83,
-            EnumsMinecraftEventingAchievementIds::WhereHaveYouBeen => 84,
-            EnumsMinecraftEventingAchievementIds::TopOfTheWorld => 85,
-            EnumsMinecraftEventingAchievementIds::FruitOnTheLoom => 86,
-            EnumsMinecraftEventingAchievementIds::SoundTheAlarm => 87,
-            EnumsMinecraftEventingAchievementIds::BuyLowSellHigh => 88,
+            EnumsMinecraftEventingAchievementIds::Wherehaveyoubeen => 84,
+            EnumsMinecraftEventingAchievementIds::Topoftheworld => 85,
+            EnumsMinecraftEventingAchievementIds::Fruitontheloom => 86,
+            EnumsMinecraftEventingAchievementIds::Soundthealarm => 87,
+            EnumsMinecraftEventingAchievementIds::Buylowsellhigh => 88,
             EnumsMinecraftEventingAchievementIds::Disenchanted => 89,
-            EnumsMinecraftEventingAchievementIds::TimeForStew => 90,
-            EnumsMinecraftEventingAchievementIds::BeeOurGuest => 91,
-            EnumsMinecraftEventingAchievementIds::TotalBeeLocation => 92,
-            EnumsMinecraftEventingAchievementIds::StickySituation => 93,
-            EnumsMinecraftEventingAchievementIds::CoverMeInDebris => 94,
-            EnumsMinecraftEventingAchievementIds::FloatYourGoat => 95,
+            EnumsMinecraftEventingAchievementIds::Timeforstew => 90,
+            EnumsMinecraftEventingAchievementIds::Beeourguest => 91,
+            EnumsMinecraftEventingAchievementIds::Totalbeelocation => 92,
+            EnumsMinecraftEventingAchievementIds::Stickysituation => 93,
+            EnumsMinecraftEventingAchievementIds::Covermeindebris => 94,
+            EnumsMinecraftEventingAchievementIds::Floatyourgoat => 95,
             EnumsMinecraftEventingAchievementIds::Friend => 96,
-            EnumsMinecraftEventingAchievementIds::WaxOnWaxOff => 97,
-            EnumsMinecraftEventingAchievementIds::StriderRiddenInLavaInOverworld => 98,
-            EnumsMinecraftEventingAchievementIds::GoatHornAcquired => 99,
-            EnumsMinecraftEventingAchievementIds::JukeboxUsedInMeadows => 100,
-            EnumsMinecraftEventingAchievementIds::TradedAtWorldHeight => 101,
-            EnumsMinecraftEventingAchievementIds::SurvivedFallFromWorldHeight => 102,
-            EnumsMinecraftEventingAchievementIds::SneakCloseToSculkSensor => 103,
-            EnumsMinecraftEventingAchievementIds::ItSpreads => 104,
-            EnumsMinecraftEventingAchievementIds::BirthdaySong => 105,
-            EnumsMinecraftEventingAchievementIds::WithOurPowersCombined => 106,
-            EnumsMinecraftEventingAchievementIds::PlantingThePast => 107,
-            EnumsMinecraftEventingAchievementIds::CarefulRestoration => 108,
+            EnumsMinecraftEventingAchievementIds::Waxonwaxoff => 97,
+            EnumsMinecraftEventingAchievementIds::Striderriddeninlavainoverworld => 98,
+            EnumsMinecraftEventingAchievementIds::Goathornacquired => 99,
+            EnumsMinecraftEventingAchievementIds::Jukeboxusedinmeadows => 100,
+            EnumsMinecraftEventingAchievementIds::Tradedatworldheight => 101,
+            EnumsMinecraftEventingAchievementIds::Survivedfallfromworldheight => 102,
+            EnumsMinecraftEventingAchievementIds::Sneakclosetosculksensor => 103,
+            EnumsMinecraftEventingAchievementIds::Itspreads => 104,
+            EnumsMinecraftEventingAchievementIds::Birthdaysong => 105,
+            EnumsMinecraftEventingAchievementIds::Withourpowerscombined => 106,
+            EnumsMinecraftEventingAchievementIds::Plantingthepast => 107,
+            EnumsMinecraftEventingAchievementIds::Carefulrestoration => 108,
             EnumsMinecraftEventingAchievementIds::Revaulting => 109,
-            EnumsMinecraftEventingAchievementIds::CraftersCraftingCrafters => 110,
-            EnumsMinecraftEventingAchievementIds::WhoNeedsRockets => 111,
-            EnumsMinecraftEventingAchievementIds::OverOverkill => 112,
-            EnumsMinecraftEventingAchievementIds::HeartTransplanter => 113,
-            EnumsMinecraftEventingAchievementIds::StayHydrated => 114,
-            EnumsMinecraftEventingAchievementIds::MobKabob => 115,
-            EnumsMinecraftEventingAchievementIds::AdventuringTime => 116,
-            EnumsMinecraftEventingAchievementIds::UhOh => 117,
-            EnumsMinecraftEventingAchievementIds::GettingWood => 118,
-            EnumsMinecraftEventingAchievementIds::BenchMaking => 119,
-            EnumsMinecraftEventingAchievementIds::TimeToMine => 120,
-            EnumsMinecraftEventingAchievementIds::HotTopic => 121,
-            EnumsMinecraftEventingAchievementIds::AcquireHardware => 122,
-            EnumsMinecraftEventingAchievementIds::GettingAnUpgrade => 123,
-            EnumsMinecraftEventingAchievementIds::MonsterHunter => 124,
+            EnumsMinecraftEventingAchievementIds::Crafterscraftingcrafters => 110,
+            EnumsMinecraftEventingAchievementIds::Whoneedsrockets => 111,
+            EnumsMinecraftEventingAchievementIds::Overoverkill => 112,
+            EnumsMinecraftEventingAchievementIds::Hearttransplanter => 113,
+            EnumsMinecraftEventingAchievementIds::Stayhydrated => 114,
+            EnumsMinecraftEventingAchievementIds::Mobkabob => 115,
+            EnumsMinecraftEventingAchievementIds::Adventuringtime => 116,
+            EnumsMinecraftEventingAchievementIds::Uhoh => 117,
+            EnumsMinecraftEventingAchievementIds::Gettingwood => 118,
+            EnumsMinecraftEventingAchievementIds::Benchmaking => 119,
+            EnumsMinecraftEventingAchievementIds::Timetomine => 120,
+            EnumsMinecraftEventingAchievementIds::Hottopic => 121,
+            EnumsMinecraftEventingAchievementIds::Acquirehardware => 122,
+            EnumsMinecraftEventingAchievementIds::Gettinganupgrade => 123,
+            EnumsMinecraftEventingAchievementIds::Monsterhunter => 124,
             EnumsMinecraftEventingAchievementIds::Diamonds => 125,
-            EnumsMinecraftEventingAchievementIds::PlethoraOfCats => 126,
+            EnumsMinecraftEventingAchievementIds::Plethoraofcats => 126,
             EnumsMinecraftEventingAchievementIds::Unknown(v) => *v,
         };
         1usize
@@ -19436,88 +19924,88 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMinecraftEventingAchievementId
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsMinecraftEventingAchievementIds::ChestFullOfCobblestone => 7,
-            EnumsMinecraftEventingAchievementIds::DiamondForYou => 10,
-            EnumsMinecraftEventingAchievementIds::IronBelly => 20,
-            EnumsMinecraftEventingAchievementIds::IronMan => 21,
-            EnumsMinecraftEventingAchievementIds::OnARail => 29,
+            EnumsMinecraftEventingAchievementIds::Chestfullofcobblestone => 7,
+            EnumsMinecraftEventingAchievementIds::Diamondforyou => 10,
+            EnumsMinecraftEventingAchievementIds::Ironbelly => 20,
+            EnumsMinecraftEventingAchievementIds::Ironman => 21,
+            EnumsMinecraftEventingAchievementIds::Onarail => 29,
             EnumsMinecraftEventingAchievementIds::Overkill => 30,
-            EnumsMinecraftEventingAchievementIds::ReturnToSender => 37,
-            EnumsMinecraftEventingAchievementIds::SniperDuel => 38,
-            EnumsMinecraftEventingAchievementIds::StayinFrosty => 39,
-            EnumsMinecraftEventingAchievementIds::TakeInventory => 40,
-            EnumsMinecraftEventingAchievementIds::MapRoom => 50,
-            EnumsMinecraftEventingAchievementIds::FreightStation => 52,
-            EnumsMinecraftEventingAchievementIds::SmeltEverything => 53,
-            EnumsMinecraftEventingAchievementIds::TasteOfYourOwnMedicine => 54,
-            EnumsMinecraftEventingAchievementIds::WhenPigsFly => 56,
+            EnumsMinecraftEventingAchievementIds::Returntosender => 37,
+            EnumsMinecraftEventingAchievementIds::Sniperduel => 38,
+            EnumsMinecraftEventingAchievementIds::Stayinfrosty => 39,
+            EnumsMinecraftEventingAchievementIds::Takeinventory => 40,
+            EnumsMinecraftEventingAchievementIds::Maproom => 50,
+            EnumsMinecraftEventingAchievementIds::Freightstation => 52,
+            EnumsMinecraftEventingAchievementIds::Smelteverything => 53,
+            EnumsMinecraftEventingAchievementIds::Tasteofyourownmedicine => 54,
+            EnumsMinecraftEventingAchievementIds::Whenpigsfly => 56,
             EnumsMinecraftEventingAchievementIds::Inception => 58,
-            EnumsMinecraftEventingAchievementIds::ArtificialSelection => 60,
-            EnumsMinecraftEventingAchievementIds::FreeDiver => 61,
-            EnumsMinecraftEventingAchievementIds::SpawnTheWither => 62,
+            EnumsMinecraftEventingAchievementIds::Artificialselection => 60,
+            EnumsMinecraftEventingAchievementIds::Freediver => 61,
+            EnumsMinecraftEventingAchievementIds::Spawnthewither => 62,
             EnumsMinecraftEventingAchievementIds::Beaconator => 63,
-            EnumsMinecraftEventingAchievementIds::GreatView => 64,
-            EnumsMinecraftEventingAchievementIds::SuperSonic => 65,
-            EnumsMinecraftEventingAchievementIds::TheEndAgain => 66,
-            EnumsMinecraftEventingAchievementIds::TreasureHunter => 67,
-            EnumsMinecraftEventingAchievementIds::ShootingStar => 68,
-            EnumsMinecraftEventingAchievementIds::FashionShow => 69,
-            EnumsMinecraftEventingAchievementIds::SelfPublishedAuthor => 71,
-            EnumsMinecraftEventingAchievementIds::AlternativeFuel => 72,
-            EnumsMinecraftEventingAchievementIds::SleepWithTheFishes => 73,
+            EnumsMinecraftEventingAchievementIds::Greatview => 64,
+            EnumsMinecraftEventingAchievementIds::Supersonic => 65,
+            EnumsMinecraftEventingAchievementIds::Theendagain => 66,
+            EnumsMinecraftEventingAchievementIds::Treasurehunter => 67,
+            EnumsMinecraftEventingAchievementIds::Shootingstar => 68,
+            EnumsMinecraftEventingAchievementIds::Fashionshow => 69,
+            EnumsMinecraftEventingAchievementIds::Selfpublishedauthor => 71,
+            EnumsMinecraftEventingAchievementIds::Alternativefuel => 72,
+            EnumsMinecraftEventingAchievementIds::Sleepwiththefishes => 73,
             EnumsMinecraftEventingAchievementIds::Castaway => 74,
-            EnumsMinecraftEventingAchievementIds::ImAMarineBiologist => 75,
-            EnumsMinecraftEventingAchievementIds::SailThe7Seas => 76,
-            EnumsMinecraftEventingAchievementIds::MeGold => 77,
+            EnumsMinecraftEventingAchievementIds::Imamarinebiologist => 75,
+            EnumsMinecraftEventingAchievementIds::Sailthe7Seas => 76,
+            EnumsMinecraftEventingAchievementIds::Megold => 77,
             EnumsMinecraftEventingAchievementIds::Ahoy => 78,
             EnumsMinecraftEventingAchievementIds::Atlantis => 79,
-            EnumsMinecraftEventingAchievementIds::OnePickleTwoPickleSeaPickleFour => 80,
-            EnumsMinecraftEventingAchievementIds::DoaBarrelRoll => 81,
+            EnumsMinecraftEventingAchievementIds::Onepickletwopickleseapicklefour => 80,
+            EnumsMinecraftEventingAchievementIds::Doabarrelroll => 81,
             EnumsMinecraftEventingAchievementIds::Moskstraumen => 82,
             EnumsMinecraftEventingAchievementIds::Echolocation => 83,
-            EnumsMinecraftEventingAchievementIds::WhereHaveYouBeen => 84,
-            EnumsMinecraftEventingAchievementIds::TopOfTheWorld => 85,
-            EnumsMinecraftEventingAchievementIds::FruitOnTheLoom => 86,
-            EnumsMinecraftEventingAchievementIds::SoundTheAlarm => 87,
-            EnumsMinecraftEventingAchievementIds::BuyLowSellHigh => 88,
+            EnumsMinecraftEventingAchievementIds::Wherehaveyoubeen => 84,
+            EnumsMinecraftEventingAchievementIds::Topoftheworld => 85,
+            EnumsMinecraftEventingAchievementIds::Fruitontheloom => 86,
+            EnumsMinecraftEventingAchievementIds::Soundthealarm => 87,
+            EnumsMinecraftEventingAchievementIds::Buylowsellhigh => 88,
             EnumsMinecraftEventingAchievementIds::Disenchanted => 89,
-            EnumsMinecraftEventingAchievementIds::TimeForStew => 90,
-            EnumsMinecraftEventingAchievementIds::BeeOurGuest => 91,
-            EnumsMinecraftEventingAchievementIds::TotalBeeLocation => 92,
-            EnumsMinecraftEventingAchievementIds::StickySituation => 93,
-            EnumsMinecraftEventingAchievementIds::CoverMeInDebris => 94,
-            EnumsMinecraftEventingAchievementIds::FloatYourGoat => 95,
+            EnumsMinecraftEventingAchievementIds::Timeforstew => 90,
+            EnumsMinecraftEventingAchievementIds::Beeourguest => 91,
+            EnumsMinecraftEventingAchievementIds::Totalbeelocation => 92,
+            EnumsMinecraftEventingAchievementIds::Stickysituation => 93,
+            EnumsMinecraftEventingAchievementIds::Covermeindebris => 94,
+            EnumsMinecraftEventingAchievementIds::Floatyourgoat => 95,
             EnumsMinecraftEventingAchievementIds::Friend => 96,
-            EnumsMinecraftEventingAchievementIds::WaxOnWaxOff => 97,
-            EnumsMinecraftEventingAchievementIds::StriderRiddenInLavaInOverworld => 98,
-            EnumsMinecraftEventingAchievementIds::GoatHornAcquired => 99,
-            EnumsMinecraftEventingAchievementIds::JukeboxUsedInMeadows => 100,
-            EnumsMinecraftEventingAchievementIds::TradedAtWorldHeight => 101,
-            EnumsMinecraftEventingAchievementIds::SurvivedFallFromWorldHeight => 102,
-            EnumsMinecraftEventingAchievementIds::SneakCloseToSculkSensor => 103,
-            EnumsMinecraftEventingAchievementIds::ItSpreads => 104,
-            EnumsMinecraftEventingAchievementIds::BirthdaySong => 105,
-            EnumsMinecraftEventingAchievementIds::WithOurPowersCombined => 106,
-            EnumsMinecraftEventingAchievementIds::PlantingThePast => 107,
-            EnumsMinecraftEventingAchievementIds::CarefulRestoration => 108,
+            EnumsMinecraftEventingAchievementIds::Waxonwaxoff => 97,
+            EnumsMinecraftEventingAchievementIds::Striderriddeninlavainoverworld => 98,
+            EnumsMinecraftEventingAchievementIds::Goathornacquired => 99,
+            EnumsMinecraftEventingAchievementIds::Jukeboxusedinmeadows => 100,
+            EnumsMinecraftEventingAchievementIds::Tradedatworldheight => 101,
+            EnumsMinecraftEventingAchievementIds::Survivedfallfromworldheight => 102,
+            EnumsMinecraftEventingAchievementIds::Sneakclosetosculksensor => 103,
+            EnumsMinecraftEventingAchievementIds::Itspreads => 104,
+            EnumsMinecraftEventingAchievementIds::Birthdaysong => 105,
+            EnumsMinecraftEventingAchievementIds::Withourpowerscombined => 106,
+            EnumsMinecraftEventingAchievementIds::Plantingthepast => 107,
+            EnumsMinecraftEventingAchievementIds::Carefulrestoration => 108,
             EnumsMinecraftEventingAchievementIds::Revaulting => 109,
-            EnumsMinecraftEventingAchievementIds::CraftersCraftingCrafters => 110,
-            EnumsMinecraftEventingAchievementIds::WhoNeedsRockets => 111,
-            EnumsMinecraftEventingAchievementIds::OverOverkill => 112,
-            EnumsMinecraftEventingAchievementIds::HeartTransplanter => 113,
-            EnumsMinecraftEventingAchievementIds::StayHydrated => 114,
-            EnumsMinecraftEventingAchievementIds::MobKabob => 115,
-            EnumsMinecraftEventingAchievementIds::AdventuringTime => 116,
-            EnumsMinecraftEventingAchievementIds::UhOh => 117,
-            EnumsMinecraftEventingAchievementIds::GettingWood => 118,
-            EnumsMinecraftEventingAchievementIds::BenchMaking => 119,
-            EnumsMinecraftEventingAchievementIds::TimeToMine => 120,
-            EnumsMinecraftEventingAchievementIds::HotTopic => 121,
-            EnumsMinecraftEventingAchievementIds::AcquireHardware => 122,
-            EnumsMinecraftEventingAchievementIds::GettingAnUpgrade => 123,
-            EnumsMinecraftEventingAchievementIds::MonsterHunter => 124,
+            EnumsMinecraftEventingAchievementIds::Crafterscraftingcrafters => 110,
+            EnumsMinecraftEventingAchievementIds::Whoneedsrockets => 111,
+            EnumsMinecraftEventingAchievementIds::Overoverkill => 112,
+            EnumsMinecraftEventingAchievementIds::Hearttransplanter => 113,
+            EnumsMinecraftEventingAchievementIds::Stayhydrated => 114,
+            EnumsMinecraftEventingAchievementIds::Mobkabob => 115,
+            EnumsMinecraftEventingAchievementIds::Adventuringtime => 116,
+            EnumsMinecraftEventingAchievementIds::Uhoh => 117,
+            EnumsMinecraftEventingAchievementIds::Gettingwood => 118,
+            EnumsMinecraftEventingAchievementIds::Benchmaking => 119,
+            EnumsMinecraftEventingAchievementIds::Timetomine => 120,
+            EnumsMinecraftEventingAchievementIds::Hottopic => 121,
+            EnumsMinecraftEventingAchievementIds::Acquirehardware => 122,
+            EnumsMinecraftEventingAchievementIds::Gettinganupgrade => 123,
+            EnumsMinecraftEventingAchievementIds::Monsterhunter => 124,
             EnumsMinecraftEventingAchievementIds::Diamonds => 125,
-            EnumsMinecraftEventingAchievementIds::PlethoraOfCats => 126,
+            EnumsMinecraftEventingAchievementIds::Plethoraofcats => 126,
             EnumsMinecraftEventingAchievementIds::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -19528,95 +20016,95 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMinecraftEventingAchievementId
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            7 => Ok(EnumsMinecraftEventingAchievementIds::ChestFullOfCobblestone),
-            10 => Ok(EnumsMinecraftEventingAchievementIds::DiamondForYou),
-            20 => Ok(EnumsMinecraftEventingAchievementIds::IronBelly),
-            21 => Ok(EnumsMinecraftEventingAchievementIds::IronMan),
-            29 => Ok(EnumsMinecraftEventingAchievementIds::OnARail),
+            7 => Ok(EnumsMinecraftEventingAchievementIds::Chestfullofcobblestone),
+            10 => Ok(EnumsMinecraftEventingAchievementIds::Diamondforyou),
+            20 => Ok(EnumsMinecraftEventingAchievementIds::Ironbelly),
+            21 => Ok(EnumsMinecraftEventingAchievementIds::Ironman),
+            29 => Ok(EnumsMinecraftEventingAchievementIds::Onarail),
             30 => Ok(EnumsMinecraftEventingAchievementIds::Overkill),
-            37 => Ok(EnumsMinecraftEventingAchievementIds::ReturnToSender),
-            38 => Ok(EnumsMinecraftEventingAchievementIds::SniperDuel),
-            39 => Ok(EnumsMinecraftEventingAchievementIds::StayinFrosty),
-            40 => Ok(EnumsMinecraftEventingAchievementIds::TakeInventory),
-            50 => Ok(EnumsMinecraftEventingAchievementIds::MapRoom),
-            52 => Ok(EnumsMinecraftEventingAchievementIds::FreightStation),
-            53 => Ok(EnumsMinecraftEventingAchievementIds::SmeltEverything),
-            54 => Ok(EnumsMinecraftEventingAchievementIds::TasteOfYourOwnMedicine),
-            56 => Ok(EnumsMinecraftEventingAchievementIds::WhenPigsFly),
+            37 => Ok(EnumsMinecraftEventingAchievementIds::Returntosender),
+            38 => Ok(EnumsMinecraftEventingAchievementIds::Sniperduel),
+            39 => Ok(EnumsMinecraftEventingAchievementIds::Stayinfrosty),
+            40 => Ok(EnumsMinecraftEventingAchievementIds::Takeinventory),
+            50 => Ok(EnumsMinecraftEventingAchievementIds::Maproom),
+            52 => Ok(EnumsMinecraftEventingAchievementIds::Freightstation),
+            53 => Ok(EnumsMinecraftEventingAchievementIds::Smelteverything),
+            54 => Ok(EnumsMinecraftEventingAchievementIds::Tasteofyourownmedicine),
+            56 => Ok(EnumsMinecraftEventingAchievementIds::Whenpigsfly),
             58 => Ok(EnumsMinecraftEventingAchievementIds::Inception),
-            60 => Ok(EnumsMinecraftEventingAchievementIds::ArtificialSelection),
-            61 => Ok(EnumsMinecraftEventingAchievementIds::FreeDiver),
-            62 => Ok(EnumsMinecraftEventingAchievementIds::SpawnTheWither),
+            60 => Ok(EnumsMinecraftEventingAchievementIds::Artificialselection),
+            61 => Ok(EnumsMinecraftEventingAchievementIds::Freediver),
+            62 => Ok(EnumsMinecraftEventingAchievementIds::Spawnthewither),
             63 => Ok(EnumsMinecraftEventingAchievementIds::Beaconator),
-            64 => Ok(EnumsMinecraftEventingAchievementIds::GreatView),
-            65 => Ok(EnumsMinecraftEventingAchievementIds::SuperSonic),
-            66 => Ok(EnumsMinecraftEventingAchievementIds::TheEndAgain),
-            67 => Ok(EnumsMinecraftEventingAchievementIds::TreasureHunter),
-            68 => Ok(EnumsMinecraftEventingAchievementIds::ShootingStar),
-            69 => Ok(EnumsMinecraftEventingAchievementIds::FashionShow),
-            71 => Ok(EnumsMinecraftEventingAchievementIds::SelfPublishedAuthor),
-            72 => Ok(EnumsMinecraftEventingAchievementIds::AlternativeFuel),
-            73 => Ok(EnumsMinecraftEventingAchievementIds::SleepWithTheFishes),
+            64 => Ok(EnumsMinecraftEventingAchievementIds::Greatview),
+            65 => Ok(EnumsMinecraftEventingAchievementIds::Supersonic),
+            66 => Ok(EnumsMinecraftEventingAchievementIds::Theendagain),
+            67 => Ok(EnumsMinecraftEventingAchievementIds::Treasurehunter),
+            68 => Ok(EnumsMinecraftEventingAchievementIds::Shootingstar),
+            69 => Ok(EnumsMinecraftEventingAchievementIds::Fashionshow),
+            71 => Ok(EnumsMinecraftEventingAchievementIds::Selfpublishedauthor),
+            72 => Ok(EnumsMinecraftEventingAchievementIds::Alternativefuel),
+            73 => Ok(EnumsMinecraftEventingAchievementIds::Sleepwiththefishes),
             74 => Ok(EnumsMinecraftEventingAchievementIds::Castaway),
-            75 => Ok(EnumsMinecraftEventingAchievementIds::ImAMarineBiologist),
-            76 => Ok(EnumsMinecraftEventingAchievementIds::SailThe7Seas),
-            77 => Ok(EnumsMinecraftEventingAchievementIds::MeGold),
+            75 => Ok(EnumsMinecraftEventingAchievementIds::Imamarinebiologist),
+            76 => Ok(EnumsMinecraftEventingAchievementIds::Sailthe7Seas),
+            77 => Ok(EnumsMinecraftEventingAchievementIds::Megold),
             78 => Ok(EnumsMinecraftEventingAchievementIds::Ahoy),
             79 => Ok(EnumsMinecraftEventingAchievementIds::Atlantis),
-            80 => Ok(EnumsMinecraftEventingAchievementIds::OnePickleTwoPickleSeaPickleFour),
-            81 => Ok(EnumsMinecraftEventingAchievementIds::DoaBarrelRoll),
+            80 => Ok(EnumsMinecraftEventingAchievementIds::Onepickletwopickleseapicklefour),
+            81 => Ok(EnumsMinecraftEventingAchievementIds::Doabarrelroll),
             82 => Ok(EnumsMinecraftEventingAchievementIds::Moskstraumen),
             83 => Ok(EnumsMinecraftEventingAchievementIds::Echolocation),
-            84 => Ok(EnumsMinecraftEventingAchievementIds::WhereHaveYouBeen),
-            85 => Ok(EnumsMinecraftEventingAchievementIds::TopOfTheWorld),
-            86 => Ok(EnumsMinecraftEventingAchievementIds::FruitOnTheLoom),
-            87 => Ok(EnumsMinecraftEventingAchievementIds::SoundTheAlarm),
-            88 => Ok(EnumsMinecraftEventingAchievementIds::BuyLowSellHigh),
+            84 => Ok(EnumsMinecraftEventingAchievementIds::Wherehaveyoubeen),
+            85 => Ok(EnumsMinecraftEventingAchievementIds::Topoftheworld),
+            86 => Ok(EnumsMinecraftEventingAchievementIds::Fruitontheloom),
+            87 => Ok(EnumsMinecraftEventingAchievementIds::Soundthealarm),
+            88 => Ok(EnumsMinecraftEventingAchievementIds::Buylowsellhigh),
             89 => Ok(EnumsMinecraftEventingAchievementIds::Disenchanted),
-            90 => Ok(EnumsMinecraftEventingAchievementIds::TimeForStew),
-            91 => Ok(EnumsMinecraftEventingAchievementIds::BeeOurGuest),
-            92 => Ok(EnumsMinecraftEventingAchievementIds::TotalBeeLocation),
-            93 => Ok(EnumsMinecraftEventingAchievementIds::StickySituation),
-            94 => Ok(EnumsMinecraftEventingAchievementIds::CoverMeInDebris),
-            95 => Ok(EnumsMinecraftEventingAchievementIds::FloatYourGoat),
+            90 => Ok(EnumsMinecraftEventingAchievementIds::Timeforstew),
+            91 => Ok(EnumsMinecraftEventingAchievementIds::Beeourguest),
+            92 => Ok(EnumsMinecraftEventingAchievementIds::Totalbeelocation),
+            93 => Ok(EnumsMinecraftEventingAchievementIds::Stickysituation),
+            94 => Ok(EnumsMinecraftEventingAchievementIds::Covermeindebris),
+            95 => Ok(EnumsMinecraftEventingAchievementIds::Floatyourgoat),
             96 => Ok(EnumsMinecraftEventingAchievementIds::Friend),
-            97 => Ok(EnumsMinecraftEventingAchievementIds::WaxOnWaxOff),
-            98 => Ok(EnumsMinecraftEventingAchievementIds::StriderRiddenInLavaInOverworld),
-            99 => Ok(EnumsMinecraftEventingAchievementIds::GoatHornAcquired),
-            100 => Ok(EnumsMinecraftEventingAchievementIds::JukeboxUsedInMeadows),
-            101 => Ok(EnumsMinecraftEventingAchievementIds::TradedAtWorldHeight),
-            102 => Ok(EnumsMinecraftEventingAchievementIds::SurvivedFallFromWorldHeight),
-            103 => Ok(EnumsMinecraftEventingAchievementIds::SneakCloseToSculkSensor),
-            104 => Ok(EnumsMinecraftEventingAchievementIds::ItSpreads),
-            105 => Ok(EnumsMinecraftEventingAchievementIds::BirthdaySong),
-            106 => Ok(EnumsMinecraftEventingAchievementIds::WithOurPowersCombined),
-            107 => Ok(EnumsMinecraftEventingAchievementIds::PlantingThePast),
-            108 => Ok(EnumsMinecraftEventingAchievementIds::CarefulRestoration),
+            97 => Ok(EnumsMinecraftEventingAchievementIds::Waxonwaxoff),
+            98 => Ok(EnumsMinecraftEventingAchievementIds::Striderriddeninlavainoverworld),
+            99 => Ok(EnumsMinecraftEventingAchievementIds::Goathornacquired),
+            100 => Ok(EnumsMinecraftEventingAchievementIds::Jukeboxusedinmeadows),
+            101 => Ok(EnumsMinecraftEventingAchievementIds::Tradedatworldheight),
+            102 => Ok(EnumsMinecraftEventingAchievementIds::Survivedfallfromworldheight),
+            103 => Ok(EnumsMinecraftEventingAchievementIds::Sneakclosetosculksensor),
+            104 => Ok(EnumsMinecraftEventingAchievementIds::Itspreads),
+            105 => Ok(EnumsMinecraftEventingAchievementIds::Birthdaysong),
+            106 => Ok(EnumsMinecraftEventingAchievementIds::Withourpowerscombined),
+            107 => Ok(EnumsMinecraftEventingAchievementIds::Plantingthepast),
+            108 => Ok(EnumsMinecraftEventingAchievementIds::Carefulrestoration),
             109 => Ok(EnumsMinecraftEventingAchievementIds::Revaulting),
-            110 => Ok(EnumsMinecraftEventingAchievementIds::CraftersCraftingCrafters),
-            111 => Ok(EnumsMinecraftEventingAchievementIds::WhoNeedsRockets),
-            112 => Ok(EnumsMinecraftEventingAchievementIds::OverOverkill),
-            113 => Ok(EnumsMinecraftEventingAchievementIds::HeartTransplanter),
-            114 => Ok(EnumsMinecraftEventingAchievementIds::StayHydrated),
-            115 => Ok(EnumsMinecraftEventingAchievementIds::MobKabob),
-            116 => Ok(EnumsMinecraftEventingAchievementIds::AdventuringTime),
-            117 => Ok(EnumsMinecraftEventingAchievementIds::UhOh),
-            118 => Ok(EnumsMinecraftEventingAchievementIds::GettingWood),
-            119 => Ok(EnumsMinecraftEventingAchievementIds::BenchMaking),
-            120 => Ok(EnumsMinecraftEventingAchievementIds::TimeToMine),
-            121 => Ok(EnumsMinecraftEventingAchievementIds::HotTopic),
-            122 => Ok(EnumsMinecraftEventingAchievementIds::AcquireHardware),
-            123 => Ok(EnumsMinecraftEventingAchievementIds::GettingAnUpgrade),
-            124 => Ok(EnumsMinecraftEventingAchievementIds::MonsterHunter),
+            110 => Ok(EnumsMinecraftEventingAchievementIds::Crafterscraftingcrafters),
+            111 => Ok(EnumsMinecraftEventingAchievementIds::Whoneedsrockets),
+            112 => Ok(EnumsMinecraftEventingAchievementIds::Overoverkill),
+            113 => Ok(EnumsMinecraftEventingAchievementIds::Hearttransplanter),
+            114 => Ok(EnumsMinecraftEventingAchievementIds::Stayhydrated),
+            115 => Ok(EnumsMinecraftEventingAchievementIds::Mobkabob),
+            116 => Ok(EnumsMinecraftEventingAchievementIds::Adventuringtime),
+            117 => Ok(EnumsMinecraftEventingAchievementIds::Uhoh),
+            118 => Ok(EnumsMinecraftEventingAchievementIds::Gettingwood),
+            119 => Ok(EnumsMinecraftEventingAchievementIds::Benchmaking),
+            120 => Ok(EnumsMinecraftEventingAchievementIds::Timetomine),
+            121 => Ok(EnumsMinecraftEventingAchievementIds::Hottopic),
+            122 => Ok(EnumsMinecraftEventingAchievementIds::Acquirehardware),
+            123 => Ok(EnumsMinecraftEventingAchievementIds::Gettinganupgrade),
+            124 => Ok(EnumsMinecraftEventingAchievementIds::Monsterhunter),
             125 => Ok(EnumsMinecraftEventingAchievementIds::Diamonds),
-            126 => Ok(EnumsMinecraftEventingAchievementIds::PlethoraOfCats),
+            126 => Ok(EnumsMinecraftEventingAchievementIds::Plethoraofcats),
             other => Ok(EnumsMinecraftEventingAchievementIds::Unknown(other)),
         }
     }
 }
 impl Default for EnumsMinecraftEventingAchievementIds {
     fn default() -> Self {
-        Self::ChestFullOfCobblestone
+        Self::Chestfullofcobblestone
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -19978,27 +20466,27 @@ pub enum EnumsMinecraftEventingPoiBlockInteractionType {
     Clone,
     Lock,
     Create,
-    CreateLocator,
+    Createlocator,
     Rename,
-    ItemPlaced,
-    ItemRemoved,
+    Itemplaced,
+    Itemremoved,
     Cooking,
     Dousing,
     Lighting,
     Haystack,
     Filled,
     Emptied,
-    AddDye,
-    DyeItem,
-    ClearItem,
-    EnchantArrow,
-    CompostItemPlaced,
-    RecoveredBonemeal,
-    BookPlaced,
-    BookOpened,
+    Adddye,
+    Dyeitem,
+    Clearitem,
+    Enchantarrow,
+    Compostitemplaced,
+    Recoveredbonemeal,
+    Bookplaced,
+    Bookopened,
     Disenchant,
     Repair,
-    DisenchantAndRepair,
+    Disenchantandrepair,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsMinecraftEventingPoiBlockInteractionType {
@@ -20009,27 +20497,27 @@ impl crate::bedrock::codec::BedrockSized for EnumsMinecraftEventingPoiBlockInter
             EnumsMinecraftEventingPoiBlockInteractionType::Clone => 2,
             EnumsMinecraftEventingPoiBlockInteractionType::Lock => 3,
             EnumsMinecraftEventingPoiBlockInteractionType::Create => 4,
-            EnumsMinecraftEventingPoiBlockInteractionType::CreateLocator => 5,
+            EnumsMinecraftEventingPoiBlockInteractionType::Createlocator => 5,
             EnumsMinecraftEventingPoiBlockInteractionType::Rename => 6,
-            EnumsMinecraftEventingPoiBlockInteractionType::ItemPlaced => 7,
-            EnumsMinecraftEventingPoiBlockInteractionType::ItemRemoved => 8,
+            EnumsMinecraftEventingPoiBlockInteractionType::Itemplaced => 7,
+            EnumsMinecraftEventingPoiBlockInteractionType::Itemremoved => 8,
             EnumsMinecraftEventingPoiBlockInteractionType::Cooking => 9,
             EnumsMinecraftEventingPoiBlockInteractionType::Dousing => 10,
             EnumsMinecraftEventingPoiBlockInteractionType::Lighting => 11,
             EnumsMinecraftEventingPoiBlockInteractionType::Haystack => 12,
             EnumsMinecraftEventingPoiBlockInteractionType::Filled => 13,
             EnumsMinecraftEventingPoiBlockInteractionType::Emptied => 14,
-            EnumsMinecraftEventingPoiBlockInteractionType::AddDye => 15,
-            EnumsMinecraftEventingPoiBlockInteractionType::DyeItem => 16,
-            EnumsMinecraftEventingPoiBlockInteractionType::ClearItem => 17,
-            EnumsMinecraftEventingPoiBlockInteractionType::EnchantArrow => 18,
-            EnumsMinecraftEventingPoiBlockInteractionType::CompostItemPlaced => 19,
-            EnumsMinecraftEventingPoiBlockInteractionType::RecoveredBonemeal => 20,
-            EnumsMinecraftEventingPoiBlockInteractionType::BookPlaced => 21,
-            EnumsMinecraftEventingPoiBlockInteractionType::BookOpened => 22,
+            EnumsMinecraftEventingPoiBlockInteractionType::Adddye => 15,
+            EnumsMinecraftEventingPoiBlockInteractionType::Dyeitem => 16,
+            EnumsMinecraftEventingPoiBlockInteractionType::Clearitem => 17,
+            EnumsMinecraftEventingPoiBlockInteractionType::Enchantarrow => 18,
+            EnumsMinecraftEventingPoiBlockInteractionType::Compostitemplaced => 19,
+            EnumsMinecraftEventingPoiBlockInteractionType::Recoveredbonemeal => 20,
+            EnumsMinecraftEventingPoiBlockInteractionType::Bookplaced => 21,
+            EnumsMinecraftEventingPoiBlockInteractionType::Bookopened => 22,
             EnumsMinecraftEventingPoiBlockInteractionType::Disenchant => 23,
             EnumsMinecraftEventingPoiBlockInteractionType::Repair => 24,
-            EnumsMinecraftEventingPoiBlockInteractionType::DisenchantAndRepair => 25,
+            EnumsMinecraftEventingPoiBlockInteractionType::Disenchantandrepair => 25,
             EnumsMinecraftEventingPoiBlockInteractionType::Unknown(v) => *v,
         };
         1usize
@@ -20044,27 +20532,27 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMinecraftEventingPoiBlockInter
             EnumsMinecraftEventingPoiBlockInteractionType::Clone => 2,
             EnumsMinecraftEventingPoiBlockInteractionType::Lock => 3,
             EnumsMinecraftEventingPoiBlockInteractionType::Create => 4,
-            EnumsMinecraftEventingPoiBlockInteractionType::CreateLocator => 5,
+            EnumsMinecraftEventingPoiBlockInteractionType::Createlocator => 5,
             EnumsMinecraftEventingPoiBlockInteractionType::Rename => 6,
-            EnumsMinecraftEventingPoiBlockInteractionType::ItemPlaced => 7,
-            EnumsMinecraftEventingPoiBlockInteractionType::ItemRemoved => 8,
+            EnumsMinecraftEventingPoiBlockInteractionType::Itemplaced => 7,
+            EnumsMinecraftEventingPoiBlockInteractionType::Itemremoved => 8,
             EnumsMinecraftEventingPoiBlockInteractionType::Cooking => 9,
             EnumsMinecraftEventingPoiBlockInteractionType::Dousing => 10,
             EnumsMinecraftEventingPoiBlockInteractionType::Lighting => 11,
             EnumsMinecraftEventingPoiBlockInteractionType::Haystack => 12,
             EnumsMinecraftEventingPoiBlockInteractionType::Filled => 13,
             EnumsMinecraftEventingPoiBlockInteractionType::Emptied => 14,
-            EnumsMinecraftEventingPoiBlockInteractionType::AddDye => 15,
-            EnumsMinecraftEventingPoiBlockInteractionType::DyeItem => 16,
-            EnumsMinecraftEventingPoiBlockInteractionType::ClearItem => 17,
-            EnumsMinecraftEventingPoiBlockInteractionType::EnchantArrow => 18,
-            EnumsMinecraftEventingPoiBlockInteractionType::CompostItemPlaced => 19,
-            EnumsMinecraftEventingPoiBlockInteractionType::RecoveredBonemeal => 20,
-            EnumsMinecraftEventingPoiBlockInteractionType::BookPlaced => 21,
-            EnumsMinecraftEventingPoiBlockInteractionType::BookOpened => 22,
+            EnumsMinecraftEventingPoiBlockInteractionType::Adddye => 15,
+            EnumsMinecraftEventingPoiBlockInteractionType::Dyeitem => 16,
+            EnumsMinecraftEventingPoiBlockInteractionType::Clearitem => 17,
+            EnumsMinecraftEventingPoiBlockInteractionType::Enchantarrow => 18,
+            EnumsMinecraftEventingPoiBlockInteractionType::Compostitemplaced => 19,
+            EnumsMinecraftEventingPoiBlockInteractionType::Recoveredbonemeal => 20,
+            EnumsMinecraftEventingPoiBlockInteractionType::Bookplaced => 21,
+            EnumsMinecraftEventingPoiBlockInteractionType::Bookopened => 22,
             EnumsMinecraftEventingPoiBlockInteractionType::Disenchant => 23,
             EnumsMinecraftEventingPoiBlockInteractionType::Repair => 24,
-            EnumsMinecraftEventingPoiBlockInteractionType::DisenchantAndRepair => 25,
+            EnumsMinecraftEventingPoiBlockInteractionType::Disenchantandrepair => 25,
             EnumsMinecraftEventingPoiBlockInteractionType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -20080,27 +20568,27 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMinecraftEventingPoiBlockInter
             2 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Clone),
             3 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Lock),
             4 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Create),
-            5 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::CreateLocator),
+            5 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Createlocator),
             6 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Rename),
-            7 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::ItemPlaced),
-            8 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::ItemRemoved),
+            7 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Itemplaced),
+            8 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Itemremoved),
             9 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Cooking),
             10 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Dousing),
             11 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Lighting),
             12 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Haystack),
             13 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Filled),
             14 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Emptied),
-            15 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::AddDye),
-            16 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::DyeItem),
-            17 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::ClearItem),
-            18 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::EnchantArrow),
-            19 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::CompostItemPlaced),
-            20 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::RecoveredBonemeal),
-            21 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::BookPlaced),
-            22 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::BookOpened),
+            15 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Adddye),
+            16 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Dyeitem),
+            17 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Clearitem),
+            18 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Enchantarrow),
+            19 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Compostitemplaced),
+            20 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Recoveredbonemeal),
+            21 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Bookplaced),
+            22 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Bookopened),
             23 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Disenchant),
             24 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Repair),
-            25 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::DisenchantAndRepair),
+            25 => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Disenchantandrepair),
             other => Ok(EnumsMinecraftEventingPoiBlockInteractionType::Unknown(
                 other,
             )),
@@ -20192,7 +20680,7 @@ pub enum EnumsMinecraftEventingInteractionType {
     Naming,
     Leashing,
     Unleashing,
-    PetSleep,
+    Petsleep,
     Trusting,
     Commanding,
     Equipping,
@@ -20214,7 +20702,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsMinecraftEventingInteractionTy
             EnumsMinecraftEventingInteractionType::Naming => 11,
             EnumsMinecraftEventingInteractionType::Leashing => 12,
             EnumsMinecraftEventingInteractionType::Unleashing => 13,
-            EnumsMinecraftEventingInteractionType::PetSleep => 14,
+            EnumsMinecraftEventingInteractionType::Petsleep => 14,
             EnumsMinecraftEventingInteractionType::Trusting => 15,
             EnumsMinecraftEventingInteractionType::Commanding => 16,
             EnumsMinecraftEventingInteractionType::Equipping => 17,
@@ -20240,7 +20728,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMinecraftEventingInteractionTy
             EnumsMinecraftEventingInteractionType::Naming => 11,
             EnumsMinecraftEventingInteractionType::Leashing => 12,
             EnumsMinecraftEventingInteractionType::Unleashing => 13,
-            EnumsMinecraftEventingInteractionType::PetSleep => 14,
+            EnumsMinecraftEventingInteractionType::Petsleep => 14,
             EnumsMinecraftEventingInteractionType::Trusting => 15,
             EnumsMinecraftEventingInteractionType::Commanding => 16,
             EnumsMinecraftEventingInteractionType::Equipping => 17,
@@ -20267,7 +20755,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMinecraftEventingInteractionTy
             11 => Ok(EnumsMinecraftEventingInteractionType::Naming),
             12 => Ok(EnumsMinecraftEventingInteractionType::Leashing),
             13 => Ok(EnumsMinecraftEventingInteractionType::Unleashing),
-            14 => Ok(EnumsMinecraftEventingInteractionType::PetSleep),
+            14 => Ok(EnumsMinecraftEventingInteractionType::Petsleep),
             15 => Ok(EnumsMinecraftEventingInteractionType::Trusting),
             16 => Ok(EnumsMinecraftEventingInteractionType::Commanding),
             17 => Ok(EnumsMinecraftEventingInteractionType::Equipping),
@@ -20462,61 +20950,61 @@ impl crate::bedrock::codec::BedrockCodec for LegacyTelemetryEventPacketPayloadMo
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsActorType {
     Undefined,
-    ItemEntity,
-    PrimedTnt,
-    FallingBlock,
-    MovingBlock,
+    Itementity,
+    Primedtnt,
+    Fallingblock,
+    Movingblock,
     Experience,
-    EyeOfEnder,
-    EnderCrystal,
-    FireworksRocket,
-    FishingHook,
+    Eyeofender,
+    Endercrystal,
+    Fireworksrocket,
+    Fishinghook,
     Reserved78,
     Painting,
-    LeashKnot,
-    BoatRideable,
-    LightningBolt,
-    AreaEffectCloud,
+    Leashknot,
+    Boatrideable,
+    Lightningbolt,
+    Areaeffectcloud,
     Reserved107,
     Shield,
     Lectern,
-    OminousItemSpawner,
+    Ominousitemspawner,
     Cushion,
-    ChestBoatRideable,
+    Chestboatrideable,
     Mob,
     Npc,
     Reserved312,
-    ArmorStand,
+    Armorstand,
     Reserved318,
     Player,
     Bee,
     Piglin,
-    PiglinBrute,
+    Piglinbrute,
     Allay,
-    PathfinderMob,
-    IronGolem,
-    SnowGolem,
-    WanderingTrader,
-    CopperGolem,
-    SulfurCube,
+    Pathfindermob,
+    Irongolem,
+    Snowgolem,
+    Wanderingtrader,
+    Coppergolem,
+    Sulfurcube,
     Monster,
     Creeper,
     Slime,
-    EnderMan,
+    Enderman,
     Ghast,
-    LavaSlime,
+    Lavaslime,
     Blaze,
     Witch,
     Guardian,
-    ElderGuardian,
+    Elderguardian,
     Dragon,
     Shulker,
     Vindicator,
-    IllagerBeast,
-    EvocationIllager,
+    Illagerbeast,
+    Evocationillager,
     Vex,
     Pillager,
-    ElderGuardianGhost,
+    Elderguardianghost,
     Warden,
     Breeze,
     Creaking,
@@ -20525,9 +21013,9 @@ pub enum EnumsActorType {
     Cow,
     Pig,
     Sheep,
-    MushroomCow,
+    Mushroomcow,
     Rabbit,
-    PolarBear,
+    Polarbear,
     Llama,
     Turtle,
     Panda,
@@ -20540,147 +21028,147 @@ pub enum EnumsActorType {
     Camel,
     Sniffer,
     Armadillo,
-    HappyGhast,
-    TraderLlama,
-    WaterAnimal,
+    Happyghast,
+    Traderllama,
+    Wateranimal,
     Squid,
     Dolphin,
     Pufferfish,
     Salmon,
     Tropicalfish,
     Fish,
-    GlowSquid,
+    Glowsquid,
     Tadpole,
     Nautilus,
-    TamableAnimal,
+    Tamableanimal,
     Wolf,
     Ocelot,
     Parrot,
     Cat,
     Ambient,
     Bat,
-    UndeadMonster,
-    PigZombie,
-    WitherBoss,
+    Undeadmonster,
+    Pigzombie,
+    Witherboss,
     Phantom,
     Zoglin,
-    CamelHusk,
-    ZombieNautilus,
-    ZombieMonster,
+    Camelhusk,
+    Zombienautilus,
+    Zombiemonster,
     Zombie,
-    ZombieVillager,
+    Zombievillager,
     Husk,
     Drowned,
-    ZombieVillagerV2,
+    Zombievillagerv2,
     Arthropod,
     Spider,
     Silverfish,
-    CaveSpider,
+    Cavespider,
     Endermite,
     Minecart,
-    MinecartRideable,
-    MinecartHopper,
-    MinecartTnt,
-    MinecartChest,
-    MinecartFurnace,
-    MinecartCommandBlock,
-    SkeletonMonster,
+    Minecartrideable,
+    Minecarthopper,
+    Minecarttnt,
+    Minecartchest,
+    Minecartfurnace,
+    Minecartcommandblock,
+    Skeletonmonster,
     Skeleton,
     Stray,
-    WitherSkeleton,
+    Witherskeleton,
     Bogged,
     Parched,
-    EquineAnimal,
+    Equineanimal,
     Horse,
     Donkey,
     Mule,
-    SkeletonHorse,
-    ZombieHorse,
+    Skeletonhorse,
+    Zombiehorse,
     Projectile,
-    ExperiencePotion,
-    ShulkerBullet,
-    DragonFireball,
+    Experiencepotion,
+    Shulkerbullet,
+    Dragonfireball,
     Snowball,
-    ThrownEgg,
-    LargeFireball,
-    ThrownPotion,
+    Thrownegg,
+    Largefireball,
+    Thrownpotion,
     Enderpearl,
-    WitherSkull,
-    WitherSkullDangerous,
-    SmallFireball,
-    LingeringPotion,
-    LlamaSpit,
-    EvocationFang,
+    Witherskull,
+    Witherskulldangerous,
+    Smallfireball,
+    Lingeringpotion,
+    Llamaspit,
+    Evocationfang,
     Reserved4194410,
-    BreezeWindChargeProjectile,
-    WindChargeProjectile,
-    AbstractArrow,
+    Breezewindchargeprojectile,
+    Windchargeprojectile,
+    Abstractarrow,
     Trident,
     Arrow,
-    VillagerBase,
+    Villagerbase,
     Villager,
-    VillagerV2,
+    Villagerv2,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsActorType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsActorType::Undefined => 1,
-            EnumsActorType::ItemEntity => 64,
-            EnumsActorType::PrimedTnt => 65,
-            EnumsActorType::FallingBlock => 66,
-            EnumsActorType::MovingBlock => 67,
+            EnumsActorType::Itementity => 64,
+            EnumsActorType::Primedtnt => 65,
+            EnumsActorType::Fallingblock => 66,
+            EnumsActorType::Movingblock => 67,
             EnumsActorType::Experience => 69,
-            EnumsActorType::EyeOfEnder => 70,
-            EnumsActorType::EnderCrystal => 71,
-            EnumsActorType::FireworksRocket => 72,
-            EnumsActorType::FishingHook => 77,
+            EnumsActorType::Eyeofender => 70,
+            EnumsActorType::Endercrystal => 71,
+            EnumsActorType::Fireworksrocket => 72,
+            EnumsActorType::Fishinghook => 77,
             EnumsActorType::Reserved78 => 78,
             EnumsActorType::Painting => 83,
-            EnumsActorType::LeashKnot => 88,
-            EnumsActorType::BoatRideable => 90,
-            EnumsActorType::LightningBolt => 93,
-            EnumsActorType::AreaEffectCloud => 95,
+            EnumsActorType::Leashknot => 88,
+            EnumsActorType::Boatrideable => 90,
+            EnumsActorType::Lightningbolt => 93,
+            EnumsActorType::Areaeffectcloud => 95,
             EnumsActorType::Reserved107 => 107,
             EnumsActorType::Shield => 117,
             EnumsActorType::Lectern => 119,
-            EnumsActorType::OminousItemSpawner => 145,
+            EnumsActorType::Ominousitemspawner => 145,
             EnumsActorType::Cushion => 154,
-            EnumsActorType::ChestBoatRideable => 218,
+            EnumsActorType::Chestboatrideable => 218,
             EnumsActorType::Mob => 256,
             EnumsActorType::Npc => 307,
             EnumsActorType::Reserved312 => 312,
-            EnumsActorType::ArmorStand => 317,
+            EnumsActorType::Armorstand => 317,
             EnumsActorType::Reserved318 => 318,
             EnumsActorType::Player => 319,
             EnumsActorType::Bee => 378,
             EnumsActorType::Piglin => 379,
-            EnumsActorType::PiglinBrute => 383,
+            EnumsActorType::Piglinbrute => 383,
             EnumsActorType::Allay => 390,
-            EnumsActorType::PathfinderMob => 768,
-            EnumsActorType::IronGolem => 788,
-            EnumsActorType::SnowGolem => 789,
-            EnumsActorType::WanderingTrader => 886,
-            EnumsActorType::CopperGolem => 916,
-            EnumsActorType::SulfurCube => 921,
+            EnumsActorType::Pathfindermob => 768,
+            EnumsActorType::Irongolem => 788,
+            EnumsActorType::Snowgolem => 789,
+            EnumsActorType::Wanderingtrader => 886,
+            EnumsActorType::Coppergolem => 916,
+            EnumsActorType::Sulfurcube => 921,
             EnumsActorType::Monster => 2816,
             EnumsActorType::Creeper => 2849,
             EnumsActorType::Slime => 2853,
-            EnumsActorType::EnderMan => 2854,
+            EnumsActorType::Enderman => 2854,
             EnumsActorType::Ghast => 2857,
-            EnumsActorType::LavaSlime => 2858,
+            EnumsActorType::Lavaslime => 2858,
             EnumsActorType::Blaze => 2859,
             EnumsActorType::Witch => 2861,
             EnumsActorType::Guardian => 2865,
-            EnumsActorType::ElderGuardian => 2866,
+            EnumsActorType::Elderguardian => 2866,
             EnumsActorType::Dragon => 2869,
             EnumsActorType::Shulker => 2870,
             EnumsActorType::Vindicator => 2873,
-            EnumsActorType::IllagerBeast => 2875,
-            EnumsActorType::EvocationIllager => 2920,
+            EnumsActorType::Illagerbeast => 2875,
+            EnumsActorType::Evocationillager => 2920,
             EnumsActorType::Vex => 2921,
             EnumsActorType::Pillager => 2930,
-            EnumsActorType::ElderGuardianGhost => 2936,
+            EnumsActorType::Elderguardianghost => 2936,
             EnumsActorType::Warden => 2947,
             EnumsActorType::Breeze => 2956,
             EnumsActorType::Creaking => 2962,
@@ -20689,9 +21177,9 @@ impl crate::bedrock::codec::BedrockSized for EnumsActorType {
             EnumsActorType::Cow => 4875,
             EnumsActorType::Pig => 4876,
             EnumsActorType::Sheep => 4877,
-            EnumsActorType::MushroomCow => 4880,
+            EnumsActorType::Mushroomcow => 4880,
             EnumsActorType::Rabbit => 4882,
-            EnumsActorType::PolarBear => 4892,
+            EnumsActorType::Polarbear => 4892,
             EnumsActorType::Llama => 4893,
             EnumsActorType::Turtle => 4938,
             EnumsActorType::Panda => 4977,
@@ -20704,86 +21192,86 @@ impl crate::bedrock::codec::BedrockSized for EnumsActorType {
             EnumsActorType::Camel => 5002,
             EnumsActorType::Sniffer => 5003,
             EnumsActorType::Armadillo => 5006,
-            EnumsActorType::HappyGhast => 5011,
-            EnumsActorType::TraderLlama => 5021,
-            EnumsActorType::WaterAnimal => 8960,
+            EnumsActorType::Happyghast => 5011,
+            EnumsActorType::Traderllama => 5021,
+            EnumsActorType::Wateranimal => 8960,
             EnumsActorType::Squid => 8977,
             EnumsActorType::Dolphin => 8991,
             EnumsActorType::Pufferfish => 9068,
             EnumsActorType::Salmon => 9069,
             EnumsActorType::Tropicalfish => 9071,
             EnumsActorType::Fish => 9072,
-            EnumsActorType::GlowSquid => 9089,
+            EnumsActorType::Glowsquid => 9089,
             EnumsActorType::Tadpole => 9093,
             EnumsActorType::Nautilus => 9109,
-            EnumsActorType::TamableAnimal => 21248,
+            EnumsActorType::Tamableanimal => 21248,
             EnumsActorType::Wolf => 21262,
             EnumsActorType::Ocelot => 21270,
             EnumsActorType::Parrot => 21278,
             EnumsActorType::Cat => 21323,
             EnumsActorType::Ambient => 33024,
             EnumsActorType::Bat => 33043,
-            EnumsActorType::UndeadMonster => 68352,
-            EnumsActorType::PigZombie => 68388,
-            EnumsActorType::WitherBoss => 68404,
+            EnumsActorType::Undeadmonster => 68352,
+            EnumsActorType::Pigzombie => 68388,
+            EnumsActorType::Witherboss => 68404,
             EnumsActorType::Phantom => 68410,
             EnumsActorType::Zoglin => 68478,
-            EnumsActorType::CamelHusk => 70552,
-            EnumsActorType::ZombieNautilus => 74646,
-            EnumsActorType::ZombieMonster => 199424,
+            EnumsActorType::Camelhusk => 70552,
+            EnumsActorType::Zombienautilus => 74646,
+            EnumsActorType::Zombiemonster => 199424,
             EnumsActorType::Zombie => 199456,
-            EnumsActorType::ZombieVillager => 199468,
+            EnumsActorType::Zombievillager => 199468,
             EnumsActorType::Husk => 199471,
             EnumsActorType::Drowned => 199534,
-            EnumsActorType::ZombieVillagerV2 => 199540,
+            EnumsActorType::Zombievillagerv2 => 199540,
             EnumsActorType::Arthropod => 264960,
             EnumsActorType::Spider => 264995,
             EnumsActorType::Silverfish => 264999,
-            EnumsActorType::CaveSpider => 265000,
+            EnumsActorType::Cavespider => 265000,
             EnumsActorType::Endermite => 265015,
             EnumsActorType::Minecart => 524288,
-            EnumsActorType::MinecartRideable => 524372,
-            EnumsActorType::MinecartHopper => 524384,
-            EnumsActorType::MinecartTnt => 524385,
-            EnumsActorType::MinecartChest => 524386,
-            EnumsActorType::MinecartFurnace => 524387,
-            EnumsActorType::MinecartCommandBlock => 524388,
-            EnumsActorType::SkeletonMonster => 1116928,
+            EnumsActorType::Minecartrideable => 524372,
+            EnumsActorType::Minecarthopper => 524384,
+            EnumsActorType::Minecarttnt => 524385,
+            EnumsActorType::Minecartchest => 524386,
+            EnumsActorType::Minecartfurnace => 524387,
+            EnumsActorType::Minecartcommandblock => 524388,
+            EnumsActorType::Skeletonmonster => 1116928,
             EnumsActorType::Skeleton => 1116962,
             EnumsActorType::Stray => 1116974,
-            EnumsActorType::WitherSkeleton => 1116976,
+            EnumsActorType::Witherskeleton => 1116976,
             EnumsActorType::Bogged => 1117072,
             EnumsActorType::Parched => 1117079,
-            EnumsActorType::EquineAnimal => 2118400,
+            EnumsActorType::Equineanimal => 2118400,
             EnumsActorType::Horse => 2118423,
             EnumsActorType::Donkey => 2118424,
             EnumsActorType::Mule => 2118425,
-            EnumsActorType::SkeletonHorse => 2183962,
-            EnumsActorType::ZombieHorse => 2183963,
+            EnumsActorType::Skeletonhorse => 2183962,
+            EnumsActorType::Zombiehorse => 2183963,
             EnumsActorType::Projectile => 4194304,
-            EnumsActorType::ExperiencePotion => 4194372,
-            EnumsActorType::ShulkerBullet => 4194380,
-            EnumsActorType::DragonFireball => 4194383,
+            EnumsActorType::Experiencepotion => 4194372,
+            EnumsActorType::Shulkerbullet => 4194380,
+            EnumsActorType::Dragonfireball => 4194383,
             EnumsActorType::Snowball => 4194385,
-            EnumsActorType::ThrownEgg => 4194386,
-            EnumsActorType::LargeFireball => 4194389,
-            EnumsActorType::ThrownPotion => 4194390,
+            EnumsActorType::Thrownegg => 4194386,
+            EnumsActorType::Largefireball => 4194389,
+            EnumsActorType::Thrownpotion => 4194390,
             EnumsActorType::Enderpearl => 4194391,
-            EnumsActorType::WitherSkull => 4194393,
-            EnumsActorType::WitherSkullDangerous => 4194395,
-            EnumsActorType::SmallFireball => 4194398,
-            EnumsActorType::LingeringPotion => 4194405,
-            EnumsActorType::LlamaSpit => 4194406,
-            EnumsActorType::EvocationFang => 4194407,
+            EnumsActorType::Witherskull => 4194393,
+            EnumsActorType::Witherskulldangerous => 4194395,
+            EnumsActorType::Smallfireball => 4194398,
+            EnumsActorType::Lingeringpotion => 4194405,
+            EnumsActorType::Llamaspit => 4194406,
+            EnumsActorType::Evocationfang => 4194407,
             EnumsActorType::Reserved4194410 => 4194410,
-            EnumsActorType::BreezeWindChargeProjectile => 4194445,
-            EnumsActorType::WindChargeProjectile => 4194447,
-            EnumsActorType::AbstractArrow => 8388608,
+            EnumsActorType::Breezewindchargeprojectile => 4194445,
+            EnumsActorType::Windchargeprojectile => 4194447,
+            EnumsActorType::Abstractarrow => 8388608,
             EnumsActorType::Trident => 12582985,
             EnumsActorType::Arrow => 12582992,
-            EnumsActorType::VillagerBase => 16777984,
+            EnumsActorType::Villagerbase => 16777984,
             EnumsActorType::Villager => 16777999,
-            EnumsActorType::VillagerV2 => 16778099,
+            EnumsActorType::Villagerv2 => 16778099,
             EnumsActorType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -20796,61 +21284,61 @@ impl crate::bedrock::codec::BedrockCodec for EnumsActorType {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsActorType::Undefined => 1,
-            EnumsActorType::ItemEntity => 64,
-            EnumsActorType::PrimedTnt => 65,
-            EnumsActorType::FallingBlock => 66,
-            EnumsActorType::MovingBlock => 67,
+            EnumsActorType::Itementity => 64,
+            EnumsActorType::Primedtnt => 65,
+            EnumsActorType::Fallingblock => 66,
+            EnumsActorType::Movingblock => 67,
             EnumsActorType::Experience => 69,
-            EnumsActorType::EyeOfEnder => 70,
-            EnumsActorType::EnderCrystal => 71,
-            EnumsActorType::FireworksRocket => 72,
-            EnumsActorType::FishingHook => 77,
+            EnumsActorType::Eyeofender => 70,
+            EnumsActorType::Endercrystal => 71,
+            EnumsActorType::Fireworksrocket => 72,
+            EnumsActorType::Fishinghook => 77,
             EnumsActorType::Reserved78 => 78,
             EnumsActorType::Painting => 83,
-            EnumsActorType::LeashKnot => 88,
-            EnumsActorType::BoatRideable => 90,
-            EnumsActorType::LightningBolt => 93,
-            EnumsActorType::AreaEffectCloud => 95,
+            EnumsActorType::Leashknot => 88,
+            EnumsActorType::Boatrideable => 90,
+            EnumsActorType::Lightningbolt => 93,
+            EnumsActorType::Areaeffectcloud => 95,
             EnumsActorType::Reserved107 => 107,
             EnumsActorType::Shield => 117,
             EnumsActorType::Lectern => 119,
-            EnumsActorType::OminousItemSpawner => 145,
+            EnumsActorType::Ominousitemspawner => 145,
             EnumsActorType::Cushion => 154,
-            EnumsActorType::ChestBoatRideable => 218,
+            EnumsActorType::Chestboatrideable => 218,
             EnumsActorType::Mob => 256,
             EnumsActorType::Npc => 307,
             EnumsActorType::Reserved312 => 312,
-            EnumsActorType::ArmorStand => 317,
+            EnumsActorType::Armorstand => 317,
             EnumsActorType::Reserved318 => 318,
             EnumsActorType::Player => 319,
             EnumsActorType::Bee => 378,
             EnumsActorType::Piglin => 379,
-            EnumsActorType::PiglinBrute => 383,
+            EnumsActorType::Piglinbrute => 383,
             EnumsActorType::Allay => 390,
-            EnumsActorType::PathfinderMob => 768,
-            EnumsActorType::IronGolem => 788,
-            EnumsActorType::SnowGolem => 789,
-            EnumsActorType::WanderingTrader => 886,
-            EnumsActorType::CopperGolem => 916,
-            EnumsActorType::SulfurCube => 921,
+            EnumsActorType::Pathfindermob => 768,
+            EnumsActorType::Irongolem => 788,
+            EnumsActorType::Snowgolem => 789,
+            EnumsActorType::Wanderingtrader => 886,
+            EnumsActorType::Coppergolem => 916,
+            EnumsActorType::Sulfurcube => 921,
             EnumsActorType::Monster => 2816,
             EnumsActorType::Creeper => 2849,
             EnumsActorType::Slime => 2853,
-            EnumsActorType::EnderMan => 2854,
+            EnumsActorType::Enderman => 2854,
             EnumsActorType::Ghast => 2857,
-            EnumsActorType::LavaSlime => 2858,
+            EnumsActorType::Lavaslime => 2858,
             EnumsActorType::Blaze => 2859,
             EnumsActorType::Witch => 2861,
             EnumsActorType::Guardian => 2865,
-            EnumsActorType::ElderGuardian => 2866,
+            EnumsActorType::Elderguardian => 2866,
             EnumsActorType::Dragon => 2869,
             EnumsActorType::Shulker => 2870,
             EnumsActorType::Vindicator => 2873,
-            EnumsActorType::IllagerBeast => 2875,
-            EnumsActorType::EvocationIllager => 2920,
+            EnumsActorType::Illagerbeast => 2875,
+            EnumsActorType::Evocationillager => 2920,
             EnumsActorType::Vex => 2921,
             EnumsActorType::Pillager => 2930,
-            EnumsActorType::ElderGuardianGhost => 2936,
+            EnumsActorType::Elderguardianghost => 2936,
             EnumsActorType::Warden => 2947,
             EnumsActorType::Breeze => 2956,
             EnumsActorType::Creaking => 2962,
@@ -20859,9 +21347,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsActorType {
             EnumsActorType::Cow => 4875,
             EnumsActorType::Pig => 4876,
             EnumsActorType::Sheep => 4877,
-            EnumsActorType::MushroomCow => 4880,
+            EnumsActorType::Mushroomcow => 4880,
             EnumsActorType::Rabbit => 4882,
-            EnumsActorType::PolarBear => 4892,
+            EnumsActorType::Polarbear => 4892,
             EnumsActorType::Llama => 4893,
             EnumsActorType::Turtle => 4938,
             EnumsActorType::Panda => 4977,
@@ -20874,86 +21362,86 @@ impl crate::bedrock::codec::BedrockCodec for EnumsActorType {
             EnumsActorType::Camel => 5002,
             EnumsActorType::Sniffer => 5003,
             EnumsActorType::Armadillo => 5006,
-            EnumsActorType::HappyGhast => 5011,
-            EnumsActorType::TraderLlama => 5021,
-            EnumsActorType::WaterAnimal => 8960,
+            EnumsActorType::Happyghast => 5011,
+            EnumsActorType::Traderllama => 5021,
+            EnumsActorType::Wateranimal => 8960,
             EnumsActorType::Squid => 8977,
             EnumsActorType::Dolphin => 8991,
             EnumsActorType::Pufferfish => 9068,
             EnumsActorType::Salmon => 9069,
             EnumsActorType::Tropicalfish => 9071,
             EnumsActorType::Fish => 9072,
-            EnumsActorType::GlowSquid => 9089,
+            EnumsActorType::Glowsquid => 9089,
             EnumsActorType::Tadpole => 9093,
             EnumsActorType::Nautilus => 9109,
-            EnumsActorType::TamableAnimal => 21248,
+            EnumsActorType::Tamableanimal => 21248,
             EnumsActorType::Wolf => 21262,
             EnumsActorType::Ocelot => 21270,
             EnumsActorType::Parrot => 21278,
             EnumsActorType::Cat => 21323,
             EnumsActorType::Ambient => 33024,
             EnumsActorType::Bat => 33043,
-            EnumsActorType::UndeadMonster => 68352,
-            EnumsActorType::PigZombie => 68388,
-            EnumsActorType::WitherBoss => 68404,
+            EnumsActorType::Undeadmonster => 68352,
+            EnumsActorType::Pigzombie => 68388,
+            EnumsActorType::Witherboss => 68404,
             EnumsActorType::Phantom => 68410,
             EnumsActorType::Zoglin => 68478,
-            EnumsActorType::CamelHusk => 70552,
-            EnumsActorType::ZombieNautilus => 74646,
-            EnumsActorType::ZombieMonster => 199424,
+            EnumsActorType::Camelhusk => 70552,
+            EnumsActorType::Zombienautilus => 74646,
+            EnumsActorType::Zombiemonster => 199424,
             EnumsActorType::Zombie => 199456,
-            EnumsActorType::ZombieVillager => 199468,
+            EnumsActorType::Zombievillager => 199468,
             EnumsActorType::Husk => 199471,
             EnumsActorType::Drowned => 199534,
-            EnumsActorType::ZombieVillagerV2 => 199540,
+            EnumsActorType::Zombievillagerv2 => 199540,
             EnumsActorType::Arthropod => 264960,
             EnumsActorType::Spider => 264995,
             EnumsActorType::Silverfish => 264999,
-            EnumsActorType::CaveSpider => 265000,
+            EnumsActorType::Cavespider => 265000,
             EnumsActorType::Endermite => 265015,
             EnumsActorType::Minecart => 524288,
-            EnumsActorType::MinecartRideable => 524372,
-            EnumsActorType::MinecartHopper => 524384,
-            EnumsActorType::MinecartTnt => 524385,
-            EnumsActorType::MinecartChest => 524386,
-            EnumsActorType::MinecartFurnace => 524387,
-            EnumsActorType::MinecartCommandBlock => 524388,
-            EnumsActorType::SkeletonMonster => 1116928,
+            EnumsActorType::Minecartrideable => 524372,
+            EnumsActorType::Minecarthopper => 524384,
+            EnumsActorType::Minecarttnt => 524385,
+            EnumsActorType::Minecartchest => 524386,
+            EnumsActorType::Minecartfurnace => 524387,
+            EnumsActorType::Minecartcommandblock => 524388,
+            EnumsActorType::Skeletonmonster => 1116928,
             EnumsActorType::Skeleton => 1116962,
             EnumsActorType::Stray => 1116974,
-            EnumsActorType::WitherSkeleton => 1116976,
+            EnumsActorType::Witherskeleton => 1116976,
             EnumsActorType::Bogged => 1117072,
             EnumsActorType::Parched => 1117079,
-            EnumsActorType::EquineAnimal => 2118400,
+            EnumsActorType::Equineanimal => 2118400,
             EnumsActorType::Horse => 2118423,
             EnumsActorType::Donkey => 2118424,
             EnumsActorType::Mule => 2118425,
-            EnumsActorType::SkeletonHorse => 2183962,
-            EnumsActorType::ZombieHorse => 2183963,
+            EnumsActorType::Skeletonhorse => 2183962,
+            EnumsActorType::Zombiehorse => 2183963,
             EnumsActorType::Projectile => 4194304,
-            EnumsActorType::ExperiencePotion => 4194372,
-            EnumsActorType::ShulkerBullet => 4194380,
-            EnumsActorType::DragonFireball => 4194383,
+            EnumsActorType::Experiencepotion => 4194372,
+            EnumsActorType::Shulkerbullet => 4194380,
+            EnumsActorType::Dragonfireball => 4194383,
             EnumsActorType::Snowball => 4194385,
-            EnumsActorType::ThrownEgg => 4194386,
-            EnumsActorType::LargeFireball => 4194389,
-            EnumsActorType::ThrownPotion => 4194390,
+            EnumsActorType::Thrownegg => 4194386,
+            EnumsActorType::Largefireball => 4194389,
+            EnumsActorType::Thrownpotion => 4194390,
             EnumsActorType::Enderpearl => 4194391,
-            EnumsActorType::WitherSkull => 4194393,
-            EnumsActorType::WitherSkullDangerous => 4194395,
-            EnumsActorType::SmallFireball => 4194398,
-            EnumsActorType::LingeringPotion => 4194405,
-            EnumsActorType::LlamaSpit => 4194406,
-            EnumsActorType::EvocationFang => 4194407,
+            EnumsActorType::Witherskull => 4194393,
+            EnumsActorType::Witherskulldangerous => 4194395,
+            EnumsActorType::Smallfireball => 4194398,
+            EnumsActorType::Lingeringpotion => 4194405,
+            EnumsActorType::Llamaspit => 4194406,
+            EnumsActorType::Evocationfang => 4194407,
             EnumsActorType::Reserved4194410 => 4194410,
-            EnumsActorType::BreezeWindChargeProjectile => 4194445,
-            EnumsActorType::WindChargeProjectile => 4194447,
-            EnumsActorType::AbstractArrow => 8388608,
+            EnumsActorType::Breezewindchargeprojectile => 4194445,
+            EnumsActorType::Windchargeprojectile => 4194447,
+            EnumsActorType::Abstractarrow => 8388608,
             EnumsActorType::Trident => 12582985,
             EnumsActorType::Arrow => 12582992,
-            EnumsActorType::VillagerBase => 16777984,
+            EnumsActorType::Villagerbase => 16777984,
             EnumsActorType::Villager => 16777999,
-            EnumsActorType::VillagerV2 => 16778099,
+            EnumsActorType::Villagerv2 => 16778099,
             EnumsActorType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -20969,61 +21457,61 @@ impl crate::bedrock::codec::BedrockCodec for EnumsActorType {
         let val = raw.0 as i32;
         match val {
             1 => Ok(EnumsActorType::Undefined),
-            64 => Ok(EnumsActorType::ItemEntity),
-            65 => Ok(EnumsActorType::PrimedTnt),
-            66 => Ok(EnumsActorType::FallingBlock),
-            67 => Ok(EnumsActorType::MovingBlock),
+            64 => Ok(EnumsActorType::Itementity),
+            65 => Ok(EnumsActorType::Primedtnt),
+            66 => Ok(EnumsActorType::Fallingblock),
+            67 => Ok(EnumsActorType::Movingblock),
             69 => Ok(EnumsActorType::Experience),
-            70 => Ok(EnumsActorType::EyeOfEnder),
-            71 => Ok(EnumsActorType::EnderCrystal),
-            72 => Ok(EnumsActorType::FireworksRocket),
-            77 => Ok(EnumsActorType::FishingHook),
+            70 => Ok(EnumsActorType::Eyeofender),
+            71 => Ok(EnumsActorType::Endercrystal),
+            72 => Ok(EnumsActorType::Fireworksrocket),
+            77 => Ok(EnumsActorType::Fishinghook),
             78 => Ok(EnumsActorType::Reserved78),
             83 => Ok(EnumsActorType::Painting),
-            88 => Ok(EnumsActorType::LeashKnot),
-            90 => Ok(EnumsActorType::BoatRideable),
-            93 => Ok(EnumsActorType::LightningBolt),
-            95 => Ok(EnumsActorType::AreaEffectCloud),
+            88 => Ok(EnumsActorType::Leashknot),
+            90 => Ok(EnumsActorType::Boatrideable),
+            93 => Ok(EnumsActorType::Lightningbolt),
+            95 => Ok(EnumsActorType::Areaeffectcloud),
             107 => Ok(EnumsActorType::Reserved107),
             117 => Ok(EnumsActorType::Shield),
             119 => Ok(EnumsActorType::Lectern),
-            145 => Ok(EnumsActorType::OminousItemSpawner),
+            145 => Ok(EnumsActorType::Ominousitemspawner),
             154 => Ok(EnumsActorType::Cushion),
-            218 => Ok(EnumsActorType::ChestBoatRideable),
+            218 => Ok(EnumsActorType::Chestboatrideable),
             256 => Ok(EnumsActorType::Mob),
             307 => Ok(EnumsActorType::Npc),
             312 => Ok(EnumsActorType::Reserved312),
-            317 => Ok(EnumsActorType::ArmorStand),
+            317 => Ok(EnumsActorType::Armorstand),
             318 => Ok(EnumsActorType::Reserved318),
             319 => Ok(EnumsActorType::Player),
             378 => Ok(EnumsActorType::Bee),
             379 => Ok(EnumsActorType::Piglin),
-            383 => Ok(EnumsActorType::PiglinBrute),
+            383 => Ok(EnumsActorType::Piglinbrute),
             390 => Ok(EnumsActorType::Allay),
-            768 => Ok(EnumsActorType::PathfinderMob),
-            788 => Ok(EnumsActorType::IronGolem),
-            789 => Ok(EnumsActorType::SnowGolem),
-            886 => Ok(EnumsActorType::WanderingTrader),
-            916 => Ok(EnumsActorType::CopperGolem),
-            921 => Ok(EnumsActorType::SulfurCube),
+            768 => Ok(EnumsActorType::Pathfindermob),
+            788 => Ok(EnumsActorType::Irongolem),
+            789 => Ok(EnumsActorType::Snowgolem),
+            886 => Ok(EnumsActorType::Wanderingtrader),
+            916 => Ok(EnumsActorType::Coppergolem),
+            921 => Ok(EnumsActorType::Sulfurcube),
             2816 => Ok(EnumsActorType::Monster),
             2849 => Ok(EnumsActorType::Creeper),
             2853 => Ok(EnumsActorType::Slime),
-            2854 => Ok(EnumsActorType::EnderMan),
+            2854 => Ok(EnumsActorType::Enderman),
             2857 => Ok(EnumsActorType::Ghast),
-            2858 => Ok(EnumsActorType::LavaSlime),
+            2858 => Ok(EnumsActorType::Lavaslime),
             2859 => Ok(EnumsActorType::Blaze),
             2861 => Ok(EnumsActorType::Witch),
             2865 => Ok(EnumsActorType::Guardian),
-            2866 => Ok(EnumsActorType::ElderGuardian),
+            2866 => Ok(EnumsActorType::Elderguardian),
             2869 => Ok(EnumsActorType::Dragon),
             2870 => Ok(EnumsActorType::Shulker),
             2873 => Ok(EnumsActorType::Vindicator),
-            2875 => Ok(EnumsActorType::IllagerBeast),
-            2920 => Ok(EnumsActorType::EvocationIllager),
+            2875 => Ok(EnumsActorType::Illagerbeast),
+            2920 => Ok(EnumsActorType::Evocationillager),
             2921 => Ok(EnumsActorType::Vex),
             2930 => Ok(EnumsActorType::Pillager),
-            2936 => Ok(EnumsActorType::ElderGuardianGhost),
+            2936 => Ok(EnumsActorType::Elderguardianghost),
             2947 => Ok(EnumsActorType::Warden),
             2956 => Ok(EnumsActorType::Breeze),
             2962 => Ok(EnumsActorType::Creaking),
@@ -21032,9 +21520,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsActorType {
             4875 => Ok(EnumsActorType::Cow),
             4876 => Ok(EnumsActorType::Pig),
             4877 => Ok(EnumsActorType::Sheep),
-            4880 => Ok(EnumsActorType::MushroomCow),
+            4880 => Ok(EnumsActorType::Mushroomcow),
             4882 => Ok(EnumsActorType::Rabbit),
-            4892 => Ok(EnumsActorType::PolarBear),
+            4892 => Ok(EnumsActorType::Polarbear),
             4893 => Ok(EnumsActorType::Llama),
             4938 => Ok(EnumsActorType::Turtle),
             4977 => Ok(EnumsActorType::Panda),
@@ -21047,86 +21535,86 @@ impl crate::bedrock::codec::BedrockCodec for EnumsActorType {
             5002 => Ok(EnumsActorType::Camel),
             5003 => Ok(EnumsActorType::Sniffer),
             5006 => Ok(EnumsActorType::Armadillo),
-            5011 => Ok(EnumsActorType::HappyGhast),
-            5021 => Ok(EnumsActorType::TraderLlama),
-            8960 => Ok(EnumsActorType::WaterAnimal),
+            5011 => Ok(EnumsActorType::Happyghast),
+            5021 => Ok(EnumsActorType::Traderllama),
+            8960 => Ok(EnumsActorType::Wateranimal),
             8977 => Ok(EnumsActorType::Squid),
             8991 => Ok(EnumsActorType::Dolphin),
             9068 => Ok(EnumsActorType::Pufferfish),
             9069 => Ok(EnumsActorType::Salmon),
             9071 => Ok(EnumsActorType::Tropicalfish),
             9072 => Ok(EnumsActorType::Fish),
-            9089 => Ok(EnumsActorType::GlowSquid),
+            9089 => Ok(EnumsActorType::Glowsquid),
             9093 => Ok(EnumsActorType::Tadpole),
             9109 => Ok(EnumsActorType::Nautilus),
-            21248 => Ok(EnumsActorType::TamableAnimal),
+            21248 => Ok(EnumsActorType::Tamableanimal),
             21262 => Ok(EnumsActorType::Wolf),
             21270 => Ok(EnumsActorType::Ocelot),
             21278 => Ok(EnumsActorType::Parrot),
             21323 => Ok(EnumsActorType::Cat),
             33024 => Ok(EnumsActorType::Ambient),
             33043 => Ok(EnumsActorType::Bat),
-            68352 => Ok(EnumsActorType::UndeadMonster),
-            68388 => Ok(EnumsActorType::PigZombie),
-            68404 => Ok(EnumsActorType::WitherBoss),
+            68352 => Ok(EnumsActorType::Undeadmonster),
+            68388 => Ok(EnumsActorType::Pigzombie),
+            68404 => Ok(EnumsActorType::Witherboss),
             68410 => Ok(EnumsActorType::Phantom),
             68478 => Ok(EnumsActorType::Zoglin),
-            70552 => Ok(EnumsActorType::CamelHusk),
-            74646 => Ok(EnumsActorType::ZombieNautilus),
-            199424 => Ok(EnumsActorType::ZombieMonster),
+            70552 => Ok(EnumsActorType::Camelhusk),
+            74646 => Ok(EnumsActorType::Zombienautilus),
+            199424 => Ok(EnumsActorType::Zombiemonster),
             199456 => Ok(EnumsActorType::Zombie),
-            199468 => Ok(EnumsActorType::ZombieVillager),
+            199468 => Ok(EnumsActorType::Zombievillager),
             199471 => Ok(EnumsActorType::Husk),
             199534 => Ok(EnumsActorType::Drowned),
-            199540 => Ok(EnumsActorType::ZombieVillagerV2),
+            199540 => Ok(EnumsActorType::Zombievillagerv2),
             264960 => Ok(EnumsActorType::Arthropod),
             264995 => Ok(EnumsActorType::Spider),
             264999 => Ok(EnumsActorType::Silverfish),
-            265000 => Ok(EnumsActorType::CaveSpider),
+            265000 => Ok(EnumsActorType::Cavespider),
             265015 => Ok(EnumsActorType::Endermite),
             524288 => Ok(EnumsActorType::Minecart),
-            524372 => Ok(EnumsActorType::MinecartRideable),
-            524384 => Ok(EnumsActorType::MinecartHopper),
-            524385 => Ok(EnumsActorType::MinecartTnt),
-            524386 => Ok(EnumsActorType::MinecartChest),
-            524387 => Ok(EnumsActorType::MinecartFurnace),
-            524388 => Ok(EnumsActorType::MinecartCommandBlock),
-            1116928 => Ok(EnumsActorType::SkeletonMonster),
+            524372 => Ok(EnumsActorType::Minecartrideable),
+            524384 => Ok(EnumsActorType::Minecarthopper),
+            524385 => Ok(EnumsActorType::Minecarttnt),
+            524386 => Ok(EnumsActorType::Minecartchest),
+            524387 => Ok(EnumsActorType::Minecartfurnace),
+            524388 => Ok(EnumsActorType::Minecartcommandblock),
+            1116928 => Ok(EnumsActorType::Skeletonmonster),
             1116962 => Ok(EnumsActorType::Skeleton),
             1116974 => Ok(EnumsActorType::Stray),
-            1116976 => Ok(EnumsActorType::WitherSkeleton),
+            1116976 => Ok(EnumsActorType::Witherskeleton),
             1117072 => Ok(EnumsActorType::Bogged),
             1117079 => Ok(EnumsActorType::Parched),
-            2118400 => Ok(EnumsActorType::EquineAnimal),
+            2118400 => Ok(EnumsActorType::Equineanimal),
             2118423 => Ok(EnumsActorType::Horse),
             2118424 => Ok(EnumsActorType::Donkey),
             2118425 => Ok(EnumsActorType::Mule),
-            2183962 => Ok(EnumsActorType::SkeletonHorse),
-            2183963 => Ok(EnumsActorType::ZombieHorse),
+            2183962 => Ok(EnumsActorType::Skeletonhorse),
+            2183963 => Ok(EnumsActorType::Zombiehorse),
             4194304 => Ok(EnumsActorType::Projectile),
-            4194372 => Ok(EnumsActorType::ExperiencePotion),
-            4194380 => Ok(EnumsActorType::ShulkerBullet),
-            4194383 => Ok(EnumsActorType::DragonFireball),
+            4194372 => Ok(EnumsActorType::Experiencepotion),
+            4194380 => Ok(EnumsActorType::Shulkerbullet),
+            4194383 => Ok(EnumsActorType::Dragonfireball),
             4194385 => Ok(EnumsActorType::Snowball),
-            4194386 => Ok(EnumsActorType::ThrownEgg),
-            4194389 => Ok(EnumsActorType::LargeFireball),
-            4194390 => Ok(EnumsActorType::ThrownPotion),
+            4194386 => Ok(EnumsActorType::Thrownegg),
+            4194389 => Ok(EnumsActorType::Largefireball),
+            4194390 => Ok(EnumsActorType::Thrownpotion),
             4194391 => Ok(EnumsActorType::Enderpearl),
-            4194393 => Ok(EnumsActorType::WitherSkull),
-            4194395 => Ok(EnumsActorType::WitherSkullDangerous),
-            4194398 => Ok(EnumsActorType::SmallFireball),
-            4194405 => Ok(EnumsActorType::LingeringPotion),
-            4194406 => Ok(EnumsActorType::LlamaSpit),
-            4194407 => Ok(EnumsActorType::EvocationFang),
+            4194393 => Ok(EnumsActorType::Witherskull),
+            4194395 => Ok(EnumsActorType::Witherskulldangerous),
+            4194398 => Ok(EnumsActorType::Smallfireball),
+            4194405 => Ok(EnumsActorType::Lingeringpotion),
+            4194406 => Ok(EnumsActorType::Llamaspit),
+            4194407 => Ok(EnumsActorType::Evocationfang),
             4194410 => Ok(EnumsActorType::Reserved4194410),
-            4194445 => Ok(EnumsActorType::BreezeWindChargeProjectile),
-            4194447 => Ok(EnumsActorType::WindChargeProjectile),
-            8388608 => Ok(EnumsActorType::AbstractArrow),
+            4194445 => Ok(EnumsActorType::Breezewindchargeprojectile),
+            4194447 => Ok(EnumsActorType::Windchargeprojectile),
+            8388608 => Ok(EnumsActorType::Abstractarrow),
             12582985 => Ok(EnumsActorType::Trident),
             12582992 => Ok(EnumsActorType::Arrow),
-            16777984 => Ok(EnumsActorType::VillagerBase),
+            16777984 => Ok(EnumsActorType::Villagerbase),
             16777999 => Ok(EnumsActorType::Villager),
-            16778099 => Ok(EnumsActorType::VillagerV2),
+            16778099 => Ok(EnumsActorType::Villagerv2),
             other => Ok(EnumsActorType::Unknown(other)),
         }
     }
@@ -21742,14 +22230,14 @@ impl crate::bedrock::codec::BedrockCodec for LevelChunkPacketPayloadSubChunkMeta
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSpawnBiomeType {
     Default,
-    UserDefined,
+    Userdefined,
     Unknown(i16),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSpawnBiomeType {
     fn encoded_size(&self) -> usize {
         let _val: i16 = match self {
             EnumsSpawnBiomeType::Default => 0,
-            EnumsSpawnBiomeType::UserDefined => 1,
+            EnumsSpawnBiomeType::Userdefined => 1,
             EnumsSpawnBiomeType::Unknown(v) => *v,
         };
         2usize
@@ -21760,7 +22248,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSpawnBiomeType {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i16 = match self {
             EnumsSpawnBiomeType::Default => 0,
-            EnumsSpawnBiomeType::UserDefined => 1,
+            EnumsSpawnBiomeType::Userdefined => 1,
             EnumsSpawnBiomeType::Unknown(v) => *v,
         };
         crate::bedrock::codec::I16LE(val as i16).encode(buf)
@@ -21774,7 +22262,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSpawnBiomeType {
         let val = raw.0 as i16;
         match val {
             0 => Ok(EnumsSpawnBiomeType::Default),
-            1 => Ok(EnumsSpawnBiomeType::UserDefined),
+            1 => Ok(EnumsSpawnBiomeType::Userdefined),
             other => Ok(EnumsSpawnBiomeType::Unknown(other)),
         }
     }
@@ -21987,19 +22475,19 @@ impl Default for EnumsSharedTypesLegacyDifficulty {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsEditorWorldType {
-    NonEditor,
-    EditorProject,
-    EditorTestLevel,
-    EditorRealmsUpload,
+    Noneditor,
+    Editorproject,
+    Editortestlevel,
+    Editorrealmsupload,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsEditorWorldType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsEditorWorldType::NonEditor => 0,
-            EnumsEditorWorldType::EditorProject => 1,
-            EnumsEditorWorldType::EditorTestLevel => 2,
-            EnumsEditorWorldType::EditorRealmsUpload => 3,
+            EnumsEditorWorldType::Noneditor => 0,
+            EnumsEditorWorldType::Editorproject => 1,
+            EnumsEditorWorldType::Editortestlevel => 2,
+            EnumsEditorWorldType::Editorrealmsupload => 3,
             EnumsEditorWorldType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -22011,10 +22499,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsEditorWorldType {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsEditorWorldType::NonEditor => 0,
-            EnumsEditorWorldType::EditorProject => 1,
-            EnumsEditorWorldType::EditorTestLevel => 2,
-            EnumsEditorWorldType::EditorRealmsUpload => 3,
+            EnumsEditorWorldType::Noneditor => 0,
+            EnumsEditorWorldType::Editorproject => 1,
+            EnumsEditorWorldType::Editortestlevel => 2,
+            EnumsEditorWorldType::Editorrealmsupload => 3,
             EnumsEditorWorldType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -22029,17 +22517,17 @@ impl crate::bedrock::codec::BedrockCodec for EnumsEditorWorldType {
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(EnumsEditorWorldType::NonEditor),
-            1 => Ok(EnumsEditorWorldType::EditorProject),
-            2 => Ok(EnumsEditorWorldType::EditorTestLevel),
-            3 => Ok(EnumsEditorWorldType::EditorRealmsUpload),
+            0 => Ok(EnumsEditorWorldType::Noneditor),
+            1 => Ok(EnumsEditorWorldType::Editorproject),
+            2 => Ok(EnumsEditorWorldType::Editortestlevel),
+            3 => Ok(EnumsEditorWorldType::Editorrealmsupload),
             other => Ok(EnumsEditorWorldType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsEditorWorldType {
     fn default() -> Self {
-        Self::NonEditor
+        Self::Noneditor
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22097,20 +22585,20 @@ impl Default for ReservedLevelSettingsField12 {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSocialGamePublishSetting {
-    NoMultiPlay,
-    InviteOnly,
-    FriendsOnly,
-    FriendsOfFriends,
+    Nomultiplay,
+    Inviteonly,
+    Friendsonly,
+    Friendsoffriends,
     Public,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSocialGamePublishSetting {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsSocialGamePublishSetting::NoMultiPlay => 0,
-            EnumsSocialGamePublishSetting::InviteOnly => 1,
-            EnumsSocialGamePublishSetting::FriendsOnly => 2,
-            EnumsSocialGamePublishSetting::FriendsOfFriends => 3,
+            EnumsSocialGamePublishSetting::Nomultiplay => 0,
+            EnumsSocialGamePublishSetting::Inviteonly => 1,
+            EnumsSocialGamePublishSetting::Friendsonly => 2,
+            EnumsSocialGamePublishSetting::Friendsoffriends => 3,
             EnumsSocialGamePublishSetting::Public => 4,
             EnumsSocialGamePublishSetting::Unknown(v) => *v,
         };
@@ -22123,10 +22611,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSocialGamePublishSetting {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsSocialGamePublishSetting::NoMultiPlay => 0,
-            EnumsSocialGamePublishSetting::InviteOnly => 1,
-            EnumsSocialGamePublishSetting::FriendsOnly => 2,
-            EnumsSocialGamePublishSetting::FriendsOfFriends => 3,
+            EnumsSocialGamePublishSetting::Nomultiplay => 0,
+            EnumsSocialGamePublishSetting::Inviteonly => 1,
+            EnumsSocialGamePublishSetting::Friendsonly => 2,
+            EnumsSocialGamePublishSetting::Friendsoffriends => 3,
             EnumsSocialGamePublishSetting::Public => 4,
             EnumsSocialGamePublishSetting::Unknown(v) => *v,
         };
@@ -22142,10 +22630,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSocialGamePublishSetting {
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(EnumsSocialGamePublishSetting::NoMultiPlay),
-            1 => Ok(EnumsSocialGamePublishSetting::InviteOnly),
-            2 => Ok(EnumsSocialGamePublishSetting::FriendsOnly),
-            3 => Ok(EnumsSocialGamePublishSetting::FriendsOfFriends),
+            0 => Ok(EnumsSocialGamePublishSetting::Nomultiplay),
+            1 => Ok(EnumsSocialGamePublishSetting::Inviteonly),
+            2 => Ok(EnumsSocialGamePublishSetting::Friendsonly),
+            3 => Ok(EnumsSocialGamePublishSetting::Friendsoffriends),
             4 => Ok(EnumsSocialGamePublishSetting::Public),
             other => Ok(EnumsSocialGamePublishSetting::Unknown(other)),
         }
@@ -22153,7 +22641,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSocialGamePublishSetting {
 }
 impl Default for EnumsSocialGamePublishSetting {
     fn default() -> Self {
-        Self::NoMultiPlay
+        Self::Nomultiplay
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22256,18 +22744,18 @@ impl Default for EnumsChatRestrictionLevel {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsServerEditorConnectionPolicy {
-    MatchWorldType,
-    EditorOnly,
-    VanillaOnly,
+    Matchworldtype,
+    Editoronly,
+    Vanillaonly,
     Mixed,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsServerEditorConnectionPolicy {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsServerEditorConnectionPolicy::MatchWorldType => 0,
-            EnumsServerEditorConnectionPolicy::EditorOnly => 1,
-            EnumsServerEditorConnectionPolicy::VanillaOnly => 2,
+            EnumsServerEditorConnectionPolicy::Matchworldtype => 0,
+            EnumsServerEditorConnectionPolicy::Editoronly => 1,
+            EnumsServerEditorConnectionPolicy::Vanillaonly => 2,
             EnumsServerEditorConnectionPolicy::Mixed => 3,
             EnumsServerEditorConnectionPolicy::Unknown(v) => *v,
         };
@@ -22280,9 +22768,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsServerEditorConnectionPolicy {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsServerEditorConnectionPolicy::MatchWorldType => 0,
-            EnumsServerEditorConnectionPolicy::EditorOnly => 1,
-            EnumsServerEditorConnectionPolicy::VanillaOnly => 2,
+            EnumsServerEditorConnectionPolicy::Matchworldtype => 0,
+            EnumsServerEditorConnectionPolicy::Editoronly => 1,
+            EnumsServerEditorConnectionPolicy::Vanillaonly => 2,
             EnumsServerEditorConnectionPolicy::Mixed => 3,
             EnumsServerEditorConnectionPolicy::Unknown(v) => *v,
         };
@@ -22298,9 +22786,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsServerEditorConnectionPolicy {
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(EnumsServerEditorConnectionPolicy::MatchWorldType),
-            1 => Ok(EnumsServerEditorConnectionPolicy::EditorOnly),
-            2 => Ok(EnumsServerEditorConnectionPolicy::VanillaOnly),
+            0 => Ok(EnumsServerEditorConnectionPolicy::Matchworldtype),
+            1 => Ok(EnumsServerEditorConnectionPolicy::Editoronly),
+            2 => Ok(EnumsServerEditorConnectionPolicy::Vanillaonly),
             3 => Ok(EnumsServerEditorConnectionPolicy::Mixed),
             other => Ok(EnumsServerEditorConnectionPolicy::Unknown(other)),
         }
@@ -22308,7 +22796,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsServerEditorConnectionPolicy {
 }
 impl Default for EnumsServerEditorConnectionPolicy {
     fn default() -> Self {
-        Self::MatchWorldType
+        Self::Matchworldtype
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -23143,63 +23631,73 @@ impl crate::bedrock::codec::BedrockCodec for LocatorBarWaypointPayload {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsMapDecorationType {
-    MarkerWhite,
-    MarkerGreen,
-    MarkerRed,
-    MarkerBlue,
-    XWhite,
-    TriangleRed,
-    SquareWhite,
-    MarkerSign,
-    MarkerPink,
-    MarkerOrange,
-    MarkerYellow,
-    MarkerTeal,
-    TriangleGreen,
-    SmallSquareWhite,
+    Markerwhite,
+    Markergreen,
+    Markerred,
+    Markerblue,
+    Xwhite,
+    Trianglered,
+    Squarewhite,
+    Markersign,
+    Markerpink,
+    Markerorange,
+    Markeryellow,
+    Markerteal,
+    Trianglegreen,
+    Smallsquarewhite,
     Mansion,
     Monument,
-    NoDraw,
-    VillageDesert,
-    VillagePlains,
-    VillageSavanna,
-    VillageSnowy,
-    VillageTaiga,
-    JungleTemple,
-    WitchHut,
-    TrialChambers,
+    Nodraw,
+    Villagedesert,
+    Villageplains,
+    Villagesavanna,
+    Villagesnowy,
+    Villagetaiga,
+    Jungletemple,
+    Witchhut,
+    Trialchambers,
+    Abandonedcamp,
+    Buriedancientcity,
+    Buriedmineshaft,
+    Desertpyramid,
+    Warmoceanruins,
     Count,
     Unknown(i8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsMapDecorationType {
     fn encoded_size(&self) -> usize {
         let _val: i8 = match self {
-            EnumsMapDecorationType::MarkerWhite => 0,
-            EnumsMapDecorationType::MarkerGreen => 1,
-            EnumsMapDecorationType::MarkerRed => 2,
-            EnumsMapDecorationType::MarkerBlue => 3,
-            EnumsMapDecorationType::XWhite => 4,
-            EnumsMapDecorationType::TriangleRed => 5,
-            EnumsMapDecorationType::SquareWhite => 6,
-            EnumsMapDecorationType::MarkerSign => 7,
-            EnumsMapDecorationType::MarkerPink => 8,
-            EnumsMapDecorationType::MarkerOrange => 9,
-            EnumsMapDecorationType::MarkerYellow => 10,
-            EnumsMapDecorationType::MarkerTeal => 11,
-            EnumsMapDecorationType::TriangleGreen => 12,
-            EnumsMapDecorationType::SmallSquareWhite => 13,
+            EnumsMapDecorationType::Markerwhite => 0,
+            EnumsMapDecorationType::Markergreen => 1,
+            EnumsMapDecorationType::Markerred => 2,
+            EnumsMapDecorationType::Markerblue => 3,
+            EnumsMapDecorationType::Xwhite => 4,
+            EnumsMapDecorationType::Trianglered => 5,
+            EnumsMapDecorationType::Squarewhite => 6,
+            EnumsMapDecorationType::Markersign => 7,
+            EnumsMapDecorationType::Markerpink => 8,
+            EnumsMapDecorationType::Markerorange => 9,
+            EnumsMapDecorationType::Markeryellow => 10,
+            EnumsMapDecorationType::Markerteal => 11,
+            EnumsMapDecorationType::Trianglegreen => 12,
+            EnumsMapDecorationType::Smallsquarewhite => 13,
             EnumsMapDecorationType::Mansion => 14,
             EnumsMapDecorationType::Monument => 15,
-            EnumsMapDecorationType::NoDraw => 16,
-            EnumsMapDecorationType::VillageDesert => 17,
-            EnumsMapDecorationType::VillagePlains => 18,
-            EnumsMapDecorationType::VillageSavanna => 19,
-            EnumsMapDecorationType::VillageSnowy => 20,
-            EnumsMapDecorationType::VillageTaiga => 21,
-            EnumsMapDecorationType::JungleTemple => 22,
-            EnumsMapDecorationType::WitchHut => 23,
-            EnumsMapDecorationType::TrialChambers => 24,
-            EnumsMapDecorationType::Count => 25,
+            EnumsMapDecorationType::Nodraw => 16,
+            EnumsMapDecorationType::Villagedesert => 17,
+            EnumsMapDecorationType::Villageplains => 18,
+            EnumsMapDecorationType::Villagesavanna => 19,
+            EnumsMapDecorationType::Villagesnowy => 20,
+            EnumsMapDecorationType::Villagetaiga => 21,
+            EnumsMapDecorationType::Jungletemple => 22,
+            EnumsMapDecorationType::Witchhut => 23,
+            EnumsMapDecorationType::Trialchambers => 24,
+            EnumsMapDecorationType::Abandonedcamp => 25,
+            EnumsMapDecorationType::Buriedancientcity => 26,
+            EnumsMapDecorationType::Buriedmineshaft => 27,
+            EnumsMapDecorationType::Desertpyramid => 28,
+            EnumsMapDecorationType::Warmoceanruins => 29,
+            EnumsMapDecorationType::Count => 30,
             EnumsMapDecorationType::Unknown(v) => *v,
         };
         1usize
@@ -23209,32 +23707,37 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMapDecorationType {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i8 = match self {
-            EnumsMapDecorationType::MarkerWhite => 0,
-            EnumsMapDecorationType::MarkerGreen => 1,
-            EnumsMapDecorationType::MarkerRed => 2,
-            EnumsMapDecorationType::MarkerBlue => 3,
-            EnumsMapDecorationType::XWhite => 4,
-            EnumsMapDecorationType::TriangleRed => 5,
-            EnumsMapDecorationType::SquareWhite => 6,
-            EnumsMapDecorationType::MarkerSign => 7,
-            EnumsMapDecorationType::MarkerPink => 8,
-            EnumsMapDecorationType::MarkerOrange => 9,
-            EnumsMapDecorationType::MarkerYellow => 10,
-            EnumsMapDecorationType::MarkerTeal => 11,
-            EnumsMapDecorationType::TriangleGreen => 12,
-            EnumsMapDecorationType::SmallSquareWhite => 13,
+            EnumsMapDecorationType::Markerwhite => 0,
+            EnumsMapDecorationType::Markergreen => 1,
+            EnumsMapDecorationType::Markerred => 2,
+            EnumsMapDecorationType::Markerblue => 3,
+            EnumsMapDecorationType::Xwhite => 4,
+            EnumsMapDecorationType::Trianglered => 5,
+            EnumsMapDecorationType::Squarewhite => 6,
+            EnumsMapDecorationType::Markersign => 7,
+            EnumsMapDecorationType::Markerpink => 8,
+            EnumsMapDecorationType::Markerorange => 9,
+            EnumsMapDecorationType::Markeryellow => 10,
+            EnumsMapDecorationType::Markerteal => 11,
+            EnumsMapDecorationType::Trianglegreen => 12,
+            EnumsMapDecorationType::Smallsquarewhite => 13,
             EnumsMapDecorationType::Mansion => 14,
             EnumsMapDecorationType::Monument => 15,
-            EnumsMapDecorationType::NoDraw => 16,
-            EnumsMapDecorationType::VillageDesert => 17,
-            EnumsMapDecorationType::VillagePlains => 18,
-            EnumsMapDecorationType::VillageSavanna => 19,
-            EnumsMapDecorationType::VillageSnowy => 20,
-            EnumsMapDecorationType::VillageTaiga => 21,
-            EnumsMapDecorationType::JungleTemple => 22,
-            EnumsMapDecorationType::WitchHut => 23,
-            EnumsMapDecorationType::TrialChambers => 24,
-            EnumsMapDecorationType::Count => 25,
+            EnumsMapDecorationType::Nodraw => 16,
+            EnumsMapDecorationType::Villagedesert => 17,
+            EnumsMapDecorationType::Villageplains => 18,
+            EnumsMapDecorationType::Villagesavanna => 19,
+            EnumsMapDecorationType::Villagesnowy => 20,
+            EnumsMapDecorationType::Villagetaiga => 21,
+            EnumsMapDecorationType::Jungletemple => 22,
+            EnumsMapDecorationType::Witchhut => 23,
+            EnumsMapDecorationType::Trialchambers => 24,
+            EnumsMapDecorationType::Abandonedcamp => 25,
+            EnumsMapDecorationType::Buriedancientcity => 26,
+            EnumsMapDecorationType::Buriedmineshaft => 27,
+            EnumsMapDecorationType::Desertpyramid => 28,
+            EnumsMapDecorationType::Warmoceanruins => 29,
+            EnumsMapDecorationType::Count => 30,
             EnumsMapDecorationType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -23245,39 +23748,44 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMapDecorationType {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <i8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsMapDecorationType::MarkerWhite),
-            1 => Ok(EnumsMapDecorationType::MarkerGreen),
-            2 => Ok(EnumsMapDecorationType::MarkerRed),
-            3 => Ok(EnumsMapDecorationType::MarkerBlue),
-            4 => Ok(EnumsMapDecorationType::XWhite),
-            5 => Ok(EnumsMapDecorationType::TriangleRed),
-            6 => Ok(EnumsMapDecorationType::SquareWhite),
-            7 => Ok(EnumsMapDecorationType::MarkerSign),
-            8 => Ok(EnumsMapDecorationType::MarkerPink),
-            9 => Ok(EnumsMapDecorationType::MarkerOrange),
-            10 => Ok(EnumsMapDecorationType::MarkerYellow),
-            11 => Ok(EnumsMapDecorationType::MarkerTeal),
-            12 => Ok(EnumsMapDecorationType::TriangleGreen),
-            13 => Ok(EnumsMapDecorationType::SmallSquareWhite),
+            0 => Ok(EnumsMapDecorationType::Markerwhite),
+            1 => Ok(EnumsMapDecorationType::Markergreen),
+            2 => Ok(EnumsMapDecorationType::Markerred),
+            3 => Ok(EnumsMapDecorationType::Markerblue),
+            4 => Ok(EnumsMapDecorationType::Xwhite),
+            5 => Ok(EnumsMapDecorationType::Trianglered),
+            6 => Ok(EnumsMapDecorationType::Squarewhite),
+            7 => Ok(EnumsMapDecorationType::Markersign),
+            8 => Ok(EnumsMapDecorationType::Markerpink),
+            9 => Ok(EnumsMapDecorationType::Markerorange),
+            10 => Ok(EnumsMapDecorationType::Markeryellow),
+            11 => Ok(EnumsMapDecorationType::Markerteal),
+            12 => Ok(EnumsMapDecorationType::Trianglegreen),
+            13 => Ok(EnumsMapDecorationType::Smallsquarewhite),
             14 => Ok(EnumsMapDecorationType::Mansion),
             15 => Ok(EnumsMapDecorationType::Monument),
-            16 => Ok(EnumsMapDecorationType::NoDraw),
-            17 => Ok(EnumsMapDecorationType::VillageDesert),
-            18 => Ok(EnumsMapDecorationType::VillagePlains),
-            19 => Ok(EnumsMapDecorationType::VillageSavanna),
-            20 => Ok(EnumsMapDecorationType::VillageSnowy),
-            21 => Ok(EnumsMapDecorationType::VillageTaiga),
-            22 => Ok(EnumsMapDecorationType::JungleTemple),
-            23 => Ok(EnumsMapDecorationType::WitchHut),
-            24 => Ok(EnumsMapDecorationType::TrialChambers),
-            25 => Ok(EnumsMapDecorationType::Count),
+            16 => Ok(EnumsMapDecorationType::Nodraw),
+            17 => Ok(EnumsMapDecorationType::Villagedesert),
+            18 => Ok(EnumsMapDecorationType::Villageplains),
+            19 => Ok(EnumsMapDecorationType::Villagesavanna),
+            20 => Ok(EnumsMapDecorationType::Villagesnowy),
+            21 => Ok(EnumsMapDecorationType::Villagetaiga),
+            22 => Ok(EnumsMapDecorationType::Jungletemple),
+            23 => Ok(EnumsMapDecorationType::Witchhut),
+            24 => Ok(EnumsMapDecorationType::Trialchambers),
+            25 => Ok(EnumsMapDecorationType::Abandonedcamp),
+            26 => Ok(EnumsMapDecorationType::Buriedancientcity),
+            27 => Ok(EnumsMapDecorationType::Buriedmineshaft),
+            28 => Ok(EnumsMapDecorationType::Desertpyramid),
+            29 => Ok(EnumsMapDecorationType::Warmoceanruins),
+            30 => Ok(EnumsMapDecorationType::Count),
             other => Ok(EnumsMapDecorationType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsMapDecorationType {
     fn default() -> Self {
-        Self::MarkerWhite
+        Self::Markerwhite
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -23397,7 +23905,7 @@ impl crate::bedrock::codec::BedrockCodec for MapInfoRequestPacketAnonClientPixel
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsMapItemTrackedActorType {
     Entity,
-    BlockEntity,
+    Blockentity,
     Other,
     Unknown(i32),
 }
@@ -23405,7 +23913,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsMapItemTrackedActorType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsMapItemTrackedActorType::Entity => 0,
-            EnumsMapItemTrackedActorType::BlockEntity => 1,
+            EnumsMapItemTrackedActorType::Blockentity => 1,
             EnumsMapItemTrackedActorType::Other => 2,
             EnumsMapItemTrackedActorType::Unknown(v) => *v,
         };
@@ -23417,7 +23925,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMapItemTrackedActorType {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsMapItemTrackedActorType::Entity => 0,
-            EnumsMapItemTrackedActorType::BlockEntity => 1,
+            EnumsMapItemTrackedActorType::Blockentity => 1,
             EnumsMapItemTrackedActorType::Other => 2,
             EnumsMapItemTrackedActorType::Unknown(v) => *v,
         };
@@ -23432,7 +23940,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMapItemTrackedActorType {
         let val = raw.0 as i32;
         match val {
             0 => Ok(EnumsMapItemTrackedActorType::Entity),
-            1 => Ok(EnumsMapItemTrackedActorType::BlockEntity),
+            1 => Ok(EnumsMapItemTrackedActorType::Blockentity),
             2 => Ok(EnumsMapItemTrackedActorType::Other),
             other => Ok(EnumsMapItemTrackedActorType::Unknown(other)),
         }
@@ -23647,114 +24155,113 @@ impl crate::bedrock::codec::BedrockCodec for ReservedCraftingVector10Entry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsMemoryMemoryCategory {
     Unknown,
-    InvalidSizeUnknown,
+    InvalidSizeunknown,
     Actor,
-    ActorAnimation,
-    ActorRendering,
-    BlockTickingQueues,
+    Actoranimation,
+    Actorrendering,
+    Blocktickingqueues,
     BiomeStorage,
     Blobs,
     Cereal,
-    CircuitSystem,
+    Circuitsystem,
     Client,
     Commands,
-    DbStorage,
+    Dbstorage,
     Debug,
     Documentation,
-    EcsSystems,
+    Ecssystems,
     Fmod,
     Fonts,
-    ImGui,
+    Imgui,
     Input,
-    JsonUi,
-    JsonUiControlFactoryJson,
-    JsonUiControlTree,
-    JsonUiControlTreeControlElement,
-    JsonUiControlTreePopulateDataBinding,
-    JsonUiControlTreePopulateFocus,
-    JsonUiControlTreePopulateLayout,
-    JsonUiControlTreePopulateOther,
-    JsonUiControlTreePopulateSprite,
-    JsonUiControlTreePopulateText,
-    JsonUiControlTreePopulateTts,
-    JsonUiControlTreeVisibility,
-    JsonUiCreateUi,
-    JsonUiDefs,
-    JsonUiLayoutManager,
-    JsonUiLayoutManagerRemoveDependencies,
-    JsonUiLayoutManagerInitVariable,
+    Jsonui,
+    JsonuiControlfactoryJson,
+    JsonuiControltree,
+    JsonuiControltreeControlelement,
+    JsonuiControltreePopulatedatabinding,
+    JsonuiControltreePopulatefocus,
+    JsonuiControltreePopulatelayout,
+    JsonuiControltreePopulateother,
+    JsonuiControltreePopulatesprite,
+    JsonuiControltreePopulatetext,
+    JsonuiControltreePopulatetts,
+    JsonuiControltreeVisibility,
+    JsonuiCreateui,
+    JsonuiDefs,
+    JsonuiLayoutmanager,
+    JsonuiLayoutmanagerRemovedependencies,
+    JsonuiLayoutmanagerInitvariable,
     Languages,
     Level,
-    LevelStructures,
-    LevelChunk,
-    LevelChunkGen,
-    LevelChunkGenThreadLocal,
-    LightVolumeManager,
+    Levelstructures,
+    Levelchunk,
+    Levelchunkgen,
+    Levelchunkgenthreadlocal,
+    Lightvolumemanager,
     Network,
     Marketplace,
-    MaterialDragonCompiledDefinition,
-    MaterialDragonMaterial,
-    MaterialDragonResource,
-    MaterialDragonUniformMap,
-    MaterialRenderMaterial,
-    MaterialRenderMaterialGroup,
-    MaterialVariationManager,
+    MaterialDragoncompileddefinition,
+    MaterialDragonmaterial,
+    MaterialDragonresource,
+    MaterialDragonuniformmap,
+    MaterialRendermaterial,
+    MaterialRendermaterialgroup,
+    MaterialVariationmanager,
     Molang,
-    OreUi,
-    OreUiClient,
+    Oreui,
+    OreuiClient,
     PersonaPieces,
     PersonaAnimations,
-    PersonaTextures,
     PersonaCharacters,
-    PersonaSkinPacks,
+    PersonaSkinpacks,
     PersonaRepo,
     Player,
-    RenderChunk,
-    RenderChunkIndexBuffer,
-    RenderChunkVertexBuffer,
+    Renderchunk,
+    RenderchunkIndexbuffer,
+    RenderchunkVertexbuffer,
     Rendering,
-    RenderingBgfxInit,
-    RenderingBgfxStartFrame,
-    RenderingBlockTessellator,
-    RenderingEndFrame,
-    RenderingGraphicsTasksInit,
+    RenderingBgfxinit,
+    RenderingBgfxstartframe,
+    RenderingBlocktessellator,
+    RenderingEndframe,
+    RenderingGraphicstasksinit,
     RenderingLibrary,
-    RenderingPolygonOperatorPool,
-    RenderingPbrTextureData,
-    RenderingRenderRegistry,
+    RenderingPolygonoperatorpool,
+    RenderingPbrtexturedata,
+    RenderingRenderregistry,
     RenderingSetup,
     RenderingVertices,
-    RequestLog,
-    ResourcePacks,
+    Requestlog,
+    Resourcepacks,
     Sound,
-    SubChunkBiomeData,
-    SubChunkBlockData,
-    SubChunkLightData,
+    SubchunkBiomedata,
+    SubchunkBlockdata,
+    SubchunkLightdata,
     Textures,
-    WeatherRenderer,
+    Weatherrenderer,
     WorldGenerator,
     Tasks,
     Test,
-    TestLoadTestTags,
+    TestLoadtesttags,
     Scripting,
     ScriptingRuntime,
     ScriptingContext,
     ScriptingContextBindingsMc,
     ScriptingContextBindingsGt,
     ScriptingContextRun,
-    DataDrivenUi,
-    DataDrivenUiDefs,
+    Datadrivenui,
+    DatadrivenuiDefs,
     Gameface,
     GamefaceSystem,
     GamefaceDom,
     GamefaceCss,
     GamefaceDisplay,
-    GamefaceTempAllocator,
-    GamefacePoolAllocator,
+    GamefaceTempallocator,
+    GamefacePoolallocator,
     GamefaceDump,
     GamefaceMedia,
     GamefaceJson,
-    GamefaceScriptEngine,
+    GamefaceScriptengine,
     GamefaceScript,
     GamefaceLayout,
     UnknownValue(u8),
@@ -23763,116 +24270,115 @@ impl crate::bedrock::codec::BedrockSized for EnumsMemoryMemoryCategory {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsMemoryMemoryCategory::Unknown => 0,
-            EnumsMemoryMemoryCategory::InvalidSizeUnknown => 1,
+            EnumsMemoryMemoryCategory::InvalidSizeunknown => 1,
             EnumsMemoryMemoryCategory::Actor => 2,
-            EnumsMemoryMemoryCategory::ActorAnimation => 3,
-            EnumsMemoryMemoryCategory::ActorRendering => 4,
-            EnumsMemoryMemoryCategory::BlockTickingQueues => 5,
+            EnumsMemoryMemoryCategory::Actoranimation => 3,
+            EnumsMemoryMemoryCategory::Actorrendering => 4,
+            EnumsMemoryMemoryCategory::Blocktickingqueues => 5,
             EnumsMemoryMemoryCategory::BiomeStorage => 6,
             EnumsMemoryMemoryCategory::Blobs => 7,
             EnumsMemoryMemoryCategory::Cereal => 8,
-            EnumsMemoryMemoryCategory::CircuitSystem => 9,
+            EnumsMemoryMemoryCategory::Circuitsystem => 9,
             EnumsMemoryMemoryCategory::Client => 10,
             EnumsMemoryMemoryCategory::Commands => 11,
-            EnumsMemoryMemoryCategory::DbStorage => 12,
+            EnumsMemoryMemoryCategory::Dbstorage => 12,
             EnumsMemoryMemoryCategory::Debug => 13,
             EnumsMemoryMemoryCategory::Documentation => 14,
-            EnumsMemoryMemoryCategory::EcsSystems => 15,
+            EnumsMemoryMemoryCategory::Ecssystems => 15,
             EnumsMemoryMemoryCategory::Fmod => 16,
             EnumsMemoryMemoryCategory::Fonts => 17,
-            EnumsMemoryMemoryCategory::ImGui => 18,
+            EnumsMemoryMemoryCategory::Imgui => 18,
             EnumsMemoryMemoryCategory::Input => 19,
-            EnumsMemoryMemoryCategory::JsonUi => 20,
-            EnumsMemoryMemoryCategory::JsonUiControlFactoryJson => 21,
-            EnumsMemoryMemoryCategory::JsonUiControlTree => 22,
-            EnumsMemoryMemoryCategory::JsonUiControlTreeControlElement => 23,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateDataBinding => 24,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateFocus => 25,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateLayout => 26,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateOther => 27,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateSprite => 28,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateText => 29,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateTts => 30,
-            EnumsMemoryMemoryCategory::JsonUiControlTreeVisibility => 31,
-            EnumsMemoryMemoryCategory::JsonUiCreateUi => 32,
-            EnumsMemoryMemoryCategory::JsonUiDefs => 33,
-            EnumsMemoryMemoryCategory::JsonUiLayoutManager => 34,
-            EnumsMemoryMemoryCategory::JsonUiLayoutManagerRemoveDependencies => 35,
-            EnumsMemoryMemoryCategory::JsonUiLayoutManagerInitVariable => 36,
+            EnumsMemoryMemoryCategory::Jsonui => 20,
+            EnumsMemoryMemoryCategory::JsonuiControlfactoryJson => 21,
+            EnumsMemoryMemoryCategory::JsonuiControltree => 22,
+            EnumsMemoryMemoryCategory::JsonuiControltreeControlelement => 23,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatedatabinding => 24,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatefocus => 25,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatelayout => 26,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulateother => 27,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatesprite => 28,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatetext => 29,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatetts => 30,
+            EnumsMemoryMemoryCategory::JsonuiControltreeVisibility => 31,
+            EnumsMemoryMemoryCategory::JsonuiCreateui => 32,
+            EnumsMemoryMemoryCategory::JsonuiDefs => 33,
+            EnumsMemoryMemoryCategory::JsonuiLayoutmanager => 34,
+            EnumsMemoryMemoryCategory::JsonuiLayoutmanagerRemovedependencies => 35,
+            EnumsMemoryMemoryCategory::JsonuiLayoutmanagerInitvariable => 36,
             EnumsMemoryMemoryCategory::Languages => 37,
             EnumsMemoryMemoryCategory::Level => 38,
-            EnumsMemoryMemoryCategory::LevelStructures => 39,
-            EnumsMemoryMemoryCategory::LevelChunk => 40,
-            EnumsMemoryMemoryCategory::LevelChunkGen => 41,
-            EnumsMemoryMemoryCategory::LevelChunkGenThreadLocal => 42,
-            EnumsMemoryMemoryCategory::LightVolumeManager => 43,
+            EnumsMemoryMemoryCategory::Levelstructures => 39,
+            EnumsMemoryMemoryCategory::Levelchunk => 40,
+            EnumsMemoryMemoryCategory::Levelchunkgen => 41,
+            EnumsMemoryMemoryCategory::Levelchunkgenthreadlocal => 42,
+            EnumsMemoryMemoryCategory::Lightvolumemanager => 43,
             EnumsMemoryMemoryCategory::Network => 44,
             EnumsMemoryMemoryCategory::Marketplace => 45,
-            EnumsMemoryMemoryCategory::MaterialDragonCompiledDefinition => 46,
-            EnumsMemoryMemoryCategory::MaterialDragonMaterial => 47,
-            EnumsMemoryMemoryCategory::MaterialDragonResource => 48,
-            EnumsMemoryMemoryCategory::MaterialDragonUniformMap => 49,
-            EnumsMemoryMemoryCategory::MaterialRenderMaterial => 50,
-            EnumsMemoryMemoryCategory::MaterialRenderMaterialGroup => 51,
-            EnumsMemoryMemoryCategory::MaterialVariationManager => 52,
+            EnumsMemoryMemoryCategory::MaterialDragoncompileddefinition => 46,
+            EnumsMemoryMemoryCategory::MaterialDragonmaterial => 47,
+            EnumsMemoryMemoryCategory::MaterialDragonresource => 48,
+            EnumsMemoryMemoryCategory::MaterialDragonuniformmap => 49,
+            EnumsMemoryMemoryCategory::MaterialRendermaterial => 50,
+            EnumsMemoryMemoryCategory::MaterialRendermaterialgroup => 51,
+            EnumsMemoryMemoryCategory::MaterialVariationmanager => 52,
             EnumsMemoryMemoryCategory::Molang => 53,
-            EnumsMemoryMemoryCategory::OreUi => 54,
-            EnumsMemoryMemoryCategory::OreUiClient => 55,
+            EnumsMemoryMemoryCategory::Oreui => 54,
+            EnumsMemoryMemoryCategory::OreuiClient => 55,
             EnumsMemoryMemoryCategory::PersonaPieces => 56,
             EnumsMemoryMemoryCategory::PersonaAnimations => 57,
-            EnumsMemoryMemoryCategory::PersonaTextures => 58,
-            EnumsMemoryMemoryCategory::PersonaCharacters => 59,
-            EnumsMemoryMemoryCategory::PersonaSkinPacks => 60,
-            EnumsMemoryMemoryCategory::PersonaRepo => 61,
-            EnumsMemoryMemoryCategory::Player => 62,
-            EnumsMemoryMemoryCategory::RenderChunk => 63,
-            EnumsMemoryMemoryCategory::RenderChunkIndexBuffer => 64,
-            EnumsMemoryMemoryCategory::RenderChunkVertexBuffer => 65,
-            EnumsMemoryMemoryCategory::Rendering => 66,
-            EnumsMemoryMemoryCategory::RenderingBgfxInit => 67,
-            EnumsMemoryMemoryCategory::RenderingBgfxStartFrame => 68,
-            EnumsMemoryMemoryCategory::RenderingBlockTessellator => 69,
-            EnumsMemoryMemoryCategory::RenderingEndFrame => 70,
-            EnumsMemoryMemoryCategory::RenderingGraphicsTasksInit => 71,
-            EnumsMemoryMemoryCategory::RenderingLibrary => 72,
-            EnumsMemoryMemoryCategory::RenderingPolygonOperatorPool => 73,
-            EnumsMemoryMemoryCategory::RenderingPbrTextureData => 74,
-            EnumsMemoryMemoryCategory::RenderingRenderRegistry => 75,
-            EnumsMemoryMemoryCategory::RenderingSetup => 76,
-            EnumsMemoryMemoryCategory::RenderingVertices => 77,
-            EnumsMemoryMemoryCategory::RequestLog => 78,
-            EnumsMemoryMemoryCategory::ResourcePacks => 79,
-            EnumsMemoryMemoryCategory::Sound => 80,
-            EnumsMemoryMemoryCategory::SubChunkBiomeData => 81,
-            EnumsMemoryMemoryCategory::SubChunkBlockData => 82,
-            EnumsMemoryMemoryCategory::SubChunkLightData => 83,
-            EnumsMemoryMemoryCategory::Textures => 84,
-            EnumsMemoryMemoryCategory::WeatherRenderer => 85,
-            EnumsMemoryMemoryCategory::WorldGenerator => 86,
-            EnumsMemoryMemoryCategory::Tasks => 87,
-            EnumsMemoryMemoryCategory::Test => 88,
-            EnumsMemoryMemoryCategory::TestLoadTestTags => 89,
-            EnumsMemoryMemoryCategory::Scripting => 90,
-            EnumsMemoryMemoryCategory::ScriptingRuntime => 91,
-            EnumsMemoryMemoryCategory::ScriptingContext => 92,
-            EnumsMemoryMemoryCategory::ScriptingContextBindingsMc => 93,
-            EnumsMemoryMemoryCategory::ScriptingContextBindingsGt => 94,
-            EnumsMemoryMemoryCategory::ScriptingContextRun => 95,
-            EnumsMemoryMemoryCategory::DataDrivenUi => 96,
-            EnumsMemoryMemoryCategory::DataDrivenUiDefs => 97,
-            EnumsMemoryMemoryCategory::Gameface => 98,
-            EnumsMemoryMemoryCategory::GamefaceSystem => 99,
-            EnumsMemoryMemoryCategory::GamefaceDom => 100,
-            EnumsMemoryMemoryCategory::GamefaceCss => 101,
-            EnumsMemoryMemoryCategory::GamefaceDisplay => 102,
-            EnumsMemoryMemoryCategory::GamefaceTempAllocator => 103,
-            EnumsMemoryMemoryCategory::GamefacePoolAllocator => 104,
-            EnumsMemoryMemoryCategory::GamefaceDump => 105,
-            EnumsMemoryMemoryCategory::GamefaceMedia => 106,
-            EnumsMemoryMemoryCategory::GamefaceJson => 107,
-            EnumsMemoryMemoryCategory::GamefaceScriptEngine => 108,
-            EnumsMemoryMemoryCategory::GamefaceScript => 109,
-            EnumsMemoryMemoryCategory::GamefaceLayout => 110,
+            EnumsMemoryMemoryCategory::PersonaCharacters => 58,
+            EnumsMemoryMemoryCategory::PersonaSkinpacks => 59,
+            EnumsMemoryMemoryCategory::PersonaRepo => 60,
+            EnumsMemoryMemoryCategory::Player => 61,
+            EnumsMemoryMemoryCategory::Renderchunk => 62,
+            EnumsMemoryMemoryCategory::RenderchunkIndexbuffer => 63,
+            EnumsMemoryMemoryCategory::RenderchunkVertexbuffer => 64,
+            EnumsMemoryMemoryCategory::Rendering => 65,
+            EnumsMemoryMemoryCategory::RenderingBgfxinit => 66,
+            EnumsMemoryMemoryCategory::RenderingBgfxstartframe => 67,
+            EnumsMemoryMemoryCategory::RenderingBlocktessellator => 68,
+            EnumsMemoryMemoryCategory::RenderingEndframe => 69,
+            EnumsMemoryMemoryCategory::RenderingGraphicstasksinit => 70,
+            EnumsMemoryMemoryCategory::RenderingLibrary => 71,
+            EnumsMemoryMemoryCategory::RenderingPolygonoperatorpool => 72,
+            EnumsMemoryMemoryCategory::RenderingPbrtexturedata => 73,
+            EnumsMemoryMemoryCategory::RenderingRenderregistry => 74,
+            EnumsMemoryMemoryCategory::RenderingSetup => 75,
+            EnumsMemoryMemoryCategory::RenderingVertices => 76,
+            EnumsMemoryMemoryCategory::Requestlog => 77,
+            EnumsMemoryMemoryCategory::Resourcepacks => 78,
+            EnumsMemoryMemoryCategory::Sound => 79,
+            EnumsMemoryMemoryCategory::SubchunkBiomedata => 80,
+            EnumsMemoryMemoryCategory::SubchunkBlockdata => 81,
+            EnumsMemoryMemoryCategory::SubchunkLightdata => 82,
+            EnumsMemoryMemoryCategory::Textures => 83,
+            EnumsMemoryMemoryCategory::Weatherrenderer => 84,
+            EnumsMemoryMemoryCategory::WorldGenerator => 85,
+            EnumsMemoryMemoryCategory::Tasks => 86,
+            EnumsMemoryMemoryCategory::Test => 87,
+            EnumsMemoryMemoryCategory::TestLoadtesttags => 88,
+            EnumsMemoryMemoryCategory::Scripting => 89,
+            EnumsMemoryMemoryCategory::ScriptingRuntime => 90,
+            EnumsMemoryMemoryCategory::ScriptingContext => 91,
+            EnumsMemoryMemoryCategory::ScriptingContextBindingsMc => 92,
+            EnumsMemoryMemoryCategory::ScriptingContextBindingsGt => 93,
+            EnumsMemoryMemoryCategory::ScriptingContextRun => 94,
+            EnumsMemoryMemoryCategory::Datadrivenui => 95,
+            EnumsMemoryMemoryCategory::DatadrivenuiDefs => 96,
+            EnumsMemoryMemoryCategory::Gameface => 97,
+            EnumsMemoryMemoryCategory::GamefaceSystem => 98,
+            EnumsMemoryMemoryCategory::GamefaceDom => 99,
+            EnumsMemoryMemoryCategory::GamefaceCss => 100,
+            EnumsMemoryMemoryCategory::GamefaceDisplay => 101,
+            EnumsMemoryMemoryCategory::GamefaceTempallocator => 102,
+            EnumsMemoryMemoryCategory::GamefacePoolallocator => 103,
+            EnumsMemoryMemoryCategory::GamefaceDump => 104,
+            EnumsMemoryMemoryCategory::GamefaceMedia => 105,
+            EnumsMemoryMemoryCategory::GamefaceJson => 106,
+            EnumsMemoryMemoryCategory::GamefaceScriptengine => 107,
+            EnumsMemoryMemoryCategory::GamefaceScript => 108,
+            EnumsMemoryMemoryCategory::GamefaceLayout => 109,
             EnumsMemoryMemoryCategory::UnknownValue(v) => *v,
         };
         1usize
@@ -23883,116 +24389,115 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMemoryMemoryCategory {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsMemoryMemoryCategory::Unknown => 0,
-            EnumsMemoryMemoryCategory::InvalidSizeUnknown => 1,
+            EnumsMemoryMemoryCategory::InvalidSizeunknown => 1,
             EnumsMemoryMemoryCategory::Actor => 2,
-            EnumsMemoryMemoryCategory::ActorAnimation => 3,
-            EnumsMemoryMemoryCategory::ActorRendering => 4,
-            EnumsMemoryMemoryCategory::BlockTickingQueues => 5,
+            EnumsMemoryMemoryCategory::Actoranimation => 3,
+            EnumsMemoryMemoryCategory::Actorrendering => 4,
+            EnumsMemoryMemoryCategory::Blocktickingqueues => 5,
             EnumsMemoryMemoryCategory::BiomeStorage => 6,
             EnumsMemoryMemoryCategory::Blobs => 7,
             EnumsMemoryMemoryCategory::Cereal => 8,
-            EnumsMemoryMemoryCategory::CircuitSystem => 9,
+            EnumsMemoryMemoryCategory::Circuitsystem => 9,
             EnumsMemoryMemoryCategory::Client => 10,
             EnumsMemoryMemoryCategory::Commands => 11,
-            EnumsMemoryMemoryCategory::DbStorage => 12,
+            EnumsMemoryMemoryCategory::Dbstorage => 12,
             EnumsMemoryMemoryCategory::Debug => 13,
             EnumsMemoryMemoryCategory::Documentation => 14,
-            EnumsMemoryMemoryCategory::EcsSystems => 15,
+            EnumsMemoryMemoryCategory::Ecssystems => 15,
             EnumsMemoryMemoryCategory::Fmod => 16,
             EnumsMemoryMemoryCategory::Fonts => 17,
-            EnumsMemoryMemoryCategory::ImGui => 18,
+            EnumsMemoryMemoryCategory::Imgui => 18,
             EnumsMemoryMemoryCategory::Input => 19,
-            EnumsMemoryMemoryCategory::JsonUi => 20,
-            EnumsMemoryMemoryCategory::JsonUiControlFactoryJson => 21,
-            EnumsMemoryMemoryCategory::JsonUiControlTree => 22,
-            EnumsMemoryMemoryCategory::JsonUiControlTreeControlElement => 23,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateDataBinding => 24,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateFocus => 25,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateLayout => 26,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateOther => 27,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateSprite => 28,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateText => 29,
-            EnumsMemoryMemoryCategory::JsonUiControlTreePopulateTts => 30,
-            EnumsMemoryMemoryCategory::JsonUiControlTreeVisibility => 31,
-            EnumsMemoryMemoryCategory::JsonUiCreateUi => 32,
-            EnumsMemoryMemoryCategory::JsonUiDefs => 33,
-            EnumsMemoryMemoryCategory::JsonUiLayoutManager => 34,
-            EnumsMemoryMemoryCategory::JsonUiLayoutManagerRemoveDependencies => 35,
-            EnumsMemoryMemoryCategory::JsonUiLayoutManagerInitVariable => 36,
+            EnumsMemoryMemoryCategory::Jsonui => 20,
+            EnumsMemoryMemoryCategory::JsonuiControlfactoryJson => 21,
+            EnumsMemoryMemoryCategory::JsonuiControltree => 22,
+            EnumsMemoryMemoryCategory::JsonuiControltreeControlelement => 23,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatedatabinding => 24,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatefocus => 25,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatelayout => 26,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulateother => 27,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatesprite => 28,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatetext => 29,
+            EnumsMemoryMemoryCategory::JsonuiControltreePopulatetts => 30,
+            EnumsMemoryMemoryCategory::JsonuiControltreeVisibility => 31,
+            EnumsMemoryMemoryCategory::JsonuiCreateui => 32,
+            EnumsMemoryMemoryCategory::JsonuiDefs => 33,
+            EnumsMemoryMemoryCategory::JsonuiLayoutmanager => 34,
+            EnumsMemoryMemoryCategory::JsonuiLayoutmanagerRemovedependencies => 35,
+            EnumsMemoryMemoryCategory::JsonuiLayoutmanagerInitvariable => 36,
             EnumsMemoryMemoryCategory::Languages => 37,
             EnumsMemoryMemoryCategory::Level => 38,
-            EnumsMemoryMemoryCategory::LevelStructures => 39,
-            EnumsMemoryMemoryCategory::LevelChunk => 40,
-            EnumsMemoryMemoryCategory::LevelChunkGen => 41,
-            EnumsMemoryMemoryCategory::LevelChunkGenThreadLocal => 42,
-            EnumsMemoryMemoryCategory::LightVolumeManager => 43,
+            EnumsMemoryMemoryCategory::Levelstructures => 39,
+            EnumsMemoryMemoryCategory::Levelchunk => 40,
+            EnumsMemoryMemoryCategory::Levelchunkgen => 41,
+            EnumsMemoryMemoryCategory::Levelchunkgenthreadlocal => 42,
+            EnumsMemoryMemoryCategory::Lightvolumemanager => 43,
             EnumsMemoryMemoryCategory::Network => 44,
             EnumsMemoryMemoryCategory::Marketplace => 45,
-            EnumsMemoryMemoryCategory::MaterialDragonCompiledDefinition => 46,
-            EnumsMemoryMemoryCategory::MaterialDragonMaterial => 47,
-            EnumsMemoryMemoryCategory::MaterialDragonResource => 48,
-            EnumsMemoryMemoryCategory::MaterialDragonUniformMap => 49,
-            EnumsMemoryMemoryCategory::MaterialRenderMaterial => 50,
-            EnumsMemoryMemoryCategory::MaterialRenderMaterialGroup => 51,
-            EnumsMemoryMemoryCategory::MaterialVariationManager => 52,
+            EnumsMemoryMemoryCategory::MaterialDragoncompileddefinition => 46,
+            EnumsMemoryMemoryCategory::MaterialDragonmaterial => 47,
+            EnumsMemoryMemoryCategory::MaterialDragonresource => 48,
+            EnumsMemoryMemoryCategory::MaterialDragonuniformmap => 49,
+            EnumsMemoryMemoryCategory::MaterialRendermaterial => 50,
+            EnumsMemoryMemoryCategory::MaterialRendermaterialgroup => 51,
+            EnumsMemoryMemoryCategory::MaterialVariationmanager => 52,
             EnumsMemoryMemoryCategory::Molang => 53,
-            EnumsMemoryMemoryCategory::OreUi => 54,
-            EnumsMemoryMemoryCategory::OreUiClient => 55,
+            EnumsMemoryMemoryCategory::Oreui => 54,
+            EnumsMemoryMemoryCategory::OreuiClient => 55,
             EnumsMemoryMemoryCategory::PersonaPieces => 56,
             EnumsMemoryMemoryCategory::PersonaAnimations => 57,
-            EnumsMemoryMemoryCategory::PersonaTextures => 58,
-            EnumsMemoryMemoryCategory::PersonaCharacters => 59,
-            EnumsMemoryMemoryCategory::PersonaSkinPacks => 60,
-            EnumsMemoryMemoryCategory::PersonaRepo => 61,
-            EnumsMemoryMemoryCategory::Player => 62,
-            EnumsMemoryMemoryCategory::RenderChunk => 63,
-            EnumsMemoryMemoryCategory::RenderChunkIndexBuffer => 64,
-            EnumsMemoryMemoryCategory::RenderChunkVertexBuffer => 65,
-            EnumsMemoryMemoryCategory::Rendering => 66,
-            EnumsMemoryMemoryCategory::RenderingBgfxInit => 67,
-            EnumsMemoryMemoryCategory::RenderingBgfxStartFrame => 68,
-            EnumsMemoryMemoryCategory::RenderingBlockTessellator => 69,
-            EnumsMemoryMemoryCategory::RenderingEndFrame => 70,
-            EnumsMemoryMemoryCategory::RenderingGraphicsTasksInit => 71,
-            EnumsMemoryMemoryCategory::RenderingLibrary => 72,
-            EnumsMemoryMemoryCategory::RenderingPolygonOperatorPool => 73,
-            EnumsMemoryMemoryCategory::RenderingPbrTextureData => 74,
-            EnumsMemoryMemoryCategory::RenderingRenderRegistry => 75,
-            EnumsMemoryMemoryCategory::RenderingSetup => 76,
-            EnumsMemoryMemoryCategory::RenderingVertices => 77,
-            EnumsMemoryMemoryCategory::RequestLog => 78,
-            EnumsMemoryMemoryCategory::ResourcePacks => 79,
-            EnumsMemoryMemoryCategory::Sound => 80,
-            EnumsMemoryMemoryCategory::SubChunkBiomeData => 81,
-            EnumsMemoryMemoryCategory::SubChunkBlockData => 82,
-            EnumsMemoryMemoryCategory::SubChunkLightData => 83,
-            EnumsMemoryMemoryCategory::Textures => 84,
-            EnumsMemoryMemoryCategory::WeatherRenderer => 85,
-            EnumsMemoryMemoryCategory::WorldGenerator => 86,
-            EnumsMemoryMemoryCategory::Tasks => 87,
-            EnumsMemoryMemoryCategory::Test => 88,
-            EnumsMemoryMemoryCategory::TestLoadTestTags => 89,
-            EnumsMemoryMemoryCategory::Scripting => 90,
-            EnumsMemoryMemoryCategory::ScriptingRuntime => 91,
-            EnumsMemoryMemoryCategory::ScriptingContext => 92,
-            EnumsMemoryMemoryCategory::ScriptingContextBindingsMc => 93,
-            EnumsMemoryMemoryCategory::ScriptingContextBindingsGt => 94,
-            EnumsMemoryMemoryCategory::ScriptingContextRun => 95,
-            EnumsMemoryMemoryCategory::DataDrivenUi => 96,
-            EnumsMemoryMemoryCategory::DataDrivenUiDefs => 97,
-            EnumsMemoryMemoryCategory::Gameface => 98,
-            EnumsMemoryMemoryCategory::GamefaceSystem => 99,
-            EnumsMemoryMemoryCategory::GamefaceDom => 100,
-            EnumsMemoryMemoryCategory::GamefaceCss => 101,
-            EnumsMemoryMemoryCategory::GamefaceDisplay => 102,
-            EnumsMemoryMemoryCategory::GamefaceTempAllocator => 103,
-            EnumsMemoryMemoryCategory::GamefacePoolAllocator => 104,
-            EnumsMemoryMemoryCategory::GamefaceDump => 105,
-            EnumsMemoryMemoryCategory::GamefaceMedia => 106,
-            EnumsMemoryMemoryCategory::GamefaceJson => 107,
-            EnumsMemoryMemoryCategory::GamefaceScriptEngine => 108,
-            EnumsMemoryMemoryCategory::GamefaceScript => 109,
-            EnumsMemoryMemoryCategory::GamefaceLayout => 110,
+            EnumsMemoryMemoryCategory::PersonaCharacters => 58,
+            EnumsMemoryMemoryCategory::PersonaSkinpacks => 59,
+            EnumsMemoryMemoryCategory::PersonaRepo => 60,
+            EnumsMemoryMemoryCategory::Player => 61,
+            EnumsMemoryMemoryCategory::Renderchunk => 62,
+            EnumsMemoryMemoryCategory::RenderchunkIndexbuffer => 63,
+            EnumsMemoryMemoryCategory::RenderchunkVertexbuffer => 64,
+            EnumsMemoryMemoryCategory::Rendering => 65,
+            EnumsMemoryMemoryCategory::RenderingBgfxinit => 66,
+            EnumsMemoryMemoryCategory::RenderingBgfxstartframe => 67,
+            EnumsMemoryMemoryCategory::RenderingBlocktessellator => 68,
+            EnumsMemoryMemoryCategory::RenderingEndframe => 69,
+            EnumsMemoryMemoryCategory::RenderingGraphicstasksinit => 70,
+            EnumsMemoryMemoryCategory::RenderingLibrary => 71,
+            EnumsMemoryMemoryCategory::RenderingPolygonoperatorpool => 72,
+            EnumsMemoryMemoryCategory::RenderingPbrtexturedata => 73,
+            EnumsMemoryMemoryCategory::RenderingRenderregistry => 74,
+            EnumsMemoryMemoryCategory::RenderingSetup => 75,
+            EnumsMemoryMemoryCategory::RenderingVertices => 76,
+            EnumsMemoryMemoryCategory::Requestlog => 77,
+            EnumsMemoryMemoryCategory::Resourcepacks => 78,
+            EnumsMemoryMemoryCategory::Sound => 79,
+            EnumsMemoryMemoryCategory::SubchunkBiomedata => 80,
+            EnumsMemoryMemoryCategory::SubchunkBlockdata => 81,
+            EnumsMemoryMemoryCategory::SubchunkLightdata => 82,
+            EnumsMemoryMemoryCategory::Textures => 83,
+            EnumsMemoryMemoryCategory::Weatherrenderer => 84,
+            EnumsMemoryMemoryCategory::WorldGenerator => 85,
+            EnumsMemoryMemoryCategory::Tasks => 86,
+            EnumsMemoryMemoryCategory::Test => 87,
+            EnumsMemoryMemoryCategory::TestLoadtesttags => 88,
+            EnumsMemoryMemoryCategory::Scripting => 89,
+            EnumsMemoryMemoryCategory::ScriptingRuntime => 90,
+            EnumsMemoryMemoryCategory::ScriptingContext => 91,
+            EnumsMemoryMemoryCategory::ScriptingContextBindingsMc => 92,
+            EnumsMemoryMemoryCategory::ScriptingContextBindingsGt => 93,
+            EnumsMemoryMemoryCategory::ScriptingContextRun => 94,
+            EnumsMemoryMemoryCategory::Datadrivenui => 95,
+            EnumsMemoryMemoryCategory::DatadrivenuiDefs => 96,
+            EnumsMemoryMemoryCategory::Gameface => 97,
+            EnumsMemoryMemoryCategory::GamefaceSystem => 98,
+            EnumsMemoryMemoryCategory::GamefaceDom => 99,
+            EnumsMemoryMemoryCategory::GamefaceCss => 100,
+            EnumsMemoryMemoryCategory::GamefaceDisplay => 101,
+            EnumsMemoryMemoryCategory::GamefaceTempallocator => 102,
+            EnumsMemoryMemoryCategory::GamefacePoolallocator => 103,
+            EnumsMemoryMemoryCategory::GamefaceDump => 104,
+            EnumsMemoryMemoryCategory::GamefaceMedia => 105,
+            EnumsMemoryMemoryCategory::GamefaceJson => 106,
+            EnumsMemoryMemoryCategory::GamefaceScriptengine => 107,
+            EnumsMemoryMemoryCategory::GamefaceScript => 108,
+            EnumsMemoryMemoryCategory::GamefaceLayout => 109,
             EnumsMemoryMemoryCategory::UnknownValue(v) => *v,
         };
         val.encode(buf)
@@ -24004,116 +24509,115 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMemoryMemoryCategory {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsMemoryMemoryCategory::Unknown),
-            1 => Ok(EnumsMemoryMemoryCategory::InvalidSizeUnknown),
+            1 => Ok(EnumsMemoryMemoryCategory::InvalidSizeunknown),
             2 => Ok(EnumsMemoryMemoryCategory::Actor),
-            3 => Ok(EnumsMemoryMemoryCategory::ActorAnimation),
-            4 => Ok(EnumsMemoryMemoryCategory::ActorRendering),
-            5 => Ok(EnumsMemoryMemoryCategory::BlockTickingQueues),
+            3 => Ok(EnumsMemoryMemoryCategory::Actoranimation),
+            4 => Ok(EnumsMemoryMemoryCategory::Actorrendering),
+            5 => Ok(EnumsMemoryMemoryCategory::Blocktickingqueues),
             6 => Ok(EnumsMemoryMemoryCategory::BiomeStorage),
             7 => Ok(EnumsMemoryMemoryCategory::Blobs),
             8 => Ok(EnumsMemoryMemoryCategory::Cereal),
-            9 => Ok(EnumsMemoryMemoryCategory::CircuitSystem),
+            9 => Ok(EnumsMemoryMemoryCategory::Circuitsystem),
             10 => Ok(EnumsMemoryMemoryCategory::Client),
             11 => Ok(EnumsMemoryMemoryCategory::Commands),
-            12 => Ok(EnumsMemoryMemoryCategory::DbStorage),
+            12 => Ok(EnumsMemoryMemoryCategory::Dbstorage),
             13 => Ok(EnumsMemoryMemoryCategory::Debug),
             14 => Ok(EnumsMemoryMemoryCategory::Documentation),
-            15 => Ok(EnumsMemoryMemoryCategory::EcsSystems),
+            15 => Ok(EnumsMemoryMemoryCategory::Ecssystems),
             16 => Ok(EnumsMemoryMemoryCategory::Fmod),
             17 => Ok(EnumsMemoryMemoryCategory::Fonts),
-            18 => Ok(EnumsMemoryMemoryCategory::ImGui),
+            18 => Ok(EnumsMemoryMemoryCategory::Imgui),
             19 => Ok(EnumsMemoryMemoryCategory::Input),
-            20 => Ok(EnumsMemoryMemoryCategory::JsonUi),
-            21 => Ok(EnumsMemoryMemoryCategory::JsonUiControlFactoryJson),
-            22 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTree),
-            23 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreeControlElement),
-            24 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreePopulateDataBinding),
-            25 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreePopulateFocus),
-            26 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreePopulateLayout),
-            27 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreePopulateOther),
-            28 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreePopulateSprite),
-            29 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreePopulateText),
-            30 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreePopulateTts),
-            31 => Ok(EnumsMemoryMemoryCategory::JsonUiControlTreeVisibility),
-            32 => Ok(EnumsMemoryMemoryCategory::JsonUiCreateUi),
-            33 => Ok(EnumsMemoryMemoryCategory::JsonUiDefs),
-            34 => Ok(EnumsMemoryMemoryCategory::JsonUiLayoutManager),
-            35 => Ok(EnumsMemoryMemoryCategory::JsonUiLayoutManagerRemoveDependencies),
-            36 => Ok(EnumsMemoryMemoryCategory::JsonUiLayoutManagerInitVariable),
+            20 => Ok(EnumsMemoryMemoryCategory::Jsonui),
+            21 => Ok(EnumsMemoryMemoryCategory::JsonuiControlfactoryJson),
+            22 => Ok(EnumsMemoryMemoryCategory::JsonuiControltree),
+            23 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreeControlelement),
+            24 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreePopulatedatabinding),
+            25 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreePopulatefocus),
+            26 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreePopulatelayout),
+            27 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreePopulateother),
+            28 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreePopulatesprite),
+            29 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreePopulatetext),
+            30 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreePopulatetts),
+            31 => Ok(EnumsMemoryMemoryCategory::JsonuiControltreeVisibility),
+            32 => Ok(EnumsMemoryMemoryCategory::JsonuiCreateui),
+            33 => Ok(EnumsMemoryMemoryCategory::JsonuiDefs),
+            34 => Ok(EnumsMemoryMemoryCategory::JsonuiLayoutmanager),
+            35 => Ok(EnumsMemoryMemoryCategory::JsonuiLayoutmanagerRemovedependencies),
+            36 => Ok(EnumsMemoryMemoryCategory::JsonuiLayoutmanagerInitvariable),
             37 => Ok(EnumsMemoryMemoryCategory::Languages),
             38 => Ok(EnumsMemoryMemoryCategory::Level),
-            39 => Ok(EnumsMemoryMemoryCategory::LevelStructures),
-            40 => Ok(EnumsMemoryMemoryCategory::LevelChunk),
-            41 => Ok(EnumsMemoryMemoryCategory::LevelChunkGen),
-            42 => Ok(EnumsMemoryMemoryCategory::LevelChunkGenThreadLocal),
-            43 => Ok(EnumsMemoryMemoryCategory::LightVolumeManager),
+            39 => Ok(EnumsMemoryMemoryCategory::Levelstructures),
+            40 => Ok(EnumsMemoryMemoryCategory::Levelchunk),
+            41 => Ok(EnumsMemoryMemoryCategory::Levelchunkgen),
+            42 => Ok(EnumsMemoryMemoryCategory::Levelchunkgenthreadlocal),
+            43 => Ok(EnumsMemoryMemoryCategory::Lightvolumemanager),
             44 => Ok(EnumsMemoryMemoryCategory::Network),
             45 => Ok(EnumsMemoryMemoryCategory::Marketplace),
-            46 => Ok(EnumsMemoryMemoryCategory::MaterialDragonCompiledDefinition),
-            47 => Ok(EnumsMemoryMemoryCategory::MaterialDragonMaterial),
-            48 => Ok(EnumsMemoryMemoryCategory::MaterialDragonResource),
-            49 => Ok(EnumsMemoryMemoryCategory::MaterialDragonUniformMap),
-            50 => Ok(EnumsMemoryMemoryCategory::MaterialRenderMaterial),
-            51 => Ok(EnumsMemoryMemoryCategory::MaterialRenderMaterialGroup),
-            52 => Ok(EnumsMemoryMemoryCategory::MaterialVariationManager),
+            46 => Ok(EnumsMemoryMemoryCategory::MaterialDragoncompileddefinition),
+            47 => Ok(EnumsMemoryMemoryCategory::MaterialDragonmaterial),
+            48 => Ok(EnumsMemoryMemoryCategory::MaterialDragonresource),
+            49 => Ok(EnumsMemoryMemoryCategory::MaterialDragonuniformmap),
+            50 => Ok(EnumsMemoryMemoryCategory::MaterialRendermaterial),
+            51 => Ok(EnumsMemoryMemoryCategory::MaterialRendermaterialgroup),
+            52 => Ok(EnumsMemoryMemoryCategory::MaterialVariationmanager),
             53 => Ok(EnumsMemoryMemoryCategory::Molang),
-            54 => Ok(EnumsMemoryMemoryCategory::OreUi),
-            55 => Ok(EnumsMemoryMemoryCategory::OreUiClient),
+            54 => Ok(EnumsMemoryMemoryCategory::Oreui),
+            55 => Ok(EnumsMemoryMemoryCategory::OreuiClient),
             56 => Ok(EnumsMemoryMemoryCategory::PersonaPieces),
             57 => Ok(EnumsMemoryMemoryCategory::PersonaAnimations),
-            58 => Ok(EnumsMemoryMemoryCategory::PersonaTextures),
-            59 => Ok(EnumsMemoryMemoryCategory::PersonaCharacters),
-            60 => Ok(EnumsMemoryMemoryCategory::PersonaSkinPacks),
-            61 => Ok(EnumsMemoryMemoryCategory::PersonaRepo),
-            62 => Ok(EnumsMemoryMemoryCategory::Player),
-            63 => Ok(EnumsMemoryMemoryCategory::RenderChunk),
-            64 => Ok(EnumsMemoryMemoryCategory::RenderChunkIndexBuffer),
-            65 => Ok(EnumsMemoryMemoryCategory::RenderChunkVertexBuffer),
-            66 => Ok(EnumsMemoryMemoryCategory::Rendering),
-            67 => Ok(EnumsMemoryMemoryCategory::RenderingBgfxInit),
-            68 => Ok(EnumsMemoryMemoryCategory::RenderingBgfxStartFrame),
-            69 => Ok(EnumsMemoryMemoryCategory::RenderingBlockTessellator),
-            70 => Ok(EnumsMemoryMemoryCategory::RenderingEndFrame),
-            71 => Ok(EnumsMemoryMemoryCategory::RenderingGraphicsTasksInit),
-            72 => Ok(EnumsMemoryMemoryCategory::RenderingLibrary),
-            73 => Ok(EnumsMemoryMemoryCategory::RenderingPolygonOperatorPool),
-            74 => Ok(EnumsMemoryMemoryCategory::RenderingPbrTextureData),
-            75 => Ok(EnumsMemoryMemoryCategory::RenderingRenderRegistry),
-            76 => Ok(EnumsMemoryMemoryCategory::RenderingSetup),
-            77 => Ok(EnumsMemoryMemoryCategory::RenderingVertices),
-            78 => Ok(EnumsMemoryMemoryCategory::RequestLog),
-            79 => Ok(EnumsMemoryMemoryCategory::ResourcePacks),
-            80 => Ok(EnumsMemoryMemoryCategory::Sound),
-            81 => Ok(EnumsMemoryMemoryCategory::SubChunkBiomeData),
-            82 => Ok(EnumsMemoryMemoryCategory::SubChunkBlockData),
-            83 => Ok(EnumsMemoryMemoryCategory::SubChunkLightData),
-            84 => Ok(EnumsMemoryMemoryCategory::Textures),
-            85 => Ok(EnumsMemoryMemoryCategory::WeatherRenderer),
-            86 => Ok(EnumsMemoryMemoryCategory::WorldGenerator),
-            87 => Ok(EnumsMemoryMemoryCategory::Tasks),
-            88 => Ok(EnumsMemoryMemoryCategory::Test),
-            89 => Ok(EnumsMemoryMemoryCategory::TestLoadTestTags),
-            90 => Ok(EnumsMemoryMemoryCategory::Scripting),
-            91 => Ok(EnumsMemoryMemoryCategory::ScriptingRuntime),
-            92 => Ok(EnumsMemoryMemoryCategory::ScriptingContext),
-            93 => Ok(EnumsMemoryMemoryCategory::ScriptingContextBindingsMc),
-            94 => Ok(EnumsMemoryMemoryCategory::ScriptingContextBindingsGt),
-            95 => Ok(EnumsMemoryMemoryCategory::ScriptingContextRun),
-            96 => Ok(EnumsMemoryMemoryCategory::DataDrivenUi),
-            97 => Ok(EnumsMemoryMemoryCategory::DataDrivenUiDefs),
-            98 => Ok(EnumsMemoryMemoryCategory::Gameface),
-            99 => Ok(EnumsMemoryMemoryCategory::GamefaceSystem),
-            100 => Ok(EnumsMemoryMemoryCategory::GamefaceDom),
-            101 => Ok(EnumsMemoryMemoryCategory::GamefaceCss),
-            102 => Ok(EnumsMemoryMemoryCategory::GamefaceDisplay),
-            103 => Ok(EnumsMemoryMemoryCategory::GamefaceTempAllocator),
-            104 => Ok(EnumsMemoryMemoryCategory::GamefacePoolAllocator),
-            105 => Ok(EnumsMemoryMemoryCategory::GamefaceDump),
-            106 => Ok(EnumsMemoryMemoryCategory::GamefaceMedia),
-            107 => Ok(EnumsMemoryMemoryCategory::GamefaceJson),
-            108 => Ok(EnumsMemoryMemoryCategory::GamefaceScriptEngine),
-            109 => Ok(EnumsMemoryMemoryCategory::GamefaceScript),
-            110 => Ok(EnumsMemoryMemoryCategory::GamefaceLayout),
+            58 => Ok(EnumsMemoryMemoryCategory::PersonaCharacters),
+            59 => Ok(EnumsMemoryMemoryCategory::PersonaSkinpacks),
+            60 => Ok(EnumsMemoryMemoryCategory::PersonaRepo),
+            61 => Ok(EnumsMemoryMemoryCategory::Player),
+            62 => Ok(EnumsMemoryMemoryCategory::Renderchunk),
+            63 => Ok(EnumsMemoryMemoryCategory::RenderchunkIndexbuffer),
+            64 => Ok(EnumsMemoryMemoryCategory::RenderchunkVertexbuffer),
+            65 => Ok(EnumsMemoryMemoryCategory::Rendering),
+            66 => Ok(EnumsMemoryMemoryCategory::RenderingBgfxinit),
+            67 => Ok(EnumsMemoryMemoryCategory::RenderingBgfxstartframe),
+            68 => Ok(EnumsMemoryMemoryCategory::RenderingBlocktessellator),
+            69 => Ok(EnumsMemoryMemoryCategory::RenderingEndframe),
+            70 => Ok(EnumsMemoryMemoryCategory::RenderingGraphicstasksinit),
+            71 => Ok(EnumsMemoryMemoryCategory::RenderingLibrary),
+            72 => Ok(EnumsMemoryMemoryCategory::RenderingPolygonoperatorpool),
+            73 => Ok(EnumsMemoryMemoryCategory::RenderingPbrtexturedata),
+            74 => Ok(EnumsMemoryMemoryCategory::RenderingRenderregistry),
+            75 => Ok(EnumsMemoryMemoryCategory::RenderingSetup),
+            76 => Ok(EnumsMemoryMemoryCategory::RenderingVertices),
+            77 => Ok(EnumsMemoryMemoryCategory::Requestlog),
+            78 => Ok(EnumsMemoryMemoryCategory::Resourcepacks),
+            79 => Ok(EnumsMemoryMemoryCategory::Sound),
+            80 => Ok(EnumsMemoryMemoryCategory::SubchunkBiomedata),
+            81 => Ok(EnumsMemoryMemoryCategory::SubchunkBlockdata),
+            82 => Ok(EnumsMemoryMemoryCategory::SubchunkLightdata),
+            83 => Ok(EnumsMemoryMemoryCategory::Textures),
+            84 => Ok(EnumsMemoryMemoryCategory::Weatherrenderer),
+            85 => Ok(EnumsMemoryMemoryCategory::WorldGenerator),
+            86 => Ok(EnumsMemoryMemoryCategory::Tasks),
+            87 => Ok(EnumsMemoryMemoryCategory::Test),
+            88 => Ok(EnumsMemoryMemoryCategory::TestLoadtesttags),
+            89 => Ok(EnumsMemoryMemoryCategory::Scripting),
+            90 => Ok(EnumsMemoryMemoryCategory::ScriptingRuntime),
+            91 => Ok(EnumsMemoryMemoryCategory::ScriptingContext),
+            92 => Ok(EnumsMemoryMemoryCategory::ScriptingContextBindingsMc),
+            93 => Ok(EnumsMemoryMemoryCategory::ScriptingContextBindingsGt),
+            94 => Ok(EnumsMemoryMemoryCategory::ScriptingContextRun),
+            95 => Ok(EnumsMemoryMemoryCategory::Datadrivenui),
+            96 => Ok(EnumsMemoryMemoryCategory::DatadrivenuiDefs),
+            97 => Ok(EnumsMemoryMemoryCategory::Gameface),
+            98 => Ok(EnumsMemoryMemoryCategory::GamefaceSystem),
+            99 => Ok(EnumsMemoryMemoryCategory::GamefaceDom),
+            100 => Ok(EnumsMemoryMemoryCategory::GamefaceCss),
+            101 => Ok(EnumsMemoryMemoryCategory::GamefaceDisplay),
+            102 => Ok(EnumsMemoryMemoryCategory::GamefaceTempallocator),
+            103 => Ok(EnumsMemoryMemoryCategory::GamefacePoolallocator),
+            104 => Ok(EnumsMemoryMemoryCategory::GamefaceDump),
+            105 => Ok(EnumsMemoryMemoryCategory::GamefaceMedia),
+            106 => Ok(EnumsMemoryMemoryCategory::GamefaceJson),
+            107 => Ok(EnumsMemoryMemoryCategory::GamefaceScriptengine),
+            108 => Ok(EnumsMemoryMemoryCategory::GamefaceScript),
+            109 => Ok(EnumsMemoryMemoryCategory::GamefaceLayout),
             other => Ok(EnumsMemoryMemoryCategory::UnknownValue(other)),
         }
     }
@@ -24287,6 +24791,7 @@ pub struct MoveActorDeltaData {
     pub force_move: bool,
     pub force_move_local_entity: bool,
     pub force_completion: bool,
+    pub ticks: u64,
 }
 impl crate::bedrock::codec::BedrockSized for MoveActorDeltaData {
     fn encoded_size(&self) -> usize {
@@ -24338,6 +24843,9 @@ impl crate::bedrock::codec::BedrockSized for MoveActorDeltaData {
         size += 1usize;
         size += 1usize;
         size += 1usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(
+            &crate::bedrock::codec::VarULong(self.ticks),
+        );
         size
     }
 }
@@ -24392,6 +24900,7 @@ impl crate::bedrock::codec::BedrockCodec for MoveActorDeltaData {
         self.force_move.encode(buf)?;
         self.force_move_local_entity.encode(buf)?;
         self.force_completion.encode(buf)?;
+        crate::bedrock::codec::VarULong(self.ticks).encode(buf)?;
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -24481,6 +24990,12 @@ impl crate::bedrock::codec::BedrockCodec for MoveActorDeltaData {
         let force_move_local_entity =
             <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let force_completion = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let ticks =
+            <crate::bedrock::codec::VarULong as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0;
         Ok(Self {
             actor_runtime_id,
             new_position_x,
@@ -24493,6 +25008,7 @@ impl crate::bedrock::codec::BedrockCodec for MoveActorDeltaData {
             force_move,
             force_move_local_entity,
             force_completion,
+            ticks,
         })
     }
 }
@@ -25101,7 +25617,7 @@ impl crate::bedrock::codec::BedrockCodec
 pub struct PackedItemUseLegacyInventoryTransaction {
     pub legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0,
     pub legacy_set_item_slots: Option<Vec<LegacySetSlot>>,
-    pub item_use_transaction: Option<ItemUseInventoryTransaction>,
+    pub item_use_transaction: ItemUseInventoryTransaction,
 }
 impl crate::bedrock::codec::BedrockSized for PackedItemUseLegacyInventoryTransaction {
     fn encoded_size(&self) -> usize {
@@ -25122,13 +25638,7 @@ impl crate::bedrock::codec::BedrockSized for PackedItemUseLegacyInventoryTransac
                     None => 0usize,
                 }
         };
-        size += {
-            1usize
-                + match &self.item_use_transaction {
-                    Some(_v) => crate::bedrock::codec::BedrockSized::encoded_size(_v),
-                    None => 0usize,
-                }
-        };
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.item_use_transaction);
         size
     }
 }
@@ -25148,13 +25658,7 @@ impl crate::bedrock::codec::BedrockCodec for PackedItemUseLegacyInventoryTransac
             }
             None => buf.put_u8(0),
         }
-        match &self.item_use_transaction {
-            Some(v) => {
-                buf.put_u8(1);
-                v.encode(buf)?;
-            }
-            None => buf.put_u8(0),
-        }
+        self.item_use_transaction.encode(buf)?;
         Ok(())
     }
     fn decode<B: bytes::Buf>(
@@ -25192,19 +25696,8 @@ impl crate::bedrock::codec::BedrockCodec for PackedItemUseLegacyInventoryTransac
                 None
             }
         };
-        let item_use_transaction = {
-            let present = u8::decode(buf, ())?;
-            if present != 0 {
-                Some(
-                    <ItemUseInventoryTransaction as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?,
-                )
-            } else {
-                None
-            }
-        };
+        let item_use_transaction =
+            <ItemUseInventoryTransaction as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self {
             legacy_request_id,
             legacy_set_item_slots,
@@ -25215,45 +25708,45 @@ impl crate::bedrock::codec::BedrockCodec for PackedItemUseLegacyInventoryTransac
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsPlayerActionType {
     Unknown,
-    StartDestroyBlock,
-    AbortDestroyBlock,
-    StopDestroyBlock,
-    GetUpdatedBlock,
-    DropItem,
-    StartSleeping,
-    StopSleeping,
+    Startdestroyblock,
+    Abortdestroyblock,
+    Stopdestroyblock,
+    Getupdatedblock,
+    Dropitem,
+    Startsleeping,
+    Stopsleeping,
     Respawn,
-    StartJump,
-    StartSprinting,
-    StopSprinting,
-    StartSneaking,
-    StopSneaking,
-    CreativeDestroyBlock,
-    ChangeDimensionAck,
-    StartGliding,
-    StopGliding,
-    DenyDestroyBlock,
-    CrackBlock,
-    ChangeSkin,
-    UpdatedEnchantingSeed,
-    StartSwimming,
-    StopSwimming,
-    StartSpinAttack,
-    StopSpinAttack,
-    InteractWithBlock,
-    PredictDestroyBlock,
-    ContinueDestroyBlock,
-    StartItemUseOn,
-    StopItemUseOn,
-    HandledTeleport,
-    MissedSwing,
-    StartCrawling,
-    StopCrawling,
-    StartFlying,
-    StopFlying,
-    ClientAckServerData,
-    StartUsingItem,
-    InternalUpdate,
+    Startjump,
+    Startsprinting,
+    Stopsprinting,
+    Startsneaking,
+    Stopsneaking,
+    Creativedestroyblock,
+    Changedimensionack,
+    Startgliding,
+    Stopgliding,
+    Denydestroyblock,
+    Crackblock,
+    Changeskin,
+    Updatedenchantingseed,
+    Startswimming,
+    Stopswimming,
+    Startspinattack,
+    Stopspinattack,
+    Interactwithblock,
+    Predictdestroyblock,
+    Continuedestroyblock,
+    Startitemuseon,
+    Stopitemuseon,
+    Handledteleport,
+    Missedswing,
+    Startcrawling,
+    Stopcrawling,
+    Startflying,
+    Stopflying,
+    Clientackserverdata,
+    Startusingitem,
+    Internalupdate,
     Count,
     UnknownValue(i32),
 }
@@ -25261,45 +25754,45 @@ impl crate::bedrock::codec::BedrockSized for EnumsPlayerActionType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsPlayerActionType::Unknown => -1,
-            EnumsPlayerActionType::StartDestroyBlock => 0,
-            EnumsPlayerActionType::AbortDestroyBlock => 1,
-            EnumsPlayerActionType::StopDestroyBlock => 2,
-            EnumsPlayerActionType::GetUpdatedBlock => 3,
-            EnumsPlayerActionType::DropItem => 4,
-            EnumsPlayerActionType::StartSleeping => 5,
-            EnumsPlayerActionType::StopSleeping => 6,
+            EnumsPlayerActionType::Startdestroyblock => 0,
+            EnumsPlayerActionType::Abortdestroyblock => 1,
+            EnumsPlayerActionType::Stopdestroyblock => 2,
+            EnumsPlayerActionType::Getupdatedblock => 3,
+            EnumsPlayerActionType::Dropitem => 4,
+            EnumsPlayerActionType::Startsleeping => 5,
+            EnumsPlayerActionType::Stopsleeping => 6,
             EnumsPlayerActionType::Respawn => 7,
-            EnumsPlayerActionType::StartJump => 8,
-            EnumsPlayerActionType::StartSprinting => 9,
-            EnumsPlayerActionType::StopSprinting => 10,
-            EnumsPlayerActionType::StartSneaking => 11,
-            EnumsPlayerActionType::StopSneaking => 12,
-            EnumsPlayerActionType::CreativeDestroyBlock => 13,
-            EnumsPlayerActionType::ChangeDimensionAck => 14,
-            EnumsPlayerActionType::StartGliding => 15,
-            EnumsPlayerActionType::StopGliding => 16,
-            EnumsPlayerActionType::DenyDestroyBlock => 17,
-            EnumsPlayerActionType::CrackBlock => 18,
-            EnumsPlayerActionType::ChangeSkin => 19,
-            EnumsPlayerActionType::UpdatedEnchantingSeed => 20,
-            EnumsPlayerActionType::StartSwimming => 21,
-            EnumsPlayerActionType::StopSwimming => 22,
-            EnumsPlayerActionType::StartSpinAttack => 23,
-            EnumsPlayerActionType::StopSpinAttack => 24,
-            EnumsPlayerActionType::InteractWithBlock => 25,
-            EnumsPlayerActionType::PredictDestroyBlock => 26,
-            EnumsPlayerActionType::ContinueDestroyBlock => 27,
-            EnumsPlayerActionType::StartItemUseOn => 28,
-            EnumsPlayerActionType::StopItemUseOn => 29,
-            EnumsPlayerActionType::HandledTeleport => 30,
-            EnumsPlayerActionType::MissedSwing => 31,
-            EnumsPlayerActionType::StartCrawling => 32,
-            EnumsPlayerActionType::StopCrawling => 33,
-            EnumsPlayerActionType::StartFlying => 34,
-            EnumsPlayerActionType::StopFlying => 35,
-            EnumsPlayerActionType::ClientAckServerData => 36,
-            EnumsPlayerActionType::StartUsingItem => 37,
-            EnumsPlayerActionType::InternalUpdate => 38,
+            EnumsPlayerActionType::Startjump => 8,
+            EnumsPlayerActionType::Startsprinting => 9,
+            EnumsPlayerActionType::Stopsprinting => 10,
+            EnumsPlayerActionType::Startsneaking => 11,
+            EnumsPlayerActionType::Stopsneaking => 12,
+            EnumsPlayerActionType::Creativedestroyblock => 13,
+            EnumsPlayerActionType::Changedimensionack => 14,
+            EnumsPlayerActionType::Startgliding => 15,
+            EnumsPlayerActionType::Stopgliding => 16,
+            EnumsPlayerActionType::Denydestroyblock => 17,
+            EnumsPlayerActionType::Crackblock => 18,
+            EnumsPlayerActionType::Changeskin => 19,
+            EnumsPlayerActionType::Updatedenchantingseed => 20,
+            EnumsPlayerActionType::Startswimming => 21,
+            EnumsPlayerActionType::Stopswimming => 22,
+            EnumsPlayerActionType::Startspinattack => 23,
+            EnumsPlayerActionType::Stopspinattack => 24,
+            EnumsPlayerActionType::Interactwithblock => 25,
+            EnumsPlayerActionType::Predictdestroyblock => 26,
+            EnumsPlayerActionType::Continuedestroyblock => 27,
+            EnumsPlayerActionType::Startitemuseon => 28,
+            EnumsPlayerActionType::Stopitemuseon => 29,
+            EnumsPlayerActionType::Handledteleport => 30,
+            EnumsPlayerActionType::Missedswing => 31,
+            EnumsPlayerActionType::Startcrawling => 32,
+            EnumsPlayerActionType::Stopcrawling => 33,
+            EnumsPlayerActionType::Startflying => 34,
+            EnumsPlayerActionType::Stopflying => 35,
+            EnumsPlayerActionType::Clientackserverdata => 36,
+            EnumsPlayerActionType::Startusingitem => 37,
+            EnumsPlayerActionType::Internalupdate => 38,
             EnumsPlayerActionType::Count => 39,
             EnumsPlayerActionType::UnknownValue(v) => *v,
         };
@@ -25313,45 +25806,45 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerActionType {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsPlayerActionType::Unknown => -1,
-            EnumsPlayerActionType::StartDestroyBlock => 0,
-            EnumsPlayerActionType::AbortDestroyBlock => 1,
-            EnumsPlayerActionType::StopDestroyBlock => 2,
-            EnumsPlayerActionType::GetUpdatedBlock => 3,
-            EnumsPlayerActionType::DropItem => 4,
-            EnumsPlayerActionType::StartSleeping => 5,
-            EnumsPlayerActionType::StopSleeping => 6,
+            EnumsPlayerActionType::Startdestroyblock => 0,
+            EnumsPlayerActionType::Abortdestroyblock => 1,
+            EnumsPlayerActionType::Stopdestroyblock => 2,
+            EnumsPlayerActionType::Getupdatedblock => 3,
+            EnumsPlayerActionType::Dropitem => 4,
+            EnumsPlayerActionType::Startsleeping => 5,
+            EnumsPlayerActionType::Stopsleeping => 6,
             EnumsPlayerActionType::Respawn => 7,
-            EnumsPlayerActionType::StartJump => 8,
-            EnumsPlayerActionType::StartSprinting => 9,
-            EnumsPlayerActionType::StopSprinting => 10,
-            EnumsPlayerActionType::StartSneaking => 11,
-            EnumsPlayerActionType::StopSneaking => 12,
-            EnumsPlayerActionType::CreativeDestroyBlock => 13,
-            EnumsPlayerActionType::ChangeDimensionAck => 14,
-            EnumsPlayerActionType::StartGliding => 15,
-            EnumsPlayerActionType::StopGliding => 16,
-            EnumsPlayerActionType::DenyDestroyBlock => 17,
-            EnumsPlayerActionType::CrackBlock => 18,
-            EnumsPlayerActionType::ChangeSkin => 19,
-            EnumsPlayerActionType::UpdatedEnchantingSeed => 20,
-            EnumsPlayerActionType::StartSwimming => 21,
-            EnumsPlayerActionType::StopSwimming => 22,
-            EnumsPlayerActionType::StartSpinAttack => 23,
-            EnumsPlayerActionType::StopSpinAttack => 24,
-            EnumsPlayerActionType::InteractWithBlock => 25,
-            EnumsPlayerActionType::PredictDestroyBlock => 26,
-            EnumsPlayerActionType::ContinueDestroyBlock => 27,
-            EnumsPlayerActionType::StartItemUseOn => 28,
-            EnumsPlayerActionType::StopItemUseOn => 29,
-            EnumsPlayerActionType::HandledTeleport => 30,
-            EnumsPlayerActionType::MissedSwing => 31,
-            EnumsPlayerActionType::StartCrawling => 32,
-            EnumsPlayerActionType::StopCrawling => 33,
-            EnumsPlayerActionType::StartFlying => 34,
-            EnumsPlayerActionType::StopFlying => 35,
-            EnumsPlayerActionType::ClientAckServerData => 36,
-            EnumsPlayerActionType::StartUsingItem => 37,
-            EnumsPlayerActionType::InternalUpdate => 38,
+            EnumsPlayerActionType::Startjump => 8,
+            EnumsPlayerActionType::Startsprinting => 9,
+            EnumsPlayerActionType::Stopsprinting => 10,
+            EnumsPlayerActionType::Startsneaking => 11,
+            EnumsPlayerActionType::Stopsneaking => 12,
+            EnumsPlayerActionType::Creativedestroyblock => 13,
+            EnumsPlayerActionType::Changedimensionack => 14,
+            EnumsPlayerActionType::Startgliding => 15,
+            EnumsPlayerActionType::Stopgliding => 16,
+            EnumsPlayerActionType::Denydestroyblock => 17,
+            EnumsPlayerActionType::Crackblock => 18,
+            EnumsPlayerActionType::Changeskin => 19,
+            EnumsPlayerActionType::Updatedenchantingseed => 20,
+            EnumsPlayerActionType::Startswimming => 21,
+            EnumsPlayerActionType::Stopswimming => 22,
+            EnumsPlayerActionType::Startspinattack => 23,
+            EnumsPlayerActionType::Stopspinattack => 24,
+            EnumsPlayerActionType::Interactwithblock => 25,
+            EnumsPlayerActionType::Predictdestroyblock => 26,
+            EnumsPlayerActionType::Continuedestroyblock => 27,
+            EnumsPlayerActionType::Startitemuseon => 28,
+            EnumsPlayerActionType::Stopitemuseon => 29,
+            EnumsPlayerActionType::Handledteleport => 30,
+            EnumsPlayerActionType::Missedswing => 31,
+            EnumsPlayerActionType::Startcrawling => 32,
+            EnumsPlayerActionType::Stopcrawling => 33,
+            EnumsPlayerActionType::Startflying => 34,
+            EnumsPlayerActionType::Stopflying => 35,
+            EnumsPlayerActionType::Clientackserverdata => 36,
+            EnumsPlayerActionType::Startusingitem => 37,
+            EnumsPlayerActionType::Internalupdate => 38,
             EnumsPlayerActionType::Count => 39,
             EnumsPlayerActionType::UnknownValue(v) => *v,
         };
@@ -25368,45 +25861,45 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerActionType {
         let val = raw.0 as i32;
         match val {
             -1 => Ok(EnumsPlayerActionType::Unknown),
-            0 => Ok(EnumsPlayerActionType::StartDestroyBlock),
-            1 => Ok(EnumsPlayerActionType::AbortDestroyBlock),
-            2 => Ok(EnumsPlayerActionType::StopDestroyBlock),
-            3 => Ok(EnumsPlayerActionType::GetUpdatedBlock),
-            4 => Ok(EnumsPlayerActionType::DropItem),
-            5 => Ok(EnumsPlayerActionType::StartSleeping),
-            6 => Ok(EnumsPlayerActionType::StopSleeping),
+            0 => Ok(EnumsPlayerActionType::Startdestroyblock),
+            1 => Ok(EnumsPlayerActionType::Abortdestroyblock),
+            2 => Ok(EnumsPlayerActionType::Stopdestroyblock),
+            3 => Ok(EnumsPlayerActionType::Getupdatedblock),
+            4 => Ok(EnumsPlayerActionType::Dropitem),
+            5 => Ok(EnumsPlayerActionType::Startsleeping),
+            6 => Ok(EnumsPlayerActionType::Stopsleeping),
             7 => Ok(EnumsPlayerActionType::Respawn),
-            8 => Ok(EnumsPlayerActionType::StartJump),
-            9 => Ok(EnumsPlayerActionType::StartSprinting),
-            10 => Ok(EnumsPlayerActionType::StopSprinting),
-            11 => Ok(EnumsPlayerActionType::StartSneaking),
-            12 => Ok(EnumsPlayerActionType::StopSneaking),
-            13 => Ok(EnumsPlayerActionType::CreativeDestroyBlock),
-            14 => Ok(EnumsPlayerActionType::ChangeDimensionAck),
-            15 => Ok(EnumsPlayerActionType::StartGliding),
-            16 => Ok(EnumsPlayerActionType::StopGliding),
-            17 => Ok(EnumsPlayerActionType::DenyDestroyBlock),
-            18 => Ok(EnumsPlayerActionType::CrackBlock),
-            19 => Ok(EnumsPlayerActionType::ChangeSkin),
-            20 => Ok(EnumsPlayerActionType::UpdatedEnchantingSeed),
-            21 => Ok(EnumsPlayerActionType::StartSwimming),
-            22 => Ok(EnumsPlayerActionType::StopSwimming),
-            23 => Ok(EnumsPlayerActionType::StartSpinAttack),
-            24 => Ok(EnumsPlayerActionType::StopSpinAttack),
-            25 => Ok(EnumsPlayerActionType::InteractWithBlock),
-            26 => Ok(EnumsPlayerActionType::PredictDestroyBlock),
-            27 => Ok(EnumsPlayerActionType::ContinueDestroyBlock),
-            28 => Ok(EnumsPlayerActionType::StartItemUseOn),
-            29 => Ok(EnumsPlayerActionType::StopItemUseOn),
-            30 => Ok(EnumsPlayerActionType::HandledTeleport),
-            31 => Ok(EnumsPlayerActionType::MissedSwing),
-            32 => Ok(EnumsPlayerActionType::StartCrawling),
-            33 => Ok(EnumsPlayerActionType::StopCrawling),
-            34 => Ok(EnumsPlayerActionType::StartFlying),
-            35 => Ok(EnumsPlayerActionType::StopFlying),
-            36 => Ok(EnumsPlayerActionType::ClientAckServerData),
-            37 => Ok(EnumsPlayerActionType::StartUsingItem),
-            38 => Ok(EnumsPlayerActionType::InternalUpdate),
+            8 => Ok(EnumsPlayerActionType::Startjump),
+            9 => Ok(EnumsPlayerActionType::Startsprinting),
+            10 => Ok(EnumsPlayerActionType::Stopsprinting),
+            11 => Ok(EnumsPlayerActionType::Startsneaking),
+            12 => Ok(EnumsPlayerActionType::Stopsneaking),
+            13 => Ok(EnumsPlayerActionType::Creativedestroyblock),
+            14 => Ok(EnumsPlayerActionType::Changedimensionack),
+            15 => Ok(EnumsPlayerActionType::Startgliding),
+            16 => Ok(EnumsPlayerActionType::Stopgliding),
+            17 => Ok(EnumsPlayerActionType::Denydestroyblock),
+            18 => Ok(EnumsPlayerActionType::Crackblock),
+            19 => Ok(EnumsPlayerActionType::Changeskin),
+            20 => Ok(EnumsPlayerActionType::Updatedenchantingseed),
+            21 => Ok(EnumsPlayerActionType::Startswimming),
+            22 => Ok(EnumsPlayerActionType::Stopswimming),
+            23 => Ok(EnumsPlayerActionType::Startspinattack),
+            24 => Ok(EnumsPlayerActionType::Stopspinattack),
+            25 => Ok(EnumsPlayerActionType::Interactwithblock),
+            26 => Ok(EnumsPlayerActionType::Predictdestroyblock),
+            27 => Ok(EnumsPlayerActionType::Continuedestroyblock),
+            28 => Ok(EnumsPlayerActionType::Startitemuseon),
+            29 => Ok(EnumsPlayerActionType::Stopitemuseon),
+            30 => Ok(EnumsPlayerActionType::Handledteleport),
+            31 => Ok(EnumsPlayerActionType::Missedswing),
+            32 => Ok(EnumsPlayerActionType::Startcrawling),
+            33 => Ok(EnumsPlayerActionType::Stopcrawling),
+            34 => Ok(EnumsPlayerActionType::Startflying),
+            35 => Ok(EnumsPlayerActionType::Stopflying),
+            36 => Ok(EnumsPlayerActionType::Clientackserverdata),
+            37 => Ok(EnumsPlayerActionType::Startusingitem),
+            38 => Ok(EnumsPlayerActionType::Internalupdate),
             39 => Ok(EnumsPlayerActionType::Count),
             other => Ok(EnumsPlayerActionType::UnknownValue(other)),
         }
@@ -25541,18 +26034,18 @@ impl Default for PlayerListPacketPayloadAddEntryAction {
 pub enum EnumsBuildPlatform {
     Unknown,
     Google,
-    IOs,
+    Ios,
     Osx,
     Amazon,
-    GearVr,
+    Gearvr,
     Uwp,
     Win32,
     Dedicated,
-    TvOs,
+    Tvos,
     Sony,
-    Nx,
+    Nintendo,
     Xbox,
-    WindowsPhone,
+    Windowsphone,
     Linux,
     UnknownValue(i32),
 }
@@ -25561,18 +26054,18 @@ impl crate::bedrock::codec::BedrockSized for EnumsBuildPlatform {
         let _val: i32 = match self {
             EnumsBuildPlatform::Unknown => -1,
             EnumsBuildPlatform::Google => 1,
-            EnumsBuildPlatform::IOs => 2,
+            EnumsBuildPlatform::Ios => 2,
             EnumsBuildPlatform::Osx => 3,
             EnumsBuildPlatform::Amazon => 4,
-            EnumsBuildPlatform::GearVr => 5,
+            EnumsBuildPlatform::Gearvr => 5,
             EnumsBuildPlatform::Uwp => 7,
             EnumsBuildPlatform::Win32 => 8,
             EnumsBuildPlatform::Dedicated => 9,
-            EnumsBuildPlatform::TvOs => 10,
+            EnumsBuildPlatform::Tvos => 10,
             EnumsBuildPlatform::Sony => 11,
-            EnumsBuildPlatform::Nx => 12,
+            EnumsBuildPlatform::Nintendo => 12,
             EnumsBuildPlatform::Xbox => 13,
-            EnumsBuildPlatform::WindowsPhone => 14,
+            EnumsBuildPlatform::Windowsphone => 14,
             EnumsBuildPlatform::Linux => 15,
             EnumsBuildPlatform::UnknownValue(v) => *v,
         };
@@ -25585,18 +26078,18 @@ impl crate::bedrock::codec::BedrockCodec for EnumsBuildPlatform {
         let val: i32 = match self {
             EnumsBuildPlatform::Unknown => -1,
             EnumsBuildPlatform::Google => 1,
-            EnumsBuildPlatform::IOs => 2,
+            EnumsBuildPlatform::Ios => 2,
             EnumsBuildPlatform::Osx => 3,
             EnumsBuildPlatform::Amazon => 4,
-            EnumsBuildPlatform::GearVr => 5,
+            EnumsBuildPlatform::Gearvr => 5,
             EnumsBuildPlatform::Uwp => 7,
             EnumsBuildPlatform::Win32 => 8,
             EnumsBuildPlatform::Dedicated => 9,
-            EnumsBuildPlatform::TvOs => 10,
+            EnumsBuildPlatform::Tvos => 10,
             EnumsBuildPlatform::Sony => 11,
-            EnumsBuildPlatform::Nx => 12,
+            EnumsBuildPlatform::Nintendo => 12,
             EnumsBuildPlatform::Xbox => 13,
-            EnumsBuildPlatform::WindowsPhone => 14,
+            EnumsBuildPlatform::Windowsphone => 14,
             EnumsBuildPlatform::Linux => 15,
             EnumsBuildPlatform::UnknownValue(v) => *v,
         };
@@ -25612,18 +26105,18 @@ impl crate::bedrock::codec::BedrockCodec for EnumsBuildPlatform {
         match val {
             -1 => Ok(EnumsBuildPlatform::Unknown),
             1 => Ok(EnumsBuildPlatform::Google),
-            2 => Ok(EnumsBuildPlatform::IOs),
+            2 => Ok(EnumsBuildPlatform::Ios),
             3 => Ok(EnumsBuildPlatform::Osx),
             4 => Ok(EnumsBuildPlatform::Amazon),
-            5 => Ok(EnumsBuildPlatform::GearVr),
+            5 => Ok(EnumsBuildPlatform::Gearvr),
             7 => Ok(EnumsBuildPlatform::Uwp),
             8 => Ok(EnumsBuildPlatform::Win32),
             9 => Ok(EnumsBuildPlatform::Dedicated),
-            10 => Ok(EnumsBuildPlatform::TvOs),
+            10 => Ok(EnumsBuildPlatform::Tvos),
             11 => Ok(EnumsBuildPlatform::Sony),
-            12 => Ok(EnumsBuildPlatform::Nx),
+            12 => Ok(EnumsBuildPlatform::Nintendo),
             13 => Ok(EnumsBuildPlatform::Xbox),
-            14 => Ok(EnumsBuildPlatform::WindowsPhone),
+            14 => Ok(EnumsBuildPlatform::Windowsphone),
             15 => Ok(EnumsBuildPlatform::Linux),
             other => Ok(EnumsBuildPlatform::UnknownValue(other)),
         }
@@ -25679,6 +26172,7 @@ impl Default for EnumsSharedTypespersonaArmSizeType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSharedTypespersonaPieceType {
+    Unknown,
     Skeleton,
     Body,
     Skin,
@@ -25689,28 +26183,30 @@ pub enum EnumsSharedTypespersonaPieceType {
     HighPants,
     Hands,
     Outerwear,
-    FacialHair,
+    Facialhair,
     Mouth,
     Eyes,
     Hair,
     Hood,
     Back,
-    FaceAccessory,
+    Faceaccessory,
     Head,
     Legs,
-    LeftLeg,
-    RightLeg,
+    Leftleg,
+    Rightleg,
     Arms,
-    LeftArm,
-    RightArm,
+    Leftarm,
+    Rightarm,
     Capes,
-    ClassicSkin,
+    Classicskin,
     Emote,
-    Unknown(u32),
+    Unsupported,
+    UnknownValue(u32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSharedTypespersonaPieceType {
     fn encoded_size(&self) -> usize {
         let _val: u32 = match self {
+            EnumsSharedTypespersonaPieceType::Unknown => 0,
             EnumsSharedTypespersonaPieceType::Skeleton => 1,
             EnumsSharedTypespersonaPieceType::Body => 2,
             EnumsSharedTypespersonaPieceType::Skin => 3,
@@ -25721,24 +26217,25 @@ impl crate::bedrock::codec::BedrockSized for EnumsSharedTypespersonaPieceType {
             EnumsSharedTypespersonaPieceType::HighPants => 8,
             EnumsSharedTypespersonaPieceType::Hands => 9,
             EnumsSharedTypespersonaPieceType::Outerwear => 10,
-            EnumsSharedTypespersonaPieceType::FacialHair => 11,
+            EnumsSharedTypespersonaPieceType::Facialhair => 11,
             EnumsSharedTypespersonaPieceType::Mouth => 12,
             EnumsSharedTypespersonaPieceType::Eyes => 13,
             EnumsSharedTypespersonaPieceType::Hair => 14,
             EnumsSharedTypespersonaPieceType::Hood => 15,
             EnumsSharedTypespersonaPieceType::Back => 16,
-            EnumsSharedTypespersonaPieceType::FaceAccessory => 17,
+            EnumsSharedTypespersonaPieceType::Faceaccessory => 17,
             EnumsSharedTypespersonaPieceType::Head => 18,
             EnumsSharedTypespersonaPieceType::Legs => 19,
-            EnumsSharedTypespersonaPieceType::LeftLeg => 20,
-            EnumsSharedTypespersonaPieceType::RightLeg => 21,
+            EnumsSharedTypespersonaPieceType::Leftleg => 20,
+            EnumsSharedTypespersonaPieceType::Rightleg => 21,
             EnumsSharedTypespersonaPieceType::Arms => 22,
-            EnumsSharedTypespersonaPieceType::LeftArm => 23,
-            EnumsSharedTypespersonaPieceType::RightArm => 24,
+            EnumsSharedTypespersonaPieceType::Leftarm => 23,
+            EnumsSharedTypespersonaPieceType::Rightarm => 24,
             EnumsSharedTypespersonaPieceType::Capes => 25,
-            EnumsSharedTypespersonaPieceType::ClassicSkin => 26,
+            EnumsSharedTypespersonaPieceType::Classicskin => 26,
             EnumsSharedTypespersonaPieceType::Emote => 27,
-            EnumsSharedTypespersonaPieceType::Unknown(v) => *v,
+            EnumsSharedTypespersonaPieceType::Unsupported => 28,
+            EnumsSharedTypespersonaPieceType::UnknownValue(v) => *v,
         };
         4usize
     }
@@ -25747,6 +26244,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypespersonaPieceType {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u32 = match self {
+            EnumsSharedTypespersonaPieceType::Unknown => 0,
             EnumsSharedTypespersonaPieceType::Skeleton => 1,
             EnumsSharedTypespersonaPieceType::Body => 2,
             EnumsSharedTypespersonaPieceType::Skin => 3,
@@ -25757,24 +26255,25 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypespersonaPieceType {
             EnumsSharedTypespersonaPieceType::HighPants => 8,
             EnumsSharedTypespersonaPieceType::Hands => 9,
             EnumsSharedTypespersonaPieceType::Outerwear => 10,
-            EnumsSharedTypespersonaPieceType::FacialHair => 11,
+            EnumsSharedTypespersonaPieceType::Facialhair => 11,
             EnumsSharedTypespersonaPieceType::Mouth => 12,
             EnumsSharedTypespersonaPieceType::Eyes => 13,
             EnumsSharedTypespersonaPieceType::Hair => 14,
             EnumsSharedTypespersonaPieceType::Hood => 15,
             EnumsSharedTypespersonaPieceType::Back => 16,
-            EnumsSharedTypespersonaPieceType::FaceAccessory => 17,
+            EnumsSharedTypespersonaPieceType::Faceaccessory => 17,
             EnumsSharedTypespersonaPieceType::Head => 18,
             EnumsSharedTypespersonaPieceType::Legs => 19,
-            EnumsSharedTypespersonaPieceType::LeftLeg => 20,
-            EnumsSharedTypespersonaPieceType::RightLeg => 21,
+            EnumsSharedTypespersonaPieceType::Leftleg => 20,
+            EnumsSharedTypespersonaPieceType::Rightleg => 21,
             EnumsSharedTypespersonaPieceType::Arms => 22,
-            EnumsSharedTypespersonaPieceType::LeftArm => 23,
-            EnumsSharedTypespersonaPieceType::RightArm => 24,
+            EnumsSharedTypespersonaPieceType::Leftarm => 23,
+            EnumsSharedTypespersonaPieceType::Rightarm => 24,
             EnumsSharedTypespersonaPieceType::Capes => 25,
-            EnumsSharedTypespersonaPieceType::ClassicSkin => 26,
+            EnumsSharedTypespersonaPieceType::Classicskin => 26,
             EnumsSharedTypespersonaPieceType::Emote => 27,
-            EnumsSharedTypespersonaPieceType::Unknown(v) => *v,
+            EnumsSharedTypespersonaPieceType::Unsupported => 28,
+            EnumsSharedTypespersonaPieceType::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::U32LE(val as u32).encode(buf)
     }
@@ -25786,6 +26285,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypespersonaPieceType {
             <crate::bedrock::codec::U32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let val = raw.0 as u32;
         match val {
+            0 => Ok(EnumsSharedTypespersonaPieceType::Unknown),
             1 => Ok(EnumsSharedTypespersonaPieceType::Skeleton),
             2 => Ok(EnumsSharedTypespersonaPieceType::Body),
             3 => Ok(EnumsSharedTypespersonaPieceType::Skin),
@@ -25796,37 +26296,38 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSharedTypespersonaPieceType {
             8 => Ok(EnumsSharedTypespersonaPieceType::HighPants),
             9 => Ok(EnumsSharedTypespersonaPieceType::Hands),
             10 => Ok(EnumsSharedTypespersonaPieceType::Outerwear),
-            11 => Ok(EnumsSharedTypespersonaPieceType::FacialHair),
+            11 => Ok(EnumsSharedTypespersonaPieceType::Facialhair),
             12 => Ok(EnumsSharedTypespersonaPieceType::Mouth),
             13 => Ok(EnumsSharedTypespersonaPieceType::Eyes),
             14 => Ok(EnumsSharedTypespersonaPieceType::Hair),
             15 => Ok(EnumsSharedTypespersonaPieceType::Hood),
             16 => Ok(EnumsSharedTypespersonaPieceType::Back),
-            17 => Ok(EnumsSharedTypespersonaPieceType::FaceAccessory),
+            17 => Ok(EnumsSharedTypespersonaPieceType::Faceaccessory),
             18 => Ok(EnumsSharedTypespersonaPieceType::Head),
             19 => Ok(EnumsSharedTypespersonaPieceType::Legs),
-            20 => Ok(EnumsSharedTypespersonaPieceType::LeftLeg),
-            21 => Ok(EnumsSharedTypespersonaPieceType::RightLeg),
+            20 => Ok(EnumsSharedTypespersonaPieceType::Leftleg),
+            21 => Ok(EnumsSharedTypespersonaPieceType::Rightleg),
             22 => Ok(EnumsSharedTypespersonaPieceType::Arms),
-            23 => Ok(EnumsSharedTypespersonaPieceType::LeftArm),
-            24 => Ok(EnumsSharedTypespersonaPieceType::RightArm),
+            23 => Ok(EnumsSharedTypespersonaPieceType::Leftarm),
+            24 => Ok(EnumsSharedTypespersonaPieceType::Rightarm),
             25 => Ok(EnumsSharedTypespersonaPieceType::Capes),
-            26 => Ok(EnumsSharedTypespersonaPieceType::ClassicSkin),
+            26 => Ok(EnumsSharedTypespersonaPieceType::Classicskin),
             27 => Ok(EnumsSharedTypespersonaPieceType::Emote),
-            other => Ok(EnumsSharedTypespersonaPieceType::Unknown(other)),
+            28 => Ok(EnumsSharedTypespersonaPieceType::Unsupported),
+            other => Ok(EnumsSharedTypespersonaPieceType::UnknownValue(other)),
         }
     }
 }
 impl Default for EnumsSharedTypespersonaPieceType {
     fn default() -> Self {
-        Self::Skeleton
+        Self::Unknown
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SerializedPersonaPieceHandle {
     pub piece_id: String,
     pub piece_type: EnumsSharedTypespersonaPieceType,
-    pub pack_id: uuid::Uuid,
+    pub pack_id: MceUuiDjson,
     pub is_default_piece: bool,
     pub product_id: String,
 }
@@ -25840,7 +26341,7 @@ impl crate::bedrock::codec::BedrockSized for SerializedPersonaPieceHandle {
             )) + _len
         };
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.piece_type);
-        size += 16usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.pack_id);
         size += 1usize;
         size += {
             let _len = (&self.product_id).as_bytes().len();
@@ -25895,7 +26396,7 @@ impl crate::bedrock::codec::BedrockCodec for SerializedPersonaPieceHandle {
                 buf,
                 (),
             )?;
-        let pack_id = <uuid::Uuid as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let pack_id = <MceUuiDjson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let is_default_piece = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let product_id = {
             let len =
@@ -26030,8 +26531,8 @@ pub struct SerializedSkinRef {
     pub image_data: SkinImage,
     pub animated_image_data: Vec<AnimatedImageData>,
     pub cape_image_data: SkinImage,
-    pub geometry_data: String,
-    pub geometry_data_min_engine_version: String,
+    pub geometry_data: JsonValuejson,
+    pub geometry_data_min_engine_version: MinEngineVersionjson,
     pub animation_data: String,
     pub cape_id: String,
     pub full_id: String,
@@ -26295,38 +26796,42 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
         };
         let cape_image_data = <SkinImage as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let geometry_data = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            let res: JsonValuejson = {
+                let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0) as usize;
+                if buf.remaining() < len {
+                    return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                        declared: len,
+                        available: buf.remaining(),
+                    });
+                }
+                let mut bytes = vec![0u8; len];
+                buf.copy_to_slice(&mut bytes);
+                crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            };
+            res
         };
         let geometry_data_min_engine_version = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            let res: MinEngineVersionjson = {
+                let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                        buf,
+                        (),
+                    )?
+                    .0) as usize;
+                if buf.remaining() < len {
+                    return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                        declared: len,
+                        available: buf.remaining(),
+                    });
+                }
+                let mut bytes = vec![0u8; len];
+                buf.copy_to_slice(&mut bytes);
+                crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+            };
+            res
         };
         let animation_data = {
             let len =
@@ -26496,7 +27001,7 @@ impl crate::bedrock::codec::BedrockCodec for SerializedSkinRef {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerListPacketPayloadAddEntry {
     pub action: PlayerListPacketPayloadAddEntryAction,
-    pub uuid: uuid::Uuid,
+    pub uuid: MceUuiDjson,
     pub actor_unique_id: ActorUniqueId,
     pub player_name: String,
     pub xblxuid: String,
@@ -26512,7 +27017,7 @@ impl crate::bedrock::codec::BedrockSized for PlayerListPacketPayloadAddEntry {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.action);
-        size += 16usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.uuid);
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.actor_unique_id);
         size += {
             let _len = (&self.player_name).as_bytes().len();
@@ -26578,7 +27083,7 @@ impl crate::bedrock::codec::BedrockCodec for PlayerListPacketPayloadAddEntry {
                 buf,
                 (),
             )?;
-        let uuid = <uuid::Uuid as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let uuid = <MceUuiDjson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let actor_unique_id =
             <ActorUniqueId as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let player_name = {
@@ -26698,13 +27203,13 @@ impl Default for EnumsPlayerListPacketType {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlayerListPacketPayloadRemoveEntry {
     pub action: EnumsPlayerListPacketType,
-    pub uuid: uuid::Uuid,
+    pub uuid: MceUuiDjson,
 }
 impl crate::bedrock::codec::BedrockSized for PlayerListPacketPayloadRemoveEntry {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += crate::bedrock::codec::BedrockSized::encoded_size(&self.action);
-        size += 16usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.uuid);
         size
     }
 }
@@ -26723,7 +27228,7 @@ impl crate::bedrock::codec::BedrockCodec for PlayerListPacketPayloadRemoveEntry 
         let _ = buf;
         let action =
             <EnumsPlayerListPacketType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let uuid = <uuid::Uuid as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        let uuid = <MceUuiDjson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         Ok(Self { action, uuid })
     }
 }
@@ -26941,226 +27446,6 @@ impl crate::bedrock::codec::BedrockCodec for PlayerPartyInfo {
             party_id,
             is_party_leader,
         })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadClearOverride {
-    pub type_: String,
-}
-impl crate::bedrock::codec::BedrockSized for PlayerUpdateEntityOverridesPacketPayloadClearOverride {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.type_).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketPayloadClearOverride {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.type_).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let type_ = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self { type_ })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadFloatOverride {
-    pub type_: String,
-    pub value: f32,
-}
-impl crate::bedrock::codec::BedrockSized for PlayerUpdateEntityOverridesPacketPayloadFloatOverride {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.type_).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += 4usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketPayloadFloatOverride {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.type_).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        crate::bedrock::codec::F32LE(self.value).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let type_ = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let value =
-            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        Ok(Self { type_, value })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadIntOverride {
-    pub type_: String,
-    pub value: i32,
-}
-impl crate::bedrock::codec::BedrockSized for PlayerUpdateEntityOverridesPacketPayloadIntOverride {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.type_).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += 4usize;
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketPayloadIntOverride {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.type_).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        crate::bedrock::codec::I32LE(self.value).encode(buf)?;
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let type_ = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let value =
-            <crate::bedrock::codec::I32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
-                .0;
-        Ok(Self { type_, value })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PlayerUpdateEntityOverridesPacketPayloadRemoveOverride {
-    pub type_: String,
-}
-impl crate::bedrock::codec::BedrockSized
-    for PlayerUpdateEntityOverridesPacketPayloadRemoveOverride
-{
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.type_).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec
-    for PlayerUpdateEntityOverridesPacketPayloadRemoveOverride
-{
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.type_).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let type_ = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self { type_ })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -27456,6 +27741,7 @@ pub struct TextDataPayload {
     pub text: String,
     pub use_rotation: bool,
     pub background_color: Option<MceColor>,
+    pub line_gap_height: f32,
     pub depth_test: bool,
     pub show_backface: bool,
     pub show_text_backface: bool,
@@ -27477,6 +27763,7 @@ impl crate::bedrock::codec::BedrockSized for TextDataPayload {
                     None => 0usize,
                 }
         };
+        size += 4usize;
         size += 1usize;
         size += 1usize;
         size += 1usize;
@@ -27499,6 +27786,7 @@ impl crate::bedrock::codec::BedrockCodec for TextDataPayload {
             }
             None => buf.put_u8(0),
         }
+        crate::bedrock::codec::F32LE(self.line_gap_height).encode(buf)?;
         self.depth_test.encode(buf)?;
         self.show_backface.encode(buf)?;
         self.show_text_backface.encode(buf)?;
@@ -27538,6 +27826,9 @@ impl crate::bedrock::codec::BedrockCodec for TextDataPayload {
                 None
             }
         };
+        let line_gap_height =
+            <crate::bedrock::codec::F32LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?
+                .0;
         let depth_test = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let show_backface = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let show_text_backface = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
@@ -27545,6 +27836,7 @@ impl crate::bedrock::codec::BedrockCodec for TextDataPayload {
             text,
             use_rotation,
             background_color,
+            line_gap_height,
             depth_test,
             show_backface,
             show_text_backface,
@@ -28321,12 +28613,63 @@ impl crate::bedrock::codec::BedrockCodec for PropertySyncData {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct RemoveScore {
+pub struct RemoveOverridejson {
+    pub type_: String,
+}
+impl crate::bedrock::codec::BedrockSized for RemoveOverridejson {
+    fn encoded_size(&self) -> usize {
+        let mut size = 0usize;
+        size += {
+            let _len = (&self.type_).as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + _len
+        };
+        size
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for RemoveOverridejson {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let _ = buf;
+        let bytes = (&self.type_).as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        buf.put_slice(bytes);
+        Ok(())
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let _ = buf;
+        let type_ = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
+        Ok(Self { type_ })
+    }
+}
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RemoveScorejson {
     pub action: String,
     pub scoreboard_id: ScoreboardId,
-    pub objective_name: Option<Option<String>>,
+    pub objective_name: Option<String>,
 }
-impl crate::bedrock::codec::BedrockSized for RemoveScore {
+impl crate::bedrock::codec::BedrockSized for RemoveScorejson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -28340,16 +28683,10 @@ impl crate::bedrock::codec::BedrockSized for RemoveScore {
             1usize
                 + match &self.objective_name {
                     Some(_v) => {
-                        1usize
-                            + match _v {
-                                Some(_v) => {
-                                    let _len = (_v).as_bytes().len();
-                                    crate::bedrock::codec::BedrockSized::encoded_size(
-                                        &crate::bedrock::codec::VarUInt(_len as u32),
-                                    ) + _len
-                                }
-                                None => 0usize,
-                            }
+                        let _len = (_v).as_bytes().len();
+                        crate::bedrock::codec::BedrockSized::encoded_size(
+                            &crate::bedrock::codec::VarUInt(_len as u32),
+                        ) + _len
                     }
                     None => 0usize,
                 }
@@ -28357,7 +28694,7 @@ impl crate::bedrock::codec::BedrockSized for RemoveScore {
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for RemoveScore {
+impl crate::bedrock::codec::BedrockCodec for RemoveScorejson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -28369,16 +28706,10 @@ impl crate::bedrock::codec::BedrockCodec for RemoveScore {
         match &self.objective_name {
             Some(v) => {
                 buf.put_u8(1);
-                match v {
-                    Some(v) => {
-                        buf.put_u8(1);
-                        let bytes = (v).as_bytes();
-                        let len = bytes.len();
-                        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-                        buf.put_slice(bytes);
-                    }
-                    None => buf.put_u8(0),
-                }
+                let bytes = (v).as_bytes();
+                let len = bytes.len();
+                crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+                buf.put_slice(bytes);
             }
             None => buf.put_u8(0),
         }
@@ -28411,29 +28742,20 @@ impl crate::bedrock::codec::BedrockCodec for RemoveScore {
             let present = u8::decode(buf, ())?;
             if present != 0 {
                 Some({
-                    let present = u8::decode(buf, ())?;
-                    if present != 0 {
-                        Some({
-                            let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                                    buf,
-                                    (),
-                                )?
-                                .0) as usize;
-                            if buf.remaining() < len {
-                                return Err(
-                                    crate::bedrock::error::DecodeError::StringLengthExceeded {
-                                        declared: len,
-                                        available: buf.remaining(),
-                                    },
-                                );
-                            }
-                            let mut bytes = vec![0u8; len];
-                            buf.copy_to_slice(&mut bytes);
-                            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-                        })
-                    } else {
-                        None
+                    let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                            buf,
+                            (),
+                        )?
+                        .0) as usize;
+                    if buf.remaining() < len {
+                        return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                            declared: len,
+                            available: buf.remaining(),
+                        });
                     }
+                    let mut bytes = vec![0u8; len];
+                    buf.copy_to_slice(&mut bytes);
+                    crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
                 })
             } else {
                 None
@@ -28447,10 +28769,10 @@ impl crate::bedrock::codec::BedrockCodec for RemoveScore {
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ResourcePackClientResponsePacketPayloadCancel {
+pub struct ResourcePackClientResponseCanceljson {
     pub response_type: String,
 }
-impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponsePacketPayloadCancel {
+impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponseCanceljson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -28462,7 +28784,7 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponsePacketPay
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPayloadCancel {
+impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponseCanceljson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -28498,11 +28820,11 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPay
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ResourcePackClientResponsePacketPayloadDownloading {
+pub struct ResourcePackClientResponseDownloadingjson {
     pub response_type: String,
     pub downloading_packs: Vec<String>,
 }
-impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponsePacketPayloadDownloading {
+impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponseDownloadingjson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -28528,7 +28850,7 @@ impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponsePacketPay
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPayloadDownloading {
+impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponseDownloadingjson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -28606,12 +28928,10 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketPay
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ResourcePackClientResponsePacketPayloadDownloadingFinished {
+pub struct ResourcePackClientResponseDownloadingFinishedjson {
     pub response_type: String,
 }
-impl crate::bedrock::codec::BedrockSized
-    for ResourcePackClientResponsePacketPayloadDownloadingFinished
-{
+impl crate::bedrock::codec::BedrockSized for ResourcePackClientResponseDownloadingFinishedjson {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
         size += {
@@ -28623,9 +28943,7 @@ impl crate::bedrock::codec::BedrockSized
         size
     }
 }
-impl crate::bedrock::codec::BedrockCodec
-    for ResourcePackClientResponsePacketPayloadDownloadingFinished
-{
+impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponseDownloadingFinishedjson {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
@@ -28661,11 +28979,11 @@ impl crate::bedrock::codec::BedrockCodec
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ResourcePackClientResponsePacketPayloadResourcePackStackFinished {
+pub struct ResourcePackClientResponseResourcePackStackFinishedjson {
     pub response_type: String,
 }
 impl crate::bedrock::codec::BedrockSized
-    for ResourcePackClientResponsePacketPayloadResourcePackStackFinished
+    for ResourcePackClientResponseResourcePackStackFinishedjson
 {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
@@ -28679,7 +28997,7 @@ impl crate::bedrock::codec::BedrockSized
     }
 }
 impl crate::bedrock::codec::BedrockCodec
-    for ResourcePackClientResponsePacketPayloadResourcePackStackFinished
+    for ResourcePackClientResponseResourcePackStackFinishedjson
 {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
@@ -28779,7 +29097,7 @@ impl crate::bedrock::codec::BedrockCodec for ScoreboardIdentityPacketInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsCommandPermissionLevel {
     Any,
-    GameDirectors,
+    Gamedirectors,
     Admin,
     Host,
     Owner,
@@ -28790,7 +29108,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsCommandPermissionLevel {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsCommandPermissionLevel::Any => 0,
-            EnumsCommandPermissionLevel::GameDirectors => 1,
+            EnumsCommandPermissionLevel::Gamedirectors => 1,
             EnumsCommandPermissionLevel::Admin => 2,
             EnumsCommandPermissionLevel::Host => 3,
             EnumsCommandPermissionLevel::Owner => 4,
@@ -28805,7 +29123,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsCommandPermissionLevel {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsCommandPermissionLevel::Any => 0,
-            EnumsCommandPermissionLevel::GameDirectors => 1,
+            EnumsCommandPermissionLevel::Gamedirectors => 1,
             EnumsCommandPermissionLevel::Admin => 2,
             EnumsCommandPermissionLevel::Host => 3,
             EnumsCommandPermissionLevel::Owner => 4,
@@ -28821,7 +29139,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsCommandPermissionLevel {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsCommandPermissionLevel::Any),
-            1 => Ok(EnumsCommandPermissionLevel::GameDirectors),
+            1 => Ok(EnumsCommandPermissionLevel::Gamedirectors),
             2 => Ok(EnumsCommandPermissionLevel::Admin),
             3 => Ok(EnumsCommandPermissionLevel::Host),
             4 => Ok(EnumsCommandPermissionLevel::Owner),
@@ -29786,18 +30104,18 @@ impl crate::bedrock::codec::BedrockCodec for CerealizerRecipeIngredientSerialize
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsRecipeUnlockingRequirementUnlockingContext {
     None,
-    AlwaysUnlocked,
-    PlayerInWater,
-    PlayerHasManyItems,
+    Alwaysunlocked,
+    Playerinwater,
+    Playerhasmanyitems,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsRecipeUnlockingRequirementUnlockingContext {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsRecipeUnlockingRequirementUnlockingContext::None => 0,
-            EnumsRecipeUnlockingRequirementUnlockingContext::AlwaysUnlocked => 1,
-            EnumsRecipeUnlockingRequirementUnlockingContext::PlayerInWater => 2,
-            EnumsRecipeUnlockingRequirementUnlockingContext::PlayerHasManyItems => 3,
+            EnumsRecipeUnlockingRequirementUnlockingContext::Alwaysunlocked => 1,
+            EnumsRecipeUnlockingRequirementUnlockingContext::Playerinwater => 2,
+            EnumsRecipeUnlockingRequirementUnlockingContext::Playerhasmanyitems => 3,
             EnumsRecipeUnlockingRequirementUnlockingContext::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -29810,9 +30128,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsRecipeUnlockingRequirementUnlo
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsRecipeUnlockingRequirementUnlockingContext::None => 0,
-            EnumsRecipeUnlockingRequirementUnlockingContext::AlwaysUnlocked => 1,
-            EnumsRecipeUnlockingRequirementUnlockingContext::PlayerInWater => 2,
-            EnumsRecipeUnlockingRequirementUnlockingContext::PlayerHasManyItems => 3,
+            EnumsRecipeUnlockingRequirementUnlockingContext::Alwaysunlocked => 1,
+            EnumsRecipeUnlockingRequirementUnlockingContext::Playerinwater => 2,
+            EnumsRecipeUnlockingRequirementUnlockingContext::Playerhasmanyitems => 3,
             EnumsRecipeUnlockingRequirementUnlockingContext::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -29828,9 +30146,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsRecipeUnlockingRequirementUnlo
         let val = raw.0 as i32;
         match val {
             0 => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::None),
-            1 => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::AlwaysUnlocked),
-            2 => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::PlayerInWater),
-            3 => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::PlayerHasManyItems),
+            1 => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::Alwaysunlocked),
+            2 => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::Playerinwater),
+            3 => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::Playerhasmanyitems),
             other => Ok(EnumsRecipeUnlockingRequirementUnlockingContext::Unknown(
                 other,
             )),
@@ -32532,15 +32850,15 @@ impl crate::bedrock::codec::BedrockCodec for StructureSettings {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsStructureRedstoneSaveMode {
-    SavesToMemory,
-    SavesToDisk,
+    Savestomemory,
+    Savestodisk,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsStructureRedstoneSaveMode {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsStructureRedstoneSaveMode::SavesToMemory => 0,
-            EnumsStructureRedstoneSaveMode::SavesToDisk => 1,
+            EnumsStructureRedstoneSaveMode::Savestomemory => 0,
+            EnumsStructureRedstoneSaveMode::Savestodisk => 1,
             EnumsStructureRedstoneSaveMode::Unknown(v) => *v,
         };
         1usize
@@ -32550,8 +32868,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsStructureRedstoneSaveMode {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsStructureRedstoneSaveMode::SavesToMemory => 0,
-            EnumsStructureRedstoneSaveMode::SavesToDisk => 1,
+            EnumsStructureRedstoneSaveMode::Savestomemory => 0,
+            EnumsStructureRedstoneSaveMode::Savestodisk => 1,
             EnumsStructureRedstoneSaveMode::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -32562,20 +32880,21 @@ impl crate::bedrock::codec::BedrockCodec for EnumsStructureRedstoneSaveMode {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsStructureRedstoneSaveMode::SavesToMemory),
-            1 => Ok(EnumsStructureRedstoneSaveMode::SavesToDisk),
+            0 => Ok(EnumsStructureRedstoneSaveMode::Savestomemory),
+            1 => Ok(EnumsStructureRedstoneSaveMode::Savestodisk),
             other => Ok(EnumsStructureRedstoneSaveMode::Unknown(other)),
         }
     }
 }
 impl Default for EnumsStructureRedstoneSaveMode {
     fn default() -> Self {
-        Self::SavesToMemory
+        Self::Savestomemory
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StructureEditorData {
-    pub structure_name: BedrockSafetyRedactableString,
+    pub structure_name: String,
+    pub filtered_structure_name: String,
     pub data_field: String,
     pub shouldincludeplayers: bool,
     pub shouldshowboundingbox: bool,
@@ -32586,7 +32905,18 @@ pub struct StructureEditorData {
 impl crate::bedrock::codec::BedrockSized for StructureEditorData {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.structure_name);
+        size += {
+            let _len = (&self.structure_name).as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + _len
+        };
+        size += {
+            let _len = (&self.filtered_structure_name).as_bytes().len();
+            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                _len as u32,
+            )) + _len
+        };
         size += {
             let _len = (&self.data_field).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -32605,7 +32935,14 @@ impl crate::bedrock::codec::BedrockCodec for StructureEditorData {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
-        self.structure_name.encode(buf)?;
+        let bytes = (&self.structure_name).as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        buf.put_slice(bytes);
+        let bytes = (&self.filtered_structure_name).as_bytes();
+        let len = bytes.len();
+        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
+        buf.put_slice(bytes);
         let bytes = (&self.data_field).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
@@ -32622,11 +32959,40 @@ impl crate::bedrock::codec::BedrockCodec for StructureEditorData {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
-        let structure_name =
-            <BedrockSafetyRedactableString as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
+        let structure_name = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
+        let filtered_structure_name = {
+            let len =
+                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                    buf,
+                    (),
+                )?
+                .0) as usize;
+            if buf.remaining() < len {
+                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
+                    declared: len,
+                    available: buf.remaining(),
+                });
+            }
+            let mut bytes = vec![0u8; len];
+            buf.copy_to_slice(&mut bytes);
+            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
+        };
         let data_field = {
             let len =
                 (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -32657,6 +33023,7 @@ impl crate::bedrock::codec::BedrockCodec for StructureEditorData {
             )?;
         Ok(Self {
             structure_name,
+            filtered_structure_name,
             data_field,
             shouldincludeplayers,
             shouldshowboundingbox,
@@ -32668,19 +33035,19 @@ impl crate::bedrock::codec::BedrockCodec for StructureEditorData {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSubChunkPacketPayloadHeightMapDataType {
-    NoData,
-    HasData,
-    AllTooHigh,
-    AllTooLow,
+    Nodata,
+    Hasdata,
+    Alltoohigh,
+    Alltoolow,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSubChunkPacketPayloadHeightMapDataType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsSubChunkPacketPayloadHeightMapDataType::NoData => 0,
-            EnumsSubChunkPacketPayloadHeightMapDataType::HasData => 1,
-            EnumsSubChunkPacketPayloadHeightMapDataType::AllTooHigh => 2,
-            EnumsSubChunkPacketPayloadHeightMapDataType::AllTooLow => 3,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Nodata => 0,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Hasdata => 1,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Alltoohigh => 2,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Alltoolow => 3,
             EnumsSubChunkPacketPayloadHeightMapDataType::Unknown(v) => *v,
         };
         1usize
@@ -32690,10 +33057,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSubChunkPacketPayloadHeightMap
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsSubChunkPacketPayloadHeightMapDataType::NoData => 0,
-            EnumsSubChunkPacketPayloadHeightMapDataType::HasData => 1,
-            EnumsSubChunkPacketPayloadHeightMapDataType::AllTooHigh => 2,
-            EnumsSubChunkPacketPayloadHeightMapDataType::AllTooLow => 3,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Nodata => 0,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Hasdata => 1,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Alltoohigh => 2,
+            EnumsSubChunkPacketPayloadHeightMapDataType::Alltoolow => 3,
             EnumsSubChunkPacketPayloadHeightMapDataType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -32704,36 +33071,36 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSubChunkPacketPayloadHeightMap
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::NoData),
-            1 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::HasData),
-            2 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::AllTooHigh),
-            3 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::AllTooLow),
+            0 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::Nodata),
+            1 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::Hasdata),
+            2 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::Alltoohigh),
+            3 => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::Alltoolow),
             other => Ok(EnumsSubChunkPacketPayloadHeightMapDataType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsSubChunkPacketPayloadHeightMapDataType {
     fn default() -> Self {
-        Self::NoData
+        Self::Nodata
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SubChunkPacketPayloadHeightmapDataRenderHeightMapType {
-    NoData,
-    HasData,
-    AllTooHigh,
-    AllTooLow,
-    AllCopied,
+    Nodata,
+    Hasdata,
+    Alltoohigh,
+    Alltoolow,
+    Allcopied,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for SubChunkPacketPayloadHeightmapDataRenderHeightMapType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::NoData => 0,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::HasData => 1,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllTooHigh => 2,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllTooLow => 3,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllCopied => 4,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Nodata => 0,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Hasdata => 1,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Alltoohigh => 2,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Alltoolow => 3,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Allcopied => 4,
             SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Unknown(v) => *v,
         };
         1usize
@@ -32743,11 +33110,11 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadHeightmapDataR
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::NoData => 0,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::HasData => 1,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllTooHigh => 2,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllTooLow => 3,
-            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllCopied => 4,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Nodata => 0,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Hasdata => 1,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Alltoohigh => 2,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Alltoolow => 3,
+            SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Allcopied => 4,
             SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -32758,26 +33125,26 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadHeightmapDataR
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::NoData),
-            1 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::HasData),
-            2 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllTooHigh),
-            3 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllTooLow),
-            4 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::AllCopied),
+            0 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Nodata),
+            1 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Hasdata),
+            2 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Alltoohigh),
+            3 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Alltoolow),
+            4 => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Allcopied),
             other => Ok(SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Unknown(other)),
         }
     }
 }
 impl Default for SubChunkPacketPayloadHeightmapDataRenderHeightMapType {
     fn default() -> Self {
-        Self::NoData
+        Self::Nodata
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SubChunkPacketPayloadHeightmapData {
     pub height_map_type: EnumsSubChunkPacketPayloadHeightMapDataType,
-    pub subchunk_height_map: Option<[[i8; 16]; 16]>,
+    pub subchunk_height_map: Option<[Vec<i8>; 16]>,
     pub render_height_map_type: SubChunkPacketPayloadHeightmapDataRenderHeightMapType,
-    pub subchunk_render_height_map: Option<[[i8; 16]; 16]>,
+    pub subchunk_render_height_map: Option<[Vec<i8>; 16]>,
 }
 impl crate::bedrock::codec::BedrockSized for SubChunkPacketPayloadHeightmapData {
     fn encoded_size(&self) -> usize {
@@ -32788,7 +33155,12 @@ impl crate::bedrock::codec::BedrockSized for SubChunkPacketPayloadHeightmapData 
                 + match &self.subchunk_height_map {
                     Some(_v) => (_v)
                         .iter()
-                        .map(|_item| (_item).iter().map(|_item| 1usize).sum::<usize>())
+                        .map(|_item| {
+                            let _len = (_item).len();
+                            crate::bedrock::codec::BedrockSized::encoded_size(
+                                &crate::bedrock::codec::VarUInt(_len as u32),
+                            ) + (_item).iter().map(|_item| 1usize).sum::<usize>()
+                        })
                         .sum::<usize>(),
                     None => 0usize,
                 }
@@ -32799,7 +33171,12 @@ impl crate::bedrock::codec::BedrockSized for SubChunkPacketPayloadHeightmapData 
                 + match &self.subchunk_render_height_map {
                     Some(_v) => (_v)
                         .iter()
-                        .map(|_item| (_item).iter().map(|_item| 1usize).sum::<usize>())
+                        .map(|_item| {
+                            let _len = (_item).len();
+                            crate::bedrock::codec::BedrockSized::encoded_size(
+                                &crate::bedrock::codec::VarUInt(_len as u32),
+                            ) + (_item).iter().map(|_item| 1usize).sum::<usize>()
+                        })
                         .sum::<usize>(),
                     None => 0usize,
                 }
@@ -32816,6 +33193,8 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadHeightmapData 
             Some(v) => {
                 buf.put_u8(1);
                 for item in v {
+                    let len = item.len();
+                    crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
                     for item in item {
                         (*item).encode(buf)?;
                     }
@@ -32828,6 +33207,8 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadHeightmapData 
             Some(v) => {
                 buf.put_u8(1);
                 for item in v {
+                    let len = item.len();
+                    crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
                     for item in item {
                         (*item).encode(buf)?;
                     }
@@ -32852,21 +33233,30 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadHeightmapData 
                 Some({
                     let mut values = Vec::with_capacity(16);
                     for _ in 0..16 {
-                        values.push({
-                            let mut values = Vec::with_capacity(16);
-                            for _ in 0..16 {
-                                values.push(<i8 as crate::bedrock::codec::BedrockCodec>::decode(
-                                    buf,
-                                    (),
-                                )?);
-                            }
-                            match values.try_into() {
-                                Ok(array) => array,
-                                Err(_) => {
-                                    unreachable!("fixed-array decoder produced the wrong length")
+                        values
+                            .push({
+                                let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                                        buf,
+                                        (),
+                                    )?
+                                    .0) as usize;
+                                let mut tmp_vec = crate::bedrock::codec::prepare_decode_vec(
+                                    len,
+                                    buf.remaining(),
+                                    None,
+                                )?;
+                                for _ in 0..len {
+                                    crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
+                                    tmp_vec
+                                        .push(
+                                            <i8 as crate::bedrock::codec::BedrockCodec>::decode(
+                                                buf,
+                                                (),
+                                            )?,
+                                        );
                                 }
-                            }
-                        });
+                                tmp_vec
+                            });
                     }
                     match values.try_into() {
                         Ok(array) => array,
@@ -32889,21 +33279,30 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadHeightmapData 
                 Some({
                     let mut values = Vec::with_capacity(16);
                     for _ in 0..16 {
-                        values.push({
-                            let mut values = Vec::with_capacity(16);
-                            for _ in 0..16 {
-                                values.push(<i8 as crate::bedrock::codec::BedrockCodec>::decode(
-                                    buf,
-                                    (),
-                                )?);
-                            }
-                            match values.try_into() {
-                                Ok(array) => array,
-                                Err(_) => {
-                                    unreachable!("fixed-array decoder produced the wrong length")
+                        values
+                            .push({
+                                let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                                        buf,
+                                        (),
+                                    )?
+                                    .0) as usize;
+                                let mut tmp_vec = crate::bedrock::codec::prepare_decode_vec(
+                                    len,
+                                    buf.remaining(),
+                                    None,
+                                )?;
+                                for _ in 0..len {
+                                    crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
+                                    tmp_vec
+                                        .push(
+                                            <i8 as crate::bedrock::codec::BedrockCodec>::decode(
+                                                buf,
+                                                (),
+                                            )?,
+                                        );
                                 }
-                            }
-                        });
+                                tmp_vec
+                            });
                     }
                     match values.try_into() {
                         Ok(array) => array,
@@ -32966,22 +33365,22 @@ impl crate::bedrock::codec::BedrockCodec for SubChunkPacketPayloadSubChunkPosOff
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSubChunkPacketPayloadSubChunkRequestResult {
     Success,
-    LevelChunkDoesntExist,
-    WrongDimension,
-    PlayerDoesntExist,
-    IndexOutOfBounds,
-    SuccessAllAir,
+    Levelchunkdoesntexist,
+    Wrongdimension,
+    Playerdoesntexist,
+    Indexoutofbounds,
+    Successallair,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSubChunkPacketPayloadSubChunkRequestResult {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsSubChunkPacketPayloadSubChunkRequestResult::Success => 1,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::LevelChunkDoesntExist => 2,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::WrongDimension => 3,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::PlayerDoesntExist => 4,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::IndexOutOfBounds => 5,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::SuccessAllAir => 6,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Levelchunkdoesntexist => 2,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Wrongdimension => 3,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Playerdoesntexist => 4,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Indexoutofbounds => 5,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Successallair => 6,
             EnumsSubChunkPacketPayloadSubChunkRequestResult::Unknown(v) => *v,
         };
         1usize
@@ -32992,11 +33391,11 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSubChunkPacketPayloadSubChunkR
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsSubChunkPacketPayloadSubChunkRequestResult::Success => 1,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::LevelChunkDoesntExist => 2,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::WrongDimension => 3,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::PlayerDoesntExist => 4,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::IndexOutOfBounds => 5,
-            EnumsSubChunkPacketPayloadSubChunkRequestResult::SuccessAllAir => 6,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Levelchunkdoesntexist => 2,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Wrongdimension => 3,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Playerdoesntexist => 4,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Indexoutofbounds => 5,
+            EnumsSubChunkPacketPayloadSubChunkRequestResult::Successallair => 6,
             EnumsSubChunkPacketPayloadSubChunkRequestResult::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -33008,11 +33407,11 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSubChunkPacketPayloadSubChunkR
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             1 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::Success),
-            2 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::LevelChunkDoesntExist),
-            3 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::WrongDimension),
-            4 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::PlayerDoesntExist),
-            5 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::IndexOutOfBounds),
-            6 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::SuccessAllAir),
+            2 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::Levelchunkdoesntexist),
+            3 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::Wrongdimension),
+            4 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::Playerdoesntexist),
+            5 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::Indexoutofbounds),
+            6 => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::Successallair),
             other => Ok(EnumsSubChunkPacketPayloadSubChunkRequestResult::Unknown(
                 other,
             )),
@@ -33898,14 +34297,63 @@ impl crate::bedrock::codec::BedrockCodec for SynchedActorDataCopyableDataList {
         Ok(Self { data })
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TextPacketPayloadAuthorAndMessageMessageType {
+    Chat,
+    Whisper,
+    Announcement,
+    Unknown(u8),
+}
+impl crate::bedrock::codec::BedrockSized for TextPacketPayloadAuthorAndMessageMessageType {
+    fn encoded_size(&self) -> usize {
+        let _val: u8 = match self {
+            TextPacketPayloadAuthorAndMessageMessageType::Chat => 1,
+            TextPacketPayloadAuthorAndMessageMessageType::Whisper => 7,
+            TextPacketPayloadAuthorAndMessageMessageType::Announcement => 8,
+            TextPacketPayloadAuthorAndMessageMessageType::Unknown(v) => *v,
+        };
+        1usize
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadAuthorAndMessageMessageType {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: u8 = match self {
+            TextPacketPayloadAuthorAndMessageMessageType::Chat => 1,
+            TextPacketPayloadAuthorAndMessageMessageType::Whisper => 7,
+            TextPacketPayloadAuthorAndMessageMessageType::Announcement => 8,
+            TextPacketPayloadAuthorAndMessageMessageType::Unknown(v) => *v,
+        };
+        val.encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        match val {
+            1 => Ok(TextPacketPayloadAuthorAndMessageMessageType::Chat),
+            7 => Ok(TextPacketPayloadAuthorAndMessageMessageType::Whisper),
+            8 => Ok(TextPacketPayloadAuthorAndMessageMessageType::Announcement),
+            other => Ok(TextPacketPayloadAuthorAndMessageMessageType::Unknown(other)),
+        }
+    }
+}
+impl Default for TextPacketPayloadAuthorAndMessageMessageType {
+    fn default() -> Self {
+        Self::Chat
+    }
+}
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextPacketPayloadAuthorAndMessage {
+    pub message_type: TextPacketPayloadAuthorAndMessageMessageType,
     pub player_name: String,
     pub message: String,
 }
 impl crate::bedrock::codec::BedrockSized for TextPacketPayloadAuthorAndMessage {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.message_type);
         size += {
             let _len = (&self.player_name).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -33925,6 +34373,7 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadAuthorAndMessage {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
+        self.message_type.encode(buf)?;
         let bytes = (&self.player_name).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
@@ -33940,6 +34389,10 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadAuthorAndMessage {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
+        let message_type = <TextPacketPayloadAuthorAndMessageMessageType as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?;
         let player_name = {
             let len =
                 (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -33975,19 +34428,69 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadAuthorAndMessage {
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
         Ok(Self {
+            message_type,
             player_name,
             message,
         })
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TextPacketPayloadMessageAndParamsMessageType {
+    Translate,
+    Popup,
+    Jukeboxpopup,
+    Unknown(u8),
+}
+impl crate::bedrock::codec::BedrockSized for TextPacketPayloadMessageAndParamsMessageType {
+    fn encoded_size(&self) -> usize {
+        let _val: u8 = match self {
+            TextPacketPayloadMessageAndParamsMessageType::Translate => 2,
+            TextPacketPayloadMessageAndParamsMessageType::Popup => 3,
+            TextPacketPayloadMessageAndParamsMessageType::Jukeboxpopup => 4,
+            TextPacketPayloadMessageAndParamsMessageType::Unknown(v) => *v,
+        };
+        1usize
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageAndParamsMessageType {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: u8 = match self {
+            TextPacketPayloadMessageAndParamsMessageType::Translate => 2,
+            TextPacketPayloadMessageAndParamsMessageType::Popup => 3,
+            TextPacketPayloadMessageAndParamsMessageType::Jukeboxpopup => 4,
+            TextPacketPayloadMessageAndParamsMessageType::Unknown(v) => *v,
+        };
+        val.encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        match val {
+            2 => Ok(TextPacketPayloadMessageAndParamsMessageType::Translate),
+            3 => Ok(TextPacketPayloadMessageAndParamsMessageType::Popup),
+            4 => Ok(TextPacketPayloadMessageAndParamsMessageType::Jukeboxpopup),
+            other => Ok(TextPacketPayloadMessageAndParamsMessageType::Unknown(other)),
+        }
+    }
+}
+impl Default for TextPacketPayloadMessageAndParamsMessageType {
+    fn default() -> Self {
+        Self::Translate
+    }
+}
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextPacketPayloadMessageAndParams {
+    pub message_type: TextPacketPayloadMessageAndParamsMessageType,
     pub message: String,
     pub parameter_list: Vec<String>,
 }
 impl crate::bedrock::codec::BedrockSized for TextPacketPayloadMessageAndParams {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.message_type);
         size += {
             let _len = (&self.message).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -34015,6 +34518,7 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageAndParams {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
+        self.message_type.encode(buf)?;
         let bytes = (&self.message).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
@@ -34034,6 +34538,10 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageAndParams {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
+        let message_type = <TextPacketPayloadMessageAndParamsMessageType as crate::bedrock::codec::BedrockCodec>::decode(
+            buf,
+            (),
+        )?;
         let message = {
             let len =
                 (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -34083,18 +34591,80 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageAndParams {
             tmp_vec
         };
         Ok(Self {
+            message_type,
             message,
             parameter_list,
         })
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnumsTextPacketType {
+    Raw,
+    Tip,
+    Systemmessage,
+    Textobjectwhisper,
+    Textobject,
+    Textobjectannouncement,
+    Unknown(u8),
+}
+impl crate::bedrock::codec::BedrockSized for EnumsTextPacketType {
+    fn encoded_size(&self) -> usize {
+        let _val: u8 = match self {
+            EnumsTextPacketType::Raw => 0,
+            EnumsTextPacketType::Tip => 5,
+            EnumsTextPacketType::Systemmessage => 6,
+            EnumsTextPacketType::Textobjectwhisper => 9,
+            EnumsTextPacketType::Textobject => 10,
+            EnumsTextPacketType::Textobjectannouncement => 11,
+            EnumsTextPacketType::Unknown(v) => *v,
+        };
+        1usize
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for EnumsTextPacketType {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: u8 = match self {
+            EnumsTextPacketType::Raw => 0,
+            EnumsTextPacketType::Tip => 5,
+            EnumsTextPacketType::Systemmessage => 6,
+            EnumsTextPacketType::Textobjectwhisper => 9,
+            EnumsTextPacketType::Textobject => 10,
+            EnumsTextPacketType::Textobjectannouncement => 11,
+            EnumsTextPacketType::Unknown(v) => *v,
+        };
+        val.encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        match val {
+            0 => Ok(EnumsTextPacketType::Raw),
+            5 => Ok(EnumsTextPacketType::Tip),
+            6 => Ok(EnumsTextPacketType::Systemmessage),
+            9 => Ok(EnumsTextPacketType::Textobjectwhisper),
+            10 => Ok(EnumsTextPacketType::Textobject),
+            11 => Ok(EnumsTextPacketType::Textobjectannouncement),
+            other => Ok(EnumsTextPacketType::Unknown(other)),
+        }
+    }
+}
+impl Default for EnumsTextPacketType {
+    fn default() -> Self {
+        Self::Raw
+    }
+}
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextPacketPayloadMessageOnly {
+    pub message_type: EnumsTextPacketType,
     pub message: String,
 }
 impl crate::bedrock::codec::BedrockSized for TextPacketPayloadMessageOnly {
     fn encoded_size(&self) -> usize {
         let mut size = 0usize;
+        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.message_type);
         size += {
             let _len = (&self.message).as_bytes().len();
             crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -34108,6 +34678,7 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageOnly {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let _ = buf;
+        self.message_type.encode(buf)?;
         let bytes = (&self.message).as_bytes();
         let len = bytes.len();
         crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
@@ -34119,6 +34690,8 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageOnly {
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let _ = buf;
+        let message_type =
+            <EnumsTextPacketType as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let message = {
             let len =
                 (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
@@ -34136,7 +34709,10 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketPayloadMessageOnly {
             buf.copy_to_slice(&mut bytes);
             crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
         };
-        Ok(Self { message })
+        Ok(Self {
+            message_type,
+            message,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -35233,21 +35809,21 @@ impl Default for ReservedPacket304Field0 {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsAnimatePacketPayloadAction {
-    NoAction,
+    Noaction,
     Swing,
-    WakeUp,
-    CriticalHit,
-    MagicCriticalHit,
+    Wakeup,
+    Criticalhit,
+    Magiccriticalhit,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsAnimatePacketPayloadAction {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsAnimatePacketPayloadAction::NoAction => 0,
+            EnumsAnimatePacketPayloadAction::Noaction => 0,
             EnumsAnimatePacketPayloadAction::Swing => 1,
-            EnumsAnimatePacketPayloadAction::WakeUp => 3,
-            EnumsAnimatePacketPayloadAction::CriticalHit => 4,
-            EnumsAnimatePacketPayloadAction::MagicCriticalHit => 5,
+            EnumsAnimatePacketPayloadAction::Wakeup => 3,
+            EnumsAnimatePacketPayloadAction::Criticalhit => 4,
+            EnumsAnimatePacketPayloadAction::Magiccriticalhit => 5,
             EnumsAnimatePacketPayloadAction::Unknown(v) => *v,
         };
         1usize
@@ -35257,11 +35833,11 @@ impl crate::bedrock::codec::BedrockCodec for EnumsAnimatePacketPayloadAction {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsAnimatePacketPayloadAction::NoAction => 0,
+            EnumsAnimatePacketPayloadAction::Noaction => 0,
             EnumsAnimatePacketPayloadAction::Swing => 1,
-            EnumsAnimatePacketPayloadAction::WakeUp => 3,
-            EnumsAnimatePacketPayloadAction::CriticalHit => 4,
-            EnumsAnimatePacketPayloadAction::MagicCriticalHit => 5,
+            EnumsAnimatePacketPayloadAction::Wakeup => 3,
+            EnumsAnimatePacketPayloadAction::Criticalhit => 4,
+            EnumsAnimatePacketPayloadAction::Magiccriticalhit => 5,
             EnumsAnimatePacketPayloadAction::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -35272,18 +35848,18 @@ impl crate::bedrock::codec::BedrockCodec for EnumsAnimatePacketPayloadAction {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsAnimatePacketPayloadAction::NoAction),
+            0 => Ok(EnumsAnimatePacketPayloadAction::Noaction),
             1 => Ok(EnumsAnimatePacketPayloadAction::Swing),
-            3 => Ok(EnumsAnimatePacketPayloadAction::WakeUp),
-            4 => Ok(EnumsAnimatePacketPayloadAction::CriticalHit),
-            5 => Ok(EnumsAnimatePacketPayloadAction::MagicCriticalHit),
+            3 => Ok(EnumsAnimatePacketPayloadAction::Wakeup),
+            4 => Ok(EnumsAnimatePacketPayloadAction::Criticalhit),
+            5 => Ok(EnumsAnimatePacketPayloadAction::Magiccriticalhit),
             other => Ok(EnumsAnimatePacketPayloadAction::Unknown(other)),
         }
     }
 }
 impl Default for EnumsAnimatePacketPayloadAction {
     fn default() -> Self {
-        Self::NoAction
+        Self::Noaction
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35411,9 +35987,9 @@ impl Default for EnumsBossBarOverlay {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsBossEventUpdateType {
     Add,
-    PlayerAdded,
+    Playeradded,
     Remove,
-    PlayerRemoved,
+    Playerremoved,
     UpdatePercent,
     UpdateName,
     UpdateProperties,
@@ -35425,9 +36001,9 @@ impl crate::bedrock::codec::BedrockSized for EnumsBossEventUpdateType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsBossEventUpdateType::Add => 0,
-            EnumsBossEventUpdateType::PlayerAdded => 1,
+            EnumsBossEventUpdateType::Playeradded => 1,
             EnumsBossEventUpdateType::Remove => 2,
-            EnumsBossEventUpdateType::PlayerRemoved => 3,
+            EnumsBossEventUpdateType::Playerremoved => 3,
             EnumsBossEventUpdateType::UpdatePercent => 4,
             EnumsBossEventUpdateType::UpdateName => 5,
             EnumsBossEventUpdateType::UpdateProperties => 6,
@@ -35443,9 +36019,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsBossEventUpdateType {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsBossEventUpdateType::Add => 0,
-            EnumsBossEventUpdateType::PlayerAdded => 1,
+            EnumsBossEventUpdateType::Playeradded => 1,
             EnumsBossEventUpdateType::Remove => 2,
-            EnumsBossEventUpdateType::PlayerRemoved => 3,
+            EnumsBossEventUpdateType::Playerremoved => 3,
             EnumsBossEventUpdateType::UpdatePercent => 4,
             EnumsBossEventUpdateType::UpdateName => 5,
             EnumsBossEventUpdateType::UpdateProperties => 6,
@@ -35462,9 +36038,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsBossEventUpdateType {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsBossEventUpdateType::Add),
-            1 => Ok(EnumsBossEventUpdateType::PlayerAdded),
+            1 => Ok(EnumsBossEventUpdateType::Playeradded),
             2 => Ok(EnumsBossEventUpdateType::Remove),
-            3 => Ok(EnumsBossEventUpdateType::PlayerRemoved),
+            3 => Ok(EnumsBossEventUpdateType::Playerremoved),
             4 => Ok(EnumsBossEventUpdateType::UpdatePercent),
             5 => Ok(EnumsBossEventUpdateType::UpdateName),
             6 => Ok(EnumsBossEventUpdateType::UpdateProperties),
@@ -35568,14 +36144,14 @@ impl Default for EnumsCameraAimAssistPacketPayloadTargetMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsCameraAimAssistPresetsPacketOperation {
     Set,
-    AddToExisting,
+    Addtoexisting,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsCameraAimAssistPresetsPacketOperation {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsCameraAimAssistPresetsPacketOperation::Set => 0,
-            EnumsCameraAimAssistPresetsPacketOperation::AddToExisting => 1,
+            EnumsCameraAimAssistPresetsPacketOperation::Addtoexisting => 1,
             EnumsCameraAimAssistPresetsPacketOperation::Unknown(v) => *v,
         };
         1usize
@@ -35586,7 +36162,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsCameraAimAssistPresetsPacketOp
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsCameraAimAssistPresetsPacketOperation::Set => 0,
-            EnumsCameraAimAssistPresetsPacketOperation::AddToExisting => 1,
+            EnumsCameraAimAssistPresetsPacketOperation::Addtoexisting => 1,
             EnumsCameraAimAssistPresetsPacketOperation::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -35598,7 +36174,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsCameraAimAssistPresetsPacketOp
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsCameraAimAssistPresetsPacketOperation::Set),
-            1 => Ok(EnumsCameraAimAssistPresetsPacketOperation::AddToExisting),
+            1 => Ok(EnumsCameraAimAssistPresetsPacketOperation::Addtoexisting),
             other => Ok(EnumsCameraAimAssistPresetsPacketOperation::Unknown(other)),
         }
     }
@@ -35696,14 +36272,14 @@ impl Default for EnumsCameraShakeType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsClientCameraAimAssistPacketAction {
-    SetFromCameraPreset,
+    Setfromcamerapreset,
     Clear,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsClientCameraAimAssistPacketAction {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsClientCameraAimAssistPacketAction::SetFromCameraPreset => 0,
+            EnumsClientCameraAimAssistPacketAction::Setfromcamerapreset => 0,
             EnumsClientCameraAimAssistPacketAction::Clear => 1,
             EnumsClientCameraAimAssistPacketAction::Unknown(v) => *v,
         };
@@ -35714,7 +36290,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsClientCameraAimAssistPacketAct
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsClientCameraAimAssistPacketAction::SetFromCameraPreset => 0,
+            EnumsClientCameraAimAssistPacketAction::Setfromcamerapreset => 0,
             EnumsClientCameraAimAssistPacketAction::Clear => 1,
             EnumsClientCameraAimAssistPacketAction::Unknown(v) => *v,
         };
@@ -35726,7 +36302,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsClientCameraAimAssistPacketAct
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsClientCameraAimAssistPacketAction::SetFromCameraPreset),
+            0 => Ok(EnumsClientCameraAimAssistPacketAction::Setfromcamerapreset),
             1 => Ok(EnumsClientCameraAimAssistPacketAction::Clear),
             other => Ok(EnumsClientCameraAimAssistPacketAction::Unknown(other)),
         }
@@ -35734,7 +36310,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsClientCameraAimAssistPacketAct
 }
 impl Default for EnumsClientCameraAimAssistPacketAction {
     fn default() -> Self {
-        Self::SetFromCameraPreset
+        Self::Setfromcamerapreset
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35745,10 +36321,10 @@ pub enum EnumsClientPlayMode {
     Viewer,
     Reality,
     Placement,
-    LivingRoom,
-    ExitLevel,
-    ExitLevelLivingRoom,
-    NumModes,
+    Livingroom,
+    Exitlevel,
+    Exitlevellivingroom,
+    Nummodes,
     Unknown(u32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsClientPlayMode {
@@ -35760,10 +36336,10 @@ impl crate::bedrock::codec::BedrockSized for EnumsClientPlayMode {
             EnumsClientPlayMode::Viewer => 3,
             EnumsClientPlayMode::Reality => 4,
             EnumsClientPlayMode::Placement => 5,
-            EnumsClientPlayMode::LivingRoom => 6,
-            EnumsClientPlayMode::ExitLevel => 7,
-            EnumsClientPlayMode::ExitLevelLivingRoom => 8,
-            EnumsClientPlayMode::NumModes => 9,
+            EnumsClientPlayMode::Livingroom => 6,
+            EnumsClientPlayMode::Exitlevel => 7,
+            EnumsClientPlayMode::Exitlevellivingroom => 8,
+            EnumsClientPlayMode::Nummodes => 9,
             EnumsClientPlayMode::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
@@ -35781,10 +36357,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsClientPlayMode {
             EnumsClientPlayMode::Viewer => 3,
             EnumsClientPlayMode::Reality => 4,
             EnumsClientPlayMode::Placement => 5,
-            EnumsClientPlayMode::LivingRoom => 6,
-            EnumsClientPlayMode::ExitLevel => 7,
-            EnumsClientPlayMode::ExitLevelLivingRoom => 8,
-            EnumsClientPlayMode::NumModes => 9,
+            EnumsClientPlayMode::Livingroom => 6,
+            EnumsClientPlayMode::Exitlevel => 7,
+            EnumsClientPlayMode::Exitlevellivingroom => 8,
+            EnumsClientPlayMode::Nummodes => 9,
             EnumsClientPlayMode::Unknown(v) => *v,
         };
         crate::bedrock::codec::VarUInt(val as u32).encode(buf)
@@ -35805,10 +36381,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsClientPlayMode {
             3 => Ok(EnumsClientPlayMode::Viewer),
             4 => Ok(EnumsClientPlayMode::Reality),
             5 => Ok(EnumsClientPlayMode::Placement),
-            6 => Ok(EnumsClientPlayMode::LivingRoom),
-            7 => Ok(EnumsClientPlayMode::ExitLevel),
-            8 => Ok(EnumsClientPlayMode::ExitLevelLivingRoom),
-            9 => Ok(EnumsClientPlayMode::NumModes),
+            6 => Ok(EnumsClientPlayMode::Livingroom),
+            7 => Ok(EnumsClientPlayMode::Exitlevel),
+            8 => Ok(EnumsClientPlayMode::Exitlevellivingroom),
+            9 => Ok(EnumsClientPlayMode::Nummodes),
             other => Ok(EnumsClientPlayMode::Unknown(other)),
         }
     }
@@ -35823,7 +36399,7 @@ pub enum EnumsClientboundTextureShiftPacketPayloadAction {
     Invalid,
     Initialize,
     Start,
-    SetEnabled,
+    Setenabled,
     Sync,
     Unknown(u8),
 }
@@ -35833,7 +36409,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsClientboundTextureShiftPacketP
             EnumsClientboundTextureShiftPacketPayloadAction::Invalid => 0,
             EnumsClientboundTextureShiftPacketPayloadAction::Initialize => 1,
             EnumsClientboundTextureShiftPacketPayloadAction::Start => 2,
-            EnumsClientboundTextureShiftPacketPayloadAction::SetEnabled => 3,
+            EnumsClientboundTextureShiftPacketPayloadAction::Setenabled => 3,
             EnumsClientboundTextureShiftPacketPayloadAction::Sync => 4,
             EnumsClientboundTextureShiftPacketPayloadAction::Unknown(v) => *v,
         };
@@ -35847,7 +36423,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsClientboundTextureShiftPacketP
             EnumsClientboundTextureShiftPacketPayloadAction::Invalid => 0,
             EnumsClientboundTextureShiftPacketPayloadAction::Initialize => 1,
             EnumsClientboundTextureShiftPacketPayloadAction::Start => 2,
-            EnumsClientboundTextureShiftPacketPayloadAction::SetEnabled => 3,
+            EnumsClientboundTextureShiftPacketPayloadAction::Setenabled => 3,
             EnumsClientboundTextureShiftPacketPayloadAction::Sync => 4,
             EnumsClientboundTextureShiftPacketPayloadAction::Unknown(v) => *v,
         };
@@ -35862,7 +36438,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsClientboundTextureShiftPacketP
             0 => Ok(EnumsClientboundTextureShiftPacketPayloadAction::Invalid),
             1 => Ok(EnumsClientboundTextureShiftPacketPayloadAction::Initialize),
             2 => Ok(EnumsClientboundTextureShiftPacketPayloadAction::Start),
-            3 => Ok(EnumsClientboundTextureShiftPacketPayloadAction::SetEnabled),
+            3 => Ok(EnumsClientboundTextureShiftPacketPayloadAction::Setenabled),
             4 => Ok(EnumsClientboundTextureShiftPacketPayloadAction::Sync),
             other => Ok(EnumsClientboundTextureShiftPacketPayloadAction::Unknown(
                 other,
@@ -36035,308 +36611,312 @@ impl Default for ReservedPacket178Field0 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsConnectionDisconnectFailReason {
     Unknown,
-    CantConnectNoInternet,
-    NoPermissions,
-    UnrecoverableError,
-    ThirdPartyBlocked,
-    ThirdPartyNoInternet,
-    ThirdPartyBadIp,
-    ThirdPartyNoServerOrServerLocked,
-    VersionMismatch,
-    SkinIssue,
-    InviteSessionNotFound,
+    Cantconnectnointernet,
+    Nopermissions,
+    Unrecoverableerror,
+    Thirdpartyblocked,
+    Thirdpartynointernet,
+    Thirdpartybadip,
+    Thirdpartynoserverorserverlocked,
+    Versionmismatch,
+    Skinissue,
+    Invitesessionnotfound,
     Reserved11,
-    LocalServerNotFound,
-    LegacyDisconnect,
-    InternalUserLeaveGameAttempted,
-    PlatformLockedSkinsError,
-    RealmsWorldUnassigned,
-    RealmsServerCantConnect,
-    RealmsServerHidden,
-    RealmsServerDisabledBeta,
-    RealmsServerDisabled,
-    CrossPlatformDisabled,
-    TestonlyCantConnect,
-    SessionNotFound,
-    ClientSettingsIncompatibleWithServer,
-    ServerFull,
-    InvalidPlatformSkin,
-    EditionVersionMismatch,
-    EditionMismatch,
-    LevelNewerThanExeVersion,
-    InternalNoFailOccurred,
-    BannedSkin,
+    Localservernotfound,
+    Legacydisconnect,
+    InternalUserleavegameattempted,
+    Platformlockedskinserror,
+    Realmsworldunassigned,
+    Realmsservercantconnect,
+    Realmsserverhidden,
+    Realmsserverdisabledbeta,
+    Realmsserverdisabled,
+    Crossplatformdisabled,
+    TestonlyCantconnect,
+    Sessionnotfound,
+    Clientsettingsincompatiblewithserver,
+    Serverfull,
+    Invalidplatformskin,
+    Editionversionmismatch,
+    Editionmismatch,
+    Levelnewerthanexeversion,
+    InternalNofailoccurred,
+    Bannedskin,
     Timeout,
-    ServerNotFound,
-    OutdatedServer,
-    OutdatedClient,
-    NoPremiumPlatform,
-    MultiplayerDisabled,
-    NoWiFi,
-    WorldCorruption,
-    NoReason,
+    Servernotfound,
+    Outdatedserver,
+    Outdatedclient,
+    Nopremiumplatform,
+    Multiplayerdisabled,
+    Nowifi,
+    Worldcorruption,
+    Noreason,
     Disconnected,
-    InvalidPlayer,
-    LoggedInOtherLocation,
-    ServerIdConflict,
-    NotAllowed,
-    NotAuthenticated,
-    InvalidTenant,
-    UnknownPacket,
-    UnexpectedPacket,
-    InvalidCommandRequestPacket,
-    HostSuspended,
-    LoginPacketNoRequest,
-    LoginPacketNoCert,
-    MissingClient,
+    Invalidplayer,
+    Loggedinotherlocation,
+    Serveridconflict,
+    Notallowed,
+    Notauthenticated,
+    Invalidtenant,
+    Unknownpacket,
+    Unexpectedpacket,
+    Invalidcommandrequestpacket,
+    Hostsuspended,
+    Loginpacketnorequest,
+    Loginpacketnocert,
+    Missingclient,
     Kicked,
-    KickedForExploit,
-    KickedForIdle,
-    ResourcePackProblem,
-    IncompatiblePack,
-    OutOfStorage,
-    InvalidLevel,
-    DisconnectPacket,
-    BlockMismatch,
-    InvalidHeights,
-    InvalidWidths,
-    ConnectionLost,
-    ZombieConnection,
+    Kickedforexploit,
+    Kickedforidle,
+    Resourcepackproblem,
+    Incompatiblepack,
+    Outofstorage,
+    Invalidlevel,
+    Disconnectpacket,
+    Blockmismatch,
+    Invalidheights,
+    Invalidwidths,
+    Connectionlost,
+    Zombieconnection,
     Shutdown,
-    ReasonNotSet,
-    LoadingStateTimeout,
-    ResourcePackLoadingFailed,
-    SearchingForSessionLoadingScreenFailed,
-    NetherNetProtocolVersion,
-    SubsystemStatusError,
-    EmptyAuthFromDiscovery,
-    EmptyUrlFromDiscovery,
-    ExpiredAuthFromDiscovery,
-    UnknownSignalServiceSignInFailure,
-    XblJoinLobbyFailure,
-    UnspecifiedClientInstanceDisconnection,
-    NetherNetSessionNotFound,
-    NetherNetCreatePeerConnection,
-    NetherNetIce,
-    NetherNetConnectRequest,
-    NetherNetConnectResponse,
-    NetherNetNegotiationTimeout,
-    NetherNetInactivityTimeout,
-    StaleConnectionBeingReplaced,
-    RealmsSessionNotFound,
-    BadPacket,
-    NetherNetFailedToCreateOffer,
-    NetherNetFailedToCreateAnswer,
-    NetherNetFailedToSetLocalDescription,
-    NetherNetFailedToSetRemoteDescription,
-    NetherNetNegotiationTimeoutWaitingForResponse,
-    NetherNetNegotiationTimeoutWaitingForAccept,
-    NetherNetIncomingConnectionIgnored,
-    NetherNetSignalingParsingFailure,
-    NetherNetSignalingUnknownError,
-    NetherNetSignalingUnicastDeliveryFailed,
-    NetherNetSignalingBroadcastDeliveryFailed,
-    NetherNetSignalingGenericDeliveryFailed,
-    EditorMismatchEditorWorld,
-    EditorMismatchVanillaWorld,
-    WorldTransferNotPrimaryClient,
-    InternalRequestServerShutdown,
-    ClientGameSetupCancelled,
-    ClientGameSetupFailed,
-    NoVenue,
-    NetherNetSignalingSigninFailed,
-    SessionAccessDenied,
-    ServiceSigninIssue,
-    NetherNetNoSignalingChannel,
-    NetherNetNotLoggedIn,
-    NetherNetClientSignalingError,
-    SubClientLoginDisabled,
-    DeepLinkTryingToOpenDemoWorldWhileSignedIn,
-    AsyncJoinTaskDenied,
-    RealmsTimelineRequired,
-    GuestWithoutHost,
-    FailedToJoinExperience,
-    NetherNetDataChannelClosed,
-    DiscoveryEnvironmentMismatch,
-    HostWithoutKeys,
-    HostSignedOut,
-    ScriptWatchdogException,
-    ScriptMemoryLimitExceeded,
-    StorageLowDuringGameplay,
-    StorageFullDuringGameplay,
-    LevelStorageCorruption,
+    Reasonnotset,
+    Loadingstatetimeout,
+    Resourcepackloadingfailed,
+    Searchingforsessionloadingscreenfailed,
+    Nethernetprotocolversion,
+    Subsystemstatuserror,
+    Emptyauthfromdiscovery,
+    Emptyurlfromdiscovery,
+    Expiredauthfromdiscovery,
+    Unknownsignalservicesigninfailure,
+    Xbljoinlobbyfailure,
+    Unspecifiedclientinstancedisconnection,
+    Nethernetsessionnotfound,
+    Nethernetcreatepeerconnection,
+    Nethernetice,
+    Nethernetconnectrequest,
+    Nethernetconnectresponse,
+    Nethernetnegotiationtimeout,
+    Nethernetinactivitytimeout,
+    Staleconnectionbeingreplaced,
+    Realmssessionnotfound,
+    Badpacket,
+    Nethernetfailedtocreateoffer,
+    Nethernetfailedtocreateanswer,
+    Nethernetfailedtosetlocaldescription,
+    Nethernetfailedtosetremotedescription,
+    Nethernetnegotiationtimeoutwaitingforresponse,
+    Nethernetnegotiationtimeoutwaitingforaccept,
+    Nethernetincomingconnectionignored,
+    Nethernetsignalingparsingfailure,
+    Nethernetsignalingunknownerror,
+    Nethernetsignalingunicastdeliveryfailed,
+    Nethernetsignalingbroadcastdeliveryfailed,
+    Nethernetsignalinggenericdeliveryfailed,
+    Editormismatcheditorworld,
+    Editormismatchvanillaworld,
+    Worldtransfernotprimaryclient,
+    InternalRequestservershutdown,
+    Clientgamesetupcancelled,
+    Clientgamesetupfailed,
+    Novenue,
+    Nethernetsignalingsigninfailed,
+    Sessionaccessdenied,
+    Servicesigninissue,
+    Nethernetnosignalingchannel,
+    Nethernetnotloggedin,
+    Nethernetclientsignalingerror,
+    Subclientlogindisabled,
+    Deeplinktryingtoopendemoworldwhilesignedin,
+    Asyncjointaskdenied,
+    Realmstimelinerequired,
+    Guestwithouthost,
+    Failedtojoinexperience,
+    Nethernetdatachannelclosed,
+    Discoveryenvironmentmismatch,
+    Hostwithoutkeys,
+    Hostsignedout,
+    Scriptwatchdogexception,
+    Scriptmemorylimitexceeded,
+    Storagelowduringgameplay,
+    Storagefullduringgameplay,
+    Levelstoragecorruption,
     Reserved131,
     Reserved132,
-    EditorMismatchEditorToVanilla,
-    EditorMismatchVanillaToEditor,
-    DenyListed,
-    NonceMissing,
-    NonceNotFound,
-    NonceExpired,
-    NonceNotValid,
-    HostDisconnected,
-    EditorJoinIntentPolicyFailure,
-    NetherNetIdentityNotAllowed,
-    InvalidName,
-    ExpiredToken,
-    HostAcceptsNoTypeOfAuth,
-    NotAuthenticatedFastFail,
-    EditorNotAllowed,
+    Editormismatcheditortovanilla,
+    Editormismatchvanillatoeditor,
+    Denylisted,
+    Noncemissing,
+    Noncenotfound,
+    Nonceexpired,
+    Noncenotvalid,
+    Hostdisconnected,
+    Editorjoinintentpolicyfailure,
+    Nethernetidentitynotallowed,
+    Invalidname,
+    Expiredtoken,
+    Hostacceptsnotypeofauth,
+    Notauthenticatedfastfail,
+    Editornotallowed,
+    Missingstructuredata,
+    Unsupportedtransport,
     UnknownValue(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsConnectionDisconnectFailReason {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsConnectionDisconnectFailReason::Unknown => 0,
-            EnumsConnectionDisconnectFailReason::CantConnectNoInternet => 1,
-            EnumsConnectionDisconnectFailReason::NoPermissions => 2,
-            EnumsConnectionDisconnectFailReason::UnrecoverableError => 3,
-            EnumsConnectionDisconnectFailReason::ThirdPartyBlocked => 4,
-            EnumsConnectionDisconnectFailReason::ThirdPartyNoInternet => 5,
-            EnumsConnectionDisconnectFailReason::ThirdPartyBadIp => 6,
-            EnumsConnectionDisconnectFailReason::ThirdPartyNoServerOrServerLocked => 7,
-            EnumsConnectionDisconnectFailReason::VersionMismatch => 8,
-            EnumsConnectionDisconnectFailReason::SkinIssue => 9,
-            EnumsConnectionDisconnectFailReason::InviteSessionNotFound => 10,
+            EnumsConnectionDisconnectFailReason::Cantconnectnointernet => 1,
+            EnumsConnectionDisconnectFailReason::Nopermissions => 2,
+            EnumsConnectionDisconnectFailReason::Unrecoverableerror => 3,
+            EnumsConnectionDisconnectFailReason::Thirdpartyblocked => 4,
+            EnumsConnectionDisconnectFailReason::Thirdpartynointernet => 5,
+            EnumsConnectionDisconnectFailReason::Thirdpartybadip => 6,
+            EnumsConnectionDisconnectFailReason::Thirdpartynoserverorserverlocked => 7,
+            EnumsConnectionDisconnectFailReason::Versionmismatch => 8,
+            EnumsConnectionDisconnectFailReason::Skinissue => 9,
+            EnumsConnectionDisconnectFailReason::Invitesessionnotfound => 10,
             EnumsConnectionDisconnectFailReason::Reserved11 => 11,
-            EnumsConnectionDisconnectFailReason::LocalServerNotFound => 12,
-            EnumsConnectionDisconnectFailReason::LegacyDisconnect => 13,
-            EnumsConnectionDisconnectFailReason::InternalUserLeaveGameAttempted => 14,
-            EnumsConnectionDisconnectFailReason::PlatformLockedSkinsError => 15,
-            EnumsConnectionDisconnectFailReason::RealmsWorldUnassigned => 16,
-            EnumsConnectionDisconnectFailReason::RealmsServerCantConnect => 17,
-            EnumsConnectionDisconnectFailReason::RealmsServerHidden => 18,
-            EnumsConnectionDisconnectFailReason::RealmsServerDisabledBeta => 19,
-            EnumsConnectionDisconnectFailReason::RealmsServerDisabled => 20,
-            EnumsConnectionDisconnectFailReason::CrossPlatformDisabled => 21,
-            EnumsConnectionDisconnectFailReason::TestonlyCantConnect => 22,
-            EnumsConnectionDisconnectFailReason::SessionNotFound => 23,
-            EnumsConnectionDisconnectFailReason::ClientSettingsIncompatibleWithServer => 24,
-            EnumsConnectionDisconnectFailReason::ServerFull => 25,
-            EnumsConnectionDisconnectFailReason::InvalidPlatformSkin => 26,
-            EnumsConnectionDisconnectFailReason::EditionVersionMismatch => 27,
-            EnumsConnectionDisconnectFailReason::EditionMismatch => 28,
-            EnumsConnectionDisconnectFailReason::LevelNewerThanExeVersion => 29,
-            EnumsConnectionDisconnectFailReason::InternalNoFailOccurred => 30,
-            EnumsConnectionDisconnectFailReason::BannedSkin => 31,
+            EnumsConnectionDisconnectFailReason::Localservernotfound => 12,
+            EnumsConnectionDisconnectFailReason::Legacydisconnect => 13,
+            EnumsConnectionDisconnectFailReason::InternalUserleavegameattempted => 14,
+            EnumsConnectionDisconnectFailReason::Platformlockedskinserror => 15,
+            EnumsConnectionDisconnectFailReason::Realmsworldunassigned => 16,
+            EnumsConnectionDisconnectFailReason::Realmsservercantconnect => 17,
+            EnumsConnectionDisconnectFailReason::Realmsserverhidden => 18,
+            EnumsConnectionDisconnectFailReason::Realmsserverdisabledbeta => 19,
+            EnumsConnectionDisconnectFailReason::Realmsserverdisabled => 20,
+            EnumsConnectionDisconnectFailReason::Crossplatformdisabled => 21,
+            EnumsConnectionDisconnectFailReason::TestonlyCantconnect => 22,
+            EnumsConnectionDisconnectFailReason::Sessionnotfound => 23,
+            EnumsConnectionDisconnectFailReason::Clientsettingsincompatiblewithserver => 24,
+            EnumsConnectionDisconnectFailReason::Serverfull => 25,
+            EnumsConnectionDisconnectFailReason::Invalidplatformskin => 26,
+            EnumsConnectionDisconnectFailReason::Editionversionmismatch => 27,
+            EnumsConnectionDisconnectFailReason::Editionmismatch => 28,
+            EnumsConnectionDisconnectFailReason::Levelnewerthanexeversion => 29,
+            EnumsConnectionDisconnectFailReason::InternalNofailoccurred => 30,
+            EnumsConnectionDisconnectFailReason::Bannedskin => 31,
             EnumsConnectionDisconnectFailReason::Timeout => 32,
-            EnumsConnectionDisconnectFailReason::ServerNotFound => 33,
-            EnumsConnectionDisconnectFailReason::OutdatedServer => 34,
-            EnumsConnectionDisconnectFailReason::OutdatedClient => 35,
-            EnumsConnectionDisconnectFailReason::NoPremiumPlatform => 36,
-            EnumsConnectionDisconnectFailReason::MultiplayerDisabled => 37,
-            EnumsConnectionDisconnectFailReason::NoWiFi => 38,
-            EnumsConnectionDisconnectFailReason::WorldCorruption => 39,
-            EnumsConnectionDisconnectFailReason::NoReason => 40,
+            EnumsConnectionDisconnectFailReason::Servernotfound => 33,
+            EnumsConnectionDisconnectFailReason::Outdatedserver => 34,
+            EnumsConnectionDisconnectFailReason::Outdatedclient => 35,
+            EnumsConnectionDisconnectFailReason::Nopremiumplatform => 36,
+            EnumsConnectionDisconnectFailReason::Multiplayerdisabled => 37,
+            EnumsConnectionDisconnectFailReason::Nowifi => 38,
+            EnumsConnectionDisconnectFailReason::Worldcorruption => 39,
+            EnumsConnectionDisconnectFailReason::Noreason => 40,
             EnumsConnectionDisconnectFailReason::Disconnected => 41,
-            EnumsConnectionDisconnectFailReason::InvalidPlayer => 42,
-            EnumsConnectionDisconnectFailReason::LoggedInOtherLocation => 43,
-            EnumsConnectionDisconnectFailReason::ServerIdConflict => 44,
-            EnumsConnectionDisconnectFailReason::NotAllowed => 45,
-            EnumsConnectionDisconnectFailReason::NotAuthenticated => 46,
-            EnumsConnectionDisconnectFailReason::InvalidTenant => 47,
-            EnumsConnectionDisconnectFailReason::UnknownPacket => 48,
-            EnumsConnectionDisconnectFailReason::UnexpectedPacket => 49,
-            EnumsConnectionDisconnectFailReason::InvalidCommandRequestPacket => 50,
-            EnumsConnectionDisconnectFailReason::HostSuspended => 51,
-            EnumsConnectionDisconnectFailReason::LoginPacketNoRequest => 52,
-            EnumsConnectionDisconnectFailReason::LoginPacketNoCert => 53,
-            EnumsConnectionDisconnectFailReason::MissingClient => 54,
+            EnumsConnectionDisconnectFailReason::Invalidplayer => 42,
+            EnumsConnectionDisconnectFailReason::Loggedinotherlocation => 43,
+            EnumsConnectionDisconnectFailReason::Serveridconflict => 44,
+            EnumsConnectionDisconnectFailReason::Notallowed => 45,
+            EnumsConnectionDisconnectFailReason::Notauthenticated => 46,
+            EnumsConnectionDisconnectFailReason::Invalidtenant => 47,
+            EnumsConnectionDisconnectFailReason::Unknownpacket => 48,
+            EnumsConnectionDisconnectFailReason::Unexpectedpacket => 49,
+            EnumsConnectionDisconnectFailReason::Invalidcommandrequestpacket => 50,
+            EnumsConnectionDisconnectFailReason::Hostsuspended => 51,
+            EnumsConnectionDisconnectFailReason::Loginpacketnorequest => 52,
+            EnumsConnectionDisconnectFailReason::Loginpacketnocert => 53,
+            EnumsConnectionDisconnectFailReason::Missingclient => 54,
             EnumsConnectionDisconnectFailReason::Kicked => 55,
-            EnumsConnectionDisconnectFailReason::KickedForExploit => 56,
-            EnumsConnectionDisconnectFailReason::KickedForIdle => 57,
-            EnumsConnectionDisconnectFailReason::ResourcePackProblem => 58,
-            EnumsConnectionDisconnectFailReason::IncompatiblePack => 59,
-            EnumsConnectionDisconnectFailReason::OutOfStorage => 60,
-            EnumsConnectionDisconnectFailReason::InvalidLevel => 61,
-            EnumsConnectionDisconnectFailReason::DisconnectPacket => 62,
-            EnumsConnectionDisconnectFailReason::BlockMismatch => 63,
-            EnumsConnectionDisconnectFailReason::InvalidHeights => 64,
-            EnumsConnectionDisconnectFailReason::InvalidWidths => 65,
-            EnumsConnectionDisconnectFailReason::ConnectionLost => 66,
-            EnumsConnectionDisconnectFailReason::ZombieConnection => 67,
+            EnumsConnectionDisconnectFailReason::Kickedforexploit => 56,
+            EnumsConnectionDisconnectFailReason::Kickedforidle => 57,
+            EnumsConnectionDisconnectFailReason::Resourcepackproblem => 58,
+            EnumsConnectionDisconnectFailReason::Incompatiblepack => 59,
+            EnumsConnectionDisconnectFailReason::Outofstorage => 60,
+            EnumsConnectionDisconnectFailReason::Invalidlevel => 61,
+            EnumsConnectionDisconnectFailReason::Disconnectpacket => 62,
+            EnumsConnectionDisconnectFailReason::Blockmismatch => 63,
+            EnumsConnectionDisconnectFailReason::Invalidheights => 64,
+            EnumsConnectionDisconnectFailReason::Invalidwidths => 65,
+            EnumsConnectionDisconnectFailReason::Connectionlost => 66,
+            EnumsConnectionDisconnectFailReason::Zombieconnection => 67,
             EnumsConnectionDisconnectFailReason::Shutdown => 68,
-            EnumsConnectionDisconnectFailReason::ReasonNotSet => 69,
-            EnumsConnectionDisconnectFailReason::LoadingStateTimeout => 70,
-            EnumsConnectionDisconnectFailReason::ResourcePackLoadingFailed => 71,
-            EnumsConnectionDisconnectFailReason::SearchingForSessionLoadingScreenFailed => 72,
-            EnumsConnectionDisconnectFailReason::NetherNetProtocolVersion => 73,
-            EnumsConnectionDisconnectFailReason::SubsystemStatusError => 74,
-            EnumsConnectionDisconnectFailReason::EmptyAuthFromDiscovery => 75,
-            EnumsConnectionDisconnectFailReason::EmptyUrlFromDiscovery => 76,
-            EnumsConnectionDisconnectFailReason::ExpiredAuthFromDiscovery => 77,
-            EnumsConnectionDisconnectFailReason::UnknownSignalServiceSignInFailure => 78,
-            EnumsConnectionDisconnectFailReason::XblJoinLobbyFailure => 79,
-            EnumsConnectionDisconnectFailReason::UnspecifiedClientInstanceDisconnection => 80,
-            EnumsConnectionDisconnectFailReason::NetherNetSessionNotFound => 81,
-            EnumsConnectionDisconnectFailReason::NetherNetCreatePeerConnection => 82,
-            EnumsConnectionDisconnectFailReason::NetherNetIce => 83,
-            EnumsConnectionDisconnectFailReason::NetherNetConnectRequest => 84,
-            EnumsConnectionDisconnectFailReason::NetherNetConnectResponse => 85,
-            EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeout => 86,
-            EnumsConnectionDisconnectFailReason::NetherNetInactivityTimeout => 87,
-            EnumsConnectionDisconnectFailReason::StaleConnectionBeingReplaced => 88,
-            EnumsConnectionDisconnectFailReason::RealmsSessionNotFound => 89,
-            EnumsConnectionDisconnectFailReason::BadPacket => 90,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToCreateOffer => 91,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToCreateAnswer => 92,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToSetLocalDescription => 93,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToSetRemoteDescription => 94,
-            EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeoutWaitingForResponse => {
+            EnumsConnectionDisconnectFailReason::Reasonnotset => 69,
+            EnumsConnectionDisconnectFailReason::Loadingstatetimeout => 70,
+            EnumsConnectionDisconnectFailReason::Resourcepackloadingfailed => 71,
+            EnumsConnectionDisconnectFailReason::Searchingforsessionloadingscreenfailed => 72,
+            EnumsConnectionDisconnectFailReason::Nethernetprotocolversion => 73,
+            EnumsConnectionDisconnectFailReason::Subsystemstatuserror => 74,
+            EnumsConnectionDisconnectFailReason::Emptyauthfromdiscovery => 75,
+            EnumsConnectionDisconnectFailReason::Emptyurlfromdiscovery => 76,
+            EnumsConnectionDisconnectFailReason::Expiredauthfromdiscovery => 77,
+            EnumsConnectionDisconnectFailReason::Unknownsignalservicesigninfailure => 78,
+            EnumsConnectionDisconnectFailReason::Xbljoinlobbyfailure => 79,
+            EnumsConnectionDisconnectFailReason::Unspecifiedclientinstancedisconnection => 80,
+            EnumsConnectionDisconnectFailReason::Nethernetsessionnotfound => 81,
+            EnumsConnectionDisconnectFailReason::Nethernetcreatepeerconnection => 82,
+            EnumsConnectionDisconnectFailReason::Nethernetice => 83,
+            EnumsConnectionDisconnectFailReason::Nethernetconnectrequest => 84,
+            EnumsConnectionDisconnectFailReason::Nethernetconnectresponse => 85,
+            EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeout => 86,
+            EnumsConnectionDisconnectFailReason::Nethernetinactivitytimeout => 87,
+            EnumsConnectionDisconnectFailReason::Staleconnectionbeingreplaced => 88,
+            EnumsConnectionDisconnectFailReason::Realmssessionnotfound => 89,
+            EnumsConnectionDisconnectFailReason::Badpacket => 90,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtocreateoffer => 91,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtocreateanswer => 92,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtosetlocaldescription => 93,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtosetremotedescription => 94,
+            EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeoutwaitingforresponse => {
                 95
             }
-            EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeoutWaitingForAccept => 96,
-            EnumsConnectionDisconnectFailReason::NetherNetIncomingConnectionIgnored => 97,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingParsingFailure => 98,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingUnknownError => 99,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingUnicastDeliveryFailed => 100,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingBroadcastDeliveryFailed => 101,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingGenericDeliveryFailed => 102,
-            EnumsConnectionDisconnectFailReason::EditorMismatchEditorWorld => 103,
-            EnumsConnectionDisconnectFailReason::EditorMismatchVanillaWorld => 104,
-            EnumsConnectionDisconnectFailReason::WorldTransferNotPrimaryClient => 105,
-            EnumsConnectionDisconnectFailReason::InternalRequestServerShutdown => 106,
-            EnumsConnectionDisconnectFailReason::ClientGameSetupCancelled => 107,
-            EnumsConnectionDisconnectFailReason::ClientGameSetupFailed => 108,
-            EnumsConnectionDisconnectFailReason::NoVenue => 109,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingSigninFailed => 110,
-            EnumsConnectionDisconnectFailReason::SessionAccessDenied => 111,
-            EnumsConnectionDisconnectFailReason::ServiceSigninIssue => 112,
-            EnumsConnectionDisconnectFailReason::NetherNetNoSignalingChannel => 113,
-            EnumsConnectionDisconnectFailReason::NetherNetNotLoggedIn => 114,
-            EnumsConnectionDisconnectFailReason::NetherNetClientSignalingError => 115,
-            EnumsConnectionDisconnectFailReason::SubClientLoginDisabled => 116,
-            EnumsConnectionDisconnectFailReason::DeepLinkTryingToOpenDemoWorldWhileSignedIn => 117,
-            EnumsConnectionDisconnectFailReason::AsyncJoinTaskDenied => 118,
-            EnumsConnectionDisconnectFailReason::RealmsTimelineRequired => 119,
-            EnumsConnectionDisconnectFailReason::GuestWithoutHost => 120,
-            EnumsConnectionDisconnectFailReason::FailedToJoinExperience => 121,
-            EnumsConnectionDisconnectFailReason::NetherNetDataChannelClosed => 122,
-            EnumsConnectionDisconnectFailReason::DiscoveryEnvironmentMismatch => 123,
-            EnumsConnectionDisconnectFailReason::HostWithoutKeys => 124,
-            EnumsConnectionDisconnectFailReason::HostSignedOut => 125,
-            EnumsConnectionDisconnectFailReason::ScriptWatchdogException => 126,
-            EnumsConnectionDisconnectFailReason::ScriptMemoryLimitExceeded => 127,
-            EnumsConnectionDisconnectFailReason::StorageLowDuringGameplay => 128,
-            EnumsConnectionDisconnectFailReason::StorageFullDuringGameplay => 129,
-            EnumsConnectionDisconnectFailReason::LevelStorageCorruption => 130,
+            EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeoutwaitingforaccept => 96,
+            EnumsConnectionDisconnectFailReason::Nethernetincomingconnectionignored => 97,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingparsingfailure => 98,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingunknownerror => 99,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingunicastdeliveryfailed => 100,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingbroadcastdeliveryfailed => 101,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalinggenericdeliveryfailed => 102,
+            EnumsConnectionDisconnectFailReason::Editormismatcheditorworld => 103,
+            EnumsConnectionDisconnectFailReason::Editormismatchvanillaworld => 104,
+            EnumsConnectionDisconnectFailReason::Worldtransfernotprimaryclient => 105,
+            EnumsConnectionDisconnectFailReason::InternalRequestservershutdown => 106,
+            EnumsConnectionDisconnectFailReason::Clientgamesetupcancelled => 107,
+            EnumsConnectionDisconnectFailReason::Clientgamesetupfailed => 108,
+            EnumsConnectionDisconnectFailReason::Novenue => 109,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingsigninfailed => 110,
+            EnumsConnectionDisconnectFailReason::Sessionaccessdenied => 111,
+            EnumsConnectionDisconnectFailReason::Servicesigninissue => 112,
+            EnumsConnectionDisconnectFailReason::Nethernetnosignalingchannel => 113,
+            EnumsConnectionDisconnectFailReason::Nethernetnotloggedin => 114,
+            EnumsConnectionDisconnectFailReason::Nethernetclientsignalingerror => 115,
+            EnumsConnectionDisconnectFailReason::Subclientlogindisabled => 116,
+            EnumsConnectionDisconnectFailReason::Deeplinktryingtoopendemoworldwhilesignedin => 117,
+            EnumsConnectionDisconnectFailReason::Asyncjointaskdenied => 118,
+            EnumsConnectionDisconnectFailReason::Realmstimelinerequired => 119,
+            EnumsConnectionDisconnectFailReason::Guestwithouthost => 120,
+            EnumsConnectionDisconnectFailReason::Failedtojoinexperience => 121,
+            EnumsConnectionDisconnectFailReason::Nethernetdatachannelclosed => 122,
+            EnumsConnectionDisconnectFailReason::Discoveryenvironmentmismatch => 123,
+            EnumsConnectionDisconnectFailReason::Hostwithoutkeys => 124,
+            EnumsConnectionDisconnectFailReason::Hostsignedout => 125,
+            EnumsConnectionDisconnectFailReason::Scriptwatchdogexception => 126,
+            EnumsConnectionDisconnectFailReason::Scriptmemorylimitexceeded => 127,
+            EnumsConnectionDisconnectFailReason::Storagelowduringgameplay => 128,
+            EnumsConnectionDisconnectFailReason::Storagefullduringgameplay => 129,
+            EnumsConnectionDisconnectFailReason::Levelstoragecorruption => 130,
             EnumsConnectionDisconnectFailReason::Reserved131 => 131,
             EnumsConnectionDisconnectFailReason::Reserved132 => 132,
-            EnumsConnectionDisconnectFailReason::EditorMismatchEditorToVanilla => 133,
-            EnumsConnectionDisconnectFailReason::EditorMismatchVanillaToEditor => 134,
-            EnumsConnectionDisconnectFailReason::DenyListed => 135,
-            EnumsConnectionDisconnectFailReason::NonceMissing => 136,
-            EnumsConnectionDisconnectFailReason::NonceNotFound => 137,
-            EnumsConnectionDisconnectFailReason::NonceExpired => 138,
-            EnumsConnectionDisconnectFailReason::NonceNotValid => 139,
-            EnumsConnectionDisconnectFailReason::HostDisconnected => 140,
-            EnumsConnectionDisconnectFailReason::EditorJoinIntentPolicyFailure => 141,
-            EnumsConnectionDisconnectFailReason::NetherNetIdentityNotAllowed => 142,
-            EnumsConnectionDisconnectFailReason::InvalidName => 143,
-            EnumsConnectionDisconnectFailReason::ExpiredToken => 144,
-            EnumsConnectionDisconnectFailReason::HostAcceptsNoTypeOfAuth => 145,
-            EnumsConnectionDisconnectFailReason::NotAuthenticatedFastFail => 146,
-            EnumsConnectionDisconnectFailReason::EditorNotAllowed => 147,
+            EnumsConnectionDisconnectFailReason::Editormismatcheditortovanilla => 133,
+            EnumsConnectionDisconnectFailReason::Editormismatchvanillatoeditor => 134,
+            EnumsConnectionDisconnectFailReason::Denylisted => 135,
+            EnumsConnectionDisconnectFailReason::Noncemissing => 136,
+            EnumsConnectionDisconnectFailReason::Noncenotfound => 137,
+            EnumsConnectionDisconnectFailReason::Nonceexpired => 138,
+            EnumsConnectionDisconnectFailReason::Noncenotvalid => 139,
+            EnumsConnectionDisconnectFailReason::Hostdisconnected => 140,
+            EnumsConnectionDisconnectFailReason::Editorjoinintentpolicyfailure => 141,
+            EnumsConnectionDisconnectFailReason::Nethernetidentitynotallowed => 142,
+            EnumsConnectionDisconnectFailReason::Invalidname => 143,
+            EnumsConnectionDisconnectFailReason::Expiredtoken => 144,
+            EnumsConnectionDisconnectFailReason::Hostacceptsnotypeofauth => 145,
+            EnumsConnectionDisconnectFailReason::Notauthenticatedfastfail => 146,
+            EnumsConnectionDisconnectFailReason::Editornotallowed => 147,
+            EnumsConnectionDisconnectFailReason::Missingstructuredata => 148,
+            EnumsConnectionDisconnectFailReason::Unsupportedtransport => 149,
             EnumsConnectionDisconnectFailReason::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -36349,155 +36929,157 @@ impl crate::bedrock::codec::BedrockCodec for EnumsConnectionDisconnectFailReason
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsConnectionDisconnectFailReason::Unknown => 0,
-            EnumsConnectionDisconnectFailReason::CantConnectNoInternet => 1,
-            EnumsConnectionDisconnectFailReason::NoPermissions => 2,
-            EnumsConnectionDisconnectFailReason::UnrecoverableError => 3,
-            EnumsConnectionDisconnectFailReason::ThirdPartyBlocked => 4,
-            EnumsConnectionDisconnectFailReason::ThirdPartyNoInternet => 5,
-            EnumsConnectionDisconnectFailReason::ThirdPartyBadIp => 6,
-            EnumsConnectionDisconnectFailReason::ThirdPartyNoServerOrServerLocked => 7,
-            EnumsConnectionDisconnectFailReason::VersionMismatch => 8,
-            EnumsConnectionDisconnectFailReason::SkinIssue => 9,
-            EnumsConnectionDisconnectFailReason::InviteSessionNotFound => 10,
+            EnumsConnectionDisconnectFailReason::Cantconnectnointernet => 1,
+            EnumsConnectionDisconnectFailReason::Nopermissions => 2,
+            EnumsConnectionDisconnectFailReason::Unrecoverableerror => 3,
+            EnumsConnectionDisconnectFailReason::Thirdpartyblocked => 4,
+            EnumsConnectionDisconnectFailReason::Thirdpartynointernet => 5,
+            EnumsConnectionDisconnectFailReason::Thirdpartybadip => 6,
+            EnumsConnectionDisconnectFailReason::Thirdpartynoserverorserverlocked => 7,
+            EnumsConnectionDisconnectFailReason::Versionmismatch => 8,
+            EnumsConnectionDisconnectFailReason::Skinissue => 9,
+            EnumsConnectionDisconnectFailReason::Invitesessionnotfound => 10,
             EnumsConnectionDisconnectFailReason::Reserved11 => 11,
-            EnumsConnectionDisconnectFailReason::LocalServerNotFound => 12,
-            EnumsConnectionDisconnectFailReason::LegacyDisconnect => 13,
-            EnumsConnectionDisconnectFailReason::InternalUserLeaveGameAttempted => 14,
-            EnumsConnectionDisconnectFailReason::PlatformLockedSkinsError => 15,
-            EnumsConnectionDisconnectFailReason::RealmsWorldUnassigned => 16,
-            EnumsConnectionDisconnectFailReason::RealmsServerCantConnect => 17,
-            EnumsConnectionDisconnectFailReason::RealmsServerHidden => 18,
-            EnumsConnectionDisconnectFailReason::RealmsServerDisabledBeta => 19,
-            EnumsConnectionDisconnectFailReason::RealmsServerDisabled => 20,
-            EnumsConnectionDisconnectFailReason::CrossPlatformDisabled => 21,
-            EnumsConnectionDisconnectFailReason::TestonlyCantConnect => 22,
-            EnumsConnectionDisconnectFailReason::SessionNotFound => 23,
-            EnumsConnectionDisconnectFailReason::ClientSettingsIncompatibleWithServer => 24,
-            EnumsConnectionDisconnectFailReason::ServerFull => 25,
-            EnumsConnectionDisconnectFailReason::InvalidPlatformSkin => 26,
-            EnumsConnectionDisconnectFailReason::EditionVersionMismatch => 27,
-            EnumsConnectionDisconnectFailReason::EditionMismatch => 28,
-            EnumsConnectionDisconnectFailReason::LevelNewerThanExeVersion => 29,
-            EnumsConnectionDisconnectFailReason::InternalNoFailOccurred => 30,
-            EnumsConnectionDisconnectFailReason::BannedSkin => 31,
+            EnumsConnectionDisconnectFailReason::Localservernotfound => 12,
+            EnumsConnectionDisconnectFailReason::Legacydisconnect => 13,
+            EnumsConnectionDisconnectFailReason::InternalUserleavegameattempted => 14,
+            EnumsConnectionDisconnectFailReason::Platformlockedskinserror => 15,
+            EnumsConnectionDisconnectFailReason::Realmsworldunassigned => 16,
+            EnumsConnectionDisconnectFailReason::Realmsservercantconnect => 17,
+            EnumsConnectionDisconnectFailReason::Realmsserverhidden => 18,
+            EnumsConnectionDisconnectFailReason::Realmsserverdisabledbeta => 19,
+            EnumsConnectionDisconnectFailReason::Realmsserverdisabled => 20,
+            EnumsConnectionDisconnectFailReason::Crossplatformdisabled => 21,
+            EnumsConnectionDisconnectFailReason::TestonlyCantconnect => 22,
+            EnumsConnectionDisconnectFailReason::Sessionnotfound => 23,
+            EnumsConnectionDisconnectFailReason::Clientsettingsincompatiblewithserver => 24,
+            EnumsConnectionDisconnectFailReason::Serverfull => 25,
+            EnumsConnectionDisconnectFailReason::Invalidplatformskin => 26,
+            EnumsConnectionDisconnectFailReason::Editionversionmismatch => 27,
+            EnumsConnectionDisconnectFailReason::Editionmismatch => 28,
+            EnumsConnectionDisconnectFailReason::Levelnewerthanexeversion => 29,
+            EnumsConnectionDisconnectFailReason::InternalNofailoccurred => 30,
+            EnumsConnectionDisconnectFailReason::Bannedskin => 31,
             EnumsConnectionDisconnectFailReason::Timeout => 32,
-            EnumsConnectionDisconnectFailReason::ServerNotFound => 33,
-            EnumsConnectionDisconnectFailReason::OutdatedServer => 34,
-            EnumsConnectionDisconnectFailReason::OutdatedClient => 35,
-            EnumsConnectionDisconnectFailReason::NoPremiumPlatform => 36,
-            EnumsConnectionDisconnectFailReason::MultiplayerDisabled => 37,
-            EnumsConnectionDisconnectFailReason::NoWiFi => 38,
-            EnumsConnectionDisconnectFailReason::WorldCorruption => 39,
-            EnumsConnectionDisconnectFailReason::NoReason => 40,
+            EnumsConnectionDisconnectFailReason::Servernotfound => 33,
+            EnumsConnectionDisconnectFailReason::Outdatedserver => 34,
+            EnumsConnectionDisconnectFailReason::Outdatedclient => 35,
+            EnumsConnectionDisconnectFailReason::Nopremiumplatform => 36,
+            EnumsConnectionDisconnectFailReason::Multiplayerdisabled => 37,
+            EnumsConnectionDisconnectFailReason::Nowifi => 38,
+            EnumsConnectionDisconnectFailReason::Worldcorruption => 39,
+            EnumsConnectionDisconnectFailReason::Noreason => 40,
             EnumsConnectionDisconnectFailReason::Disconnected => 41,
-            EnumsConnectionDisconnectFailReason::InvalidPlayer => 42,
-            EnumsConnectionDisconnectFailReason::LoggedInOtherLocation => 43,
-            EnumsConnectionDisconnectFailReason::ServerIdConflict => 44,
-            EnumsConnectionDisconnectFailReason::NotAllowed => 45,
-            EnumsConnectionDisconnectFailReason::NotAuthenticated => 46,
-            EnumsConnectionDisconnectFailReason::InvalidTenant => 47,
-            EnumsConnectionDisconnectFailReason::UnknownPacket => 48,
-            EnumsConnectionDisconnectFailReason::UnexpectedPacket => 49,
-            EnumsConnectionDisconnectFailReason::InvalidCommandRequestPacket => 50,
-            EnumsConnectionDisconnectFailReason::HostSuspended => 51,
-            EnumsConnectionDisconnectFailReason::LoginPacketNoRequest => 52,
-            EnumsConnectionDisconnectFailReason::LoginPacketNoCert => 53,
-            EnumsConnectionDisconnectFailReason::MissingClient => 54,
+            EnumsConnectionDisconnectFailReason::Invalidplayer => 42,
+            EnumsConnectionDisconnectFailReason::Loggedinotherlocation => 43,
+            EnumsConnectionDisconnectFailReason::Serveridconflict => 44,
+            EnumsConnectionDisconnectFailReason::Notallowed => 45,
+            EnumsConnectionDisconnectFailReason::Notauthenticated => 46,
+            EnumsConnectionDisconnectFailReason::Invalidtenant => 47,
+            EnumsConnectionDisconnectFailReason::Unknownpacket => 48,
+            EnumsConnectionDisconnectFailReason::Unexpectedpacket => 49,
+            EnumsConnectionDisconnectFailReason::Invalidcommandrequestpacket => 50,
+            EnumsConnectionDisconnectFailReason::Hostsuspended => 51,
+            EnumsConnectionDisconnectFailReason::Loginpacketnorequest => 52,
+            EnumsConnectionDisconnectFailReason::Loginpacketnocert => 53,
+            EnumsConnectionDisconnectFailReason::Missingclient => 54,
             EnumsConnectionDisconnectFailReason::Kicked => 55,
-            EnumsConnectionDisconnectFailReason::KickedForExploit => 56,
-            EnumsConnectionDisconnectFailReason::KickedForIdle => 57,
-            EnumsConnectionDisconnectFailReason::ResourcePackProblem => 58,
-            EnumsConnectionDisconnectFailReason::IncompatiblePack => 59,
-            EnumsConnectionDisconnectFailReason::OutOfStorage => 60,
-            EnumsConnectionDisconnectFailReason::InvalidLevel => 61,
-            EnumsConnectionDisconnectFailReason::DisconnectPacket => 62,
-            EnumsConnectionDisconnectFailReason::BlockMismatch => 63,
-            EnumsConnectionDisconnectFailReason::InvalidHeights => 64,
-            EnumsConnectionDisconnectFailReason::InvalidWidths => 65,
-            EnumsConnectionDisconnectFailReason::ConnectionLost => 66,
-            EnumsConnectionDisconnectFailReason::ZombieConnection => 67,
+            EnumsConnectionDisconnectFailReason::Kickedforexploit => 56,
+            EnumsConnectionDisconnectFailReason::Kickedforidle => 57,
+            EnumsConnectionDisconnectFailReason::Resourcepackproblem => 58,
+            EnumsConnectionDisconnectFailReason::Incompatiblepack => 59,
+            EnumsConnectionDisconnectFailReason::Outofstorage => 60,
+            EnumsConnectionDisconnectFailReason::Invalidlevel => 61,
+            EnumsConnectionDisconnectFailReason::Disconnectpacket => 62,
+            EnumsConnectionDisconnectFailReason::Blockmismatch => 63,
+            EnumsConnectionDisconnectFailReason::Invalidheights => 64,
+            EnumsConnectionDisconnectFailReason::Invalidwidths => 65,
+            EnumsConnectionDisconnectFailReason::Connectionlost => 66,
+            EnumsConnectionDisconnectFailReason::Zombieconnection => 67,
             EnumsConnectionDisconnectFailReason::Shutdown => 68,
-            EnumsConnectionDisconnectFailReason::ReasonNotSet => 69,
-            EnumsConnectionDisconnectFailReason::LoadingStateTimeout => 70,
-            EnumsConnectionDisconnectFailReason::ResourcePackLoadingFailed => 71,
-            EnumsConnectionDisconnectFailReason::SearchingForSessionLoadingScreenFailed => 72,
-            EnumsConnectionDisconnectFailReason::NetherNetProtocolVersion => 73,
-            EnumsConnectionDisconnectFailReason::SubsystemStatusError => 74,
-            EnumsConnectionDisconnectFailReason::EmptyAuthFromDiscovery => 75,
-            EnumsConnectionDisconnectFailReason::EmptyUrlFromDiscovery => 76,
-            EnumsConnectionDisconnectFailReason::ExpiredAuthFromDiscovery => 77,
-            EnumsConnectionDisconnectFailReason::UnknownSignalServiceSignInFailure => 78,
-            EnumsConnectionDisconnectFailReason::XblJoinLobbyFailure => 79,
-            EnumsConnectionDisconnectFailReason::UnspecifiedClientInstanceDisconnection => 80,
-            EnumsConnectionDisconnectFailReason::NetherNetSessionNotFound => 81,
-            EnumsConnectionDisconnectFailReason::NetherNetCreatePeerConnection => 82,
-            EnumsConnectionDisconnectFailReason::NetherNetIce => 83,
-            EnumsConnectionDisconnectFailReason::NetherNetConnectRequest => 84,
-            EnumsConnectionDisconnectFailReason::NetherNetConnectResponse => 85,
-            EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeout => 86,
-            EnumsConnectionDisconnectFailReason::NetherNetInactivityTimeout => 87,
-            EnumsConnectionDisconnectFailReason::StaleConnectionBeingReplaced => 88,
-            EnumsConnectionDisconnectFailReason::RealmsSessionNotFound => 89,
-            EnumsConnectionDisconnectFailReason::BadPacket => 90,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToCreateOffer => 91,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToCreateAnswer => 92,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToSetLocalDescription => 93,
-            EnumsConnectionDisconnectFailReason::NetherNetFailedToSetRemoteDescription => 94,
-            EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeoutWaitingForResponse => {
+            EnumsConnectionDisconnectFailReason::Reasonnotset => 69,
+            EnumsConnectionDisconnectFailReason::Loadingstatetimeout => 70,
+            EnumsConnectionDisconnectFailReason::Resourcepackloadingfailed => 71,
+            EnumsConnectionDisconnectFailReason::Searchingforsessionloadingscreenfailed => 72,
+            EnumsConnectionDisconnectFailReason::Nethernetprotocolversion => 73,
+            EnumsConnectionDisconnectFailReason::Subsystemstatuserror => 74,
+            EnumsConnectionDisconnectFailReason::Emptyauthfromdiscovery => 75,
+            EnumsConnectionDisconnectFailReason::Emptyurlfromdiscovery => 76,
+            EnumsConnectionDisconnectFailReason::Expiredauthfromdiscovery => 77,
+            EnumsConnectionDisconnectFailReason::Unknownsignalservicesigninfailure => 78,
+            EnumsConnectionDisconnectFailReason::Xbljoinlobbyfailure => 79,
+            EnumsConnectionDisconnectFailReason::Unspecifiedclientinstancedisconnection => 80,
+            EnumsConnectionDisconnectFailReason::Nethernetsessionnotfound => 81,
+            EnumsConnectionDisconnectFailReason::Nethernetcreatepeerconnection => 82,
+            EnumsConnectionDisconnectFailReason::Nethernetice => 83,
+            EnumsConnectionDisconnectFailReason::Nethernetconnectrequest => 84,
+            EnumsConnectionDisconnectFailReason::Nethernetconnectresponse => 85,
+            EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeout => 86,
+            EnumsConnectionDisconnectFailReason::Nethernetinactivitytimeout => 87,
+            EnumsConnectionDisconnectFailReason::Staleconnectionbeingreplaced => 88,
+            EnumsConnectionDisconnectFailReason::Realmssessionnotfound => 89,
+            EnumsConnectionDisconnectFailReason::Badpacket => 90,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtocreateoffer => 91,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtocreateanswer => 92,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtosetlocaldescription => 93,
+            EnumsConnectionDisconnectFailReason::Nethernetfailedtosetremotedescription => 94,
+            EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeoutwaitingforresponse => {
                 95
             }
-            EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeoutWaitingForAccept => 96,
-            EnumsConnectionDisconnectFailReason::NetherNetIncomingConnectionIgnored => 97,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingParsingFailure => 98,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingUnknownError => 99,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingUnicastDeliveryFailed => 100,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingBroadcastDeliveryFailed => 101,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingGenericDeliveryFailed => 102,
-            EnumsConnectionDisconnectFailReason::EditorMismatchEditorWorld => 103,
-            EnumsConnectionDisconnectFailReason::EditorMismatchVanillaWorld => 104,
-            EnumsConnectionDisconnectFailReason::WorldTransferNotPrimaryClient => 105,
-            EnumsConnectionDisconnectFailReason::InternalRequestServerShutdown => 106,
-            EnumsConnectionDisconnectFailReason::ClientGameSetupCancelled => 107,
-            EnumsConnectionDisconnectFailReason::ClientGameSetupFailed => 108,
-            EnumsConnectionDisconnectFailReason::NoVenue => 109,
-            EnumsConnectionDisconnectFailReason::NetherNetSignalingSigninFailed => 110,
-            EnumsConnectionDisconnectFailReason::SessionAccessDenied => 111,
-            EnumsConnectionDisconnectFailReason::ServiceSigninIssue => 112,
-            EnumsConnectionDisconnectFailReason::NetherNetNoSignalingChannel => 113,
-            EnumsConnectionDisconnectFailReason::NetherNetNotLoggedIn => 114,
-            EnumsConnectionDisconnectFailReason::NetherNetClientSignalingError => 115,
-            EnumsConnectionDisconnectFailReason::SubClientLoginDisabled => 116,
-            EnumsConnectionDisconnectFailReason::DeepLinkTryingToOpenDemoWorldWhileSignedIn => 117,
-            EnumsConnectionDisconnectFailReason::AsyncJoinTaskDenied => 118,
-            EnumsConnectionDisconnectFailReason::RealmsTimelineRequired => 119,
-            EnumsConnectionDisconnectFailReason::GuestWithoutHost => 120,
-            EnumsConnectionDisconnectFailReason::FailedToJoinExperience => 121,
-            EnumsConnectionDisconnectFailReason::NetherNetDataChannelClosed => 122,
-            EnumsConnectionDisconnectFailReason::DiscoveryEnvironmentMismatch => 123,
-            EnumsConnectionDisconnectFailReason::HostWithoutKeys => 124,
-            EnumsConnectionDisconnectFailReason::HostSignedOut => 125,
-            EnumsConnectionDisconnectFailReason::ScriptWatchdogException => 126,
-            EnumsConnectionDisconnectFailReason::ScriptMemoryLimitExceeded => 127,
-            EnumsConnectionDisconnectFailReason::StorageLowDuringGameplay => 128,
-            EnumsConnectionDisconnectFailReason::StorageFullDuringGameplay => 129,
-            EnumsConnectionDisconnectFailReason::LevelStorageCorruption => 130,
+            EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeoutwaitingforaccept => 96,
+            EnumsConnectionDisconnectFailReason::Nethernetincomingconnectionignored => 97,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingparsingfailure => 98,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingunknownerror => 99,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingunicastdeliveryfailed => 100,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingbroadcastdeliveryfailed => 101,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalinggenericdeliveryfailed => 102,
+            EnumsConnectionDisconnectFailReason::Editormismatcheditorworld => 103,
+            EnumsConnectionDisconnectFailReason::Editormismatchvanillaworld => 104,
+            EnumsConnectionDisconnectFailReason::Worldtransfernotprimaryclient => 105,
+            EnumsConnectionDisconnectFailReason::InternalRequestservershutdown => 106,
+            EnumsConnectionDisconnectFailReason::Clientgamesetupcancelled => 107,
+            EnumsConnectionDisconnectFailReason::Clientgamesetupfailed => 108,
+            EnumsConnectionDisconnectFailReason::Novenue => 109,
+            EnumsConnectionDisconnectFailReason::Nethernetsignalingsigninfailed => 110,
+            EnumsConnectionDisconnectFailReason::Sessionaccessdenied => 111,
+            EnumsConnectionDisconnectFailReason::Servicesigninissue => 112,
+            EnumsConnectionDisconnectFailReason::Nethernetnosignalingchannel => 113,
+            EnumsConnectionDisconnectFailReason::Nethernetnotloggedin => 114,
+            EnumsConnectionDisconnectFailReason::Nethernetclientsignalingerror => 115,
+            EnumsConnectionDisconnectFailReason::Subclientlogindisabled => 116,
+            EnumsConnectionDisconnectFailReason::Deeplinktryingtoopendemoworldwhilesignedin => 117,
+            EnumsConnectionDisconnectFailReason::Asyncjointaskdenied => 118,
+            EnumsConnectionDisconnectFailReason::Realmstimelinerequired => 119,
+            EnumsConnectionDisconnectFailReason::Guestwithouthost => 120,
+            EnumsConnectionDisconnectFailReason::Failedtojoinexperience => 121,
+            EnumsConnectionDisconnectFailReason::Nethernetdatachannelclosed => 122,
+            EnumsConnectionDisconnectFailReason::Discoveryenvironmentmismatch => 123,
+            EnumsConnectionDisconnectFailReason::Hostwithoutkeys => 124,
+            EnumsConnectionDisconnectFailReason::Hostsignedout => 125,
+            EnumsConnectionDisconnectFailReason::Scriptwatchdogexception => 126,
+            EnumsConnectionDisconnectFailReason::Scriptmemorylimitexceeded => 127,
+            EnumsConnectionDisconnectFailReason::Storagelowduringgameplay => 128,
+            EnumsConnectionDisconnectFailReason::Storagefullduringgameplay => 129,
+            EnumsConnectionDisconnectFailReason::Levelstoragecorruption => 130,
             EnumsConnectionDisconnectFailReason::Reserved131 => 131,
             EnumsConnectionDisconnectFailReason::Reserved132 => 132,
-            EnumsConnectionDisconnectFailReason::EditorMismatchEditorToVanilla => 133,
-            EnumsConnectionDisconnectFailReason::EditorMismatchVanillaToEditor => 134,
-            EnumsConnectionDisconnectFailReason::DenyListed => 135,
-            EnumsConnectionDisconnectFailReason::NonceMissing => 136,
-            EnumsConnectionDisconnectFailReason::NonceNotFound => 137,
-            EnumsConnectionDisconnectFailReason::NonceExpired => 138,
-            EnumsConnectionDisconnectFailReason::NonceNotValid => 139,
-            EnumsConnectionDisconnectFailReason::HostDisconnected => 140,
-            EnumsConnectionDisconnectFailReason::EditorJoinIntentPolicyFailure => 141,
-            EnumsConnectionDisconnectFailReason::NetherNetIdentityNotAllowed => 142,
-            EnumsConnectionDisconnectFailReason::InvalidName => 143,
-            EnumsConnectionDisconnectFailReason::ExpiredToken => 144,
-            EnumsConnectionDisconnectFailReason::HostAcceptsNoTypeOfAuth => 145,
-            EnumsConnectionDisconnectFailReason::NotAuthenticatedFastFail => 146,
-            EnumsConnectionDisconnectFailReason::EditorNotAllowed => 147,
+            EnumsConnectionDisconnectFailReason::Editormismatcheditortovanilla => 133,
+            EnumsConnectionDisconnectFailReason::Editormismatchvanillatoeditor => 134,
+            EnumsConnectionDisconnectFailReason::Denylisted => 135,
+            EnumsConnectionDisconnectFailReason::Noncemissing => 136,
+            EnumsConnectionDisconnectFailReason::Noncenotfound => 137,
+            EnumsConnectionDisconnectFailReason::Nonceexpired => 138,
+            EnumsConnectionDisconnectFailReason::Noncenotvalid => 139,
+            EnumsConnectionDisconnectFailReason::Hostdisconnected => 140,
+            EnumsConnectionDisconnectFailReason::Editorjoinintentpolicyfailure => 141,
+            EnumsConnectionDisconnectFailReason::Nethernetidentitynotallowed => 142,
+            EnumsConnectionDisconnectFailReason::Invalidname => 143,
+            EnumsConnectionDisconnectFailReason::Expiredtoken => 144,
+            EnumsConnectionDisconnectFailReason::Hostacceptsnotypeofauth => 145,
+            EnumsConnectionDisconnectFailReason::Notauthenticatedfastfail => 146,
+            EnumsConnectionDisconnectFailReason::Editornotallowed => 147,
+            EnumsConnectionDisconnectFailReason::Missingstructuredata => 148,
+            EnumsConnectionDisconnectFailReason::Unsupportedtransport => 149,
             EnumsConnectionDisconnectFailReason::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -36513,161 +37095,163 @@ impl crate::bedrock::codec::BedrockCodec for EnumsConnectionDisconnectFailReason
         let val = raw.0 as i32;
         match val {
             0 => Ok(EnumsConnectionDisconnectFailReason::Unknown),
-            1 => Ok(EnumsConnectionDisconnectFailReason::CantConnectNoInternet),
-            2 => Ok(EnumsConnectionDisconnectFailReason::NoPermissions),
-            3 => Ok(EnumsConnectionDisconnectFailReason::UnrecoverableError),
-            4 => Ok(EnumsConnectionDisconnectFailReason::ThirdPartyBlocked),
-            5 => Ok(EnumsConnectionDisconnectFailReason::ThirdPartyNoInternet),
-            6 => Ok(EnumsConnectionDisconnectFailReason::ThirdPartyBadIp),
-            7 => Ok(EnumsConnectionDisconnectFailReason::ThirdPartyNoServerOrServerLocked),
-            8 => Ok(EnumsConnectionDisconnectFailReason::VersionMismatch),
-            9 => Ok(EnumsConnectionDisconnectFailReason::SkinIssue),
-            10 => Ok(EnumsConnectionDisconnectFailReason::InviteSessionNotFound),
+            1 => Ok(EnumsConnectionDisconnectFailReason::Cantconnectnointernet),
+            2 => Ok(EnumsConnectionDisconnectFailReason::Nopermissions),
+            3 => Ok(EnumsConnectionDisconnectFailReason::Unrecoverableerror),
+            4 => Ok(EnumsConnectionDisconnectFailReason::Thirdpartyblocked),
+            5 => Ok(EnumsConnectionDisconnectFailReason::Thirdpartynointernet),
+            6 => Ok(EnumsConnectionDisconnectFailReason::Thirdpartybadip),
+            7 => Ok(EnumsConnectionDisconnectFailReason::Thirdpartynoserverorserverlocked),
+            8 => Ok(EnumsConnectionDisconnectFailReason::Versionmismatch),
+            9 => Ok(EnumsConnectionDisconnectFailReason::Skinissue),
+            10 => Ok(EnumsConnectionDisconnectFailReason::Invitesessionnotfound),
             11 => Ok(EnumsConnectionDisconnectFailReason::Reserved11),
-            12 => Ok(EnumsConnectionDisconnectFailReason::LocalServerNotFound),
-            13 => Ok(EnumsConnectionDisconnectFailReason::LegacyDisconnect),
-            14 => Ok(EnumsConnectionDisconnectFailReason::InternalUserLeaveGameAttempted),
-            15 => Ok(EnumsConnectionDisconnectFailReason::PlatformLockedSkinsError),
-            16 => Ok(EnumsConnectionDisconnectFailReason::RealmsWorldUnassigned),
-            17 => Ok(EnumsConnectionDisconnectFailReason::RealmsServerCantConnect),
-            18 => Ok(EnumsConnectionDisconnectFailReason::RealmsServerHidden),
-            19 => Ok(EnumsConnectionDisconnectFailReason::RealmsServerDisabledBeta),
-            20 => Ok(EnumsConnectionDisconnectFailReason::RealmsServerDisabled),
-            21 => Ok(EnumsConnectionDisconnectFailReason::CrossPlatformDisabled),
-            22 => Ok(EnumsConnectionDisconnectFailReason::TestonlyCantConnect),
-            23 => Ok(EnumsConnectionDisconnectFailReason::SessionNotFound),
-            24 => Ok(EnumsConnectionDisconnectFailReason::ClientSettingsIncompatibleWithServer),
-            25 => Ok(EnumsConnectionDisconnectFailReason::ServerFull),
-            26 => Ok(EnumsConnectionDisconnectFailReason::InvalidPlatformSkin),
-            27 => Ok(EnumsConnectionDisconnectFailReason::EditionVersionMismatch),
-            28 => Ok(EnumsConnectionDisconnectFailReason::EditionMismatch),
-            29 => Ok(EnumsConnectionDisconnectFailReason::LevelNewerThanExeVersion),
-            30 => Ok(EnumsConnectionDisconnectFailReason::InternalNoFailOccurred),
-            31 => Ok(EnumsConnectionDisconnectFailReason::BannedSkin),
+            12 => Ok(EnumsConnectionDisconnectFailReason::Localservernotfound),
+            13 => Ok(EnumsConnectionDisconnectFailReason::Legacydisconnect),
+            14 => Ok(EnumsConnectionDisconnectFailReason::InternalUserleavegameattempted),
+            15 => Ok(EnumsConnectionDisconnectFailReason::Platformlockedskinserror),
+            16 => Ok(EnumsConnectionDisconnectFailReason::Realmsworldunassigned),
+            17 => Ok(EnumsConnectionDisconnectFailReason::Realmsservercantconnect),
+            18 => Ok(EnumsConnectionDisconnectFailReason::Realmsserverhidden),
+            19 => Ok(EnumsConnectionDisconnectFailReason::Realmsserverdisabledbeta),
+            20 => Ok(EnumsConnectionDisconnectFailReason::Realmsserverdisabled),
+            21 => Ok(EnumsConnectionDisconnectFailReason::Crossplatformdisabled),
+            22 => Ok(EnumsConnectionDisconnectFailReason::TestonlyCantconnect),
+            23 => Ok(EnumsConnectionDisconnectFailReason::Sessionnotfound),
+            24 => Ok(EnumsConnectionDisconnectFailReason::Clientsettingsincompatiblewithserver),
+            25 => Ok(EnumsConnectionDisconnectFailReason::Serverfull),
+            26 => Ok(EnumsConnectionDisconnectFailReason::Invalidplatformskin),
+            27 => Ok(EnumsConnectionDisconnectFailReason::Editionversionmismatch),
+            28 => Ok(EnumsConnectionDisconnectFailReason::Editionmismatch),
+            29 => Ok(EnumsConnectionDisconnectFailReason::Levelnewerthanexeversion),
+            30 => Ok(EnumsConnectionDisconnectFailReason::InternalNofailoccurred),
+            31 => Ok(EnumsConnectionDisconnectFailReason::Bannedskin),
             32 => Ok(EnumsConnectionDisconnectFailReason::Timeout),
-            33 => Ok(EnumsConnectionDisconnectFailReason::ServerNotFound),
-            34 => Ok(EnumsConnectionDisconnectFailReason::OutdatedServer),
-            35 => Ok(EnumsConnectionDisconnectFailReason::OutdatedClient),
-            36 => Ok(EnumsConnectionDisconnectFailReason::NoPremiumPlatform),
-            37 => Ok(EnumsConnectionDisconnectFailReason::MultiplayerDisabled),
-            38 => Ok(EnumsConnectionDisconnectFailReason::NoWiFi),
-            39 => Ok(EnumsConnectionDisconnectFailReason::WorldCorruption),
-            40 => Ok(EnumsConnectionDisconnectFailReason::NoReason),
+            33 => Ok(EnumsConnectionDisconnectFailReason::Servernotfound),
+            34 => Ok(EnumsConnectionDisconnectFailReason::Outdatedserver),
+            35 => Ok(EnumsConnectionDisconnectFailReason::Outdatedclient),
+            36 => Ok(EnumsConnectionDisconnectFailReason::Nopremiumplatform),
+            37 => Ok(EnumsConnectionDisconnectFailReason::Multiplayerdisabled),
+            38 => Ok(EnumsConnectionDisconnectFailReason::Nowifi),
+            39 => Ok(EnumsConnectionDisconnectFailReason::Worldcorruption),
+            40 => Ok(EnumsConnectionDisconnectFailReason::Noreason),
             41 => Ok(EnumsConnectionDisconnectFailReason::Disconnected),
-            42 => Ok(EnumsConnectionDisconnectFailReason::InvalidPlayer),
-            43 => Ok(EnumsConnectionDisconnectFailReason::LoggedInOtherLocation),
-            44 => Ok(EnumsConnectionDisconnectFailReason::ServerIdConflict),
-            45 => Ok(EnumsConnectionDisconnectFailReason::NotAllowed),
-            46 => Ok(EnumsConnectionDisconnectFailReason::NotAuthenticated),
-            47 => Ok(EnumsConnectionDisconnectFailReason::InvalidTenant),
-            48 => Ok(EnumsConnectionDisconnectFailReason::UnknownPacket),
-            49 => Ok(EnumsConnectionDisconnectFailReason::UnexpectedPacket),
-            50 => Ok(EnumsConnectionDisconnectFailReason::InvalidCommandRequestPacket),
-            51 => Ok(EnumsConnectionDisconnectFailReason::HostSuspended),
-            52 => Ok(EnumsConnectionDisconnectFailReason::LoginPacketNoRequest),
-            53 => Ok(EnumsConnectionDisconnectFailReason::LoginPacketNoCert),
-            54 => Ok(EnumsConnectionDisconnectFailReason::MissingClient),
+            42 => Ok(EnumsConnectionDisconnectFailReason::Invalidplayer),
+            43 => Ok(EnumsConnectionDisconnectFailReason::Loggedinotherlocation),
+            44 => Ok(EnumsConnectionDisconnectFailReason::Serveridconflict),
+            45 => Ok(EnumsConnectionDisconnectFailReason::Notallowed),
+            46 => Ok(EnumsConnectionDisconnectFailReason::Notauthenticated),
+            47 => Ok(EnumsConnectionDisconnectFailReason::Invalidtenant),
+            48 => Ok(EnumsConnectionDisconnectFailReason::Unknownpacket),
+            49 => Ok(EnumsConnectionDisconnectFailReason::Unexpectedpacket),
+            50 => Ok(EnumsConnectionDisconnectFailReason::Invalidcommandrequestpacket),
+            51 => Ok(EnumsConnectionDisconnectFailReason::Hostsuspended),
+            52 => Ok(EnumsConnectionDisconnectFailReason::Loginpacketnorequest),
+            53 => Ok(EnumsConnectionDisconnectFailReason::Loginpacketnocert),
+            54 => Ok(EnumsConnectionDisconnectFailReason::Missingclient),
             55 => Ok(EnumsConnectionDisconnectFailReason::Kicked),
-            56 => Ok(EnumsConnectionDisconnectFailReason::KickedForExploit),
-            57 => Ok(EnumsConnectionDisconnectFailReason::KickedForIdle),
-            58 => Ok(EnumsConnectionDisconnectFailReason::ResourcePackProblem),
-            59 => Ok(EnumsConnectionDisconnectFailReason::IncompatiblePack),
-            60 => Ok(EnumsConnectionDisconnectFailReason::OutOfStorage),
-            61 => Ok(EnumsConnectionDisconnectFailReason::InvalidLevel),
-            62 => Ok(EnumsConnectionDisconnectFailReason::DisconnectPacket),
-            63 => Ok(EnumsConnectionDisconnectFailReason::BlockMismatch),
-            64 => Ok(EnumsConnectionDisconnectFailReason::InvalidHeights),
-            65 => Ok(EnumsConnectionDisconnectFailReason::InvalidWidths),
-            66 => Ok(EnumsConnectionDisconnectFailReason::ConnectionLost),
-            67 => Ok(EnumsConnectionDisconnectFailReason::ZombieConnection),
+            56 => Ok(EnumsConnectionDisconnectFailReason::Kickedforexploit),
+            57 => Ok(EnumsConnectionDisconnectFailReason::Kickedforidle),
+            58 => Ok(EnumsConnectionDisconnectFailReason::Resourcepackproblem),
+            59 => Ok(EnumsConnectionDisconnectFailReason::Incompatiblepack),
+            60 => Ok(EnumsConnectionDisconnectFailReason::Outofstorage),
+            61 => Ok(EnumsConnectionDisconnectFailReason::Invalidlevel),
+            62 => Ok(EnumsConnectionDisconnectFailReason::Disconnectpacket),
+            63 => Ok(EnumsConnectionDisconnectFailReason::Blockmismatch),
+            64 => Ok(EnumsConnectionDisconnectFailReason::Invalidheights),
+            65 => Ok(EnumsConnectionDisconnectFailReason::Invalidwidths),
+            66 => Ok(EnumsConnectionDisconnectFailReason::Connectionlost),
+            67 => Ok(EnumsConnectionDisconnectFailReason::Zombieconnection),
             68 => Ok(EnumsConnectionDisconnectFailReason::Shutdown),
-            69 => Ok(EnumsConnectionDisconnectFailReason::ReasonNotSet),
-            70 => Ok(EnumsConnectionDisconnectFailReason::LoadingStateTimeout),
-            71 => Ok(EnumsConnectionDisconnectFailReason::ResourcePackLoadingFailed),
-            72 => Ok(EnumsConnectionDisconnectFailReason::SearchingForSessionLoadingScreenFailed),
-            73 => Ok(EnumsConnectionDisconnectFailReason::NetherNetProtocolVersion),
-            74 => Ok(EnumsConnectionDisconnectFailReason::SubsystemStatusError),
-            75 => Ok(EnumsConnectionDisconnectFailReason::EmptyAuthFromDiscovery),
-            76 => Ok(EnumsConnectionDisconnectFailReason::EmptyUrlFromDiscovery),
-            77 => Ok(EnumsConnectionDisconnectFailReason::ExpiredAuthFromDiscovery),
-            78 => Ok(EnumsConnectionDisconnectFailReason::UnknownSignalServiceSignInFailure),
-            79 => Ok(EnumsConnectionDisconnectFailReason::XblJoinLobbyFailure),
-            80 => Ok(EnumsConnectionDisconnectFailReason::UnspecifiedClientInstanceDisconnection),
-            81 => Ok(EnumsConnectionDisconnectFailReason::NetherNetSessionNotFound),
-            82 => Ok(EnumsConnectionDisconnectFailReason::NetherNetCreatePeerConnection),
-            83 => Ok(EnumsConnectionDisconnectFailReason::NetherNetIce),
-            84 => Ok(EnumsConnectionDisconnectFailReason::NetherNetConnectRequest),
-            85 => Ok(EnumsConnectionDisconnectFailReason::NetherNetConnectResponse),
-            86 => Ok(EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeout),
-            87 => Ok(EnumsConnectionDisconnectFailReason::NetherNetInactivityTimeout),
-            88 => Ok(EnumsConnectionDisconnectFailReason::StaleConnectionBeingReplaced),
-            89 => Ok(EnumsConnectionDisconnectFailReason::RealmsSessionNotFound),
-            90 => Ok(EnumsConnectionDisconnectFailReason::BadPacket),
-            91 => Ok(EnumsConnectionDisconnectFailReason::NetherNetFailedToCreateOffer),
-            92 => Ok(EnumsConnectionDisconnectFailReason::NetherNetFailedToCreateAnswer),
-            93 => Ok(EnumsConnectionDisconnectFailReason::NetherNetFailedToSetLocalDescription),
-            94 => Ok(EnumsConnectionDisconnectFailReason::NetherNetFailedToSetRemoteDescription),
+            69 => Ok(EnumsConnectionDisconnectFailReason::Reasonnotset),
+            70 => Ok(EnumsConnectionDisconnectFailReason::Loadingstatetimeout),
+            71 => Ok(EnumsConnectionDisconnectFailReason::Resourcepackloadingfailed),
+            72 => Ok(EnumsConnectionDisconnectFailReason::Searchingforsessionloadingscreenfailed),
+            73 => Ok(EnumsConnectionDisconnectFailReason::Nethernetprotocolversion),
+            74 => Ok(EnumsConnectionDisconnectFailReason::Subsystemstatuserror),
+            75 => Ok(EnumsConnectionDisconnectFailReason::Emptyauthfromdiscovery),
+            76 => Ok(EnumsConnectionDisconnectFailReason::Emptyurlfromdiscovery),
+            77 => Ok(EnumsConnectionDisconnectFailReason::Expiredauthfromdiscovery),
+            78 => Ok(EnumsConnectionDisconnectFailReason::Unknownsignalservicesigninfailure),
+            79 => Ok(EnumsConnectionDisconnectFailReason::Xbljoinlobbyfailure),
+            80 => Ok(EnumsConnectionDisconnectFailReason::Unspecifiedclientinstancedisconnection),
+            81 => Ok(EnumsConnectionDisconnectFailReason::Nethernetsessionnotfound),
+            82 => Ok(EnumsConnectionDisconnectFailReason::Nethernetcreatepeerconnection),
+            83 => Ok(EnumsConnectionDisconnectFailReason::Nethernetice),
+            84 => Ok(EnumsConnectionDisconnectFailReason::Nethernetconnectrequest),
+            85 => Ok(EnumsConnectionDisconnectFailReason::Nethernetconnectresponse),
+            86 => Ok(EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeout),
+            87 => Ok(EnumsConnectionDisconnectFailReason::Nethernetinactivitytimeout),
+            88 => Ok(EnumsConnectionDisconnectFailReason::Staleconnectionbeingreplaced),
+            89 => Ok(EnumsConnectionDisconnectFailReason::Realmssessionnotfound),
+            90 => Ok(EnumsConnectionDisconnectFailReason::Badpacket),
+            91 => Ok(EnumsConnectionDisconnectFailReason::Nethernetfailedtocreateoffer),
+            92 => Ok(EnumsConnectionDisconnectFailReason::Nethernetfailedtocreateanswer),
+            93 => Ok(EnumsConnectionDisconnectFailReason::Nethernetfailedtosetlocaldescription),
+            94 => Ok(EnumsConnectionDisconnectFailReason::Nethernetfailedtosetremotedescription),
             95 => Ok(
-                EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeoutWaitingForResponse,
+                EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeoutwaitingforresponse,
             ),
             96 => Ok(
-                EnumsConnectionDisconnectFailReason::NetherNetNegotiationTimeoutWaitingForAccept,
+                EnumsConnectionDisconnectFailReason::Nethernetnegotiationtimeoutwaitingforaccept,
             ),
-            97 => Ok(EnumsConnectionDisconnectFailReason::NetherNetIncomingConnectionIgnored),
-            98 => Ok(EnumsConnectionDisconnectFailReason::NetherNetSignalingParsingFailure),
-            99 => Ok(EnumsConnectionDisconnectFailReason::NetherNetSignalingUnknownError),
-            100 => Ok(EnumsConnectionDisconnectFailReason::NetherNetSignalingUnicastDeliveryFailed),
+            97 => Ok(EnumsConnectionDisconnectFailReason::Nethernetincomingconnectionignored),
+            98 => Ok(EnumsConnectionDisconnectFailReason::Nethernetsignalingparsingfailure),
+            99 => Ok(EnumsConnectionDisconnectFailReason::Nethernetsignalingunknownerror),
+            100 => Ok(EnumsConnectionDisconnectFailReason::Nethernetsignalingunicastdeliveryfailed),
             101 => {
-                Ok(EnumsConnectionDisconnectFailReason::NetherNetSignalingBroadcastDeliveryFailed)
+                Ok(EnumsConnectionDisconnectFailReason::Nethernetsignalingbroadcastdeliveryfailed)
             }
-            102 => Ok(EnumsConnectionDisconnectFailReason::NetherNetSignalingGenericDeliveryFailed),
-            103 => Ok(EnumsConnectionDisconnectFailReason::EditorMismatchEditorWorld),
-            104 => Ok(EnumsConnectionDisconnectFailReason::EditorMismatchVanillaWorld),
-            105 => Ok(EnumsConnectionDisconnectFailReason::WorldTransferNotPrimaryClient),
-            106 => Ok(EnumsConnectionDisconnectFailReason::InternalRequestServerShutdown),
-            107 => Ok(EnumsConnectionDisconnectFailReason::ClientGameSetupCancelled),
-            108 => Ok(EnumsConnectionDisconnectFailReason::ClientGameSetupFailed),
-            109 => Ok(EnumsConnectionDisconnectFailReason::NoVenue),
-            110 => Ok(EnumsConnectionDisconnectFailReason::NetherNetSignalingSigninFailed),
-            111 => Ok(EnumsConnectionDisconnectFailReason::SessionAccessDenied),
-            112 => Ok(EnumsConnectionDisconnectFailReason::ServiceSigninIssue),
-            113 => Ok(EnumsConnectionDisconnectFailReason::NetherNetNoSignalingChannel),
-            114 => Ok(EnumsConnectionDisconnectFailReason::NetherNetNotLoggedIn),
-            115 => Ok(EnumsConnectionDisconnectFailReason::NetherNetClientSignalingError),
-            116 => Ok(EnumsConnectionDisconnectFailReason::SubClientLoginDisabled),
+            102 => Ok(EnumsConnectionDisconnectFailReason::Nethernetsignalinggenericdeliveryfailed),
+            103 => Ok(EnumsConnectionDisconnectFailReason::Editormismatcheditorworld),
+            104 => Ok(EnumsConnectionDisconnectFailReason::Editormismatchvanillaworld),
+            105 => Ok(EnumsConnectionDisconnectFailReason::Worldtransfernotprimaryclient),
+            106 => Ok(EnumsConnectionDisconnectFailReason::InternalRequestservershutdown),
+            107 => Ok(EnumsConnectionDisconnectFailReason::Clientgamesetupcancelled),
+            108 => Ok(EnumsConnectionDisconnectFailReason::Clientgamesetupfailed),
+            109 => Ok(EnumsConnectionDisconnectFailReason::Novenue),
+            110 => Ok(EnumsConnectionDisconnectFailReason::Nethernetsignalingsigninfailed),
+            111 => Ok(EnumsConnectionDisconnectFailReason::Sessionaccessdenied),
+            112 => Ok(EnumsConnectionDisconnectFailReason::Servicesigninissue),
+            113 => Ok(EnumsConnectionDisconnectFailReason::Nethernetnosignalingchannel),
+            114 => Ok(EnumsConnectionDisconnectFailReason::Nethernetnotloggedin),
+            115 => Ok(EnumsConnectionDisconnectFailReason::Nethernetclientsignalingerror),
+            116 => Ok(EnumsConnectionDisconnectFailReason::Subclientlogindisabled),
             117 => {
-                Ok(EnumsConnectionDisconnectFailReason::DeepLinkTryingToOpenDemoWorldWhileSignedIn)
+                Ok(EnumsConnectionDisconnectFailReason::Deeplinktryingtoopendemoworldwhilesignedin)
             }
-            118 => Ok(EnumsConnectionDisconnectFailReason::AsyncJoinTaskDenied),
-            119 => Ok(EnumsConnectionDisconnectFailReason::RealmsTimelineRequired),
-            120 => Ok(EnumsConnectionDisconnectFailReason::GuestWithoutHost),
-            121 => Ok(EnumsConnectionDisconnectFailReason::FailedToJoinExperience),
-            122 => Ok(EnumsConnectionDisconnectFailReason::NetherNetDataChannelClosed),
-            123 => Ok(EnumsConnectionDisconnectFailReason::DiscoveryEnvironmentMismatch),
-            124 => Ok(EnumsConnectionDisconnectFailReason::HostWithoutKeys),
-            125 => Ok(EnumsConnectionDisconnectFailReason::HostSignedOut),
-            126 => Ok(EnumsConnectionDisconnectFailReason::ScriptWatchdogException),
-            127 => Ok(EnumsConnectionDisconnectFailReason::ScriptMemoryLimitExceeded),
-            128 => Ok(EnumsConnectionDisconnectFailReason::StorageLowDuringGameplay),
-            129 => Ok(EnumsConnectionDisconnectFailReason::StorageFullDuringGameplay),
-            130 => Ok(EnumsConnectionDisconnectFailReason::LevelStorageCorruption),
+            118 => Ok(EnumsConnectionDisconnectFailReason::Asyncjointaskdenied),
+            119 => Ok(EnumsConnectionDisconnectFailReason::Realmstimelinerequired),
+            120 => Ok(EnumsConnectionDisconnectFailReason::Guestwithouthost),
+            121 => Ok(EnumsConnectionDisconnectFailReason::Failedtojoinexperience),
+            122 => Ok(EnumsConnectionDisconnectFailReason::Nethernetdatachannelclosed),
+            123 => Ok(EnumsConnectionDisconnectFailReason::Discoveryenvironmentmismatch),
+            124 => Ok(EnumsConnectionDisconnectFailReason::Hostwithoutkeys),
+            125 => Ok(EnumsConnectionDisconnectFailReason::Hostsignedout),
+            126 => Ok(EnumsConnectionDisconnectFailReason::Scriptwatchdogexception),
+            127 => Ok(EnumsConnectionDisconnectFailReason::Scriptmemorylimitexceeded),
+            128 => Ok(EnumsConnectionDisconnectFailReason::Storagelowduringgameplay),
+            129 => Ok(EnumsConnectionDisconnectFailReason::Storagefullduringgameplay),
+            130 => Ok(EnumsConnectionDisconnectFailReason::Levelstoragecorruption),
             131 => Ok(EnumsConnectionDisconnectFailReason::Reserved131),
             132 => Ok(EnumsConnectionDisconnectFailReason::Reserved132),
-            133 => Ok(EnumsConnectionDisconnectFailReason::EditorMismatchEditorToVanilla),
-            134 => Ok(EnumsConnectionDisconnectFailReason::EditorMismatchVanillaToEditor),
-            135 => Ok(EnumsConnectionDisconnectFailReason::DenyListed),
-            136 => Ok(EnumsConnectionDisconnectFailReason::NonceMissing),
-            137 => Ok(EnumsConnectionDisconnectFailReason::NonceNotFound),
-            138 => Ok(EnumsConnectionDisconnectFailReason::NonceExpired),
-            139 => Ok(EnumsConnectionDisconnectFailReason::NonceNotValid),
-            140 => Ok(EnumsConnectionDisconnectFailReason::HostDisconnected),
-            141 => Ok(EnumsConnectionDisconnectFailReason::EditorJoinIntentPolicyFailure),
-            142 => Ok(EnumsConnectionDisconnectFailReason::NetherNetIdentityNotAllowed),
-            143 => Ok(EnumsConnectionDisconnectFailReason::InvalidName),
-            144 => Ok(EnumsConnectionDisconnectFailReason::ExpiredToken),
-            145 => Ok(EnumsConnectionDisconnectFailReason::HostAcceptsNoTypeOfAuth),
-            146 => Ok(EnumsConnectionDisconnectFailReason::NotAuthenticatedFastFail),
-            147 => Ok(EnumsConnectionDisconnectFailReason::EditorNotAllowed),
+            133 => Ok(EnumsConnectionDisconnectFailReason::Editormismatcheditortovanilla),
+            134 => Ok(EnumsConnectionDisconnectFailReason::Editormismatchvanillatoeditor),
+            135 => Ok(EnumsConnectionDisconnectFailReason::Denylisted),
+            136 => Ok(EnumsConnectionDisconnectFailReason::Noncemissing),
+            137 => Ok(EnumsConnectionDisconnectFailReason::Noncenotfound),
+            138 => Ok(EnumsConnectionDisconnectFailReason::Nonceexpired),
+            139 => Ok(EnumsConnectionDisconnectFailReason::Noncenotvalid),
+            140 => Ok(EnumsConnectionDisconnectFailReason::Hostdisconnected),
+            141 => Ok(EnumsConnectionDisconnectFailReason::Editorjoinintentpolicyfailure),
+            142 => Ok(EnumsConnectionDisconnectFailReason::Nethernetidentitynotallowed),
+            143 => Ok(EnumsConnectionDisconnectFailReason::Invalidname),
+            144 => Ok(EnumsConnectionDisconnectFailReason::Expiredtoken),
+            145 => Ok(EnumsConnectionDisconnectFailReason::Hostacceptsnotypeofauth),
+            146 => Ok(EnumsConnectionDisconnectFailReason::Notauthenticatedfastfail),
+            147 => Ok(EnumsConnectionDisconnectFailReason::Editornotallowed),
+            148 => Ok(EnumsConnectionDisconnectFailReason::Missingstructuredata),
+            149 => Ok(EnumsConnectionDisconnectFailReason::Unsupportedtransport),
             other => Ok(EnumsConnectionDisconnectFailReason::UnknownValue(other)),
         }
     }
@@ -36682,7 +37266,7 @@ pub enum EnumsGraphicsMode {
     Simple,
     Fancy,
     Advanced,
-    RayTraced,
+    Raytraced,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsGraphicsMode {
@@ -36691,7 +37275,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsGraphicsMode {
             EnumsGraphicsMode::Simple => 0,
             EnumsGraphicsMode::Fancy => 1,
             EnumsGraphicsMode::Advanced => 2,
-            EnumsGraphicsMode::RayTraced => 3,
+            EnumsGraphicsMode::Raytraced => 3,
             EnumsGraphicsMode::Unknown(v) => *v,
         };
         1usize
@@ -36704,7 +37288,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsGraphicsMode {
             EnumsGraphicsMode::Simple => 0,
             EnumsGraphicsMode::Fancy => 1,
             EnumsGraphicsMode::Advanced => 2,
-            EnumsGraphicsMode::RayTraced => 3,
+            EnumsGraphicsMode::Raytraced => 3,
             EnumsGraphicsMode::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -36718,7 +37302,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsGraphicsMode {
             0 => Ok(EnumsGraphicsMode::Simple),
             1 => Ok(EnumsGraphicsMode::Fancy),
             2 => Ok(EnumsGraphicsMode::Advanced),
-            3 => Ok(EnumsGraphicsMode::RayTraced),
+            3 => Ok(EnumsGraphicsMode::Raytraced),
             other => Ok(EnumsGraphicsMode::Unknown(other)),
         }
     }
@@ -36730,115 +37314,115 @@ impl Default for EnumsGraphicsMode {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsGraphicsOverrideParameterType {
-    SkyZenithColor,
-    SkyHorizonColor,
-    HorizonBlendMin,
-    HorizonBlendMax,
-    HorizonBlendStart,
-    HorizonBlendMieStart,
-    RayleighStrength,
-    SunMieStrength,
-    MoonMieStrength,
-    SunGlareShape,
+    Skyzenithcolor,
+    Skyhorizoncolor,
+    Horizonblendmin,
+    Horizonblendmax,
+    Horizonblendstart,
+    Horizonblendmiestart,
+    Rayleighstrength,
+    Sunmiestrength,
+    Moonmiestrength,
+    Sunglareshape,
     Chlorophyll,
     Cdom,
-    SuspendedSediment,
-    WavesDepth,
-    WavesFrequency,
-    WavesFrequencyScaling,
-    WavesSpeed,
-    WavesSpeedScaling,
-    WavesShape,
-    WavesOctaves,
-    WavesMix,
-    WavesPull,
-    WavesDirectionIncrement,
-    MidtonesContrast,
-    HighlightsContrast,
-    ShadowsContrast,
-    HighlightsGain,
-    HighlightsGamma,
-    HighlightsOffset,
-    HighlightsSaturation,
-    MidtonesGain,
-    MidtonesGamma,
-    MidtonesOffset,
-    MidtonesSaturation,
-    ShadowsGain,
-    ShadowsGamma,
-    ShadowsOffset,
-    ShadowsSaturation,
-    HighlightsMin,
-    ShadowsMax,
+    Suspendedsediment,
+    Wavesdepth,
+    Wavesfrequency,
+    Wavesfrequencyscaling,
+    Wavesspeed,
+    Wavesspeedscaling,
+    Wavesshape,
+    Wavesoctaves,
+    Wavesmix,
+    Wavespull,
+    Wavesdirectionincrement,
+    Midtonescontrast,
+    Highlightscontrast,
+    Shadowscontrast,
+    Highlightsgain,
+    Highlightsgamma,
+    Highlightsoffset,
+    Highlightssaturation,
+    Midtonesgain,
+    Midtonesgamma,
+    Midtonesoffset,
+    Midtonessaturation,
+    Shadowsgain,
+    Shadowsgamma,
+    Shadowsoffset,
+    Shadowssaturation,
+    Highlightsmin,
+    Shadowsmax,
     Temperature,
-    SunColor,
-    SunIlluminance,
-    MoonColor,
-    MoonIlluminance,
-    FlashColor,
-    FlashIlluminance,
-    AmbientColor,
-    AmbientIlluminance,
-    EmissiveDesaturation,
-    SkyIntensity,
-    OrbitalOffsetDegrees,
+    Suncolor,
+    Sunilluminance,
+    Mooncolor,
+    Moonilluminance,
+    Flashcolor,
+    Flashilluminance,
+    Ambientcolor,
+    Ambientilluminance,
+    Emissivedesaturation,
+    Skyintensity,
+    Orbitaloffsetdegrees,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsGraphicsOverrideParameterType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsGraphicsOverrideParameterType::SkyZenithColor => 0,
-            EnumsGraphicsOverrideParameterType::SkyHorizonColor => 1,
-            EnumsGraphicsOverrideParameterType::HorizonBlendMin => 2,
-            EnumsGraphicsOverrideParameterType::HorizonBlendMax => 3,
-            EnumsGraphicsOverrideParameterType::HorizonBlendStart => 4,
-            EnumsGraphicsOverrideParameterType::HorizonBlendMieStart => 5,
-            EnumsGraphicsOverrideParameterType::RayleighStrength => 6,
-            EnumsGraphicsOverrideParameterType::SunMieStrength => 7,
-            EnumsGraphicsOverrideParameterType::MoonMieStrength => 8,
-            EnumsGraphicsOverrideParameterType::SunGlareShape => 9,
+            EnumsGraphicsOverrideParameterType::Skyzenithcolor => 0,
+            EnumsGraphicsOverrideParameterType::Skyhorizoncolor => 1,
+            EnumsGraphicsOverrideParameterType::Horizonblendmin => 2,
+            EnumsGraphicsOverrideParameterType::Horizonblendmax => 3,
+            EnumsGraphicsOverrideParameterType::Horizonblendstart => 4,
+            EnumsGraphicsOverrideParameterType::Horizonblendmiestart => 5,
+            EnumsGraphicsOverrideParameterType::Rayleighstrength => 6,
+            EnumsGraphicsOverrideParameterType::Sunmiestrength => 7,
+            EnumsGraphicsOverrideParameterType::Moonmiestrength => 8,
+            EnumsGraphicsOverrideParameterType::Sunglareshape => 9,
             EnumsGraphicsOverrideParameterType::Chlorophyll => 10,
             EnumsGraphicsOverrideParameterType::Cdom => 11,
-            EnumsGraphicsOverrideParameterType::SuspendedSediment => 12,
-            EnumsGraphicsOverrideParameterType::WavesDepth => 13,
-            EnumsGraphicsOverrideParameterType::WavesFrequency => 14,
-            EnumsGraphicsOverrideParameterType::WavesFrequencyScaling => 15,
-            EnumsGraphicsOverrideParameterType::WavesSpeed => 16,
-            EnumsGraphicsOverrideParameterType::WavesSpeedScaling => 17,
-            EnumsGraphicsOverrideParameterType::WavesShape => 18,
-            EnumsGraphicsOverrideParameterType::WavesOctaves => 19,
-            EnumsGraphicsOverrideParameterType::WavesMix => 20,
-            EnumsGraphicsOverrideParameterType::WavesPull => 21,
-            EnumsGraphicsOverrideParameterType::WavesDirectionIncrement => 22,
-            EnumsGraphicsOverrideParameterType::MidtonesContrast => 23,
-            EnumsGraphicsOverrideParameterType::HighlightsContrast => 24,
-            EnumsGraphicsOverrideParameterType::ShadowsContrast => 25,
-            EnumsGraphicsOverrideParameterType::HighlightsGain => 26,
-            EnumsGraphicsOverrideParameterType::HighlightsGamma => 27,
-            EnumsGraphicsOverrideParameterType::HighlightsOffset => 28,
-            EnumsGraphicsOverrideParameterType::HighlightsSaturation => 29,
-            EnumsGraphicsOverrideParameterType::MidtonesGain => 30,
-            EnumsGraphicsOverrideParameterType::MidtonesGamma => 31,
-            EnumsGraphicsOverrideParameterType::MidtonesOffset => 32,
-            EnumsGraphicsOverrideParameterType::MidtonesSaturation => 33,
-            EnumsGraphicsOverrideParameterType::ShadowsGain => 34,
-            EnumsGraphicsOverrideParameterType::ShadowsGamma => 35,
-            EnumsGraphicsOverrideParameterType::ShadowsOffset => 36,
-            EnumsGraphicsOverrideParameterType::ShadowsSaturation => 37,
-            EnumsGraphicsOverrideParameterType::HighlightsMin => 38,
-            EnumsGraphicsOverrideParameterType::ShadowsMax => 39,
+            EnumsGraphicsOverrideParameterType::Suspendedsediment => 12,
+            EnumsGraphicsOverrideParameterType::Wavesdepth => 13,
+            EnumsGraphicsOverrideParameterType::Wavesfrequency => 14,
+            EnumsGraphicsOverrideParameterType::Wavesfrequencyscaling => 15,
+            EnumsGraphicsOverrideParameterType::Wavesspeed => 16,
+            EnumsGraphicsOverrideParameterType::Wavesspeedscaling => 17,
+            EnumsGraphicsOverrideParameterType::Wavesshape => 18,
+            EnumsGraphicsOverrideParameterType::Wavesoctaves => 19,
+            EnumsGraphicsOverrideParameterType::Wavesmix => 20,
+            EnumsGraphicsOverrideParameterType::Wavespull => 21,
+            EnumsGraphicsOverrideParameterType::Wavesdirectionincrement => 22,
+            EnumsGraphicsOverrideParameterType::Midtonescontrast => 23,
+            EnumsGraphicsOverrideParameterType::Highlightscontrast => 24,
+            EnumsGraphicsOverrideParameterType::Shadowscontrast => 25,
+            EnumsGraphicsOverrideParameterType::Highlightsgain => 26,
+            EnumsGraphicsOverrideParameterType::Highlightsgamma => 27,
+            EnumsGraphicsOverrideParameterType::Highlightsoffset => 28,
+            EnumsGraphicsOverrideParameterType::Highlightssaturation => 29,
+            EnumsGraphicsOverrideParameterType::Midtonesgain => 30,
+            EnumsGraphicsOverrideParameterType::Midtonesgamma => 31,
+            EnumsGraphicsOverrideParameterType::Midtonesoffset => 32,
+            EnumsGraphicsOverrideParameterType::Midtonessaturation => 33,
+            EnumsGraphicsOverrideParameterType::Shadowsgain => 34,
+            EnumsGraphicsOverrideParameterType::Shadowsgamma => 35,
+            EnumsGraphicsOverrideParameterType::Shadowsoffset => 36,
+            EnumsGraphicsOverrideParameterType::Shadowssaturation => 37,
+            EnumsGraphicsOverrideParameterType::Highlightsmin => 38,
+            EnumsGraphicsOverrideParameterType::Shadowsmax => 39,
             EnumsGraphicsOverrideParameterType::Temperature => 40,
-            EnumsGraphicsOverrideParameterType::SunColor => 41,
-            EnumsGraphicsOverrideParameterType::SunIlluminance => 42,
-            EnumsGraphicsOverrideParameterType::MoonColor => 43,
-            EnumsGraphicsOverrideParameterType::MoonIlluminance => 44,
-            EnumsGraphicsOverrideParameterType::FlashColor => 45,
-            EnumsGraphicsOverrideParameterType::FlashIlluminance => 46,
-            EnumsGraphicsOverrideParameterType::AmbientColor => 47,
-            EnumsGraphicsOverrideParameterType::AmbientIlluminance => 48,
-            EnumsGraphicsOverrideParameterType::EmissiveDesaturation => 49,
-            EnumsGraphicsOverrideParameterType::SkyIntensity => 50,
-            EnumsGraphicsOverrideParameterType::OrbitalOffsetDegrees => 51,
+            EnumsGraphicsOverrideParameterType::Suncolor => 41,
+            EnumsGraphicsOverrideParameterType::Sunilluminance => 42,
+            EnumsGraphicsOverrideParameterType::Mooncolor => 43,
+            EnumsGraphicsOverrideParameterType::Moonilluminance => 44,
+            EnumsGraphicsOverrideParameterType::Flashcolor => 45,
+            EnumsGraphicsOverrideParameterType::Flashilluminance => 46,
+            EnumsGraphicsOverrideParameterType::Ambientcolor => 47,
+            EnumsGraphicsOverrideParameterType::Ambientilluminance => 48,
+            EnumsGraphicsOverrideParameterType::Emissivedesaturation => 49,
+            EnumsGraphicsOverrideParameterType::Skyintensity => 50,
+            EnumsGraphicsOverrideParameterType::Orbitaloffsetdegrees => 51,
             EnumsGraphicsOverrideParameterType::Unknown(v) => *v,
         };
         1usize
@@ -36848,58 +37432,58 @@ impl crate::bedrock::codec::BedrockCodec for EnumsGraphicsOverrideParameterType 
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsGraphicsOverrideParameterType::SkyZenithColor => 0,
-            EnumsGraphicsOverrideParameterType::SkyHorizonColor => 1,
-            EnumsGraphicsOverrideParameterType::HorizonBlendMin => 2,
-            EnumsGraphicsOverrideParameterType::HorizonBlendMax => 3,
-            EnumsGraphicsOverrideParameterType::HorizonBlendStart => 4,
-            EnumsGraphicsOverrideParameterType::HorizonBlendMieStart => 5,
-            EnumsGraphicsOverrideParameterType::RayleighStrength => 6,
-            EnumsGraphicsOverrideParameterType::SunMieStrength => 7,
-            EnumsGraphicsOverrideParameterType::MoonMieStrength => 8,
-            EnumsGraphicsOverrideParameterType::SunGlareShape => 9,
+            EnumsGraphicsOverrideParameterType::Skyzenithcolor => 0,
+            EnumsGraphicsOverrideParameterType::Skyhorizoncolor => 1,
+            EnumsGraphicsOverrideParameterType::Horizonblendmin => 2,
+            EnumsGraphicsOverrideParameterType::Horizonblendmax => 3,
+            EnumsGraphicsOverrideParameterType::Horizonblendstart => 4,
+            EnumsGraphicsOverrideParameterType::Horizonblendmiestart => 5,
+            EnumsGraphicsOverrideParameterType::Rayleighstrength => 6,
+            EnumsGraphicsOverrideParameterType::Sunmiestrength => 7,
+            EnumsGraphicsOverrideParameterType::Moonmiestrength => 8,
+            EnumsGraphicsOverrideParameterType::Sunglareshape => 9,
             EnumsGraphicsOverrideParameterType::Chlorophyll => 10,
             EnumsGraphicsOverrideParameterType::Cdom => 11,
-            EnumsGraphicsOverrideParameterType::SuspendedSediment => 12,
-            EnumsGraphicsOverrideParameterType::WavesDepth => 13,
-            EnumsGraphicsOverrideParameterType::WavesFrequency => 14,
-            EnumsGraphicsOverrideParameterType::WavesFrequencyScaling => 15,
-            EnumsGraphicsOverrideParameterType::WavesSpeed => 16,
-            EnumsGraphicsOverrideParameterType::WavesSpeedScaling => 17,
-            EnumsGraphicsOverrideParameterType::WavesShape => 18,
-            EnumsGraphicsOverrideParameterType::WavesOctaves => 19,
-            EnumsGraphicsOverrideParameterType::WavesMix => 20,
-            EnumsGraphicsOverrideParameterType::WavesPull => 21,
-            EnumsGraphicsOverrideParameterType::WavesDirectionIncrement => 22,
-            EnumsGraphicsOverrideParameterType::MidtonesContrast => 23,
-            EnumsGraphicsOverrideParameterType::HighlightsContrast => 24,
-            EnumsGraphicsOverrideParameterType::ShadowsContrast => 25,
-            EnumsGraphicsOverrideParameterType::HighlightsGain => 26,
-            EnumsGraphicsOverrideParameterType::HighlightsGamma => 27,
-            EnumsGraphicsOverrideParameterType::HighlightsOffset => 28,
-            EnumsGraphicsOverrideParameterType::HighlightsSaturation => 29,
-            EnumsGraphicsOverrideParameterType::MidtonesGain => 30,
-            EnumsGraphicsOverrideParameterType::MidtonesGamma => 31,
-            EnumsGraphicsOverrideParameterType::MidtonesOffset => 32,
-            EnumsGraphicsOverrideParameterType::MidtonesSaturation => 33,
-            EnumsGraphicsOverrideParameterType::ShadowsGain => 34,
-            EnumsGraphicsOverrideParameterType::ShadowsGamma => 35,
-            EnumsGraphicsOverrideParameterType::ShadowsOffset => 36,
-            EnumsGraphicsOverrideParameterType::ShadowsSaturation => 37,
-            EnumsGraphicsOverrideParameterType::HighlightsMin => 38,
-            EnumsGraphicsOverrideParameterType::ShadowsMax => 39,
+            EnumsGraphicsOverrideParameterType::Suspendedsediment => 12,
+            EnumsGraphicsOverrideParameterType::Wavesdepth => 13,
+            EnumsGraphicsOverrideParameterType::Wavesfrequency => 14,
+            EnumsGraphicsOverrideParameterType::Wavesfrequencyscaling => 15,
+            EnumsGraphicsOverrideParameterType::Wavesspeed => 16,
+            EnumsGraphicsOverrideParameterType::Wavesspeedscaling => 17,
+            EnumsGraphicsOverrideParameterType::Wavesshape => 18,
+            EnumsGraphicsOverrideParameterType::Wavesoctaves => 19,
+            EnumsGraphicsOverrideParameterType::Wavesmix => 20,
+            EnumsGraphicsOverrideParameterType::Wavespull => 21,
+            EnumsGraphicsOverrideParameterType::Wavesdirectionincrement => 22,
+            EnumsGraphicsOverrideParameterType::Midtonescontrast => 23,
+            EnumsGraphicsOverrideParameterType::Highlightscontrast => 24,
+            EnumsGraphicsOverrideParameterType::Shadowscontrast => 25,
+            EnumsGraphicsOverrideParameterType::Highlightsgain => 26,
+            EnumsGraphicsOverrideParameterType::Highlightsgamma => 27,
+            EnumsGraphicsOverrideParameterType::Highlightsoffset => 28,
+            EnumsGraphicsOverrideParameterType::Highlightssaturation => 29,
+            EnumsGraphicsOverrideParameterType::Midtonesgain => 30,
+            EnumsGraphicsOverrideParameterType::Midtonesgamma => 31,
+            EnumsGraphicsOverrideParameterType::Midtonesoffset => 32,
+            EnumsGraphicsOverrideParameterType::Midtonessaturation => 33,
+            EnumsGraphicsOverrideParameterType::Shadowsgain => 34,
+            EnumsGraphicsOverrideParameterType::Shadowsgamma => 35,
+            EnumsGraphicsOverrideParameterType::Shadowsoffset => 36,
+            EnumsGraphicsOverrideParameterType::Shadowssaturation => 37,
+            EnumsGraphicsOverrideParameterType::Highlightsmin => 38,
+            EnumsGraphicsOverrideParameterType::Shadowsmax => 39,
             EnumsGraphicsOverrideParameterType::Temperature => 40,
-            EnumsGraphicsOverrideParameterType::SunColor => 41,
-            EnumsGraphicsOverrideParameterType::SunIlluminance => 42,
-            EnumsGraphicsOverrideParameterType::MoonColor => 43,
-            EnumsGraphicsOverrideParameterType::MoonIlluminance => 44,
-            EnumsGraphicsOverrideParameterType::FlashColor => 45,
-            EnumsGraphicsOverrideParameterType::FlashIlluminance => 46,
-            EnumsGraphicsOverrideParameterType::AmbientColor => 47,
-            EnumsGraphicsOverrideParameterType::AmbientIlluminance => 48,
-            EnumsGraphicsOverrideParameterType::EmissiveDesaturation => 49,
-            EnumsGraphicsOverrideParameterType::SkyIntensity => 50,
-            EnumsGraphicsOverrideParameterType::OrbitalOffsetDegrees => 51,
+            EnumsGraphicsOverrideParameterType::Suncolor => 41,
+            EnumsGraphicsOverrideParameterType::Sunilluminance => 42,
+            EnumsGraphicsOverrideParameterType::Mooncolor => 43,
+            EnumsGraphicsOverrideParameterType::Moonilluminance => 44,
+            EnumsGraphicsOverrideParameterType::Flashcolor => 45,
+            EnumsGraphicsOverrideParameterType::Flashilluminance => 46,
+            EnumsGraphicsOverrideParameterType::Ambientcolor => 47,
+            EnumsGraphicsOverrideParameterType::Ambientilluminance => 48,
+            EnumsGraphicsOverrideParameterType::Emissivedesaturation => 49,
+            EnumsGraphicsOverrideParameterType::Skyintensity => 50,
+            EnumsGraphicsOverrideParameterType::Orbitaloffsetdegrees => 51,
             EnumsGraphicsOverrideParameterType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -36910,100 +37494,100 @@ impl crate::bedrock::codec::BedrockCodec for EnumsGraphicsOverrideParameterType 
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsGraphicsOverrideParameterType::SkyZenithColor),
-            1 => Ok(EnumsGraphicsOverrideParameterType::SkyHorizonColor),
-            2 => Ok(EnumsGraphicsOverrideParameterType::HorizonBlendMin),
-            3 => Ok(EnumsGraphicsOverrideParameterType::HorizonBlendMax),
-            4 => Ok(EnumsGraphicsOverrideParameterType::HorizonBlendStart),
-            5 => Ok(EnumsGraphicsOverrideParameterType::HorizonBlendMieStart),
-            6 => Ok(EnumsGraphicsOverrideParameterType::RayleighStrength),
-            7 => Ok(EnumsGraphicsOverrideParameterType::SunMieStrength),
-            8 => Ok(EnumsGraphicsOverrideParameterType::MoonMieStrength),
-            9 => Ok(EnumsGraphicsOverrideParameterType::SunGlareShape),
+            0 => Ok(EnumsGraphicsOverrideParameterType::Skyzenithcolor),
+            1 => Ok(EnumsGraphicsOverrideParameterType::Skyhorizoncolor),
+            2 => Ok(EnumsGraphicsOverrideParameterType::Horizonblendmin),
+            3 => Ok(EnumsGraphicsOverrideParameterType::Horizonblendmax),
+            4 => Ok(EnumsGraphicsOverrideParameterType::Horizonblendstart),
+            5 => Ok(EnumsGraphicsOverrideParameterType::Horizonblendmiestart),
+            6 => Ok(EnumsGraphicsOverrideParameterType::Rayleighstrength),
+            7 => Ok(EnumsGraphicsOverrideParameterType::Sunmiestrength),
+            8 => Ok(EnumsGraphicsOverrideParameterType::Moonmiestrength),
+            9 => Ok(EnumsGraphicsOverrideParameterType::Sunglareshape),
             10 => Ok(EnumsGraphicsOverrideParameterType::Chlorophyll),
             11 => Ok(EnumsGraphicsOverrideParameterType::Cdom),
-            12 => Ok(EnumsGraphicsOverrideParameterType::SuspendedSediment),
-            13 => Ok(EnumsGraphicsOverrideParameterType::WavesDepth),
-            14 => Ok(EnumsGraphicsOverrideParameterType::WavesFrequency),
-            15 => Ok(EnumsGraphicsOverrideParameterType::WavesFrequencyScaling),
-            16 => Ok(EnumsGraphicsOverrideParameterType::WavesSpeed),
-            17 => Ok(EnumsGraphicsOverrideParameterType::WavesSpeedScaling),
-            18 => Ok(EnumsGraphicsOverrideParameterType::WavesShape),
-            19 => Ok(EnumsGraphicsOverrideParameterType::WavesOctaves),
-            20 => Ok(EnumsGraphicsOverrideParameterType::WavesMix),
-            21 => Ok(EnumsGraphicsOverrideParameterType::WavesPull),
-            22 => Ok(EnumsGraphicsOverrideParameterType::WavesDirectionIncrement),
-            23 => Ok(EnumsGraphicsOverrideParameterType::MidtonesContrast),
-            24 => Ok(EnumsGraphicsOverrideParameterType::HighlightsContrast),
-            25 => Ok(EnumsGraphicsOverrideParameterType::ShadowsContrast),
-            26 => Ok(EnumsGraphicsOverrideParameterType::HighlightsGain),
-            27 => Ok(EnumsGraphicsOverrideParameterType::HighlightsGamma),
-            28 => Ok(EnumsGraphicsOverrideParameterType::HighlightsOffset),
-            29 => Ok(EnumsGraphicsOverrideParameterType::HighlightsSaturation),
-            30 => Ok(EnumsGraphicsOverrideParameterType::MidtonesGain),
-            31 => Ok(EnumsGraphicsOverrideParameterType::MidtonesGamma),
-            32 => Ok(EnumsGraphicsOverrideParameterType::MidtonesOffset),
-            33 => Ok(EnumsGraphicsOverrideParameterType::MidtonesSaturation),
-            34 => Ok(EnumsGraphicsOverrideParameterType::ShadowsGain),
-            35 => Ok(EnumsGraphicsOverrideParameterType::ShadowsGamma),
-            36 => Ok(EnumsGraphicsOverrideParameterType::ShadowsOffset),
-            37 => Ok(EnumsGraphicsOverrideParameterType::ShadowsSaturation),
-            38 => Ok(EnumsGraphicsOverrideParameterType::HighlightsMin),
-            39 => Ok(EnumsGraphicsOverrideParameterType::ShadowsMax),
+            12 => Ok(EnumsGraphicsOverrideParameterType::Suspendedsediment),
+            13 => Ok(EnumsGraphicsOverrideParameterType::Wavesdepth),
+            14 => Ok(EnumsGraphicsOverrideParameterType::Wavesfrequency),
+            15 => Ok(EnumsGraphicsOverrideParameterType::Wavesfrequencyscaling),
+            16 => Ok(EnumsGraphicsOverrideParameterType::Wavesspeed),
+            17 => Ok(EnumsGraphicsOverrideParameterType::Wavesspeedscaling),
+            18 => Ok(EnumsGraphicsOverrideParameterType::Wavesshape),
+            19 => Ok(EnumsGraphicsOverrideParameterType::Wavesoctaves),
+            20 => Ok(EnumsGraphicsOverrideParameterType::Wavesmix),
+            21 => Ok(EnumsGraphicsOverrideParameterType::Wavespull),
+            22 => Ok(EnumsGraphicsOverrideParameterType::Wavesdirectionincrement),
+            23 => Ok(EnumsGraphicsOverrideParameterType::Midtonescontrast),
+            24 => Ok(EnumsGraphicsOverrideParameterType::Highlightscontrast),
+            25 => Ok(EnumsGraphicsOverrideParameterType::Shadowscontrast),
+            26 => Ok(EnumsGraphicsOverrideParameterType::Highlightsgain),
+            27 => Ok(EnumsGraphicsOverrideParameterType::Highlightsgamma),
+            28 => Ok(EnumsGraphicsOverrideParameterType::Highlightsoffset),
+            29 => Ok(EnumsGraphicsOverrideParameterType::Highlightssaturation),
+            30 => Ok(EnumsGraphicsOverrideParameterType::Midtonesgain),
+            31 => Ok(EnumsGraphicsOverrideParameterType::Midtonesgamma),
+            32 => Ok(EnumsGraphicsOverrideParameterType::Midtonesoffset),
+            33 => Ok(EnumsGraphicsOverrideParameterType::Midtonessaturation),
+            34 => Ok(EnumsGraphicsOverrideParameterType::Shadowsgain),
+            35 => Ok(EnumsGraphicsOverrideParameterType::Shadowsgamma),
+            36 => Ok(EnumsGraphicsOverrideParameterType::Shadowsoffset),
+            37 => Ok(EnumsGraphicsOverrideParameterType::Shadowssaturation),
+            38 => Ok(EnumsGraphicsOverrideParameterType::Highlightsmin),
+            39 => Ok(EnumsGraphicsOverrideParameterType::Shadowsmax),
             40 => Ok(EnumsGraphicsOverrideParameterType::Temperature),
-            41 => Ok(EnumsGraphicsOverrideParameterType::SunColor),
-            42 => Ok(EnumsGraphicsOverrideParameterType::SunIlluminance),
-            43 => Ok(EnumsGraphicsOverrideParameterType::MoonColor),
-            44 => Ok(EnumsGraphicsOverrideParameterType::MoonIlluminance),
-            45 => Ok(EnumsGraphicsOverrideParameterType::FlashColor),
-            46 => Ok(EnumsGraphicsOverrideParameterType::FlashIlluminance),
-            47 => Ok(EnumsGraphicsOverrideParameterType::AmbientColor),
-            48 => Ok(EnumsGraphicsOverrideParameterType::AmbientIlluminance),
-            49 => Ok(EnumsGraphicsOverrideParameterType::EmissiveDesaturation),
-            50 => Ok(EnumsGraphicsOverrideParameterType::SkyIntensity),
-            51 => Ok(EnumsGraphicsOverrideParameterType::OrbitalOffsetDegrees),
+            41 => Ok(EnumsGraphicsOverrideParameterType::Suncolor),
+            42 => Ok(EnumsGraphicsOverrideParameterType::Sunilluminance),
+            43 => Ok(EnumsGraphicsOverrideParameterType::Mooncolor),
+            44 => Ok(EnumsGraphicsOverrideParameterType::Moonilluminance),
+            45 => Ok(EnumsGraphicsOverrideParameterType::Flashcolor),
+            46 => Ok(EnumsGraphicsOverrideParameterType::Flashilluminance),
+            47 => Ok(EnumsGraphicsOverrideParameterType::Ambientcolor),
+            48 => Ok(EnumsGraphicsOverrideParameterType::Ambientilluminance),
+            49 => Ok(EnumsGraphicsOverrideParameterType::Emissivedesaturation),
+            50 => Ok(EnumsGraphicsOverrideParameterType::Skyintensity),
+            51 => Ok(EnumsGraphicsOverrideParameterType::Orbitaloffsetdegrees),
             other => Ok(EnumsGraphicsOverrideParameterType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsGraphicsOverrideParameterType {
     fn default() -> Self {
-        Self::SkyZenithColor
+        Self::Skyzenithcolor
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsHudElement {
-    PaperDoll,
+    Paperdoll,
     Armor,
-    ToolTips,
-    TouchControls,
+    Tooltips,
+    Touchcontrols,
     Crosshair,
-    HotBar,
+    Hotbar,
     Health,
-    ProgressBar,
+    Progressbar,
     Hunger,
-    AirBubbles,
-    HorseHealth,
-    StatusEffects,
-    ItemText,
+    Airbubbles,
+    Horsehealth,
+    Statuseffects,
+    Itemtext,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsHudElement {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsHudElement::PaperDoll => 0,
+            EnumsHudElement::Paperdoll => 0,
             EnumsHudElement::Armor => 1,
-            EnumsHudElement::ToolTips => 2,
-            EnumsHudElement::TouchControls => 3,
+            EnumsHudElement::Tooltips => 2,
+            EnumsHudElement::Touchcontrols => 3,
             EnumsHudElement::Crosshair => 4,
-            EnumsHudElement::HotBar => 5,
+            EnumsHudElement::Hotbar => 5,
             EnumsHudElement::Health => 6,
-            EnumsHudElement::ProgressBar => 7,
+            EnumsHudElement::Progressbar => 7,
             EnumsHudElement::Hunger => 8,
-            EnumsHudElement::AirBubbles => 9,
-            EnumsHudElement::HorseHealth => 10,
-            EnumsHudElement::StatusEffects => 11,
-            EnumsHudElement::ItemText => 12,
+            EnumsHudElement::Airbubbles => 9,
+            EnumsHudElement::Horsehealth => 10,
+            EnumsHudElement::Statuseffects => 11,
+            EnumsHudElement::Itemtext => 12,
             EnumsHudElement::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -37015,19 +37599,19 @@ impl crate::bedrock::codec::BedrockCodec for EnumsHudElement {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsHudElement::PaperDoll => 0,
+            EnumsHudElement::Paperdoll => 0,
             EnumsHudElement::Armor => 1,
-            EnumsHudElement::ToolTips => 2,
-            EnumsHudElement::TouchControls => 3,
+            EnumsHudElement::Tooltips => 2,
+            EnumsHudElement::Touchcontrols => 3,
             EnumsHudElement::Crosshair => 4,
-            EnumsHudElement::HotBar => 5,
+            EnumsHudElement::Hotbar => 5,
             EnumsHudElement::Health => 6,
-            EnumsHudElement::ProgressBar => 7,
+            EnumsHudElement::Progressbar => 7,
             EnumsHudElement::Hunger => 8,
-            EnumsHudElement::AirBubbles => 9,
-            EnumsHudElement::HorseHealth => 10,
-            EnumsHudElement::StatusEffects => 11,
-            EnumsHudElement::ItemText => 12,
+            EnumsHudElement::Airbubbles => 9,
+            EnumsHudElement::Horsehealth => 10,
+            EnumsHudElement::Statuseffects => 11,
+            EnumsHudElement::Itemtext => 12,
             EnumsHudElement::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -37042,26 +37626,26 @@ impl crate::bedrock::codec::BedrockCodec for EnumsHudElement {
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(EnumsHudElement::PaperDoll),
+            0 => Ok(EnumsHudElement::Paperdoll),
             1 => Ok(EnumsHudElement::Armor),
-            2 => Ok(EnumsHudElement::ToolTips),
-            3 => Ok(EnumsHudElement::TouchControls),
+            2 => Ok(EnumsHudElement::Tooltips),
+            3 => Ok(EnumsHudElement::Touchcontrols),
             4 => Ok(EnumsHudElement::Crosshair),
-            5 => Ok(EnumsHudElement::HotBar),
+            5 => Ok(EnumsHudElement::Hotbar),
             6 => Ok(EnumsHudElement::Health),
-            7 => Ok(EnumsHudElement::ProgressBar),
+            7 => Ok(EnumsHudElement::Progressbar),
             8 => Ok(EnumsHudElement::Hunger),
-            9 => Ok(EnumsHudElement::AirBubbles),
-            10 => Ok(EnumsHudElement::HorseHealth),
-            11 => Ok(EnumsHudElement::StatusEffects),
-            12 => Ok(EnumsHudElement::ItemText),
+            9 => Ok(EnumsHudElement::Airbubbles),
+            10 => Ok(EnumsHudElement::Horsehealth),
+            11 => Ok(EnumsHudElement::Statuseffects),
+            12 => Ok(EnumsHudElement::Itemtext),
             other => Ok(EnumsHudElement::Unknown(other)),
         }
     }
 }
 impl Default for EnumsHudElement {
     fn default() -> Self {
-        Self::PaperDoll
+        Self::Paperdoll
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37118,8 +37702,8 @@ pub enum EnumsInputMode {
     Undefined,
     Mouse,
     Touch,
-    GamePad,
-    MotionController,
+    Gamepad,
+    Motioncontroller,
     Count,
     Unknown(u32),
 }
@@ -37129,8 +37713,8 @@ impl crate::bedrock::codec::BedrockSized for EnumsInputMode {
             EnumsInputMode::Undefined => 0,
             EnumsInputMode::Mouse => 1,
             EnumsInputMode::Touch => 2,
-            EnumsInputMode::GamePad => 3,
-            EnumsInputMode::MotionController => 4,
+            EnumsInputMode::Gamepad => 3,
+            EnumsInputMode::Motioncontroller => 4,
             EnumsInputMode::Count => 5,
             EnumsInputMode::Unknown(v) => *v,
         };
@@ -37146,8 +37730,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInputMode {
             EnumsInputMode::Undefined => 0,
             EnumsInputMode::Mouse => 1,
             EnumsInputMode::Touch => 2,
-            EnumsInputMode::GamePad => 3,
-            EnumsInputMode::MotionController => 4,
+            EnumsInputMode::Gamepad => 3,
+            EnumsInputMode::Motioncontroller => 4,
             EnumsInputMode::Count => 5,
             EnumsInputMode::Unknown(v) => *v,
         };
@@ -37166,8 +37750,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInputMode {
             0 => Ok(EnumsInputMode::Undefined),
             1 => Ok(EnumsInputMode::Mouse),
             2 => Ok(EnumsInputMode::Touch),
-            3 => Ok(EnumsInputMode::GamePad),
-            4 => Ok(EnumsInputMode::MotionController),
+            3 => Ok(EnumsInputMode::Gamepad),
+            4 => Ok(EnumsInputMode::Motioncontroller),
             5 => Ok(EnumsInputMode::Count),
             other => Ok(EnumsInputMode::Unknown(other)),
         }
@@ -37181,20 +37765,20 @@ impl Default for EnumsInputMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsInteractPacketPayloadAction {
     Invalid,
-    StopRiding,
-    InteractUpdate,
-    NpcOpen,
-    OpenInventory,
+    Stopriding,
+    Interactupdate,
+    Npcopen,
+    Openinventory,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsInteractPacketPayloadAction {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsInteractPacketPayloadAction::Invalid => 0,
-            EnumsInteractPacketPayloadAction::StopRiding => 3,
-            EnumsInteractPacketPayloadAction::InteractUpdate => 4,
-            EnumsInteractPacketPayloadAction::NpcOpen => 5,
-            EnumsInteractPacketPayloadAction::OpenInventory => 6,
+            EnumsInteractPacketPayloadAction::Stopriding => 3,
+            EnumsInteractPacketPayloadAction::Interactupdate => 4,
+            EnumsInteractPacketPayloadAction::Npcopen => 5,
+            EnumsInteractPacketPayloadAction::Openinventory => 6,
             EnumsInteractPacketPayloadAction::Unknown(v) => *v,
         };
         1usize
@@ -37205,10 +37789,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInteractPacketPayloadAction {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsInteractPacketPayloadAction::Invalid => 0,
-            EnumsInteractPacketPayloadAction::StopRiding => 3,
-            EnumsInteractPacketPayloadAction::InteractUpdate => 4,
-            EnumsInteractPacketPayloadAction::NpcOpen => 5,
-            EnumsInteractPacketPayloadAction::OpenInventory => 6,
+            EnumsInteractPacketPayloadAction::Stopriding => 3,
+            EnumsInteractPacketPayloadAction::Interactupdate => 4,
+            EnumsInteractPacketPayloadAction::Npcopen => 5,
+            EnumsInteractPacketPayloadAction::Openinventory => 6,
             EnumsInteractPacketPayloadAction::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -37220,10 +37804,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsInteractPacketPayloadAction {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsInteractPacketPayloadAction::Invalid),
-            3 => Ok(EnumsInteractPacketPayloadAction::StopRiding),
-            4 => Ok(EnumsInteractPacketPayloadAction::InteractUpdate),
-            5 => Ok(EnumsInteractPacketPayloadAction::NpcOpen),
-            6 => Ok(EnumsInteractPacketPayloadAction::OpenInventory),
+            3 => Ok(EnumsInteractPacketPayloadAction::Stopriding),
+            4 => Ok(EnumsInteractPacketPayloadAction::Interactupdate),
+            5 => Ok(EnumsInteractPacketPayloadAction::Npcopen),
+            6 => Ok(EnumsInteractPacketPayloadAction::Openinventory),
             other => Ok(EnumsInteractPacketPayloadAction::Unknown(other)),
         }
     }
@@ -37371,36 +37955,36 @@ impl Default for ReservedPacket109Field2 {
 pub enum EnumsLegacyTelemetryEventPacketPayloadType {
     Achievement,
     Interaction,
-    PortalCreated,
-    PortalUsed,
-    MobKilled,
-    CauldronUsed,
-    PlayerDied,
-    BossKilled,
+    Portalcreated,
+    Portalused,
+    Mobkilled,
+    Cauldronused,
+    Playerdied,
+    Bosskilled,
     Reserved8,
     Reserved9,
-    PatternRemovedObsolete,
-    SlashCommand,
-    FishBucketedObsolete,
-    MobBorn,
-    PetDiedObsolete,
-    PoiCauldronUsed,
-    ComposterUsed,
-    BellUsed,
-    ActorDefinition,
-    RaidUpdate,
-    PlayerMovementAnomalyObsolete,
-    PlayerMovementCorrectedObsolete,
-    HoneyHarvested,
-    TargetBlockHit,
-    PiglinBarter,
-    PlayerWaxedOrUnwaxedCopper,
+    PatternremovedObsolete,
+    Slashcommand,
+    FishbucketedObsolete,
+    Mobborn,
+    PetdiedObsolete,
+    Poicauldronused,
+    Composterused,
+    Bellused,
+    Actordefinition,
+    Raidupdate,
+    PlayermovementanomalyObsolete,
+    PlayermovementcorrectedObsolete,
+    Honeyharvested,
+    Targetblockhit,
+    Piglinbarter,
+    Playerwaxedorunwaxedcopper,
     Reserved26,
     Reserved27,
-    StriderRiddenInLavaInOverworld,
-    SneakCloseToSculkSensor,
-    CarefulRestoration,
-    ItemUsed,
+    Striderriddeninlavainoverworld,
+    Sneakclosetosculksensor,
+    Carefulrestoration,
+    Itemused,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsLegacyTelemetryEventPacketPayloadType {
@@ -37408,36 +37992,36 @@ impl crate::bedrock::codec::BedrockSized for EnumsLegacyTelemetryEventPacketPayl
         let _val: i32 = match self {
             EnumsLegacyTelemetryEventPacketPayloadType::Achievement => 0,
             EnumsLegacyTelemetryEventPacketPayloadType::Interaction => 1,
-            EnumsLegacyTelemetryEventPacketPayloadType::PortalCreated => 2,
-            EnumsLegacyTelemetryEventPacketPayloadType::PortalUsed => 3,
-            EnumsLegacyTelemetryEventPacketPayloadType::MobKilled => 4,
-            EnumsLegacyTelemetryEventPacketPayloadType::CauldronUsed => 5,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerDied => 6,
-            EnumsLegacyTelemetryEventPacketPayloadType::BossKilled => 7,
+            EnumsLegacyTelemetryEventPacketPayloadType::Portalcreated => 2,
+            EnumsLegacyTelemetryEventPacketPayloadType::Portalused => 3,
+            EnumsLegacyTelemetryEventPacketPayloadType::Mobkilled => 4,
+            EnumsLegacyTelemetryEventPacketPayloadType::Cauldronused => 5,
+            EnumsLegacyTelemetryEventPacketPayloadType::Playerdied => 6,
+            EnumsLegacyTelemetryEventPacketPayloadType::Bosskilled => 7,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved8 => 8,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved9 => 9,
-            EnumsLegacyTelemetryEventPacketPayloadType::PatternRemovedObsolete => 10,
-            EnumsLegacyTelemetryEventPacketPayloadType::SlashCommand => 11,
-            EnumsLegacyTelemetryEventPacketPayloadType::FishBucketedObsolete => 12,
-            EnumsLegacyTelemetryEventPacketPayloadType::MobBorn => 13,
-            EnumsLegacyTelemetryEventPacketPayloadType::PetDiedObsolete => 14,
-            EnumsLegacyTelemetryEventPacketPayloadType::PoiCauldronUsed => 15,
-            EnumsLegacyTelemetryEventPacketPayloadType::ComposterUsed => 16,
-            EnumsLegacyTelemetryEventPacketPayloadType::BellUsed => 17,
-            EnumsLegacyTelemetryEventPacketPayloadType::ActorDefinition => 18,
-            EnumsLegacyTelemetryEventPacketPayloadType::RaidUpdate => 19,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerMovementAnomalyObsolete => 20,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerMovementCorrectedObsolete => 21,
-            EnumsLegacyTelemetryEventPacketPayloadType::HoneyHarvested => 22,
-            EnumsLegacyTelemetryEventPacketPayloadType::TargetBlockHit => 23,
-            EnumsLegacyTelemetryEventPacketPayloadType::PiglinBarter => 24,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerWaxedOrUnwaxedCopper => 25,
+            EnumsLegacyTelemetryEventPacketPayloadType::PatternremovedObsolete => 10,
+            EnumsLegacyTelemetryEventPacketPayloadType::Slashcommand => 11,
+            EnumsLegacyTelemetryEventPacketPayloadType::FishbucketedObsolete => 12,
+            EnumsLegacyTelemetryEventPacketPayloadType::Mobborn => 13,
+            EnumsLegacyTelemetryEventPacketPayloadType::PetdiedObsolete => 14,
+            EnumsLegacyTelemetryEventPacketPayloadType::Poicauldronused => 15,
+            EnumsLegacyTelemetryEventPacketPayloadType::Composterused => 16,
+            EnumsLegacyTelemetryEventPacketPayloadType::Bellused => 17,
+            EnumsLegacyTelemetryEventPacketPayloadType::Actordefinition => 18,
+            EnumsLegacyTelemetryEventPacketPayloadType::Raidupdate => 19,
+            EnumsLegacyTelemetryEventPacketPayloadType::PlayermovementanomalyObsolete => 20,
+            EnumsLegacyTelemetryEventPacketPayloadType::PlayermovementcorrectedObsolete => 21,
+            EnumsLegacyTelemetryEventPacketPayloadType::Honeyharvested => 22,
+            EnumsLegacyTelemetryEventPacketPayloadType::Targetblockhit => 23,
+            EnumsLegacyTelemetryEventPacketPayloadType::Piglinbarter => 24,
+            EnumsLegacyTelemetryEventPacketPayloadType::Playerwaxedorunwaxedcopper => 25,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved26 => 26,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved27 => 27,
-            EnumsLegacyTelemetryEventPacketPayloadType::StriderRiddenInLavaInOverworld => 28,
-            EnumsLegacyTelemetryEventPacketPayloadType::SneakCloseToSculkSensor => 29,
-            EnumsLegacyTelemetryEventPacketPayloadType::CarefulRestoration => 30,
-            EnumsLegacyTelemetryEventPacketPayloadType::ItemUsed => 31,
+            EnumsLegacyTelemetryEventPacketPayloadType::Striderriddeninlavainoverworld => 28,
+            EnumsLegacyTelemetryEventPacketPayloadType::Sneakclosetosculksensor => 29,
+            EnumsLegacyTelemetryEventPacketPayloadType::Carefulrestoration => 30,
+            EnumsLegacyTelemetryEventPacketPayloadType::Itemused => 31,
             EnumsLegacyTelemetryEventPacketPayloadType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -37451,36 +38035,36 @@ impl crate::bedrock::codec::BedrockCodec for EnumsLegacyTelemetryEventPacketPayl
         let val: i32 = match self {
             EnumsLegacyTelemetryEventPacketPayloadType::Achievement => 0,
             EnumsLegacyTelemetryEventPacketPayloadType::Interaction => 1,
-            EnumsLegacyTelemetryEventPacketPayloadType::PortalCreated => 2,
-            EnumsLegacyTelemetryEventPacketPayloadType::PortalUsed => 3,
-            EnumsLegacyTelemetryEventPacketPayloadType::MobKilled => 4,
-            EnumsLegacyTelemetryEventPacketPayloadType::CauldronUsed => 5,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerDied => 6,
-            EnumsLegacyTelemetryEventPacketPayloadType::BossKilled => 7,
+            EnumsLegacyTelemetryEventPacketPayloadType::Portalcreated => 2,
+            EnumsLegacyTelemetryEventPacketPayloadType::Portalused => 3,
+            EnumsLegacyTelemetryEventPacketPayloadType::Mobkilled => 4,
+            EnumsLegacyTelemetryEventPacketPayloadType::Cauldronused => 5,
+            EnumsLegacyTelemetryEventPacketPayloadType::Playerdied => 6,
+            EnumsLegacyTelemetryEventPacketPayloadType::Bosskilled => 7,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved8 => 8,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved9 => 9,
-            EnumsLegacyTelemetryEventPacketPayloadType::PatternRemovedObsolete => 10,
-            EnumsLegacyTelemetryEventPacketPayloadType::SlashCommand => 11,
-            EnumsLegacyTelemetryEventPacketPayloadType::FishBucketedObsolete => 12,
-            EnumsLegacyTelemetryEventPacketPayloadType::MobBorn => 13,
-            EnumsLegacyTelemetryEventPacketPayloadType::PetDiedObsolete => 14,
-            EnumsLegacyTelemetryEventPacketPayloadType::PoiCauldronUsed => 15,
-            EnumsLegacyTelemetryEventPacketPayloadType::ComposterUsed => 16,
-            EnumsLegacyTelemetryEventPacketPayloadType::BellUsed => 17,
-            EnumsLegacyTelemetryEventPacketPayloadType::ActorDefinition => 18,
-            EnumsLegacyTelemetryEventPacketPayloadType::RaidUpdate => 19,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerMovementAnomalyObsolete => 20,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerMovementCorrectedObsolete => 21,
-            EnumsLegacyTelemetryEventPacketPayloadType::HoneyHarvested => 22,
-            EnumsLegacyTelemetryEventPacketPayloadType::TargetBlockHit => 23,
-            EnumsLegacyTelemetryEventPacketPayloadType::PiglinBarter => 24,
-            EnumsLegacyTelemetryEventPacketPayloadType::PlayerWaxedOrUnwaxedCopper => 25,
+            EnumsLegacyTelemetryEventPacketPayloadType::PatternremovedObsolete => 10,
+            EnumsLegacyTelemetryEventPacketPayloadType::Slashcommand => 11,
+            EnumsLegacyTelemetryEventPacketPayloadType::FishbucketedObsolete => 12,
+            EnumsLegacyTelemetryEventPacketPayloadType::Mobborn => 13,
+            EnumsLegacyTelemetryEventPacketPayloadType::PetdiedObsolete => 14,
+            EnumsLegacyTelemetryEventPacketPayloadType::Poicauldronused => 15,
+            EnumsLegacyTelemetryEventPacketPayloadType::Composterused => 16,
+            EnumsLegacyTelemetryEventPacketPayloadType::Bellused => 17,
+            EnumsLegacyTelemetryEventPacketPayloadType::Actordefinition => 18,
+            EnumsLegacyTelemetryEventPacketPayloadType::Raidupdate => 19,
+            EnumsLegacyTelemetryEventPacketPayloadType::PlayermovementanomalyObsolete => 20,
+            EnumsLegacyTelemetryEventPacketPayloadType::PlayermovementcorrectedObsolete => 21,
+            EnumsLegacyTelemetryEventPacketPayloadType::Honeyharvested => 22,
+            EnumsLegacyTelemetryEventPacketPayloadType::Targetblockhit => 23,
+            EnumsLegacyTelemetryEventPacketPayloadType::Piglinbarter => 24,
+            EnumsLegacyTelemetryEventPacketPayloadType::Playerwaxedorunwaxedcopper => 25,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved26 => 26,
             EnumsLegacyTelemetryEventPacketPayloadType::Reserved27 => 27,
-            EnumsLegacyTelemetryEventPacketPayloadType::StriderRiddenInLavaInOverworld => 28,
-            EnumsLegacyTelemetryEventPacketPayloadType::SneakCloseToSculkSensor => 29,
-            EnumsLegacyTelemetryEventPacketPayloadType::CarefulRestoration => 30,
-            EnumsLegacyTelemetryEventPacketPayloadType::ItemUsed => 31,
+            EnumsLegacyTelemetryEventPacketPayloadType::Striderriddeninlavainoverworld => 28,
+            EnumsLegacyTelemetryEventPacketPayloadType::Sneakclosetosculksensor => 29,
+            EnumsLegacyTelemetryEventPacketPayloadType::Carefulrestoration => 30,
+            EnumsLegacyTelemetryEventPacketPayloadType::Itemused => 31,
             EnumsLegacyTelemetryEventPacketPayloadType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -37497,36 +38081,36 @@ impl crate::bedrock::codec::BedrockCodec for EnumsLegacyTelemetryEventPacketPayl
         match val {
             0 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Achievement),
             1 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Interaction),
-            2 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PortalCreated),
-            3 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PortalUsed),
-            4 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::MobKilled),
-            5 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::CauldronUsed),
-            6 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PlayerDied),
-            7 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::BossKilled),
+            2 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Portalcreated),
+            3 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Portalused),
+            4 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Mobkilled),
+            5 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Cauldronused),
+            6 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Playerdied),
+            7 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Bosskilled),
             8 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Reserved8),
             9 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Reserved9),
-            10 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PatternRemovedObsolete),
-            11 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::SlashCommand),
-            12 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::FishBucketedObsolete),
-            13 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::MobBorn),
-            14 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PetDiedObsolete),
-            15 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PoiCauldronUsed),
-            16 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::ComposterUsed),
-            17 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::BellUsed),
-            18 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::ActorDefinition),
-            19 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::RaidUpdate),
-            20 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PlayerMovementAnomalyObsolete),
-            21 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PlayerMovementCorrectedObsolete),
-            22 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::HoneyHarvested),
-            23 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::TargetBlockHit),
-            24 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PiglinBarter),
-            25 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PlayerWaxedOrUnwaxedCopper),
+            10 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PatternremovedObsolete),
+            11 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Slashcommand),
+            12 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::FishbucketedObsolete),
+            13 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Mobborn),
+            14 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PetdiedObsolete),
+            15 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Poicauldronused),
+            16 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Composterused),
+            17 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Bellused),
+            18 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Actordefinition),
+            19 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Raidupdate),
+            20 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PlayermovementanomalyObsolete),
+            21 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::PlayermovementcorrectedObsolete),
+            22 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Honeyharvested),
+            23 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Targetblockhit),
+            24 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Piglinbarter),
+            25 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Playerwaxedorunwaxedcopper),
             26 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Reserved26),
             27 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Reserved27),
-            28 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::StriderRiddenInLavaInOverworld),
-            29 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::SneakCloseToSculkSensor),
-            30 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::CarefulRestoration),
-            31 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::ItemUsed),
+            28 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Striderriddeninlavainoverworld),
+            29 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Sneakclosetosculksensor),
+            30 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Carefulrestoration),
+            31 => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Itemused),
             other => Ok(EnumsLegacyTelemetryEventPacketPayloadType::Unknown(other)),
         }
     }
@@ -37589,15 +38173,15 @@ impl Default for EnumsMobEffectPacketPayloadEvent {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsModalFormCancelReason {
-    UserClosed,
-    UserBusy,
+    Userclosed,
+    Userbusy,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsModalFormCancelReason {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsModalFormCancelReason::UserClosed => 0,
-            EnumsModalFormCancelReason::UserBusy => 1,
+            EnumsModalFormCancelReason::Userclosed => 0,
+            EnumsModalFormCancelReason::Userbusy => 1,
             EnumsModalFormCancelReason::Unknown(v) => *v,
         };
         1usize
@@ -37607,8 +38191,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsModalFormCancelReason {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsModalFormCancelReason::UserClosed => 0,
-            EnumsModalFormCancelReason::UserBusy => 1,
+            EnumsModalFormCancelReason::Userclosed => 0,
+            EnumsModalFormCancelReason::Userbusy => 1,
             EnumsModalFormCancelReason::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -37619,15 +38203,15 @@ impl crate::bedrock::codec::BedrockCodec for EnumsModalFormCancelReason {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsModalFormCancelReason::UserClosed),
-            1 => Ok(EnumsModalFormCancelReason::UserBusy),
+            0 => Ok(EnumsModalFormCancelReason::Userclosed),
+            1 => Ok(EnumsModalFormCancelReason::Userbusy),
             other => Ok(EnumsModalFormCancelReason::Unknown(other)),
         }
     }
 }
 impl Default for EnumsModalFormCancelReason {
     fn default() -> Self {
-        Self::UserClosed
+        Self::Userclosed
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37685,17 +38269,17 @@ impl Default for EnumsMovementEffectType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsMultiplayerSettingsPacketType {
-    EnableMultiplayer,
-    DisableMultiplayer,
-    RefreshJoincode,
+    Enablemultiplayer,
+    Disablemultiplayer,
+    Refreshjoincode,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsMultiplayerSettingsPacketType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsMultiplayerSettingsPacketType::EnableMultiplayer => 0,
-            EnumsMultiplayerSettingsPacketType::DisableMultiplayer => 1,
-            EnumsMultiplayerSettingsPacketType::RefreshJoincode => 2,
+            EnumsMultiplayerSettingsPacketType::Enablemultiplayer => 0,
+            EnumsMultiplayerSettingsPacketType::Disablemultiplayer => 1,
+            EnumsMultiplayerSettingsPacketType::Refreshjoincode => 2,
             EnumsMultiplayerSettingsPacketType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -37707,9 +38291,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMultiplayerSettingsPacketType 
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsMultiplayerSettingsPacketType::EnableMultiplayer => 0,
-            EnumsMultiplayerSettingsPacketType::DisableMultiplayer => 1,
-            EnumsMultiplayerSettingsPacketType::RefreshJoincode => 2,
+            EnumsMultiplayerSettingsPacketType::Enablemultiplayer => 0,
+            EnumsMultiplayerSettingsPacketType::Disablemultiplayer => 1,
+            EnumsMultiplayerSettingsPacketType::Refreshjoincode => 2,
             EnumsMultiplayerSettingsPacketType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -37724,16 +38308,16 @@ impl crate::bedrock::codec::BedrockCodec for EnumsMultiplayerSettingsPacketType 
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(EnumsMultiplayerSettingsPacketType::EnableMultiplayer),
-            1 => Ok(EnumsMultiplayerSettingsPacketType::DisableMultiplayer),
-            2 => Ok(EnumsMultiplayerSettingsPacketType::RefreshJoincode),
+            0 => Ok(EnumsMultiplayerSettingsPacketType::Enablemultiplayer),
+            1 => Ok(EnumsMultiplayerSettingsPacketType::Disablemultiplayer),
+            2 => Ok(EnumsMultiplayerSettingsPacketType::Refreshjoincode),
             other => Ok(EnumsMultiplayerSettingsPacketType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsMultiplayerSettingsPacketType {
     fn default() -> Self {
-        Self::EnableMultiplayer
+        Self::Enablemultiplayer
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -37846,25 +38430,25 @@ impl Default for EnumsNpcDialoguePacketPayloadNpcDialogueActionType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsNpcRequestPacketPayloadRequestType {
-    SetActions,
-    ExecuteAction,
-    ExecuteClosingCommands,
-    SetName,
-    SetSkin,
-    SetInteractText,
-    ExecuteOpeningCommands,
+    Setactions,
+    Executeaction,
+    Executeclosingcommands,
+    Setname,
+    Setskin,
+    Setinteracttext,
+    Executeopeningcommands,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsNpcRequestPacketPayloadRequestType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsNpcRequestPacketPayloadRequestType::SetActions => 0,
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteAction => 1,
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteClosingCommands => 2,
-            EnumsNpcRequestPacketPayloadRequestType::SetName => 3,
-            EnumsNpcRequestPacketPayloadRequestType::SetSkin => 4,
-            EnumsNpcRequestPacketPayloadRequestType::SetInteractText => 5,
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteOpeningCommands => 6,
+            EnumsNpcRequestPacketPayloadRequestType::Setactions => 0,
+            EnumsNpcRequestPacketPayloadRequestType::Executeaction => 1,
+            EnumsNpcRequestPacketPayloadRequestType::Executeclosingcommands => 2,
+            EnumsNpcRequestPacketPayloadRequestType::Setname => 3,
+            EnumsNpcRequestPacketPayloadRequestType::Setskin => 4,
+            EnumsNpcRequestPacketPayloadRequestType::Setinteracttext => 5,
+            EnumsNpcRequestPacketPayloadRequestType::Executeopeningcommands => 6,
             EnumsNpcRequestPacketPayloadRequestType::Unknown(v) => *v,
         };
         1usize
@@ -37874,13 +38458,13 @@ impl crate::bedrock::codec::BedrockCodec for EnumsNpcRequestPacketPayloadRequest
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsNpcRequestPacketPayloadRequestType::SetActions => 0,
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteAction => 1,
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteClosingCommands => 2,
-            EnumsNpcRequestPacketPayloadRequestType::SetName => 3,
-            EnumsNpcRequestPacketPayloadRequestType::SetSkin => 4,
-            EnumsNpcRequestPacketPayloadRequestType::SetInteractText => 5,
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteOpeningCommands => 6,
+            EnumsNpcRequestPacketPayloadRequestType::Setactions => 0,
+            EnumsNpcRequestPacketPayloadRequestType::Executeaction => 1,
+            EnumsNpcRequestPacketPayloadRequestType::Executeclosingcommands => 2,
+            EnumsNpcRequestPacketPayloadRequestType::Setname => 3,
+            EnumsNpcRequestPacketPayloadRequestType::Setskin => 4,
+            EnumsNpcRequestPacketPayloadRequestType::Setinteracttext => 5,
+            EnumsNpcRequestPacketPayloadRequestType::Executeopeningcommands => 6,
             EnumsNpcRequestPacketPayloadRequestType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -37891,25 +38475,25 @@ impl crate::bedrock::codec::BedrockCodec for EnumsNpcRequestPacketPayloadRequest
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsNpcRequestPacketPayloadRequestType::SetActions),
-            1 => Ok(EnumsNpcRequestPacketPayloadRequestType::ExecuteAction),
-            2 => Ok(EnumsNpcRequestPacketPayloadRequestType::ExecuteClosingCommands),
-            3 => Ok(EnumsNpcRequestPacketPayloadRequestType::SetName),
-            4 => Ok(EnumsNpcRequestPacketPayloadRequestType::SetSkin),
-            5 => Ok(EnumsNpcRequestPacketPayloadRequestType::SetInteractText),
-            6 => Ok(EnumsNpcRequestPacketPayloadRequestType::ExecuteOpeningCommands),
+            0 => Ok(EnumsNpcRequestPacketPayloadRequestType::Setactions),
+            1 => Ok(EnumsNpcRequestPacketPayloadRequestType::Executeaction),
+            2 => Ok(EnumsNpcRequestPacketPayloadRequestType::Executeclosingcommands),
+            3 => Ok(EnumsNpcRequestPacketPayloadRequestType::Setname),
+            4 => Ok(EnumsNpcRequestPacketPayloadRequestType::Setskin),
+            5 => Ok(EnumsNpcRequestPacketPayloadRequestType::Setinteracttext),
+            6 => Ok(EnumsNpcRequestPacketPayloadRequestType::Executeopeningcommands),
             other => Ok(EnumsNpcRequestPacketPayloadRequestType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsNpcRequestPacketPayloadRequestType {
     fn default() -> Self {
-        Self::SetActions
+        Self::Setactions
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsPacketCompressionAlgorithm {
-    ZLib,
+    Zlib,
     Snappy,
     None,
     Unknown(u16),
@@ -37917,7 +38501,7 @@ pub enum EnumsPacketCompressionAlgorithm {
 impl crate::bedrock::codec::BedrockSized for EnumsPacketCompressionAlgorithm {
     fn encoded_size(&self) -> usize {
         let _val: u16 = match self {
-            EnumsPacketCompressionAlgorithm::ZLib => 0,
+            EnumsPacketCompressionAlgorithm::Zlib => 0,
             EnumsPacketCompressionAlgorithm::Snappy => 1,
             EnumsPacketCompressionAlgorithm::None => 65535,
             EnumsPacketCompressionAlgorithm::Unknown(v) => *v,
@@ -37929,7 +38513,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPacketCompressionAlgorithm {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u16 = match self {
-            EnumsPacketCompressionAlgorithm::ZLib => 0,
+            EnumsPacketCompressionAlgorithm::Zlib => 0,
             EnumsPacketCompressionAlgorithm::Snappy => 1,
             EnumsPacketCompressionAlgorithm::None => 65535,
             EnumsPacketCompressionAlgorithm::Unknown(v) => *v,
@@ -37944,7 +38528,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPacketCompressionAlgorithm {
             <crate::bedrock::codec::U16LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let val = raw.0 as u16;
         match val {
-            0 => Ok(EnumsPacketCompressionAlgorithm::ZLib),
+            0 => Ok(EnumsPacketCompressionAlgorithm::Zlib),
             1 => Ok(EnumsPacketCompressionAlgorithm::Snappy),
             65535 => Ok(EnumsPacketCompressionAlgorithm::None),
             other => Ok(EnumsPacketCompressionAlgorithm::Unknown(other)),
@@ -37953,15 +38537,15 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPacketCompressionAlgorithm {
 }
 impl Default for EnumsPacketCompressionAlgorithm {
     fn default() -> Self {
-        Self::ZLib
+        Self::Zlib
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsPacketViolationSeverity {
     Unknown,
     Warning,
-    FinalWarning,
-    TerminatingConnection,
+    Finalwarning,
+    Terminatingconnection,
     UnknownValue(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsPacketViolationSeverity {
@@ -37969,8 +38553,8 @@ impl crate::bedrock::codec::BedrockSized for EnumsPacketViolationSeverity {
         let _val: i32 = match self {
             EnumsPacketViolationSeverity::Unknown => -1,
             EnumsPacketViolationSeverity::Warning => 0,
-            EnumsPacketViolationSeverity::FinalWarning => 1,
-            EnumsPacketViolationSeverity::TerminatingConnection => 2,
+            EnumsPacketViolationSeverity::Finalwarning => 1,
+            EnumsPacketViolationSeverity::Terminatingconnection => 2,
             EnumsPacketViolationSeverity::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -37984,8 +38568,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPacketViolationSeverity {
         let val: i32 = match self {
             EnumsPacketViolationSeverity::Unknown => -1,
             EnumsPacketViolationSeverity::Warning => 0,
-            EnumsPacketViolationSeverity::FinalWarning => 1,
-            EnumsPacketViolationSeverity::TerminatingConnection => 2,
+            EnumsPacketViolationSeverity::Finalwarning => 1,
+            EnumsPacketViolationSeverity::Terminatingconnection => 2,
             EnumsPacketViolationSeverity::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -38002,8 +38586,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPacketViolationSeverity {
         match val {
             -1 => Ok(EnumsPacketViolationSeverity::Unknown),
             0 => Ok(EnumsPacketViolationSeverity::Warning),
-            1 => Ok(EnumsPacketViolationSeverity::FinalWarning),
-            2 => Ok(EnumsPacketViolationSeverity::TerminatingConnection),
+            1 => Ok(EnumsPacketViolationSeverity::Finalwarning),
+            2 => Ok(EnumsPacketViolationSeverity::Terminatingconnection),
             other => Ok(EnumsPacketViolationSeverity::UnknownValue(other)),
         }
     }
@@ -38016,14 +38600,14 @@ impl Default for EnumsPacketViolationSeverity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsPacketViolationType {
     Unknown,
-    PacketMalformed,
+    Packetmalformed,
     UnknownValue(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsPacketViolationType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
             EnumsPacketViolationType::Unknown => -1,
-            EnumsPacketViolationType::PacketMalformed => 0,
+            EnumsPacketViolationType::Packetmalformed => 0,
             EnumsPacketViolationType::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -38036,7 +38620,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPacketViolationType {
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
             EnumsPacketViolationType::Unknown => -1,
-            EnumsPacketViolationType::PacketMalformed => 0,
+            EnumsPacketViolationType::Packetmalformed => 0,
             EnumsPacketViolationType::UnknownValue(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -38052,7 +38636,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPacketViolationType {
         let val = raw.0 as i32;
         match val {
             -1 => Ok(EnumsPacketViolationType::Unknown),
-            0 => Ok(EnumsPacketViolationType::PacketMalformed),
+            0 => Ok(EnumsPacketViolationType::Packetmalformed),
             other => Ok(EnumsPacketViolationType::UnknownValue(other)),
         }
     }
@@ -38111,31 +38695,31 @@ impl Default for EnumsPhotoType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsPlayStatus {
-    LoginSuccess,
-    LoginFailedClientOld,
-    LoginFailedServerOld,
-    PlayerSpawn,
-    LoginFailedInvalidTenant,
+    Loginsuccess,
+    LoginfailedClientold,
+    LoginfailedServerold,
+    Playerspawn,
+    LoginfailedInvalidtenant,
     Reserved5,
     Reserved6,
-    LoginFailedServerFullSubClient,
-    LoginFailedEditorMismatchEditorToVanilla,
-    LoginFailedEditorMismatchVanillaToEditor,
+    LoginfailedServerfullsubclient,
+    LoginfailedEditormismatcheditortovanilla,
+    LoginfailedEditormismatchvanillatoeditor,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsPlayStatus {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsPlayStatus::LoginSuccess => 0,
-            EnumsPlayStatus::LoginFailedClientOld => 1,
-            EnumsPlayStatus::LoginFailedServerOld => 2,
-            EnumsPlayStatus::PlayerSpawn => 3,
-            EnumsPlayStatus::LoginFailedInvalidTenant => 4,
+            EnumsPlayStatus::Loginsuccess => 0,
+            EnumsPlayStatus::LoginfailedClientold => 1,
+            EnumsPlayStatus::LoginfailedServerold => 2,
+            EnumsPlayStatus::Playerspawn => 3,
+            EnumsPlayStatus::LoginfailedInvalidtenant => 4,
             EnumsPlayStatus::Reserved5 => 5,
             EnumsPlayStatus::Reserved6 => 6,
-            EnumsPlayStatus::LoginFailedServerFullSubClient => 7,
-            EnumsPlayStatus::LoginFailedEditorMismatchEditorToVanilla => 8,
-            EnumsPlayStatus::LoginFailedEditorMismatchVanillaToEditor => 9,
+            EnumsPlayStatus::LoginfailedServerfullsubclient => 7,
+            EnumsPlayStatus::LoginfailedEditormismatcheditortovanilla => 8,
+            EnumsPlayStatus::LoginfailedEditormismatchvanillatoeditor => 9,
             EnumsPlayStatus::Unknown(v) => *v,
         };
         4usize
@@ -38145,16 +38729,16 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayStatus {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsPlayStatus::LoginSuccess => 0,
-            EnumsPlayStatus::LoginFailedClientOld => 1,
-            EnumsPlayStatus::LoginFailedServerOld => 2,
-            EnumsPlayStatus::PlayerSpawn => 3,
-            EnumsPlayStatus::LoginFailedInvalidTenant => 4,
+            EnumsPlayStatus::Loginsuccess => 0,
+            EnumsPlayStatus::LoginfailedClientold => 1,
+            EnumsPlayStatus::LoginfailedServerold => 2,
+            EnumsPlayStatus::Playerspawn => 3,
+            EnumsPlayStatus::LoginfailedInvalidtenant => 4,
             EnumsPlayStatus::Reserved5 => 5,
             EnumsPlayStatus::Reserved6 => 6,
-            EnumsPlayStatus::LoginFailedServerFullSubClient => 7,
-            EnumsPlayStatus::LoginFailedEditorMismatchEditorToVanilla => 8,
-            EnumsPlayStatus::LoginFailedEditorMismatchVanillaToEditor => 9,
+            EnumsPlayStatus::LoginfailedServerfullsubclient => 7,
+            EnumsPlayStatus::LoginfailedEditormismatcheditortovanilla => 8,
+            EnumsPlayStatus::LoginfailedEditormismatchvanillatoeditor => 9,
             EnumsPlayStatus::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -38165,93 +38749,93 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayStatus {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <i32 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsPlayStatus::LoginSuccess),
-            1 => Ok(EnumsPlayStatus::LoginFailedClientOld),
-            2 => Ok(EnumsPlayStatus::LoginFailedServerOld),
-            3 => Ok(EnumsPlayStatus::PlayerSpawn),
-            4 => Ok(EnumsPlayStatus::LoginFailedInvalidTenant),
+            0 => Ok(EnumsPlayStatus::Loginsuccess),
+            1 => Ok(EnumsPlayStatus::LoginfailedClientold),
+            2 => Ok(EnumsPlayStatus::LoginfailedServerold),
+            3 => Ok(EnumsPlayStatus::Playerspawn),
+            4 => Ok(EnumsPlayStatus::LoginfailedInvalidtenant),
             5 => Ok(EnumsPlayStatus::Reserved5),
             6 => Ok(EnumsPlayStatus::Reserved6),
-            7 => Ok(EnumsPlayStatus::LoginFailedServerFullSubClient),
-            8 => Ok(EnumsPlayStatus::LoginFailedEditorMismatchEditorToVanilla),
-            9 => Ok(EnumsPlayStatus::LoginFailedEditorMismatchVanillaToEditor),
+            7 => Ok(EnumsPlayStatus::LoginfailedServerfullsubclient),
+            8 => Ok(EnumsPlayStatus::LoginfailedEditormismatcheditortovanilla),
+            9 => Ok(EnumsPlayStatus::LoginfailedEditormismatchvanillatoeditor),
             other => Ok(EnumsPlayStatus::Unknown(other)),
         }
     }
 }
 impl Default for EnumsPlayStatus {
     fn default() -> Self {
-        Self::LoginSuccess
+        Self::Loginsuccess
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsPlayerAuthInputPacketPayloadInputData {
     Ascend,
     Descend,
-    NorthJump,
-    JumpDown,
-    SprintDown,
-    ChangeHeight,
+    Northjump,
+    Jumpdown,
+    Sprintdown,
+    Changeheight,
     Jumping,
-    AutoJumpingInWater,
+    Autojumpinginwater,
     Sneaking,
-    SneakDown,
+    Sneakdown,
     Up,
     Down,
     Left,
     Right,
-    UpLeft,
-    UpRight,
-    WantUp,
-    WantDown,
-    WantDownSlow,
-    WantUpSlow,
+    Upleft,
+    Upright,
+    Wantup,
+    Wantdown,
+    Wantdownslow,
+    Wantupslow,
     Sprinting,
-    AscendBlock,
-    DescendBlock,
-    SneakToggleDown,
-    PersistSneak,
-    StartSprinting,
-    StopSprinting,
-    StartSneaking,
-    StopSneaking,
-    StartSwimming,
-    StopSwimming,
-    StartJumping,
-    StartGliding,
-    StopGliding,
-    PerformItemInteraction,
-    PerformBlockActions,
-    PerformItemStackRequest,
-    HandledTeleport,
+    Ascendblock,
+    Descendblock,
+    Sneaktoggledown,
+    Persistsneak,
+    Startsprinting,
+    Stopsprinting,
+    Startsneaking,
+    Stopsneaking,
+    Startswimming,
+    Stopswimming,
+    Startjumping,
+    Startgliding,
+    Stopgliding,
+    Performiteminteraction,
+    Performblockactions,
+    Performitemstackrequest,
+    Handledteleport,
     Emoting,
-    MissedSwing,
-    StartCrawling,
-    StopCrawling,
-    StartFlying,
-    StopFlying,
-    ClientAckServerData,
-    IsInClientPredictedVehicle,
-    PaddlingLeft,
-    PaddlingRight,
-    BlockBreakingDelayEnabled,
-    HorizontalCollision,
-    VerticalCollision,
-    DownLeft,
-    DownRight,
-    StartUsingItem,
-    IsCameraRelativeMovementEnabled,
-    IsRotControlledByMoveDirection,
-    StartSpinAttack,
-    StopSpinAttack,
-    IsHotbarOnlyTouch,
-    JumpReleasedRaw,
-    JumpPressedRaw,
-    JumpCurrentRaw,
-    SneakReleasedRaw,
-    SneakPressedRaw,
-    SneakCurrentRaw,
-    InternalUpdate,
+    Missedswing,
+    Startcrawling,
+    Stopcrawling,
+    Startflying,
+    Stopflying,
+    Clientackserverdata,
+    Isinclientpredictedvehicle,
+    Paddlingleft,
+    Paddlingright,
+    Blockbreakingdelayenabled,
+    Horizontalcollision,
+    Verticalcollision,
+    Downleft,
+    Downright,
+    Startusingitem,
+    Iscamerarelativemovementenabled,
+    Isrotcontrolledbymovedirection,
+    Startspinattack,
+    Stopspinattack,
+    Ishotbaronlytouch,
+    Jumpreleasedraw,
+    Jumppressedraw,
+    Jumpcurrentraw,
+    Sneakreleasedraw,
+    Sneakpressedraw,
+    Sneakcurrentraw,
+    Internalupdate,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsPlayerAuthInputPacketPayloadInputData {
@@ -38259,70 +38843,70 @@ impl crate::bedrock::codec::BedrockSized for EnumsPlayerAuthInputPacketPayloadIn
         let _val: i32 = match self {
             EnumsPlayerAuthInputPacketPayloadInputData::Ascend => 0,
             EnumsPlayerAuthInputPacketPayloadInputData::Descend => 1,
-            EnumsPlayerAuthInputPacketPayloadInputData::NorthJump => 2,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpDown => 3,
-            EnumsPlayerAuthInputPacketPayloadInputData::SprintDown => 4,
-            EnumsPlayerAuthInputPacketPayloadInputData::ChangeHeight => 5,
+            EnumsPlayerAuthInputPacketPayloadInputData::Northjump => 2,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumpdown => 3,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sprintdown => 4,
+            EnumsPlayerAuthInputPacketPayloadInputData::Changeheight => 5,
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping => 6,
-            EnumsPlayerAuthInputPacketPayloadInputData::AutoJumpingInWater => 7,
+            EnumsPlayerAuthInputPacketPayloadInputData::Autojumpinginwater => 7,
             EnumsPlayerAuthInputPacketPayloadInputData::Sneaking => 8,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakDown => 9,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakdown => 9,
             EnumsPlayerAuthInputPacketPayloadInputData::Up => 10,
             EnumsPlayerAuthInputPacketPayloadInputData::Down => 11,
             EnumsPlayerAuthInputPacketPayloadInputData::Left => 12,
             EnumsPlayerAuthInputPacketPayloadInputData::Right => 13,
-            EnumsPlayerAuthInputPacketPayloadInputData::UpLeft => 14,
-            EnumsPlayerAuthInputPacketPayloadInputData::UpRight => 15,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantUp => 16,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantDown => 17,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantDownSlow => 18,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantUpSlow => 19,
+            EnumsPlayerAuthInputPacketPayloadInputData::Upleft => 14,
+            EnumsPlayerAuthInputPacketPayloadInputData::Upright => 15,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantup => 16,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantdown => 17,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantdownslow => 18,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantupslow => 19,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting => 20,
-            EnumsPlayerAuthInputPacketPayloadInputData::AscendBlock => 21,
-            EnumsPlayerAuthInputPacketPayloadInputData::DescendBlock => 22,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakToggleDown => 23,
-            EnumsPlayerAuthInputPacketPayloadInputData::PersistSneak => 24,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSprinting => 25,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSprinting => 26,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSneaking => 27,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSneaking => 28,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSwimming => 29,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSwimming => 30,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartJumping => 31,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartGliding => 32,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopGliding => 33,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemInteraction => 34,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformBlockActions => 35,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemStackRequest => 36,
-            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport => 37,
+            EnumsPlayerAuthInputPacketPayloadInputData::Ascendblock => 21,
+            EnumsPlayerAuthInputPacketPayloadInputData::Descendblock => 22,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneaktoggledown => 23,
+            EnumsPlayerAuthInputPacketPayloadInputData::Persistsneak => 24,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startsprinting => 25,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopsprinting => 26,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startsneaking => 27,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopsneaking => 28,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startswimming => 29,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopswimming => 30,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startjumping => 31,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startgliding => 32,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopgliding => 33,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction => 34,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions => 35,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performitemstackrequest => 36,
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport => 37,
             EnumsPlayerAuthInputPacketPayloadInputData::Emoting => 38,
-            EnumsPlayerAuthInputPacketPayloadInputData::MissedSwing => 39,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartCrawling => 40,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopCrawling => 41,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartFlying => 42,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopFlying => 43,
-            EnumsPlayerAuthInputPacketPayloadInputData::ClientAckServerData => 44,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsInClientPredictedVehicle => 45,
-            EnumsPlayerAuthInputPacketPayloadInputData::PaddlingLeft => 46,
-            EnumsPlayerAuthInputPacketPayloadInputData::PaddlingRight => 47,
-            EnumsPlayerAuthInputPacketPayloadInputData::BlockBreakingDelayEnabled => 48,
-            EnumsPlayerAuthInputPacketPayloadInputData::HorizontalCollision => 49,
-            EnumsPlayerAuthInputPacketPayloadInputData::VerticalCollision => 50,
-            EnumsPlayerAuthInputPacketPayloadInputData::DownLeft => 51,
-            EnumsPlayerAuthInputPacketPayloadInputData::DownRight => 52,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartUsingItem => 53,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsCameraRelativeMovementEnabled => 54,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsRotControlledByMoveDirection => 55,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSpinAttack => 56,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSpinAttack => 57,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsHotbarOnlyTouch => 58,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpReleasedRaw => 59,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpPressedRaw => 60,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpCurrentRaw => 61,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakReleasedRaw => 62,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakPressedRaw => 63,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakCurrentRaw => 64,
-            EnumsPlayerAuthInputPacketPayloadInputData::InternalUpdate => 65,
+            EnumsPlayerAuthInputPacketPayloadInputData::Missedswing => 39,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startcrawling => 40,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopcrawling => 41,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startflying => 42,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopflying => 43,
+            EnumsPlayerAuthInputPacketPayloadInputData::Clientackserverdata => 44,
+            EnumsPlayerAuthInputPacketPayloadInputData::Isinclientpredictedvehicle => 45,
+            EnumsPlayerAuthInputPacketPayloadInputData::Paddlingleft => 46,
+            EnumsPlayerAuthInputPacketPayloadInputData::Paddlingright => 47,
+            EnumsPlayerAuthInputPacketPayloadInputData::Blockbreakingdelayenabled => 48,
+            EnumsPlayerAuthInputPacketPayloadInputData::Horizontalcollision => 49,
+            EnumsPlayerAuthInputPacketPayloadInputData::Verticalcollision => 50,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downleft => 51,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downright => 52,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startusingitem => 53,
+            EnumsPlayerAuthInputPacketPayloadInputData::Iscamerarelativemovementenabled => 54,
+            EnumsPlayerAuthInputPacketPayloadInputData::Isrotcontrolledbymovedirection => 55,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startspinattack => 56,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopspinattack => 57,
+            EnumsPlayerAuthInputPacketPayloadInputData::Ishotbaronlytouch => 58,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumpreleasedraw => 59,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumppressedraw => 60,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumpcurrentraw => 61,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakreleasedraw => 62,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakpressedraw => 63,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakcurrentraw => 64,
+            EnumsPlayerAuthInputPacketPayloadInputData::Internalupdate => 65,
             EnumsPlayerAuthInputPacketPayloadInputData::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -38336,70 +38920,70 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerAuthInputPacketPayloadIn
         let val: i32 = match self {
             EnumsPlayerAuthInputPacketPayloadInputData::Ascend => 0,
             EnumsPlayerAuthInputPacketPayloadInputData::Descend => 1,
-            EnumsPlayerAuthInputPacketPayloadInputData::NorthJump => 2,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpDown => 3,
-            EnumsPlayerAuthInputPacketPayloadInputData::SprintDown => 4,
-            EnumsPlayerAuthInputPacketPayloadInputData::ChangeHeight => 5,
+            EnumsPlayerAuthInputPacketPayloadInputData::Northjump => 2,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumpdown => 3,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sprintdown => 4,
+            EnumsPlayerAuthInputPacketPayloadInputData::Changeheight => 5,
             EnumsPlayerAuthInputPacketPayloadInputData::Jumping => 6,
-            EnumsPlayerAuthInputPacketPayloadInputData::AutoJumpingInWater => 7,
+            EnumsPlayerAuthInputPacketPayloadInputData::Autojumpinginwater => 7,
             EnumsPlayerAuthInputPacketPayloadInputData::Sneaking => 8,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakDown => 9,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakdown => 9,
             EnumsPlayerAuthInputPacketPayloadInputData::Up => 10,
             EnumsPlayerAuthInputPacketPayloadInputData::Down => 11,
             EnumsPlayerAuthInputPacketPayloadInputData::Left => 12,
             EnumsPlayerAuthInputPacketPayloadInputData::Right => 13,
-            EnumsPlayerAuthInputPacketPayloadInputData::UpLeft => 14,
-            EnumsPlayerAuthInputPacketPayloadInputData::UpRight => 15,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantUp => 16,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantDown => 17,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantDownSlow => 18,
-            EnumsPlayerAuthInputPacketPayloadInputData::WantUpSlow => 19,
+            EnumsPlayerAuthInputPacketPayloadInputData::Upleft => 14,
+            EnumsPlayerAuthInputPacketPayloadInputData::Upright => 15,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantup => 16,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantdown => 17,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantdownslow => 18,
+            EnumsPlayerAuthInputPacketPayloadInputData::Wantupslow => 19,
             EnumsPlayerAuthInputPacketPayloadInputData::Sprinting => 20,
-            EnumsPlayerAuthInputPacketPayloadInputData::AscendBlock => 21,
-            EnumsPlayerAuthInputPacketPayloadInputData::DescendBlock => 22,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakToggleDown => 23,
-            EnumsPlayerAuthInputPacketPayloadInputData::PersistSneak => 24,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSprinting => 25,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSprinting => 26,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSneaking => 27,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSneaking => 28,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSwimming => 29,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSwimming => 30,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartJumping => 31,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartGliding => 32,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopGliding => 33,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemInteraction => 34,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformBlockActions => 35,
-            EnumsPlayerAuthInputPacketPayloadInputData::PerformItemStackRequest => 36,
-            EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport => 37,
+            EnumsPlayerAuthInputPacketPayloadInputData::Ascendblock => 21,
+            EnumsPlayerAuthInputPacketPayloadInputData::Descendblock => 22,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneaktoggledown => 23,
+            EnumsPlayerAuthInputPacketPayloadInputData::Persistsneak => 24,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startsprinting => 25,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopsprinting => 26,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startsneaking => 27,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopsneaking => 28,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startswimming => 29,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopswimming => 30,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startjumping => 31,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startgliding => 32,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopgliding => 33,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction => 34,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions => 35,
+            EnumsPlayerAuthInputPacketPayloadInputData::Performitemstackrequest => 36,
+            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport => 37,
             EnumsPlayerAuthInputPacketPayloadInputData::Emoting => 38,
-            EnumsPlayerAuthInputPacketPayloadInputData::MissedSwing => 39,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartCrawling => 40,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopCrawling => 41,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartFlying => 42,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopFlying => 43,
-            EnumsPlayerAuthInputPacketPayloadInputData::ClientAckServerData => 44,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsInClientPredictedVehicle => 45,
-            EnumsPlayerAuthInputPacketPayloadInputData::PaddlingLeft => 46,
-            EnumsPlayerAuthInputPacketPayloadInputData::PaddlingRight => 47,
-            EnumsPlayerAuthInputPacketPayloadInputData::BlockBreakingDelayEnabled => 48,
-            EnumsPlayerAuthInputPacketPayloadInputData::HorizontalCollision => 49,
-            EnumsPlayerAuthInputPacketPayloadInputData::VerticalCollision => 50,
-            EnumsPlayerAuthInputPacketPayloadInputData::DownLeft => 51,
-            EnumsPlayerAuthInputPacketPayloadInputData::DownRight => 52,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartUsingItem => 53,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsCameraRelativeMovementEnabled => 54,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsRotControlledByMoveDirection => 55,
-            EnumsPlayerAuthInputPacketPayloadInputData::StartSpinAttack => 56,
-            EnumsPlayerAuthInputPacketPayloadInputData::StopSpinAttack => 57,
-            EnumsPlayerAuthInputPacketPayloadInputData::IsHotbarOnlyTouch => 58,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpReleasedRaw => 59,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpPressedRaw => 60,
-            EnumsPlayerAuthInputPacketPayloadInputData::JumpCurrentRaw => 61,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakReleasedRaw => 62,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakPressedRaw => 63,
-            EnumsPlayerAuthInputPacketPayloadInputData::SneakCurrentRaw => 64,
-            EnumsPlayerAuthInputPacketPayloadInputData::InternalUpdate => 65,
+            EnumsPlayerAuthInputPacketPayloadInputData::Missedswing => 39,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startcrawling => 40,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopcrawling => 41,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startflying => 42,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopflying => 43,
+            EnumsPlayerAuthInputPacketPayloadInputData::Clientackserverdata => 44,
+            EnumsPlayerAuthInputPacketPayloadInputData::Isinclientpredictedvehicle => 45,
+            EnumsPlayerAuthInputPacketPayloadInputData::Paddlingleft => 46,
+            EnumsPlayerAuthInputPacketPayloadInputData::Paddlingright => 47,
+            EnumsPlayerAuthInputPacketPayloadInputData::Blockbreakingdelayenabled => 48,
+            EnumsPlayerAuthInputPacketPayloadInputData::Horizontalcollision => 49,
+            EnumsPlayerAuthInputPacketPayloadInputData::Verticalcollision => 50,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downleft => 51,
+            EnumsPlayerAuthInputPacketPayloadInputData::Downright => 52,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startusingitem => 53,
+            EnumsPlayerAuthInputPacketPayloadInputData::Iscamerarelativemovementenabled => 54,
+            EnumsPlayerAuthInputPacketPayloadInputData::Isrotcontrolledbymovedirection => 55,
+            EnumsPlayerAuthInputPacketPayloadInputData::Startspinattack => 56,
+            EnumsPlayerAuthInputPacketPayloadInputData::Stopspinattack => 57,
+            EnumsPlayerAuthInputPacketPayloadInputData::Ishotbaronlytouch => 58,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumpreleasedraw => 59,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumppressedraw => 60,
+            EnumsPlayerAuthInputPacketPayloadInputData::Jumpcurrentraw => 61,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakreleasedraw => 62,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakpressedraw => 63,
+            EnumsPlayerAuthInputPacketPayloadInputData::Sneakcurrentraw => 64,
+            EnumsPlayerAuthInputPacketPayloadInputData::Internalupdate => 65,
             EnumsPlayerAuthInputPacketPayloadInputData::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -38416,70 +39000,70 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerAuthInputPacketPayloadIn
         match val {
             0 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Ascend),
             1 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Descend),
-            2 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::NorthJump),
-            3 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::JumpDown),
-            4 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::SprintDown),
-            5 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::ChangeHeight),
+            2 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Northjump),
+            3 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Jumpdown),
+            4 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sprintdown),
+            5 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Changeheight),
             6 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Jumping),
-            7 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::AutoJumpingInWater),
+            7 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Autojumpinginwater),
             8 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sneaking),
-            9 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::SneakDown),
+            9 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sneakdown),
             10 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Up),
             11 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Down),
             12 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Left),
             13 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Right),
-            14 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::UpLeft),
-            15 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::UpRight),
-            16 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::WantUp),
-            17 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::WantDown),
-            18 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::WantDownSlow),
-            19 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::WantUpSlow),
+            14 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Upleft),
+            15 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Upright),
+            16 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Wantup),
+            17 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Wantdown),
+            18 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Wantdownslow),
+            19 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Wantupslow),
             20 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sprinting),
-            21 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::AscendBlock),
-            22 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::DescendBlock),
-            23 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::SneakToggleDown),
-            24 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::PersistSneak),
-            25 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartSprinting),
-            26 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StopSprinting),
-            27 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartSneaking),
-            28 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StopSneaking),
-            29 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartSwimming),
-            30 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StopSwimming),
-            31 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartJumping),
-            32 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartGliding),
-            33 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StopGliding),
-            34 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::PerformItemInteraction),
-            35 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::PerformBlockActions),
-            36 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::PerformItemStackRequest),
-            37 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::HandledTeleport),
+            21 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Ascendblock),
+            22 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Descendblock),
+            23 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sneaktoggledown),
+            24 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Persistsneak),
+            25 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startsprinting),
+            26 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Stopsprinting),
+            27 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startsneaking),
+            28 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Stopsneaking),
+            29 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startswimming),
+            30 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Stopswimming),
+            31 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startjumping),
+            32 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startgliding),
+            33 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Stopgliding),
+            34 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction),
+            35 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions),
+            36 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Performitemstackrequest),
+            37 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport),
             38 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Emoting),
-            39 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::MissedSwing),
-            40 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartCrawling),
-            41 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StopCrawling),
-            42 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartFlying),
-            43 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StopFlying),
-            44 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::ClientAckServerData),
-            45 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::IsInClientPredictedVehicle),
-            46 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::PaddlingLeft),
-            47 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::PaddlingRight),
-            48 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::BlockBreakingDelayEnabled),
-            49 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::HorizontalCollision),
-            50 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::VerticalCollision),
-            51 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::DownLeft),
-            52 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::DownRight),
-            53 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartUsingItem),
-            54 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::IsCameraRelativeMovementEnabled),
-            55 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::IsRotControlledByMoveDirection),
-            56 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StartSpinAttack),
-            57 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::StopSpinAttack),
-            58 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::IsHotbarOnlyTouch),
-            59 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::JumpReleasedRaw),
-            60 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::JumpPressedRaw),
-            61 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::JumpCurrentRaw),
-            62 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::SneakReleasedRaw),
-            63 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::SneakPressedRaw),
-            64 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::SneakCurrentRaw),
-            65 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::InternalUpdate),
+            39 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Missedswing),
+            40 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startcrawling),
+            41 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Stopcrawling),
+            42 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startflying),
+            43 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Stopflying),
+            44 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Clientackserverdata),
+            45 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Isinclientpredictedvehicle),
+            46 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Paddlingleft),
+            47 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Paddlingright),
+            48 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Blockbreakingdelayenabled),
+            49 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Horizontalcollision),
+            50 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Verticalcollision),
+            51 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Downleft),
+            52 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Downright),
+            53 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startusingitem),
+            54 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Iscamerarelativemovementenabled),
+            55 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Isrotcontrolledbymovedirection),
+            56 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Startspinattack),
+            57 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Stopspinattack),
+            58 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Ishotbaronlytouch),
+            59 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Jumpreleasedraw),
+            60 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Jumppressedraw),
+            61 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Jumpcurrentraw),
+            62 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sneakreleasedraw),
+            63 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sneakpressedraw),
+            64 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Sneakcurrentraw),
+            65 => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Internalupdate),
             other => Ok(EnumsPlayerAuthInputPacketPayloadInputData::Unknown(other)),
         }
     }
@@ -38494,7 +39078,7 @@ pub enum EnumsPlayerPositionModeComponentPositionMode {
     Normal,
     Respawn,
     Teleport,
-    OnlyHeadRot,
+    Onlyheadrot,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsPlayerPositionModeComponentPositionMode {
@@ -38503,7 +39087,7 @@ impl crate::bedrock::codec::BedrockSized for EnumsPlayerPositionModeComponentPos
             EnumsPlayerPositionModeComponentPositionMode::Normal => 0,
             EnumsPlayerPositionModeComponentPositionMode::Respawn => 1,
             EnumsPlayerPositionModeComponentPositionMode::Teleport => 2,
-            EnumsPlayerPositionModeComponentPositionMode::OnlyHeadRot => 3,
+            EnumsPlayerPositionModeComponentPositionMode::Onlyheadrot => 3,
             EnumsPlayerPositionModeComponentPositionMode::Unknown(v) => *v,
         };
         1usize
@@ -38516,7 +39100,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerPositionModeComponentPos
             EnumsPlayerPositionModeComponentPositionMode::Normal => 0,
             EnumsPlayerPositionModeComponentPositionMode::Respawn => 1,
             EnumsPlayerPositionModeComponentPositionMode::Teleport => 2,
-            EnumsPlayerPositionModeComponentPositionMode::OnlyHeadRot => 3,
+            EnumsPlayerPositionModeComponentPositionMode::Onlyheadrot => 3,
             EnumsPlayerPositionModeComponentPositionMode::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -38530,7 +39114,7 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerPositionModeComponentPos
             0 => Ok(EnumsPlayerPositionModeComponentPositionMode::Normal),
             1 => Ok(EnumsPlayerPositionModeComponentPositionMode::Respawn),
             2 => Ok(EnumsPlayerPositionModeComponentPositionMode::Teleport),
-            3 => Ok(EnumsPlayerPositionModeComponentPositionMode::OnlyHeadRot),
+            3 => Ok(EnumsPlayerPositionModeComponentPositionMode::Onlyheadrot),
             other => Ok(EnumsPlayerPositionModeComponentPositionMode::Unknown(other)),
         }
     }
@@ -38542,17 +39126,17 @@ impl Default for EnumsPlayerPositionModeComponentPositionMode {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsPlayerRespawnState {
-    SearchingForSpawn,
-    ReadyToSpawn,
-    ClientReadyToSpawn,
+    Searchingforspawn,
+    Readytospawn,
+    Clientreadytospawn,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsPlayerRespawnState {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsPlayerRespawnState::SearchingForSpawn => 0,
-            EnumsPlayerRespawnState::ReadyToSpawn => 1,
-            EnumsPlayerRespawnState::ClientReadyToSpawn => 2,
+            EnumsPlayerRespawnState::Searchingforspawn => 0,
+            EnumsPlayerRespawnState::Readytospawn => 1,
+            EnumsPlayerRespawnState::Clientreadytospawn => 2,
             EnumsPlayerRespawnState::Unknown(v) => *v,
         };
         1usize
@@ -38562,9 +39146,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerRespawnState {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsPlayerRespawnState::SearchingForSpawn => 0,
-            EnumsPlayerRespawnState::ReadyToSpawn => 1,
-            EnumsPlayerRespawnState::ClientReadyToSpawn => 2,
+            EnumsPlayerRespawnState::Searchingforspawn => 0,
+            EnumsPlayerRespawnState::Readytospawn => 1,
+            EnumsPlayerRespawnState::Clientreadytospawn => 2,
             EnumsPlayerRespawnState::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -38575,16 +39159,16 @@ impl crate::bedrock::codec::BedrockCodec for EnumsPlayerRespawnState {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsPlayerRespawnState::SearchingForSpawn),
-            1 => Ok(EnumsPlayerRespawnState::ReadyToSpawn),
-            2 => Ok(EnumsPlayerRespawnState::ClientReadyToSpawn),
+            0 => Ok(EnumsPlayerRespawnState::Searchingforspawn),
+            1 => Ok(EnumsPlayerRespawnState::Readytospawn),
+            2 => Ok(EnumsPlayerRespawnState::Clientreadytospawn),
             other => Ok(EnumsPlayerRespawnState::Unknown(other)),
         }
     }
 }
 impl Default for EnumsPlayerRespawnState {
     fn default() -> Self {
-        Self::SearchingForSpawn
+        Self::Searchingforspawn
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38634,7 +39218,7 @@ impl Default for EnumsPositionTrackingDbClientRequestPacketPayloadAction {
 pub enum EnumsPositionTrackingDbServerBroadcastPacketPayloadAction {
     Update,
     Destroy,
-    NotFound,
+    Notfound,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized
@@ -38644,7 +39228,7 @@ impl crate::bedrock::codec::BedrockSized
         let _val: u8 = match self {
             EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Update => 0,
             EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Destroy => 1,
-            EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::NotFound => 2,
+            EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Notfound => 2,
             EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Unknown(v) => *v,
         };
         1usize
@@ -38658,7 +39242,7 @@ impl crate::bedrock::codec::BedrockCodec
         let val: u8 = match self {
             EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Update => 0,
             EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Destroy => 1,
-            EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::NotFound => 2,
+            EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Notfound => 2,
             EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -38671,7 +39255,7 @@ impl crate::bedrock::codec::BedrockCodec
         match val {
             0 => Ok(EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Update),
             1 => Ok(EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Destroy),
-            2 => Ok(EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::NotFound),
+            2 => Ok(EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Notfound),
             other => Ok(EnumsPositionTrackingDbServerBroadcastPacketPayloadAction::Unknown(other)),
         }
     }
@@ -38816,15 +39400,15 @@ impl Default for EnumsScoreboardIdentityPacketType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsServerboundLoadingScreenPacketType {
-    StartLoadingScreen,
-    EndLoadingScreen,
+    Startloadingscreen,
+    Endloadingscreen,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsServerboundLoadingScreenPacketType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsServerboundLoadingScreenPacketType::StartLoadingScreen => 1,
-            EnumsServerboundLoadingScreenPacketType::EndLoadingScreen => 2,
+            EnumsServerboundLoadingScreenPacketType::Startloadingscreen => 1,
+            EnumsServerboundLoadingScreenPacketType::Endloadingscreen => 2,
             EnumsServerboundLoadingScreenPacketType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -38836,8 +39420,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsServerboundLoadingScreenPacket
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsServerboundLoadingScreenPacketType::StartLoadingScreen => 1,
-            EnumsServerboundLoadingScreenPacketType::EndLoadingScreen => 2,
+            EnumsServerboundLoadingScreenPacketType::Startloadingscreen => 1,
+            EnumsServerboundLoadingScreenPacketType::Endloadingscreen => 2,
             EnumsServerboundLoadingScreenPacketType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -38852,15 +39436,66 @@ impl crate::bedrock::codec::BedrockCodec for EnumsServerboundLoadingScreenPacket
         )?;
         let val = raw.0 as i32;
         match val {
-            1 => Ok(EnumsServerboundLoadingScreenPacketType::StartLoadingScreen),
-            2 => Ok(EnumsServerboundLoadingScreenPacketType::EndLoadingScreen),
+            1 => Ok(EnumsServerboundLoadingScreenPacketType::Startloadingscreen),
+            2 => Ok(EnumsServerboundLoadingScreenPacketType::Endloadingscreen),
             other => Ok(EnumsServerboundLoadingScreenPacketType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsServerboundLoadingScreenPacketType {
     fn default() -> Self {
-        Self::StartLoadingScreen
+        Self::Startloadingscreen
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType {
+    None,
+    Furnace,
+    Blastfurnace,
+    Smoker,
+    Unknown(u8),
+}
+impl crate::bedrock::codec::BedrockSized for EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType {
+    fn encoded_size(&self) -> usize {
+        let _val: u8 = match self {
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::None => 0,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Furnace => 1,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Blastfurnace => 2,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Smoker => 3,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Unknown(v) => *v,
+        };
+        1usize
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        let val: u8 = match self {
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::None => 0,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Furnace => 1,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Blastfurnace => 2,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Smoker => 3,
+            EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Unknown(v) => *v,
+        };
+        val.encode(buf)
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
+        match val {
+            0 => Ok(EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::None),
+            1 => Ok(EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Furnace),
+            2 => Ok(EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Blastfurnace),
+            3 => Ok(EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Smoker),
+            other => Ok(EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType::Unknown(other)),
+        }
+    }
+}
+impl Default for EnumsSetPlayerFurnaceOptionsPacketPayloadFurnaceType {
+    fn default() -> Self {
+        Self::None
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38871,9 +39506,9 @@ pub enum EnumsSetTitlePacketPayloadTitleType {
     Subtitle,
     Actionbar,
     Times,
-    TitleTextObject,
-    SubtitleTextObject,
-    ActionbarTextObject,
+    Titletextobject,
+    Subtitletextobject,
+    Actionbartextobject,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSetTitlePacketPayloadTitleType {
@@ -38885,9 +39520,9 @@ impl crate::bedrock::codec::BedrockSized for EnumsSetTitlePacketPayloadTitleType
             EnumsSetTitlePacketPayloadTitleType::Subtitle => 3,
             EnumsSetTitlePacketPayloadTitleType::Actionbar => 4,
             EnumsSetTitlePacketPayloadTitleType::Times => 5,
-            EnumsSetTitlePacketPayloadTitleType::TitleTextObject => 6,
-            EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject => 7,
-            EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject => 8,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject => 6,
+            EnumsSetTitlePacketPayloadTitleType::Subtitletextobject => 7,
+            EnumsSetTitlePacketPayloadTitleType::Actionbartextobject => 8,
             EnumsSetTitlePacketPayloadTitleType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -38905,9 +39540,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSetTitlePacketPayloadTitleType
             EnumsSetTitlePacketPayloadTitleType::Subtitle => 3,
             EnumsSetTitlePacketPayloadTitleType::Actionbar => 4,
             EnumsSetTitlePacketPayloadTitleType::Times => 5,
-            EnumsSetTitlePacketPayloadTitleType::TitleTextObject => 6,
-            EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject => 7,
-            EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject => 8,
+            EnumsSetTitlePacketPayloadTitleType::Titletextobject => 6,
+            EnumsSetTitlePacketPayloadTitleType::Subtitletextobject => 7,
+            EnumsSetTitlePacketPayloadTitleType::Actionbartextobject => 8,
             EnumsSetTitlePacketPayloadTitleType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -38928,9 +39563,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSetTitlePacketPayloadTitleType
             3 => Ok(EnumsSetTitlePacketPayloadTitleType::Subtitle),
             4 => Ok(EnumsSetTitlePacketPayloadTitleType::Actionbar),
             5 => Ok(EnumsSetTitlePacketPayloadTitleType::Times),
-            6 => Ok(EnumsSetTitlePacketPayloadTitleType::TitleTextObject),
-            7 => Ok(EnumsSetTitlePacketPayloadTitleType::SubtitleTextObject),
-            8 => Ok(EnumsSetTitlePacketPayloadTitleType::ActionbarTextObject),
+            6 => Ok(EnumsSetTitlePacketPayloadTitleType::Titletextobject),
+            7 => Ok(EnumsSetTitlePacketPayloadTitleType::Subtitletextobject),
+            8 => Ok(EnumsSetTitlePacketPayloadTitleType::Actionbartextobject),
             other => Ok(EnumsSetTitlePacketPayloadTitleType::Unknown(other)),
         }
     }
@@ -38942,17 +39577,17 @@ impl Default for EnumsSetTitlePacketPayloadTitleType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsShowStoreOfferRedirectType {
-    MarketplaceOffer,
-    DressingRoomOffer,
-    ThirdPartyServerPage,
+    Marketplaceoffer,
+    Dressingroomoffer,
+    Thirdpartyserverpage,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsShowStoreOfferRedirectType {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
-            EnumsShowStoreOfferRedirectType::MarketplaceOffer => 0,
-            EnumsShowStoreOfferRedirectType::DressingRoomOffer => 1,
-            EnumsShowStoreOfferRedirectType::ThirdPartyServerPage => 2,
+            EnumsShowStoreOfferRedirectType::Marketplaceoffer => 0,
+            EnumsShowStoreOfferRedirectType::Dressingroomoffer => 1,
+            EnumsShowStoreOfferRedirectType::Thirdpartyserverpage => 2,
             EnumsShowStoreOfferRedirectType::Unknown(v) => *v,
         };
         1usize
@@ -38962,9 +39597,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsShowStoreOfferRedirectType {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
-            EnumsShowStoreOfferRedirectType::MarketplaceOffer => 0,
-            EnumsShowStoreOfferRedirectType::DressingRoomOffer => 1,
-            EnumsShowStoreOfferRedirectType::ThirdPartyServerPage => 2,
+            EnumsShowStoreOfferRedirectType::Marketplaceoffer => 0,
+            EnumsShowStoreOfferRedirectType::Dressingroomoffer => 1,
+            EnumsShowStoreOfferRedirectType::Thirdpartyserverpage => 2,
             EnumsShowStoreOfferRedirectType::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -38975,33 +39610,33 @@ impl crate::bedrock::codec::BedrockCodec for EnumsShowStoreOfferRedirectType {
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
-            0 => Ok(EnumsShowStoreOfferRedirectType::MarketplaceOffer),
-            1 => Ok(EnumsShowStoreOfferRedirectType::DressingRoomOffer),
-            2 => Ok(EnumsShowStoreOfferRedirectType::ThirdPartyServerPage),
+            0 => Ok(EnumsShowStoreOfferRedirectType::Marketplaceoffer),
+            1 => Ok(EnumsShowStoreOfferRedirectType::Dressingroomoffer),
+            2 => Ok(EnumsShowStoreOfferRedirectType::Thirdpartyserverpage),
             other => Ok(EnumsShowStoreOfferRedirectType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsShowStoreOfferRedirectType {
     fn default() -> Self {
-        Self::MarketplaceOffer
+        Self::Marketplaceoffer
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSimpleEventPacketPayloadSubtype {
-    UninitializedSubtype,
-    EnableCommands,
-    DisableCommands,
-    UnlockWorldTemplateSettings,
+    Uninitializedsubtype,
+    Enablecommands,
+    Disablecommands,
+    Unlockworldtemplatesettings,
     Unknown(u16),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSimpleEventPacketPayloadSubtype {
     fn encoded_size(&self) -> usize {
         let _val: u16 = match self {
-            EnumsSimpleEventPacketPayloadSubtype::UninitializedSubtype => 0,
-            EnumsSimpleEventPacketPayloadSubtype::EnableCommands => 1,
-            EnumsSimpleEventPacketPayloadSubtype::DisableCommands => 2,
-            EnumsSimpleEventPacketPayloadSubtype::UnlockWorldTemplateSettings => 3,
+            EnumsSimpleEventPacketPayloadSubtype::Uninitializedsubtype => 0,
+            EnumsSimpleEventPacketPayloadSubtype::Enablecommands => 1,
+            EnumsSimpleEventPacketPayloadSubtype::Disablecommands => 2,
+            EnumsSimpleEventPacketPayloadSubtype::Unlockworldtemplatesettings => 3,
             EnumsSimpleEventPacketPayloadSubtype::Unknown(v) => *v,
         };
         2usize
@@ -39011,10 +39646,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSimpleEventPacketPayloadSubtyp
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u16 = match self {
-            EnumsSimpleEventPacketPayloadSubtype::UninitializedSubtype => 0,
-            EnumsSimpleEventPacketPayloadSubtype::EnableCommands => 1,
-            EnumsSimpleEventPacketPayloadSubtype::DisableCommands => 2,
-            EnumsSimpleEventPacketPayloadSubtype::UnlockWorldTemplateSettings => 3,
+            EnumsSimpleEventPacketPayloadSubtype::Uninitializedsubtype => 0,
+            EnumsSimpleEventPacketPayloadSubtype::Enablecommands => 1,
+            EnumsSimpleEventPacketPayloadSubtype::Disablecommands => 2,
+            EnumsSimpleEventPacketPayloadSubtype::Unlockworldtemplatesettings => 3,
             EnumsSimpleEventPacketPayloadSubtype::Unknown(v) => *v,
         };
         crate::bedrock::codec::U16LE(val as u16).encode(buf)
@@ -39027,17 +39662,17 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSimpleEventPacketPayloadSubtyp
             <crate::bedrock::codec::U16LE as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         let val = raw.0 as u16;
         match val {
-            0 => Ok(EnumsSimpleEventPacketPayloadSubtype::UninitializedSubtype),
-            1 => Ok(EnumsSimpleEventPacketPayloadSubtype::EnableCommands),
-            2 => Ok(EnumsSimpleEventPacketPayloadSubtype::DisableCommands),
-            3 => Ok(EnumsSimpleEventPacketPayloadSubtype::UnlockWorldTemplateSettings),
+            0 => Ok(EnumsSimpleEventPacketPayloadSubtype::Uninitializedsubtype),
+            1 => Ok(EnumsSimpleEventPacketPayloadSubtype::Enablecommands),
+            2 => Ok(EnumsSimpleEventPacketPayloadSubtype::Disablecommands),
+            3 => Ok(EnumsSimpleEventPacketPayloadSubtype::Unlockworldtemplatesettings),
             other => Ok(EnumsSimpleEventPacketPayloadSubtype::Unknown(other)),
         }
     }
 }
 impl Default for EnumsSimpleEventPacketPayloadSubtype {
     fn default() -> Self {
-        Self::UninitializedSubtype
+        Self::Uninitializedsubtype
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39140,15 +39775,15 @@ impl Default for EnumsSoftEnumUpdateType {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsSpawnPositionType {
-    PlayerRespawn,
-    WorldSpawn,
+    Playerrespawn,
+    Worldspawn,
     Unknown(i32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsSpawnPositionType {
     fn encoded_size(&self) -> usize {
         let _val: i32 = match self {
-            EnumsSpawnPositionType::PlayerRespawn => 0,
-            EnumsSpawnPositionType::WorldSpawn => 1,
+            EnumsSpawnPositionType::Playerrespawn => 0,
+            EnumsSpawnPositionType::Worldspawn => 1,
             EnumsSpawnPositionType::Unknown(v) => *v,
         };
         crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::ZigZag32(
@@ -39160,8 +39795,8 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSpawnPositionType {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: i32 = match self {
-            EnumsSpawnPositionType::PlayerRespawn => 0,
-            EnumsSpawnPositionType::WorldSpawn => 1,
+            EnumsSpawnPositionType::Playerrespawn => 0,
+            EnumsSpawnPositionType::Worldspawn => 1,
             EnumsSpawnPositionType::Unknown(v) => *v,
         };
         crate::bedrock::codec::ZigZag32(val as i32).encode(buf)
@@ -39176,32 +39811,32 @@ impl crate::bedrock::codec::BedrockCodec for EnumsSpawnPositionType {
         )?;
         let val = raw.0 as i32;
         match val {
-            0 => Ok(EnumsSpawnPositionType::PlayerRespawn),
-            1 => Ok(EnumsSpawnPositionType::WorldSpawn),
+            0 => Ok(EnumsSpawnPositionType::Playerrespawn),
+            1 => Ok(EnumsSpawnPositionType::Worldspawn),
             other => Ok(EnumsSpawnPositionType::Unknown(other)),
         }
     }
 }
 impl Default for EnumsSpawnPositionType {
     fn default() -> Self {
-        Self::PlayerRespawn
+        Self::Playerrespawn
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsStructureTemplateRequestOperation {
     None,
-    ExportFromSaveMode,
-    ExportFromLoadMode,
-    QuerySavedStructure,
+    Exportfromsavemode,
+    Exportfromloadmode,
+    Querysavedstructure,
     Unknown(u8),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsStructureTemplateRequestOperation {
     fn encoded_size(&self) -> usize {
         let _val: u8 = match self {
             EnumsStructureTemplateRequestOperation::None => 0,
-            EnumsStructureTemplateRequestOperation::ExportFromSaveMode => 1,
-            EnumsStructureTemplateRequestOperation::ExportFromLoadMode => 2,
-            EnumsStructureTemplateRequestOperation::QuerySavedStructure => 3,
+            EnumsStructureTemplateRequestOperation::Exportfromsavemode => 1,
+            EnumsStructureTemplateRequestOperation::Exportfromloadmode => 2,
+            EnumsStructureTemplateRequestOperation::Querysavedstructure => 3,
             EnumsStructureTemplateRequestOperation::Unknown(v) => *v,
         };
         1usize
@@ -39212,9 +39847,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsStructureTemplateRequestOperat
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u8 = match self {
             EnumsStructureTemplateRequestOperation::None => 0,
-            EnumsStructureTemplateRequestOperation::ExportFromSaveMode => 1,
-            EnumsStructureTemplateRequestOperation::ExportFromLoadMode => 2,
-            EnumsStructureTemplateRequestOperation::QuerySavedStructure => 3,
+            EnumsStructureTemplateRequestOperation::Exportfromsavemode => 1,
+            EnumsStructureTemplateRequestOperation::Exportfromloadmode => 2,
+            EnumsStructureTemplateRequestOperation::Querysavedstructure => 3,
             EnumsStructureTemplateRequestOperation::Unknown(v) => *v,
         };
         val.encode(buf)
@@ -39226,9 +39861,9 @@ impl crate::bedrock::codec::BedrockCodec for EnumsStructureTemplateRequestOperat
         let val = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
         match val {
             0 => Ok(EnumsStructureTemplateRequestOperation::None),
-            1 => Ok(EnumsStructureTemplateRequestOperation::ExportFromSaveMode),
-            2 => Ok(EnumsStructureTemplateRequestOperation::ExportFromLoadMode),
-            3 => Ok(EnumsStructureTemplateRequestOperation::QuerySavedStructure),
+            1 => Ok(EnumsStructureTemplateRequestOperation::Exportfromsavemode),
+            2 => Ok(EnumsStructureTemplateRequestOperation::Exportfromloadmode),
+            3 => Ok(EnumsStructureTemplateRequestOperation::Querysavedstructure),
             other => Ok(EnumsStructureTemplateRequestOperation::Unknown(other)),
         }
     }
@@ -39288,20 +39923,20 @@ impl Default for EnumsStructureTemplateResponseType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnumsUnlockedRecipesPacketPayloadPacketType {
     Empty,
-    InitiallyUnlockedRecipes,
-    NewlyUnlockedRecipes,
-    RemoveUnlockedRecipes,
-    RemoveAllUnlockedRecipes,
+    Initiallyunlockedrecipes,
+    Newlyunlockedrecipes,
+    Removeunlockedrecipes,
+    Removeallunlockedrecipes,
     Unknown(u32),
 }
 impl crate::bedrock::codec::BedrockSized for EnumsUnlockedRecipesPacketPayloadPacketType {
     fn encoded_size(&self) -> usize {
         let _val: u32 = match self {
             EnumsUnlockedRecipesPacketPayloadPacketType::Empty => 0,
-            EnumsUnlockedRecipesPacketPayloadPacketType::InitiallyUnlockedRecipes => 1,
-            EnumsUnlockedRecipesPacketPayloadPacketType::NewlyUnlockedRecipes => 2,
-            EnumsUnlockedRecipesPacketPayloadPacketType::RemoveUnlockedRecipes => 3,
-            EnumsUnlockedRecipesPacketPayloadPacketType::RemoveAllUnlockedRecipes => 4,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Initiallyunlockedrecipes => 1,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Newlyunlockedrecipes => 2,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Removeunlockedrecipes => 3,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Removeallunlockedrecipes => 4,
             EnumsUnlockedRecipesPacketPayloadPacketType::Unknown(v) => *v,
         };
         4usize
@@ -39312,10 +39947,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsUnlockedRecipesPacketPayloadPa
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         let val: u32 = match self {
             EnumsUnlockedRecipesPacketPayloadPacketType::Empty => 0,
-            EnumsUnlockedRecipesPacketPayloadPacketType::InitiallyUnlockedRecipes => 1,
-            EnumsUnlockedRecipesPacketPayloadPacketType::NewlyUnlockedRecipes => 2,
-            EnumsUnlockedRecipesPacketPayloadPacketType::RemoveUnlockedRecipes => 3,
-            EnumsUnlockedRecipesPacketPayloadPacketType::RemoveAllUnlockedRecipes => 4,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Initiallyunlockedrecipes => 1,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Newlyunlockedrecipes => 2,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Removeunlockedrecipes => 3,
+            EnumsUnlockedRecipesPacketPayloadPacketType::Removeallunlockedrecipes => 4,
             EnumsUnlockedRecipesPacketPayloadPacketType::Unknown(v) => *v,
         };
         crate::bedrock::codec::U32LE(val as u32).encode(buf)
@@ -39329,10 +39964,10 @@ impl crate::bedrock::codec::BedrockCodec for EnumsUnlockedRecipesPacketPayloadPa
         let val = raw.0 as u32;
         match val {
             0 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::Empty),
-            1 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::InitiallyUnlockedRecipes),
-            2 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::NewlyUnlockedRecipes),
-            3 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::RemoveUnlockedRecipes),
-            4 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::RemoveAllUnlockedRecipes),
+            1 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::Initiallyunlockedrecipes),
+            2 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::Newlyunlockedrecipes),
+            3 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::Removeunlockedrecipes),
+            4 => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::Removeallunlockedrecipes),
             other => Ok(EnumsUnlockedRecipesPacketPayloadPacketType::Unknown(other)),
         }
     }
@@ -39344,10 +39979,10 @@ impl Default for EnumsUnlockedRecipesPacketPayloadPacketType {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResourcePackClientResponsePacketResponse {
-    Cancel(ResourcePackClientResponsePacketPayloadCancel),
-    Downloading(ResourcePackClientResponsePacketPayloadDownloading),
-    DownloadingFinished(ResourcePackClientResponsePacketPayloadDownloadingFinished),
-    ResourcePackStackFinished(ResourcePackClientResponsePacketPayloadResourcePackStackFinished),
+    Cancel(ResourcePackClientResponseCanceljson),
+    Downloading(ResourcePackClientResponseDownloadingjson),
+    DownloadingFinished(ResourcePackClientResponseDownloadingFinishedjson),
+    ResourcePackStackFinished(ResourcePackClientResponseResourcePackStackFinishedjson),
 }
 impl Default for ResourcePackClientResponsePacketResponse {
     fn default() -> Self {
@@ -39424,7 +40059,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
             0 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::Cancel(
-                        <ResourcePackClientResponsePacketPayloadCancel as crate::bedrock::codec::BedrockCodec>::decode(
+                        <ResourcePackClientResponseCanceljson as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
                         )?,
@@ -39434,7 +40069,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
             1 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::Downloading(
-                        <ResourcePackClientResponsePacketPayloadDownloading as crate::bedrock::codec::BedrockCodec>::decode(
+                        <ResourcePackClientResponseDownloadingjson as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
                         )?,
@@ -39444,7 +40079,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
             2 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::DownloadingFinished(
-                        <ResourcePackClientResponsePacketPayloadDownloadingFinished as crate::bedrock::codec::BedrockCodec>::decode(
+                        <ResourcePackClientResponseDownloadingFinishedjson as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
                         )?,
@@ -39454,7 +40089,7 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
             3 => {
                 Ok(
                     ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(
-                        <ResourcePackClientResponsePacketPayloadResourcePackStackFinished as crate::bedrock::codec::BedrockCodec>::decode(
+                        <ResourcePackClientResponseResourcePackStackFinishedjson as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
                         )?,
@@ -39472,62 +40107,32 @@ impl crate::bedrock::codec::BedrockCodec for ResourcePackClientResponsePacketRes
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum TextPacketBody {
-    Raw(TextPacketPayloadMessageOnly),
-    Chat(TextPacketPayloadAuthorAndMessage),
-    Translate(TextPacketPayloadMessageAndParams),
-    Popup(TextPacketPayloadMessageAndParams),
-    JukeboxPopup(TextPacketPayloadMessageAndParams),
-    Tip(TextPacketPayloadMessageOnly),
-    SystemMessage(TextPacketPayloadMessageOnly),
-    Whisper(TextPacketPayloadAuthorAndMessage),
-    Announcement(TextPacketPayloadAuthorAndMessage),
-    TextObjectWhisper(TextPacketPayloadMessageOnly),
-    TextObject(TextPacketPayloadMessageOnly),
-    TextObjectAnnouncement(TextPacketPayloadMessageOnly),
+    MessageOnly(TextPacketPayloadMessageOnly),
+    AuthorAndMessage(TextPacketPayloadAuthorAndMessage),
+    MessageAndParams(TextPacketPayloadMessageAndParams),
 }
 impl Default for TextPacketBody {
     fn default() -> Self {
-        Self::Raw(Default::default())
+        Self::MessageOnly(Default::default())
     }
 }
 impl crate::bedrock::codec::BedrockSized for TextPacketBody {
     fn encoded_size(&self) -> usize {
         match self {
-            TextPacketBody::Raw(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            TextPacketBody::MessageOnly(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    0 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
-            TextPacketBody::Chat(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            TextPacketBody::AuthorAndMessage(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    1 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
-            TextPacketBody::Translate(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::Popup(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::JukeboxPopup(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::Tip(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::SystemMessage(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::Whisper(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::Announcement(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::TextObjectWhisper(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::TextObject(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            TextPacketBody::TextObjectAnnouncement(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            TextPacketBody::MessageAndParams(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    2 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
         }
     }
@@ -39536,75 +40141,21 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketBody {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         match self {
-            TextPacketBody::Raw(value) => {
+            TextPacketBody::MessageOnly(value) => {
                 let control_value = 0 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
-            TextPacketBody::Chat(value) => {
+            TextPacketBody::AuthorAndMessage(value) => {
                 let control_value = 1 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
-            TextPacketBody::Translate(value) => {
+            TextPacketBody::MessageAndParams(value) => {
                 let control_value = 2 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::Popup(value) => {
-                let control_value = 3 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::JukeboxPopup(value) => {
-                let control_value = 4 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::Tip(value) => {
-                let control_value = 5 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::SystemMessage(value) => {
-                let control_value = 6 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::Whisper(value) => {
-                let control_value = 7 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::Announcement(value) => {
-                let control_value = 8 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::TextObjectWhisper(value) => {
-                let control_value = 9 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::TextObject(value) => {
-                let control_value = 10 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            TextPacketBody::TextObjectAnnouncement(value) => {
-                let control_value = 11 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
@@ -39614,76 +40165,27 @@ impl crate::bedrock::codec::BedrockCodec for TextPacketBody {
         buf: &mut B,
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let control_value = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? as i64;
+        let control_value =
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0 as i64;
         match control_value {
-            0 => Ok(TextPacketBody::Raw(
+            0 => Ok(TextPacketBody::MessageOnly(
                 <TextPacketPayloadMessageOnly as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?,
             )),
-            1 => Ok(TextPacketBody::Chat(
+            1 => Ok(TextPacketBody::AuthorAndMessage(
                 <TextPacketPayloadAuthorAndMessage as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?,
             )),
-            2 => Ok(TextPacketBody::Translate(
+            2 => Ok(TextPacketBody::MessageAndParams(
                 <TextPacketPayloadMessageAndParams as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            3 => Ok(TextPacketBody::Popup(
-                <TextPacketPayloadMessageAndParams as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            4 => Ok(TextPacketBody::JukeboxPopup(
-                <TextPacketPayloadMessageAndParams as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            5 => Ok(TextPacketBody::Tip(
-                <TextPacketPayloadMessageOnly as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            6 => Ok(TextPacketBody::SystemMessage(
-                <TextPacketPayloadMessageOnly as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            7 => Ok(TextPacketBody::Whisper(
-                <TextPacketPayloadAuthorAndMessage as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            8 => Ok(TextPacketBody::Announcement(
-                <TextPacketPayloadAuthorAndMessage as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            9 => Ok(TextPacketBody::TextObjectWhisper(
-                <TextPacketPayloadMessageOnly as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            10 => Ok(TextPacketBody::TextObject(
-                <TextPacketPayloadMessageOnly as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?,
-            )),
-            11 => Ok(TextPacketBody::TextObjectAnnouncement(
-                <TextPacketPayloadMessageOnly as crate::bedrock::codec::BedrockCodec>::decode(
                     buf,
                     (),
                 )?,
@@ -40557,583 +41059,6 @@ impl crate::bedrock::codec::BedrockCodec for CommandBlockUpdatePacketTarget {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PlayerSkinPacketSerializedSkinPersonaPiecesItem {
-    pub piece_id: String,
-    pub piece_type: EnumsSharedTypespersonaPieceType,
-    pub pack_id: MceUuiDjson,
-    pub is_default_piece: bool,
-    pub product_id: String,
-}
-impl crate::bedrock::codec::BedrockSized for PlayerSkinPacketSerializedSkinPersonaPiecesItem {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.piece_id).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.piece_type);
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.pack_id);
-        size += 1usize;
-        size += {
-            let _len = (&self.product_id).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PlayerSkinPacketSerializedSkinPersonaPiecesItem {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.piece_id).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        self.piece_type.encode(buf)?;
-        self.pack_id.encode(buf)?;
-        self.is_default_piece.encode(buf)?;
-        let bytes = (&self.product_id).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let piece_id = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let piece_type =
-            <EnumsSharedTypespersonaPieceType as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        let pack_id = <MceUuiDjson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let is_default_piece = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let product_id = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self {
-            piece_id,
-            piece_type,
-            pack_id,
-            is_default_piece,
-            product_id,
-        })
-    }
-}
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PlayerSkinPacketSerializedSkin {
-    pub id: String,
-    pub play_fab_id: String,
-    pub resource_patch: String,
-    pub image_data: SkinImage,
-    pub animated_image_data: Vec<AnimatedImageData>,
-    pub cape_image_data: SkinImage,
-    pub geometry_data: JsonValuejson,
-    pub geometry_data_min_engine_version: MinEngineVersionjson,
-    pub animation_data: String,
-    pub cape_id: String,
-    pub full_id: String,
-    pub arm_size: EnumsSharedTypespersonaArmSizeType,
-    pub skin_color: MceColor,
-    pub persona_pieces: Vec<PlayerSkinPacketSerializedSkinPersonaPiecesItem>,
-    pub piece_tint_colors: Vec<SerializedSkinRefPieceTintColorsItem>,
-    pub is_premium: bool,
-    pub is_persona: bool,
-    pub is_persona_cape_on_classic_skin: bool,
-    pub is_primary_user: bool,
-    pub overrides_player_appearance: bool,
-    pub trusted_skin_flag: String,
-    pub profile_hash: String,
-}
-impl crate::bedrock::codec::BedrockSized for PlayerSkinPacketSerializedSkin {
-    fn encoded_size(&self) -> usize {
-        let mut size = 0usize;
-        size += {
-            let _len = (&self.id).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.play_fab_id).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.resource_patch).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.image_data);
-        size += {
-            let _len = (&self.animated_image_data).len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + (&self.animated_image_data)
-                .iter()
-                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
-                .sum::<usize>()
-        };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.cape_image_data);
-        size += {
-            let _len = (&self.geometry_data).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.geometry_data_min_engine_version).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.animation_data).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.cape_id).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.full_id).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.arm_size);
-        size += crate::bedrock::codec::BedrockSized::encoded_size(&self.skin_color);
-        size += {
-            let _len = (&self.persona_pieces).len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + (&self.persona_pieces)
-                .iter()
-                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
-                .sum::<usize>()
-        };
-        size += {
-            let _len = (&self.piece_tint_colors).len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + (&self.piece_tint_colors)
-                .iter()
-                .map(|_item| crate::bedrock::codec::BedrockSized::encoded_size(_item))
-                .sum::<usize>()
-        };
-        size += 1usize;
-        size += 1usize;
-        size += 1usize;
-        size += 1usize;
-        size += 1usize;
-        size += {
-            let _len = (&self.trusted_skin_flag).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size += {
-            let _len = (&self.profile_hash).as_bytes().len();
-            crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                _len as u32,
-            )) + _len
-        };
-        size
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PlayerSkinPacketSerializedSkin {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        let _ = buf;
-        let bytes = (&self.id).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.play_fab_id).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.resource_patch).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        self.image_data.encode(buf)?;
-        let len = self.animated_image_data.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        for item in &self.animated_image_data {
-            item.encode(buf)?;
-        }
-        self.cape_image_data.encode(buf)?;
-        let bytes = (&self.geometry_data).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.geometry_data_min_engine_version).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.animation_data).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.cape_id).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.full_id).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        self.arm_size.encode(buf)?;
-        self.skin_color.encode(buf)?;
-        let len = self.persona_pieces.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        for item in &self.persona_pieces {
-            item.encode(buf)?;
-        }
-        let len = self.piece_tint_colors.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        for item in &self.piece_tint_colors {
-            item.encode(buf)?;
-        }
-        self.is_premium.encode(buf)?;
-        self.is_persona.encode(buf)?;
-        self.is_persona_cape_on_classic_skin.encode(buf)?;
-        self.is_primary_user.encode(buf)?;
-        self.overrides_player_appearance.encode(buf)?;
-        let bytes = (&self.trusted_skin_flag).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        let bytes = (&self.profile_hash).as_bytes();
-        let len = bytes.len();
-        crate::bedrock::codec::VarUInt(len as u32).encode(buf)?;
-        buf.put_slice(bytes);
-        Ok(())
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let _ = buf;
-        let id = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let play_fab_id = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let resource_patch = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let image_data = <SkinImage as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let animated_image_data = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            let mut tmp_vec =
-                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), None)?;
-            for _ in 0..len {
-                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
-                tmp_vec.push(
-                    <AnimatedImageData as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
-                );
-            }
-            tmp_vec
-        };
-        let cape_image_data = <SkinImage as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let geometry_data = {
-            let res: JsonValuejson = {
-                let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?
-                    .0) as usize;
-                if buf.remaining() < len {
-                    return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                        declared: len,
-                        available: buf.remaining(),
-                    });
-                }
-                let mut bytes = vec![0u8; len];
-                buf.copy_to_slice(&mut bytes);
-                crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-            };
-            res
-        };
-        let geometry_data_min_engine_version = {
-            let res: MinEngineVersionjson = {
-                let len = (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                        buf,
-                        (),
-                    )?
-                    .0) as usize;
-                if buf.remaining() < len {
-                    return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                        declared: len,
-                        available: buf.remaining(),
-                    });
-                }
-                let mut bytes = vec![0u8; len];
-                buf.copy_to_slice(&mut bytes);
-                crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-            };
-            res
-        };
-        let animation_data = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let cape_id = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let full_id = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let arm_size =
-            <EnumsSharedTypespersonaArmSizeType as crate::bedrock::codec::BedrockCodec>::decode(
-                buf,
-                (),
-            )?;
-        let skin_color = <MceColor as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let persona_pieces = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            let mut tmp_vec =
-                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), None)?;
-            for _ in 0..len {
-                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
-                tmp_vec
-                    .push(
-                        <PlayerSkinPacketSerializedSkinPersonaPiecesItem as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    );
-            }
-            tmp_vec
-        };
-        let piece_tint_colors = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            let mut tmp_vec =
-                crate::bedrock::codec::prepare_decode_vec(len, buf.remaining(), None)?;
-            for _ in 0..len {
-                crate::bedrock::codec::reserve_decode_item(&mut tmp_vec)?;
-                tmp_vec
-                    .push(
-                        <SerializedSkinRefPieceTintColorsItem as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    );
-            }
-            tmp_vec
-        };
-        let is_premium = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let is_persona = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let is_persona_cape_on_classic_skin =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let is_primary_user = <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let overrides_player_appearance =
-            <bool as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?;
-        let trusted_skin_flag = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        let profile_hash = {
-            let len =
-                (<crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
-                    buf,
-                    (),
-                )?
-                .0) as usize;
-            if buf.remaining() < len {
-                return Err(crate::bedrock::error::DecodeError::StringLengthExceeded {
-                    declared: len,
-                    available: buf.remaining(),
-                });
-            }
-            let mut bytes = vec![0u8; len];
-            buf.copy_to_slice(&mut bytes);
-            crate::bedrock::codec::decode_utf8_lossy_owned(bytes)
-        };
-        Ok(Self {
-            id,
-            play_fab_id,
-            resource_patch,
-            image_data,
-            animated_image_data,
-            cape_image_data,
-            geometry_data,
-            geometry_data_min_engine_version,
-            animation_data,
-            cape_id,
-            full_id,
-            arm_size,
-            skin_color,
-            persona_pieces,
-            piece_tint_colors,
-            is_premium,
-            is_persona,
-            is_persona_cape_on_classic_skin,
-            is_primary_user,
-            overrides_player_appearance,
-            trusted_skin_flag,
-            profile_hash,
-        })
-    }
-}
 #[derive(Debug, Clone, PartialEq)]
 pub enum BookEditPacketOperation {
     ReplacePage(BookEditActionReplacePage),
@@ -41313,10 +41238,10 @@ impl Default for SetDefaultGameTypePacketDefaultGameType {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum SetScorePacketScoreInfoItem {
-    RemoveScore(RemoveScore),
-    ChangePlayerScore(Box<ChangePlayerScore>),
-    ChangeEntityScore(Box<ChangeEntityScore>),
-    ChangeFakePlayerScore(Box<ChangeFakePlayerScore>),
+    RemoveScore(RemoveScorejson),
+    ChangePlayerScore(Box<ChangePlayerScorejson>),
+    ChangeEntityScore(Box<ChangeEntityScorejson>),
+    ChangeFakePlayerScore(Box<ChangeFakePlayerScorejson>),
 }
 impl Default for SetScorePacketScoreInfoItem {
     fn default() -> Self {
@@ -41327,16 +41252,24 @@ impl crate::bedrock::codec::BedrockSized for SetScorePacketScoreInfoItem {
     fn encoded_size(&self) -> usize {
         match self {
             SetScorePacketScoreInfoItem::RemoveScore(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    0 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
             SetScorePacketScoreInfoItem::ChangePlayerScore(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    1 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
             }
             SetScorePacketScoreInfoItem::ChangeEntityScore(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    2 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
             }
             SetScorePacketScoreInfoItem::ChangeFakePlayerScore(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    3 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value.as_ref())
             }
         }
     }
@@ -41347,25 +41280,25 @@ impl crate::bedrock::codec::BedrockCodec for SetScorePacketScoreInfoItem {
         match self {
             SetScorePacketScoreInfoItem::RemoveScore(value) => {
                 let control_value = 0 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
             SetScorePacketScoreInfoItem::ChangePlayerScore(value) => {
                 let control_value = 1 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.as_ref().encode(buf)?;
                 Ok(())
             }
             SetScorePacketScoreInfoItem::ChangeEntityScore(value) => {
                 let control_value = 2 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.as_ref().encode(buf)?;
                 Ok(())
             }
             SetScorePacketScoreInfoItem::ChangeFakePlayerScore(value) => {
                 let control_value = 3 as i64;
-                (control_value as u8).encode(buf)?;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.as_ref().encode(buf)?;
                 Ok(())
             }
@@ -41375,20 +41308,25 @@ impl crate::bedrock::codec::BedrockCodec for SetScorePacketScoreInfoItem {
         buf: &mut B,
         _args: Self::Args,
     ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let control_value = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? as i64;
+        let control_value =
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0 as i64;
         match control_value {
             0 => Ok(SetScorePacketScoreInfoItem::RemoveScore(
-                <RemoveScore as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <RemoveScorejson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             )),
             1 => Ok(SetScorePacketScoreInfoItem::ChangePlayerScore(Box::new(
-                <ChangePlayerScore as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <ChangePlayerScorejson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             ))),
             2 => Ok(SetScorePacketScoreInfoItem::ChangeEntityScore(Box::new(
-                <ChangeEntityScore as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+                <ChangeEntityScorejson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             ))),
             3 => Ok(SetScorePacketScoreInfoItem::ChangeFakePlayerScore(
                 Box::new(
-                    <ChangeFakePlayerScore as crate::bedrock::codec::BedrockCodec>::decode(
+                    <ChangeFakePlayerScorejson as crate::bedrock::codec::BedrockCodec>::decode(
                         buf,
                         (),
                     )?,
@@ -41494,22 +41432,26 @@ impl crate::bedrock::codec::BedrockCodec for DimensionDataPacketDefinitionsItem 
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerVideoCapturePacketAction {
-    StopVideoCapture(PlayerVideoCapturePacketPayloadStopVideoCapture),
     StartVideoCapture(PlayerVideoCapturePacketPayloadStartVideoCapture),
+    StopVideoCapture(PlayerVideoCapturePacketPayloadStopVideoCapture),
 }
 impl Default for PlayerVideoCapturePacketAction {
     fn default() -> Self {
-        Self::StopVideoCapture(Default::default())
+        Self::StartVideoCapture(Default::default())
     }
 }
 impl crate::bedrock::codec::BedrockSized for PlayerVideoCapturePacketAction {
     fn encoded_size(&self) -> usize {
         match self {
-            PlayerVideoCapturePacketAction::StopVideoCapture(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
             PlayerVideoCapturePacketAction::StartVideoCapture(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    0 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
+            PlayerVideoCapturePacketAction::StopVideoCapture(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    1 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
         }
     }
@@ -41518,207 +41460,13 @@ impl crate::bedrock::codec::BedrockCodec for PlayerVideoCapturePacketAction {
     type Args = ();
     fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
         match self {
-            PlayerVideoCapturePacketAction::StopVideoCapture(value) => {
-                let control_value = 0 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
             PlayerVideoCapturePacketAction::StartVideoCapture(value) => {
-                let control_value = 1 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-        }
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let control_value = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? as i64;
-        match control_value {
-            0 => {
-                Ok(
-                    PlayerVideoCapturePacketAction::StopVideoCapture(
-                        <PlayerVideoCapturePacketPayloadStopVideoCapture as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            1 => {
-                Ok(
-                    PlayerVideoCapturePacketAction::StartVideoCapture(
-                        <PlayerVideoCapturePacketPayloadStartVideoCapture as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            _ => {
-                Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
-                    enum_name: stringify!(PlayerVideoCapturePacketAction),
-                    value: control_value,
-                })
-            }
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub enum PlayerUpdateEntityOverridesPacketUpdate {
-    ClearOverride(PlayerUpdateEntityOverridesPacketPayloadClearOverride),
-    RemoveOverride(PlayerUpdateEntityOverridesPacketPayloadRemoveOverride),
-    IntOverride(PlayerUpdateEntityOverridesPacketPayloadIntOverride),
-    FloatOverride(PlayerUpdateEntityOverridesPacketPayloadFloatOverride),
-}
-impl Default for PlayerUpdateEntityOverridesPacketUpdate {
-    fn default() -> Self {
-        Self::ClearOverride(Default::default())
-    }
-}
-impl crate::bedrock::codec::BedrockSized for PlayerUpdateEntityOverridesPacketUpdate {
-    fn encoded_size(&self) -> usize {
-        match self {
-            PlayerUpdateEntityOverridesPacketUpdate::ClearOverride(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            PlayerUpdateEntityOverridesPacketUpdate::RemoveOverride(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            PlayerUpdateEntityOverridesPacketUpdate::IntOverride(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            PlayerUpdateEntityOverridesPacketUpdate::FloatOverride(value) => {
-                1usize + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-        }
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketUpdate {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        match self {
-            PlayerUpdateEntityOverridesPacketUpdate::ClearOverride(value) => {
-                let control_value = 0 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            PlayerUpdateEntityOverridesPacketUpdate::RemoveOverride(value) => {
-                let control_value = 1 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            PlayerUpdateEntityOverridesPacketUpdate::IntOverride(value) => {
-                let control_value = 2 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-            PlayerUpdateEntityOverridesPacketUpdate::FloatOverride(value) => {
-                let control_value = 3 as i64;
-                (control_value as u8).encode(buf)?;
-                value.encode(buf)?;
-                Ok(())
-            }
-        }
-    }
-    fn decode<B: bytes::Buf>(
-        buf: &mut B,
-        _args: Self::Args,
-    ) -> Result<Self, crate::bedrock::error::DecodeError> {
-        let control_value = <u8 as crate::bedrock::codec::BedrockCodec>::decode(buf, ())? as i64;
-        match control_value {
-            0 => {
-                Ok(
-                    PlayerUpdateEntityOverridesPacketUpdate::ClearOverride(
-                        <PlayerUpdateEntityOverridesPacketPayloadClearOverride as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            1 => {
-                Ok(
-                    PlayerUpdateEntityOverridesPacketUpdate::RemoveOverride(
-                        <PlayerUpdateEntityOverridesPacketPayloadRemoveOverride as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            2 => {
-                Ok(
-                    PlayerUpdateEntityOverridesPacketUpdate::IntOverride(
-                        <PlayerUpdateEntityOverridesPacketPayloadIntOverride as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            3 => {
-                Ok(
-                    PlayerUpdateEntityOverridesPacketUpdate::FloatOverride(
-                        <PlayerUpdateEntityOverridesPacketPayloadFloatOverride as crate::bedrock::codec::BedrockCodec>::decode(
-                            buf,
-                            (),
-                        )?,
-                    ),
-                )
-            }
-            _ => {
-                Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
-                    enum_name: stringify!(PlayerUpdateEntityOverridesPacketUpdate),
-                    value: control_value,
-                })
-            }
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub enum PlayerLocationPacketLocation {
-    PlayerLocationCoordinates(PlayerLocationPacketPayloadCoordinatesLocation),
-    PlayerLocationHide(PlayerLocationPacketPayloadHiddenLocation),
-}
-impl Default for PlayerLocationPacketLocation {
-    fn default() -> Self {
-        Self::PlayerLocationCoordinates(Default::default())
-    }
-}
-impl crate::bedrock::codec::BedrockSized for PlayerLocationPacketLocation {
-    fn encoded_size(&self) -> usize {
-        match self {
-            PlayerLocationPacketLocation::PlayerLocationCoordinates(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                    0 as u32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-            PlayerLocationPacketLocation::PlayerLocationHide(value) => {
-                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
-                    1 as u32,
-                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
-            }
-        }
-    }
-}
-impl crate::bedrock::codec::BedrockCodec for PlayerLocationPacketLocation {
-    type Args = ();
-    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
-        match self {
-            PlayerLocationPacketLocation::PlayerLocationCoordinates(value) => {
                 let control_value = 0 as i64;
                 crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
             }
-            PlayerLocationPacketLocation::PlayerLocationHide(value) => {
+            PlayerVideoCapturePacketAction::StopVideoCapture(value) => {
                 let control_value = 1 as i64;
                 crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
@@ -41739,7 +41487,189 @@ impl crate::bedrock::codec::BedrockCodec for PlayerLocationPacketLocation {
         match control_value {
             0 => {
                 Ok(
-                    PlayerLocationPacketLocation::PlayerLocationCoordinates(
+                    PlayerVideoCapturePacketAction::StartVideoCapture(
+                        <PlayerVideoCapturePacketPayloadStartVideoCapture as crate::bedrock::codec::BedrockCodec>::decode(
+                            buf,
+                            (),
+                        )?,
+                    ),
+                )
+            }
+            1 => {
+                Ok(
+                    PlayerVideoCapturePacketAction::StopVideoCapture(
+                        <PlayerVideoCapturePacketPayloadStopVideoCapture as crate::bedrock::codec::BedrockCodec>::decode(
+                            buf,
+                            (),
+                        )?,
+                    ),
+                )
+            }
+            _ => {
+                Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
+                    enum_name: stringify!(PlayerVideoCapturePacketAction),
+                    value: control_value,
+                })
+            }
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlayerUpdateEntityOverridesPacketUpdate {
+    ClearOverride(ClearOverridejson),
+    RemoveOverride(RemoveOverridejson),
+    IntOverride(IntOverridejson),
+    FloatOverride(FloatOverridejson),
+}
+impl Default for PlayerUpdateEntityOverridesPacketUpdate {
+    fn default() -> Self {
+        Self::ClearOverride(Default::default())
+    }
+}
+impl crate::bedrock::codec::BedrockSized for PlayerUpdateEntityOverridesPacketUpdate {
+    fn encoded_size(&self) -> usize {
+        match self {
+            PlayerUpdateEntityOverridesPacketUpdate::ClearOverride(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    0 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
+            PlayerUpdateEntityOverridesPacketUpdate::RemoveOverride(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    1 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
+            PlayerUpdateEntityOverridesPacketUpdate::IntOverride(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    2 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
+            PlayerUpdateEntityOverridesPacketUpdate::FloatOverride(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    3 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
+        }
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for PlayerUpdateEntityOverridesPacketUpdate {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        match self {
+            PlayerUpdateEntityOverridesPacketUpdate::ClearOverride(value) => {
+                let control_value = 0 as i64;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
+                value.encode(buf)?;
+                Ok(())
+            }
+            PlayerUpdateEntityOverridesPacketUpdate::RemoveOverride(value) => {
+                let control_value = 1 as i64;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
+                value.encode(buf)?;
+                Ok(())
+            }
+            PlayerUpdateEntityOverridesPacketUpdate::IntOverride(value) => {
+                let control_value = 2 as i64;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
+                value.encode(buf)?;
+                Ok(())
+            }
+            PlayerUpdateEntityOverridesPacketUpdate::FloatOverride(value) => {
+                let control_value = 3 as i64;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
+                value.encode(buf)?;
+                Ok(())
+            }
+        }
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let control_value =
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0 as i64;
+        match control_value {
+            0 => Ok(PlayerUpdateEntityOverridesPacketUpdate::ClearOverride(
+                <ClearOverridejson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+            )),
+            1 => Ok(PlayerUpdateEntityOverridesPacketUpdate::RemoveOverride(
+                <RemoveOverridejson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+            )),
+            2 => Ok(PlayerUpdateEntityOverridesPacketUpdate::IntOverride(
+                <IntOverridejson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+            )),
+            3 => Ok(PlayerUpdateEntityOverridesPacketUpdate::FloatOverride(
+                <FloatOverridejson as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+            )),
+            _ => Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
+                enum_name: stringify!(PlayerUpdateEntityOverridesPacketUpdate),
+                value: control_value,
+            }),
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlayerLocationPacketLocation {
+    CoordinatesLocation(PlayerLocationPacketPayloadCoordinatesLocation),
+    HiddenLocation(PlayerLocationPacketPayloadHiddenLocation),
+}
+impl Default for PlayerLocationPacketLocation {
+    fn default() -> Self {
+        Self::CoordinatesLocation(Default::default())
+    }
+}
+impl crate::bedrock::codec::BedrockSized for PlayerLocationPacketLocation {
+    fn encoded_size(&self) -> usize {
+        match self {
+            PlayerLocationPacketLocation::CoordinatesLocation(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    0 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
+            PlayerLocationPacketLocation::HiddenLocation(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    1 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
+        }
+    }
+}
+impl crate::bedrock::codec::BedrockCodec for PlayerLocationPacketLocation {
+    type Args = ();
+    fn encode<B: bytes::BufMut>(&self, buf: &mut B) -> Result<(), std::io::Error> {
+        match self {
+            PlayerLocationPacketLocation::CoordinatesLocation(value) => {
+                let control_value = 0 as i64;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
+                value.encode(buf)?;
+                Ok(())
+            }
+            PlayerLocationPacketLocation::HiddenLocation(value) => {
+                let control_value = 1 as i64;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
+                value.encode(buf)?;
+                Ok(())
+            }
+        }
+    }
+    fn decode<B: bytes::Buf>(
+        buf: &mut B,
+        _args: Self::Args,
+    ) -> Result<Self, crate::bedrock::error::DecodeError> {
+        let control_value =
+            <crate::bedrock::codec::VarUInt as crate::bedrock::codec::BedrockCodec>::decode(
+                buf,
+                (),
+            )?
+            .0 as i64;
+        match control_value {
+            0 => {
+                Ok(
+                    PlayerLocationPacketLocation::CoordinatesLocation(
                         <PlayerLocationPacketPayloadCoordinatesLocation as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
@@ -41749,7 +41679,7 @@ impl crate::bedrock::codec::BedrockCodec for PlayerLocationPacketLocation {
             }
             1 => {
                 Ok(
-                    PlayerLocationPacketLocation::PlayerLocationHide(
+                    PlayerLocationPacketLocation::HiddenLocation(
                         <PlayerLocationPacketPayloadHiddenLocation as crate::bedrock::codec::BedrockCodec>::decode(
                             buf,
                             (),
@@ -41771,6 +41701,7 @@ pub enum ServerboundPackSettingChangePacketPackSettingValue {
     Float(f32),
     Bool(bool),
     String(String),
+    Case3(Vec<String>),
 }
 impl Default for ServerboundPackSettingChangePacketPackSettingValue {
     fn default() -> Self {
@@ -41797,6 +41728,11 @@ impl crate::bedrock::codec::BedrockSized for ServerboundPackSettingChangePacketP
                     2 as u32,
                 )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
             }
+            ServerboundPackSettingChangePacketPackSettingValue::Case3(value) => {
+                crate::bedrock::codec::BedrockSized::encoded_size(&crate::bedrock::codec::VarUInt(
+                    3 as u32,
+                )) + crate::bedrock::codec::BedrockSized::encoded_size(value)
+            }
         }
     }
 }
@@ -41818,6 +41754,12 @@ impl crate::bedrock::codec::BedrockCodec for ServerboundPackSettingChangePacketP
             }
             ServerboundPackSettingChangePacketPackSettingValue::String(value) => {
                 let control_value = 2 as i64;
+                crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
+                value.encode(buf)?;
+                Ok(())
+            }
+            ServerboundPackSettingChangePacketPackSettingValue::Case3(value) => {
+                let control_value = 3 as i64;
                 crate::bedrock::codec::VarUInt(control_value as u32).encode(buf)?;
                 value.encode(buf)?;
                 Ok(())
@@ -41847,6 +41789,9 @@ impl crate::bedrock::codec::BedrockCodec for ServerboundPackSettingChangePacketP
             )),
             2 => Ok(ServerboundPackSettingChangePacketPackSettingValue::String(
                 <String as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
+            )),
+            3 => Ok(ServerboundPackSettingChangePacketPackSettingValue::Case3(
+                <Vec<String> as crate::bedrock::codec::BedrockCodec>::decode(buf, ())?,
             )),
             _ => Err(crate::bedrock::error::DecodeError::InvalidEnumValue {
                 enum_name: stringify!(ServerboundPackSettingChangePacketPackSettingValue),

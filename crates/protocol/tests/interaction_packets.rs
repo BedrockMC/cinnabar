@@ -9,7 +9,7 @@ use protocol::{
     use_actor_packet,
 };
 use sha2::{Digest, Sha256};
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ContainerClosePacket, EnumsAnimatePacketPayloadAction,
     EnumsItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState,
@@ -69,7 +69,7 @@ fn assert_block_use_constants(
     assert_eq!(transaction.action_type, expected_action);
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::PlayerInput
+        EnumsItemUseInventoryTransactionTriggerType::Playerinput
     );
     assert_eq!(
         transaction.client_interact_prediction,
@@ -593,7 +593,7 @@ fn stop_sleeping_packet_is_a_player_action_for_the_local_runtime_id() {
     let McpePacketData::PlayerActionPacket(action) = decoded.data else {
         panic!("player action packet");
     };
-    assert_eq!(action.action, EnumsPlayerActionType::StopSleeping);
+    assert_eq!(action.action, EnumsPlayerActionType::Stopsleeping);
     assert_eq!(action.player_runtime_id.actor_runtime_id, 7);
 }
 
@@ -604,7 +604,7 @@ fn respawn_request_is_client_ready_with_the_local_runtime_id() {
     let McpePacketData::RespawnPacket(respawn) = decoded.data else {
         panic!("respawn packet");
     };
-    assert_eq!(respawn.state, EnumsPlayerRespawnState::ClientReadyToSpawn);
+    assert_eq!(respawn.state, EnumsPlayerRespawnState::Clientreadytospawn);
     assert_eq!(respawn.player_runtime_id.actor_runtime_id, 7);
     assert_eq!(respawn.position.y, 0.0);
 }
@@ -641,13 +641,13 @@ fn click_block_transaction_carries_trigger_and_prediction() {
         (
             ItemUseTrigger::PlayerInput,
             false,
-            EnumsItemUseInventoryTransactionTriggerType::PlayerInput,
+            EnumsItemUseInventoryTransactionTriggerType::Playerinput,
             EnumsItemUseInventoryTransactionPredictedResult::Failure,
         ),
         (
             ItemUseTrigger::SimulationTick,
             true,
-            EnumsItemUseInventoryTransactionTriggerType::SimulationTick,
+            EnumsItemUseInventoryTransactionTriggerType::Simulationtick,
             EnumsItemUseInventoryTransactionPredictedResult::Success,
         ),
     ] {

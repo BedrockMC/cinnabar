@@ -183,7 +183,7 @@ pub use ui::{
     server_settings_request_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
-pub use valentine::bedrock::version::v1_26_44::{GAME_VERSION, PROTOCOL_VERSION};
+pub use valentine::bedrock::version::v1_26_51::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
     ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
     BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,

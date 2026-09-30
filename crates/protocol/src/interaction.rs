@@ -1,6 +1,6 @@
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_44::{
-    ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction,
+use valentine::bedrock::version::v1_26_51::{
+    ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction, EnumsHandSlot,
     EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
     EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
     EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
@@ -118,11 +118,10 @@ pub fn click_block_transaction_packet(
     let mut transaction = item_use_transaction(
         request,
         ItemUseInventoryTransactionActionType::Place,
-        Some(Vec::new()),
     )?;
     transaction.trigger_type = match trigger {
-        ItemUseTrigger::PlayerInput => ItemUseInventoryTransactionTriggerType::PlayerInput,
-        ItemUseTrigger::SimulationTick => ItemUseInventoryTransactionTriggerType::SimulationTick,
+        ItemUseTrigger::PlayerInput => ItemUseInventoryTransactionTriggerType::Playerinput,
+        ItemUseTrigger::SimulationTick => ItemUseInventoryTransactionTriggerType::Simulationtick,
     };
     if predicted_success {
         transaction.client_interact_prediction =
@@ -131,11 +130,9 @@ pub fn click_block_transaction_packet(
     Ok(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
-        transaction: Some(
-            InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
-                transaction,
-            )),
-        ),
+        transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+            transaction,
+        )),
     }
     .into())
 }
@@ -166,15 +163,13 @@ fn block_use_packet(
     // no session state participates in item encoding; the session parameter
     // is retained only for the public builder signature.
     let _ = session;
-    let transaction = item_use_transaction(request, action_type, Some(Vec::new()))?;
+    let transaction = item_use_transaction(request, action_type)?;
     Ok(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
-        transaction: Some(
-            InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
-                transaction,
-            )),
-        ),
+        transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+            transaction,
+        )),
     }
     .into())
 }
@@ -182,14 +177,10 @@ fn block_use_packet(
 /// Validates one block-use request and encodes it as the shared item-use
 /// transaction body used by both the standalone `InventoryTransaction` packet
 /// and the transaction embedded in `PlayerAuthInput`.
-///
-/// `actions` is the optional inventory action list: the standalone packet
-/// always writes a (possibly empty) list, while the embedded carrier writes
-/// it behind a second presence layer that the break-block use leaves absent.
+/// The action list is always empty and the hand is always the main hand.
 pub(crate) fn item_use_transaction(
     request: BlockUseRequest,
     action_type: ItemUseInventoryTransactionActionType,
-    actions: Option<Vec<valentine::bedrock::version::v1_26_44::InventoryAction>>,
 ) -> Result<ItemUseInventoryTransaction, BlockUsePacketError> {
     if request.face > 5 {
         return Err(BlockUsePacketError::InvalidFace(request.face));
@@ -224,12 +215,15 @@ pub(crate) fn item_use_transaction(
     let item = request.selected_item.into_vendor_item(0)?;
 
     Ok(ItemUseInventoryTransaction {
-        actions: InventoryTransaction { actions },
+        actions: InventoryTransaction {
+            actions: Vec::new(),
+        },
         action_type,
-        trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
+        trigger_type: ItemUseInventoryTransactionTriggerType::Playerinput,
         position: BlockPos { x, y, z },
         face: request.face,
         slot: i32::from(request.selected_slot),
+        hand: EnumsHandSlot::Mainhand,
         item,
         from_position: Vec3 {
             x: from_x,
@@ -285,11 +279,11 @@ pub fn use_actor_packet(
     Ok(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
-        transaction: Some(
+        transaction:
             InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(Box::new(
                 ItemUseOnActorInventoryTransaction {
                     actions: InventoryTransaction {
-                        actions: Some(Vec::new()),
+                        actions: Vec::new(),
                     },
                     runtime_id: ActorRuntimeId { actor_runtime_id },
                     action_type,
@@ -307,7 +301,6 @@ pub fn use_actor_packet(
                     },
                 },
             )),
-        ),
     }
     .into())
 }
@@ -340,7 +333,7 @@ pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
-        action: EnumsPlayerActionType::StopSleeping,
+        action: EnumsPlayerActionType::Stopsleeping,
         block_position: BlockPos { x: 0, y: 0, z: 0 },
         result_pos: BlockPos { x: 0, y: 0, z: 0 },
         face: 0,
@@ -371,7 +364,7 @@ pub fn respawn_request_packet(local_runtime_id: u64) -> crate::Packet {
             y: 0.0,
             z: 0.0,
         },
-        state: EnumsPlayerRespawnState::ClientReadyToSpawn,
+        state: EnumsPlayerRespawnState::Clientreadytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },

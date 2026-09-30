@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, EnumsNpcDialoguePacketPayloadNpcDialogueActionType,
     EnumsNpcRequestPacketPayloadRequestType, ModalFormRequestPacket, NpcDialoguePacket,
     NpcRequestPacket, ServerSettingsRequestPacket, ServerSettingsResponsePacket,
@@ -134,15 +134,15 @@ pub fn npc_request_packet(
 ) -> crate::Packet {
     let (request_type, action_index) = match kind {
         NpcRequestKind::ExecuteAction(index) => (
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteAction,
+            EnumsNpcRequestPacketPayloadRequestType::Executeaction,
             index,
         ),
         NpcRequestKind::ExecuteOpeningCommands => (
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteOpeningCommands,
+            EnumsNpcRequestPacketPayloadRequestType::Executeopeningcommands,
             0,
         ),
         NpcRequestKind::ExecuteClosingCommands => (
-            EnumsNpcRequestPacketPayloadRequestType::ExecuteClosingCommands,
+            EnumsNpcRequestPacketPayloadRequestType::Executeclosingcommands,
             0,
         ),
     };

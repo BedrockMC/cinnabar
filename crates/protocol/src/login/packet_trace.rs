@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_44::McpePacketName;
+use valentine::bedrock::version::v1_26_51::McpePacketName;
 
 pub(super) const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
 pub(super) const PACKET_ID_TRACE_DURATION: std::time::Duration = std::time::Duration::from_secs(30);

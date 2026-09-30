@@ -7,7 +7,7 @@ use protocol::{
     CameraTargetInstruction, ProtocolError, WorldEvent, WorldPacketError, decode_batch, encode,
     into_world_event,
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, CameraInstruction, CameraInstructionOptionsAttachToEntityInstruction,
     CameraInstructionOptionsFadeInstruction, CameraInstructionOptionsFadeInstructionColorOption,
     CameraInstructionOptionsFadeInstructionTimeOption, CameraInstructionOptionsFovInstruction,
@@ -20,7 +20,7 @@ use valentine::bedrock::version::v1_26_44::{
     CameraInstructionOptionsTargetInstruction, CameraPacket, CameraShakePacket,
     CameraShakePacket as ShakePacket, EnumsCameraShakeAction, EnumsCameraShakeType, McpePacketName,
 };
-type InstructionPacket = valentine::bedrock::version::v1_26_44::CameraInstructionPacket;
+type InstructionPacket = valentine::bedrock::version::v1_26_51::CameraInstructionPacket;
 type SetEase = CameraInstructionOptionsSetInstructionEaseOption;
 
 fn session() -> BedrockSession {
@@ -364,7 +364,7 @@ fn unsupported_spline_instructions_are_semantic_skips() {
     let packet: protocol::Packet = InstructionPacket {
         camera_instruction: CameraInstruction {
             spline: Some(
-                valentine::bedrock::version::v1_26_44::CameraInstructionOptionsSplineInstruction::default(),
+                valentine::bedrock::version::v1_26_51::CameraInstructionOptionsSplineInstruction::default(),
             ),
             ..Default::default()
         },
@@ -427,10 +427,10 @@ fn truncated_camera_shake_wire_stays_fatal() {
 
 #[test]
 fn preset_registry_normalizes_with_indices_and_drops_non_finite_fields() {
-    use valentine::bedrock::version::v1_26_44::{
-        CameraPresets, CameraPresetsPacket, SharedTypesv12190CameraPreset,
+    use valentine::bedrock::version::v1_26_51::{
+        CameraPresets, CameraPresetsPacket, SharedTypesv12650CameraPreset,
     };
-    let preset = |name: &str, radius: f32| SharedTypesv12190CameraPreset {
+    let preset = |name: &str, radius: f32| SharedTypesv12650CameraPreset {
         name: name.to_owned(),
         inherit_from: "minecraft:free".to_owned(),
         radius: Some(radius),
@@ -459,6 +459,6 @@ fn is_fatal_wire(error: &WorldPacketError) -> bool {
     matches!(error, WorldPacketError::Wire(_))
 }
 
-fn valentine_vec3(x: f32, y: f32, z: f32) -> valentine::bedrock::version::v1_26_44::Vec3 {
-    valentine::bedrock::version::v1_26_44::Vec3 { x, y, z }
+fn valentine_vec3(x: f32, y: f32, z: f32) -> valentine::bedrock::version::v1_26_51::Vec3 {
+    valentine::bedrock::version::v1_26_51::Vec3 { x, y, z }
 }
