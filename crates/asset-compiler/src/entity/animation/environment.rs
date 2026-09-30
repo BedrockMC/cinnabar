@@ -20,6 +20,8 @@ pub(super) struct EntityEnvironment {
     pub entity_symbol: u32,
     pub geometry: Option<u32>,
     pub geometry_aliases: BTreeMap<Box<str>, Box<str>>,
+    /// Every geometry the aliases name, which render controllers may draw.
+    pub alias_geometries: Vec<u32>,
     pub render_controllers: Vec<Box<str>>,
     pub animation_aliases: BTreeMap<Box<str>, Box<str>>,
     pub controller_aliases: BTreeMap<Box<str>, Box<str>>,
@@ -58,7 +60,7 @@ pub(super) fn collect(
             .and_then(|value| value.get("description"))
             .and_then(Value::as_object)
             .ok_or_else(|| invalid("client entity description is absent"))?;
-        let geometry_aliases = description
+        let geometry_aliases: BTreeMap<Box<str>, Box<str>> = description
             .get("geometry")
             .and_then(Value::as_object)
             .map(|aliases| {
@@ -103,9 +105,14 @@ pub(super) fn collect(
                 }
             }
         }
+        let alias_geometries = geometry_aliases
+            .values()
+            .filter_map(|identifier| geometry_indices.get(identifier.as_ref()).copied().flatten())
+            .collect();
         environments.push(EntityEnvironment {
             entity_symbol: entity_symbol as u32,
             geometry,
+            alias_geometries,
             geometry_aliases,
             render_controllers,
             animation_aliases,

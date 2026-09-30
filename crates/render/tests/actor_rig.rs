@@ -57,6 +57,8 @@ fn submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmission {
         texture_layer: 0,
         route: ActorRigRoute::Compiled,
         tint: 0,
+        uv_anim: render::IDENTITY_UV_ANIM,
+        light: 0,
         overlay_rgba8: 0,
     }
 }
@@ -73,7 +75,7 @@ fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmis
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
     // Bone poses reach the GPU as 48-byte affine matrices, not in this CPU form.
     assert_eq!(size_of::<RenderBoneTransform>(), 48);
-    assert_eq!(size_of::<ActorGpuInstance>(), 80);
+    assert_eq!(size_of::<ActorGpuInstance>(), 100);
     assert_eq!(MAX_RENDER_BONES_PER_ACTOR, 96);
     assert_eq!(
         MAX_ACTOR_BONE_ARENA_BYTES,
@@ -380,4 +382,38 @@ fn overlay_submission_reaches_the_gpu_instance() {
         }],
     );
     assert_eq!(frame.instances[0].overlay_rgba8, 0x6600_00ff);
+}
+
+// uv_anim reaches the instance; a non-finite channel falls back to identity.
+#[test]
+fn uv_anim_submission_reaches_the_gpu_instance() {
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let frame = builder.build(
+        0.0,
+        None,
+        [ActorRigSubmission {
+            uv_anim: [0.0, 0.5, f32::NAN, 0.25],
+            light: 0,
+            ..submission(1, 1)
+        }],
+    );
+    assert_eq!(frame.instances[0].uv_anim, [0.0, 0.5, 1.0, 0.25]);
+}
+
+// World light reaches the instance packed as block, sky and daylight with the lit bit set.
+#[test]
+fn packed_actor_light_reaches_the_gpu_instance() {
+    let light = render::pack_actor_light(3, 12, 1.0);
+    assert_eq!(light, 0x8000_0000 | (255 << 8) | (12 << 4) | 3);
+    assert_eq!(render::pack_actor_light(99, 99, 0.0), 0x8000_0000 | 0xff);
+    let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
+    let frame = builder.build(
+        0.0,
+        None,
+        [ActorRigSubmission {
+            light,
+            ..submission(1, 1)
+        }],
+    );
+    assert_eq!(frame.instances[0].light, light);
 }
