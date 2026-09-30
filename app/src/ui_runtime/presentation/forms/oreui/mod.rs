@@ -104,6 +104,7 @@ impl UiPresentationRuntime {
             .oreui_originals
             .clone()
             .filter(|_| self.form_presentation.oreui_look == Look::Originals);
+        let offsets = self.menu_scrolls.offsets().clone();
         let mut canvas = Canvas::new(
             nodes,
             next,
@@ -113,6 +114,7 @@ impl UiPresentationRuntime {
             self.solid_texture_page,
             originals.as_deref(),
         );
+        canvas.offsets = offsets;
         match screen {
             MenuScreen::Death => death::draw(&mut canvas, view, size)?,
             MenuScreen::Profile => profile::draw(&mut canvas, view, size, portrait)?,
@@ -122,7 +124,9 @@ impl UiPresentationRuntime {
             }
             _ => friends::draw(&mut canvas, view, size)?,
         }
-        Ok(Some(canvas.hits))
+        let (hits, scrolls) = (canvas.hits, canvas.scrolls);
+        self.menu_scrolls.set_areas(scrolls);
+        Ok(Some(hits))
     }
 }
 

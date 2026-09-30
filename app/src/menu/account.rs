@@ -61,8 +61,14 @@ impl MenuRuntime {
         }
     }
 
-    pub(super) fn poll_catalog(&mut self) {
+    /// `core_feeds`: a launcher core serves the lists, so the one-shot catalog
+    /// process (which would overwrite them with other join addresses) stays off.
+    pub(super) fn poll_catalog(&mut self, core_feeds: bool) {
         self.poll_sign_in();
+        if core_feeds {
+            self.stop_catalog();
+            return;
+        }
         self.start_catalog();
         let Some(child) = self.catalog_process.as_mut() else {
             return;
