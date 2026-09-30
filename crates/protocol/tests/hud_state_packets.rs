@@ -370,6 +370,11 @@ fn item_stack_enchantment_level_reads_the_root_ench_list() {
         None
     );
     assert_eq!(protocol::item_stack_damage(&stack), Some(4));
+    assert!(!protocol::item_extra_unbreakable(&stack.extra_data));
+    let mut unbreakable = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00];
+    named(0x01, b"Unbreakable", &mut unbreakable);
+    unbreakable.extend_from_slice(&[0x01, 0x00]);
+    assert!(protocol::item_extra_unbreakable(&unbreakable));
     let empty = protocol::NetworkItemStack::empty();
     assert_eq!(
         protocol::item_enchantment_level(&empty.extra_data, 15),

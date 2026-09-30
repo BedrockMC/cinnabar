@@ -43,17 +43,19 @@ pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
 pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
 pub const FETCH_COMMAND: &str =
     "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
-pub const COMPILE_COMMAND: &str = concat!(
-    "cargo run -p asset-compiler --bin assetc -- compile ",
-    "--pack .local/assets/bedrock-samples/v1.26.30.32-preview/full/resource_pack ",
-    "--source-manifest assets/vanilla-source.json ",
-    "--registry crates/assets/data/block-registry-v2193.bin ",
-    "--light-registry crates/assets/data/block-light-registry-v2193.bin ",
-    "--biome-registry crates/assets/data/biome-registry-v2193.bin ",
-    "--out .local/assets/compiled/vanilla-v2193.mcbea"
-);
+pub static COMPILE_COMMAND: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "cargo run -p asset-compiler --bin assetc -- compile --pack {} \
+         --source-manifest assets/vanilla-source.json \
+         --registry crates/assets/data/block-registry-v2193.bin \
+         --light-registry crates/assets/data/block-light-registry-v2193.bin \
+         --biome-registry crates/assets/data/biome-registry-v2193.bin \
+         --out .local/assets/compiled/vanilla-v2193.mcbea",
+        assets::vanilla_source().resource_pack_dir()
+    )
+});
 
-const VANILLA_SOURCE_JSON: &str = include_str!("../../assets/vanilla-source.json");
+const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
 const UI_FONT_SOURCE_JSON: &str = include_str!("../../assets/ui-font-source.json");
 const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wgsl");
 const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wgsl");
@@ -701,7 +703,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
             RuntimeAssets::decode(&bytes).map_err(|source| AssetStartupError::Decode {
                 path: selection.path.clone(),
                 source: Box::new(source),
-                rebuild_command: COMPILE_COMMAND,
+                rebuild_command: COMPILE_COMMAND.as_str(),
             })?,
         );
     if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
@@ -746,8 +748,9 @@ fn diagnostic_assets(
     let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
     let notice = format!(
         "compiled vanilla assets were not found at {}; using the programmatic diagnostic texture\n\
-         Fetch and compile the local vanilla pack explicitly (the app never downloads it):\n  {FETCH_COMMAND}\n  {COMPILE_COMMAND}",
-        selection.path.display()
+         Fetch and compile the local vanilla pack explicitly (the app never downloads it):\n  {FETCH_COMMAND}\n  {}",
+        selection.path.display(),
+        COMPILE_COMMAND.as_str()
     );
     LoadedAssets {
         runtime,

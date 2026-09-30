@@ -68,6 +68,7 @@ const CHUNK_RENDERER_SOURCE: &str = concat!(
     include_str!("../src/chunk/gpu/bind_groups.rs"),
     include_str!("../src/chunk/gpu/arena.rs"),
     include_str!("../src/chunk/gpu/upload.rs"),
+    include_str!("../src/chunk/gpu/upload/arena_writes.rs"),
     include_str!("../src/chunk/transparent/sort/prepare.rs"),
     include_str!("../src/chunk/gpu/layout.rs"),
     include_str!("../src/chunk/pipeline/commands.rs"),
