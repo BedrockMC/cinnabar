@@ -38,6 +38,10 @@ pub(crate) const DESTROY_DELAY_TICKS: u8 = 5;
 /// Progress at which a destroy completes, absorbing float accumulation. Needs
 /// independent measurement.
 const COMPLETION_THRESHOLD: f64 = 0.99999;
+/// Below this speed (blocks/s) a held Creative destroy waits out the delay;
+/// above it, it destroys once per block travelled (`GameMode::continueDestroyBlock`).
+const CREATIVE_SLOW_SPEED: f32 = 0.5;
+const CREATIVE_TRAVEL_PER_DESTROY: f32 = 1.0;
 /// Bedrock enchantment ids.
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;
 const EFFICIENCY_ENCHANTMENT_ID: i16 = 15;
@@ -155,6 +159,14 @@ impl SurvivalTickPayload {
     }
 }
 
+/// The player's motion over one stepped tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TickMotion {
+    pub(crate) on_ground: bool,
+    /// Distance moved this tick, in blocks.
+    pub(crate) moved: f32,
+}
+
 /// Attack input for one tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum DestroyInput<'a> {
@@ -182,12 +194,14 @@ impl Destroying {
 /// block, and continue plus predict on completion; aborts carry progress.
 /// Client authority: start, a crack every tick, and a stop plus item-use
 /// destroy transaction on completion. An instant destroy completes on its start
-/// tick with the same completion actions.
+/// tick with the same completion actions, then repeats while held.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct DestroyMachine {
     destroying: Option<Destroying>,
     delay: u8,
     pending_abort: Option<([i32; 3], u8)>,
+    /// Blocks travelled toward the next moving Creative destroy.
+    travel: f32,
 }
 
 impl DestroyMachine {
@@ -207,9 +221,10 @@ impl DestroyMachine {
     pub(crate) fn step(
         &mut self,
         input: DestroyInput<'_>,
-        on_ground: bool,
+        motion: TickMotion,
         authority: BlockBreakingAuthority,
     ) -> SurvivalTickPayload {
+        let on_ground = motion.on_ground;
         let mut payload = SurvivalTickPayload::default();
         if let Some((position, percent)) = self.pending_abort.take() {
             payload.push(BlockActionKind::AbortDestroy, position, percent);
@@ -222,6 +237,10 @@ impl DestroyMachine {
                 target
             }
             DestroyInput::Released | DestroyInput::Held(None) => {
+                if input == DestroyInput::Released {
+                    // stopDestroyBlock clears the destroy delay.
+                    self.delay = 0;
+                }
                 if let Some(destroying) = self.destroying.take() {
                     payload.push(
                         BlockActionKind::AbortDestroy,
@@ -232,7 +251,8 @@ impl DestroyMachine {
                 return payload;
             }
         };
-        if delayed {
+        let creative_continue = target.instant && self.destroying.is_some();
+        if delayed && !creative_continue {
             return payload;
         }
         match self.destroying {
@@ -247,12 +267,26 @@ impl DestroyMachine {
                 if target.instant || target.rate(on_ground) >= COMPLETION_THRESHOLD {
                     self.complete(&mut payload, target, authority, false);
                     self.delay = DESTROY_DELAY_TICKS;
+                    self.travel = 0.0;
                 } else if authority == BlockBreakingAuthority::Client {
                     payload.push(BlockActionKind::CrackBlock, target.position, target.face);
                 }
             }
-            // One instant destroy per press.
-            Some(_) if target.instant => {}
+            Some(_) if target.instant => {
+                let slow = motion.moved * sim::TICKS_PER_SECOND as f32 <= CREATIVE_SLOW_SPEED;
+                if !slow {
+                    self.travel += motion.moved;
+                }
+                if slow && !delayed {
+                    self.travel = 0.0;
+                } else if self.travel > CREATIVE_TRAVEL_PER_DESTROY {
+                    self.travel -= self.travel.trunc();
+                } else {
+                    return payload;
+                }
+                self.complete(&mut payload, target, authority, true);
+                self.delay = DESTROY_DELAY_TICKS;
+            }
             Some(destroying) if destroying.position == target.position => {
                 let rate = target.rate(on_ground);
                 let progress = destroying.progress + rate;
@@ -398,8 +432,8 @@ impl SurvivalMiningRuntime {
             self.machine.interrupt();
             return unsent;
         }
-        for (tick, on_ground) in ticks {
-            let mut payload = self.machine.step(input, on_ground, authority);
+        for (tick, motion) in ticks {
+            let mut payload = self.machine.step(input, motion, authority);
             payload.mine_block = payload
                 .wear
                 .filter(|&(slot, damage, stack_network_id)| {
@@ -647,13 +681,18 @@ fn observe_destroy_target(
         .block_identifier(mode, observed.target.runtime_id)
         .and_then(sim::block_destroy_info);
     let item = &observed.selection.item;
-    let tool = (item.network_id() != 0)
+    let identifier = (item.network_id() != 0)
         .then(|| {
             ui.inventory_ledger()
                 .negotiated_item_entry(item.network_id())
         })
         .flatten()
-        .and_then(|entry| HeldTool::from_identifier(entry.identifier.as_ref()));
+        .map(|entry| entry.identifier.as_ref());
+    let instant = caps.instant_break;
+    if instant && !destroys_in_creative(identifier) {
+        return None;
+    }
+    let tool = identifier.and_then(HeldTool::from_identifier);
     let world = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(mode),
@@ -661,7 +700,6 @@ fn observe_destroy_target(
     );
     let effects = context.effects.mining_effects();
     let helmet = ui.gameplay_hud().armor().map(|armor| &armor.helmet);
-    let instant = caps.instant_break;
     let wear = tool.filter(|_| !instant).and_then(|tool| {
         (item.stack_network_id() > 0).then(|| ToolWear {
             // Outstanding and corrected predictions outrank the stack's own tag.
@@ -706,6 +744,16 @@ fn observe_destroy_target(
         selection: observed.selection,
         wear,
         instant,
+    })
+}
+
+/// Swords and the trident refuse Creative destruction, as `WeaponItem` and
+/// `TridentItem::canDestroyInCreative` do; unknown items may destroy.
+fn destroys_in_creative(identifier: Option<&str>) -> bool {
+    identifier.is_none_or(|identifier| {
+        identifier != "minecraft:trident"
+            && HeldTool::from_identifier(identifier)
+                .is_none_or(|tool| tool.kind != sim::ToolKind::Sword)
     })
 }
 
