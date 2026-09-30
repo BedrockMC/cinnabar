@@ -133,3 +133,26 @@ func TestServeCommandsStopsOnEOF(t *testing.T) {
 		t.Fatal("no stop on EOF")
 	}
 }
+
+// Pause must suspend every dimension and resume must keep each world's own settings.
+func TestSetPausedSuspendsAndRestoresWorlds(t *testing.T) {
+	cycling, stopped := world.Config{}.New(), world.Config{}.New()
+	defer cycling.Close()
+	defer stopped.Close()
+	stopped.StopTime()
+	worlds := []*world.World{cycling, stopped}
+
+	setPaused(worlds, true)
+	for _, w := range worlds {
+		if !w.Paused() {
+			t.Fatal("world not paused")
+		}
+	}
+	setPaused(worlds, false)
+	if cycling.Paused() || stopped.Paused() {
+		t.Fatal("world still paused after resume")
+	}
+	if !cycling.TimeCycle() || stopped.TimeCycle() {
+		t.Fatalf("resume changed time cycle: cycling=%v stopped=%v", cycling.TimeCycle(), stopped.TimeCycle())
+	}
+}
