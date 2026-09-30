@@ -2,6 +2,18 @@ use std::process::{Command, Stdio};
 
 use super::*;
 
+/// Waits for an exiting helper on a thread so the frame never blocks on it.
+fn reap(mut child: std::process::Child) {
+    let spawned = std::thread::Builder::new()
+        .name("catalog-reaper".to_owned())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    if let Err(error) = spawned {
+        bevy::log::warn!("catalog helper left unreaped: {error}");
+    }
+}
+
 pub(super) fn validated_auth_cache(
     layout: &InstallLayout,
     state: Option<&AuthState>,
@@ -70,8 +82,9 @@ impl MenuRuntime {
         if let Ok(bytes) = fs::read(&self.catalog_path) {
             match serde_json::from_slice::<CatalogFile>(&bytes) {
                 Ok(catalog) => {
-                    let _ = child.wait();
-                    self.catalog_process = None;
+                    if let Some(child) = self.catalog_process.take() {
+                        reap(child);
+                    }
                     self.apply_catalog(catalog);
                     let _ = fs::remove_file(&self.catalog_path);
                 }
@@ -90,7 +103,7 @@ impl MenuRuntime {
     pub(super) fn stop_catalog(&mut self) {
         if let Some(mut child) = self.catalog_process.take() {
             let _ = child.kill();
-            let _ = child.wait();
+            reap(child);
         }
     }
 
