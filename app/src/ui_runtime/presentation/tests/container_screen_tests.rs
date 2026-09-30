@@ -98,6 +98,46 @@ fn with_enchant_options(mut runtime: UiRuntime) -> UiRuntime {
     runtime
 }
 
+/// The creative inventory over a 300-item catalog across the four tabs.
+fn creative() -> UiRuntime {
+    use protocol::{CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem};
+    let mut runtime = session();
+    runtime.publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    let categories = [
+        CreativeCategory::Construction,
+        CreativeCategory::Nature,
+        CreativeCategory::Equipment,
+        CreativeCategory::Items,
+    ];
+    let groups = categories
+        .iter()
+        .map(|category| CreativeGroup {
+            category: *category,
+            name: "".into(),
+        })
+        .collect();
+    let items = (0..300u32)
+        .map(|index| CreativeItem {
+            creative_network_id: index + 1,
+            stack: NetworkItemStack {
+                network_id: 1 + index as i32,
+                count: 1,
+                ..NetworkItemStack::empty()
+            },
+            group: index % 4,
+        })
+        .collect();
+    runtime
+        .inventory_ledger_mut()
+        .apply(&InventoryEvent::Creative(CreativeContentEvent {
+            groups,
+            items,
+            skipped: 0,
+        }));
+    runtime.toggle_inventory();
+    runtime
+}
+
 fn personal() -> UiRuntime {
     let mut runtime = session();
     runtime.toggle_inventory();
@@ -108,14 +148,36 @@ fn personal() -> UiRuntime {
 /// cells its item slots must address.
 fn screens() -> Vec<(&'static str, UiRuntime, Vec<InventoryCellHit>)> {
     use crate::ui_runtime::presentation::screens::Widget as W;
-    use InventoryCellHit::{Craft, CraftOutput, Storage, Widget};
+    use InventoryCellHit::{
+        Craft, CraftOutput, CreativeSearch, CreativeTab, RecipeBook, Storage, Widget,
+    };
     use protocol::*;
     let storage = |count: u8| (0..count).map(Storage).collect::<Vec<_>>();
     vec![
         (
             "inventory",
             personal(),
-            vec![Craft(28), Craft(31), CraftOutput],
+            vec![Craft(28), Craft(31), CraftOutput, Widget(W::BookToggle)],
+        ),
+        (
+            "inventory_recipe_book",
+            {
+                let mut runtime = personal();
+                runtime.screen_state_mut().book_open = true;
+                runtime
+            },
+            vec![Widget(W::BookToggle), CreativeTab(1), CreativeSearch],
+        ),
+        (
+            "creative",
+            creative(),
+            vec![
+                RecipeBook(0),
+                RecipeBook(20),
+                CreativeTab(2),
+                CreativeSearch,
+                Widget(W::BookToggle),
+            ],
         ),
         (
             "crafting_table",

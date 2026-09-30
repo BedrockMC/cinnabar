@@ -33,8 +33,13 @@ const UNCLIPPED: f64 = 1.0e5;
 /// Which screen the engine drew, for mapping its cells back to ledger targets.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum ScreenLayout {
-    Personal,
-    Workbench,
+    /// The survival inventory (and the creative one); `book` shows the recipe book.
+    Personal {
+        book: bool,
+    },
+    Workbench {
+        book: bool,
+    },
     /// A chest-like storage window or a station.
     Station(&'static ContainerKind),
 }
@@ -42,27 +47,28 @@ pub(super) enum ScreenLayout {
 impl ScreenLayout {
     /// `block_entity` is the open block entity's NBT `id`, which picks the chest variant.
     pub(super) fn of(runtime: &UiRuntime, block_entity: Option<&str>) -> Option<Self> {
+        let book = super::recipe_book::recipe_book_shown(runtime);
         Some(match InventoryScreen::of_runtime(runtime) {
-            InventoryScreen::Personal => Self::Personal,
-            InventoryScreen::Workbench => Self::Workbench,
+            InventoryScreen::Personal | InventoryScreen::Creative => Self::Personal { book },
+            InventoryScreen::Workbench => Self::Workbench { book },
             InventoryScreen::Storage(slots) => Self::Station(storage_kind(slots, block_entity)),
             InventoryScreen::Window(kind, _) => Self::Station(window_kind(kind)?),
-            // The creative catalog and books keep the Java-styled screens.
-            InventoryScreen::Creative | InventoryScreen::Book => return None,
+            // Books keep the Java-styled screens.
+            InventoryScreen::Book => return None,
         })
     }
 
     fn screen(self) -> (&'static str, &'static str) {
         match self {
-            Self::Personal => ("crafting.inventory_screen", "container.crafting"),
-            Self::Workbench => ("crafting.crafting_screen", "container.crafting"),
+            Self::Personal { .. } => ("crafting.inventory_screen", "container.crafting"),
+            Self::Workbench { .. } => ("crafting.crafting_screen", "container.crafting"),
             Self::Station(kind) => (kind.screen, kind.title_key),
         }
     }
 
     fn craft_slot(self) -> u8 {
         match self {
-            Self::Workbench => WORKBENCH_CRAFT_SLOT,
+            Self::Workbench { .. } => WORKBENCH_CRAFT_SLOT,
             _ => PERSONAL_CRAFT_SLOT,
         }
     }
@@ -102,10 +108,13 @@ impl UiPresentationRuntime {
         let mut context = super::menu_screens::retail_context()
             .with_var("container_title", Value::String(title.clone()))
             .with_flag("localize_title", false);
-        if let ScreenLayout::Station(kind) = layout {
-            for flag in kind.flags {
-                context = context.with_flag(flag, true);
+        match layout {
+            ScreenLayout::Station(kind) => {
+                for flag in kind.flags {
+                    context = context.with_flag(flag, true);
+                }
             }
+            _ => context = super::recipe_book::context(context),
         }
         let mut icons = Vec::new();
         let data = screen_data(runtime, &self.hud_frame, layout, &title, &mut icons);
@@ -117,9 +126,9 @@ impl UiPresentationRuntime {
                     hit_test(&frame.hits, [f64::from(point[0]), f64::from(point[1])])
                 })
                 .map(|region| region.key.clone()),
-            // The anvil's name field shows focused while it takes typing.
+            // The anvil's name or the search field shows focused while it takes typing.
             focused: previous
-                .filter(|_| runtime.screen_state().anvil_focused)
+                .filter(|_| runtime.screen_state().text_focused())
                 .and_then(|frame| {
                     frame
                         .hits
@@ -127,6 +136,7 @@ impl UiPresentationRuntime {
                         .find(|region| region.kind == json_ui::HitKind::EditBox)
                 })
                 .map(|region| region.key.clone()),
+            scroll: runtime.screen_state().container_scroll.clone(),
             ..ViewState::default()
         };
         let overlay = held_stack(
@@ -163,31 +173,7 @@ impl UiPresentationRuntime {
         let cache = &mut self.form_presentation.container_cache;
         let catalog = renderer.catalog();
         let drawn = renderer.draw(art, inputs, out, |env, root| {
-            let key = ScreenKey {
-                reference,
-                data,
-                context,
-                view,
-                root,
-                catalog: Arc::clone(catalog),
-            };
-            if let Some(cached) = cache.as_ref().filter(|cached| cached.key == key) {
-                return Some(Arc::clone(&cached.render));
-            }
-            let render = Arc::new(json_ui::render_screen(
-                reference,
-                &key.catalog,
-                &key.context,
-                &key.data,
-                root,
-                env,
-                &key.view,
-            )?);
-            *cache = Some(ScreenCache {
-                key,
-                render: Arc::clone(&render),
-            });
-            Some(render)
+            ScreenCache::render(cache, catalog, reference, &context, &data, &view, root, env)
         });
         match drawn {
             Ok(Some(frame)) => {
@@ -216,11 +202,13 @@ impl UiPresentationRuntime {
     pub(crate) fn engine_container_hit(&self, gui: [f32; 2]) -> Option<InventoryCellHit> {
         let (frame, layout) = self.form_presentation.container.as_ref()?;
         let region = hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?;
-        let widget = || match layout {
+        let widget = || match *layout {
             ScreenLayout::Station(kind) => {
                 container_data::widget_hit(kind.screen, region).map(InventoryCellHit::Widget)
             }
-            _ => None,
+            ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
+                super::recipe_book::book_hit(region, book)
+            }
         };
         let (Some(index), Some(collection)) =
             (region.collection_index, region.collection.as_deref())
@@ -242,37 +230,70 @@ impl UiPresentationRuntime {
                     Some(cell) => cell.hit(),
                     None => return widget(),
                 },
-                _ => return None,
+                _ => return widget(),
             },
         })
     }
 }
 
-/// Everything a container screen's layout depends on; an unchanged frame
-/// (the common case while a screen sits open) reuses the last layout.
-struct ScreenKey {
-    reference: &'static str,
-    data: DataSource,
-    context: json_ui::Context,
-    view: ViewState,
-    root: [f64; 2],
-    catalog: Arc<json_ui::Catalog>,
-}
-
-impl PartialEq for ScreenKey {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.catalog, &other.catalog)
-            && self.reference == other.reference
-            && self.root == other.root
-            && self.view == other.view
-            && self.data == other.data
-            && self.context == other.context
-    }
-}
-
+/// The last container screen's resolved tree, its binding and its layout, each
+/// kept while its inputs stay the same: a frame that only moves the hover
+/// re-lays out, and an unchanged frame (a screen sitting open) reuses it all.
 pub(super) struct ScreenCache {
-    key: ScreenKey,
-    render: Arc<json_ui::FormRender>,
+    catalog: Arc<json_ui::Catalog>,
+    reference: &'static str,
+    context: json_ui::Context,
+    resolved: json_ui::ResolvedControl,
+    bound: Option<(DataSource, json_ui::ResolvedControl)>,
+    laid: Option<(ViewState, [f64; 2], Arc<json_ui::FormRender>)>,
+}
+
+impl ScreenCache {
+    #[allow(clippy::too_many_arguments)]
+    fn render(
+        cache: &mut Option<Self>,
+        catalog: &Arc<json_ui::Catalog>,
+        reference: &'static str,
+        context: &json_ui::Context,
+        data: &DataSource,
+        view: &ViewState,
+        root: [f64; 2],
+        env: &json_ui::LayoutEnv,
+    ) -> Option<Arc<json_ui::FormRender>> {
+        let same_screen = |cached: &Self| {
+            Arc::ptr_eq(&cached.catalog, catalog)
+                && cached.reference == reference
+                && cached.context == *context
+        };
+        if !cache.as_ref().is_some_and(same_screen) {
+            *cache = Some(Self {
+                catalog: Arc::clone(catalog),
+                reference,
+                context: context.clone(),
+                resolved: json_ui::resolve_screen(reference, catalog, context)?,
+                bound: None,
+                laid: None,
+            });
+        }
+        let cached = cache.as_mut()?;
+        if cached.bound.as_ref().is_none_or(|(bound, _)| bound != data) {
+            let tree = json_ui::bind_screen(&cached.resolved, catalog, context, data);
+            cached.bound = Some((data.clone(), tree));
+            cached.laid = None;
+        }
+        let fresh = |(laid_view, laid_root, _): &(ViewState, [f64; 2], _)| {
+            laid_view == view && *laid_root == root
+        };
+        if !cached.laid.as_ref().is_some_and(fresh) {
+            let tree = cached.bound.as_ref()?.1.clone();
+            let render = json_ui::render_bound(tree, root, env, view);
+            cached.laid = Some((view.clone(), root, Arc::new(render)));
+        }
+        cached
+            .laid
+            .as_ref()
+            .map(|(_, _, render)| Arc::clone(render))
+    }
 }
 
 /// Whether the engine has a vanilla screen for the open inventory or window.
@@ -388,9 +409,11 @@ fn screen_data(
         })
         .collect();
     data.set_collection("hotbar_items", hotbar);
+    survival_globals(&mut data, title);
     match layout {
-        ScreenLayout::Personal | ScreenLayout::Workbench => {
-            let width = if matches!(layout, ScreenLayout::Workbench) {
+        ScreenLayout::Personal { book } | ScreenLayout::Workbench { book } => {
+            super::recipe_book::book_data(&mut data, runtime, frame, cells.icons, book);
+            let width = if matches!(layout, ScreenLayout::Workbench { .. }) {
                 3
             } else {
                 2
@@ -462,12 +485,11 @@ fn screen_data(
             }
         }
     }
-    survival_globals(&mut data, title);
     data
 }
 
 /// Tooltip lines as one `#hover_text`, each coloured by its format code.
-fn tooltip_text(
+pub(super) fn tooltip_text(
     lines: &[crate::ui_runtime::presentation::hud_layout::TooltipLine],
 ) -> Option<String> {
     (!lines.is_empty()).then(|| {

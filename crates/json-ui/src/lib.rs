@@ -68,7 +68,9 @@ pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, l
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
-pub use screens::{ENGINE_SCREENS, ScreenRender, is_engine_screen, render_screen};
+pub use screens::{
+    ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
+};
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
 pub use state::{LayoutReport, ScrollMetrics, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
