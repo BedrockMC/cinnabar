@@ -300,3 +300,22 @@ fn an_item_use_modifier_slows_the_simulated_walk() {
     let travel = |physics: &LocalPhysicsController| physics.state().unwrap().position.z.abs();
     assert!(travel(&slowed) < travel(&plain) * 0.5, "{} vs {}", travel(&slowed), travel(&plain));
 }
+
+/// An oversized finite motion is skipped instead of pushing the next sweep past the query extent.
+#[test]
+fn an_unsimulable_server_motion_is_skipped_and_prediction_keeps_running() {
+    let (mut physics, _) = walked_physics(1);
+    let mut unguarded = physics.clone();
+    unguarded.replace_live_velocity([1.0e6, 0.0, 0.0]);
+    let failed = unguarded.advance(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        &VersionedFloor(1),
+    );
+    assert!(failed.blocked.is_some(), "the raw value would stop prediction");
+    let before = physics.state().unwrap().velocity;
+    assert_eq!(physics.queue_server_motion([1.0e6, 0.0, 0.0], 0), None);
+    assert_eq!(physics.state().unwrap().velocity, before);
+    let frame = physics.advance(Duration::from_millis(50), forward_physics_input(), &VersionedFloor(1));
+    assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+}

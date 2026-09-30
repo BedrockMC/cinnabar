@@ -17,7 +17,7 @@ impl LocalPhysicsController {
             return Err(PhysicsCorrectionError::InvalidAnchor);
         }
         let velocity = velocity
-            .filter(|velocity| velocity.iter().all(|axis| axis.is_finite()))
+            .filter(|velocity| super::timeline::motion_is_simulable(*velocity))
             .map(|velocity| {
                 Vec3::new(
                     f64::from(velocity[0]),
