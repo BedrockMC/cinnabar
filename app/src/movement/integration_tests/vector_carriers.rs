@@ -13,7 +13,7 @@ fn slowed_primary_preserves_captured_device_normalized_direction_policy() {
     ] {
         let mut physics = LocalPhysicsController::default();
         physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
-        let input = physics_movement_input(axes, 0.0, true, false, true, false, false);
+        let input = physics_movement_input(axes, 0.0, true, false, true, false, None);
         let frame = physics.advance_with_context(
             Duration::from_millis(50),
             input,
@@ -80,7 +80,7 @@ fn captured_direction_snapshot_cannot_inject_unrelated_flags() {
 fn partial_sneak_controls_are_scaled_once_before_packet_sampling() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
-    let input = physics_movement_input([0.25, 0.5], 0.0, true, false, true, false, false);
+    let input = physics_movement_input([0.25, 0.5], 0.0, true, false, true, false, None);
     let frame = physics.advance_with_context(
         Duration::from_millis(50),
         input,

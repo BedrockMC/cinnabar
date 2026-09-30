@@ -286,3 +286,17 @@ fn a_nearby_retained_teleport_rewinds_and_a_distant_one_snaps() {
     assert!(matches!(outcome, PhysicsCorrectionOutcome::Snapped { .. }));
     assert_eq!(physics.history_len(), 0);
 }
+
+#[test]
+fn an_item_use_modifier_slows_the_simulated_walk() {
+    let walk = physics_movement_input([0.0, 1.0], 180.0, true, false, false, false, None);
+    let drawing = physics_movement_input([0.0, 1.0], 180.0, true, false, false, false, Some(0.35));
+    let (mut plain, _) = walked_physics(0);
+    let (mut slowed, _) = walked_physics(0);
+    for _ in 0..5 {
+        run_tick_with(&mut plain, walk);
+        run_tick_with(&mut slowed, drawing);
+    }
+    let travel = |physics: &LocalPhysicsController| physics.state().unwrap().position.z.abs();
+    assert!(travel(&slowed) < travel(&plain) * 0.5, "{} vs {}", travel(&slowed), travel(&plain));
+}

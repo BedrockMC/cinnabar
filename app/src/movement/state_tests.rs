@@ -329,8 +329,8 @@ fn held_jump_claims_jumping_only_while_an_arc_is_in_progress() {
 #[test]
 fn sprint_flags_keep_the_forward_gated_sequence_byte_identical() {
     let mut harness = flag_harness();
-    let sprint_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, false);
-    let walk_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, false, false);
+    let sprint_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, None);
+    let walk_forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, false, None);
 
     let (first, _) = step(&mut harness, sprint_forward);
     for mask in [
@@ -373,7 +373,7 @@ fn sprint_flags_keep_the_forward_gated_sequence_byte_identical() {
     // sprint requests still never produce sprint flags.
     let mut backward_harness = flag_harness();
     let backward_sprint =
-        physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, false);
+        physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, None);
     for _ in 0..2 {
         let (flags, _) = step(&mut backward_harness, backward_sprint);
         assert_eq!(

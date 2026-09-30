@@ -118,7 +118,9 @@ pub(crate) fn advance_local_physics(
         jump.held,
         controlled.sneaking,
         controlled.sprint_request,
-        input.phase(Action::Use).held,
+        item_use
+            .as_deref()
+            .and_then(crate::item_use::ItemUseRuntime::movement_modifier),
     );
     input.movement_speed = movement_speed.current();
     let world = sim::PaletteWorld::new(
