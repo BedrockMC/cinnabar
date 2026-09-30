@@ -297,3 +297,38 @@ fn the_loading_bar_animates_over_its_cached_layout() {
     assert_eq!(positions(&first), positions(&later), "one layout");
     assert_ne!(uvs(&first), uvs(&later), "another frame of the strip");
 }
+
+// The disconnect screen words the failure as vanilla does and offers OK, which
+// leaves it for the menu.
+#[test]
+fn the_disconnect_screen_has_a_way_back() {
+    let Some(mut presentation) = engine_presentation() else {
+        return;
+    };
+    let dir = std::env::temp_dir().join("cinnabar-play-flow-art");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut view = fixture_view(&dir);
+    view.screen = MenuScreen::Play;
+    view.disconnect_message =
+        Some("network session failed: Bedrock session failed: Connection closed".to_owned());
+    snapshot(&view, "flow-disconnect");
+    presentation.set_menu_view(Some(view));
+    let runtime = UiRuntime::new(1);
+    let dpi = DpiScale::new(1.0).unwrap();
+    let metrics = super::super::TextMetrics::for_viewport([1280, 720], dpi, None);
+    let mut nodes = Vec::new();
+    let mut next = 1;
+    let hits = presentation
+        .append_menu(&runtime, &mut nodes, &mut next, metrics, 1280.0, 720.0)
+        .unwrap();
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == crate::menu::MenuAction::DismissDialog),
+        "{hits:?}"
+    );
+    let texts = super::pack_harness::drawn_texts(&nodes);
+    assert!(
+        !texts.iter().any(|text| text.contains("session failed")),
+        "the raw chain stays in the log: {texts:?}"
+    );
+}

@@ -315,10 +315,8 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     assert!(menu.is_visible());
     assert_eq!(menu.view().screen, MenuScreen::Play);
     assert_eq!(
-        menu.view().message.as_deref(),
-        Some(
-            "Disconnected: server disconnected: Cinnabar launcher return check (network read failed: closed)"
-        )
+        menu.view().disconnect_message.as_deref(),
+        Some("server disconnected: Cinnabar launcher return check (network read failed: closed)")
     );
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
 }

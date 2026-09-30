@@ -127,7 +127,7 @@ impl MenuRuntime {
             match event {
                 AccountEvent::Auth(state) => self.control_auth = Some(state),
                 AccountEvent::Disconnected { reason } => {
-                    self.disconnect_message = Some(reason);
+                    self.disconnect_message = Some(super::disconnect::from_server(&reason));
                 }
             }
         }
@@ -210,7 +210,11 @@ mod tests {
         let view = menu.view();
         assert_eq!(view.auth_state, AuthState::Authenticated);
         assert_eq!(view.friends.len(), 1);
-        assert_eq!(view.disconnect_message.as_deref(), Some("Server closed"));
+        let error = view.disconnect_message.as_deref().unwrap();
+        assert_eq!(
+            super::super::disconnect::describe(error).body,
+            super::super::disconnect::DisconnectBody::Server("Server closed".to_owned())
+        );
         menu.activate(super::super::MenuAction::SignOut);
         menu.sync_account_control(&mut control);
         assert!(control.signed_out);

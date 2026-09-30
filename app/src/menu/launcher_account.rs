@@ -180,11 +180,8 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             {
                 // The first poll only records the standing disconnect.
                 if snapshot.last_disconnect.is_some() {
-                    let reason = if disconnect.message.trim().is_empty() {
-                        format!("Disconnected (reason {})", disconnect.reason)
-                    } else {
-                        disconnect.message
-                    };
+                    // An empty message reads as vanilla's no-reason line.
+                    let reason = disconnect.message.trim().to_owned();
                     snapshot.events.push(AccountEvent::Disconnected { reason });
                 }
                 snapshot.last_disconnect = Some(disconnect.sequence);
