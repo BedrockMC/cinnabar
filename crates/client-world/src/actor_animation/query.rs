@@ -269,6 +269,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
+        "rotation_to_camera" => argument(0).map_or(0.0, |axis| {
+            rotation_to_camera(input.position, context.camera_position, axis)
+        }),
+        "distance_from_camera" => (0..3)
+            .map(|axis| (context.camera_position[axis] - input.position[axis]).powi(2))
+            .sum::<f32>()
+            .sqrt(),
         "texture_frame_index" => texture_frame_index(actor),
         // Client-derived from the Hurt event; streamed metadata is not authoritative.
         "overlay_alpha" => {
@@ -505,4 +512,21 @@ pub(super) fn wrap_degrees(degrees: f32) -> f32 {
 
 fn truth(value: bool) -> f32 {
     if value { 1.0 } else { 0.0 }
+}
+
+/// Degrees that aim from `actor` at `camera`: axis 0 the pitch, axis 1 the yaw, as the vanilla
+/// client computes them from the normalised offset (a zero offset reads 0 and -90).
+fn rotation_to_camera(actor: [f32; 3], camera: [f32; 3], axis: f32) -> f32 {
+    let offset: [f32; 3] = std::array::from_fn(|index| camera[index] - actor[index]);
+    let length = offset.iter().map(|value| value * value).sum::<f32>().sqrt();
+    let [x, y, z] = if length < 1.0e-4 {
+        [0.0; 3]
+    } else {
+        offset.map(|value| value / length)
+    };
+    match axis as i32 {
+        0 => -y.atan2(z.hypot(x)).to_degrees(),
+        1 => z.atan2(x).to_degrees() - 90.0,
+        _ => 0.0,
+    }
 }

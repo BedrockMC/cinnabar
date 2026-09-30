@@ -10,7 +10,6 @@ use serde_json::{Map, Value};
 use super::super::{SourcePayloads, invalid, json::parse_unique_json, molang::MolangCompiler};
 
 pub(super) enum ClipCompileError {
-    UnknownBone,
     Invalid(AssetError),
 }
 
@@ -22,12 +21,13 @@ pub(super) struct ClipOutputs<'a> {
 }
 
 /// Compiles one clip for one geometry; returns its index and how many channels were dropped
-/// because an axis expression is outside the reviewed Molang surface.
+/// because an axis expression is outside the reviewed Molang surface. Bones the geometry lacks
+/// are skipped, as vanilla binds animations to each model by bone name, but still set the length.
 pub(super) fn compile_clip_for_geometry(
     symbol: u32,
     source: u32,
     definition: &Map<String, Value>,
-    effective_bones: &[Box<str>],
+    (geometry, effective_bones): (u32, &[Box<str>]),
     outputs: ClipOutputs<'_>,
 ) -> Result<(u32, usize), ClipCompileError> {
     let ClipOutputs {
@@ -52,8 +52,7 @@ pub(super) fn compile_clip_for_geometry(
         for (bone_name, bone) in bones {
             let bone_index = bone_indices
                 .get(bone_name.to_ascii_lowercase().as_str())
-                .copied()
-                .ok_or(ClipCompileError::UnknownBone)?;
+                .copied();
             let bone = bone.as_object().ok_or_else(|| {
                 ClipCompileError::Invalid(invalid("animation bone must be an object"))
             })?;
@@ -87,6 +86,11 @@ pub(super) fn compile_clip_for_geometry(
                         return Err(ClipCompileError::Invalid(error));
                     }
                 }
+                let Some(bone_index) = bone_index else {
+                    molang.rollback(mark);
+                    local_keyframes.truncate(first_keyframe as usize);
+                    continue;
+                };
                 local_channels.push(EntityAnimationChannel {
                     bone: bone_index,
                     property,
@@ -134,6 +138,7 @@ pub(super) fn compile_clip_for_geometry(
             .get("override_previous_animation")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        geometry: Some(geometry),
     });
     Ok((clip, dropped + uncompiled))
 }

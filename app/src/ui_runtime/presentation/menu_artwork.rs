@@ -32,7 +32,7 @@ pub(crate) const THUMBNAIL_SIDE: u32 = 128;
 /// The start screen's title texture, which Cinnabar's own logo replaces.
 pub(super) const TITLE_KEY: &str = "textures/ui/title";
 /// Cinnabar's logo; the pack's title draws only if this fails to decode.
-const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../assets/branding/title.png");
+pub(crate) const BUILT_IN_TITLE: &[u8] = include_bytes!("../../../../assets/branding/title.png");
 
 #[derive(Default)]
 pub(super) struct MenuArtworkAtlas {
