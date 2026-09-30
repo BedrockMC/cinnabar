@@ -3102,7 +3102,8 @@ pack; for any namespace a server pack restyles (`hud`, `scoreboard`), its files
 are withdrawn so the pack gets vanilla beneath it. The JSON-UI carrier is now a
 required startup carrier. Native renderers (hearts, armor, hunger, bubbles,
 mount hearts/jump, slot art, effects, crosshair) keep Java behavior at their
-controls. Still on the old path: inventory/container screens, the first-person
+controls. Container, inventory, creative and book screens draw through the engine
+(see `docs/tracking/vanilla-parity-gaps.md`). Still on the old path: the first-person
 hands, the sleep overlay, toasts, the tab list, the open chat (editor and
 history), nametags, and the debug overlay. Incomplete: no live rendered-frame
 pass yet; `font_size` steps and the text-background option default are
