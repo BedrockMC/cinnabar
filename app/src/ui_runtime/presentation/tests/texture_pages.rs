@@ -141,7 +141,7 @@ fn mixed_font_shadow_and_fill_keep_logical_page_order() {
         glyphs.iter().map(|g| g.0).collect::<Vec<_>>(),
         [0, 1, 0, 0, 1, 0]
     );
-    let shadow_offset = java_gui_scale([800, 600], None) as f32;
+    let shadow_offset = gui_scale([800, 600], None) as f32;
     for index in 0..3 {
         for channel in 0..3 {
             assert_eq!(glyphs[index].1[channel], glyphs[index + 3].1[channel] / 4);

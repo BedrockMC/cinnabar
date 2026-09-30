@@ -31,7 +31,7 @@ mod toasts;
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
-pub(crate) use pinned::{BOSS_TINTS, effect_icon_role, java_gui_scale};
+pub(crate) use pinned::{BOSS_TINTS, effect_icon_role, gui_scale};
 use pinned::{BOTTOM_STACK_HEIGHT, HOTBAR_WIDTH, hsv_to_rgb};
 pub(crate) use sleep::SleepTimeline;
 pub(super) use sleep::leave_bed_bounds;
@@ -130,7 +130,7 @@ impl HudGeometry {
         if physical_size.contains(&0) || !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return None;
         }
-        let k = java_gui_scale(physical_size, preference) as f32;
+        let k = gui_scale(physical_size, preference) as f32;
         let scale = k / dpi_scale;
         let logical_width = physical_size[0] as f32 / dpi_scale;
         let logical_height = physical_size[1] as f32 / dpi_scale;
