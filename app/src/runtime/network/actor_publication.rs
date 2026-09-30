@@ -477,6 +477,13 @@ pub(crate) fn publish_actor_render_frame(params: ActorFramePublication) {
         remotes,
         cull_view,
     );
+    if let Some(stream) = client_world.stream.as_ref() {
+        crate::presentation::actors::light_bodies(
+            &mut batch,
+            stream,
+            super::dropped_items::DAYLIGHT,
+        );
+    }
     if let (Some(stream), Some(cape)) = (
         client_world.stream.as_ref(),
         cape_state.rig(client_world.entity_assets.as_deref()),

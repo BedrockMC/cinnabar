@@ -37,6 +37,9 @@ pub struct EntityRenderLayer {
     pub first_geometry: u32,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub geometry_count: u16,
+    /// Draws unlit, ignoring world light.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ignore_lighting: bool,
 }
 
 fn is_zero<T: Default + PartialEq>(value: &T) -> bool {

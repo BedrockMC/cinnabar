@@ -226,6 +226,19 @@ pub struct ActorRigSubmission {
     pub overlay_rgba8: u32,
     /// Render-controller `uv_anim` `[offset u, offset v, scale u, scale v]`.
     pub uv_anim: [f32; 4],
+    /// World light from [`pack_actor_light`]; 0 draws unlit, as `ignore_lighting` asks.
+    pub light: u32,
+}
+
+/// Packs the block and sky light levels (0..=15) at an actor and the sky's daylight scale.
+#[must_use]
+pub fn pack_actor_light(block: u8, sky: u8, daylight: f32) -> u32 {
+    let daylight = if daylight.is_finite() {
+        (daylight.clamp(0.0, 1.0) * 255.0).round() as u32
+    } else {
+        255
+    };
+    0x8000_0000 | (daylight << 8) | (u32::from(sky.min(15)) << 4) | u32::from(block.min(15))
 }
 
 /// The `uv_anim` of a draw without one.
@@ -254,9 +267,10 @@ pub struct ActorGpuInstance {
     pub tint: u32,
     pub overlay_rgba8: u32,
     pub uv_anim: [f32; 4],
+    pub light: u32,
 }
 
-pub const ACTOR_GPU_INSTANCE_WORDS: usize = 24;
+pub const ACTOR_GPU_INSTANCE_WORDS: usize = 25;
 const _: () = assert!(std::mem::size_of::<ActorGpuInstance>() == ACTOR_GPU_INSTANCE_WORDS * 4);
 
 /// Packs a non-premultiplied RGBA overlay (components clamped to 0..=1) into little-endian RGBA8.
@@ -794,6 +808,7 @@ impl ActorRigFrameBuilder {
                 reset_generation,
                 tint: submission.tint,
                 uv_anim: sanitized_uv_anim(submission.uv_anim),
+                light: submission.light,
                 overlay_rgba8: submission.overlay_rgba8,
             });
             body_count += usize::from(is_body);

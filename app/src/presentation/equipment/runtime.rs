@@ -515,6 +515,7 @@ pub(super) fn layer_presentation(
             route: ActorRigRoute::Compiled,
             tint,
             uv_anim: render::IDENTITY_UV_ANIM,
+            light: body.light,
             overlay_rgba8: body.overlay_rgba8,
         },
         location,

@@ -296,6 +296,10 @@ pub(super) fn compile_render(
                 uv_anim: compile_uv_anim(molang, definition.get("uv_anim")),
                 first_geometry: first_geometry as u32,
                 geometry_count: (layer_geometries.len() - first_geometry) as u16,
+                ignore_lighting: definition
+                    .get("ignore_lighting")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             });
         }
     }

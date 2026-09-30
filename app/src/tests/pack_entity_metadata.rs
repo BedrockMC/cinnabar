@@ -110,7 +110,7 @@ const RENDER: &str = r#"{"format_version":"1.8.0","render_controllers":{
  "textures":["Array.digits[query.variant]"]},
  "controller.render.logo":{
  "geometry":"Geometry.default","materials":[{"*":"Material.default"}],
- "textures":["Texture.default"],
+ "textures":["Texture.default"],"ignore_lighting":true,
  "uv_anim":{"offset":[0.0,"math.mod(math.floor(query.life_time * 120), 4) / 4"],
   "scale":[1.0,"1 / 4"]}}}}"#;
 
@@ -408,4 +408,22 @@ fn a_finished_once_animation_releases_the_pose_while_hold_keeps_it() {
     assert!(lift("test:once").abs() < 1e-6);
     let held = lift("test:hold");
     assert!((held - 8.0).abs() < 1e-4, "{held}");
+}
+
+// A controller with `ignore_lighting` draws unlit even where the world lights the body.
+#[test]
+fn ignore_lighting_controllers_draw_unlit_while_others_keep_world_light() {
+    let (pack, artwork) = pack();
+    let light = |identifier: &str| {
+        let world = world(pack.clone(), identifier);
+        let rig = world.actor_rig(42).unwrap();
+        let mut body =
+            actors::entity_rig_presentation(&rig, world.actor(42).unwrap(), &artwork, 0.5).unwrap();
+        body.submission.light = render::pack_actor_light(2, 9, 1.0);
+        let mut batch = actors::select_actor_presentations(1, false, None, [body]);
+        entity_layers::apply_render_layers(&mut batch, |id| world.actor_rig(id), &artwork);
+        batch.submissions[0].light
+    };
+    assert_eq!(light("test:logo"), 0);
+    assert_eq!(light("test:counter"), render::pack_actor_light(2, 9, 1.0));
 }

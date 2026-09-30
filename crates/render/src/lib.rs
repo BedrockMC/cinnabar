@@ -73,9 +73,9 @@ pub use actor::{
     actor_rig_submission_is_visible, default_actor_skin_rgba8, entity_geometry, equipment_geometry,
     equipment_rig_id, extruded_sprite_vertices, find_geometry_index, geometry_bone_names,
     geometry_bone_pivots, install_default_player_skin, item_mesh_rig_id, layer_geometry_rig_id,
-    normalize_actor_skin, normalize_actor_skin_cached, pack_equipment_rig_id, pack_overlay_rgba8,
-    pack_rig_id, skin_geometry, skin_rig_id, skull_geometry, standard_biped_overlay_vertices,
-    standard_biped_vertices, textured_cube_vertices,
+    normalize_actor_skin, normalize_actor_skin_cached, pack_actor_light, pack_equipment_rig_id,
+    pack_overlay_rgba8, pack_rig_id, skin_geometry, skin_rig_id, skull_geometry,
+    standard_biped_overlay_vertices, standard_biped_vertices, textured_cube_vertices,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

@@ -667,6 +667,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 uv_anim: None,
                 first_geometry: 0,
                 geometry_count: 0,
+                ignore_lighting: false,
             }]),
             slots: Box::new([entity::EntityRenderSlot {
                 first_candidate: 0,

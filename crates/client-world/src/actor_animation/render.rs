@@ -22,6 +22,8 @@ pub struct RenderTextureLayer {
     pub geometry: Option<u32>,
     pub previous_pose: Arc<[BoneTransform]>,
     pub pose: Arc<[BoneTransform]>,
+    /// The controller draws unlit.
+    pub ignore_lighting: bool,
 }
 
 /// Bones of a geometry a render controller draws beside the rig's own.
@@ -286,6 +288,7 @@ pub(super) fn evaluate_render(
                         geometry,
                         previous_pose: Arc::from([]),
                         pose: Arc::from([]),
+                        ignore_lighting: layer.ignore_lighting,
                     });
                     break;
                 }
