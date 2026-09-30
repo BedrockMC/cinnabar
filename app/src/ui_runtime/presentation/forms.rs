@@ -14,6 +14,8 @@ mod oreui;
 pub(crate) mod pack_harness;
 mod pages;
 mod panorama;
+#[cfg(test)]
+mod play_flow_snapshots;
 mod play_screen;
 mod remote_images;
 mod server_pack;
