@@ -15,9 +15,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
-	dir, addr, name           string
-	gameMode, generator, diff string
-	seed                      int64
+	dir, addr, name, gameMode, diff string
 }
 
 func parseSettings(args []string, stderr io.Writer) (settings, error) {
@@ -28,9 +26,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.addr, "addr", "", "loopback UDP listen address")
 	flags.StringVar(&s.name, "name", "World", "world display name")
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
-	flags.StringVar(&s.generator, "generator", "normal", "normal or flat")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
-	flags.Int64Var(&s.seed, "seed", 0, "terrain seed")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
 	}
@@ -42,9 +38,6 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	}
 	if _, err := s.worldDifficulty(); err != nil {
 		return settings{}, err
-	}
-	if s.generator != "normal" && s.generator != "flat" {
-		return settings{}, fmt.Errorf("unknown generator %q", s.generator)
 	}
 	return s, nil
 }
@@ -90,14 +83,6 @@ func (s settings) userConfig() server.UserConfig {
 	uc.Players.MaxCount = maxPlayers
 	uc.Resources.Folder = filepath.Join(s.dir, "resources")
 	return uc
-}
-
-// dimensionGenerator picks the overworld generator; the other dimensions stay flat.
-func (s settings) dimensionGenerator(dim world.Dimension) world.Generator {
-	if dim == world.Overworld && s.generator == "normal" {
-		return newNormal(s.seed)
-	}
-	return flatFor(dim)
 }
 
 // applyTo sets the world's gameplay defaults; they are re-applied on every start so the stored settings win over level.dat.
