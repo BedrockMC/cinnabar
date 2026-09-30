@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -113,6 +113,9 @@ pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
 pub const SUB_CHUNK_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MAX_PENDING_MESH_CHANGES: usize = 512;
+/// Completed meshes held for a publication permit rather than remeshed.
+const MAX_STAGED_MESH_COMPLETIONS: usize = 256;
+const MAX_STAGED_MESH_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PENDING_SCHEDULER_SCANS_PER_POLL: usize = 128;
 const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
@@ -282,6 +285,8 @@ pub struct WorldStream {
     in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
     next_light_batch_id: u64,
     in_flight_light_batches: HashMap<u64, usize>,
+    /// Solves still executing, including ones whose keys were evicted meanwhile.
+    running_light_jobs: Arc<AtomicUsize>,
     last_dispatched_light_batch: HashMap<SubChunkKey, u64>,
     light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
     fatal_light_failure: bool,
@@ -298,6 +303,8 @@ pub struct WorldStream {
     mesh_scheduler_camera_cell: Option<[i32; 3]>,
     in_flight: HashMap<SubChunkKey, u64>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
+    staged_mesh_completions: VecDeque<MeshCompletion>,
+    staged_mesh_bytes: u64,
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,

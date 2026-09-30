@@ -167,15 +167,30 @@ pub(in crate::chunk) fn prepare_chunk_indirect_batches(
     if all_commands.is_empty() {
         return;
     }
-    if all_commands.len() > arena.indirect_capacity {
-        arena.indirect_capacity = all_commands.len().next_power_of_two();
-        arena.indirect_buffer = create_indirect_buffer(&render_device, arena.indirect_capacity);
+    upload_indirect_commands_if_changed(&mut arena, &render_device, &render_queue, &all_commands);
+}
+
+/// Writes the frame's indirect commands unless the buffer already holds exactly
+/// these bytes; returns the bytes written.
+pub(in crate::chunk) fn upload_indirect_commands_if_changed(
+    arena: &mut ChunkGpuArena,
+    render_device: &RenderDevice,
+    render_queue: &RenderQueue,
+    commands: &[DrawIndexedIndirectArgs],
+) -> u64 {
+    if commands.len() > arena.indirect_capacity {
+        arena.indirect_capacity = commands.len().next_power_of_two();
+        arena.indirect_buffer = create_indirect_buffer(render_device, arena.indirect_capacity);
+        arena.uploaded_indirect_bytes.clear();
     }
-    render_queue.write_buffer(
-        &arena.indirect_buffer,
-        0,
-        bytemuck::cast_slice(&all_commands),
-    );
+    let bytes: &[u8] = bytemuck::cast_slice(commands);
+    if arena.uploaded_indirect_bytes == bytes {
+        return 0;
+    }
+    render_queue.write_buffer(&arena.indirect_buffer, 0, bytes);
+    arena.uploaded_indirect_bytes.clear();
+    arena.uploaded_indirect_bytes.extend_from_slice(bytes);
+    bytes.len() as u64
 }
 
 pub(in crate::chunk) fn sorted_visible_entities<T>(
