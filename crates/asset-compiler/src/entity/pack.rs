@@ -204,9 +204,14 @@ fn compile_selected(
         });
         payloads.insert(path, bytes.into());
     }
-    if !symbols
-        .keys()
-        .any(|(kind, ..)| *kind == EntityAssetKind::Entity)
+    // Attachables alone (custom armor and held models) still make a pack worth compiling.
+    let has_attachables = sources
+        .iter()
+        .any(|source| source.path.starts_with("attachables/"));
+    if !has_attachables
+        && !symbols
+            .keys()
+            .any(|(kind, ..)| *kind == EntityAssetKind::Entity)
     {
         return Ok(None);
     }
