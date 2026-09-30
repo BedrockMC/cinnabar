@@ -8,8 +8,9 @@ use protocol::ActorStatusKind;
 use sim::PaletteWorld;
 
 use super::{
+    echo::{EchoOrigin, EchoSubject},
     engine::{AudioEngine, SoundRequest},
-    systems::{block_lookup, identifier_at},
+    systems::{ACTOR_ECHO_SECONDS, BLOCK_ECHO_SECONDS, block_lookup, identifier_at},
 };
 use crate::{
     local_player::LocalViewPose, movement::PhysicsCollisionRegistries, particles::ParticleInbox,
@@ -24,8 +25,6 @@ const HIT_INTERVAL: f32 = 0.25;
 const CONSUME_INTERVAL: f32 = 0.25;
 /// Held seconds after which releasing a food item counts as finishing it; needs native measurement.
 const EAT_DURATION: f32 = 1.6;
-const DEDUPE_SECONDS: f64 = 0.6;
-const DEDUPE_RADIUS: f32 = 3.0;
 
 const DRINKS: [&str; 5] = [
     "minecraft:potion",
@@ -179,14 +178,16 @@ pub(super) fn drive_block_cues(
             .collect()
     };
     for (event, cell, request) in built {
-        let position = center(cell);
-        if event != "hit" {
-            if engine.was_recent(event, position, DEDUPE_SECONDS, DEDUPE_RADIUS) {
-                continue;
-            }
-            engine.note_recent(event, position);
+        if event == "hit"
+            || engine.admit_echo(
+                EchoOrigin::Client,
+                event,
+                EchoSubject::Cell(cell),
+                BLOCK_ECHO_SECONDS,
+            )
+        {
+            engine.enqueue(request);
         }
-        engine.enqueue(request);
     }
 }
 
@@ -281,10 +282,10 @@ pub(super) fn drive_actor_audio(
             ActorStatusKind::Death => "death",
             _ => continue,
         };
-        if engine.was_recent(event, notice.position, 0.4, DEDUPE_RADIUS) {
+        let subject = EchoSubject::Actor(stream.local_player_unique_id());
+        if !engine.admit_echo(EchoOrigin::Client, event, subject, ACTOR_ECHO_SECONDS) {
             continue;
         }
-        engine.note_recent(event, notice.position);
         let request = engine.bank().and_then(|bank| {
             let route = bank.tables().entity(PLAYER, event, None)?;
             Some(
