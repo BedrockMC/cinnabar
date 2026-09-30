@@ -4,16 +4,14 @@
 //! screen, or a render that fails, fall back to the programmatic launcher.
 
 use json_ui::{HitRegion, ViewState};
-use ui::{UiNode, UiNodeId, UiRect, UiVisual};
+use ui::{UiNode, UiRect};
 
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
-use super::{engine, menu_screens, panorama};
-use crate::menu::{MenuAction, MenuScreen, MenuView};
+use super::{engine, menu_screens};
+use crate::menu::{MenuAction, MenuView};
 use crate::ui_runtime::UiRuntime;
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
-/// Backdrop behind launcher screens when the carrier lacks the panorama.
-const LAUNCHER_BACKDROP: [u8; 4] = [8, 10, 14, 255];
 
 impl UiPresentationRuntime {
     /// Draw the visible menu and return its window-logical hit targets.
@@ -110,19 +108,6 @@ impl UiPresentationRuntime {
             ..ViewState::default()
         };
         let rollback = (nodes.len(), *next);
-        // Launcher screens sit on the panorama pass; in-game ones over the world.
-        if !matches!(view.screen, MenuScreen::Pause | MenuScreen::Death)
-            && !panorama::carried(renderer.assets())
-        {
-            nodes.push(
-                UiNode::new(UiNodeId::new(*next), None, rect(0.0, 0.0, width, height)?)
-                    .with_visual(UiVisual::Solid {
-                        texture_page: self.solid_texture_page,
-                        color: LAUNCHER_BACKDROP,
-                    }),
-            );
-            *next = next.saturating_add(1);
-        }
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
         let mut layers = vec![&screen];
         layers.extend(screen.overlay.as_deref());
