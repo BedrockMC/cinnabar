@@ -669,6 +669,7 @@ impl WorldStream {
                             sequence,
                             dimension: update.dimension,
                             current,
+                            tick: update.tick,
                         });
                     }
                 }
@@ -681,6 +682,14 @@ impl WorldStream {
                         server_tick: update.tick,
                         metadata: Arc::clone(&update.metadata),
                     });
+                    if let Some(flags) = crate::MovementFlagUpdate::from_metadata(&update.metadata)
+                    {
+                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
+                            sequence,
+                            tick: update.tick,
+                            flags,
+                        });
+                    }
                 }
                 let local_hurt = matches!(
                     &event,
@@ -729,15 +738,17 @@ impl WorldStream {
                     });
                 }
             }
-            WorldEvent::ArmorEquipment(event) => {
+            // The local player's armor is its armor container (window 120);
+            // vanilla ignores MobArmorEquipment addressed to itself.
+            WorldEvent::ArmorEquipment(event)
+                if event.actor_runtime_id != self.local_player_runtime_id =>
+            {
                 let sequence = sequence.expect("sequenced armor events commit through submit");
                 let _ = self
                     .actors
                     .apply_armor(self.actor_session_id, sequence, &event);
-                if event.actor_runtime_id == self.local_player_runtime_id {
-                    self.push_committed_ui(CommittedUiEvent::LocalArmor { sequence, event });
-                }
             }
+            WorldEvent::ArmorEquipment(_) => {}
             WorldEvent::ActorPropertySync(event) => {
                 let _ = self.actors.apply_property_sync(&event);
             }

@@ -107,6 +107,18 @@ impl PredictionHistory {
             .map(|frame| &frame.input)
     }
 
+    /// Mutable inputs of every retained tick after `tick`, for authoritative
+    /// edits that a following replay must honor.
+    pub fn retained_inputs_after_mut(
+        &mut self,
+        tick: u64,
+    ) -> impl Iterator<Item = &mut MovementInput> {
+        self.frames
+            .iter_mut()
+            .filter(move |frame| frame.state.tick > tick)
+            .map(|frame| &mut frame.input)
+    }
+
     /// Predicts and records one tick. Simulation failure leaves both state and
     /// history unchanged.
     pub fn predict(

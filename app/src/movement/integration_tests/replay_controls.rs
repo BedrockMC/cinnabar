@@ -2,7 +2,7 @@
 fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
-    let mut input = physics_movement_input([0.7, 0.9], 0.0, true, false, true, false, false);
+    let mut input = physics_movement_input([0.7, 0.9], 0.0, true, false, true, false, None);
     input.item_use_movement_modifier = Some(f64::from(0.7_f32));
     let frame = physics.advance_with_context(
         Duration::from_millis(150),
@@ -30,9 +30,12 @@ fn nonbinary_primary_bits_and_captured_directions_survive_replay_replacement() {
     let plan = physics
         .clone()
         .apply_correction(
-            [0.25, 2.620_01, 0.0],
-            101,
-            true,
+            super::PhysicsAnchor {
+                network_position: [0.25, 2.620_01, 0.0],
+                tick: 101,
+                on_ground: true,
+                velocity: None,
+            },
             PhysicsCorrectionMode::ReplayIfRetained,
             confirmation.as_ref(),
             &VersionedFloor(1),

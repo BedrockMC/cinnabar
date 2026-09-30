@@ -245,7 +245,9 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
         panic!("expected delta actor move")
     };
     assert_eq!(delta.position, [Some(7.5), Some(8.25), None]);
-    assert_eq!(delta.position_origin, ActorPositionOrigin::Feet);
+    // MoveActorDeltaData::parseDeltas merges into the previous absolute data,
+    // so both forms share the absolute network origin.
+    assert_eq!(delta.position_origin, ActorPositionOrigin::NetworkOffset);
     assert_eq!(delta.yaw, Some(270.0));
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));

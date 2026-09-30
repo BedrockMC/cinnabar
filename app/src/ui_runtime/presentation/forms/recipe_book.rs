@@ -34,12 +34,16 @@ const TAB_LABELS: [&str; 5] = [
     "craftingScreen.tab.items",
     "craftingScreen.tab.allItems",
 ];
+/// The filter toggle's `$toggle_name`.
+const FILTER_TOGGLE: &str = "toggle.enableFiltering";
 /// Cell backgrounds: a plain entry, a folded and an unfolded group head, and
 /// an entry under an unfolded head.
 const ITEM_BACKGROUND: &str = "textures/ui/recipe_book_item_bg";
 const GROUP_FOLDED: &str = "textures/ui/recipe_book_light_button";
 const GROUP_UNFOLDED: &str = "textures/ui/recipe_book_dark_button_pressed";
 const GROUP_ITEM: &str = "textures/ui/recipe_book_dark_button";
+/// A recipe the inventory cannot supply (`FilterResult::Disable`).
+const RECIPE_DISABLED: &str = "textures/ui/recipe_book_red_button";
 
 /// Whether the panel shows: creative opens on it and the toggle flips either way.
 pub(crate) fn recipe_book_shown(runtime: &UiRuntime) -> bool {
@@ -95,14 +99,19 @@ pub(super) fn book_data(
     let creative = runtime.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
     let state = runtime.screen_state();
     let tab = state.creative_tab;
+    let wide = shown && creative && state.creative_wide;
     for (name, value) in [
         ("#is_survival_layout", !shown),
-        ("#is_recipe_book_layout", shown),
+        ("#is_recipe_book_layout", shown && !wide),
+        ("#is_creative_layout", wide),
         ("#is_creative_mode", creative),
         ("#is_creative_layout_button_visible", creative),
-        ("#is_creative_and_recipe_book_layout", creative && shown),
-        // The survival book lists only what the player can craft now.
-        ("#filtering_enabled", !creative),
+        (
+            "#is_creative_and_recipe_book_layout",
+            creative && shown && !wide,
+        ),
+        ("#is_creative_and_creative_layout", wide),
+        ("#filtering_enabled", runtime.recipe_filtering()),
         ("#is_left_tab_inventory", !shown),
         ("#construction_tab_visible", true),
         ("#equipment_tab_visible", true),
@@ -116,7 +125,11 @@ pub(super) fn book_data(
     ] {
         data.set_global(name, Scalar::Bool(value));
     }
-    let layout = if shown { 2 } else { 1 };
+    let layout = match (shown, wide) {
+        (false, _) => 1,
+        (true, false) => 2,
+        (true, true) => 3,
+    };
     data.select_radio("layout_toggle", layout);
     if let Some((index, _)) = TABS.iter().find(|(_, java)| *java == tab) {
         data.select_radio("navigation_tab", *index as usize);
@@ -132,10 +145,6 @@ pub(super) fn book_data(
     }
     let entries = recipe_book_entries(runtime);
     let total = entries.len() as f64;
-    let hovered = match state.hover {
-        Some(InventoryCellHit::RecipeBook(index)) => Some(usize::from(index)),
-        _ => None,
-    };
     let items = entries
         .iter()
         .enumerate()
@@ -152,12 +161,6 @@ pub(super) fn book_data(
                 item = item.with("#item_renderer_data", Scalar::Num((icons.len() - 1) as f64));
             }
             let count = entry.stack().count;
-            // Only the hovered entry's text is ever read.
-            let hover = if hovered == Some(index) {
-                super::containers::tooltip_text(&frame.window_text.tooltip).unwrap_or_default()
-            } else {
-                String::new()
-            };
             item.with(
                 "#recipe_craftable_count",
                 Scalar::Text(if count > 1 && !creative {
@@ -166,11 +169,11 @@ pub(super) fn book_data(
                     String::new()
                 }),
             )
-            .with("#recipe_hover_text", Scalar::Text(hover))
+            .with("#recipe_hover_text", Scalar::Text(String::new()))
             .with("#is_creative_selected_slot", Scalar::Bool(false))
             .with(
                 "#container_item_background_texture",
-                Scalar::Text(background(entry).to_owned()),
+                Scalar::Text(background(runtime, entry).to_owned()),
             )
             .with("#recipe_book_total_items", Scalar::Num(total))
         })
@@ -178,8 +181,11 @@ pub(super) fn book_data(
     data.set_collection("recipe_book", items);
 }
 
-fn background(entry: &BookEntry<'_>) -> &'static str {
+fn background(runtime: &UiRuntime, entry: &BookEntry<'_>) -> &'static str {
     match entry {
+        BookEntry::Recipe(recipe) if !runtime.inventory_ledger().can_auto_craft(recipe) => {
+            RECIPE_DISABLED
+        }
         BookEntry::Group {
             expanded: false, ..
         } => GROUP_FOLDED,
@@ -200,6 +206,9 @@ pub(super) fn book_hit(region: &HitRegion, shown: bool) -> Option<InventoryCellH
     if region.kind == HitKind::EditBox && shown {
         return Some(InventoryCellHit::CreativeSearch);
     }
+    if region.control_name.as_deref() == Some(FILTER_TOGGLE) {
+        return Some(InventoryCellHit::Widget(Widget::RecipeFilter));
+    }
     let group = region.group_index? as u64;
     match region.control_name.as_deref()? {
         "navigation_tab" => {
@@ -210,10 +219,9 @@ pub(super) fn book_hit(region: &HitRegion, shown: bool) -> Option<InventoryCellH
                 InventoryCellHit::CreativeTab(*tab)
             })
         }
-        // The recipe book toggle opens the panel, the survival toggle closes it.
-        "layout_toggle" if (group == 2) != shown && group != 3 => {
-            Some(InventoryCellHit::Widget(Widget::BookToggle))
-        }
+        "layout_toggle" => Some(InventoryCellHit::Widget(Widget::InventoryLayout(
+            u8::try_from(group).ok()?,
+        ))),
         _ => None,
     }
 }

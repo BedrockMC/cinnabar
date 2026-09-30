@@ -5,7 +5,14 @@
 //! and uploaded as one UI texture layer only when the authoritative skin or
 //! pose changes, so it does not add a per-frame GPU upload or a second camera.
 
+use std::sync::Arc;
+
+use assets::RuntimeEquipmentCatalog;
+
 use super::{IconRef, UiPresentationRuntime};
+
+mod equipment;
+pub(crate) use equipment::{PreviewEquipment, PreviewTexture};
 use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 
 impl UiPresentationRuntime {
@@ -23,7 +30,12 @@ impl UiPresentationRuntime {
         pose: PlayerPreviewPose,
         preview_shown: bool,
         hands_shown: bool,
+        seconds: f64,
     ) {
+        // The model sways only while a renderer shows it.
+        if preview_shown {
+            self.player_preview_bob = bob_degrees(seconds);
+        }
         let hands_changed = self.player_preview_pose.is_none_or(|drawn| {
             drawn.pitch_degrees != pose.pitch_degrees || drawn.sneaking != pose.sneaking
         });
@@ -36,6 +48,83 @@ impl UiPresentationRuntime {
         };
         self.set_player_preview_skin(skin, pose);
     }
+
+    /// Where worn armor textures come from; without it the model wears none.
+    pub(crate) fn set_equipment_catalog(&mut self, catalog: Option<Arc<RuntimeEquipmentCatalog>>) {
+        self.equipment_catalog = catalog;
+    }
+
+    /// Dresses the model in the local player's armor and held item, naming each
+    /// stack's item through `identify`.
+    pub(crate) fn dress_player_preview(
+        &mut self,
+        runtime: &crate::ui_runtime::UiRuntime,
+        identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
+    ) {
+        use crate::ui_runtime::inventory_ledger::InventoryTarget;
+        let ledger = runtime.inventory_ledger();
+        let named = |stack: Option<&protocol::NetworkItemStack>| {
+            stack.and_then(|stack| Some((identify(stack)?, stack.clone())))
+        };
+        let armor: [_; 4] = std::array::from_fn(|slot| {
+            named(ledger.target_stack(InventoryTarget::Armor(slot as u8)))
+        });
+        let held = named(
+            runtime
+                .selected_hotbar_slot()
+                .and_then(|slot| ledger.displayed_stack(slot)),
+        );
+        self.set_player_preview_gear(
+            armor.each_ref().map(|worn| {
+                worn.as_ref()
+                    .map(|(id, stack)| (&**id, protocol::item_custom_color(&stack.extra_data)))
+            }),
+            held.as_ref().map(|(id, stack)| (&**id, stack.metadata)),
+        );
+    }
+
+    /// Dresses the model: each armor slot's item identifier (helmet to boots)
+    /// with its leather dye, and the held item's identifier and metadata.
+    pub(crate) fn set_player_preview_gear(
+        &mut self,
+        armor: [Option<(&str, Option<u32>)>; 4],
+        held: Option<(&str, u32)>,
+    ) {
+        let catalog = self.equipment_catalog.as_deref();
+        let armor = armor.map(|worn| {
+            let (identifier, dye) = worn?;
+            let binding = catalog?.binding(identifier)?;
+            let texture = catalog?.texture(&binding.texture.identifier)?;
+            // Undyed leather takes the default dye colour.
+            let tint = dye
+                .or_else(|| identifier.contains("leather").then_some(LEATHER_RGB))
+                .map(|rgb| [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);
+            Some(PreviewTexture {
+                rgba: Arc::clone(&texture.rgba8),
+                width: texture.width,
+                height: texture.height,
+                tint,
+            })
+        });
+        let held = held.and_then(|(identifier, metadata)| {
+            let sprite = self.icon_catalog.as_ref()?.lookup(identifier, metadata)?;
+            Some(PreviewTexture {
+                rgba: Arc::clone(&sprite.rgba8),
+                width: sprite.width,
+                height: sprite.height,
+                tint: None,
+            })
+        });
+        self.player_preview_gear = PreviewEquipment { armor, held };
+    }
+
+    /// The current model raster's RGBA pixels, empty before the first.
+    #[cfg(test)]
+    pub(crate) fn player_preview_raster(&self) -> Vec<u8> {
+        self.player_preview_pixels
+            .as_ref()
+            .map_or_else(Vec::new, |rasters| rasters.preview.clone())
+    }
 }
 
 pub(crate) const PREVIEW_WIDTH: u32 = 96;
@@ -43,9 +132,115 @@ pub(crate) const PREVIEW_HEIGHT: u32 = 112;
 pub(crate) const HAND_WIDTH: u32 = 64;
 pub(crate) const HAND_HEIGHT: u32 = 64;
 
-const MODEL_SCALE: f32 = 48.0;
-const CAMERA_YAW_RADIANS: f32 = -0.38;
-const MODEL_BOTTOM: f32 = 106.0;
+/// Raster pixels per block, and where the model's feet and centre line sit.
+pub(crate) const PREVIEW_PIXELS_PER_BLOCK: f32 = 48.0;
+pub(crate) const PREVIEW_FEET_Y: f32 = 106.0;
+/// A player's eye height above its feet, the point a live renderer centres.
+pub(crate) const PLAYER_EYE_HEIGHT: f32 = 1.62;
+/// Undyed leather armor's colour (the equipment renderer's default).
+const LEATHER_RGB: u32 = 0x00a0_6540;
+/// The player entity's render scale.
+const PLAYER_MODEL_SCALE: f32 = 0.9375;
+/// Half a player's height, the point a paper doll centres.
+pub(crate) const PLAYER_HALF_HEIGHT: f32 = 0.9;
+
+/// How a UI renderer shows the player model; both face the viewer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum PreviewView {
+    /// `live_player_renderer`: the model turns toward the pointer, `offset` the
+    /// renderer's centre minus the pointer in GUI pixels
+    /// (`LivePlayerRenderer::_getMousePosition`).
+    Live { offset: [f32; 2] },
+    /// `paper_doll_renderer`: a fixed turn (`starting_rotation`) under a camera tilt
+    /// (`camera_tilt_degrees`), both in degrees.
+    Doll { yaw: f32, tilt: f32 },
+}
+
+impl Default for PreviewView {
+    fn default() -> Self {
+        Self::Live { offset: [0.0; 2] }
+    }
+}
+
+impl PreviewView {
+    /// Whole-pixel offsets and quarter-degree angles, so pointer noise doesn't re-raster.
+    pub(crate) fn quantized(self) -> Self {
+        match self {
+            Self::Live { offset } => Self::Live {
+                offset: offset.map(|axis| if axis.is_finite() { axis.round() } else { 0.0 }),
+            },
+            Self::Doll { yaw, tilt } => Self::Doll {
+                yaw: quantize_angle(yaw),
+                tilt: quantize_angle(tilt),
+            },
+        }
+    }
+
+    /// `(body yaw, head yaw, head pitch, model pitch)` in degrees. A live renderer
+    /// follows `LivePlayerRenderer::render`: body `atan(dx / 40) * 20`, head
+    /// `atan(dx / 40) * 40` and `atan(dy / 40) * -20`, the whole model tilted by
+    /// `atan(dy / 40) * -20` about the eyes.
+    fn angles(self) -> [f32; 4] {
+        match self {
+            Self::Live { offset: [dx, dy] } => {
+                let (x, y) = ((dx / 40.0).atan(), (dy / 40.0).atan());
+                [x * 20.0, x * 40.0, y * -20.0, y * -20.0]
+            }
+            Self::Doll { yaw, tilt } => [yaw, yaw, 0.0, tilt],
+        }
+    }
+}
+
+/// A player renderer's pose request and its raster's logical rect. A live
+/// renderer (`LivePlayerRenderer::render`) centres the eyes on the control at
+/// `min(w, h)` pixels per block and turns toward the pointer; a paper doll
+/// (`PaperDollRenderer::_render`) centres the model at `min(w / 20, h / 39)`
+/// pixels per model pixel, turned by `starting_rotation` under
+/// `camera_tilt_degrees`.
+pub(crate) fn renderer_frame(
+    renderer: &str,
+    data: &std::collections::BTreeMap<String, serde_json::Value>,
+    dest: [f32; 4],
+    px: f32,
+    pointer: Option<[f32; 2]>,
+) -> (PreviewView, [f32; 4]) {
+    let number = |key: &str| data.get(key).and_then(serde_json::Value::as_f64);
+    let (w, h) = (dest[2] - dest[0], dest[3] - dest[1]);
+    let centre = [(dest[0] + dest[2]) * 0.5, (dest[1] + dest[3]) * 0.5];
+    let (view, block, anchor) = if renderer == "live_player_renderer" {
+        let offset = pointer.map_or([0.0; 2], |point| {
+            [centre[0] / px - point[0], centre[1] / px - point[1]]
+        });
+        (PreviewView::Live { offset }, w.min(h), PLAYER_EYE_HEIGHT)
+    } else {
+        let view = PreviewView::Doll {
+            yaw: number("starting_rotation").unwrap_or(0.0) as f32,
+            tilt: number("camera_tilt_degrees").unwrap_or(0.0) as f32,
+        };
+        (view, (w / 20.0).min(h / 39.0) * 16.0, PLAYER_HALF_HEIGHT)
+    };
+    // Logical pixels per raster pixel; the anchor point lands on the centre.
+    let scale = block / PREVIEW_PIXELS_PER_BLOCK;
+    let anchor_y = PREVIEW_FEET_Y - anchor * PREVIEW_PIXELS_PER_BLOCK;
+    let left = centre[0] - PREVIEW_WIDTH as f32 * 0.5 * scale;
+    let top = centre[1] - anchor_y * scale;
+    (
+        view,
+        [
+            left,
+            top,
+            left + PREVIEW_WIDTH as f32 * scale,
+            top + PREVIEW_HEIGHT as f32 * scale,
+        ],
+    )
+}
+
+/// The idle arm sway of `animation.player.bob`, in degrees, at `seconds` of life:
+/// `cos(t * 103.2) * 2.865 + 2.865`, quantized to half degrees.
+pub(crate) fn bob_degrees(seconds: f64) -> f32 {
+    let degrees = (seconds * 103.2).to_radians().cos() * 2.865 + 2.865;
+    ((degrees * 2.0).round() / 2.0) as f32
+}
 
 /// Quantized authoritative pose used by the small HUD avatar. Keeping the
 /// angles to quarter-degree steps avoids rebuilding the UI texture array for
@@ -92,53 +287,103 @@ struct ProjectedVertex {
 }
 
 /// Renders a nearest-neighbour, orthographic 3-D biped preview from a
-/// validated 64x64 player skin. Transparent pixels remain transparent so the
-/// HUD has no artificial square around the avatar.
-pub(crate) fn render(skin: &[u8], pose: PlayerPreviewPose) -> Vec<u8> {
+/// validated 64x64 player skin, facing the viewer as `view` turns it, its
+/// arms swayed by `bob` degrees. Transparent pixels remain transparent.
+pub(crate) fn render(
+    skin: &[u8],
+    pose: PlayerPreviewPose,
+    view: PreviewView,
+    bob: f32,
+    gear: &PreviewEquipment,
+) -> Vec<u8> {
     let width = PREVIEW_WIDTH as usize;
     let height = PREVIEW_HEIGHT as usize;
     let mut pixels = vec![0u8; width * height * 4];
     let mut depth = vec![f32::NEG_INFINITY; width * height];
     let mut vertices = standard_biped_vertices();
     vertices.extend(standard_biped_overlay_vertices());
-    let body_yaw = pose.body_yaw_degrees.to_radians() + CAMERA_YAW_RADIANS;
-    let (sin_yaw, cos_yaw) = body_yaw.sin_cos();
-    let head_yaw = (pose.head_yaw_degrees - pose.body_yaw_degrees)
-        .to_radians()
-        .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
-    let head_pitch = (-pose.pitch_degrees.to_radians() * 0.5)
-        .clamp(-std::f32::consts::FRAC_PI_4, std::f32::consts::FRAC_PI_4);
-
-    for triangle in vertices.chunks_exact(3) {
-        let projected = [
-            project(
-                triangle[0],
-                sin_yaw,
-                cos_yaw,
-                head_yaw,
-                head_pitch,
-                pose.sneaking,
-            ),
-            project(
-                triangle[1],
-                sin_yaw,
-                cos_yaw,
-                head_yaw,
-                head_pitch,
-                pose.sneaking,
-            ),
-            project(
-                triangle[2],
-                sin_yaw,
-                cos_yaw,
-                head_yaw,
-                head_pitch,
-                pose.sneaking,
-            ),
-        ];
-        rasterize_triangle(&mut pixels, &mut depth, width, height, skin, projected);
+    let [body, head_yaw, head_pitch, model_pitch] = view.angles();
+    let rig = Rig {
+        body: body.to_radians(),
+        head_yaw: (head_yaw - body).to_radians(),
+        head_pitch: head_pitch.to_radians(),
+        model_pitch: model_pitch.to_radians(),
+        bob: bob.to_radians(),
+        sneaking: pose.sneaking,
+        holding: gear.held.is_some(),
+    };
+    let mut draw = |vertices: &[ActorVertex], sample: &dyn Fn([f32; 2]) -> Option<[u8; 4]>| {
+        for triangle in vertices.chunks_exact(3) {
+            let projected = [0, 1, 2].map(|corner| rig.project(triangle[corner]));
+            rasterize_triangle(&mut pixels, &mut depth, width, height, sample, projected);
+        }
+    };
+    draw(&vertices, &|uv| sample_skin(skin, uv));
+    for (slot, texture) in gear.armor.iter().enumerate() {
+        if let Some(texture) = texture {
+            let size = [f32::from(texture.width), f32::from(texture.height)];
+            draw(&equipment::armor_vertices(slot, size), &|uv| {
+                texture.sample(uv)
+            });
+        }
+    }
+    if let Some(item) = &gear.held {
+        draw(&equipment::held_vertices(), &|uv| item.sample(uv));
     }
     pixels
+}
+
+/// A posed, viewer-facing biped.
+struct Rig {
+    body: f32,
+    head_yaw: f32,
+    head_pitch: f32,
+    model_pitch: f32,
+    bob: f32,
+    sneaking: bool,
+    /// A held item raises the right arm (`animation.player.holding`: -18 degrees).
+    holding: bool,
+}
+
+impl Rig {
+    fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
+        let mut local = vertex.position;
+        if self.sneaking {
+            local = sneak_pose(local, vertex.part);
+        }
+        match vertex.part {
+            0 => {
+                local = rotate_x(local, self.head_pitch, [0.0, 1.5, 0.0]);
+                local = rotate_y(local, self.head_yaw, [0.0, 1.5, 0.0]);
+            }
+            // The arms sway out from the shoulders.
+            2 => {
+                let shoulder = [-5.0 / 16.0, 22.0 / 16.0, 0.0];
+                if self.holding {
+                    local = rotate_x(local, -18f32.to_radians(), shoulder);
+                }
+                local = rotate_z(local, -self.bob, shoulder);
+            }
+            3 => local = rotate_z(local, self.bob, [5.0 / 16.0, 22.0 / 16.0, 0.0]),
+            _ => {}
+        }
+        // The player renders at `scale: 0.9375` (player.entity.json).
+        local = local.map(|axis| axis * PLAYER_MODEL_SCALE);
+        // The model faces the viewer (its front is +Z, nearest), turned by the
+        // body yaw, then tilts about its eyes.
+        local = rotate_y(local, self.body, [0.0; 3]);
+        let eye = [0.0, PLAYER_EYE_HEIGHT, 0.0];
+        let world = rotate_x(local, self.model_pitch, eye);
+        ProjectedVertex {
+            screen: [
+                PREVIEW_WIDTH as f32 * 0.5 + world[0] * PREVIEW_PIXELS_PER_BLOCK,
+                PREVIEW_FEET_Y - world[1] * PREVIEW_PIXELS_PER_BLOCK,
+            ],
+            depth: world[2],
+            uv: vertex.uv,
+            world,
+        }
+    }
 }
 
 /// Renders one first-person arm from the authoritative player skin. Bedrock's
@@ -164,7 +409,14 @@ pub(crate) fn render_hand(skin: &[u8], pose: PlayerPreviewPose, left: bool) -> V
             project_hand(triangle[1], pose, left),
             project_hand(triangle[2], pose, left),
         ];
-        rasterize_triangle(&mut pixels, &mut depth, width, height, skin, projected);
+        rasterize_triangle(
+            &mut pixels,
+            &mut depth,
+            width,
+            height,
+            &|uv| sample_skin(skin, uv),
+            projected,
+        );
     }
     pixels
 }
@@ -174,7 +426,7 @@ fn rasterize_triangle(
     depth: &mut [f32],
     width: usize,
     height: usize,
-    skin: &[u8],
+    sample: &dyn Fn([f32; 2]) -> Option<[u8; 4]>,
     projected: [ProjectedVertex; 3],
 ) {
     let area = edge(
@@ -239,7 +491,7 @@ fn rasterize_triangle(
                     + weights[1] * projected[1].uv[axis]
                     + weights[2] * projected[2].uv[axis]
             });
-            let Some(mut color) = sample_skin(skin, uv) else {
+            let Some(mut color) = sample(uv) else {
                 continue;
             };
             if color[3] < 10 {
@@ -252,35 +504,6 @@ fn rasterize_triangle(
             let target = pixel_index * 4;
             pixels[target..target + 4].copy_from_slice(&color);
         }
-    }
-}
-
-fn project(
-    vertex: ActorVertex,
-    sin_yaw: f32,
-    cos_yaw: f32,
-    head_yaw: f32,
-    head_pitch: f32,
-    sneaking: bool,
-) -> ProjectedVertex {
-    let mut local = vertex.position;
-    if sneaking {
-        local = sneak_pose(local, vertex.part);
-    }
-    if vertex.part == 0 {
-        local = rotate_y(local, head_yaw, [0.0, 1.75, 0.0]);
-        local = rotate_x(local, head_pitch, [0.0, 1.75, 0.0]);
-    }
-    let [x, y, z] = local;
-    let world = [x * cos_yaw - z * sin_yaw, y, x * sin_yaw + z * cos_yaw];
-    ProjectedVertex {
-        screen: [
-            PREVIEW_WIDTH as f32 * 0.5 + world[0] * MODEL_SCALE,
-            MODEL_BOTTOM - world[1] * MODEL_SCALE,
-        ],
-        depth: world[2],
-        uv: vertex.uv,
-        world,
     }
 }
 

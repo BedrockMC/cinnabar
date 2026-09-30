@@ -46,7 +46,8 @@ pub use bind::{
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, color_value, emit, nine_slice,
+    Draw, DrawNode, RectOut, SpriteQuad, StateGate, TextAlign, UvRect, color_value, emit,
+    emit_gated, nine_slice,
 };
 pub use env::Env;
 pub use expr::{
@@ -67,7 +68,7 @@ pub use input::{
     scroll_target,
 };
 pub use layout::{
-    LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_gated, layout_with,
+    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
 };
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
@@ -76,7 +77,7 @@ pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, is_engine_screen, render_screen, resolve_screen,
 };
 pub use sidecar::{NineSlice, TextureMeta, parse_texture_meta};
-pub use state::{LayoutReport, ScrollMetrics, StateGate, ViewState, gate_open};
+pub use state::{LayoutReport, ScrollMetrics, ViewState};
 pub use tree::{ControlRef, Factory, ResolvedControl};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any
