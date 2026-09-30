@@ -11,10 +11,26 @@ client's stderr to `logs/client.log`, rotated to `client.log.1` per launch and p
 | Target | Command | Signing (env only) |
 | --- | --- | --- |
 | macOS `.app` + DMG | `make package-macos` | `CODESIGN_IDENTITY`, `NOTARY_PROFILE` or `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_APP_PASSWORD` |
-| Windows MSI (WiX v4) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
+| Windows MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
 
-CI: `.github/workflows/package.yml` (tag `v*`). Version comes from `[workspace.package]`.
+Installers also ship the pinned OFL Monocraft font at `<resources>/fonts/`, fetched by `package-*`
+via `scripts/fetch-ui-font.sh`, so first-run setup can draw before any download.
+
+CI: `.github/workflows/package.yml`. Pushes to `main` replace the `nightly` prerelease (tag moved,
+assets replaced); `v*` tags draft a release. Version comes from `[workspace.package]`. Every
+installer is extracted and checked by `packaging/check-payload.sh`, which fails on any file outside
+the payload allowlist (shared with `stage-payload.sh`).
+
+Signing is optional; each missing secret yields unsigned output instead of a failure:
+
+| Name (repo secret unless noted) | Enables |
+| --- | --- |
+| `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `CODESIGN_IDENTITY` | Developer ID signing (else ad-hoc) |
+| `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | Notarization; required once `CODESIGN_IDENTITY` is set |
+| `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Authenticode signing of the exes and MSI |
+| `CINNABAR_UPDATE_SIGNING_KEY` | Signed `update-stable.json` on `v*` releases (else none is published) |
+| `UPDATE_TRUSTED_KEYS` (variable) | Keys the core trusts for update manifests |
 
 Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Gatekeeper then blocks
 it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Applications/Cinnabar.app`
