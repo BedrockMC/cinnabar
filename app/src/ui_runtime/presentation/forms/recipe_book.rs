@@ -34,12 +34,16 @@ const TAB_LABELS: [&str; 5] = [
     "craftingScreen.tab.items",
     "craftingScreen.tab.allItems",
 ];
+/// The filter toggle's `$toggle_name`.
+const FILTER_TOGGLE: &str = "toggle.enableFiltering";
 /// Cell backgrounds: a plain entry, a folded and an unfolded group head, and
 /// an entry under an unfolded head.
 const ITEM_BACKGROUND: &str = "textures/ui/recipe_book_item_bg";
 const GROUP_FOLDED: &str = "textures/ui/recipe_book_light_button";
 const GROUP_UNFOLDED: &str = "textures/ui/recipe_book_dark_button_pressed";
 const GROUP_ITEM: &str = "textures/ui/recipe_book_dark_button";
+/// A recipe the inventory cannot supply (`FilterResult::Disable`).
+const RECIPE_DISABLED: &str = "textures/ui/recipe_book_red_button";
 
 /// Whether the panel shows: creative opens on it and the toggle flips either way.
 pub(crate) fn recipe_book_shown(runtime: &UiRuntime) -> bool {
@@ -101,8 +105,7 @@ pub(super) fn book_data(
         ("#is_creative_mode", creative),
         ("#is_creative_layout_button_visible", creative),
         ("#is_creative_and_recipe_book_layout", creative && shown),
-        // The survival book lists only what the player can craft now.
-        ("#filtering_enabled", !creative),
+        ("#filtering_enabled", runtime.recipe_filtering()),
         ("#is_left_tab_inventory", !shown),
         ("#construction_tab_visible", true),
         ("#equipment_tab_visible", true),
@@ -160,7 +163,7 @@ pub(super) fn book_data(
             .with("#is_creative_selected_slot", Scalar::Bool(false))
             .with(
                 "#container_item_background_texture",
-                Scalar::Text(background(entry).to_owned()),
+                Scalar::Text(background(runtime, entry).to_owned()),
             )
             .with("#recipe_book_total_items", Scalar::Num(total))
         })
@@ -168,8 +171,11 @@ pub(super) fn book_data(
     data.set_collection("recipe_book", items);
 }
 
-fn background(entry: &BookEntry<'_>) -> &'static str {
+fn background(runtime: &UiRuntime, entry: &BookEntry<'_>) -> &'static str {
     match entry {
+        BookEntry::Recipe(recipe) if !runtime.inventory_ledger().can_auto_craft(recipe) => {
+            RECIPE_DISABLED
+        }
         BookEntry::Group {
             expanded: false, ..
         } => GROUP_FOLDED,
@@ -189,6 +195,9 @@ pub(super) fn book_hit(region: &HitRegion, shown: bool) -> Option<InventoryCellH
     }
     if region.kind == HitKind::EditBox && shown {
         return Some(InventoryCellHit::CreativeSearch);
+    }
+    if region.control_name.as_deref() == Some(FILTER_TOGGLE) {
+        return Some(InventoryCellHit::Widget(Widget::RecipeFilter));
     }
     let group = region.group_index? as u64;
     match region.control_name.as_deref()? {

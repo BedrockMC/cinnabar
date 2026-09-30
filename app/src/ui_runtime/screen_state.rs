@@ -33,6 +33,8 @@ pub(crate) struct ScreenState {
     /// The beacon's pyramid level, from its block entity.
     pub(crate) beacon_level: Option<u8>,
     pub(crate) book_open: bool,
+    /// The recipe book's filter toggle, once flipped on this screen.
+    pub(crate) recipe_filtering: Option<bool>,
     /// The book, sign-off or lectern reader being shown, if any.
     pub(crate) book: Option<super::book_screen::BookState>,
     /// Page of the recipe book, in whole grids.
@@ -60,6 +62,7 @@ impl ScreenState {
             self.beacon_level = None;
             self.container_scroll.clear();
             self.creative_expanded.clear();
+            self.recipe_filtering = None;
         }
     }
 

@@ -96,27 +96,48 @@ impl UiRuntime {
         }
     }
 
-    /// Crafting recipes the inventory can supply now that fit the open grid,
-    /// after skipping `skip`, at most `take`.
+    /// Whether the recipe book filters by the inventory: on by default outside
+    /// creative, as `CraftingScreenController` opens.
+    pub(crate) fn recipe_filtering(&self) -> bool {
+        self.screen_state()
+            .recipe_filtering
+            .unwrap_or(self.player_game_mode() != Some(protocol::PlayerGameMode::Creative))
+    }
+
+    /// Crafting recipes the recipe book lists for the open grid, after
+    /// skipping `skip`, at most `take`. Filtering keeps the craftable ones,
+    /// first, then those the inventory holds some ingredient of; otherwise
+    /// every recipe lists, the uncraftable ones shown disabled.
     pub(crate) fn book_recipes(&self, skip: usize, take: usize) -> Vec<RecipeHandle> {
         let Some(catalog) = self.screen_catalog() else {
             return Vec::new();
         };
         let ledger = self.inventory_ledger();
         let small = ledger.window_kind() != Some(WindowKind::Workbench);
-        catalog
+        let filtering = self.recipe_filtering();
+        let mut listed: Vec<(bool, RecipeHandle)> = catalog
             .crafting_handles()
             .into_iter()
             .filter(|recipe| {
                 let (width, height) = recipe.dimensions();
-                let fits = !small
+                !small
                     || if recipe.is_shapeless() {
                         recipe.ingredient_views().len() <= 4
                     } else {
                         width <= 2 && height <= 2
-                    };
-                fits && ledger.can_auto_craft(recipe)
+                    }
             })
+            .map(|recipe| (ledger.can_auto_craft(&recipe), recipe))
+            .filter(|(craftable, recipe)| {
+                !filtering || *craftable || ledger.holds_any_ingredient(recipe)
+            })
+            .collect();
+        if filtering {
+            listed.sort_by_key(|(craftable, _)| !craftable);
+        }
+        listed
+            .into_iter()
+            .map(|(_, recipe)| recipe)
             .skip(skip)
             .take(take)
             .collect()
