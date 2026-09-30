@@ -466,6 +466,22 @@ fn release_clears_the_destroy_delay() {
     );
 }
 
+/// Unbreaking III damages only a quarter of rolls.
+#[test]
+fn unbreaking_suppresses_damage_by_the_reference_chance() {
+    assert!(unbreaking_keeps_damage(0, 99));
+    let kept = (0..100)
+        .filter(|roll| unbreaking_keeps_damage(3, *roll))
+        .count();
+    assert_eq!(kept, 25);
+    assert_eq!(
+        (0..100)
+            .filter(|roll| unbreaking_keeps_damage(1, *roll))
+            .count(),
+        50
+    );
+}
+
 #[test]
 fn swords_and_the_trident_cannot_destroy_in_creative() {
     assert!(!destroys_in_creative(Some("minecraft:diamond_sword")));

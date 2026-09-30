@@ -45,6 +45,7 @@ const CREATIVE_TRAVEL_PER_DESTROY: f32 = 1.0;
 /// Bedrock enchantment ids.
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;
 const EFFICIENCY_ENCHANTMENT_ID: i16 = 15;
+const UNBREAKING_ENCHANTMENT_ID: i16 = 17;
 
 /// Which side StartGame's negotiation makes authoritative for block destruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +83,8 @@ pub(crate) struct DestroyTarget {
     pub(crate) instant: bool,
 }
 
-/// Held-tool damage before a destroy and the damage one destroy adds.
+/// Held-tool damage before a destroy and the damage one destroy adds, after the
+/// Unbreakable and Unbreaking rolls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ToolWear {
     pub(crate) current_damage: i32,
@@ -708,6 +710,8 @@ fn observe_destroy_target(
     );
     let effects = context.effects.mining_effects();
     let helmet = ui.gameplay_hud().armor().map(|armor| &armor.helmet);
+    let unbreaking =
+        protocol::item_enchantment_level(item.extra_data(), UNBREAKING_ENCHANTMENT_ID).unwrap_or(0);
     let wear = tool.filter(|_| !instant).and_then(|tool| {
         (item.stack_network_id() > 0).then(|| ToolWear {
             // Outstanding and corrected predictions outrank the stack's own tag.
@@ -719,7 +723,13 @@ fn observe_destroy_target(
                         .and_then(|damage| i32::try_from(damage).ok())
                 })
                 .unwrap_or(0),
-            break_damage: tool_break_damage(tool.kind),
+            break_damage: if protocol::item_extra_unbreakable(item.extra_data())
+                || !unbreaking_keeps_damage(unbreaking, percent_roll())
+            {
+                0
+            } else {
+                tool_break_damage(tool.kind)
+            },
         })
     });
     Some(DestroyTarget {
@@ -763,6 +773,18 @@ fn destroys_in_creative(identifier: Option<&str>) -> bool {
             && HeldTool::from_identifier(identifier)
                 .is_none_or(|tool| tool.kind != sim::ToolKind::Sword)
     })
+}
+
+/// Whether Unbreaking at `level` lets a `roll` in `0..100` damage the item:
+/// `ItemStackBase::hurtAndBreak` keeps damage below `Item::getDamageChance`.
+fn unbreaking_keeps_damage(level: u8, roll: u32) -> bool {
+    level == 0 || roll < 100 / (u32::from(level) + 1)
+}
+
+/// A uniformly distributed roll in `0..100` from the process hash seed.
+fn percent_roll() -> u32 {
+    use std::hash::BuildHasher;
+    (std::collections::hash_map::RandomState::new().hash_one(()) % 100) as u32
 }
 
 /// Durability one destroy costs, per dragonfly's `item/*.go` durability info (MIT).
