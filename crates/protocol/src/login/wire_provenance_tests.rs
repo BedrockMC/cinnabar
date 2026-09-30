@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 use jolyne::raw::{RawPacket, decode_packet_raw};
 use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_44::{McpePacketName, SetTimePacket};
+use valentine::bedrock::version::v1_26_51::{McpePacketName, SetTimePacket};
 use valentine::protocol::wire;
 
 use super::{decode_world_raw_with, skip_semantic_world_error};

@@ -11,7 +11,7 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, BedrockSafetyRedactableString, BedrockSafetyRedactableStringView, BlockPos,
     CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
@@ -86,12 +86,8 @@ fn default_full_container() -> FullContainerName {
     FullContainerName::default()
 }
 
-/// One response slot. `constant_3` is the always-true outer flag of the
-/// double-optional the stack net ID is written behind: gophertunnel
-/// be6713da4dc051a4197f897d04835e89e9c54321 `minecraft/protocol/io.go`
-/// `DoubleOptionalFunc` writes `outer := true` and then the inner presence bool.
-/// The custom name is followed by an optional filtered name, as encoded by
-/// Gophertunnel's item-stack response codec.
+/// One response slot. The custom name is followed by an optional filtered
+/// name, as encoded by Gophertunnel's item-stack response codec.
 fn response_slot(
     slot: u8,
     amount: u8,
@@ -104,17 +100,18 @@ fn response_slot(
         requested_slot: slot,
         slot,
         amount,
-        item_stack_net_id: Some(Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
+        item_stack_net_id: Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
             id: item_stack_id,
-        })),
-        custom_name: custom_name.to_owned(),
-        filtered_custom_name: Some(filtered_custom_name.to_owned()),
+        }),
+        custom_name: BedrockSafetyRedactableString {
+            unredacted: custom_name.to_owned(),
+            redacted: Some(filtered_custom_name.to_owned()),
+        },
         durability_correction,
     }
 }
 
-/// One accepted response. `constant_2` is the outer flag of the same
-/// double-optional wrapping the container list.
+/// One accepted response.
 fn accepted_response(
     request_id: i32,
     containers: Vec<ItemStackResponseContainerInfo>,
@@ -122,7 +119,7 @@ fn accepted_response(
     ItemStackResponseInfo {
         result: ItemStackResponseInfoResult::Success,
         client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 { id: request_id },
-        containers: Some(Some(containers)),
+        containers: Some(containers),
     }
 }
 
@@ -214,15 +211,9 @@ fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
     let McpePacketData::ItemStackResponsePacket(response) = &packet.data else {
         panic!("expected ItemStackResponse")
     };
-    let slot = &response.responses[0]
-        .containers
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .unwrap()[0]
-        .slots[0];
-    assert_eq!(slot.custom_name, "Fixture item");
-    assert_eq!(slot.filtered_custom_name.as_deref(), Some("Fixture item"));
+    let slot = &response.responses[0].containers.as_ref().unwrap()[0].slots[0];
+    assert_eq!(slot.custom_name.unredacted, "Fixture item");
+    assert_eq!(slot.custom_name.redacted.as_deref(), Some("Fixture item"));
 
     let encoded = encode(&packet, &BedrockSession { shield_item_id: 0 }).unwrap();
     assert_eq!(encoded.as_ref(), RESPONSE_FIXTURE);
@@ -232,11 +223,13 @@ fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
 #[test]
 fn response_filtered_name_preserves_optional_wire_shape() {
     use valentine::bedrock::codec::BedrockSized;
-    use valentine::bedrock::version::v1_26_44::ItemStackResponseSlotInfoView;
+    use valentine::bedrock::version::v1_26_51::ItemStackResponseSlotInfoView;
     for filtered in [None, Some(String::new()), Some("filtered".to_owned())] {
         let slot = ItemStackResponseSlotInfo {
-            custom_name: "original".to_owned(),
-            filtered_custom_name: filtered,
+            custom_name: BedrockSafetyRedactableString {
+                unredacted: "original".to_owned(),
+                redacted: filtered,
+            },
             durability_correction: -3,
             ..Default::default()
         };
@@ -265,16 +258,14 @@ fn response_filtered_name_preserves_optional_wire_shape() {
     }
 }
 
-/// Structure editor names retain their two-string wire shape, and
-/// a malicious declared length must fail before allocating or reading past the
-/// available bytes.
+/// Structure editor names retain their two adjacent strings, and a malicious
+/// declared length must fail before allocating or reading past the available
+/// bytes.
 #[test]
-fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
+fn structure_editor_name_uses_two_bounded_adjacent_strings() {
     let structure = StructureEditorData {
-        structure_name: BedrockSafetyRedactableString {
-            unredacted: "structure".into(),
-            redacted: "filtered".into(),
-        },
+        structure_name: "structure".into(),
+        filtered_structure_name: "filtered".into(),
         data_field: "payload".into(),
         ..Default::default()
     };
@@ -292,14 +283,24 @@ fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
 
     let mut borrowed_body = Bytes::from(encoded);
     let borrowed = StructureEditorDataView::decode(&mut borrowed_body).unwrap();
-    assert_eq!(borrowed.structure_name.unredacted.as_bytes(), b"structure");
-    assert_eq!(borrowed.structure_name.redacted.as_bytes(), b"filtered");
+    assert_eq!(borrowed.structure_name.as_bytes(), b"structure");
+    assert_eq!(borrowed.filtered_structure_name.as_bytes(), b"filtered");
     assert!(borrowed_body.is_empty());
 
-    let empty = BedrockSafetyRedactableString {
-        unredacted: String::new(),
-        redacted: String::new(),
-    };
+    let mut malformed = Bytes::from_static(&[0, 5, b'x']);
+    assert!(matches!(
+        StructureEditorData::decode(&mut malformed, ()),
+        Err(DecodeError::StringLengthExceeded {
+            declared: 5,
+            available: 1
+        })
+    ));
+}
+
+/// The redactable string is an unredacted string plus an optional redacted one.
+#[test]
+fn redactable_string_redacted_half_is_optional() {
+    let empty = BedrockSafetyRedactableString::default();
     let mut empty_wire = Vec::new();
     empty.encode(&mut empty_wire).unwrap();
     assert_eq!(empty_wire, [0, 0]);
@@ -311,16 +312,7 @@ fn structure_editor_redactable_name_uses_two_bounded_adjacent_strings() {
     let mut borrowed_empty_wire = Bytes::from_static(&[0, 0]);
     let borrowed_empty =
         BedrockSafetyRedactableStringView::decode(&mut borrowed_empty_wire).unwrap();
-    assert!(borrowed_empty.redacted.as_bytes().is_empty());
-
-    let mut malformed = Bytes::from_static(&[0, 5, b'x']);
-    assert!(matches!(
-        BedrockSafetyRedactableString::decode(&mut malformed, ()),
-        Err(DecodeError::StringLengthExceeded {
-            declared: 5,
-            available: 1
-        })
-    ));
+    assert!(borrowed_empty.redacted.is_none());
 }
 
 #[test]
@@ -333,7 +325,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             item(6, 3, 12, item_user_data(&["minecraft:dirt"])),
         ],
         full_container_name: full_container(
-            FullContainerNameContainerName::CombinedHotbarAndInventoryContainer,
+            FullContainerNameContainerName::Combinedhotbarandinventorycontainer,
             Some(7),
         ),
         storage_item: ItemStackDescriptor::default(),
@@ -354,7 +346,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
         container_id: INVENTORY_CONTAINER,
         slot: 8,
         full_container_name: Some(full_container(
-            FullContainerNameContainerName::InventoryContainer,
+            FullContainerNameContainerName::Inventorycontainer,
             None,
         )),
         storage_item: None,
@@ -383,7 +375,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
             44,
             vec![ItemStackResponseContainerInfo {
                 full_container_name: full_container(
-                    FullContainerNameContainerName::HotbarContainer,
+                    FullContainerNameContainerName::Hotbarcontainer,
                     Some(9),
                 ),
                 slots: vec![response_slot(2, 5, 13, "named", "filtered", -3)],
@@ -563,7 +555,7 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
     }
 
     for name in [
-        FullContainerNameContainerName::CraftingInputContainer,
+        FullContainerNameContainerName::Craftinginputcontainer,
         FullContainerNameContainerName::Unknown(211),
     ] {
         let event = normalize_content(InventoryContentPacket {
@@ -586,7 +578,7 @@ fn default_descriptor_does_not_alias_foreign_dynamic_or_named_surfaces() {
     let cursor = normalize_content(InventoryContentPacket {
         container_id: u32::from(INVENTORY_CONTAINER),
         slots: vec![ItemStackDescriptor::default()],
-        full_container_name: full_container(FullContainerNameContainerName::CursorContainer, None),
+        full_container_name: full_container(FullContainerNameContainerName::Cursorcontainer, None),
         storage_item: ItemStackDescriptor::default(),
     })
     .unwrap();
@@ -740,7 +732,7 @@ fn accepted_response_preserves_zero_stack_id_for_a_newly_empty_slot() {
         2,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::HotbarContainer,
+                FullContainerNameContainerName::Hotbarcontainer,
                 None,
             ),
             slots: vec![response_slot(3, 0, 0, "", "", 0)],
@@ -763,13 +755,11 @@ fn accepted_response_rejects_negative_stack_ids() {
         3,
         vec![ItemStackResponseContainerInfo {
             full_container_name: full_container(
-                FullContainerNameContainerName::HotbarContainer,
+                FullContainerNameContainerName::Hotbarcontainer,
                 None,
             ),
             slots: vec![ItemStackResponseSlotInfo {
-                item_stack_net_id: Some(Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
-                    id: -1,
-                })),
+                item_stack_net_id: Some(TypedServerNetIdstructItemStackNetIdTagint32T0 { id: -1 }),
                 ..Default::default()
             }],
         }],

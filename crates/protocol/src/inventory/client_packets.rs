@@ -1,6 +1,6 @@
 //! Client packets tied to inventory screens: block pick and book editing.
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     BlockPickRequestPacket, BlockPos, BookEditActionAddPage, BookEditActionDeletePage,
     BookEditActionFinalize, BookEditActionReplacePage, BookEditActionSwapPages, BookEditPacket,
     BookEditPacketOperation, LecternUpdatePacket,
@@ -119,7 +119,7 @@ pub fn book_edit_packet(book_slot: u8, edit: &BookEdit) -> Option<crate::Packet>
 
 #[cfg(test)]
 mod tests {
-    use valentine::bedrock::version::v1_26_44::McpePacketData;
+    use valentine::bedrock::version::v1_26_51::McpePacketData;
 
     use super::*;
 

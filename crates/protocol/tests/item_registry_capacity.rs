@@ -6,7 +6,7 @@ use protocol::{
 use sha2::{Digest, Sha256};
 use valentine::bedrock::{
     codec::Nbt,
-    version::v1_26_44::{EnumsItemVersion as ItemVersion, ItemData, ItemRegistryPacket},
+    version::v1_26_51::{EnumsItemVersion as ItemVersion, ItemData, ItemRegistryPacket},
 };
 
 const COMPOUND: u8 = 10;
@@ -104,7 +104,7 @@ fn negotiated_capacity_retains_exact_positive_int_values_and_original_digest() {
         let entry = normalize(registry_entry(
             component_data,
             false,
-            ItemVersion::DataDriven,
+            ItemVersion::Datadriven,
         ))
         .unwrap();
 
@@ -162,7 +162,7 @@ fn only_the_exact_component_property_path_supplies_capacity() {
     let entry = normalize(registry_entry(
         root_compound(&[shadow, valid]),
         true,
-        ItemVersion::DataDriven,
+        ItemVersion::Datadriven,
     ))
     .unwrap();
     assert_eq!(entry.negotiated_max_stack_size, Some(64));
@@ -213,7 +213,7 @@ fn ambiguous_or_invalid_capacity_evidence_is_ignored_without_rejecting_registry(
         let entry = normalize(registry_entry(
             component_data,
             true,
-            ItemVersion::DataDriven,
+            ItemVersion::Datadriven,
         ))
         .unwrap();
         assert_eq!(entry.negotiated_max_stack_size, None);
@@ -246,7 +246,7 @@ fn unknown_version_and_excessive_walk_depth_do_not_supply_capacity() {
             nested,
         ]),
         true,
-        ItemVersion::DataDriven,
+        ItemVersion::Datadriven,
     ))
     .unwrap();
     assert_eq!(deep.negotiated_max_stack_size, None);
@@ -257,7 +257,7 @@ fn malformed_registry_nbt_remains_a_wire_error() {
     let truncated = Nbt(Bytes::from_static(&[
         COMPOUND, 0, COMPOUND, 10, b'c', b'o', b'm', b'p', b'o', b'n', b'e', b'n', b't', b's',
     ]));
-    let error = normalize(registry_entry(truncated, true, ItemVersion::DataDriven)).unwrap_err();
+    let error = normalize(registry_entry(truncated, true, ItemVersion::Datadriven)).unwrap_err();
     assert!(matches!(
         error,
         WorldPacketError::Wire(WorldWireError::Item(ItemPacketError::InvalidItemNbt))

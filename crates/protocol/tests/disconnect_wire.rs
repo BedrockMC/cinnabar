@@ -1,7 +1,7 @@
 //! Disconnect wire fixtures emitted by the pinned public Go packet codec.
 use bytes::{Buf, Bytes};
 use protocol::{BedrockSession, decode_batch, encode};
-use valentine::bedrock::version::v1_26_44::{BorrowedMcpePacket, McpePacketArgs, McpePacketData};
+use valentine::bedrock::version::v1_26_51::{BorrowedMcpePacket, McpePacketArgs, McpePacketData};
 
 const VISIBLE: &[u8] = include_bytes!("../fixtures/disconnect_visible.bin");
 const FILTERED: &[u8] = include_bytes!("../fixtures/disconnect_filtered.bin");

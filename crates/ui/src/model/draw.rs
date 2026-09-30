@@ -44,10 +44,20 @@ pub(super) fn emit_visual(
             texture_page,
             uv,
             color,
+        }
+        | UiVisual::GlintSprite {
+            texture_page,
+            uv,
+            color,
         } => {
             if is_empty(bounds) {
                 return Ok(());
             }
+            let style = if matches!(visual, UiVisual::GlintSprite { .. }) {
+                super::UI_STYLE_GLINT
+            } else {
+                0
+            };
             emit_quad(
                 bounds,
                 [
@@ -58,7 +68,7 @@ pub(super) fn emit_visual(
                 ],
                 *texture_page,
                 *color,
-                0,
+                style,
                 UiBlendMode::Alpha,
                 clip,
                 vertices,

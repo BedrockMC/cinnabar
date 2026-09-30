@@ -45,6 +45,7 @@ impl MenuSessionState<'_> {
         self.runtime.begin_session(generation);
         self.client_world.stream = None;
         self.client_world.pack_entities = None;
+        self.client_world.session_items = None;
         self.client_world.pending_surface_spawn = None;
         self.client_world.fatal_error = None;
         self.client_world.transfer_notice = None;

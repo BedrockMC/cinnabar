@@ -235,6 +235,76 @@ pub(super) fn append_nametag_nodes(
     Ok(())
 }
 
+/// Nametags for other players and flagged mobs; players with a below-name score get the combined
+/// plate instead. Wall occlusion uses the collision store, failing open when it is unavailable.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn project_nametags(
+    scoreboards: &ui::ScoreboardStore,
+    stream: &client_world::WorldStream,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    logical_size: [f32; 2],
+    safe_area: SafeArea,
+    collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
+    partial_tick: f32,
+) -> Vec<NametagAnchor> {
+    let content_size = [
+        (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0),
+        (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0),
+    ];
+    let world = collisions.map(|collisions| {
+        sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+        )
+    });
+    let eye = camera_transform.translation();
+    let is_occluded = |target: Vec3| {
+        let Some(world) = world.as_ref() else {
+            return false;
+        };
+        let offset = target - eye;
+        let distance = f64::from(offset.length());
+        if !distance.is_finite() || distance <= 0.0 {
+            return false;
+        }
+        let direction = offset.normalize();
+        let vector = |value: Vec3| {
+            sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
+        };
+        matches!(
+            world.block_interaction_ray_current(vector(eye), vector(direction), distance),
+            Ok(Some(_))
+        )
+    };
+    stream
+        .remote_actors()
+        .filter_map(|actor| {
+            let scored = scoreboards
+                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
+                .or_else(|| {
+                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
+                });
+            if scored.is_some() {
+                return None;
+            }
+            let name = stream.actor_display_name(actor.unique_id)?;
+            project_nametag(
+                actor,
+                name,
+                camera,
+                camera_transform,
+                content_size,
+                safe_area,
+                partial_tick,
+                is_occluded,
+            )
+        })
+        .take(MAX_PRESENTED_NAMETAGS)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

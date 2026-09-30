@@ -98,6 +98,7 @@ pub(super) fn load(paths: &[String], first_page: u16) -> MenuArtworkAtlas {
             IconRef {
                 page: texture_page,
                 uv: [left, top, left + art.width as u16, top + art.height as u16],
+                glint: false,
             },
         );
         x += art.width + GUTTER;

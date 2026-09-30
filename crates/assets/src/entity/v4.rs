@@ -534,7 +534,7 @@ struct DefaultSpriteBinding {
 fn valid_item_definition_source(path: &str) -> bool {
     (path.starts_with("entity/") && path.ends_with(".json"))
         || path == "textures/item_texture.json"
-        || path == "registry/block-item-routes-v2168.json"
+        || path == "registry/block-item-routes-v2193.json"
 }
 
 fn valid_item_raster_source(path: &str) -> bool {

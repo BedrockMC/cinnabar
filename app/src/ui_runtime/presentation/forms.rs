@@ -1,5 +1,6 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
+mod chat_screen;
 mod container_kinds;
 mod containers;
 mod engine;
@@ -21,12 +22,13 @@ mod remote_images;
 mod server_pack;
 mod sign_editor;
 #[cfg(test)]
-mod snapshot;
+pub(crate) mod snapshot;
 mod start_feed;
 #[cfg(test)]
 pub(crate) mod tests;
 mod textures;
 
+pub(crate) use chat_screen::ChatHit;
 pub(crate) use panorama::drive_menu_panorama;
 
 use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
@@ -59,6 +61,8 @@ pub(super) struct FormPresentation {
     logged: Option<ServerFormIdentity>,
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
+    /// The open chat's cached screen; carried across the per-frame reset.
+    chat: chat_screen::ChatScreen,
     /// Dev-mode OreUI originals and the look OreUI screens draw with.
     oreui_originals: Option<Arc<oreui::Originals>>,
     oreui_look: oreui::Look,
@@ -244,11 +248,13 @@ impl UiPresentationRuntime {
         let menu_keys = std::mem::take(&mut self.form_presentation.menu_keys);
         let logged = self.form_presentation.logged;
         let hud = std::mem::take(&mut self.form_presentation.hud);
+        let chat = std::mem::take(&mut self.form_presentation.chat);
         self.form_presentation = FormPresentation {
             engine,
             menu_keys,
             logged,
             hud,
+            chat,
             oreui_originals: self.form_presentation.oreui_originals.take(),
             oreui_look: self.form_presentation.oreui_look,
             ..FormPresentation::default()

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
+use valentine::bedrock::version::v1_26_51::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
 
 use crate::{
     ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,
@@ -256,7 +256,7 @@ impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
             MovePlayerPacketPositionMode::Normal => Self::Normal,
             MovePlayerPacketPositionMode::Respawn => Self::Reset,
             MovePlayerPacketPositionMode::Teleport => Self::Teleport,
-            MovePlayerPacketPositionMode::OnlyHeadRot => Self::Rotation,
+            MovePlayerPacketPositionMode::Onlyheadrot => Self::Rotation,
             MovePlayerPacketPositionMode::Unknown(value) => Self::Unknown(value),
         }
     }
@@ -275,6 +275,13 @@ pub struct SetTimeEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DaylightCycleUpdateEvent {
     pub enabled: bool,
+}
+
+/// The rules a GameRulesChanged packet updates that the client reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameRulesEvent {
+    pub daylight_cycle: Option<DaylightCycleUpdateEvent>,
+    pub hud: crate::HudRules,
 }
 
 /// Weather channel targeted by a normalized level event.
@@ -327,12 +334,12 @@ impl MovementCorrectionSubject {
     }
 }
 
-impl From<valentine::bedrock::version::v1_26_44::EnumsRewindType> for MovementCorrectionSubject {
-    fn from(subject: valentine::bedrock::version::v1_26_44::EnumsRewindType) -> Self {
+impl From<valentine::bedrock::version::v1_26_51::EnumsRewindType> for MovementCorrectionSubject {
+    fn from(subject: valentine::bedrock::version::v1_26_51::EnumsRewindType) -> Self {
         match subject {
-            valentine::bedrock::version::v1_26_44::EnumsRewindType::Player => Self::Player,
-            valentine::bedrock::version::v1_26_44::EnumsRewindType::Vehicle => Self::Vehicle,
-            valentine::bedrock::version::v1_26_44::EnumsRewindType::Unknown(value) => {
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Player => Self::Player,
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Vehicle => Self::Vehicle,
+            valentine::bedrock::version::v1_26_51::EnumsRewindType::Unknown(value) => {
                 Self::Unknown(value)
             }
         }
@@ -418,7 +425,7 @@ pub enum WorldEvent {
     PlayerMovementCorrection(PlayerMovementCorrectionEvent),
     ActorMotion(ActorMotionEvent),
     SetTime(SetTimeEvent),
-    DaylightCycle(DaylightCycleUpdateEvent),
+    GameRules(GameRulesEvent),
     Weather(WeatherUpdateEvent),
     Audio(AudioEvent),
     Camera(CameraEvent),

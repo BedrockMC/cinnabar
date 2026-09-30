@@ -66,9 +66,8 @@ mod texture_atlas;
 mod viewmodel_bob;
 
 use crate::menu::{MenuAction, MenuView};
-use chat::visible_suggestion_range;
 pub(crate) use debug_overlay::DebugLines;
-pub(crate) use forms::drive_menu_panorama;
+pub(crate) use forms::{ChatHit, drive_menu_panorama};
 pub(crate) use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout, gui_scale};
 use primitives::{bounded_visible_text, rect, resolve_chat_line};
@@ -89,14 +88,7 @@ use texture_atlas::{
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_PRESENTED_CHAT_ROWS: usize = 8;
-const MAX_PRESENTED_CHAT_SUGGESTIONS: usize = 8;
 const MAX_PRESENTED_TEXT_BYTES: usize = 512;
-// Java's default chat text begins four GUI pixels from the safe content edge.
-// Keep the text anchor independent of the bottom HUD width so chat remains a
-// true left-edge surface on ultrawide and resized windows.
-const CHAT_LEFT_INSET: f32 = 4.0;
-const CHAT_PANEL_PAD: f32 = 4.0;
 #[derive(Debug)]
 pub enum UiPresentationError {
     InvalidFontTexture,
@@ -134,7 +126,6 @@ pub struct UiPresentationRuntime {
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     chat_hit_logical_size: Option<[f32; 2]>,
-    chat_suggestion_hits: Vec<(usize, UiRect)>,
     leave_bed_hit: Option<UiRect>,
     debug_lines: Option<DebugLines>,
     /// Java GUI-scale preference: `None`/0 selects the auto rule.
@@ -237,7 +228,6 @@ impl UiPresentationRuntime {
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             chat_hit_logical_size: None,
-            chat_suggestion_hits: Vec::with_capacity(MAX_PRESENTED_CHAT_SUGGESTIONS),
             leave_bed_hit: None,
             debug_lines: None,
             gui_scale_preference: None,
@@ -422,12 +412,6 @@ impl UiPresentationRuntime {
         // tree translates them by the safe-area origin.
         let content_width = (logical_width - safe_area.left() - safe_area.right()).max(0.0);
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
-        let wrap_width = ((content_width * 0.45).clamp(1.0, 640.0) * 64.0) as u32;
-        let chat_content_width = wrap_width as f32 / 64.0;
-        let chat_left = CHAT_LEFT_INSET.min(content_width);
-        let chat_right = (chat_left + chat_content_width)
-            .min(content_width)
-            .max(chat_left);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
         self.leave_bed_hit = None;
@@ -509,199 +493,17 @@ impl UiPresentationRuntime {
             )?;
         }
 
-        let chat_focused = !menu_visible && !inventory_open && runtime.chat_focused();
-        let visible_suggestions = if chat_focused {
-            visible_suggestion_range(
-                runtime.chat_suggestions().len(),
-                runtime.chat_selected_suggestion(),
-            )
-        } else {
-            0..0
-        };
-        let mut editor_layout = None;
-        let mut suggestion_layouts = Vec::new();
-        if chat_focused {
-            let editor = runtime.chat_editor();
-            let mut visible = String::with_capacity(editor.len_bytes().saturating_add(1));
-            visible.push_str(&editor.as_str()[..editor.cursor_byte()]);
-            visible.push('|');
-            visible.push_str(&editor.as_str()[editor.cursor_byte()..]);
-            editor_layout = Some(
-                self.layouts
-                    .layout(metrics.request(bounded_visible_text(&visible), wrap_width, &self.font))
-                    .map_err(UiPresentationError::Text)?,
-            );
-
-            for (index, suggestion) in runtime
-                .chat_suggestions()
-                .iter()
-                .enumerate()
-                .skip(visible_suggestions.start)
-                .take(visible_suggestions.len())
-            {
-                let selected = runtime.chat_selected_suggestion() == Some(index);
-                let layout = self
-                    .layouts
-                    .layout(metrics.request(
-                        bounded_visible_text(suggestion),
-                        wrap_width,
-                        &self.font,
-                    ))
-                    .map_err(UiPresentationError::Text)?;
-                suggestion_layouts.push((index, layout, [220, 220, 220, 255], selected));
-            }
-            if let Some(usage) = runtime.chat_usage_hint() {
-                let layout = self
-                    .layouts
-                    .layout(metrics.request(bounded_visible_text(usage), wrap_width, &self.font))
-                    .map_err(UiPresentationError::Text)?;
-                suggestion_layouts.push((usize::MAX, layout, [170, 170, 170, 255], false));
-            }
-        }
-
-        let suggestion_reserved_height = suggestion_layouts
-            .iter()
-            .map(|(_, layout, _, _)| layout.size_64()[1] as f32 / 64.0 + 2.0)
-            .sum::<f32>();
-        let chat_region_top = (content_height - 220.0 - suggestion_reserved_height).max(0.0);
-        let bottom_hud_top = hud_geometry.map_or_else(
-            || (content_height - 42.0).max(chat_region_top),
-            |geometry| geometry.bottom_row_top_logical().max(chat_region_top),
-        );
-        let editor_bottom = (bottom_hud_top - 2.0).max(chat_region_top);
-        let editor_y = editor_layout.as_ref().map_or(editor_bottom, |layout| {
-            (editor_bottom - layout.size_64()[1] as f32 / 64.0).max(chat_region_top)
-        });
-        let mut suggestion_cursor = (editor_y - 4.0).max(chat_region_top);
-        let mut positioned_suggestions = Vec::new();
-        for (index, layout, color, selected) in suggestion_layouts {
-            let layout_height = layout.size_64()[1] as f32 / 64.0;
-            if layout_height > suggestion_cursor - chat_region_top {
-                break;
-            }
-            let y = suggestion_cursor - layout_height;
-            positioned_suggestions.push((index, layout, y, suggestion_cursor, color, selected));
-            suggestion_cursor = (y - 2.0).max(chat_region_top);
-        }
-        // Unfocused chat is the engine HUD's; the open chat keeps its history here.
-        let chat = runtime.chat().messages();
-        let first = if chat_focused {
-            chat.len().saturating_sub(MAX_PRESENTED_CHAT_ROWS)
-        } else {
-            chat.len()
-        };
-        let mut chat_cursor = suggestion_cursor;
-        let mut visible_chat = Vec::new();
-        for node in chat.iter().skip(first).rev() {
-            let alpha = 255u8;
-            let resolved = resolve_chat_line(node, |key| runtime.translation(key));
-            let text = bounded_visible_text(resolved.as_ref());
-            let layout = self
-                .layouts
-                .layout(metrics.request(text, wrap_width, &self.font))
-                .map_err(UiPresentationError::Text)?;
-            let layout_height = layout.size_64()[1] as f32 / 64.0;
-            if layout_height > chat_cursor - chat_region_top {
-                if visible_chat.is_empty() {
-                    let available_height = chat_cursor - chat_region_top;
-                    let boundaries = text
-                        .char_indices()
-                        .map(|(index, _)| index)
-                        .skip(1)
-                        .chain(std::iter::once(text.len()))
-                        .collect::<Vec<_>>();
-                    let mut low = 0usize;
-                    let mut high = boundaries.len();
-                    let mut best = None;
-                    while low < high {
-                        let middle = low + (high - low) / 2;
-                        let candidate = self
-                            .layouts
-                            .layout(metrics.request(
-                                &text[..boundaries[middle]],
-                                wrap_width,
-                                &self.font,
-                            ))
-                            .map_err(UiPresentationError::Text)?;
-                        let candidate_height = candidate.size_64()[1] as f32 / 64.0;
-                        if candidate_height <= available_height {
-                            best = Some((candidate, candidate_height));
-                            low = middle.saturating_add(1);
-                        } else {
-                            high = middle;
-                        }
-                    }
-                    if let Some((layout, height)) = best {
-                        visible_chat.push((layout, chat_cursor - height, chat_cursor, alpha));
-                    }
-                }
-                break;
-            }
-            let y = chat_cursor - layout_height;
-            visible_chat.push((layout, y, chat_cursor, alpha));
-            // No extra gap: the line pitch already carries the one design pixel
-            // Mojang leaves between chat rows, so adding more double-spaces them.
-            chat_cursor = y.max(chat_region_top);
-        }
-        if chat_focused {
-            let panel_left = (chat_left - CHAT_PANEL_PAD).max(0.0).min(logical_width);
-            let panel_right = (chat_right + CHAT_PANEL_PAD)
-                .min(logical_width)
-                .max(panel_left);
-            let panel_top = (editor_y - 2.0).max(chat_region_top);
-            let panel_bottom = (editor_bottom + 2.0).min(bottom_hud_top);
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(panel_left, panel_top, panel_right, panel_bottom)?,
-                )
-                .with_visual(UiVisual::Solid {
-                    texture_page: self.solid_texture_page,
-                    color: [0, 0, 0, 176],
-                }),
-            );
-            next_id = next_id.saturating_add(1);
-        }
-        for (layout, y, bottom, alpha) in visible_chat.into_iter().rev() {
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(chat_left, y, chat_right, bottom)?,
-                )
-                .with_visual(UiVisual::Text {
-                    layout,
-                    color: [255, 255, 255, alpha],
-                    shadow: metrics.shadow(),
-                }),
-            );
-            next_id = next_id.saturating_add(1);
-        }
-
-        if chat_focused {
-            let layout = editor_layout.expect("focused chat prepared an editor layout");
-            nodes.push(
-                UiNode::new(
-                    UiNodeId::new(next_id),
-                    None,
-                    rect(chat_left, editor_y, chat_right, editor_bottom)?,
-                )
-                .with_visual(UiVisual::Text {
-                    layout,
-                    color: [255; 4],
-                    shadow: metrics.shadow(),
-                }),
-            );
-            next_id = next_id.saturating_add(1);
-
-            self.append_suggestion_nodes(
+        if !menu_visible && !inventory_open && runtime.chat_focused() {
+            self.append_chat_screen(
+                runtime,
                 &mut nodes,
                 &mut next_id,
-                &positioned_suggestions,
-                [chat_left, chat_right],
                 metrics,
+                [content_width, content_height],
+                now_millis,
             )?;
+        } else {
+            self.close_chat_screen();
         }
 
         let menu_hit_targets = self.append_menu(
@@ -759,20 +561,6 @@ impl UiPresentationRuntime {
             );
         }
 
-        let chat_suggestion_hits = positioned_suggestions
-            .iter()
-            .filter(|(index, ..)| *index != usize::MAX)
-            .map(|(index, _, top, bottom, _, _)| {
-                rect(
-                    chat_left + safe_area.left(),
-                    *top + safe_area.top(),
-                    chat_right + safe_area.left(),
-                    *bottom + safe_area.top(),
-                )
-                .map(|bounds| (*index, bounds))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
         self.append_server_form(
             runtime,
             &mut nodes,
@@ -811,7 +599,6 @@ impl UiPresentationRuntime {
         .map_err(UiPresentationError::Adapter)?;
         let input = self.stabilize_revision(input);
         self.chat_hit_logical_size = Some([logical_width, logical_height]);
-        self.chat_suggestion_hits = chat_suggestion_hits;
         self.menu_hit_targets = menu_hit_targets;
         Ok(input)
     }

@@ -10,7 +10,7 @@ fn make_client_rebuilds_only_a_missing_or_stale_asset_blob() {
     .replace("\r\n", "\n");
 
     for contract in [
-        "LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2168.bin",
+        "LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2193.bin",
         concat!(
             "ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml ",
             "crates/asset-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) ",

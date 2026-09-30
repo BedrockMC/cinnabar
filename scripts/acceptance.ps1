@@ -26,12 +26,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $AcceptanceParameters = @{} + $PSBoundParameters
 
-$ExpectedGophertunnelCommit = '3d9f4b7a4ac0f19f9565cca98b7f17fe918acd38'
-$ExpectedGophertunnelVersion = 'v1.25.3-0.20260908230935-3d9f4b7a4ac0'
-$ExpectedBdsSha256 = 'e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372'
-$ExpectedBdsRelease = '1.26.40.8'
+$ExpectedGophertunnelCommit = 'b725d82563e93308fd1f92d27da5e97301ad5040'
+$ExpectedGophertunnelVersion = 'v1.25.3-0.20260929084839-b725d82563e9'
+$ExpectedBdsSha256 = '19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
+$ExpectedBdsRelease = '1.26.52.3'
 $PinnedAxolotlStackCommit = 'c4540512dc47833bb40363da7ad1161110d64b67'
-$PinnedProtocolgenCommit = '870bb549c701a0c03472c66441449c4b70a8454a'
+$PinnedProtocolgenCommit = '0b8f17e3b321f7cb89e21dc8563398b9981e632f'
 $PinnedValentineLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 $PinnedAssetSourceTag = 'v1.26.30.32-preview'
 $PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'

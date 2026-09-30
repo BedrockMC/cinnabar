@@ -37,7 +37,7 @@ fn short_name_key(identifier: &str) -> Option<Arc<str>> {
 
 /// Reads `components["minecraft:icon"]` (or the legacy `item_properties` copy): a key, or an object
 /// naming it under `textures.default` or `texture`.
-fn icon_key(bytes: &[u8]) -> Option<Arc<str>> {
+pub(super) fn icon_key(bytes: &[u8]) -> Option<Arc<str>> {
     let root = read_root(bytes)?;
     let components = root.field("components")?;
     let icon = components

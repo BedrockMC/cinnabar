@@ -4,7 +4,7 @@
 
 use ::protocol::*;
 use bytes::BytesMut;
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
+use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 const ANY: i32 = 32767;
 

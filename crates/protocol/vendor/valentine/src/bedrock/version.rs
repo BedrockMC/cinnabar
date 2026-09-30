@@ -6,11 +6,11 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 pub use valentine_bedrock_core::bedrock::version::BedrockVersionInfo;
-#[cfg(feature = "bedrock_1_26_44")]
-pub mod v1_26_44 {
-    pub use super::super::protocol::v1_26_44::*;
-    pub const GAME_VERSION: &str = "1.26.44";
-    pub const PROTOCOL_VERSION: i32 = 2168i32;
+#[cfg(feature = "bedrock_1_26_51")]
+pub mod v1_26_51 {
+    pub use super::super::protocol::v1_26_51::*;
+    pub const GAME_VERSION: &str = "1.26.51";
+    pub const PROTOCOL_VERSION: i32 = 2193i32;
     pub const MAJOR_VERSION: &str = "1.26";
     pub const RELEASE_TYPE: &str = "release";
     pub const INFO: super::BedrockVersionInfo = super::BedrockVersionInfo {
