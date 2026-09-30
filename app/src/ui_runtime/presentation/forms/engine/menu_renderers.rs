@@ -28,33 +28,17 @@ pub(super) const TITLE_PANEL_OVERLAY: &[u8] = br#"{
   ] }
 }"#;
 
-/// Mojang's required notice for unofficial products, drawn in place of the "©Mojang AB" footer.
-pub(super) const DISCLAIMER: &str =
-    "Not an official Minecraft product.\nNot approved by or associated with Mojang or Microsoft.";
-
-/// Overlays putting [`DISCLAIMER`] in the start and play screens' copyright slot. It
-/// grows upward from the footer line, since one line would run into the version.
-pub(super) fn disclaimer_overlays() -> [(&'static str, Vec<u8>); 2] {
-    let label = serde_json::json!({
-        "type": "label",
-        "color": "$main_header_text_color",
-        "layer": 2,
-        "text": DISCLAIMER,
-        "localize": false,
-        "size": ["default", "default"],
-        "anchor_from": "bottom_left",
-        "anchor_to": "bottom_left",
-    });
-    let start = serde_json::json!({
-        "namespace": "start",
-        "copyright": { "controls": [{ "label": label }] },
-    });
-    let play = serde_json::json!({ "namespace": "play", "copyright": label });
-    [
-        ("ui/cinnabar_start.json", start.to_string().into_bytes()),
-        ("ui/cinnabar_play.json", play.to_string().into_bytes()),
-    ]
-}
+/// Drops the "©Mojang AB" footer from the start and play screens; Cinnabar is not a Mojang product.
+pub(super) const NO_COPYRIGHT_OVERLAYS: [(&str, &[u8]); 2] = [
+    (
+        "ui/cinnabar_start.json",
+        br#"{ "namespace": "start", "copyright": { "ignored": true } }"#,
+    ),
+    (
+        "ui/cinnabar_play.json",
+        br#"{ "namespace": "play", "copyright": { "ignored": true } }"#,
+    ),
+];
 
 /// Tilt of the splash: 20 degrees, rising to the right.
 const SPLASH_ANGLE: f32 = -20.0 * std::f32::consts::PI / 180.0;
@@ -282,12 +266,12 @@ impl Painter<'_> {
 mod tests {
     use super::split_sentence;
 
-    // The vanilla footer shape (a panel embedding `start.copyright`) shows the disclaimer instead.
+    // The vanilla footer shape (a panel embedding `start.copyright`) resolves without it.
     #[test]
-    fn the_copyright_footer_becomes_the_disclaimer() {
+    fn the_mojang_copyright_footer_is_dropped() {
         let screen = br#"{
           "namespace": "start",
-          "copyright": { "type": "panel", "controls": [ { "label": { "type": "label", "text": "menu.copyright" } } ] },
+          "copyright": { "type": "label", "text": "menu.copyright" },
           "text_panel": { "type": "panel", "controls": [ { "copyright@start.copyright": {} } ] }
         }"#;
         let mut catalog = json_ui::Catalog::from_files([
@@ -299,21 +283,12 @@ mod tests {
             ("ui/start_screen.json", screen.as_slice()),
         ])
         .unwrap();
-        let overlays = super::disclaimer_overlays();
-        catalog.apply_pack(
-            overlays
-                .iter()
-                .map(|(path, bytes)| (*path, bytes.as_slice())),
-        );
-        let panel = json_ui::resolve(&catalog, "start.text_panel", &json_ui::Context::default())
-            .control
-            .unwrap();
-        let labels = &panel.children[0].children;
-        assert_eq!(labels.len(), 1);
-        assert_eq!(
-            labels[0].properties["text"],
-            serde_json::Value::from(super::DISCLAIMER)
-        );
+        let context = json_ui::Context::default();
+        let before = json_ui::resolve(&catalog, "start.text_panel", &context);
+        assert_eq!(before.control.unwrap().children.len(), 1);
+        catalog.apply_pack(super::NO_COPYRIGHT_OVERLAYS);
+        let after = json_ui::resolve(&catalog, "start.text_panel", &context);
+        assert!(after.control.unwrap().children.is_empty());
     }
 
     // The overlay's title aspect matches the logo it frames.
