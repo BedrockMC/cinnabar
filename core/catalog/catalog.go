@@ -128,15 +128,9 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 			if experience == nil || !experience.Valid() {
 				continue
 			}
-			joinContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-			address, joinErr := experience.Join(joinContext)
-			cancel()
-			if joinErr != nil || address == nil || address.String() == ":0" {
-				continue
-			}
 			result.Gatherings = append(result.Gatherings, Server{
 				Name:     displayName(experience.Item.Title.Neutral(), experience.CreatorName, "Gathering"),
-				Address:  address.String(),
+				Address:  GatheringTargetPrefix + experience.ID.String(),
 				Caption:  firstGameCaption(experience.AvailableGames, "Community gathering"),
 				imageURL: artworkURL(experience.Item, experience.AvailableGames),
 			})
@@ -352,6 +346,9 @@ func fetchRealms(ctx context.Context, account *authcache.Account) ([]Realm, erro
 	}
 	return result, nil
 }
+
+// GatheringTargetPrefix marks a catalog address as an experience ID joined at connect time.
+const GatheringTargetPrefix = "gathering/"
 
 // errNoAccount is returned when a call needs the signed-in account and there is none.
 var errNoAccount = errors.New("catalog: no signed-in account")
