@@ -139,6 +139,7 @@ impl UiPresentationRuntime {
                 ]
                 .into_iter()
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
+                splash: renderer.splash(&translate),
                 ..engine::ScreenArt::default()
             };
             match renderer.render_screen(

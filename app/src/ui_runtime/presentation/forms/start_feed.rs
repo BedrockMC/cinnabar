@@ -16,8 +16,10 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     let home = &view.feeds.home;
     button_art(data, "play", home.play_art.as_ref());
     button_art(data, "store", home.store_art.as_ref());
-    data.set_global("#inbox_enabled", Scalar::Bool(true));
-    data.set_global("#friends_drawer_button_enabled", Scalar::Bool(true));
+    // The inbox and friends drawer need an Xbox Live session.
+    let signed_in = view.auth_state == crate::menu::auth::AuthState::Authenticated;
+    data.set_global("#inbox_enabled", Scalar::Bool(signed_in));
+    data.set_global("#friends_drawer_button_enabled", Scalar::Bool(signed_in));
     data.set_global(
         "#unread_notification_icon_visibility",
         Scalar::Bool(home.inbox_unread > 0),
