@@ -5,14 +5,17 @@ use super::*;
 impl LocalPhysicsController {
     pub(in crate::movement) fn apply_correction(
         &mut self,
-        network_position: [f32; 3],
-        tick: u64,
-        on_ground: bool,
-        velocity: Option<[f32; 3]>,
+        anchor: crate::movement::PhysicsAnchor,
         mode: PhysicsCorrectionMode,
         confirmation: Option<&PhysicsCorrectionConfirmation>,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let crate::movement::PhysicsAnchor {
+            network_position,
+            tick,
+            on_ground,
+            velocity,
+        } = anchor;
         if !network_position.into_iter().all(f32::is_finite) {
             return Err(PhysicsCorrectionError::InvalidAnchor);
         }

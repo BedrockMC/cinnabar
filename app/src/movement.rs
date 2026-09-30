@@ -842,6 +842,29 @@ impl MovementTicker {
     }
 }
 
+/// Provisional local pre-first-input anchor: public protocol documentation does
+/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
+/// separate clock domain.
+const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
+
+pub(crate) fn reset_start_game_prediction(
+    movement: &mut MovementTicker,
+    local_physics: &mut LocalPhysicsController,
+    session_generation: u64,
+    initial_position: [f32; 3],
+) {
+    movement.reset(
+        session_generation,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        initial_position,
+    );
+    local_physics.reanchor_network_position_before_advance(
+        initial_position,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        false,
+    );
+}
+
 #[cfg(test)]
 mod tests;
 

@@ -280,10 +280,12 @@ pub fn reconcile_physics_anchor(
         let confirmation = candidate_ticker.sent_confirmation(aligned_tick);
         let plan = candidate_physics
             .apply_correction(
-                network_position,
-                aligned_tick,
-                on_ground,
-                velocity,
+                PhysicsAnchor {
+                    network_position,
+                    tick: aligned_tick,
+                    on_ground,
+                    velocity,
+                },
                 mode,
                 confirmation.as_ref(),
                 world,
