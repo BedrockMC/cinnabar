@@ -14,12 +14,12 @@ use super::{
 };
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
-    include_bytes!("../../../assets/data/block-item-routes-v2168.json");
-const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v2168.bin");
+    include_bytes!("../../../assets/data/block-item-routes-v2193.json");
+const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v2193.bin");
 const ROUTE_SCHEMA: u32 = 1;
-const ROUTE_PROTOCOL: u32 = 2168;
-const DRAGONFLY_VERSION: &str = "v0.11.1-0.20260714151819-dbbd8b787946";
-const DRAGONFLY_MODULE_SUM: &str = "h1:Qu7Qm7iBrLQWlZtz2KdouA4agQdhybV2abSdEN5NBRY=";
+const ROUTE_PROTOCOL: u32 = 2193;
+const DRAGONFLY_VERSION: &str = "v0.11.5";
+const DRAGONFLY_MODULE_SUM: &str = "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=";
 
 pub(super) struct ItemPayload {
     pub block_visual_count: u32,
@@ -73,7 +73,7 @@ pub(super) fn compile(
         .get(item_bindings::SOURCE_PATH)
         .ok_or_else(|| invalid("reviewed default sprite binding source is absent"))?;
     let route_source = *source_indices
-        .get("registry/block-item-routes-v2168.json")
+        .get("registry/block-item-routes-v2193.json")
         .ok_or_else(|| invalid("reviewed block item authority source is absent"))?;
     let mut definitions = BTreeMap::<ItemVisualKey, (u32, ItemVisualDefinitionRoute)>::new();
     definitions.insert(
@@ -258,7 +258,7 @@ struct ReviewedRoutes {
 fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
     let table: BlockItemRouteTable =
         serde_json::from_slice(BLOCK_ITEM_ROUTES).map_err(|source| AssetError::Json {
-            path: "crates/assets/data/block-item-routes-v2168.json".into(),
+            path: "crates/assets/data/block-item-routes-v2193.json".into(),
             source,
         })?;
     let expected_hash = format!("{:x}", Sha256::digest(BLOCK_REGISTRY));

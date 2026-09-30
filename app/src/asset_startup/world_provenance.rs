@@ -3,7 +3,7 @@
 //! Startup validates every compiled world blob against these expectations so
 //! structurally valid carriers built from stale or foreign sources fail
 //! closed instead of reaching gameplay. The registry bytes are embedded at
-//! compile time from the checked-in protocol-2168 inputs, exactly like the
+//! compile time from the checked-in protocol-2193 inputs, exactly like the
 //! collision consumer, so validation never depends on the process working
 //! directory or installed layout.
 
@@ -67,20 +67,20 @@ pub(crate) fn active_content_registry_protocol() -> u32 {
 
 const VANILLA_SOURCE_JSON: &str = include_str!("../../../assets/vanilla-source.json");
 const BLOCK_REGISTRY_BYTES: &[u8] =
-    include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
+    include_bytes!("../../../crates/assets/data/block-registry-v2193.bin");
 const LIGHT_REGISTRY_BYTES: &[u8] =
-    include_bytes!("../../../crates/assets/data/block-light-registry-v2168.bin");
+    include_bytes!("../../../crates/assets/data/block-light-registry-v2193.bin");
 const BIOME_REGISTRY_BYTES: &[u8] =
-    include_bytes!("../../../crates/assets/data/biome-registry-v2168.bin");
+    include_bytes!("../../../crates/assets/data/biome-registry-v2193.bin");
 
-/// The checked-in protocol-2168 block registry, shared with the collision
+/// The checked-in protocol-2193 block registry, shared with the collision
 /// consumer so one embed feeds both physics and provenance validation.
 pub(crate) const fn pinned_block_registry_bytes() -> &'static [u8] {
     BLOCK_REGISTRY_BYTES
 }
 
 /// The exact world-carrier identity this checkout pins: the canonical
-/// vanilla source manifest plus each consumed protocol-2168 registry input.
+/// vanilla source manifest plus each consumed protocol-2193 registry input.
 #[must_use]
 pub fn pinned_world_provenance() -> &'static BlobProvenance {
     static PINNED: OnceLock<BlobProvenance> = OnceLock::new();
@@ -192,8 +192,8 @@ mod tests {
 
     /// The active authority stays exactly on the protocolgen target.
     #[test]
-    fn active_content_authority_is_protocol_2168() {
-        assert_eq!(active_content_registry_protocol(), 2168);
+    fn active_content_authority_is_protocol_2193() {
+        assert_eq!(active_content_registry_protocol(), 2193);
     }
 
     /// Consolidation witness: driving the gate with a mutated authority value
@@ -205,13 +205,13 @@ mod tests {
             .expect("the checked-in pins must satisfy the shipped authority");
 
         let error = verify_pinned_registries_bind(1001)
-            .expect_err("a legacy authority must reject the protocol-2168 pins");
+            .expect_err("a legacy authority must reject the protocol-2193 pins");
         assert!(
             matches!(
                 error,
                 crate::asset_startup::AssetStartupError::PinnedRegistryProtocolMismatch {
                     expected: 1001,
-                    actual: 2168
+                    actual: 2193
                 }
             ),
             "unexpected error {error:?}"

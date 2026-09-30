@@ -1,8 +1,8 @@
 # Item capacity generator
 
 This command projects a pinned item-capacity measurement onto the repository's retail item
-allowlist. It accepts only the complete Bedrock Dedicated Server 1.26.40.8 measurement used
-for protocol 2168 and writes deterministic TSV and provenance files.
+allowlist. It accepts only the complete Bedrock Dedicated Server 1.26.52.3 measurement used
+for protocol 2193 and writes deterministic TSV and provenance files.
 
 To repeat the measurement, copy `probe/manifest.json` and `probe/main.js` into a behavior
 pack (`manifest.json` and `scripts/main.js` respectively), enable that pack in a local world,

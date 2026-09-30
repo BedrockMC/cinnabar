@@ -14,24 +14,24 @@ import (
 	"testing"
 )
 
-func loadV2168PhysicsInputs(t *testing.T) ([]byte, []Record) {
+func loadV2193PhysicsInputs(t *testing.T) ([]byte, []Record) {
 	t.Helper()
-	path := filepath.Join("..", "..", "crates", "assets", "data", "block-registry-v2168.bin")
+	path := filepath.Join("..", "..", "crates", "assets", "data", "block-registry-v2193.bin")
 	breg, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := hexDigest(breg); got != v2168PhysicsBREGSHA256 {
-		t.Fatalf("v2168 BREG SHA-256 = %s, want %s", got, v2168PhysicsBREGSHA256)
+	if got := hexDigest(breg); got != v2193PhysicsBREGSHA256 {
+		t.Fatalf("v2193 BREG SHA-256 = %s, want %s", got, v2193PhysicsBREGSHA256)
 	}
-	_, records, err := decodeBREGRecords(breg, v2168BlockProtocol)
+	_, records, err := decodeBREGRecords(breg, v2193BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return breg, records
 }
 
-func v2168RecordsNamed(records []Record, name string) []int {
+func v2193RecordsNamed(records []Record, name string) []int {
 	var indexes []int
 	for index, record := range records {
 		if record.Name == name {
@@ -41,7 +41,7 @@ func v2168RecordsNamed(records []Record, name string) []int {
 	return indexes
 }
 
-type v2168PhysicsEntry struct {
+type v2193PhysicsEntry struct {
 	SequentialID    uint32
 	NetworkHash     uint32
 	Boxes           []CollisionBox
@@ -53,10 +53,10 @@ type v2168PhysicsEntry struct {
 	FluidHeight     uint32
 }
 
-// decodeV2168PhysicsArtifact performs the exact structural walk the production
+// decodeV2193PhysicsArtifact performs the exact structural walk the production
 // decoder owes the artifact: header identity, pinned-BREG digest binding,
 // contiguous identities, bounded payload accounting, and trailer digest.
-func decodeV2168PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) []v2168PhysicsEntry {
+func decodeV2193PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) []v2193PhysicsEntry {
 	t.Helper()
 	if len(artifact) < 48+32 {
 		t.Fatal("physics artifact is truncated")
@@ -64,25 +64,25 @@ func decodeV2168PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) 
 	if string(artifact[:8]) != physicsRegistryHeader {
 		t.Fatalf("magic = %q", string(artifact[:8]))
 	}
-	if got := binary.LittleEndian.Uint32(artifact[8:12]); got != v2168BlockProtocol {
-		t.Fatalf("protocol = %d, want %d", got, v2168BlockProtocol)
+	if got := binary.LittleEndian.Uint32(artifact[8:12]); got != v2193BlockProtocol {
+		t.Fatalf("protocol = %d, want %d", got, v2193BlockProtocol)
 	}
 	if got := binary.LittleEndian.Uint32(artifact[12:16]); got != uint32(count) {
 		t.Fatalf("record count = %d, want %d", got, count)
 	}
 	bregDigest := sha256.Sum256(breg)
 	if !bytes.Equal(artifact[16:48], bregDigest[:]) {
-		t.Fatal("physics artifact does not bind the exact pinned v2168 BREG digest")
+		t.Fatal("physics artifact does not bind the exact pinned v2193 BREG digest")
 	}
 	cursor := 48
-	entries := make([]v2168PhysicsEntry, 0, count)
+	entries := make([]v2193PhysicsEntry, 0, count)
 	end := len(artifact) - 32
 	for index := 0; index < count; index++ {
 		if cursor+28 > end {
 			t.Fatalf("physics record %d is truncated", index)
 		}
 		prefix := artifact[cursor : cursor+28]
-		entry := v2168PhysicsEntry{
+		entry := v2193PhysicsEntry{
 			SequentialID:    binary.LittleEndian.Uint32(prefix[0:4]),
 			NetworkHash:     binary.LittleEndian.Uint32(prefix[4:8]),
 			Flags:           prefix[9],
@@ -130,29 +130,29 @@ func decodeV2168PhysicsArtifact(t *testing.T, artifact, breg []byte, count int) 
 	return entries
 }
 
-func v2168PhysicsEntryIsNeutralReserved(entry v2168PhysicsEntry) bool {
+func v2193PhysicsEntryIsNeutralReserved(entry v2193PhysicsEntry) bool {
 	return entry.Flags == physicsFlagPassable && len(entry.Boxes) == 0 &&
 		entry.Surface == SurfaceNone && entry.FluidHeight == 0 &&
 		entry.Friction == defaultSpeedQ1E8 && entry.HorizontalSpeed == defaultSpeedQ1E8 &&
 		entry.VerticalSpeed == defaultSpeedQ1E8
 }
 
-func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(t *testing.T) {
-	breg, records := loadV2168PhysicsInputs(t)
+func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *testing.T) {
+	breg, records := loadV2193PhysicsInputs(t)
 	dataDir := filepath.Join("..", "..", "crates", "assets", "data")
-	artifact, err := os.ReadFile(filepath.Join(dataDir, "block-physics-v2168.bin"))
+	artifact, err := os.ReadFile(filepath.Join(dataDir, "block-physics-v2193.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	shaBytes, err := os.ReadFile(filepath.Join(dataDir, "block-physics-v2168.sha256"))
+	shaBytes, err := os.ReadFile(filepath.Join(dataDir, "block-physics-v2193.sha256"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Mirrors the protocol-1001 checksum pattern: bare lowercase hex digest.
 	if strings.TrimSpace(string(shaBytes)) != hexDigest(artifact) {
-		t.Fatal("checked-in v2168 physics checksum does not match the artifact")
+		t.Fatal("checked-in v2193 physics checksum does not match the artifact")
 	}
-	entries := decodeV2168PhysicsArtifact(t, artifact, breg, v2168BlockStateCount)
+	entries := decodeV2193PhysicsArtifact(t, artifact, breg, v2193BlockStateCount)
 
 	seenHashes := make(map[uint32]struct{}, len(entries))
 	reserved := 0
@@ -165,17 +165,17 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 			continue
 		}
 		reserved++
-		if !v2168PhysicsEntryIsNeutralReserved(entry) {
+		if !v2193PhysicsEntryIsNeutralReserved(entry) {
 			t.Fatalf("reserved runtime ID %d is not exactly neutral: %+v", index, entry)
 		}
 	}
-	if reserved != v2168PhysicsReservedCount {
-		t.Fatalf("neutral reserved records = %d, want exactly %d", reserved, v2168PhysicsReservedCount)
+	if reserved != v2193PhysicsReservedCount {
+		t.Fatalf("neutral reserved records = %d, want exactly %d", reserved, v2193PhysicsReservedCount)
 	}
 
 	fluidHeights := func(name string, wantStates int, fluidBit uint8) map[uint32]int {
 		t.Helper()
-		indexes := v2168RecordsNamed(records, name)
+		indexes := v2193RecordsNamed(records, name)
 		if len(indexes) != wantStates {
 			t.Fatalf("%s state count = %d, want %d", name, len(indexes), wantStates)
 		}
@@ -203,7 +203,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		}
 	}
 
-	soulSand := v2168RecordsNamed(records, "minecraft:soul_sand")
+	soulSand := v2193RecordsNamed(records, "minecraft:soul_sand")
 	if len(soulSand) != 1 {
 		t.Fatalf("soul_sand states = %d, want 1", len(soulSand))
 	}
@@ -212,7 +212,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		t.Fatalf("soul_sand runtime ID %d facts changed: %+v", soulSand[0], entry)
 	}
 
-	web := v2168RecordsNamed(records, "minecraft:web")
+	web := v2193RecordsNamed(records, "minecraft:web")
 	if len(web) != 1 {
 		t.Fatalf("web states = %d, want 1", len(web))
 	}
@@ -222,7 +222,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 	}
 
 	for _, name := range []string{"minecraft:vine"} {
-		indexes := v2168RecordsNamed(records, name)
+		indexes := v2193RecordsNamed(records, name)
 		if len(indexes) != 16 {
 			t.Fatalf("%s state count = %d, want 16", name, len(indexes))
 		}
@@ -233,7 +233,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		}
 	}
 
-	ladder := v2168RecordsNamed(records, "minecraft:ladder")
+	ladder := v2193RecordsNamed(records, "minecraft:ladder")
 	if len(ladder) != 6 {
 		t.Fatalf("ladder states = %d, want 6", len(ladder))
 	}
@@ -259,7 +259,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		t.Fatalf("ladder box histogram = %v, want exactly {0:2 1:4}", ladderBoxes)
 	}
 
-	powderSnow := v2168RecordsNamed(records, "minecraft:powder_snow")
+	powderSnow := v2193RecordsNamed(records, "minecraft:powder_snow")
 	if len(powderSnow) != 1 {
 		t.Fatalf("powder_snow states = %d, want 1", len(powderSnow))
 	}
@@ -267,7 +267,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		t.Fatalf("powder_snow runtime ID %d facts changed: %+v", powderSnow[0], entry)
 	}
 
-	slime := v2168RecordsNamed(records, "minecraft:slime")
+	slime := v2193RecordsNamed(records, "minecraft:slime")
 	if len(slime) != 1 {
 		t.Fatalf("slime states = %d, want 1", len(slime))
 	}
@@ -276,7 +276,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		t.Fatalf("slime runtime ID %d facts changed: %+v", slime[0], entry)
 	}
 
-	honey := v2168RecordsNamed(records, "minecraft:honey_block")
+	honey := v2193RecordsNamed(records, "minecraft:honey_block")
 	if len(honey) != 1 {
 		t.Fatalf("honey_block states = %d, want 1", len(honey))
 	}
@@ -285,7 +285,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		t.Fatalf("honey_block runtime ID %d facts changed: %+v", honey[0], entry)
 	}
 
-	beds := v2168RecordsNamed(records, "minecraft:bed")
+	beds := v2193RecordsNamed(records, "minecraft:bed")
 	if len(beds) != 16 {
 		t.Fatalf("bed states = %d, want 16", len(beds))
 	}
@@ -295,7 +295,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		}
 	}
 
-	bubbleIndexes := v2168RecordsNamed(records, "minecraft:bubble_column")
+	bubbleIndexes := v2193RecordsNamed(records, "minecraft:bubble_column")
 	if len(bubbleIndexes) != 2 {
 		t.Fatalf("bubble_column states = %d, want 2", len(bubbleIndexes))
 	}
@@ -312,7 +312,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		t.Fatalf("bubble directions = %v", bubbleSurfaces)
 	}
 
-	stoneIndexes := v2168RecordsNamed(records, "minecraft:stone")
+	stoneIndexes := v2193RecordsNamed(records, "minecraft:stone")
 	if len(stoneIndexes) != 1 {
 		t.Fatalf("stone states = %d, want 1", len(stoneIndexes))
 	}
@@ -323,7 +323,7 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 		t.Fatalf("stone runtime ID %d facts changed: %+v", stoneIndexes[0], stone)
 	}
 
-	airIndexes := v2168RecordsNamed(records, "minecraft:air")
+	airIndexes := v2193RecordsNamed(records, "minecraft:air")
 	if len(airIndexes) != 1 {
 		t.Fatalf("air states = %d, want 1", len(airIndexes))
 	}
@@ -333,8 +333,8 @@ func TestV2168PhysicsArtifactBindsPinnedBREGWith969NeutralReservedAndExactFacts(
 	}
 }
 
-func TestProjectV2168PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing.T) {
-	breg, records := loadV2168PhysicsInputs(t)
+func TestProjectV2193PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing.T) {
+	breg, records := loadV2193PhysicsInputs(t)
 	pmmp := make(map[string]PMMPLightProperties, len(records))
 	for _, record := range records {
 		if record.Name == retailReservedName {
@@ -350,12 +350,12 @@ func TestProjectV2168PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing
 		pmmp[record.Name] = PMMPLightProperties{Friction: friction}
 	}
 	sources := syntheticPhysicsSources(records, pmmp)
-	physics, err := projectV2168PhysicsRecords(records, sources)
+	physics, err := projectV2193PhysicsRecords(records, sources)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(physics) != v2168BlockStateCount {
-		t.Fatalf("projected physics count = %d, want %d", len(physics), v2168BlockStateCount)
+	if len(physics) != v2193BlockStateCount {
+		t.Fatalf("projected physics count = %d, want %d", len(physics), v2193BlockStateCount)
 	}
 
 	reserved := 0
@@ -370,53 +370,53 @@ func TestProjectV2168PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing
 			t.Fatalf("reserved runtime ID %d is not neutral: %+v", index, entry)
 		}
 	}
-	if reserved != v2168PhysicsReservedCount {
-		t.Fatalf("reserved records = %d, want exactly %d", reserved, v2168PhysicsReservedCount)
+	if reserved != v2193PhysicsReservedCount {
+		t.Fatalf("reserved records = %d, want exactly %d", reserved, v2193PhysicsReservedCount)
 	}
 
-	water := physics[v2168RecordsNamed(records, "minecraft:water")[0]]
+	water := physics[v2193RecordsNamed(records, "minecraft:water")[0]]
 	if water.Flags&(physicsFlagWater|physicsFlagPassable) != physicsFlagWater|physicsFlagPassable ||
 		len(water.Boxes) != 0 || water.FluidHeightQ1E8 <= 0 {
-		t.Fatalf("water runtime ID %d lost its fluid facts: %+v", v2168RecordsNamed(records, "minecraft:water")[0], water)
+		t.Fatalf("water runtime ID %d lost its fluid facts: %+v", v2193RecordsNamed(records, "minecraft:water")[0], water)
 	}
-	lava := physics[v2168RecordsNamed(records, "minecraft:lava")[0]]
+	lava := physics[v2193RecordsNamed(records, "minecraft:lava")[0]]
 	if lava.Flags&physicsFlagLava == 0 || lava.Flags&physicsFlagWater != 0 {
-		t.Fatalf("lava runtime ID %d lost its lava facts: %+v", v2168RecordsNamed(records, "minecraft:lava")[0], lava)
+		t.Fatalf("lava runtime ID %d lost its lava facts: %+v", v2193RecordsNamed(records, "minecraft:lava")[0], lava)
 	}
-	soulSand := physics[v2168RecordsNamed(records, "minecraft:soul_sand")[0]]
+	soulSand := physics[v2193RecordsNamed(records, "minecraft:soul_sand")[0]]
 	if soulSand.SurfaceResponse != SurfaceSoulSand || soulSand.HorizontalSpeedQ1E8 != soulSandSpeedQ1E8 ||
 		soulSand.FrictionQ1E8 != 60_000_000 {
 		t.Fatalf("soul_sand facts changed: %+v", soulSand)
 	}
-	honey := physics[v2168RecordsNamed(records, "minecraft:honey_block")[0]]
+	honey := physics[v2193RecordsNamed(records, "minecraft:honey_block")[0]]
 	if honey.SurfaceResponse != SurfaceHoney || honey.HorizontalSpeedQ1E8 != unprovenHoneySpeedQ1E8 {
 		t.Fatalf("honey_block facts changed: %+v", honey)
 	}
 
-	again, err := projectV2168PhysicsRecords(records, sources)
+	again, err := projectV2193PhysicsRecords(records, sources)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(physics, again) {
-		t.Fatal("v2168 physics projection is not deterministic")
+		t.Fatal("v2193 physics projection is not deterministic")
 	}
 
-	first, err := encodePhysicsRegistryForProtocol(breg, physics, v2168BlockStateCount, v2168BlockProtocol)
+	first, err := encodePhysicsRegistryForProtocol(breg, physics, v2193BlockStateCount, v2193BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := encodePhysicsRegistryForProtocol(breg, slices.Clone(physics), v2168BlockStateCount, v2168BlockProtocol)
+	second, err := encodePhysicsRegistryForProtocol(breg, slices.Clone(physics), v2193BlockStateCount, v2193BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(first, second) {
-		t.Fatal("v2168 physics encoding is not deterministic")
+		t.Fatal("v2193 physics encoding is not deterministic")
 	}
-	if got := binary.LittleEndian.Uint32(first[8:12]); got != v2168BlockProtocol {
-		t.Fatalf("stamped protocol = %d, want %d", got, v2168BlockProtocol)
+	if got := binary.LittleEndian.Uint32(first[8:12]); got != v2193BlockProtocol {
+		t.Fatalf("stamped protocol = %d, want %d", got, v2193BlockProtocol)
 	}
-	if got := binary.LittleEndian.Uint32(first[12:16]); got != v2168BlockStateCount {
-		t.Fatalf("stamped count = %d, want %d", got, v2168BlockStateCount)
+	if got := binary.LittleEndian.Uint32(first[12:16]); got != v2193BlockStateCount {
+		t.Fatalf("stamped count = %d, want %d", got, v2193BlockStateCount)
 	}
 
 	// The shared encoder keeps stamping the legacy protocol unchanged so the
@@ -433,16 +433,16 @@ func TestProjectV2168PhysicsRecordsAppliesLegacyFactsAtNewIdentifiers(t *testing
 	}
 }
 
-func TestWriteV2168PhysicsProjectionRejectsWrongProtocolAndMutatedInput(t *testing.T) {
+func TestWriteV2193PhysicsProjectionRejectsWrongProtocolAndMutatedInput(t *testing.T) {
 	dir := t.TempDir()
-	output := filepath.Join(dir, "block-physics-v2168.bin")
+	output := filepath.Join(dir, "block-physics-v2193.bin")
 	legacy := filepath.Join("..", "..", "crates", "assets", "data", "block-registry-v1001.bin")
-	err := writeV2168PhysicsProjection(legacy, "", "", output, "", "")
-	if err == nil || !strings.Contains(err.Error(), "protocol-2168") {
+	err := writeV2193PhysicsProjection(legacy, "", "", output, "", "")
+	if err == nil || !strings.Contains(err.Error(), "protocol-2193") {
 		t.Fatalf("wrong-version rejection = %v", err)
 	}
 
-	pinned, err := os.ReadFile(filepath.Join("..", "..", "crates", "assets", "data", "block-registry-v2168.bin"))
+	pinned, err := os.ReadFile(filepath.Join("..", "..", "crates", "assets", "data", "block-registry-v2193.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +452,7 @@ func TestWriteV2168PhysicsProjectionRejectsWrongProtocolAndMutatedInput(t *testi
 	if err := os.WriteFile(mutatedPath, mutated, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err = writeV2168PhysicsProjection(mutatedPath, "", "", output, "", "")
+	err = writeV2193PhysicsProjection(mutatedPath, "", "", output, "", "")
 	if err == nil || !strings.Contains(err.Error(), "SHA-256") {
 		t.Fatalf("mutated-input rejection = %v", err)
 	}
@@ -461,10 +461,10 @@ func TestWriteV2168PhysicsProjectionRejectsWrongProtocolAndMutatedInput(t *testi
 	}
 }
 
-// syntheticV2168PhysicsCorpus builds a full-size v2168 identity space whose
+// syntheticV2193PhysicsCorpus builds a full-size v2193 identity space whose
 // non-reserved records carry the complete reviewed override families plus
 // minecraft:stone padding, so production coverage semantics hold end to end.
-func TestV2168PhysicsSeedsTransplantLegacyCollisionVerbatim(t *testing.T) {
+func TestV2193PhysicsSeedsTransplantLegacyCollisionVerbatim(t *testing.T) {
 	root := filepath.Join("..", "..", "crates", "assets", "data")
 	legacyBytes, err := os.ReadFile(filepath.Join(root, "block-registry-v1001.bin"))
 	if err != nil {
@@ -485,29 +485,39 @@ func TestV2168PhysicsSeedsTransplantLegacyCollisionVerbatim(t *testing.T) {
 		}
 		seeds[key] = record.CollisionSeed
 	}
-	_, records := loadV2168PhysicsInputs(t)
+	_, records := loadV2193PhysicsInputs(t)
 	matched := 0
 	for _, record := range records {
 		if record.Name == retailReservedName {
 			continue
 		}
+		reduced, err := v2193ReducedState(record.StateJSON)
+		if err != nil {
+			t.Fatal(err)
+		}
 		seed, ok := seeds[canonicalRecordKey(record.Name, record.StateJSON)]
 		if !ok {
-			t.Fatalf("v2168 state %d (%s) has no legacy counterpart", record.SequentialID, record.Name)
+			seed, ok = seeds[canonicalRecordKey(record.Name, reduced)]
+		}
+		if twin, twinned := v2193TwinFor(record.Name); !ok && twinned {
+			seed, ok = seeds[canonicalRecordKey(twin.twin, reduced)]
+		}
+		if !ok {
+			t.Fatalf("v2193 state %d (%s) has no legacy counterpart", record.SequentialID, record.Name)
 		}
 		if seed.ShapeID != record.CollisionSeed.ShapeID || seed.Confidence != record.CollisionSeed.Confidence ||
 			!collisionBoxesEqual(seed.Boxes, record.CollisionSeed.Boxes) {
-			t.Fatalf("v2168 state %d (%s) mutated the reviewed legacy collision seed", record.SequentialID, record.Name)
+			t.Fatalf("v2193 state %d (%s) mutated the reviewed legacy collision seed", record.SequentialID, record.Name)
 		}
 		matched++
 	}
-	if matched != 16_530 {
-		t.Fatalf("legacy-exact states = %d, want exactly 16530", matched)
+	if matched != 15_963+3_440+2_026 {
+		t.Fatalf("legacy fact-source states = %d, want exactly 21429", matched)
 	}
 }
 
-func syntheticV2168PhysicsCorpus(reserved int) ([]Record, PhysicsSourceCatalog) {
-	records := make([]Record, v2168BlockStateCount)
+func syntheticV2193PhysicsCorpus(reserved int) ([]Record, PhysicsSourceCatalog) {
+	records := make([]Record, v2193BlockStateCount)
 	for index := 0; index < reserved && index < len(records); index++ {
 		records[index] = Record{
 			SequentialID: uint32(index),
@@ -557,11 +567,11 @@ func syntheticV2168PhysicsCorpus(reserved int) ([]Record, PhysicsSourceCatalog) 
 	return records, PhysicsSourceCatalog{PMMP: pmmp, Prismarine: prismarine, DragonflyTypes: dragonfly, RequireProductionCoverage: true}
 }
 
-func TestProjectV2168PhysicsFailsClosedListingEveryMissingPMMPName(t *testing.T) {
-	records, sources := syntheticV2168PhysicsCorpus(v2168PhysicsReservedCount)
+func TestProjectV2193PhysicsFailsClosedListingEveryMissingPMMPName(t *testing.T) {
+	records, sources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount)
 	records[1000].Name = "minecraft:zeta_unlisted"
 	records[1001].Name = "minecraft:alpha_unlisted"
-	_, err := projectV2168PhysicsRecords(records, sources)
+	_, err := projectV2193PhysicsRecords(records, sources)
 	if err == nil {
 		t.Fatal("missing PMMP friction rows were accepted")
 	}
@@ -576,20 +586,20 @@ func TestProjectV2168PhysicsFailsClosedListingEveryMissingPMMPName(t *testing.T)
 	}
 }
 
-func TestProjectV2168PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T) {
-	undercount, underSources := syntheticV2168PhysicsCorpus(v2168PhysicsReservedCount - 1)
-	if _, err := projectV2168PhysicsRecords(undercount, underSources); err == nil ||
-		!strings.Contains(err.Error(), "969") {
+func TestProjectV2193PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T) {
+	undercount, underSources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount - 1)
+	if _, err := projectV2193PhysicsRecords(undercount, underSources); err == nil ||
+		!strings.Contains(err.Error(), "662") {
 		t.Fatalf("undercount rejection = %v", err)
 	}
-	overcount, overSources := syntheticV2168PhysicsCorpus(v2168PhysicsReservedCount + 1)
-	if _, err := projectV2168PhysicsRecords(overcount, overSources); err == nil ||
-		!strings.Contains(err.Error(), "969") {
+	overcount, overSources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount + 1)
+	if _, err := projectV2193PhysicsRecords(overcount, overSources); err == nil ||
+		!strings.Contains(err.Error(), "662") {
 		t.Fatalf("overcount rejection = %v", err)
 	}
 
-	records, sources := syntheticV2168PhysicsCorpus(v2168PhysicsReservedCount)
-	physics, err := projectV2168PhysicsRecords(records, sources)
+	records, sources := syntheticV2193PhysicsCorpus(v2193PhysicsReservedCount)
+	physics, err := projectV2193PhysicsRecords(records, sources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +609,7 @@ func TestProjectV2168PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T
 		switch records[index].Name {
 		case retailReservedName:
 			reserved++
-			if !v2168PhysicsEntryStructurallyNeutral(entry) {
+			if !v2193PhysicsEntryStructurallyNeutral(entry) {
 				t.Fatalf("reserved slot %d is not neutral: %+v", index, entry)
 			}
 		case "minecraft:stone":
@@ -609,23 +619,23 @@ func TestProjectV2168PhysicsRequiresExactlyTheReviewedReservedCount(t *testing.T
 			}
 		}
 	}
-	if reserved != v2168PhysicsReservedCount || stones == 0 {
+	if reserved != v2193PhysicsReservedCount || stones == 0 {
 		t.Fatalf("neutral reserved = %d, stone witnesses = %d", reserved, stones)
 	}
 }
 
-func v2168PhysicsEntryStructurallyNeutral(entry PhysicsRecord) bool {
+func v2193PhysicsEntryStructurallyNeutral(entry PhysicsRecord) bool {
 	return entry.Flags == physicsFlagPassable && len(entry.Boxes) == 0 && entry.SurfaceResponse == SurfaceNone &&
 		entry.FluidHeightQ1E8 == 0 && entry.FrictionQ1E8 == defaultSpeedQ1E8 &&
 		entry.HorizontalSpeedQ1E8 == defaultSpeedQ1E8 && entry.VerticalSpeedQ1E8 == defaultSpeedQ1E8
 }
 
-func TestV2168PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {
-	payload, err := os.ReadFile(filepath.Join("..", "..", "assets", "block-projection-v2168.json"))
+func TestV2193PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "assets", "block-projection-v2193.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := crossCheckV2168PhysicsManifest(payload); err != nil {
+	if err := crossCheckV2193PhysicsManifest(payload); err != nil {
 		t.Fatalf("reviewed manifest was rejected: %v", err)
 	}
 
@@ -634,22 +644,22 @@ func TestV2168PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	projection := generic["projection"].(map[string]any)
-	projection["denied_count"] = 968
+	projection["denied_count"] = 661
 	mutated, err := json.Marshal(generic)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := crossCheckV2168PhysicsManifest(mutated); err == nil || !strings.Contains(err.Error(), "969") {
+	if err := crossCheckV2193PhysicsManifest(mutated); err == nil || !strings.Contains(err.Error(), "662") {
 		t.Fatalf("drifted denial count rejection = %v", err)
 	}
 
-	projection["denied_count"] = float64(v2168PhysicsReservedCount)
+	projection["denied_count"] = float64(v2193PhysicsReservedCount)
 	generic["output"].(map[string]any)["sha256"] = "0000000000000000000000000000000000000000000000000000000000000000"
 	rebound, err := json.Marshal(generic)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := crossCheckV2168PhysicsManifest(rebound); err == nil || !strings.Contains(err.Error(), "BREG") {
+	if err := crossCheckV2193PhysicsManifest(rebound); err == nil || !strings.Contains(err.Error(), "BREG") {
 		t.Fatalf("drifted BREG binding rejection = %v", err)
 	}
 }

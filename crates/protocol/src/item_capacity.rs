@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_40.tsv");
+const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_50.tsv");
 static CAPACITIES: OnceLock<Box<[(&'static str, u8)]>> = OnceLock::new();
 
 /// Returns the measured vanilla capacity for a bare retail item at metadata zero.
@@ -40,8 +40,8 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::collections::BTreeSet;
 
-    const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_40.tsv");
-    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_40.tsv");
+    const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_50.tsv");
+    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_50.tsv");
 
     #[test]
     fn returns_measured_retail_capacities_for_bare_items() {
