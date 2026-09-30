@@ -41,6 +41,7 @@ mod item_sprite;
 mod item_viewmodel;
 mod menu;
 mod menu_artwork;
+mod menu_scroll;
 mod nametags;
 mod player_preview;
 mod primitives;
@@ -166,6 +167,7 @@ pub struct UiPresentationRuntime {
     logged_hotbar: [Option<(Arc<str>, bool)>; 9],
     menu_view: Option<MenuView>,
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
+    menu_scrolls: menu_scroll::MenuScrolls,
     form_presentation: forms::FormPresentation,
     /// Window-space rect of the sign editor's Done button in the last build.
     loading_stage: Option<LoadingStage>,
@@ -258,6 +260,7 @@ impl UiPresentationRuntime {
             logged_hotbar: Default::default(),
             menu_view: None,
             menu_hit_targets: Vec::new(),
+            menu_scrolls: Default::default(),
             form_presentation: forms::FormPresentation::default(),
             loading_stage: None,
             startup: StartupPresentationState::default(),
