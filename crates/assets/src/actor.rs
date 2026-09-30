@@ -9,8 +9,10 @@ pub use eligibility::neutral_actor_geometry_uvs_are_supported;
 
 pub const ACTOR_CARRIER_MAGIC: [u8; 8] = *b"MCBEACT3";
 pub const ACTOR_CARRIER_VERSION: u32 = 3;
+/// Largest 2D texture Bedrock's D3D11 and Metal targets create; vanilla bounds entity textures
+/// only by the device, so tall flipbooks load whole.
+pub const MAX_ACTOR_TEXTURE_SIDE: u16 = 16_384;
 // Engine safety ceilings, not retail constants.
-pub const MAX_ACTOR_TEXTURE_SIDE: u16 = 512;
 pub const MAX_ACTOR_TEXTURES: usize = 2048;
 pub const MAX_ACTOR_BINDINGS: usize = 4096;
 pub const MAX_ACTOR_PIXEL_BYTES: usize = 32 * 1024 * 1024;
