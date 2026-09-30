@@ -410,6 +410,51 @@ impl WorldStream {
             self.in_flight.remove(&completion.key);
             self.urgent_mesh_in_flight.remove(&completion.key);
         }
+        if let Some(denied) = self.publish_mesh_completion(completion) {
+            self.stage_denied_mesh_completion(denied);
+        }
+    }
+    /// Retries completions that were denied a publication permit, in arrival order.
+    pub(in crate::stream) fn retry_staged_mesh_completions(&mut self) {
+        let staged = std::mem::take(&mut self.staged_mesh_completions);
+        self.staged_mesh_bytes = 0;
+        let mut staged = staged.into_iter();
+        while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES {
+            let Some(completion) = staged.next() else {
+                return;
+            };
+            if let Some(denied) = self.publish_mesh_completion(completion) {
+                self.stage_denied_mesh_completion(denied);
+                break;
+            }
+        }
+        for completion in staged {
+            self.stage_denied_mesh_completion(completion);
+        }
+    }
+    /// Keeps a current mesh for a later permit instead of meshing it again;
+    /// past the staging bound it falls back to rescheduling.
+    fn stage_denied_mesh_completion(&mut self, completion: MeshCompletion) {
+        let bytes = chunk_publication_byte_len(&completion.mesh, &completion.biome);
+        if self.staged_mesh_completions.len() >= MAX_STAGED_MESH_COMPLETIONS
+            || self.staged_mesh_bytes.saturating_add(bytes) > MAX_STAGED_MESH_BYTES
+        {
+            self.requeue_current_mesh_completion(
+                completion.key,
+                completion.revision,
+                completion.urgent,
+            );
+            return;
+        }
+        self.staged_mesh_bytes += bytes;
+        if completion.urgent {
+            self.staged_mesh_completions.push_front(completion);
+        } else {
+            self.staged_mesh_completions.push_back(completion);
+        }
+    }
+    /// Publishes a current completion; returns it when no permit is available.
+    fn publish_mesh_completion(&mut self, completion: MeshCompletion) -> Option<MeshCompletion> {
         let source_is_current = self
             .store
             .sub_chunk(completion.key)
@@ -436,7 +481,7 @@ impl WorldStream {
                 completion.revision,
                 completion.urgent,
             );
-            return;
+            return None;
         }
         self.stats.max_mesh_duration = self.stats.max_mesh_duration.max(completion.duration);
         self.stats.last_mesh_completion_at = Some(Instant::now());
@@ -449,23 +494,13 @@ impl WorldStream {
             Some(allowance) if publication_bytes == 0 => {
                 let Some(permit) = allowance.try_admit_zero_byte_with_priority(completion.urgent)
                 else {
-                    self.requeue_current_mesh_completion(
-                        completion.key,
-                        completion.revision,
-                        completion.urgent,
-                    );
-                    return;
+                    return Some(completion);
                 };
                 Some(permit)
             }
             Some(allowance) => {
                 let Some(permit) = allowance.try_admit_payload(publication_bytes) else {
-                    self.requeue_current_mesh_completion(
-                        completion.key,
-                        completion.revision,
-                        completion.urgent,
-                    );
-                    return;
+                    return Some(completion);
                 };
                 Some(permit)
             }
@@ -501,5 +536,6 @@ impl WorldStream {
             .phase2_stages
             .mesh_changes_queued
             .saturating_add(1);
+        None
     }
 }
