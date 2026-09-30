@@ -39,6 +39,11 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
     }
 }
 
+const STILL: TickMotion = TickMotion {
+    on_ground: true,
+    moved: 0.0,
+};
+
 fn kinds(payload: &SurvivalTickPayload) -> Vec<(protocol::BlockActionKind, [i32; 3], u8)> {
     payload
         .actions
@@ -52,7 +57,7 @@ fn held(
     target: &DestroyTarget,
     authority: BlockBreakingAuthority,
 ) -> SurvivalTickPayload {
-    machine.step(DestroyInput::Held(Some(target)), true, authority)
+    machine.step(DestroyInput::Held(Some(target)), STILL, authority)
 }
 
 /// Held ticks after the start tick until completion, from the documented per-tick rate.
@@ -170,12 +175,12 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
     }
     // 75 ticks of 1/150 per tick is half the block.
     assert_eq!(
-        kinds(&machine.step(DestroyInput::Released, true, Server)),
+        kinds(&machine.step(DestroyInput::Released, STILL, Server)),
         [(AbortDestroy, [0, 0, 1], 50)]
     );
     assert!(
         machine
-            .step(DestroyInput::Released, true, Server)
+            .step(DestroyInput::Released, STILL, Server)
             .is_empty()
     );
     assert_eq!(
@@ -183,7 +188,7 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
         [(StartDestroy, [0, 0, 0], 1)]
     );
     assert_eq!(
-        kinds(&machine.step(DestroyInput::Held(None), true, Server)),
+        kinds(&machine.step(DestroyInput::Held(None), STILL, Server)),
         [(AbortDestroy, [0, 0, 0], 0)]
     );
 }
@@ -351,7 +356,7 @@ fn interruption_aborts_on_the_next_step_only() {
 
 /// Creative completes on the start tick through the negotiated authority's actions only.
 #[test]
-fn an_instant_destroy_uses_the_negotiated_completion_and_one_break_per_press() {
+fn an_instant_destroy_uses_the_negotiated_completion() {
     let stone = DestroyTarget {
         instant: true,
         ..target([3, 4, 5], "minecraft:obsidian", None)
@@ -373,13 +378,73 @@ fn an_instant_destroy_uses_the_negotiated_completion_and_one_break_per_press() {
         [(StartDestroy, [3, 4, 5], 1), (StopDestroy, [0, 0, 0], 0)]
     );
     assert!(client.destroy.is_some());
-    for _ in 0..20 {
-        assert!(held(&mut machine, &stone, Client).is_empty());
-    }
     assert_eq!(
-        kinds(&machine.step(DestroyInput::Released, true, Client)),
+        kinds(&machine.step(DestroyInput::Released, STILL, Client)),
         [(AbortDestroy, [3, 4, 5], 0)]
     );
+}
+
+/// Holding attack in Creative keeps destroying: after the delay when still,
+/// per block travelled when moving.
+#[test]
+fn a_held_instant_destroy_repeats_after_the_delay_or_per_block_travelled() {
+    let instant = |position| DestroyTarget {
+        instant: true,
+        ..target(position, "minecraft:stone", None)
+    };
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, &instant([0, 0, 0]), Server);
+    let next = instant([0, -1, 0]);
+    for _ in 0..DESTROY_DELAY_TICKS {
+        assert!(held(&mut machine, &next, Server).is_empty());
+    }
+    assert_eq!(
+        kinds(&held(&mut machine, &next, Server)),
+        [
+            (ContinueDestroy, [0, -1, 0], 1),
+            (PredictDestroy, [0, -1, 0], 1)
+        ]
+    );
+    // Flying at 6 blocks/s ignores the delay and destroys past each travelled block.
+    let flying = TickMotion {
+        on_ground: false,
+        moved: 0.3,
+    };
+    let ahead = instant([0, -2, 0]);
+    let steps = (0..4)
+        .map(|_| {
+            !machine
+                .step(DestroyInput::Held(Some(&ahead)), flying, Server)
+                .is_empty()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(steps, [false, false, false, true]);
+    assert!(
+        (machine.travel - 0.2).abs() < 1e-5,
+        "the fraction carries over"
+    );
+}
+
+/// stopDestroyBlock clears the delay, so a fresh press starts at once.
+#[test]
+fn release_clears_the_destroy_delay() {
+    let torch = target([1, 1, 1], "minecraft:torch", None);
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, &torch, Server);
+    machine.step(DestroyInput::Released, STILL, Server);
+    assert_eq!(
+        kinds(&held(&mut machine, &torch, Server)),
+        [(StartDestroy, [1, 1, 1], 1), (PredictDestroy, [1, 1, 1], 1)]
+    );
+}
+
+#[test]
+fn swords_and_the_trident_cannot_destroy_in_creative() {
+    assert!(!destroys_in_creative(Some("minecraft:diamond_sword")));
+    assert!(!destroys_in_creative(Some("minecraft:trident")));
+    assert!(destroys_in_creative(Some("minecraft:diamond_pickaxe")));
+    assert!(destroys_in_creative(Some("minecraft:stick")));
+    assert!(destroys_in_creative(None));
 }
 
 pub(crate) fn completed(tick: u64) -> PhysicsMovementSample {

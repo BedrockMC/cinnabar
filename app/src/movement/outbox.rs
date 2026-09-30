@@ -221,12 +221,27 @@ impl MovementTicker {
             && !self.has_unresolved_position_authority_change()
     }
 
-    /// Unsent ticks newer than `after`, oldest first, with their post-tick ground state.
-    pub(crate) fn unstepped_interaction_ticks(&self, after: Option<u64>) -> Vec<(u64, bool)> {
+    /// Unsent ticks newer than `after`, oldest first, with their post-tick motion.
+    pub(crate) fn unstepped_interaction_ticks(
+        &self,
+        after: Option<u64>,
+    ) -> Vec<(u64, crate::survival_mining::TickMotion)> {
         self.outbox
             .iter()
             .filter(|sample| after.is_none_or(|after| sample.snapshot.tick > after))
-            .map(|sample| (sample.snapshot.tick, sample.evidence.grounded_after_tick))
+            .map(|sample| {
+                let moved = sample
+                    .snapshot
+                    .delta
+                    .iter()
+                    .map(|axis| axis * axis)
+                    .sum::<f32>();
+                let motion = crate::survival_mining::TickMotion {
+                    on_ground: sample.evidence.grounded_after_tick,
+                    moved: if moved.is_finite() { moved.sqrt() } else { 0.0 },
+                };
+                (sample.snapshot.tick, motion)
+            })
             .collect()
     }
 
