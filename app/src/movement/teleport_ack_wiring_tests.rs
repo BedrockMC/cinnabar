@@ -95,8 +95,8 @@ fn authorized_ticker(enabled: bool) -> MovementTicker {
 }
 
 fn fixture_registries() -> PhysicsCollisionRegistries {
-    let breg = include_bytes!("../../../crates/assets/data/block-registry-v2168.bin");
-    let records = read_registry_for_protocol(breg, 2168).expect("checked-in protocol-2168 BREG");
+    let breg = include_bytes!("../../../crates/assets/data/block-registry-v2193.bin");
+    let records = read_registry_for_protocol(breg, 2193).expect("checked-in protocol-2193 BREG");
     let preg = synthetic_preg(breg, &records);
     PhysicsCollisionRegistries::from_assets(
         breg,

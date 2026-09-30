@@ -193,7 +193,7 @@ fn composed_app() -> (bevy::prelude::App, rodio::dynamic_mixer::DynamicMixer<f32
     }));
     let collisions = PhysicsCollisionRegistries::bind_coherent_assets(
         crate::asset_startup::pinned_block_registry_bytes(),
-        include_bytes!("../../../../crates/assets/data/block-physics-v2168.bin"),
+        include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin"),
         std::path::Path::new("fixture.preg"),
         std::path::Path::new("fixture.mcbea"),
         crate::asset_startup::active_content_registry_protocol(),
