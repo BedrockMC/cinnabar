@@ -1,7 +1,8 @@
 //! The play route's Servers tab (classic layout): the side menu in four of
 //! twelve columns (Add server, featured experiences then other servers) and
-//! the selected experience's details in eight (10:3 banner with ping and
-//! players, name with the hero Play button, description, activities, news).
+//! the selected server's details in eight (10:3 banner with ping and players,
+//! name with the hero Play button, then description, activities and news for
+//! an experience, or edit and remove for a saved server).
 
 use std::collections::HashMap;
 
@@ -48,11 +49,12 @@ pub(super) fn draw(
         y,
     )?;
     let item_height = canvas.r(4.8);
+    let selection = selection(view, featured.len());
     for (index, server) in featured.iter().enumerate() {
         if y + item_height > body[3] {
             break;
         }
-        let selected = view.feeds.selected_featured == Some(index);
+        let selected = selection == Some(Selection::Featured(index));
         let bounds = [
             menu_left + canvas.r(0.2),
             y,
@@ -117,8 +119,8 @@ pub(super) fn draw(
             canvas,
             view,
             bounds,
-            false,
-            Some(MenuAction::PlaySaved(index)),
+            selection == Some(Selection::Saved(index)),
+            Some(MenuAction::SelectSaved(index)),
         )?;
         let text_width = bounds[2] - bounds[0] - pad * 2.0;
         canvas.text(
@@ -141,20 +143,134 @@ pub(super) fn draw(
     }
 
     let [left, right] = grid.span(details_span.0, details_span.1);
-    let Some(index) = view
-        .feeds
-        .selected_featured
-        .filter(|index| *index < featured.len())
-    else {
-        return Ok(());
-    };
-    details(
+    let panel = [left, body[1], right, body[3]];
+    match selection {
+        Some(Selection::Featured(index)) => {
+            details(canvas, view, featured[index], index, panel, images)
+        }
+        Some(Selection::Saved(index)) => saved_details(canvas, view, index, panel),
+        None => Ok(()),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Selection {
+    Featured(usize),
+    Saved(usize),
+}
+
+/// The picked server, else the first experience, else the first saved server.
+fn selection(view: &MenuView, featured: usize) -> Option<Selection> {
+    let saved = view.servers.len();
+    match (view.feeds.selected_saved, view.feeds.selected_featured) {
+        (Some(index), _) if index < saved => Some(Selection::Saved(index)),
+        (_, Some(index)) if index < featured => Some(Selection::Featured(index)),
+        _ if featured > 0 => Some(Selection::Featured(0)),
+        _ if saved > 0 => Some(Selection::Saved(0)),
+        _ => None,
+    }
+}
+
+/// The banner's bottom strip: ping on the left, players on the right.
+fn ping_strip(
+    canvas: &mut Canvas<'_>,
+    banner: Bounds,
+    ping: Option<&PingInfo>,
+) -> Result<(), UiPresentationError> {
+    let overlay = [banner[0], banner[3] - canvas.r(6.0), banner[2], banner[3]];
+    canvas.fill(overlay, [0, 0, 0, 179])?;
+    let pad = canvas.r(2.4);
+    let line_top = overlay[1] + (overlay[3] - overlay[1] - canvas.r(BODY.line)) * 0.5;
+    canvas.text(
+        ping_label(ping),
+        [overlay[0] + pad, line_top],
+        (overlay[2] - overlay[0]) * 0.5,
+        BODY,
+        TEXT_DIMMER,
+        false,
+    )?;
+    if let Some(ping) = ping.filter(|ping| ping.online) {
+        let players = format!("{}/{}", ping.players, ping.max_players);
+        let width = canvas.measure(&players, BODY)?;
+        canvas.text(
+            &players,
+            [overlay[2] - pad - width, line_top],
+            width + 1.0,
+            BODY,
+            TEXT_DIMMER,
+            false,
+        )?;
+    }
+    Ok(())
+}
+
+/// A saved server: ping and players, name and address, Play, Edit and Remove.
+fn saved_details(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    index: usize,
+    b: Bounds,
+) -> Result<(), UiPresentationError> {
+    let server = &view.servers[index];
+    let edge = canvas.r(0.2);
+    canvas.fill(b, NEUTRAL80.fill)?;
+    canvas.frame(b, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
+    let inner = [b[0] + edge, b[1] + edge, b[2] - edge, b[3]];
+    let banner = [
+        inner[0],
+        inner[1],
+        inner[2],
+        inner[1] + (inner[2] - inner[0]) * 0.3,
+    ];
+    canvas.fill(banner, NEUTRAL100)?;
+    ping_strip(canvas, banner, view.feeds.pings.get(&server.address))?;
+    let pad = canvas.r(2.4);
+    let mut y = banner[3] + space(canvas, 3);
+    let play_width = canvas.r(32.0).min((inner[2] - inner[0]) * 0.45);
+    let play_height = canvas.r(4.4);
+    let text_width = inner[2] - inner[0] - pad * 3.0 - play_width;
+    canvas.text(
+        &server.name,
+        [inner[0] + pad, y],
+        text_width,
+        BODY,
+        TEXT,
+        false,
+    )?;
+    canvas.text(
+        &server.address,
+        [inner[0] + pad, y + canvas.r(2.4)],
+        text_width,
+        CAPTION,
+        TEXT_DIMMER,
+        false,
+    )?;
+    let play_left = inner[2] - pad - play_width;
+    button(
         canvas,
         view,
-        featured[index],
-        index,
-        [left, body[1], right, body[3]],
-        images,
+        [play_left, y, inner[2] - pad, y + play_height],
+        Variant::Hero,
+        "Play",
+        Some(MenuAction::PlaySaved(index)),
+    )?;
+    y += play_height + space(canvas, 2);
+    let half = (play_width - space(canvas, 2)) * 0.5;
+    button(
+        canvas,
+        view,
+        [play_left, y, play_left + half, y + play_height],
+        Variant::Secondary,
+        "Edit",
+        Some(MenuAction::EditSaved(index)),
+    )?;
+    button(
+        canvas,
+        view,
+        [inner[2] - pad - half, y, inner[2] - pad, y + play_height],
+        Variant::Secondary,
+        "Remove",
+        Some(MenuAction::RemoveSavedDialog(index)),
     )
 }
 
@@ -186,31 +302,8 @@ fn details(
         Some(icon) => canvas.icon_ref(*icon, banner)?,
         None => canvas.fill(banner, NEUTRAL100)?,
     }
-    let ping = view.feeds.pings.get(&server.address);
-    let overlay = [banner[0], banner[3] - canvas.r(6.0), banner[2], banner[3]];
-    canvas.fill(overlay, [0, 0, 0, 179])?;
+    ping_strip(canvas, banner, view.feeds.pings.get(&server.address))?;
     let pad = canvas.r(2.4);
-    let line_top = overlay[1] + (overlay[3] - overlay[1] - canvas.r(BODY.line)) * 0.5;
-    canvas.text(
-        ping_label(ping),
-        [overlay[0] + pad, line_top],
-        (overlay[2] - overlay[0]) * 0.5,
-        BODY,
-        TEXT_DIMMER,
-        false,
-    )?;
-    if let Some(ping) = ping.filter(|ping| ping.online) {
-        let players = format!("{}/{}", ping.players, ping.max_players);
-        let width = canvas.measure(&players, BODY)?;
-        canvas.text(
-            &players,
-            [overlay[2] - pad - width, line_top],
-            width + 1.0,
-            BODY,
-            TEXT_DIMMER,
-            false,
-        )?;
-    }
     // Name row with the hero Play button.
     let mut y = banner[3] + space(canvas, 3);
     let play_width = canvas.r(32.0).min((inner[2] - inner[0]) * 0.45);
@@ -327,6 +420,23 @@ fn ping_label(ping: Option<&PingInfo>) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_experience_shows_until_a_server_is_picked() {
+        let mut view = crate::menu::MenuRuntime::new(true, 2, "Steve".to_owned()).view();
+        view.servers = vec![crate::menu::SavedServer {
+            name: "Home".to_owned(),
+            address: "127.0.0.1:19132".to_owned(),
+            favorite: false,
+            last_joined_unix: 0,
+        }];
+        assert_eq!(selection(&view, 0), Some(Selection::Saved(0)));
+        assert_eq!(selection(&view, 2), Some(Selection::Featured(0)));
+        view.feeds.select_saved(0);
+        assert_eq!(selection(&view, 2), Some(Selection::Saved(0)));
+        view.feeds.select(1);
+        assert_eq!(selection(&view, 2), Some(Selection::Featured(1)));
+    }
 
     #[test]
     fn ping_labels_follow_the_round_trip() {
