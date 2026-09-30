@@ -34,6 +34,7 @@ pub(crate) fn drive_sign_editor(
     mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntime>,
     mut owned_last_frame: Local<bool>,
+    collisions: Option<Res<crate::movement::PhysicsCollisionRegistries>>,
 ) {
     let (window, mut cursor) = window.into_inner();
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
@@ -47,6 +48,14 @@ pub(crate) fn drive_sign_editor(
         && let Some(request) = stream.take_pending_sign_edit()
     {
         let [x, y, z] = request.position;
+        let block = collisions.as_deref().and_then(|collisions| {
+            let key = world::BlockEntityKey::new(stream.current_dimension(), x, y, z);
+            let runtime_id = stream
+                .collision_store()
+                .sub_chunk(key.sub_chunk())?
+                .runtime_id(0, (x & 15) as u8, (y & 15) as u8, (z & 15) as u8)?;
+            collisions.block_identifier(stream.network_id_mode(), runtime_id)
+        });
         let base = stream
             .collision_store()
             .block_entity(world::BlockEntityKey::new(
@@ -61,7 +70,7 @@ pub(crate) fn drive_sign_editor(
         keyboard.clear();
         runtime
             .sign_editor_mut()
-            .open(SignEdit::new(request.position, request.front, base));
+            .open(SignEdit::new(request.position, request.front, base).with_block(block));
     }
     if !runtime.sign_editor().is_open() {
         keyboard.clear();
@@ -114,9 +123,7 @@ pub(crate) fn drive_sign_editor(
             && let Some(point) = window
                 .cursor_position()
                 .and_then(|point| ui::UiPoint::new(point.x, point.y).ok())
-            && presentation
-                .sign_editor_done_hit()
-                .is_some_and(|done| done.contains(point))
+            && presentation.sign_editor_exit_hit(point)
         {
             finish = true;
         }
