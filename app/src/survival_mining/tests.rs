@@ -229,36 +229,53 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
     );
 }
 
+/// Only zero hardness breaks on the start tick (`GameMode::startDestroyBlock`);
+/// a block with hardness breaks on the first continued tick however fast.
 #[test]
-fn a_rate_at_the_threshold_breaks_on_the_start_tick_and_then_delays() {
-    // Zero hardness, and a hoe on leaves at twice the needed rate.
-    for (block, tool) in [
-        ("minecraft:torch", None),
-        ("minecraft:oak_leaves", Some("minecraft:golden_hoe")),
-    ] {
-        let instant = target([2, 2, 2], block, tool);
-        let mut machine = DestroyMachine::default();
-        assert_eq!(
-            kinds(&held(&mut machine, &instant, Server)),
-            [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)],
-            "{block}"
-        );
-        let next = target([2, 1, 2], block, tool);
-        for _ in 0..DESTROY_DELAY_TICKS {
-            assert!(held(&mut machine, &next, Server).is_empty());
-        }
-        assert!(!held(&mut machine, &next, Server).is_empty());
+fn only_zero_hardness_breaks_on_the_start_tick() {
+    let torch = target([2, 2, 2], "minecraft:torch", None);
+    let mut machine = DestroyMachine::default();
+    assert_eq!(
+        kinds(&held(&mut machine, &torch, Server)),
+        [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)]
+    );
+    let next = target([2, 1, 2], "minecraft:torch", None);
+    for _ in 0..DESTROY_DELAY_TICKS {
+        assert!(held(&mut machine, &next, Server).is_empty());
     }
+    assert!(!held(&mut machine, &next, Server).is_empty());
+    // A hoe on leaves is twice the needed rate, yet still waits one tick.
     let leaves = target(
         [2, 2, 2],
         "minecraft:oak_leaves",
         Some("minecraft:golden_hoe"),
     );
-    let done = held(&mut DestroyMachine::default(), &leaves, Client);
+    let mut machine = DestroyMachine::default();
     assert_eq!(
-        kinds(&done),
-        [(StartDestroy, [2, 2, 2], 1), (StopDestroy, [0, 0, 0], 0)]
+        kinds(&held(&mut machine, &leaves, Server)),
+        [(StartDestroy, [2, 2, 2], 1)]
     );
+    assert_eq!(
+        kinds(&held(&mut machine, &leaves, Server)),
+        [
+            (ContinueDestroy, [2, 2, 2], 1),
+            (PredictDestroy, [2, 2, 2], 1)
+        ]
+    );
+    // A rate of at least one skips the post-break delay.
+    let below = target(
+        [2, 1, 2],
+        "minecraft:oak_leaves",
+        Some("minecraft:golden_hoe"),
+    );
+    assert_eq!(
+        kinds(&held(&mut machine, &below, Server)),
+        [(ContinueDestroy, [2, 1, 2], 1)]
+    );
+    let mut client = DestroyMachine::default();
+    held(&mut client, &leaves, Client);
+    let done = held(&mut client, &leaves, Client);
+    assert_eq!(kinds(&done), [(StopDestroy, [0, 0, 0], 0)]);
     assert!(done.destroy.is_some());
 }
 
@@ -287,7 +304,7 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         held(&mut DestroyMachine::default(), &torch, Server).wear,
         None
     );
-    // An instant start-tick break of a block with hardness still wears.
+    // A one-tick break of a block with hardness still wears.
     let leaves = DestroyTarget {
         conditions: DestroyConditions {
             tool: HeldTool::from_identifier("minecraft:golden_hoe"),
@@ -295,10 +312,9 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         },
         ..worn("minecraft:oak_leaves")
     };
-    assert_eq!(
-        held(&mut DestroyMachine::default(), &leaves, Server).wear,
-        Some((2, 6, -1))
-    );
+    let mut quick = DestroyMachine::default();
+    held(&mut quick, &leaves, Server);
+    assert_eq!(held(&mut quick, &leaves, Server).wear, Some((2, 6, -1)));
     let mut client = DestroyMachine::default();
     held(&mut client, &dirt, Client);
     for _ in 0..20 {
