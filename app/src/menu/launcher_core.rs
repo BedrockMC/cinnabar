@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn the_launcher_core_serves_control_and_signs_in_only_when_validated() {
-        let layout = InstallLayout::discover().expect("development layout");
+        let layout = InstallLayout::scratch("launcher-args");
         let args = |auth: Option<&Path>| -> Vec<String> {
             launcher_command(
                 &layout,
