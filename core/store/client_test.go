@@ -467,3 +467,27 @@ func TestEntitlementsRefreshAsksTheServiceFirst(t *testing.T) {
 		t.Fatalf("a cached read refreshed: %d err=%v", refreshes.Load(), err)
 	}
 }
+
+// A path or redirect that changes the origin must never carry the service token off-host.
+func TestTokenNeverLeavesTheServiceOrigin(t *testing.T) {
+	var leaked atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked.Add(1)
+	}))
+	t.Cleanup(other.Close)
+	otherURL, _ := url.Parse(other.URL)
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
+	}, nil)
+	for _, path := range []string{"//" + otherURL.Host + "/steal", "https://" + otherURL.Host + "/steal", "http://" + otherURL.Host + "/steal", "//user@" + otherURL.Host} {
+		if _, err := client.do(context.Background(), http.MethodGet, path, nil); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("%q err = %v", path, err)
+		}
+	}
+	if _, err := client.do(context.Background(), http.MethodGet, pathBalances, nil); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("cross-origin redirect err = %v", err)
+	}
+	if leaked.Load() != 0 {
+		t.Fatalf("other origin received %d requests", leaked.Load())
+	}
+}
