@@ -170,6 +170,8 @@ impl WorldStream {
             mesh_scheduler_camera_cell: None,
             in_flight: HashMap::new(),
             urgent_mesh_in_flight: HashSet::new(),
+            staged_mesh_completions: VecDeque::new(),
+            staged_mesh_bytes: 0,
             resident: BTreeSet::new(),
             known_air: BTreeSet::new(),
             loaded_columns: BTreeSet::new(),

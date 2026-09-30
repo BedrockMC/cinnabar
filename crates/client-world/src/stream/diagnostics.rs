@@ -234,6 +234,7 @@ impl WorldStream {
                 && self.light_rx.is_empty()
                 && self.pending_mesh.is_empty()
                 && self.in_flight.is_empty()
+                && self.staged_mesh_completions.is_empty()
                 && self.mesh_rx.is_empty()
                 && self.mesh_changes.is_empty()
                 && self.revisions.entries.is_empty(),
