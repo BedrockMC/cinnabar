@@ -5,8 +5,8 @@ use std::{fs, path::Path};
 use asset_compiler::{FontCompileError, compile_fonts};
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 
-const PINNED_SOURCE_SHA256: &str =
-    "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6";
+// Fixture descriptors carry this token; `fixture_pack` substitutes the pinned manifest digest.
+const PINNED_SOURCE_SHA256: &str = "PINNED_SOURCE_SHA256";
 
 #[test]
 fn font_carrier_is_deterministic_and_bounded() {
@@ -40,7 +40,7 @@ fn malformed_metrics_and_oversized_pages_fail_closed() {
     let malformed = fixture_pack(
         r#"{
             "schema": 1,
-            "source_manifest_sha256": "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6",
+            "source_manifest_sha256": "PINNED_SOURCE_SHA256",
             "pages": [{"source": "font/default8.png"}],
             "glyphs": [{
                 "codepoint": 65,
@@ -79,7 +79,7 @@ fn duplicate_semantic_glyphs_and_wrong_provenance_fail_closed() {
     let duplicate = fixture_pack(
         r#"{
             "schema": 1,
-            "source_manifest_sha256": "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6",
+            "source_manifest_sha256": "PINNED_SOURCE_SHA256",
             "pages": [
                 {"source": "font/default8.png"},
                 {"source": "font/glyph_00.png"}
@@ -98,7 +98,7 @@ fn duplicate_semantic_glyphs_and_wrong_provenance_fail_closed() {
 
     let wrong_provenance = fixture_pack(
         &descriptor_for_single_page("font/default8.png", 65)
-            .replace(PINNED_SOURCE_SHA256, &"00".repeat(32)),
+            .replace(&pinned_source_sha256(), &"00".repeat(32)),
         &[("font/default8.png", 16, 16)],
     );
     assert!(matches!(
@@ -113,7 +113,7 @@ fn glyph_and_page_order_do_not_change_carrier_bytes() {
     let reversed = fixture_pack(
         r#"{
             "schema": 1,
-            "source_manifest_sha256": "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6",
+            "source_manifest_sha256": "PINNED_SOURCE_SHA256",
             "pages": [
                 {"source": "font/glyph_01.png"},
                 {"source": "font/default8.png"}
@@ -172,7 +172,7 @@ fn fixture_pack_with_ascii_and_unicode_pages() -> tempfile::TempDir {
     fixture_pack(
         r#"{
             "schema": 1,
-            "source_manifest_sha256": "c6d5f56b942d703a7acd1f83b2cddb7633069e13412ad5a1c3beae666e2ec6f6",
+            "source_manifest_sha256": "PINNED_SOURCE_SHA256",
             "pages": [
                 {"source": "font/default8.png"},
                 {"source": "font/glyph_01.png"}
@@ -186,11 +186,19 @@ fn fixture_pack_with_ascii_and_unicode_pages() -> tempfile::TempDir {
     )
 }
 
+fn pinned_source_sha256() -> String {
+    assets::vanilla_source_manifest_sha256()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn descriptor_for_single_page(path: &str, codepoint: u32) -> String {
+    let pinned = pinned_source_sha256();
     format!(
         r#"{{
             "schema": 1,
-            "source_manifest_sha256": "{PINNED_SOURCE_SHA256}",
+            "source_manifest_sha256": "{pinned}",
             "pages": [{{"source": "{path}"}}],
             "glyphs": [{{"codepoint": {codepoint}, "page": "{path}", "uv": [0,0,1,1], "bearing": [0,0], "advance": 1}}]
         }}"#
@@ -200,7 +208,11 @@ fn descriptor_for_single_page(path: &str, codepoint: u32) -> String {
 fn fixture_pack(descriptor: &str, pages: &[(&str, u32, u32)]) -> tempfile::TempDir {
     let directory = tempfile::tempdir().unwrap();
     fs::create_dir(directory.path().join("font")).unwrap();
-    fs::write(directory.path().join("font/catalog.json"), descriptor).unwrap();
+    fs::write(
+        directory.path().join("font/catalog.json"),
+        descriptor.replace(PINNED_SOURCE_SHA256, &pinned_source_sha256()),
+    )
+    .unwrap();
     for (relative, width, height) in pages {
         write_png(&directory.path().join(relative), *width, *height);
     }

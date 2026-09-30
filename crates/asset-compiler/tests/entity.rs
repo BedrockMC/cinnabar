@@ -82,7 +82,7 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
         first
             .sources
             .iter()
-            .any(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.40.json")
+            .any(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.50.json")
     );
     assert_eq!(first.geometries.len(), 1);
     let geometry = &first.geometries[0];
@@ -734,9 +734,9 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     let binding_source = decoded
         .sources()
         .iter()
-        .find(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.40.json")
+        .find(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.50.json")
         .expect("default sprite binding provenance source");
-    let binding_bytes = include_bytes!("../../assets/data/default-sprite-bindings-1.26.40.json");
+    let binding_bytes = include_bytes!("../../assets/data/default-sprite-bindings-1.26.50.json");
     assert_eq!(binding_source.source_bytes as usize, binding_bytes.len());
     assert_eq!(
         binding_source.source_sha256,

@@ -21,11 +21,11 @@ $ErrorActionPreference = "Stop"
 #
 # PROVISIONAL-UNLESS-MEASURED: these constants carry explicit headroom over
 # the pinned pack inventory measured locally from the exact pinned
-# bedrock-samples v1.26.30.32-preview-full artifact (payload stays outside
-# git): 21,493 entries (620 directory + 20,873 file), 297,074,336 bytes
-# total expanded, largest single file 3,460,610 bytes, largest legitimate
+# bedrock-samples v1.26.50.4-full artifact (payload stays outside
+# git): 22,859 entries (605 directory + 22,254 file), 319,437,100 bytes
+# total expanded, largest single file 3,746,670 bytes, largest legitimate
 # per-entry compression ratio about 120.5 (a .tga texture), aggregate
-# compression ratio 1.99. Raise a bound only after re-measuring a newer
+# compression ratio 1.95. Raise a bound only after re-measuring a newer
 # pinned inventory; never loosen them to admit an unmeasured archive.
 # ---------------------------------------------------------------------------
 $script:DefaultMaxArchiveEntries = [long]65536

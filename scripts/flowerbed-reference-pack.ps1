@@ -7,8 +7,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$PinnedAssetSourceTag = 'v1.26.30.32-preview'
-$PinnedAssetSourceSha256 = '12d5cddc03acd507e9e0bd412f2e94d34d0a1a855758af7a9eef61b03630ad7c'
+$PinnedAssetSource = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '..\assets\vanilla-source.json') | ConvertFrom-Json
+$PinnedAssetSourceTag = [string]$PinnedAssetSource.tag
+$PinnedAssetSourceSha256 = [string]$PinnedAssetSource.sha256
 
 function Test-PathWithin([string]$Candidate, [string]$Parent) {
     $candidateFull = [IO.Path]::GetFullPath($Candidate).TrimEnd('\')
@@ -86,9 +87,9 @@ foreach ($relative in $relativeFiles) {
     Assert-NoReparsePath -Path $sourcePath -StopAt $inputFull -Label "source file $relative"
 }
 $defaultPinnedHashes = [ordered]@{
-    'manifest.json' = 'c683c2e530b73353013a8cf44cd479fe2fdaac3bb72a4cc33d945bec4dfc2496'
-    'blocks.json' = 'a53c486ba078d5824ae9694bb5ad360d8b64645b935c903cf8b4e410c75c1592'
-    'textures/terrain_texture.json' = 'fe8c2199f6b21c095f5f4612ea183f0ab358c74d6ba5580f3c1cabe00fc29329'
+    'manifest.json' = '34b9043f027114001feb6e5fa010c98c3899507ef59acce583ef196ec59e0b59'
+    'blocks.json' = '59267aa7553d7fea1ba2bccf46b540ba72d54ba8a0c2e18733cfb8bbbf1682cf'
+    'textures/terrain_texture.json' = '623b5a67fa1c1f50972db86607492b629c0b3ce9d7f886e1f569a4d820d91e95'
     'textures/blocks/wildflowers.png' = '2402ef63dbe3306a84b524033d9da7d1e2944dc780fc310bf18ec8d8930f527b'
     'textures/blocks/wildflowers_stem.png' = 'f2e7a5a6b0d9ed7d2f2ff98dc010acab67c82488eee8ec2fde03bfd170d42d97'
     'textures/blocks/pink_petals.png' = 'f67c739a847a817d6f1bd566cc8f8a9172b38d2481f9d3e528416c11e307c233'

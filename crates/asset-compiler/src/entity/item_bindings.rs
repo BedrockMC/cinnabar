@@ -11,15 +11,13 @@ use sha2::{Digest, Sha256};
 
 use super::invalid;
 
-pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.40.json";
+pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.50.json";
 pub(super) const SOURCE_BYTES: &[u8] =
-    include_bytes!("../../../assets/data/default-sprite-bindings-1.26.40.json");
+    include_bytes!("../../../assets/data/default-sprite-bindings-1.26.50.json");
 pub(super) const RETAIL_ITEMS: &[u8] =
     include_bytes!("../../../protocol/data/retail_items_1_26_50.tsv");
 const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
-const SOURCE_COMMIT: &str = "7844835b6baad4c0010f46901a4accf87413a022";
-const ATLAS_SHA256: &str = "13415a73201c43c03afc7ff9c4e5146366ec31e4f3057228f309730daea963c7";
-const ARCHIVE_SHA256: &str = "6f6c3a8d5462cf0fc66fd0782a619a2b1a1f1255b981e7787d05dcfbd363a8cb";
+const ATLAS_SHA256: &str = "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a";
 const ROUTE_COUNT: usize = 29;
 
 #[derive(Deserialize)]
@@ -57,13 +55,18 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
         source,
     })?;
     let retail_hash = format!("{:x}", Sha256::digest(RETAIL_ITEMS));
+    // The table is audited against the pinned pack; a pack bump fails closed until re-audited.
+    let pinned = assets::vanilla_source();
     if table.schema != 1
-        || table.game_version.as_ref() != "1.26.40"
-        || table.source_tag.as_ref() != "v1.26.40.05"
-        || table.source_commit.as_ref() != SOURCE_COMMIT
+        || !pinned.tag.starts_with(&format!("v{}.", table.game_version))
+        || table.source_tag.as_ref() != pinned.tag.as_ref()
+        || table.source_commit.as_ref() != pinned.commit.as_ref()
         || table.source_url.as_ref()
-            != "https://github.com/Mojang/bedrock-samples/tree/7844835b6baad4c0010f46901a4accf87413a022"
-        || table.archive_sha256.as_ref() != ARCHIVE_SHA256
+            != format!(
+                "https://github.com/Mojang/bedrock-samples/tree/{}",
+                pinned.commit
+            )
+        || table.archive_sha256.as_ref() != pinned.sha256.as_ref()
         || table.atlas_sha256.as_ref() != ATLAS_SHA256
         || table.retail_allowlist_sha256.as_ref() != RETAIL_SHA256
         || retail_hash != RETAIL_SHA256

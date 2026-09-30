@@ -19,7 +19,7 @@ pub(super) const REQUIRED_CARRIERS: &[&str] = &[
 
 const COMPILED: &str = ".local/assets/compiled";
 const VANILLA_MANIFEST: &str = "assets/vanilla-source.json";
-const HUD_MANIFEST: &str = "assets/hud-source-v1001.json";
+const HUD_MANIFEST: &str = "assets/hud-source-v2193.json";
 const FONT_MANIFEST: &str = "assets/ui-font-source.json";
 const REGISTRY_DIR: &str = "crates/assets/data";
 
