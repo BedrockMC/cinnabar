@@ -269,6 +269,10 @@ impl WorldStream {
     ) {
         self.actors.set_item_use_durations(durations);
     }
+    /// Ticks the pack lets `identifier` be used for before its use completes.
+    pub fn item_max_use_ticks(&self, identifier: &str) -> Option<u32> {
+        self.actors.item_max_use_ticks(identifier)
+    }
     pub fn actor_armor(&self, runtime_id: u64) -> Option<&ActorArmorSnapshot> {
         self.actors.armor(runtime_id)
     }
