@@ -17,6 +17,8 @@ pub use artwork::{
     ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+#[cfg(test)]
+pub(crate) use geometry::ONE_SIDED_BACK_UV;
 pub use item_mesh::{extruded_sprite_vertices, textured_cube_vertices};
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;

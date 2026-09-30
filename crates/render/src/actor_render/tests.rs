@@ -294,5 +294,8 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
     assert!(ACTOR_SHADER_SOURCE.contains("(span.first_vertex + vertex_index) * 11u"));
     assert!(ACTOR_SHADER_SOURCE.contains("vertex_words[vertex_base + 10u]"));
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));
+    // The one-sided plane sentinel lies below the shader's discard threshold.
+    assert!(ACTOR_SHADER_SOURCE.contains("input.back_uv.x < -1.0e8"));
+    assert!(crate::actor::ONE_SIDED_BACK_UV[0] < -1.0e8);
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 1u && color.a == 0.0"));
 }

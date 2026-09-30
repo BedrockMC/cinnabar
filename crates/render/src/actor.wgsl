@@ -114,10 +114,12 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     ) * uv_scale;
-    out.back_uv = uv_offset + vec2(
+    let raw_back_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),
         bitcast<f32>(vertex_words[vertex_base + 9u]),
-    ) * uv_scale;
+    );
+    // A one-sided plane's back keeps its sentinel so the fragment stage can discard it.
+    out.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
     let bone_index = vertex_words[vertex_base + 10u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
@@ -150,6 +152,9 @@ fn actor_vertex(
 @fragment
 fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     if (input.valid == 0u) {
+        discard;
+    }
+    if (!front && input.back_uv.x < -1.0e8) {
         discard;
     }
     var uv = select(input.back_uv, input.uv, front);
