@@ -394,14 +394,9 @@ pub(in crate::chunk) fn write_geometry_stream_words(
 pub(in crate::chunk) fn account_chunk_gpu_uploads(
     budget: ChunkUploadBudget,
     chunk_updates: usize,
-    quad_incremental_bytes: u64,
-    origin_incremental_bytes: u64,
-    biome_incremental_bytes: u64,
+    incremental_bytes: u64,
     gpu_copy_bytes: u64,
 ) -> ChunkGpuUploadStats {
-    let incremental_bytes = quad_incremental_bytes
-        .saturating_add(origin_incremental_bytes)
-        .saturating_add(biome_incremental_bytes);
     ChunkGpuUploadStats {
         chunk_updates,
         chunk_budget: budget.max_per_frame,

@@ -1092,3 +1092,90 @@ fn identical_indirect_commands_are_not_rewritten() {
         bytes
     );
 }
+
+/// Growth triggered after an earlier upload in the same frame still migrates and publishes.
+#[test]
+fn growth_after_a_committed_upload_migrates_and_publishes_next_frame() {
+    use bevy::ecs::system::RunSystemOnce;
+
+    let now = Instant::now();
+    let acknowledgements = ChunkUploadAcknowledgements::default();
+    let mut handoff_app = App::new();
+    handoff_app
+        .add_plugins(MinimalPlugins)
+        .insert_resource(ChunkRenderQueue::default())
+        .insert_resource(acknowledgements.clone())
+        .add_plugins(ChunkRenderPlugin::with_budget(ChunkUploadBudget::new(
+            2,
+            u64::MAX,
+        )));
+    for (index, key) in [SubChunkKey::new(0, 0, 0, 0), SubChunkKey::new(0, 9, 0, 9)]
+        .into_iter()
+        .enumerate()
+    {
+        handoff_app
+            .world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_update_tracked(
+                key,
+                solid_test_mesh(),
+                ChunkUploadPriority::new(index as f32),
+                ChunkUploadToken {
+                    generation: index as u64 + 1,
+                    dirty_since: now,
+                },
+            )
+            .unwrap();
+    }
+    handoff_app.update();
+    let instances = {
+        let world = handoff_app.world_mut();
+        let mut query = world.query::<&ChunkRenderInstance>();
+        query.iter(world).cloned().collect::<Vec<_>>()
+    };
+    assert_eq!(instances.len(), 2);
+    assert!(acknowledgements.drain().is_empty());
+    drop(handoff_app);
+
+    let mut gpu_app =
+        noop_gpu_publication_app(acknowledgements.clone(), ChunkGpuRemovalQueue::default());
+    gpu_app.insert_resource(ChunkUploadBudget::new(8, u64::MAX));
+    let quads = instances[0].cube_quads.len();
+    let capacity = (32 * 1024 * 1024 / PACKED_QUAD_BYTES) as usize;
+    let device = gpu_app.world().resource::<RenderDevice>().clone();
+    {
+        let mut arena = gpu_app.world_mut().resource_mut::<ChunkGpuArena>();
+        arena.quad_buffer = create_storage_buffer(&device, "quads", capacity as u64 * 8);
+        arena.quad_capacity = capacity;
+        arena.quad_len = capacity - quads;
+        arena.geometry_stream_buffer = create_storage_buffer(&device, "streams", 1 << 20);
+        arena.geometry_stream_capacity = (1 << 20) / 4;
+        arena.origin_buffer = create_storage_buffer(&device, "origins", 64 * 32);
+        arena.origin_capacity = 64;
+    }
+    for instance in instances {
+        gpu_app.world_mut().spawn(instance);
+    }
+
+    gpu_app
+        .world_mut()
+        .run_system_once(prepare_gpu_chunks)
+        .unwrap();
+    assert_eq!(acknowledgements.drain().len(), 1);
+    let arena = gpu_app.world().resource::<ChunkGpuArena>();
+    let migration = arena
+        .migration
+        .as_ref()
+        .expect("the second upload needs growth");
+    assert_eq!(migration.copied_bytes, ARENA_MIGRATION_FRAME_BYTES);
+
+    gpu_app
+        .world_mut()
+        .run_system_once(prepare_gpu_chunks)
+        .unwrap();
+    assert_eq!(acknowledgements.drain().len(), 1);
+    let arena = gpu_app.world().resource::<ChunkGpuArena>();
+    assert!(arena.migration.is_none());
+    assert_eq!(arena.quad_capacity, capacity * 2);
+    assert_eq!(arena.allocations.len(), 2);
+}

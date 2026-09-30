@@ -255,9 +255,7 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     let stats = account_chunk_gpu_uploads(
         ChunkUploadBudget::new(2, u64::MAX),
         2,
-        40,
-        32,
-        0,
+        72,
         growth.gpu_copy_bytes,
     );
 
