@@ -30,10 +30,11 @@ use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often the catalog lists refresh (they can take tens of seconds).
 const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
-/// How often the screen feeds refresh; they change rarely and cost several calls.
-const FEED_INTERVAL: Duration = Duration::from_secs(300);
+/// How often the screen feeds are read; the core answers from its catalog cache
+/// and refreshes upstream on its own schedule, so this only picks up fresh data.
+const FEED_INTERVAL: Duration = Duration::from_secs(30);
 /// How soon a feed that failed is asked again.
-const FEED_RETRY: Duration = Duration::from_secs(30);
+const FEED_RETRY: Duration = Duration::from_secs(15);
 /// How often shown server rows are pinged.
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 
