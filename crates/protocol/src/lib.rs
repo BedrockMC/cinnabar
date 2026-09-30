@@ -132,8 +132,8 @@ pub use item::{
     MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
     MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book, item_bundle_id,
     item_charged_projectile, item_components, item_custom_color, item_display,
-    item_enchantment_level, item_extra_damage, item_has_enchantment_list, item_icon_keys,
-    item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
+    item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,
+    item_icon_keys, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;
