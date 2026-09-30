@@ -28,15 +28,15 @@ UI_FONT_FALLBACK_DIR ?= .local/assets/ui-font/f8d157532fbfaeda587e826d4cd5b21a49
 UI_FONT_FALLBACK_SOURCE ?= $(UI_FONT_FALLBACK_DIR)/NotoSansCJKsc-Regular.otf
 FONT_ASSET_NOTICES ?= $(dir $(FONT_ASSET_BLOB))ui-font-notices.txt
 BEDROCK_TARGET_MANIFEST ?= assets/bedrock-target.json
-BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2168.bin
-LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2168.bin
-BIOME_REGISTRY ?= crates/assets/data/biome-registry-v2168.bin
-REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2168.json
-PHYSICS_REGISTRY ?= .local/assets/block-physics-v2168.bin
-PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2168.bin
-PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2168.sha256
+BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2193.bin
+LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2193.bin
+BIOME_REGISTRY ?= crates/assets/data/biome-registry-v2193.bin
+REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json
+PHYSICS_REGISTRY ?= .local/assets/block-physics-v2193.bin
+PHYSICS_REGISTRY_SOURCE ?= crates/assets/data/block-physics-v2193.bin
+PHYSICS_REGISTRY_SHA256 ?= crates/assets/data/block-physics-v2193.sha256
 VANILLA_SOURCE_MANIFEST ?= assets/vanilla-source.json
-ASSET_BLOB ?= .local/assets/compiled/vanilla-v2168.mcbea
+ASSET_BLOB ?= .local/assets/compiled/vanilla-v2193.mcbea
 ATMOSPHERE_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeatm
 ATMOSPHERE_REPORT ?= .local/assets/compiled/atmosphere-assets.json
 ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeent
@@ -122,7 +122,7 @@ endif
 FORCE_CINNABAR_CLOUDS_OVERRIDE:
 
 help:
-	@echo make registry-foundation-check - Validate the exact protocol-2168 registry foundation
+	@echo make registry-foundation-check - Validate the exact protocol-2193 registry foundation
 	@echo make vanilla-assets  - Acquire the pinned official Mojang sample resource pack
 	@echo make assets          - Download and compile the vanilla resource pack
 	@echo make atmosphere-assets - Compile pinned sun, moon, and cloud runtime assets
@@ -137,7 +137,7 @@ help:
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make audio-assets    - Compile the pinned sound-definition lookup catalog
 	@echo make audio-bank      - Pack sound routing and FSB sound files for playback
-	@echo make physics-assets  - Install and verify the pinned protocol-2168 physics registry
+	@echo make physics-assets  - Install and verify the pinned protocol-2193 physics registry
 	@echo make core            - Compile and run the Go networking/auth core
 	@echo make local-server    - Build the dragonfly local-world server beside the core binary
 	@echo make client          - Refresh stale assets, then run the release Rust client
@@ -352,6 +352,7 @@ PKG_CORE_LDFLAGS = -s -w -X main.releaseVersion=$(PKG_VERSION) -X main.trustedUp
 package-binaries:
 	$(CARGO) build --release --locked -p bedrock-client -p asset-compiler --bin bedrock-client --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
+	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
 package-macos: package-binaries
 	bash packaging/macos/build-app.sh

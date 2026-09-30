@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use jolyne::GameData;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_44::LevelChunkPacketView;
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::LevelChunkPacketView;
+use valentine::bedrock::version::v1_26_51::{
     EnumsPlayerRespawnState as RespawnPacketState,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
     GameRule, GameRuleRuleValue, McpePacketData,
@@ -50,13 +50,13 @@ pub use self::custom_blocks::{
 pub use self::events::{
     ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
     BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
-    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, LevelChunkEvent, LevelChunkMode,
-    MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent, MovePlayerMode,
-    MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
-    SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult,
-    SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent, air_network_id,
-    vanilla_dimension_range,
+    ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange, GameRulesEvent, LevelChunkEvent,
+    LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MapDataEvent, MovePlayerEvent,
+    MovePlayerMode, MovementCorrectionSubject, OpenSignEvent, PLAYER_NETWORK_OFFSET,
+    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
+    SubChunkResult, SubChunkUnavailable, WeatherChannel, WeatherUpdateEvent, WorldEvent,
+    air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 pub use self::requests::request_sub_chunk_column;
@@ -644,22 +644,22 @@ pub fn into_world_event(
                             payload: entry.serialized_sub_chunk.unwrap_or_default(),
                         }
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::SuccessAllAir => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair => {
                         SubChunkResult::AllAir
                     }
                     SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(0) => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::Undefined)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::LevelChunkDoesntExist => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Levelchunkdoesntexist => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::WrongDimension => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Wrongdimension => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::PlayerDoesntExist => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Playerdoesntexist => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound)
                     }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::IndexOutOfBounds => {
+                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Indexoutofbounds => {
                         SubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds)
                     }
                     SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(value) => {
@@ -756,9 +756,9 @@ pub fn into_world_event(
             // SearchingForSpawn=0, ReadyToSpawn=1, ClientReadyToSpawn=2, and
             // this event deliberately keeps the raw wire value.
             state: match packet.state {
-                RespawnPacketState::SearchingForSpawn => 0,
-                RespawnPacketState::ReadyToSpawn => 1,
-                RespawnPacketState::ClientReadyToSpawn => 2,
+                RespawnPacketState::Searchingforspawn => 0,
+                RespawnPacketState::Readytospawn => 1,
+                RespawnPacketState::Clientreadytospawn => 2,
                 RespawnPacketState::Unknown(value) => value,
             },
             runtime_entity_id: packet.player_runtime_id.actor_runtime_id,
@@ -838,10 +838,17 @@ pub fn into_world_event(
             WorldEvent::SetTime(SetTimeEvent { time: packet.time })
         }
         McpePacketData::GameRulesChangedPacket(packet) => {
-            let Some(enabled) = daylight_cycle_rule_update(&packet.rule_data.rules_list) else {
+            let rules = &packet.rule_data.rules_list;
+            let daylight_cycle = daylight_cycle_rule_update(rules)
+                .map(|enabled| DaylightCycleUpdateEvent { enabled });
+            let hud = hud_rules(rules);
+            if daylight_cycle.is_none() && hud.is_empty() {
                 return Ok(None);
-            };
-            WorldEvent::DaylightCycle(DaylightCycleUpdateEvent { enabled })
+            }
+            WorldEvent::GameRules(GameRulesEvent {
+                daylight_cycle,
+                hud,
+            })
         }
         McpePacketData::LevelEventPacket(packet) => {
             if matches!(
@@ -940,8 +947,12 @@ pub(crate) fn normalize_borrowed_level_chunk(
 /// the old modelling required is gone: a non-boolean rule simply cannot decode
 /// into `GameRuleRuleValue::Bool`.
 fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
+    bool_rule(rules, "dodaylightcycle")
+}
+
+fn bool_rule(rules: &[GameRule], name: &str) -> Option<bool> {
     rules.iter().find_map(|rule| {
-        if rule.rule_name.eq_ignore_ascii_case("dodaylightcycle")
+        if rule.rule_name.eq_ignore_ascii_case(name)
             && let GameRuleRuleValue::Bool(enabled) = &rule.rule_value
         {
             Some(*enabled)
@@ -951,11 +962,30 @@ fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
     })
 }
 
+fn hud_rules(rules: &[GameRule]) -> crate::HudRules {
+    crate::HudRules {
+        show_coordinates: bool_rule(rules, "showcoordinates"),
+        show_days_played: bool_rule(rules, "showdaysplayed"),
+    }
+}
+
+impl crate::HudRules {
+    /// StartGame's HUD rules; an absent rule reads as off, its vanilla default.
+    #[must_use]
+    pub fn from_game_data(game_data: &GameData) -> Self {
+        let rules = hud_rules(&game_data.start_game.settings.rule_data.rules_list);
+        Self {
+            show_coordinates: Some(rules.show_coordinates.unwrap_or(false)),
+            show_days_played: Some(rules.show_days_played.unwrap_or(false)),
+        }
+    }
+}
+
 fn canonical_biome_name(name: &str) -> Arc<str> {
     if name.contains(':') {
         return Arc::from(name);
     }
-    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_40.txt");
+    const RETAIL_BIOMES: &str = include_str!("../data/retail_biomes_1_26_50.txt");
     let known_retail = RETAIL_BIOMES
         .lines()
         .any(|identifier| identifier.strip_prefix("minecraft:") == Some(name));

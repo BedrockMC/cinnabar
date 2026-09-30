@@ -8,7 +8,7 @@ use serde_json::Value;
 use super::{
     block_overlay::{CompiledBlockOverlay, compile_block_overlay},
     glyph_sheets::compile_session_glyphs,
-    item_icons::compile_session_icons,
+    item_icons::{BlockIcons, compile_session_icons, custom_block_icons, custom_block_items},
 };
 use crate::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
@@ -19,6 +19,8 @@ pub struct PackApplication {
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
+    /// StartGame item components, applied with the pack stack they present through.
+    pub(crate) item_components: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
     pub(crate) entities: Option<Arc<super::entity_pack::SessionEntityPack>>,
     pub(crate) property_defaults: Vec<(Arc<str>, Vec<client_world::PropertyDefault>)>,
@@ -34,6 +36,7 @@ impl Default for PackApplication {
             server_lang: None,
             block_overlay: None,
             item_icons: None,
+            item_components: None,
             glyph_sheets: None,
             entities: None,
             property_defaults: Vec::new(),
@@ -50,15 +53,21 @@ pub(super) fn prepare_session_packs(
 ) -> (protocol::CustomBlocks, PackApplication) {
     let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
     let icon_keys = protocol::item_icon_keys(game_data);
+    let block_items = custom_block_items(game_data, &custom_blocks);
     let hashed = game_data.start_game.block_network_ids_are_hashes;
-    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
+    let mut packs =
+        prepare_pack_application(handoff, &custom_blocks, &icon_keys, &block_items, hashed);
+    packs.item_components =
+        crate::ui_runtime::item_facts::SessionItemComponents::from_game_data(game_data);
     (custom_blocks, packs)
 }
 
+/// `block_items` pairs each custom block item with the block it draws as.
 pub(super) fn prepare_pack_application(
     handoff: protocol::ResourcePackHandoff,
     custom_blocks: &protocol::CustomBlocks,
     icon_keys: &[(Arc<str>, Arc<str>)],
+    block_items: &[(Arc<str>, Arc<str>)],
     hashed_block_ids: bool,
 ) -> PackApplication {
     if handoff.is_empty() {
@@ -88,11 +97,22 @@ pub(super) fn prepare_pack_application(
     {
         bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
     }
-    let item_icons = compile_session_icons(&view, icon_keys);
+    let block_icons = block_overlay
+        .as_deref()
+        .map_or_else(BlockIcons::default, |compiled| {
+            custom_block_icons(
+                &compiled.overlay,
+                custom_blocks,
+                hashed_block_ids,
+                block_items,
+            )
+        });
+    let item_icons = compile_session_icons(&view, icon_keys, block_icons);
     super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     PackApplication {
         server_lang: merged_server_lang(&view),
         item_icons,
+        item_components: None,
         glyph_sheets: compile_session_glyphs(&view),
         entities: super::entity_pack::compile_session_entities(&stack, &view),
         property_defaults: super::entity_pack::pack_property_defaults(&view),
@@ -466,10 +486,12 @@ pub(super) fn install_session_icons(
     runtime: &mut crate::ui_runtime::UiRuntime,
     generation: u64,
     icons: Option<Arc<SessionIcons>>,
+    items: Option<Arc<crate::ui_runtime::item_facts::SessionItemComponents>>,
     setup_succeeded: bool,
 ) {
     if runtime.session_id() == generation {
         runtime.set_session_icons(icons.filter(|_| setup_succeeded));
+        runtime.set_session_items(items.filter(|_| setup_succeeded));
     }
 }
 
@@ -603,6 +625,7 @@ mod tests {
             protocol::ResourcePackHandoff::default(),
             &protocol::CustomBlocks::default(),
             &[],
+            &[],
             false,
         );
         assert!(matches!(application.admission, PackAdmission::None));
@@ -616,6 +639,7 @@ mod tests {
         let application = super::prepare_pack_application(
             protocol::ResourcePackHandoff::from_archives(vec![pack]),
             &protocol::CustomBlocks::default(),
+            &[],
             &[],
             false,
         );
@@ -701,6 +725,7 @@ mod tests {
             )]),
             &protocol::CustomBlocks::default(),
             &[],
+            &[],
             false,
         );
         assert_eq!(crate::audio::server_sounds_generation(), before);
@@ -746,6 +771,7 @@ mod tests {
         let application = super::prepare_pack_application(
             handoff,
             &protocol::CustomBlocks::default(),
+            &[],
             &[],
             false,
         );

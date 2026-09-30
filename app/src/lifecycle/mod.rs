@@ -15,6 +15,7 @@ pub fn before_run(assets_overridden: bool) -> Result<()> {
     if !layout.is_installed() {
         return Ok(());
     }
+    core_health::capture_client_stderr(&layout);
     crash::install_panic_hook(&layout);
     crash::upload_pending(&layout, &NativePrompter);
     if !assets_overridden {

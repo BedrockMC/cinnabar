@@ -38,6 +38,8 @@ const ACTOR_FLAG_SNEAKING: u32 = 1;
 const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SHOW_NAME: u32 = 14;
 const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
+/// Entity metadata key forcing the name tag visible regardless of distance-to-crosshair rules.
+const METADATA_ALWAYS_SHOW_NAMETAG: u32 = 81;
 /// A mob flagged show-name (not always-show) presents its tag only near the view center.
 const CROSSHAIR_RADIUS: f32 = 48.0;
 /// See-through tags behind walls are faint.
@@ -65,9 +67,30 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     )
 }
 
+/// Feet-to-tag height: the published box height (already scaled by the server), else the default
+/// player box times the metadata scale, plus the head clearance.
+fn tag_height(actor: &ActorSnapshot) -> f32 {
+    let box_height = match actor.metadata.get(&METADATA_HEIGHT) {
+        Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height > 0.0 => *height,
+        _ if actor_flag(actor, ACTOR_FLAG_SNEAKING) => SNEAKING_HEIGHT * actor.render_scale(),
+        _ => DEFAULT_HEIGHT * actor.render_scale(),
+    };
+    box_height + HEAD_CLEARANCE
+}
+
+/// Where the tag hangs: the actor's interpolated render position raised by [`tag_height`], so it
+/// moves exactly as the rig does at this frame's `partial_tick`.
+fn tag_world_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<Vec3> {
+    Some(
+        Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?)
+            + Vec3::Y * tag_height(actor),
+    )
+}
+
 /// Projects `actor`'s tag, or `None` when it is out of range, invisible, hidden by wall
 /// occlusion while sneaking, behind the camera or off the content rect. `is_occluded` takes the
 /// tag's world position and reports whether a wall blocks the line from the camera.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn project_nametag(
     actor: &ActorSnapshot,
     name: Arc<str>,
@@ -75,23 +98,23 @@ pub(super) fn project_nametag(
     camera_transform: &GlobalTransform,
     content_size: [f32; 2],
     safe_area: SafeArea,
+    partial_tick: f32,
     is_occluded: impl FnOnce(Vec3) -> bool,
 ) -> Option<NametagAnchor> {
     if actor_flag(actor, ACTOR_FLAG_INVISIBLE) {
         return None;
     }
     let is_player = matches!(actor.kind, ActorKind::Player { .. });
-    let always = is_player || actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME);
+    let always_key = matches!(
+        actor.metadata.get(&METADATA_ALWAYS_SHOW_NAMETAG),
+        Some(ActorMetadataValue::Byte(value)) if *value != 0
+    );
+    let always = is_player || always_key || actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME);
     if !always && !actor_flag(actor, ACTOR_FLAG_SHOW_NAME) {
         return None;
     }
     let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
-    let height = match actor.metadata.get(&METADATA_HEIGHT) {
-        Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height > 0.0 => *height,
-        _ if sneaking => SNEAKING_HEIGHT,
-        _ => DEFAULT_HEIGHT,
-    };
-    let position = Vec3::from_array(actor.position) + Vec3::Y * (height + HEAD_CLEARANCE);
+    let position = tag_world_position(actor, partial_tick)?;
     let distance = camera_transform.translation().distance(position);
     if !distance.is_finite() || distance > MAX_NAMETAG_DISTANCE {
         return None;
@@ -212,9 +235,126 @@ pub(super) fn append_nametag_nodes(
     Ok(())
 }
 
+/// Nametags for other players and flagged mobs; players with a below-name score get the combined
+/// plate instead. Wall occlusion uses the collision store, failing open when it is unavailable.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn project_nametags(
+    scoreboards: &ui::ScoreboardStore,
+    stream: &client_world::WorldStream,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    logical_size: [f32; 2],
+    safe_area: SafeArea,
+    collisions: Option<&crate::movement::PhysicsCollisionRegistries>,
+    partial_tick: f32,
+) -> Vec<NametagAnchor> {
+    let content_size = [
+        (logical_size[0] - safe_area.left() - safe_area.right()).max(0.0),
+        (logical_size[1] - safe_area.top() - safe_area.bottom()).max(0.0),
+    ];
+    let world = collisions.map(|collisions| {
+        sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+        )
+    });
+    let eye = camera_transform.translation();
+    let is_occluded = |target: Vec3| {
+        let Some(world) = world.as_ref() else {
+            return false;
+        };
+        let offset = target - eye;
+        let distance = f64::from(offset.length());
+        if !distance.is_finite() || distance <= 0.0 {
+            return false;
+        }
+        let direction = offset.normalize();
+        let vector = |value: Vec3| {
+            sim::Vec3::new(f64::from(value.x), f64::from(value.y), f64::from(value.z))
+        };
+        matches!(
+            world.block_interaction_ray_current(vector(eye), vector(direction), distance),
+            Ok(Some(_))
+        )
+    };
+    stream
+        .remote_actors()
+        .filter_map(|actor| {
+            let scored = scoreboards
+                .below_name_for_owner(&ui::ScoreOwner::Player(actor.unique_id))
+                .or_else(|| {
+                    scoreboards.below_name_for_owner(&ui::ScoreOwner::Entity(actor.unique_id))
+                });
+            if scored.is_some() {
+                return None;
+            }
+            let name = stream.actor_display_name(actor.unique_id)?;
+            project_nametag(
+                actor,
+                name,
+                camera,
+                camera_transform,
+                content_size,
+                safe_area,
+                partial_tick,
+                is_occluded,
+            )
+        })
+        .take(MAX_PRESENTED_NAMETAGS)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A doubled metadata scale doubles the default box the tag sits on.
+    #[test]
+    fn metadata_scale_raises_the_tag_without_a_published_box() {
+        let pose = client_world::ActorPose {
+            position: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+        };
+        let mut actor = ActorSnapshot {
+            unique_id: 1,
+            runtime_id: 1,
+            spawn_revision: 1,
+            movement_revision: 1,
+            kind: ActorKind::Entity {
+                identifier: "test:npc".into(),
+            },
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            previous_pose: pose,
+            received_pose: pose,
+            interpolation_ticks_remaining: 0,
+            body_yaw: 0.0,
+            on_ground: None,
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            metadata: Default::default(),
+            attributes: Default::default(),
+            int_properties: Default::default(),
+            float_properties: Default::default(),
+            status: Default::default(),
+        };
+        let unscaled = tag_height(&actor);
+        actor.metadata.insert(38, ActorMetadataValue::Float(2.0));
+        assert_eq!(tag_height(&actor), 2.0 * DEFAULT_HEIGHT + HEAD_CLEARANCE);
+        assert!(tag_height(&actor) > unscaled);
+        // A server-published box already carries the scale.
+        actor
+            .metadata
+            .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.6));
+        assert_eq!(tag_height(&actor), 3.6 + HEAD_CLEARANCE);
+    }
 
     #[test]
     fn text_scale_grows_with_proximity_and_stays_bounded() {
@@ -274,5 +414,55 @@ mod tests {
         assert!(close(plate.max().x(), text.max().x() + font_px));
         assert!(close(plate.min().y(), 300.0 - font_px));
         assert!(close(plate.max().y(), 300.0 + 9.0 * font_px));
+    }
+
+    // The tag anchors to the same interpolated position the rig draws at, per partial tick.
+    #[test]
+    fn tag_anchor_follows_the_interpolated_actor_position() {
+        let actor = client_world::ActorSnapshot {
+            unique_id: 1,
+            runtime_id: 1,
+            spawn_revision: 1,
+            movement_revision: 1,
+            kind: ActorKind::Player {
+                uuid: [1; 16],
+                username: "p".into(),
+            },
+            position: [4.0, 64.0, -2.0],
+            velocity: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            previous_pose: client_world::ActorPose {
+                position: [2.0, 62.0, -2.0],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+            },
+            received_pose: client_world::ActorPose {
+                position: [4.0, 64.0, -2.0],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+            },
+            interpolation_ticks_remaining: 0,
+            body_yaw: 0.0,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            metadata: Default::default(),
+            attributes: Default::default(),
+            int_properties: Default::default(),
+            float_properties: Default::default(),
+            status: Default::default(),
+        };
+        for (partial, expected) in [(0.25, [2.5, 62.5]), (0.5, [3.0, 63.0]), (0.75, [3.5, 63.5])] {
+            let anchor = tag_world_position(&actor, partial).unwrap();
+            let rig = Vec3::from_array(actor.interpolated_position(partial).unwrap());
+            assert_eq!(anchor - Vec3::Y * (DEFAULT_HEIGHT + HEAD_CLEARANCE), rig);
+            assert!((anchor.x - expected[0]).abs() < 1e-5);
+            assert!((anchor.y - (expected[1] + DEFAULT_HEIGHT + HEAD_CLEARANCE)).abs() < 1e-5);
+        }
     }
 }

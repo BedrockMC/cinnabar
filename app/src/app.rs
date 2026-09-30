@@ -112,7 +112,7 @@ use crate::{
 use crate::acceptance::model_witness::drive_model_witness;
 
 const PHYSICS_REGISTRY_SHA256: &str =
-    include_str!("../../crates/assets/data/block-physics-v2168.sha256");
+    include_str!("../../crates/assets/data/block-physics-v2193.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make physics-assets` (normal `make client` does this automatically)";
 
@@ -745,6 +745,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir: layout.screenshots_dir(),
+        debug_overlay: args.dev_debug_overlay,
     });
     if !connection_requested {
         app.init_resource::<crate::menu::LauncherCoreSlot>();

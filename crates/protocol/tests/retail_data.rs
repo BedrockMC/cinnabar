@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use protocol::vanilla_item_registry;
 use sha2::{Digest, Sha256};
 
-const RETAIL_ITEMS: &[u8] = include_bytes!("../data/retail_items_1_26_40.tsv");
-const RETAIL_BIOMES: &[u8] = include_bytes!("../data/retail_biomes_1_26_40.txt");
+const RETAIL_ITEMS: &[u8] = include_bytes!("../data/retail_items_1_26_50.tsv");
+const RETAIL_BIOMES: &[u8] = include_bytes!("../data/retail_biomes_1_26_50.txt");
 
 fn canonical_text(bytes: &[u8]) -> Vec<u8> {
     let mut normalized = Vec::with_capacity(bytes.len());
@@ -25,7 +25,7 @@ fn canonical_text(bytes: &[u8]) -> Vec<u8> {
 fn retail_item_table_has_the_pinned_projection_fingerprint() {
     assert_eq!(
         format!("{:x}", Sha256::digest(canonical_text(RETAIL_ITEMS))),
-        "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0"
+        "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
     );
 }
 
@@ -33,20 +33,20 @@ fn retail_item_table_has_the_pinned_projection_fingerprint() {
 fn retail_biome_table_has_the_pinned_projection_fingerprint() {
     assert_eq!(
         format!("{:x}", Sha256::digest(canonical_text(RETAIL_BIOMES))),
-        "df7e18c18e939e21f387838479ee9c79b0d7eb798fb1bd906f51c56963058574"
+        "6127c74c17455273bb5226f1e05e98709bc247c05a0137a8827cb97756c3b198"
     );
     let biomes = std::str::from_utf8(RETAIL_BIOMES)
         .expect("biome table must be UTF-8")
         .lines()
         .collect::<HashSet<_>>();
-    assert_eq!(biomes.len(), 88);
+    assert_eq!(biomes.len(), 89);
     assert!(biomes.contains("minecraft:deep_warm_ocean"));
 }
 
 #[test]
 fn retail_item_table_preserves_current_network_ids_and_gaps() {
     let entries = vanilla_item_registry();
-    assert_eq!(entries.len(), 1_485);
+    assert_eq!(entries.len(), 1_590);
     assert_eq!(
         entries
             .iter()
@@ -66,7 +66,7 @@ fn retail_item_table_preserves_current_network_ids_and_gaps() {
             .iter()
             .find(|entry| entry.identifier.as_ref() == "minecraft:apple")
             .map(|entry| entry.network_id),
-        Some(878)
+        Some(882)
     );
 
     let ids: HashSet<_> = entries.iter().map(|entry| entry.network_id).collect();

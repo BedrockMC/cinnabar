@@ -67,7 +67,6 @@ pub(super) fn score(event: ScoreEvent) -> ScoreboardEvent {
 pub(super) fn boss(event: BossEvent) -> BossBarEvent {
     BossBarEvent {
         target_entity_id: event.target_entity_id,
-        player_id: event.player_id,
         action: match event.action {
             ProtocolBossAction::Show => BossAction::Show,
             ProtocolBossAction::RegisterPlayer => BossAction::RegisterPlayer,

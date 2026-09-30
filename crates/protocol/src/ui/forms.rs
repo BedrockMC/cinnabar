@@ -22,7 +22,7 @@ use serde::{
     Deserialize, Deserializer,
     de::{DeserializeSeed, IgnoredAny},
 };
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     EnumsModalFormCancelReason, ModalFormRequestPacket, ModalFormResponsePacket,
 };
 
@@ -565,7 +565,7 @@ pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
     ModalFormResponsePacket {
         form_id,
         json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::UserBusy),
+        form_cancel_reason: Some(EnumsModalFormCancelReason::Userbusy),
     }
     .into()
 }
@@ -576,7 +576,7 @@ pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
     ModalFormResponsePacket {
         form_id,
         json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::UserClosed),
+        form_cancel_reason: Some(EnumsModalFormCancelReason::Userclosed),
     }
     .into()
 }

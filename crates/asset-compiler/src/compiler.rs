@@ -803,7 +803,11 @@ fn runtime_animation_tables(plan: &AnimationPlan) -> Result<CompiledAnimations, 
     Ok((animations, plan.frames.clone()))
 }
 
-fn static_texture_path(root: &Path, source: &str, key: &str) -> Result<PathBuf, AssetError> {
+pub(crate) fn static_texture_path(
+    root: &Path,
+    source: &str,
+    key: &str,
+) -> Result<PathBuf, AssetError> {
     let source_path = Path::new(source);
     if source_path.extension().is_some() {
         return Ok(root.join(source_path));

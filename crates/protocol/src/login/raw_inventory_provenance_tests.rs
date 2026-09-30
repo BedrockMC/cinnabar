@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use bytes::{BufMut, BytesMut};
 use jolyne::raw::{RawPacket, decode_packet_raw};
-use valentine::bedrock::version::v1_26_44::McpePacketName;
+use valentine::bedrock::version::v1_26_51::McpePacketName;
 use valentine::protocol::wire;
 
 use super::decode_world_raw_with;
@@ -33,7 +33,6 @@ fn append_minimal_item(body: &mut BytesMut) {
 fn append_minimal_response_slot(body: &mut BytesMut) {
     body.extend_from_slice(&[0, 0, 0]);
     body.put_u8(0);
-    body.put_u8(0);
     wire::write_var_u32(body, 0);
     wire::write_var_u32(body, 0);
     wire::write_var_u32(body, 0);
@@ -45,7 +44,6 @@ fn response_container_prefix(container_count: usize) -> BytesMut {
     wire::write_var_u32(&mut body, 1);
     body.put_u8(0);
     wire::write_var_u32(&mut body, 0);
-    body.put_u8(1);
     body.put_u8(1);
     wire::write_var_u32(&mut body, container_count as u32);
     body
@@ -125,7 +123,7 @@ fn complete_oversized_stack_response_levels_remain_semantic_without_owned_decode
     let mut responses = BytesMut::new();
     wire::write_var_u32(&mut responses, response_count as u32);
     for _ in 0..response_count {
-        responses.extend_from_slice(&[0, 0, 0, 0]);
+        responses.extend_from_slice(&[0, 0, 0]);
     }
 
     let container_count = crate::MAX_RESPONSE_CONTAINERS + 1;
@@ -190,7 +188,7 @@ fn complete_oversized_response_names_remain_semantic_without_owned_decode() {
         let mut body = response_container_prefix(1);
         body.extend_from_slice(&[0, 0]);
         wire::write_var_u32(&mut body, 1);
-        body.extend_from_slice(&[0, 0, 0, 0, 0]);
+        body.extend_from_slice(&[0, 0, 0, 0]);
         if redacted {
             wire::write_var_u32(&mut body, 0);
             body.put_u8(1);

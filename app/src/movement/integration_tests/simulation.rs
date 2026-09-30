@@ -634,8 +634,8 @@ pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8>
 
 #[test]
 fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
-    let breg = include_bytes!("../../../../crates/assets/data/block-registry-v2168.bin");
-    let records = read_registry_for_protocol(breg, 2168).expect("checked-in protocol-2168 BREG");
+    let breg = include_bytes!("../../../../crates/assets/data/block-registry-v2193.bin");
+    let records = read_registry_for_protocol(breg, 2193).expect("checked-in protocol-2193 BREG");
     let preg = synthetic_preg(breg, &records);
 
     let registries = PhysicsCollisionRegistries::from_assets(

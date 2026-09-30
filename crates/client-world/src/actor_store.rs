@@ -21,6 +21,7 @@ pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYT
 
 // Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
 const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
+const SCALE_METADATA_KEY: u32 = 38;
 const NAMETAG_METADATA_KEY: u32 = 4;
 const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
@@ -97,6 +98,20 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
+    /// The render position `alpha` of the way from the previous tick's pose to the current one,
+    /// or `None` when a component is not finite.
+    #[must_use]
+    pub fn interpolated_position(&self, alpha: f32) -> Option<[f32; 3]> {
+        let position = std::array::from_fn(|axis| {
+            self.previous_pose.position[axis]
+                + (self.position[axis] - self.previous_pose.position[axis]) * alpha
+        });
+        position
+            .iter()
+            .all(|value| value.is_finite())
+            .then_some(position)
+    }
+
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
         let pose = ActorPose {
             position: spawn.position,
@@ -283,6 +298,16 @@ impl ActorSnapshot {
                     _ => 0.0,
                 }
             }
+        }
+    }
+
+    /// The server-set render scale (metadata `Scale`), multiplying the model's own scale; an
+    /// absent, non-finite or non-positive value reads 1.
+    #[must_use]
+    pub fn render_scale(&self) -> f32 {
+        match self.metadata.get(&SCALE_METADATA_KEY) {
+            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale > 0.0 => *scale,
+            _ => 1.0,
         }
     }
 

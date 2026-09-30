@@ -134,6 +134,9 @@ pub struct GameplayHudState {
     freezing_strength: f32,
     saturation: Option<f32>,
     hardcore: bool,
+    /// The `showcoordinates` / `showdaysplayed` world rules.
+    show_coordinates: bool,
+    show_days_played: bool,
     mount_unique_id: Option<i64>,
     diagnostics: GameplayHudDiagnostics,
 }
@@ -262,6 +265,26 @@ impl GameplayHudState {
     #[must_use]
     pub const fn hardcore(&self) -> bool {
         self.hardcore
+    }
+
+    /// Applies the rules `rules` names, leaving the others as they were.
+    pub fn apply_hud_rules(&mut self, rules: protocol::HudRules) {
+        if let Some(show) = rules.show_coordinates {
+            self.show_coordinates = show;
+        }
+        if let Some(show) = rules.show_days_played {
+            self.show_days_played = show;
+        }
+    }
+
+    #[must_use]
+    pub const fn show_coordinates(&self) -> bool {
+        self.show_coordinates
+    }
+
+    #[must_use]
+    pub const fn show_days_played(&self) -> bool {
+        self.show_days_played
     }
 
     /// Records the authoritative saturation level; non-finite values are ignored.

@@ -413,7 +413,6 @@ fn session_replacement_clears_receive_side_ui_atomically() {
             5,
             UiEvent::Boss(BossEvent {
                 target_entity_id: 99,
-                player_id: 7,
                 action: ProtocolBossAction::Show,
                 title: Arc::from("Old boss"),
                 filtered_title: Arc::from(""),
@@ -481,7 +480,6 @@ fn protocol_scoreboard_and_boss_events_route_into_ui_owned_state() {
             3,
             UiEvent::Boss(BossEvent {
                 target_entity_id: 44,
-                player_id: 3,
                 action: ProtocolBossAction::Show,
                 title: Arc::from("Boss"),
                 filtered_title: Arc::from(""),

@@ -104,8 +104,8 @@ func TestEmbeddedFilledUseHasExactStackAndNoPredictedInventoryActions(t *testing
 	if _, present := pk.BlockActions.Value(); present {
 		t.Fatal("unexpected block actions")
 	}
-	if _, present := data.Actions.Value(); present {
-		t.Fatal("unexpected inventory prediction")
+	if len(data.Actions) != 0 || data.Hand != protocol.HandSlotMainHand {
+		t.Fatal("unexpected inventory prediction or off-hand use")
 	}
 	if data.ActionType != protocol.UseItemActionClickBlock || data.TriggerType != protocol.TriggerTypePlayerInput ||
 		data.BlockPosition != (protocol.BlockPos{13, 71, -29}) || data.BlockFace != 5 || data.HotBarSlot != 7 ||
@@ -297,6 +297,9 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"InventoryTransactionInteractActor",
 		"InventoryTransactionInteractActorEmptyHand",
 		"ContainerClose",
+		"PlaySound",
+		"StopSound",
+		"LevelSoundEvent",
 		"DisconnectVisible",
 		"DisconnectFiltered",
 		"DisconnectHidden",
@@ -307,7 +310,7 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		"ItemStackRequestManualCraft",
 		"ItemStackResponseManualCraft",
 	}
-	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 5, 5, 5, 52, 52, 52, 52, 147, 148}
+	wantIDs := []uint32{143, 11, 58, 19, 144, 144, 144, 144, 144, 144, 144, 13, 9, 9, 9, 9, 88, 74, 100, 100, 101, 101, 101, 76, 76, 122, 49, 50, 48, 148, 30, 30, 30, 30, 30, 30, 30, 30, 47, 86, 87, 123, 5, 5, 5, 52, 52, 52, 52, 147, 148}
 	wantHeaders := [][]byte{
 		{0x8f, 0x49},
 		{0x8b, 0x48},
@@ -348,6 +351,9 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 		{0x9e, 0x48},
 		{0x9e, 0x48},
 		{0xaf, 0x48},
+		{0xd6, 0x48},
+		{0xd7, 0x48},
+		{0xfb, 0x48},
 		{0x85, 0x48},
 		{0x85, 0x48},
 		{0x85, 0x48},
@@ -417,7 +423,7 @@ func TestGenerateIsDeterministicAndWritesPinnedRawBatches(t *testing.T) {
 			}
 		}
 		if entry.Name == "InventoryTransactionDestroyBlock" || entry.Name == "InventoryTransactionDestroyBlockEmptyHand" {
-			if entry.WireAuthority != "hashimthearab/gophertunnel" || entry.WireCommit != "9f42f3679a573fc4b51104569cc4f422036e28ec" {
+			if entry.WireAuthority != "hashimthearab/gophertunnel" || entry.WireCommit != "b725d82563e93308fd1f92d27da5e97301ad5040" {
 				t.Fatalf("destroy-block fixture provenance = (%q, %q)", entry.WireAuthority, entry.WireCommit)
 			}
 		}

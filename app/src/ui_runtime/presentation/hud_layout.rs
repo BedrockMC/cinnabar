@@ -103,6 +103,12 @@ pub(crate) struct HudFrame {
     pub attack_indicator_charge: Option<f32>,
     /// Whether the held player-list action keeps the tab overlay open.
     pub tab_list_open: bool,
+    /// The local player's floored feet position.
+    pub player_block: Option<[i32; 3]>,
+    /// The absolute world tick, when the session has a clock.
+    pub world_time: Option<f64>,
+    /// A held filled map shows the position whatever the world rule says.
+    pub holding_filled_map: bool,
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
@@ -152,12 +158,6 @@ impl HudGeometry {
             gui_width,
             gui_height,
         })
-    }
-
-    /// Logical y of the highest bottom-anchored HUD row (the selected-item
-    /// label zone), used by chat to avoid overlap.
-    pub(super) fn bottom_row_top_logical(&self) -> f32 {
-        (self.gui_height - BOTTOM_STACK_HEIGHT) * self.scale
     }
 
     fn logical(&self, gui: [f32; 2]) -> [f32; 2] {
@@ -245,11 +245,7 @@ impl<'a> HudLayout<'a> {
             None,
             rect(x, y, x + 16.0 * g.scale, y + 16.0 * g.scale)?,
         )
-        .with_visual(UiVisual::Sprite {
-            texture_page: icon.page,
-            uv: icon.uv,
-            color: [255; 4],
-        });
+        .with_visual(icon.visual([255; 4]));
         self.nodes.push(node);
         *self.next_id = self.next_id.saturating_add(1);
         Ok(())

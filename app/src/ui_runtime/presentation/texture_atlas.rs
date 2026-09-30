@@ -24,6 +24,32 @@ pub(super) struct HudSprite {
 pub(crate) struct IconRef {
     pub(crate) page: u16,
     pub(crate) uv: [u16; 4],
+    /// Draws the enchantment glint over the icon.
+    pub(crate) glint: bool,
+}
+
+impl IconRef {
+    #[must_use]
+    pub(crate) const fn with_glint(self, glint: bool) -> Self {
+        Self { glint, ..self }
+    }
+
+    /// The icon's sprite, glinting when marked.
+    pub(crate) const fn visual(self, color: [u8; 4]) -> ui::UiVisual {
+        if self.glint {
+            ui::UiVisual::GlintSprite {
+                texture_page: self.page,
+                uv: self.uv,
+                color,
+            }
+        } else {
+            ui::UiVisual::Sprite {
+                texture_page: self.page,
+                uv: self.uv,
+                color,
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -328,6 +354,7 @@ pub(super) fn font_texture_array_with_hud_and_icons(
                     u16::try_from(top + sprite_height)
                         .map_err(|_| UiPresentationError::InvalidFontTexture)?,
                 ],
+                glint: false,
             });
         }
         Some(refs.into_boxed_slice())
