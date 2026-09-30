@@ -263,8 +263,8 @@ impl DestroyMachine {
                     face: target.face,
                     progress: 0.0,
                 });
-                // A rate at the threshold breaks on the start tick, then delays.
-                if target.instant || target.rate(on_ground) >= COMPLETION_THRESHOLD {
+                // Only zero hardness breaks on the start tick, then delays.
+                if target.instant || target.block.is_some_and(|block| block.hardness == 0.0) {
                     self.complete(&mut payload, target, authority, false);
                     self.delay = DESTROY_DELAY_TICKS;
                     self.travel = 0.0;
