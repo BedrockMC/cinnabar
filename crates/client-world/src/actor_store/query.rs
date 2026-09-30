@@ -122,6 +122,9 @@ impl ActorStore {
     pub(crate) fn get(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(&runtime_id)
     }
+    pub(crate) fn item_max_use_ticks(&self, identifier: &str) -> Option<u32> {
+        self.items.max_use_ticks(identifier)
+    }
     pub(crate) fn len(&self) -> usize {
         self.actors.len()
     }
