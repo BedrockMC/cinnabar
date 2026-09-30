@@ -25,6 +25,8 @@ pub struct PackApplication {
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
     /// Installed only once the session's Bootstrap is accepted.
     pub(crate) server_sounds: Option<Arc<crate::audio::ServerSoundPack>>,
+    /// StartGame item components, independent of the pack stack.
+    pub(crate) item_components: Arc<[(Arc<str>, protocol::ItemComponents)]>,
 }
 
 impl Default for PackApplication {
@@ -39,6 +41,7 @@ impl Default for PackApplication {
             property_defaults: Vec::new(),
             server_ui: None,
             server_sounds: None,
+            item_components: Arc::from([]),
         }
     }
 }
@@ -51,7 +54,8 @@ pub(super) fn prepare_session_packs(
     let custom_blocks = protocol::CustomBlocks::from_game_data(game_data);
     let icon_keys = protocol::item_icon_keys(game_data);
     let hashed = game_data.start_game.block_network_ids_are_hashes;
-    let packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
+    let mut packs = prepare_pack_application(handoff, &custom_blocks, &icon_keys, hashed);
+    packs.item_components = protocol::item_components(game_data).into();
     (custom_blocks, packs)
 }
 
@@ -100,6 +104,7 @@ pub(super) fn prepare_pack_application(
         server_sounds: crate::audio::ServerSoundPack::from_view(&view).map(Arc::new),
         admission: PackAdmission::Validated(stack),
         block_overlay,
+        item_components: Arc::from([]),
     }
 }
 
