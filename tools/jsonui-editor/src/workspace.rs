@@ -13,6 +13,25 @@ use json_ui::Catalog;
 const UI_DEFS: &str = "ui/_ui_defs.json";
 const GLOBALS: &str = "ui/_global_variables.json";
 const LANG: &str = "texts/en_US.lang";
+const SCRATCH: &str = "scratch";
+/// What "New file" starts from; `{namespace}` becomes the file's stem.
+const SCRATCH_TEMPLATE: &str = r#"{
+  "namespace": "{namespace}",
+
+  "main_screen": {
+    "type": "screen",
+    "controls": [
+      {
+        "hello": {
+          "type": "label",
+          "text": "Hello, JSON-UI",
+          "shadow": true
+        }
+      }
+    ]
+  }
+}
+"#;
 /// Largest single file read out of an archive.
 const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -24,9 +43,13 @@ pub struct Layer {
     /// Files known to exist whose bytes the host has not supplied yet.
     pending: BTreeSet<String>,
     edited: BTreeSet<String>,
+    /// Each edited file's bytes before its first edit; `None` for a new file.
+    originals: BTreeMap<String, Option<Arc<[u8]>>>,
     archive: Option<zip::ZipArchive<Cursor<Arc<[u8]>>>>,
     archive_paths: BTreeMap<String, String>,
     generation: u64,
+    /// The in-memory layer pasted and new files go to; it stays on top.
+    scratch: bool,
 }
 
 impl Layer {
@@ -48,8 +71,39 @@ impl Layer {
             .filter(|path| is_ui_json(path))
     }
 
+    pub fn is_scratch(&self) -> bool {
+        self.scratch
+    }
+
     pub fn is_edited(&self, path: &str) -> bool {
         self.edited.contains(path)
+    }
+
+    pub fn edited_paths(&self) -> impl Iterator<Item = &str> {
+        self.edited.iter().map(String::as_str)
+    }
+
+    /// An edited file's bytes before editing: `Some(None)` when the edit made it.
+    pub fn original(&self, path: &str) -> Option<Option<&Arc<[u8]>>> {
+        self.originals.get(path).map(Option::as_ref)
+    }
+
+    /// Every file the layer holds, loaded, archived or pending.
+    pub fn all_paths(&self) -> BTreeSet<String> {
+        self.files
+            .keys()
+            .chain(self.archive_paths.keys())
+            .chain(self.pending.iter())
+            .cloned()
+            .collect()
+    }
+
+    /// Whether the unedited layer has `path`.
+    pub fn had(&self, path: &str) -> bool {
+        match self.originals.get(path) {
+            Some(original) => original.is_some(),
+            None => self.has(path),
+        }
     }
 
     fn has(&self, path: &str) -> bool {
@@ -121,13 +175,72 @@ impl Workspace {
         self.layers.get(index)
     }
 
+    /// Add an empty layer on top, below the scratch layer if there is one;
+    /// returns its index.
     pub fn add_layer(&mut self, name: &str) -> usize {
-        self.layers.push(Layer {
-            name: name.to_owned(),
-            ..Layer::default()
-        });
-        self.prefix.push(None);
-        self.layers.len() - 1
+        let index = self.scratch_index().unwrap_or(self.layers.len());
+        self.layers.insert(
+            index,
+            Layer {
+                name: name.to_owned(),
+                ..Layer::default()
+            },
+        );
+        self.prefix = vec![None; self.layers.len()];
+        self.lang = None;
+        index
+    }
+
+    pub fn scratch_index(&self) -> Option<usize> {
+        self.layers.iter().position(|layer| layer.scratch)
+    }
+
+    /// Create `ui/<stem>.json` (the first free `scratch`, `scratch_2`, ...) in
+    /// the scratch layer, making that layer on top if needed, and list it in
+    /// the layer's `_ui_defs.json`. Empty `text` writes a starter screen.
+    /// Returns the scratch layer and the new path.
+    pub fn new_scratch_file(&mut self, text: &str) -> (usize, String) {
+        let layer = match self.scratch_index() {
+            Some(layer) => layer,
+            None => {
+                self.layers.push(Layer {
+                    name: SCRATCH.to_owned(),
+                    scratch: true,
+                    ..Layer::default()
+                });
+                self.prefix.push(None);
+                let layer = self.layers.len() - 1;
+                self.edit(layer, GLOBALS, "{}\n");
+                layer
+            }
+        };
+        let taken = |stem: &str| {
+            self.layers[layer]
+                .files
+                .contains_key(&format!("ui/{stem}.json"))
+        };
+        let stem = (1..)
+            .map(|n| match n {
+                1 => SCRATCH.to_owned(),
+                n => format!("{SCRATCH}_{n}"),
+            })
+            .find(|stem| !taken(stem))
+            .expect("an unbounded range has a free name");
+        let path = format!("ui/{stem}.json");
+        let text = if text.trim().is_empty() {
+            SCRATCH_TEMPLATE.replace("{namespace}", &stem)
+        } else {
+            text.to_owned()
+        };
+        self.edit(layer, &path, &text);
+        let listed: Vec<String> = self.layers[layer]
+            .ui_paths()
+            .filter(|p| !p.starts_with("ui/_"))
+            .map(str::to_owned)
+            .collect();
+        let defs = serde_json::json!({ "ui_defs": listed });
+        self.edit(layer, UI_DEFS, &format!("{defs:#}\n"));
+        (layer, path)
     }
 
     pub fn remove_layer(&mut self, index: usize) {
@@ -214,6 +327,10 @@ impl Workspace {
     /// Replace a file with edited text.
     pub fn edit(&mut self, layer: usize, path: &str, text: &str) {
         if let Some(target) = self.layers.get_mut(layer) {
+            if !target.edited.contains(path) {
+                let before = target.files.get(path).cloned();
+                target.originals.insert(path.to_owned(), before);
+            }
             target
                 .files
                 .insert(path.to_owned(), text.as_bytes().to_vec().into());
@@ -345,46 +462,17 @@ impl Workspace {
             .cloned()
     }
 
-    /// Edited files as a zip; paths gain a layer folder when several layers changed.
-    pub fn export_edits(&self) -> Result<Vec<u8>, String> {
-        use std::io::Write;
-        let edited: Vec<(usize, &str)> = self
-            .layers
-            .iter()
-            .enumerate()
-            .flat_map(|(index, layer)| layer.edited.iter().map(move |path| (index, path.as_str())))
-            .collect();
-        let layered = edited
-            .iter()
-            .map(|(index, _)| index)
-            .collect::<BTreeSet<_>>()
-            .len()
-            > 1;
-        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
-        for (index, path) in edited {
-            let layer = &self.layers[index];
-            let name = if layered {
-                format!("{}/{path}", sanitize(&layer.name))
-            } else {
-                path.to_owned()
-            };
-            writer
-                .start_file(name, options)
-                .map_err(|e| e.to_string())?;
-            writer
-                .write_all(layer.files.get(path).map_or(&[][..], |bytes| bytes))
-                .map_err(|e| e.to_string())?;
+    /// A file's bytes, extracting it from the layer's archive when needed;
+    /// `None` when absent or not yet supplied.
+    pub fn read_file(&mut self, layer: usize, path: &str) -> Option<Arc<[u8]>> {
+        let target = self.layers.get_mut(layer)?;
+        if !target.files.contains_key(path) {
+            target.extract(path);
         }
-        writer
-            .finish()
-            .map(Cursor::into_inner)
-            .map_err(|e| e.to_string())
+        target.files.get(path).cloned()
     }
 }
 
-/// The bottom layer's catalog, plus why it fell back to overlay loading.
 fn base_catalog(layer: &Layer) -> (Catalog, Option<String>) {
     let error = if layer.files.contains_key(UI_DEFS) && layer.files.contains_key(GLOBALS) {
         match Catalog::from_files(layer.ui_files()) {
@@ -470,18 +558,6 @@ fn parse_lang(text: &str, table: &mut HashMap<String, String>) {
             table.insert(key.to_owned(), value.to_owned());
         }
     }
-}
-
-fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || "-_.".contains(c) {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]

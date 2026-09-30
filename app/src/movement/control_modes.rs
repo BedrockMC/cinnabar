@@ -68,6 +68,17 @@ impl ControlModes {
         *self = Self::default();
     }
 
+    /// Adopts server-authored sprint/sneak states; the next local transition still wins.
+    pub(crate) fn adopt_server_flags(&mut self, sprinting: Option<bool>, sneaking: Option<bool>) {
+        if let Some(sprinting) = sprinting {
+            self.sprinting = sprinting;
+            self.sprint_toggled = sprinting;
+        }
+        if let Some(sneaking) = sneaking {
+            self.sneak_toggled = sneaking;
+        }
+    }
+
     pub(crate) fn update(&mut self, observed: ControlObservation) -> ControlOutput {
         let moving_forward = observed.forward > 0.0;
         let mut double_tap = false;

@@ -322,7 +322,8 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
             CommittedControlEvent::LocalMovementSpeed {
                 sequence: 2,
                 dimension: 0,
-                current: 0.0
+                current: 0.0,
+                tick: 2,
             }
         ]
     ));

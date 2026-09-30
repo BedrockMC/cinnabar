@@ -377,6 +377,38 @@ fn a_child_sized_panel_fits_a_label_capped_by_percent_bounds() {
     }
 }
 
+// A stack child honours `max_size`: the start screen's signing-in label wraps
+// inside 120px instead of running across the screen.
+#[test]
+fn a_stack_child_is_capped_by_its_max_size() {
+    let env = LayoutEnv {
+        text: &MonoText,
+        textures: &NoTextures,
+    };
+    let label = ctrl(
+        "signingin",
+        Some("label"),
+        json!({ "size": ["default", "100%"], "max_size": [120, "100%"],
+                "text": "Signing in with your Microsoft account..." }),
+        vec![],
+    );
+    let stack = ctrl(
+        "stack",
+        Some("stack_panel"),
+        json!({ "orientation": "horizontal", "size": ["100%", 32] }),
+        vec![label],
+    );
+    let root = ctrl(
+        "root",
+        Some("panel"),
+        json!({ "size": [400, 50] }),
+        vec![stack],
+    );
+    let placed = layout(&root, [400.0, 50.0], &env);
+    let stack = child_named(&placed, "stack");
+    assert_eq!(child_named(stack, "signingin").rect.w, 120.0);
+}
+
 // --- nine-slice -------------------------------------------------------------
 
 #[test]
@@ -611,7 +643,7 @@ fn main_panel_no_buttons_lays_out_with_nine_slice_background() {
     assert_eq!(draws, again);
 }
 
-// A flip-book `uv` draws its first frame rather than the whole strip.
+// A flip-book `uv` starts on its first frame and keeps the animation for paint time.
 #[test]
 fn a_flip_book_uv_resolves_to_its_first_frame() {
     let screen = br#"{
@@ -633,5 +665,38 @@ fn a_flip_book_uv_resolves_to_its_first_frame() {
     let icon = resolve(&catalog, "s.icon", &Context::desktop())
         .control
         .unwrap();
-    assert_eq!(icon.properties.get("uv"), Some(&json!([0, 0])));
+    assert_eq!(icon.properties.get("uv"), Some(&json!([0.0, 0.0])));
+    let book = icon
+        .properties
+        .get("anim_flip_book")
+        .expect("the flip-book rides along");
+    assert_eq!(book["frame_count"], json!(28));
+}
+
+// `{ "$layout": {} }` with `$layout: "@s.panel"` instances that panel by name.
+#[test]
+fn a_variable_child_key_instances_the_control_it_names() {
+    let screen = br#"{
+        "namespace": "s",
+        "panel": { "type": "panel", "size": [10, 10] },
+        "root": { "type": "panel", "$layout": "@s.panel", "controls": [ { "$layout": {} } ] }
+    }"#;
+    let catalog = json_ui::Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/s.json"]}"#.as_slice(),
+        ),
+        ("ui/s.json", screen.as_slice()),
+    ])
+    .unwrap();
+    let root = resolve(&catalog, "s.root", &Context::desktop())
+        .control
+        .unwrap();
+    assert_eq!(root.children.len(), 1);
+    assert_eq!(root.children[0].name, "panel");
+    assert_eq!(
+        root.children[0].properties.get("size"),
+        Some(&json!([10, 10]))
+    );
 }

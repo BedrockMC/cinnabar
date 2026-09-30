@@ -30,6 +30,10 @@ const SPYGLASS_USE_TICKS: u32 = 1_200;
 const CROSSBOW_CHARGE_TICKS: u32 = 25;
 const QUICK_CHARGE_TICKS_PER_LEVEL: u32 = 5;
 const QUICK_CHARGE_ENCHANTMENT_ID: i16 = 35;
+/// `ItemUseSlowdownSystemImpl`'s movement factor for an item in use without
+/// `minecraft:use_modifiers` (0.35, read from the 26.30 client). No handled air
+/// use carries that component.
+const ITEM_USE_SLOWDOWN: f64 = 0.35;
 
 /// Ammunition a held-use item needs before its use starts outside creative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +118,11 @@ impl ItemUseRuntime {
     /// Whether a use started locally and has not ended.
     pub(crate) const fn is_using(&self) -> bool {
         self.active.is_some()
+    }
+
+    /// Movement-input factor while a use runs; `None` when idle.
+    pub(crate) fn movement_modifier(&self) -> Option<f64> {
+        self.active.as_ref().map(|_| ITEM_USE_SLOWDOWN)
     }
 
     /// A new session drops the press and any use without packets.

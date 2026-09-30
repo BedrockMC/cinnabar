@@ -454,7 +454,7 @@ fn normalized_keyboard_diagonal_emits_the_processed_direction_flag() {
             false,
             false,
             false,
-            false,
+            None,
         ),
         &Floor,
     );

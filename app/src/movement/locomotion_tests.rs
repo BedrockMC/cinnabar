@@ -277,7 +277,7 @@ fn holding_right_sends_negative_wire_x_and_moves_right_of_facing() {
     ticker.reset(1, 101, [0.0, 2.620_01, 0.0]);
     ticker.set_source(super::MovementSource::Physics);
     // Yaw 0 faces +z, so the player's right is -x.
-    let input = super::physics_movement_input([1.0, 0.0], 0.0, true, false, false, false, false);
+    let input = super::physics_movement_input([1.0, 0.0], 0.0, true, false, false, false, None);
     let sample = step(
         &mut physics,
         input,

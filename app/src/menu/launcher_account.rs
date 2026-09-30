@@ -30,8 +30,11 @@ use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
 /// How often the catalog lists refresh (they can take tens of seconds).
 const CATALOG_INTERVAL: Duration = Duration::from_secs(30);
-/// How often the screen feeds refresh; they change rarely and cost several calls.
-const FEED_INTERVAL: Duration = Duration::from_secs(300);
+/// How often the screen feeds are read; the core answers from its catalog cache
+/// and refreshes upstream on its own schedule, so this only picks up fresh data.
+const FEED_INTERVAL: Duration = Duration::from_secs(30);
+/// How soon a feed that failed is asked again.
+const FEED_RETRY: Duration = Duration::from_secs(15);
 /// How often shown server rows are pinged.
 const PING_INTERVAL: Duration = Duration::from_secs(15);
 
@@ -124,21 +127,32 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             )
         });
         let feeds = (Instant::now() >= feed_due).then(|| {
-            feed_due = Instant::now() + FEED_INTERVAL;
-            let home = runtime.block_on(launcher_control::home(socket_dir)).ok();
+            let mut failed = false;
+            let home = settle(
+                "home",
+                runtime.block_on(launcher_control::home(socket_dir)),
+                &mut failed,
+            );
             if let Some(home) = &home {
                 report_impressions(&runtime, socket_dir, home, &mut reported);
             }
-            (
-                home,
-                runtime
-                    .block_on(launcher_control::list_featured_servers(socket_dir))
-                    .ok(),
-                runtime
-                    .block_on(launcher_control::list_gatherings(socket_dir))
-                    .ok(),
-                runtime.block_on(launcher_control::profile(socket_dir)).ok(),
-            )
+            let featured = settle(
+                "featured servers",
+                runtime.block_on(launcher_control::list_featured_servers(socket_dir)),
+                &mut failed,
+            );
+            let gatherings = settle(
+                "gatherings",
+                runtime.block_on(launcher_control::list_gatherings(socket_dir)),
+                &mut failed,
+            );
+            let profile = settle(
+                "profile",
+                runtime.block_on(launcher_control::profile(socket_dir)),
+                &mut failed,
+            );
+            feed_due = Instant::now() + if failed { FEED_RETRY } else { FEED_INTERVAL };
+            (home, featured, gatherings, profile)
         });
         let targets = shared
             .lock()
@@ -147,9 +161,11 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             .clone();
         let pings = (!targets.is_empty() && Instant::now() >= ping_due).then(|| {
             ping_due = Instant::now() + PING_INTERVAL;
-            runtime
-                .block_on(launcher_control::ping_servers(socket_dir, &targets))
-                .ok()
+            settle(
+                "ping",
+                runtime.block_on(launcher_control::ping_servers(socket_dir, &targets)),
+                &mut false,
+            )
         });
         let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
         if let Some(Some(pings)) = pings {
@@ -167,11 +183,8 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             {
                 // The first poll only records the standing disconnect.
                 if snapshot.last_disconnect.is_some() {
-                    let reason = if disconnect.message.trim().is_empty() {
-                        format!("Disconnected (reason {})", disconnect.reason)
-                    } else {
-                        disconnect.message
-                    };
+                    // An empty message reads as vanilla's no-reason line.
+                    let reason = disconnect.message.trim().to_owned();
                     snapshot.events.push(AccountEvent::Disconnected { reason });
                 }
                 snapshot.last_disconnect = Some(disconnect.sequence);
@@ -187,6 +200,23 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             if friends.is_some() {
                 snapshot.friends = friends;
             }
+        }
+    }
+}
+
+/// A feed's value, or `None` after logging which feed failed; the core logs the
+/// upstream cause, redacted.
+fn settle<T, E: std::fmt::Display>(
+    feed: &str,
+    result: Result<T, E>,
+    failed: &mut bool,
+) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(error) => {
+            *failed = true;
+            bevy::log::warn!(feed, %error, "launcher feed failed; retrying soon");
+            None
         }
     }
 }

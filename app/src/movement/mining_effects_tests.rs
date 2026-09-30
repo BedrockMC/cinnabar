@@ -321,9 +321,12 @@ fn passive_retention_preserves_frames_at_success_failure_drop_replay_and_reancho
     let left = pair
         .baseline
         .apply_correction(
-            corrected.position,
-            corrected.tick,
-            false,
+            crate::movement::PhysicsAnchor {
+                network_position: corrected.position,
+                tick: corrected.tick,
+                on_ground: false,
+                velocity: None,
+            },
             PhysicsCorrectionMode::ReplayIfRetained,
             None,
             &EmptyWorld,
@@ -332,9 +335,12 @@ fn passive_retention_preserves_frames_at_success_failure_drop_replay_and_reancho
     let right = pair
         .mixed
         .apply_correction(
-            corrected.position,
-            corrected.tick,
-            false,
+            crate::movement::PhysicsAnchor {
+                network_position: corrected.position,
+                tick: corrected.tick,
+                on_ground: false,
+                velocity: None,
+            },
             PhysicsCorrectionMode::ReplayIfRetained,
             None,
             &EmptyWorld,

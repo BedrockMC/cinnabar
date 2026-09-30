@@ -16,12 +16,14 @@ pub(super) struct SampledEnvironment {
     pub block_samples: usize,
 }
 
+/// Samples blocks touching the current pose box (`height` tall) and its sweep.
 pub(super) fn sample(
     world: &impl CollisionWorld,
     position: Vec3,
     velocity: Vec3,
+    height: f64,
 ) -> Result<SampledEnvironment, WorldQueryError> {
-    let player = Aabb::player_at(position);
+    let player = Aabb::player_with_height_at(position, height);
     let swept = player.swept(velocity);
     crate::world::validate_collision_query(swept)?;
     let min = block_at(swept.min)?;

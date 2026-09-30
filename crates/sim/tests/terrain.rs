@@ -400,3 +400,19 @@ fn adversarial_finite_inputs_fail_without_mutation_and_large_sweeps_stop_before_
     assert_eq!(state, before);
     assert_eq!(world.queries.get(), 0);
 }
+
+/// An obstruction met only on the raised step path must block the step, not be tunnelled.
+#[test]
+fn a_step_cannot_tunnel_through_an_obstruction_on_its_raised_path() {
+    let mut world = TerrainWorld::floor(Vec3::new(-4.0, 0.0, -4.0), Vec3::new(4.0, 1.0, 4.0));
+    world.boxes.extend([
+        Aabb::new(Vec3::new(-1.0, 1.0, 0.7), Vec3::new(1.0, 1.5, 3.0)),
+        Aabb::new(Vec3::new(-1.0, 3.0, 0.7), Vec3::new(1.0, 3.2, 0.8)),
+    ]);
+    let mut state = grounded(Vec3::new(0.0, 1.0, 0.4));
+    state.velocity.z = 1.0;
+    let result = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert_eq!(result.movement.y, 0.0, "{:?}", result.movement);
+}

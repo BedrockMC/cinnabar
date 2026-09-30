@@ -18,6 +18,8 @@ pub(crate) const BORN_KEY: &str = "anim_born";
 /// Property naming the caller clock that holds an instance's creation time, so
 /// a re-sent title restarts its fade without re-binding the screen.
 pub(crate) const CLOCK_KEY: &str = "anim_clock";
+/// Property holding a control's resolved `uv` flip-book (a [`FlipBook`]).
+pub(crate) const FLIP_BOOK_KEY: &str = "anim_flip_book";
 /// Longest `next` chain followed; a longer or cyclic chain loops from its start.
 const MAX_STEPS: usize = 16;
 
@@ -133,20 +135,80 @@ impl Chain {
 
 /// Resolve `@ns.name` (following `next`) against `catalog` in `env`; `None` for
 /// an unknown reference, an event-started chain, or one with no alpha step.
-/// A flip-book's first frame (`initial_uv`), which the engine draws in place
-/// of the animation.
-pub(crate) fn flip_book_first_frame(
-    catalog: &Catalog,
-    reference: &str,
-    env: &Env,
-) -> Option<Value> {
+/// A `uv` flip-book: frames stepping right along the texture, played by the
+/// caller's clock at paint time so layout never depends on it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FlipBook {
+    pub initial_uv: [f64; 2],
+    pub frame_count: u32,
+    /// Texture pixels between frames; the draw converts it to normalised uv.
+    pub frame_step: f64,
+    pub fps: f64,
+    pub reversible: bool,
+    pub looping: bool,
+    /// Normalised uv between frames, set once the texture size is known.
+    #[serde(default)]
+    pub step_u: f32,
+}
+
+impl FlipBook {
+    /// The frame shown `seconds` into the animation.
+    pub fn frame(&self, seconds: f64) -> u32 {
+        let count = u64::from(self.frame_count);
+        if count <= 1 || self.fps <= 0.0 || !seconds.is_finite() || seconds < 0.0 {
+            return 0;
+        }
+        let tick = (seconds * self.fps) as u64;
+        let frame = if self.reversible {
+            let period = 2 * (count - 1);
+            let at = if self.looping {
+                tick % period
+            } else {
+                tick.min(period)
+            };
+            if at < count { at } else { period - at }
+        } else if self.looping {
+            tick % count
+        } else {
+            tick.min(count - 1)
+        };
+        frame as u32
+    }
+}
+
+/// The flip-book `reference` names; an event-started one holds its first frame.
+pub(crate) fn resolve_flip_book(catalog: &Catalog, reference: &str, env: &Env) -> Option<FlipBook> {
     let target = ControlRef::parse(reference, "");
     let def = catalog.lookup(&target.namespace, &target.name)?;
     let props = substitute(&Value::Object(def.props.clone()), env, &mut Vec::new());
     if props.get("anim_type").and_then(Value::as_str) != Some("flip_book") {
         return None;
     }
-    props.get("initial_uv").cloned()
+    let number =
+        |key: &str, fallback: f64| props.get(key).and_then(Value::as_f64).unwrap_or(fallback);
+    let initial = props.get("initial_uv").and_then(Value::as_array);
+    let coordinate = |index: usize| {
+        initial
+            .and_then(|pair| pair.get(index))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    };
+    let event_started = props.get("play_event").is_some_and(|event| event != "");
+    let flag =
+        |key: &str, fallback: bool| props.get(key).and_then(Value::as_bool).unwrap_or(fallback);
+    Some(FlipBook {
+        initial_uv: [coordinate(0), coordinate(1)],
+        frame_count: if event_started {
+            1
+        } else {
+            number("frame_count", 1.0).clamp(1.0, 4096.0) as u32
+        },
+        frame_step: number("frame_step", 0.0),
+        fps: number("fps", 0.0),
+        reversible: flag("reversible", false),
+        looping: flag("looping", true),
+        step_u: 0.0,
+    })
 }
 
 pub(crate) fn resolve_chain(catalog: &Catalog, reference: &str, env: &Env) -> Option<Chain> {
@@ -322,6 +384,36 @@ fn ease(name: &str, t: f64) -> f64 {
         "out_back" => out(&back),
         "in_out_back" => in_out(&back),
         _ => t,
+    }
+}
+
+#[cfg(test)]
+mod flip_book_tests {
+    use super::FlipBook;
+
+    fn book(reversible: bool, looping: bool) -> FlipBook {
+        FlipBook {
+            initial_uv: [0.0, 0.0],
+            frame_count: 4,
+            frame_step: 8.0,
+            fps: 10.0,
+            reversible,
+            looping,
+            step_u: 0.25,
+        }
+    }
+
+    // Frames advance with the clock, loop, ping-pong when reversible, or hold.
+    #[test]
+    fn frames_follow_the_clock() {
+        let frames = |book: FlipBook| {
+            (0..8)
+                .map(|tick| book.frame(f64::from(tick) * 0.1 + 0.01))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(frames(book(false, true)), [0, 1, 2, 3, 0, 1, 2, 3]);
+        assert_eq!(frames(book(true, true)), [0, 1, 2, 3, 2, 1, 0, 1]);
+        assert_eq!(frames(book(false, false)), [0, 1, 2, 3, 3, 3, 3, 3]);
     }
 }
 

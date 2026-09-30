@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -60,6 +61,7 @@ type Server struct {
 	closing          bool
 	err              error
 	requestIOTimeout time.Duration
+	logger           *slog.Logger // nil drops service-failure logs; guarded by mu
 }
 
 // Start binds the distinct control endpoint before returning.
@@ -144,6 +146,22 @@ func (server *Server) SetWorlds(worlds Worlds) {
 }
 
 // SetServices enables the launcher methods; safe to call while serving.
+// SetLogger records failed launcher service calls, their errors redacted.
+func (server *Server) SetLogger(logger *slog.Logger) {
+	server.mu.Lock()
+	server.logger = logger
+	server.mu.Unlock()
+}
+
+func (server *Server) logServiceFailure(method string, err error) {
+	server.mu.Lock()
+	logger := server.logger
+	server.mu.Unlock()
+	if logger != nil {
+		logger.Warn("launcher service failed", "method", method, "error", RedactError(err))
+	}
+}
+
 func (server *Server) SetServices(services Services) {
 	server.mu.Lock()
 	server.services = services

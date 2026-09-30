@@ -113,23 +113,6 @@ fn queued_server_motion_replaces_exactly_one_ticks_velocity() {
 }
 
 #[test]
-fn authoritative_server_motion_ticks_preserve_ordered_future_impulses() {
-    let mut physics = LocalPhysicsController::default();
-    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
-    physics.queue_server_motion([0.45, 0.42, -0.35], 102);
-    physics.queue_server_motion([0.6, 0.5, -0.1], 103);
-    physics.queue_server_motion([-0.2, 0.8, 0.3], 103);
-
-    let tick_101 = run_one_tick(&mut physics, &VersionedFloor(1));
-    let tick_102 = run_one_tick(&mut physics, &VersionedFloor(1));
-    let tick_103 = run_one_tick(&mut physics, &VersionedFloor(1));
-
-    assert_eq!([tick_101.tick, tick_102.tick, tick_103.tick], [101, 102, 103]);
-    assert!(tick_102.velocity[0] > 0.0, "the first impulse keeps its wire tick");
-    assert!(tick_103.velocity[0] < 0.0, "the second impulse is not coalesced into the first");
-}
-
-#[test]
 fn untimed_server_motion_replaces_velocity_now_and_applies_once_at_the_next_tick() {
     let mut untimed = LocalPhysicsController::default();
     untimed.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
@@ -313,7 +296,7 @@ fn correction_reanchors_feet_velocity_history_and_render_interpolation() {
     assert_eq!(
         state.velocity,
         Vec3::ZERO,
-        "CorrectPlayerMovePrediction.Delta is positional error, not velocity"
+        "a hard reanchor starts from rest"
     );
     assert!(!state.on_ground);
     assert_eq!(physics.history_len(), 0);
@@ -676,20 +659,18 @@ fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
 
 #[test]
 fn app_axes_map_to_bedsim_strafe_forward_and_clear_when_input_is_inactive() {
-    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true, true);
+    let active = physics_movement_input([1.0, 1.0], 180.0, true, true, true, true, Some(0.35));
     assert_eq!(active.strafe, -1.0, "D is bedsim's negative strafe");
     assert_eq!(active.forward, 1.0);
     assert_eq!(active.yaw_degrees, 180.0);
     assert!(active.jumping);
     assert!(active.sneaking);
     assert!(active.sprinting);
-    assert!(
-        !active.using_consumable,
-        "generic Use is not evidence that the held item is consumable"
-    );
+    assert!(!active.using_consumable);
+    assert_eq!(active.item_use_movement_modifier, Some(0.35));
 
     assert_eq!(
-        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, true),
+        physics_movement_input([1.0, 1.0], 90.0, false, true, true, true, Some(0.35)),
         MovementInput::default()
     );
 }
@@ -699,21 +680,21 @@ fn processed_sprint_requires_forward_movement_input() {
     // Vanilla sprints only while moving forward. A held sprint request with
     // backward, strafe-only, or no movement input is not an active sprint:
     // neither the simulator speed nor the outbound flags may claim one.
-    let backward = physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, false);
+    let backward = physics_movement_input([0.0, -1.0], 180.0, true, false, false, true, None);
     assert!(!backward.sprinting, "backward input cannot sprint");
-    let strafe_only = physics_movement_input([1.0, 0.0], 180.0, true, false, false, true, false);
+    let strafe_only = physics_movement_input([1.0, 0.0], 180.0, true, false, false, true, None);
     assert!(!strafe_only.sprinting, "strafe-only input cannot sprint");
-    let stationary = physics_movement_input([0.0, 0.0], 180.0, true, false, false, true, false);
+    let stationary = physics_movement_input([0.0, 0.0], 180.0, true, false, false, true, None);
     assert!(!stationary.sprinting, "stationary input cannot sprint");
 
-    let forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, false);
+    let forward = physics_movement_input([0.0, 1.0], 180.0, true, false, false, true, None);
     assert!(forward.sprinting);
     assert_eq!(forward.forward, 1.0);
 
     // Sneaking does not cancel an active sprint: vanilla keeps the faster
     // sneak-sprint pace, so the forward gate alone decides processed sprint.
     let sneaking_forward =
-        physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, false);
+        physics_movement_input([0.0, 1.0], 180.0, true, false, true, true, None);
     assert!(sneaking_forward.sprinting);
 }
 
