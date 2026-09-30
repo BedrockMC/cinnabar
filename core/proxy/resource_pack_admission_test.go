@@ -1839,28 +1839,35 @@ func TestAcquisitionBudgetExcludesGrownTransfersAndCancelsOnlyPastMemoryCeiling(
 	}
 }
 
-func TestAcquisitionBudgetCancelsSlowAcquisitionButNotCompletion(t *testing.T) {
-	fired := make(chan error, 1)
-	slow := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
-	slow.limit = time.Millisecond
-	slow.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)))
+// A stall cancels the dial; steady progress past the stall bound and completion do not.
+func TestAcquisitionBudgetCancelsStallButNotProgressOrCompletion(t *testing.T) {
+	fired := make(chan error, 4)
+	stalled := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
+	stalled.limit = time.Millisecond
+	stalled.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)))
 	select {
 	case cause := <-fired:
-		if !errors.Is(cause, errResourcePackAcquisitionTimeout) {
-			t.Fatalf("slow acquisition cause = %v", cause)
+		if !errors.Is(cause, errResourcePackAcquisitionStalled) {
+			t.Fatalf("stalled acquisition cause = %v", cause)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("slow acquisition was not cancelled")
+		t.Fatal("stalled acquisition was not cancelled")
 	}
 
-	quick := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
-	quick.limit = 50 * time.Millisecond
-	quick.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, packInfos(1)))
-	quick.observe(packet.Header{PacketID: packet.IDResourcePackStack}, nil)
+	steady := newResourcePackAcquisitionBudget(minecraft.DefaultProtocol, func(cause error) { fired <- cause })
+	steady.limit = 100 * time.Millisecond
+	info := packInfos(1)
+	steady.observe(packet.Header{PacketID: packet.IDResourcePacksInfo}, encodeLatest(t, info))
+	for range 6 {
+		time.Sleep(40 * time.Millisecond)
+		steady.observe(packet.Header{PacketID: packet.IDResourcePackChunkData}, nil)
+	}
+	steady.observe(packet.Header{PacketID: packet.IDResourcePackDataInfo}, encodeLatest(t, dataInfo(info.TexturePacks[0].UUID.String(), 1)))
+	steady.observe(packet.Header{PacketID: packet.IDResourcePackStack}, nil)
 	select {
 	case cause := <-fired:
-		t.Fatalf("completed acquisition was cancelled: %v", cause)
-	case <-time.After(150 * time.Millisecond):
+		t.Fatalf("progressing acquisition was cancelled after outlasting the stall bound: %v", cause)
+	case <-time.After(250 * time.Millisecond):
 	}
 }
 
