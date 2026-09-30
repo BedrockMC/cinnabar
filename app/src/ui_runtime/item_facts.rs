@@ -9,7 +9,31 @@
 //! nothing rather than guessing. Custom component-based items declare their
 //! own stats server-side and are intentionally not modeled here.
 
-use protocol::{NetworkItemStack, item_stack_damage};
+use std::{collections::HashMap, sync::Arc};
+
+use protocol::{ItemComponents, NetworkItemStack, item_stack_damage};
+
+/// The session's server item components by identifier.
+#[derive(Debug, Default)]
+pub(crate) struct SessionItemComponents(HashMap<Arc<str>, ItemComponents>);
+
+impl SessionItemComponents {
+    /// `None` when no StartGame item declares components.
+    pub(crate) fn from_game_data(game_data: &protocol::GameData) -> Option<Arc<Self>> {
+        let map = HashMap::from_iter(protocol::item_components(game_data));
+        (!map.is_empty()).then(|| Arc::new(Self(map)))
+    }
+
+    pub(crate) fn get(&self, identifier: &str) -> Option<&ItemComponents> {
+        self.0.get(identifier)
+    }
+}
+
+impl FromIterator<(Arc<str>, ItemComponents)> for SessionItemComponents {
+    fn from_iter<I: IntoIterator<Item = (Arc<str>, ItemComponents)>>(items: I) -> Self {
+        Self(items.into_iter().collect())
+    }
+}
 
 /// Armor points for one equipped vanilla armor identifier.
 #[must_use]
@@ -113,21 +137,18 @@ pub(crate) fn max_durability(identifier: &str) -> Option<u32> {
 /// the item is untracked, undamaged, or carries no readable damage tag.
 /// The reference hides the bar at full durability, so zero damage is `None`.
 #[must_use]
-pub(crate) fn durability_fraction(
-    stack: &NetworkItemStack,
-    identifier: Option<&str>,
-) -> Option<f32> {
-    durability_fraction_for_damage(identifier, item_stack_damage(stack)?)
+pub(crate) fn durability_fraction(stack: &NetworkItemStack, maximum: Option<u32>) -> Option<f32> {
+    durability_fraction_for_damage(maximum, item_stack_damage(stack)?)
 }
 
 /// The bar fraction for a server-corrected damage value.
 ///
 /// Response corrections carry the same maximum-minus-remaining quantity as
 /// the stack's NBT `Damage` tag, so both paths share one fraction contract;
-/// an unknown identifier fails closed exactly like the derived path.
+/// an unknown maximum fails closed exactly like the derived path.
 #[must_use]
-pub(crate) fn durability_fraction_for_damage(identifier: Option<&str>, damage: u32) -> Option<f32> {
-    fraction_from_damage(identifier?, damage)
+pub(crate) fn durability_fraction_for_damage(maximum: Option<u32>, damage: u32) -> Option<f32> {
+    fraction_from_damage(maximum?, damage)
 }
 
 /// Remaining durability for one HUD cell, preferring an authoritative server
@@ -141,27 +162,75 @@ pub(crate) fn durability_fraction_for_damage(identifier: Option<&str>, damage: u
 #[must_use]
 pub(crate) fn cell_durability_fraction(
     stack: &NetworkItemStack,
-    identifier: Option<&str>,
+    maximum: Option<u32>,
     durability_correction: Option<i32>,
 ) -> Option<f32> {
     match durability_correction {
         Some(damage) if damage >= 0 => {
-            fraction_from_damage(identifier?, u32::try_from(damage).unwrap_or(u32::MAX))
+            fraction_from_damage(maximum?, u32::try_from(damage).unwrap_or(u32::MAX))
         }
-        _ => durability_fraction(stack, identifier),
+        _ => durability_fraction(stack, maximum),
     }
 }
 
 /// The bar fraction for a known damage value; the wire decoding itself is
 /// covered by the protocol crate's `item_stack_damage` tests.
 #[must_use]
-fn fraction_from_damage(identifier: &str, damage: u32) -> Option<f32> {
-    let maximum = max_durability(identifier)?;
-    if damage == 0 {
+fn fraction_from_damage(maximum: u32, damage: u32) -> Option<f32> {
+    if damage == 0 || maximum == 0 {
         return None;
     }
     let remaining = maximum.saturating_sub(damage.min(maximum));
     Some(remaining as f32 / maximum as f32)
+}
+
+/// The format code and colour `Item::getHoverTextColor` gives a component item's name: its
+/// `hover_text_color`, else its rarity's (uncommon yellow, rare aqua, epic light purple).
+#[must_use]
+pub(crate) fn name_format(components: &ItemComponents) -> Option<(char, [u8; 3])> {
+    const FORMATS: [(&str, char, [u8; 3]); 28] = [
+        ("black", '0', [0, 0, 0]),
+        ("dark_blue", '1', [0, 0, 170]),
+        ("dark_green", '2', [0, 170, 0]),
+        ("dark_aqua", '3', [0, 170, 170]),
+        ("dark_red", '4', [170, 0, 0]),
+        ("dark_purple", '5', [170, 0, 170]),
+        ("gold", '6', [255, 170, 0]),
+        ("gray", '7', [170, 170, 170]),
+        ("dark_gray", '8', [85, 85, 85]),
+        ("blue", '9', [85, 85, 255]),
+        ("green", 'a', [85, 255, 85]),
+        ("aqua", 'b', [85, 255, 255]),
+        ("red", 'c', [255, 85, 85]),
+        ("light_purple", 'd', [255, 85, 255]),
+        ("yellow", 'e', [255, 255, 85]),
+        ("white", 'f', [255, 255, 255]),
+        ("minecoin_gold", 'g', [221, 214, 5]),
+        ("material_quartz", 'h', [227, 212, 209]),
+        ("material_iron", 'i', [206, 202, 202]),
+        ("material_netherite", 'j', [68, 58, 59]),
+        ("material_redstone", 'm', [151, 22, 7]),
+        ("material_copper", 'n', [180, 104, 77]),
+        ("material_gold", 'p', [222, 177, 45]),
+        ("material_emerald", 'q', [71, 160, 54]),
+        ("material_diamond", 's', [44, 186, 168]),
+        ("material_lapis", 't', [33, 73, 123]),
+        ("material_amethyst", 'u', [154, 92, 198]),
+        ("material_resin", 'v', [235, 113, 20]),
+    ];
+    let named = components
+        .hover_text_color
+        .as_deref()
+        .or(match components.rarity.as_deref() {
+            Some("uncommon") => Some("yellow"),
+            Some("rare") => Some("aqua"),
+            Some("epic") => Some("light_purple"),
+            _ => None,
+        })?;
+    FORMATS
+        .iter()
+        .find(|(name, ..)| name.eq_ignore_ascii_case(named))
+        .map(|&(_, code, rgb)| (code, rgb))
 }
 
 /// Mechanical display name from a vanilla identifier: the path segment in
@@ -247,18 +316,21 @@ mod tests {
 
     #[test]
     fn durability_fractions_follow_the_pinned_maxima_and_hide_pristine_bars() {
-        let fraction = fraction_from_damage("minecraft:iron_sword", 125).unwrap();
+        let fraction = fraction_from_damage(250, 125).unwrap();
         assert!((fraction - 0.5).abs() < 0.01);
-        assert_eq!(fraction_from_damage("minecraft:iron_sword", 0), None);
-        assert_eq!(fraction_from_damage("minecraft:stick", 125), None);
-        // Over-damage clamps to an empty bar instead of wrapping.
+        assert_eq!(fraction_from_damage(250, 0), None);
         assert_eq!(
-            fraction_from_damage("minecraft:iron_sword", 9_999),
-            Some(0.0)
+            durability_fraction_for_damage(max_durability("minecraft:stick"), 125),
+            None
         );
+        // Over-damage clamps to an empty bar instead of wrapping.
+        assert_eq!(fraction_from_damage(250, 9_999), Some(0.0));
         // A stack with no extra data reads as no bar at the public boundary.
         assert_eq!(
-            durability_fraction(&NetworkItemStack::empty(), Some("minecraft:iron_sword")),
+            durability_fraction(
+                &NetworkItemStack::empty(),
+                max_durability("minecraft:iron_sword")
+            ),
             None
         );
         assert_eq!(durability_fraction(&NetworkItemStack::empty(), None), None);
@@ -271,7 +343,7 @@ mod tests {
         assert_eq!(
             cell_durability_fraction(
                 &NetworkItemStack::empty(),
-                Some("minecraft:iron_sword"),
+                max_durability("minecraft:iron_sword"),
                 Some(125)
             ),
             Some(0.5)
@@ -279,13 +351,17 @@ mod tests {
         assert_eq!(
             cell_durability_fraction(
                 &NetworkItemStack::empty(),
-                Some("minecraft:iron_sword"),
+                max_durability("minecraft:iron_sword"),
                 Some(0)
             ),
             None
         );
         assert_eq!(
-            cell_durability_fraction(&NetworkItemStack::empty(), Some("minecraft:stick"), Some(5)),
+            cell_durability_fraction(
+                &NetworkItemStack::empty(),
+                max_durability("minecraft:stick"),
+                Some(5)
+            ),
             None
         );
         assert_eq!(
@@ -296,7 +372,7 @@ mod tests {
         assert_eq!(
             cell_durability_fraction(
                 &NetworkItemStack::empty(),
-                Some("minecraft:iron_sword"),
+                max_durability("minecraft:iron_sword"),
                 Some(9_999)
             ),
             Some(0.0)
@@ -335,7 +411,7 @@ mod tests {
         // A correction wins even when the local stack carries no readable damage.
         let fraction = cell_durability_fraction(
             &NetworkItemStack::empty(),
-            Some("minecraft:iron_sword"),
+            max_durability("minecraft:iron_sword"),
             Some(125),
         )
         .unwrap();
@@ -344,7 +420,7 @@ mod tests {
         assert_eq!(
             cell_durability_fraction(
                 &NetworkItemStack::empty(),
-                Some("minecraft:iron_sword"),
+                max_durability("minecraft:iron_sword"),
                 Some(0)
             ),
             None
@@ -352,23 +428,75 @@ mod tests {
         // A negative correction is semantically odd wire data: local derivation stands.
         let damaged = stack_with_damage(125);
         assert_eq!(
-            cell_durability_fraction(&damaged, Some("minecraft:iron_sword"), Some(-3)),
-            durability_fraction(&damaged, Some("minecraft:iron_sword"))
+            cell_durability_fraction(&damaged, max_durability("minecraft:iron_sword"), Some(-3)),
+            durability_fraction(&damaged, max_durability("minecraft:iron_sword"))
         );
         // Unknown maxima stay hidden under correction too.
         assert_eq!(
-            cell_durability_fraction(&NetworkItemStack::empty(), Some("minecraft:stick"), Some(5)),
+            cell_durability_fraction(
+                &NetworkItemStack::empty(),
+                max_durability("minecraft:stick"),
+                Some(5)
+            ),
             None
         );
         // Without a correction the existing derivation is reproduced exactly.
         assert_eq!(
-            cell_durability_fraction(&damaged, Some("minecraft:iron_sword"), None),
-            durability_fraction(&damaged, Some("minecraft:iron_sword"))
+            cell_durability_fraction(&damaged, max_durability("minecraft:iron_sword"), None),
+            durability_fraction(&damaged, max_durability("minecraft:iron_sword"))
         );
         assert_eq!(
             cell_durability_fraction(&NetworkItemStack::empty(), None, Some(125)),
             None
         );
+    }
+
+    // Component names translate as keys or show literally; custom maxima drive the bar.
+    #[test]
+    fn session_components_name_and_bound_custom_items() {
+        let mut runtime = crate::ui_runtime::UiRuntime::new(1);
+        let input = b"item.zeqa.blade.name=Zeqa Blade\n";
+        runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+            target.copy_from_slice(input);
+            true
+        }));
+        let components = |name: &str, max_durability| ItemComponents {
+            display_name: Some(name.into()),
+            max_durability,
+            ..ItemComponents::default()
+        };
+        runtime.set_session_items(Some(Arc::new(SessionItemComponents::from_iter([
+            (
+                Arc::from("zeqa:blade"),
+                components("item.zeqa.blade.name", Some(100)),
+            ),
+            (Arc::from("zeqa:gem"), components("Shiny Gem", None)),
+        ]))));
+        assert_eq!(runtime.localized_item_name("zeqa:blade"), "Zeqa Blade");
+        assert_eq!(runtime.localized_item_name("zeqa:gem"), "Shiny Gem");
+        assert_eq!(runtime.item_max_durability(Some("zeqa:blade")), Some(100));
+        assert_eq!(runtime.item_max_durability(Some("zeqa:gem")), None);
+        assert_eq!(
+            runtime.item_max_durability(Some("minecraft:iron_sword")),
+            Some(250)
+        );
+        runtime.begin_session(2);
+        assert_eq!(runtime.localized_item_name("zeqa:gem"), "Gem");
+    }
+
+    // hover_text_color outranks rarity; unknown names and common rarity keep the default.
+    #[test]
+    fn name_format_follows_hover_colour_then_rarity() {
+        let mut components = ItemComponents {
+            rarity: Some("epic".into()),
+            ..ItemComponents::default()
+        };
+        assert_eq!(name_format(&components), Some(('d', [255, 85, 255])));
+        components.hover_text_color = Some("gold".into());
+        assert_eq!(name_format(&components).map(|(code, _)| code), Some('6'));
+        components.hover_text_color = Some("chartreuse".into());
+        assert_eq!(name_format(&components), None);
+        assert_eq!(name_format(&ItemComponents::default()), None);
     }
 
     #[test]

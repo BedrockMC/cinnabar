@@ -528,6 +528,7 @@ pub(crate) fn receive_network_events(
                     &mut ui_runtime,
                     session_generation,
                     packs.item_icons,
+                    packs.item_components,
                     client_world.fatal_error.is_none(),
                 );
                 resource_packs::install_server_ui(

@@ -164,19 +164,17 @@ fn effective_merge_binding(entry: Option<&ItemRegistryEntry>) -> Option<(&str, O
 }
 
 pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
-    if matches!(entry.version, ItemRegistryVersion::Unknown(_))
-        || protocol::vanilla_item_capacity(&entry.identifier, 0).is_none()
-    {
+    let vanilla = protocol::vanilla_item_capacity(&entry.identifier, 0);
+    if matches!(entry.version, ItemRegistryVersion::Unknown(_)) {
         return None;
     }
-    if let Some(capacity) = entry.negotiated_max_stack_size {
+    // A component item's declared stack size binds it as it binds the vanilla client.
+    if let Some(capacity) = entry.negotiated_max_stack_size
+        && (vanilla.is_some() || entry.component_based)
+    {
         return Some(capacity);
     }
-    if !entry.component_based && entry.canonical_empty_component_data {
-        protocol::vanilla_item_capacity(&entry.identifier, 0)
-    } else {
-        None
-    }
+    vanilla.filter(|_| !entry.component_based && entry.canonical_empty_component_data)
 }
 
 pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
@@ -185,4 +183,38 @@ pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
         && stack.block_runtime_id == 0
         && (stack.extra_data.is_empty() || stack.extra_data.as_ref() == [0; 10])
         && stack.nbt_digest == digest
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use protocol::{ItemRegistryEntry, ItemRegistryVersion};
+
+    use super::entry_capacity;
+
+    fn entry(identifier: &str, component_based: bool, declared: Option<u8>) -> ItemRegistryEntry {
+        ItemRegistryEntry {
+            identifier: identifier.into(),
+            network_id: 900,
+            component_based,
+            version: ItemRegistryVersion::DataDriven,
+            component_digest: [0; 32],
+            negotiated_max_stack_size: declared,
+            canonical_empty_component_data: declared.is_none(),
+            item_tags: Arc::from([]),
+        }
+    }
+
+    // A custom item binds merges only through its own declared stack size.
+    #[test]
+    fn component_items_use_their_declared_stack_size() {
+        assert_eq!(entry_capacity(&entry("zeqa:gem", true, Some(16))), Some(16));
+        assert_eq!(entry_capacity(&entry("zeqa:gem", true, None)), None);
+        assert_eq!(entry_capacity(&entry("zeqa:gem", false, Some(16))), None);
+        assert_eq!(
+            entry_capacity(&entry("minecraft:stick", false, None)),
+            Some(64)
+        );
+    }
 }

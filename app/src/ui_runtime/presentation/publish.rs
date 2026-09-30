@@ -369,8 +369,8 @@ pub(crate) fn refresh_hud_frame(
         use crate::ui_runtime::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger();
         let fraction = |stack: &protocol::NetworkItemStack, correction: Option<i32>| {
-            let identifier = resolve_identifier(stack);
-            item_facts::cell_durability_fraction(stack, identifier.as_deref(), correction)
+            let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
+            item_facts::cell_durability_fraction(stack, maximum, correction)
         };
         for (slot, bar) in durability.player.iter_mut().enumerate() {
             if let Some(stack) = ledger.displayed_stack(slot as u8) {
@@ -725,7 +725,7 @@ pub(crate) fn refresh_hud_frame(
             let overlay = runtime.inventory_ledger().presented_slot_overlay(slot);
             *durability = item_facts::cell_durability_fraction(
                 stack,
-                identifier.as_deref(),
+                runtime.item_max_durability(identifier.as_deref()),
                 overlay.and_then(|overlay| overlay.durability_correction),
             );
             hotbar_icons[usize::from(slot)] = identifier
@@ -741,8 +741,8 @@ pub(crate) fn refresh_hud_frame(
     }
     presentation.note_hotbar(logged_hotbar);
     let offhand_durability = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
-        let identifier = resolve_identifier(stack);
-        item_facts::durability_fraction(stack, identifier.as_deref())
+        let maximum = runtime.item_max_durability(resolve_identifier(stack).as_deref());
+        item_facts::durability_fraction(stack, maximum)
     });
     let offhand_icon = runtime.gameplay_hud().offhand_stack().and_then(|stack| {
         let identifier = resolve_identifier(stack);
@@ -772,7 +772,15 @@ pub(crate) fn refresh_hud_frame(
     let (held_viewmodel_icon, offhand_viewmodel_icon) = presentation.item_viewmodel_icons();
     let selected_item_name = runtime.selected_stack_custom_name().or_else(|| {
         selected_stack.and_then(|stack| {
-            resolve_identifier(stack).map(|id| Arc::from(runtime.localized_item_name(&id)))
+            let id = resolve_identifier(stack)?;
+            let name = runtime.localized_item_name(&id);
+            let format = runtime
+                .item_components(&id)
+                .and_then(item_facts::name_format);
+            Some(Arc::from(match format {
+                Some((code, _)) => format!("\u{a7}{code}{name}"),
+                None => name,
+            }))
         })
     });
     let selected_identity = selected_stack.map(|stack| (stack.network_id, stack.metadata));
