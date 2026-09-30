@@ -279,6 +279,7 @@ mod inventory;
 mod inventory_schedule;
 mod inventory_secondary_input;
 mod molang_conformance;
+mod pack_entity_metadata;
 mod phase2_evidence;
 mod phase4_presentation;
 mod player_animation;

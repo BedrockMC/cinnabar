@@ -839,16 +839,24 @@ pub fn actor_rig_submission_is_visible(
     {
         return false;
     }
-    let half_width = 0.5;
+    // The culling box grows with the instance's scale so scaled models are not cut early.
+    let scale = Vec3::new(
+        submission.world_from_actor[0][1],
+        submission.world_from_actor[1][1],
+        submission.world_from_actor[2][1],
+    )
+    .length()
+    .max(1.0);
+    let (half_width, height) = (0.5 * scale, 2.0 * scale);
     let corners = [
         Vec3::new(-half_width, 0.0, -half_width),
         Vec3::new(half_width, 0.0, -half_width),
-        Vec3::new(-half_width, 2.0, -half_width),
-        Vec3::new(half_width, 2.0, -half_width),
+        Vec3::new(-half_width, height, -half_width),
+        Vec3::new(half_width, height, -half_width),
         Vec3::new(-half_width, 0.0, half_width),
         Vec3::new(half_width, 0.0, half_width),
-        Vec3::new(-half_width, 2.0, half_width),
-        Vec3::new(half_width, 2.0, half_width),
+        Vec3::new(-half_width, height, half_width),
+        Vec3::new(half_width, height, half_width),
     ]
     .map(|offset| view.clip_from_world * (feet + offset).extend(1.0));
     !outside_clip_plane(&corners, |clip| clip.x < -clip.w)
