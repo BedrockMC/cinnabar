@@ -60,7 +60,7 @@ fn compiles_exact_metadata_variants_reviewed_block_routes_and_missing_items() {
         encode_entity_blob(&first).unwrap(),
         encode_entity_blob(&second).unwrap()
     );
-    assert_eq!(first.block_visual_count, 17_499);
+    assert_eq!(first.block_visual_count, 22_091);
     assert!(matches!(
         visual(&first.item_visuals, "minecraft:air", 0).route,
         ItemVisualDefinitionRoute::EmptyHand

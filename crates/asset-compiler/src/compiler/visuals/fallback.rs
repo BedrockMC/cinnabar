@@ -342,9 +342,14 @@ mod tests {
 
     #[test]
     fn embedded_inventories_are_sorted_unique_and_bounded() {
-        for table_bytes in EMBEDDED_TABLES.iter().map(|table| table.bytes) {
+        // Protocol 2193 fans the 16 trip wire states out to their 256 connection variants.
+        for (table_bytes, entries) in EMBEDDED_TABLES
+            .iter()
+            .map(|table| table.bytes)
+            .zip([2_031, 2_271])
+        {
             let table = FallbackInventory::parse(table_bytes).expect("parse embedded inventory");
-            assert_eq!(table.entry_count, 2_031);
+            assert_eq!(table.entry_count, entries);
             assert!(
                 (1..table.entry_count)
                     .all(|index| table.entry_at(index - 1).0 < table.entry_at(index).0)
@@ -412,7 +417,7 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 2_031);
+        assert_eq!(matched.len(), 2_271);
         assert_eq!(names.len(), 335);
         assert!(
             matched

@@ -15,7 +15,7 @@ pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.40.j
 pub(super) const SOURCE_BYTES: &[u8] =
     include_bytes!("../../../assets/data/default-sprite-bindings-1.26.40.json");
 const RETAIL_ITEMS: &[u8] = include_bytes!("../../../protocol/data/retail_items_1_26_50.tsv");
-const RETAIL_SHA256: &str = "ee8917e7293c89469d6d114cad634eac0b45a702a1d73e2edddd6d5eeee725d0";
+const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
 const SOURCE_COMMIT: &str = "7844835b6baad4c0010f46901a4accf87413a022";
 const ATLAS_SHA256: &str = "13415a73201c43c03afc7ff9c4e5146366ec31e4f3057228f309730daea963c7";
 const ARCHIVE_SHA256: &str = "6f6c3a8d5462cf0fc66fd0782a619a2b1a1f1255b981e7787d05dcfbd363a8cb";
