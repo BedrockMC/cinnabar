@@ -28,6 +28,18 @@ pub(super) const TITLE_PANEL_OVERLAY: &[u8] = br#"{
   ] }
 }"#;
 
+/// Drops the "©Mojang AB" footer from the start and play screens; Cinnabar is not a Mojang product.
+pub(super) const NO_COPYRIGHT_OVERLAYS: [(&str, &[u8]); 2] = [
+    (
+        "ui/cinnabar_start.json",
+        br#"{ "namespace": "start", "copyright": { "ignored": true } }"#,
+    ),
+    (
+        "ui/cinnabar_play.json",
+        br#"{ "namespace": "play", "copyright": { "ignored": true } }"#,
+    ),
+];
+
 /// Tilt of the splash: 20 degrees, rising to the right.
 const SPLASH_ANGLE: f32 = -20.0 * std::f32::consts::PI / 180.0;
 const SPLASH_COLOR: [u8; 4] = [255, 255, 0, 255];
@@ -253,6 +265,31 @@ impl Painter<'_> {
 #[cfg(test)]
 mod tests {
     use super::split_sentence;
+
+    // The vanilla footer shape (a panel embedding `start.copyright`) resolves without it.
+    #[test]
+    fn the_mojang_copyright_footer_is_dropped() {
+        let screen = br#"{
+          "namespace": "start",
+          "copyright": { "type": "label", "text": "menu.copyright" },
+          "text_panel": { "type": "panel", "controls": [ { "copyright@start.copyright": {} } ] }
+        }"#;
+        let mut catalog = json_ui::Catalog::from_files([
+            ("ui/_global_variables.json", b"{}".as_slice()),
+            (
+                "ui/_ui_defs.json",
+                br#"{"ui_defs":["ui/start_screen.json"]}"#.as_slice(),
+            ),
+            ("ui/start_screen.json", screen.as_slice()),
+        ])
+        .unwrap();
+        let context = json_ui::Context::default();
+        let before = json_ui::resolve(&catalog, "start.text_panel", &context);
+        assert_eq!(before.control.unwrap().children.len(), 1);
+        catalog.apply_pack(super::NO_COPYRIGHT_OVERLAYS);
+        let after = json_ui::resolve(&catalog, "start.text_panel", &context);
+        assert!(after.control.unwrap().children.is_empty());
+    }
 
     // The overlay's title aspect matches the logo it frames.
     #[test]
