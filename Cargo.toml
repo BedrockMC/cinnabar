@@ -19,6 +19,7 @@ members = [
     "tools/devtool",
     "tools/dist",
     "tools/phase2-evidence",
+    "tools/jsonui-editor",
 ]
 resolver = "3"
 

@@ -1,0 +1,13 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "JSON-UI editor example",
+    "description": "An original example pack for the Cinnabar JSON-UI editor.",
+    "uuid": "8f7b3f0e-3c1a-4e57-9a55-2f1f6c0e9a11",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    { "type": "resources", "uuid": "0b6d9a52-1f43-4b0e-8a7e-6f3c2d1e5b77", "version": [1, 0, 0] }
+  ]
+}
