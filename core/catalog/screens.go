@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 )
 
@@ -142,12 +144,29 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	return profile, nil
 }
 
-// withGatherings hands a gatherings client on the account's shared service token to run.
+// withGatherings hands run a gatherings client on the discovered endpoint and the account's token.
 func withGatherings(ctx context.Context, account *authcache.Account, run func(*gatherings.Client) error) error {
 	if account == nil {
 		return errNoAccount
 	}
-	return run(gatherings.NewClient(account))
+	discovery, err := service.Default(ctx)
+	if err != nil {
+		return fmt.Errorf("discover services: %w", err)
+	}
+	client, err := gatheringsClient(discovery, account)
+	if err != nil {
+		return err
+	}
+	return run(client)
+}
+
+// gatheringsClient builds the gatherings client on discovery's endpoint; there is no fallback host.
+func gatheringsClient(discovery *service.Discovery, tokens service.TokenSource) (*gatherings.Client, error) {
+	env := new(gatherings.Environment)
+	if err := discovery.Environment(env); err != nil {
+		return nil, fmt.Errorf("resolve gatherings service: %w", err)
+	}
+	return env.New(tokens), nil
 }
 
 func featuredServers(values []*gatherings.FeaturedServer) []FeaturedServer {
