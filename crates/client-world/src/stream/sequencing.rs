@@ -793,6 +793,7 @@ impl WorldStream {
                             event: protocol::ParticleEvent::ActorCritical {
                                 actor_runtime_id,
                                 magic,
+                                particle_count: action.data,
                             },
                         });
                     }
