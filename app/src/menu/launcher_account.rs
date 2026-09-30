@@ -103,6 +103,7 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
     let mut catalog_due = Instant::now();
     let mut feed_due = Instant::now();
     let mut ping_due = Instant::now();
+    let mut pinged: Vec<String> = Vec::new();
     let mut reported = HashSet::new();
     loop {
         match requests.recv_timeout(EVENT_INTERVAL) {
@@ -154,28 +155,34 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             feed_due = Instant::now() + if failed { FEED_RETRY } else { FEED_INTERVAL };
             (home, featured, gatherings, profile)
         });
-        let targets = shared
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .ping_targets
-            .clone();
+        // Publish feeds before pinging, so the round covers the rows they add.
+        let targets = {
+            let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
+            if let Some((home, featured, gatherings, profile)) = feeds {
+                snapshot.home = home.or(snapshot.home.take());
+                snapshot.featured = featured.or(snapshot.featured.take());
+                snapshot.gatherings = gatherings.or(snapshot.gatherings.take());
+                snapshot.profile = profile.or(snapshot.profile.take());
+            }
+            snapshot.ping_targets.clone()
+        };
+        // New rows are pinged on the next tick instead of a round later.
+        if targets != pinged {
+            ping_due = Instant::now();
+        }
         let pings = (!targets.is_empty() && Instant::now() >= ping_due).then(|| {
             ping_due = Instant::now() + PING_INTERVAL;
-            settle(
+            pinged = targets.clone();
+            let pongs = settle(
                 "ping",
                 runtime.block_on(launcher_control::ping_servers(socket_dir, &targets)),
                 &mut false,
-            )
+            );
+            round_results(&targets, pongs.unwrap_or_default())
         });
         let mut snapshot = shared.lock().unwrap_or_else(|poison| poison.into_inner());
-        if let Some(Some(pings)) = pings {
+        if let Some(pings) = pings {
             snapshot.pings = Some(pings);
-        }
-        if let Some((home, featured, gatherings, profile)) = feeds {
-            snapshot.home = home.or(snapshot.home.take());
-            snapshot.featured = featured.or(snapshot.featured.take());
-            snapshot.gatherings = gatherings.or(snapshot.gatherings.take());
-            snapshot.profile = profile.or(snapshot.profile.take());
         }
         if let Some(events) = events {
             if let Some(disconnect) = events.disconnect
@@ -202,6 +209,24 @@ fn poll(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Recei
             }
         }
     }
+}
+
+/// One result per pinged address: a server that sent no pong reads offline, as
+/// vanilla's red offline icon shows it, never as still loading.
+fn round_results(targets: &[String], pongs: Vec<ServerPing>) -> Vec<ServerPing> {
+    let mut pongs: std::collections::HashMap<String, ServerPing> = pongs
+        .into_iter()
+        .map(|pong| (pong.address.clone(), pong))
+        .collect();
+    targets
+        .iter()
+        .map(|address| {
+            pongs.remove(address).unwrap_or_else(|| ServerPing {
+                address: address.clone(),
+                ..ServerPing::default()
+            })
+        })
+        .collect()
 }
 
 /// A feed's value, or `None` after logging which feed failed; the core logs the
@@ -442,8 +467,7 @@ impl AccountControl for LauncherAccount {
         Some(menu_home(&home, now))
     }
 
-    fn set_ping_targets(&mut self, mut targets: Vec<String>) {
-        targets.truncate(64);
+    fn set_ping_targets(&mut self, targets: Vec<String>) {
         self.with(|snapshot| {
             if snapshot.ping_targets != targets {
                 snapshot.ping_targets = targets;
@@ -518,6 +542,27 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A pinged server that sent no pong reads offline instead of loading.
+    #[test]
+    fn a_round_answers_for_every_target() {
+        let pong = ServerPing {
+            address: "a:1".to_owned(),
+            online: true,
+            ping_ms: 40,
+            ..ServerPing::default()
+        };
+        let targets = ["a:1".to_owned(), "b:2".to_owned()];
+        let round = round_results(&targets, vec![pong.clone()]);
+        assert_eq!(round[0], pong);
+        assert_eq!(round[1].address, "b:2");
+        assert!(!round[1].online);
+        assert!(
+            round_results(&targets, Vec::new())
+                .iter()
+                .all(|ping| !ping.online)
+        );
+    }
 
     #[test]
     fn tile_images_sort_into_button_layers() {

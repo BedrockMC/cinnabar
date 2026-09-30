@@ -221,14 +221,6 @@ pub(crate) fn window_kind(kind: WindowKind) -> Option<&'static ContainerKind> {
         "container.crafter",
         &[("container_items", &NINE)],
     );
-    const HORSE: ContainerKind = self::kind(
-        "horse.horse_screen",
-        "entity.horse.name",
-        &[
-            ("horse_equip_items", &[Cell::Storage(0), Cell::Storage(1)]),
-            ("container_items", &MOUNT_CHEST),
-        ],
-    );
     Some(match kind {
         WindowKind::Furnace => &FURNACE,
         WindowKind::BlastFurnace => &BLAST_FURNACE,
@@ -246,9 +238,78 @@ pub(crate) fn window_kind(kind: WindowKind) -> Option<&'static ContainerKind> {
         WindowKind::Dispenser => &DISPENSER,
         WindowKind::Dropper => &DROPPER,
         WindowKind::Crafter => &CRAFTER,
-        WindowKind::Horse => &HORSE,
+        WindowKind::Horse => mount_kind(mount_slots(None)),
         WindowKind::Storage | WindowKind::Workbench | WindowKind::Lectern => return None,
     })
+}
+
+/// What a mount wears besides a saddle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MountBody {
+    None,
+    HorseArmor,
+    Carpet,
+    NautilusArmor,
+}
+
+/// A mount's equippable slots: whether it takes a saddle (slot 0) and what
+/// it wears in slot 1.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MountSlots {
+    pub(crate) saddle: bool,
+    pub(crate) body: MountBody,
+}
+
+/// `minecraft:equippable` of the 1.26.50 behavior pack's mounts.
+const MOUNTS: [(&str, bool, MountBody); 11] = [
+    ("minecraft:horse", true, MountBody::HorseArmor),
+    ("minecraft:zombie_horse", true, MountBody::HorseArmor),
+    ("minecraft:donkey", true, MountBody::None),
+    ("minecraft:mule", true, MountBody::None),
+    ("minecraft:camel", true, MountBody::None),
+    ("minecraft:camel_husk", true, MountBody::None),
+    ("minecraft:skeleton_horse", false, MountBody::None),
+    ("minecraft:llama", false, MountBody::Carpet),
+    ("minecraft:trader_llama", false, MountBody::Carpet),
+    ("minecraft:nautilus", true, MountBody::NautilusArmor),
+    ("minecraft:zombie_nautilus", true, MountBody::NautilusArmor),
+];
+
+/// The slots of the mount `identifier`; an unknown mount keeps the horse's.
+pub(crate) fn mount_slots(identifier: Option<&str>) -> MountSlots {
+    let (saddle, body) = MOUNTS
+        .iter()
+        .find(|(id, ..)| Some(*id) == identifier)
+        .map_or((true, MountBody::HorseArmor), |(_, saddle, body)| {
+            (*saddle, *body)
+        });
+    MountSlots { saddle, body }
+}
+
+/// The horse screen addressing only the equip slots `slots` has.
+pub(crate) fn mount_kind(slots: MountSlots) -> &'static ContainerKind {
+    const fn horse(equip: &'static [(&'static str, &'static [Cell])]) -> ContainerKind {
+        kind("horse.horse_screen", "entity.horse.name", equip)
+    }
+    const BOTH: ContainerKind = horse(&[
+        ("horse_equip_items", &[Cell::Storage(0), Cell::Storage(1)]),
+        ("container_items", &MOUNT_CHEST),
+    ]);
+    const SADDLE: ContainerKind = horse(&[
+        ("horse_equip_items", &[Cell::Storage(0)]),
+        ("container_items", &MOUNT_CHEST),
+    ]);
+    const BODY: ContainerKind = horse(&[
+        ("horse_equip_items", &[Cell::Storage(1)]),
+        ("container_items", &MOUNT_CHEST),
+    ]);
+    const BARE: ContainerKind = horse(&[("container_items", &MOUNT_CHEST)]);
+    match (slots.saddle, slots.body == MountBody::None) {
+        (true, false) => &BOTH,
+        (true, true) => &SADDLE,
+        (false, false) => &BODY,
+        (false, true) => &BARE,
+    }
 }
 
 impl ContainerKind {

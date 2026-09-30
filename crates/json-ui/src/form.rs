@@ -14,7 +14,7 @@ use crate::bind::{CollectionItem, ControlLibrary, DataSource, bind};
 use crate::catalog::Catalog;
 use crate::emit::{DrawNode, RectOut, emit};
 use crate::input::{HitRegion, global_mapping, hit_regions};
-use crate::layout::{LayoutEnv, layout_with};
+use crate::layout::{LayoutEnv, MeasureCache, layout_with};
 use crate::predicate::Scalar;
 use crate::state::{LayoutReport, ViewState};
 use crate::tree::{ControlRef, ResolvedControl};
@@ -521,6 +521,26 @@ pub fn render_bound(
     finish(bound, root_size, env, state)
 }
 
+/// [`render_bound`] independent of hover, press and focus: only `state`'s scroll
+/// offsets lay out, and state children emit gated ([`crate::emit_gated`]), so
+/// the result stays valid until the data, scroll, or root size change. Filter
+/// its nodes with [`DrawNode::shown`]; its hit regions are the neutral state's,
+/// less scroll content wholly outside its viewport, which is not laid out.
+/// `measures` must belong to this tree, root size and `env`.
+pub fn render_bound_gated(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    measures: &mut MeasureCache,
+) -> FormRender {
+    let neutral = ViewState {
+        scroll: state.scroll.clone(),
+        ..ViewState::default()
+    };
+    lay_out_and_emit(bound, root_size, env, &neutral, Some(measures))
+}
+
 /// Lay out, emit, and collect input for a bound tree.
 pub(crate) fn finish(
     bound: ResolvedControl,
@@ -528,10 +548,28 @@ pub(crate) fn finish(
     env: &LayoutEnv,
     state: &ViewState,
 ) -> FormRender {
+    lay_out_and_emit(bound, root_size, env, state, None)
+}
+
+fn lay_out_and_emit(
+    bound: ResolvedControl,
+    root_size: [f64; 2],
+    env: &LayoutEnv,
+    state: &ViewState,
+    gated: Option<&mut MeasureCache>,
+) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
-        let (laid, report) = layout_with(&bound, root_size, env, state);
+        let gate = gated.is_some();
+        let (laid, report) = match gated {
+            Some(measures) => crate::layout::layout_culled(&bound, root_size, env, state, measures),
+            None => layout_with(&bound, root_size, env, state),
+        };
         (
-            emit(&laid, env),
+            if gate {
+                crate::emit::emit_gated(&laid, env)
+            } else {
+                emit(&laid, env)
+            },
             hit_regions(&laid),
             report,
             global_mapping(&laid, "button.menu_cancel"),

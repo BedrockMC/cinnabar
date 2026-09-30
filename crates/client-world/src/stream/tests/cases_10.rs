@@ -166,3 +166,30 @@ fn ui_and_block_crack_events_publish_fifo_with_committed_dimension() {
     );
     assert!(stream.take_committed_ui().is_empty());
 }
+
+// Vanilla ignores MobArmorEquipment addressed to the local player; its armor
+// is the armor container, so the event neither lands nor stalls the queue.
+#[test]
+fn local_armor_equipment_is_ignored_like_vanilla() {
+    let mut stream = form_stream();
+    let helmet = protocol::NetworkItemStack {
+        network_id: 100,
+        count: 1,
+        ..protocol::NetworkItemStack::empty()
+    };
+    let armor = WorldEvent::ArmorEquipment(Box::new(protocol::ArmorEquipmentEvent {
+        actor_runtime_id: 1,
+        helmet,
+        chestplate: protocol::NetworkItemStack::empty(),
+        leggings: protocol::NetworkItemStack::empty(),
+        boots: protocol::NetworkItemStack::empty(),
+        body: protocol::NetworkItemStack::empty(),
+    }));
+    stream.submit(1, armor).unwrap();
+    stream.submit(2, form(1)).unwrap();
+    assert!(stream.actor_armor(1).is_none());
+    assert!(matches!(
+        stream.take_committed_ui().as_slice(),
+        [CommittedUiEvent::Form { sequence: 2, .. }]
+    ));
+}

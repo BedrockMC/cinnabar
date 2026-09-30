@@ -107,6 +107,8 @@ struct StorageWindow {
     kind: protocol::WindowKind,
     /// Block position the server opened the window on.
     position: [i32; 3],
+    /// Unique id of the actor the window belongs to (a mount), `-1` for blocks.
+    actor_unique_id: i64,
     /// Server-pushed window properties (furnace progress, brew time, ...).
     data: BTreeMap<i32, i32>,
     generation: u64,
@@ -303,6 +305,12 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn window_position(&self) -> Option<[i32; 3]> {
         Some(self.storage.as_ref()?.position)
+    }
+
+    /// The actor the open window belongs to, such as a mount's inventory.
+    #[must_use]
+    pub fn window_actor(&self) -> Option<i64> {
+        Some(self.storage.as_ref()?.actor_unique_id).filter(|id| *id != -1)
     }
 
     /// A server-pushed property of the open window (`ContainerSetData`), if sent.

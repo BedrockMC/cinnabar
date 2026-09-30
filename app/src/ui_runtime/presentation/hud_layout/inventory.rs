@@ -83,20 +83,19 @@ impl HudLayout<'_> {
         }
 
         // Armor, paper doll, offhand, and the 2x2 personal crafting grid.
-        for row in 0..4 {
+        let armor = runtime.local_armor();
+        let worn = [
+            &armor.helmet,
+            &armor.chestplate,
+            &armor.leggings,
+            &armor.boots,
+        ];
+        for (row, stack) in worn.into_iter().enumerate() {
             let slot = [origin[0] + 8.0, origin[1] + 8.0 + row as f32 * SLOT_SIZE];
             self.inventory_slot(slot)?;
             if let Some(icon) = frame.armor_icons[row] {
                 self.inventory_item(Some(icon), slot, None, None)?;
-            } else if runtime.gameplay_hud().armor().is_none_or(|armor| {
-                [
-                    &armor.helmet,
-                    &armor.chestplate,
-                    &armor.leggings,
-                    &armor.boots,
-                ][row]
-                    .is_empty()
-            }) {
+            } else if stack.is_empty() {
                 self.ghost_icon(
                     frame.window_icons.ghost_armor[row],
                     [slot[0] + 1.0, slot[1] + 1.0],

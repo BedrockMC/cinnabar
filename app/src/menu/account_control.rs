@@ -121,8 +121,9 @@ impl MenuRuntime {
             Vec::new()
         };
         control.set_ping_targets(targets);
+        // A round updates the rows it covered; others keep their last pong.
         if let Some(pings) = control.pings() {
-            self.feeds.pings = pings.into_iter().collect();
+            self.feeds.pings.extend(pings);
         }
         self.feeds.pack_download = control.pack_download().filter(|_| self.connecting);
         if let Some(status) = control.account_status() {

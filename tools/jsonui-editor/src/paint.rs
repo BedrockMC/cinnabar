@@ -382,6 +382,7 @@ mod tests {
             fades: Vec::new(),
             flip_book: None,
             draw,
+            gates: Vec::new(),
         }
     }
 
