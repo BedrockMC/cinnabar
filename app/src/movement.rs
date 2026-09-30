@@ -759,9 +759,6 @@ impl MovementTicker {
                         actual: self.next_tick,
                     });
                 }
-                if plan.replayed_samples.len() > OUTBOX_CAPACITY {
-                    return Err(PhysicsAuthorityFault::OutboxOverflow);
-                }
                 for pair in plan.replayed_samples.windows(2) {
                     let expected = pair[0].tick.saturating_add(1);
                     if pair[1].tick != expected {

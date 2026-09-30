@@ -205,3 +205,47 @@ fn an_unstamped_flag_update_applies_live() {
         Some(false)
     );
 }
+
+#[test]
+fn start_game_rewind_history_size_follows_the_vanilla_initializer() {
+    let mut physics = LocalPhysicsController::default();
+    for (wire, expected) in [(20, 20), (0, 1), (65_536, 1), (5_000, 1_000), (-1, 1_000)] {
+        physics.set_rewind_history_size(wire);
+        assert_eq!(physics.history_capacity(), expected, "wire {wire}");
+    }
+}
+
+/// A server window longer than the outbox must still replay from its oldest tick.
+#[test]
+fn a_server_window_longer_than_the_outbox_retains_and_replays_every_tick() {
+    let mut physics = LocalPhysicsController::default();
+    physics.set_rewind_history_size(40);
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    for _ in 0..45 {
+        let sample = run_one_tick(&mut physics, &VersionedFloor(1));
+        ticker.enqueue_completed_physics(sample).unwrap();
+        ticker.pop_pending().unwrap();
+    }
+    assert_eq!(physics.history_len(), 40);
+    let oldest = 106;
+    let outcome = reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.5, 2.620_01, 0.0],
+        oldest,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            corrected_tick: oldest,
+            replayed_ticks: 39,
+        }
+    );
+}
