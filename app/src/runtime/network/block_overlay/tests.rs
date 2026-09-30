@@ -486,12 +486,12 @@ fn custom_block_items_draw_their_default_state() {
     assert_eq!(icons.icons.len(), 1);
 }
 
-// Real cached packs (`CINNABAR_PACKCACHE`): each unencrypted pack's namespaced scalar-textured
+// Real cached packs (`CINNABAR_PACKCACHE_DIR`): each unencrypted pack's namespaced scalar-textured
 // blocks, as full-block custom blocks, draw item thumbnails.
 #[test]
 fn packcache_custom_block_items_draw_when_requested() {
     use super::super::item_icons::custom_block_icons;
-    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE") else {
+    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
         return;
     };
     let mut checked = 0usize;

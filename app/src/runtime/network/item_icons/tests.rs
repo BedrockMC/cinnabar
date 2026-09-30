@@ -242,3 +242,39 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
         ("t:crate", "t:crate")
     );
 }
+
+// Real cached packs (`CINNABAR_PACKCACHE_DIR`): every item_texture.json key a pack declares
+// resolves to a bounded icon through the same path a `minecraft:icon` component takes.
+#[test]
+fn packcache_item_icon_keys_resolve_when_requested() {
+    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        return;
+    };
+    let (mut declared, mut resolved) = (0usize, 0usize);
+    for entry in std::fs::read_dir(dir).expect("packcache dir").flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "zip") {
+            continue;
+        }
+        let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
+            continue;
+        };
+        let keys =
+            super::super::resource_packs::texture_key_paths(&view, "textures/item_texture.json")
+                .into_keys()
+                .map(|key| {
+                    (
+                        Arc::<str>::from(format!("pack:{key}")),
+                        Arc::<str>::from(key),
+                    )
+                })
+                .collect::<Vec<_>>();
+        for chunk in keys.chunks(256) {
+            declared += chunk.len();
+            resolved += compile_session_icons(&view, chunk, BlockIcons::default())
+                .map_or(0, |icons| icons.icons.len());
+        }
+    }
+    eprintln!("{resolved} of {declared} cached-pack item icon keys resolved");
+    assert!(resolved * 10 >= declared * 8, "{resolved} of {declared}");
+}
