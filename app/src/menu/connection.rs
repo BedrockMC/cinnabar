@@ -316,6 +316,7 @@ pub(crate) fn drive_menu_connection(
     audio_settings: Option<ResMut<crate::audio::AudioSettings>>,
 ) {
     menu.poll_catalog();
+    menu.poll_saves();
     menu.sync_audio_settings(audio_settings);
     let in_session = session.client_world.stream.is_some();
     let upstream_cache = client_blob_cache.enables_upstream_client_cache();

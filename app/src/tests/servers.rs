@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::menu::SavedServer;
-use crate::menu::servers::{load_servers, save_servers};
+use crate::menu::servers::{ServerWriter, load_servers, save_servers};
 
 fn unique_directory(label: &str) -> PathBuf {
     let unique = SystemTime::now()
@@ -262,4 +262,39 @@ fn unix_saved_server_files_are_owner_only() {
     let mode = fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
     fs::remove_dir_all(&directory).unwrap();
+}
+
+// Saves land on the worker in order, and a write that fails is reported later.
+#[test]
+fn the_writer_saves_off_the_frame_and_reports_failures() {
+    let directory = unique_directory("writer");
+    let path = directory.join("servers.json");
+    let writer = ServerWriter::new(path.clone());
+    writer
+        .save(&[sample_server("First", "a.example:19132")])
+        .unwrap();
+    writer
+        .save(&[sample_server("Second", "b.example:19132")])
+        .unwrap();
+    writer.flush();
+    assert_eq!(load_servers(&path).servers[0].name, "Second");
+    assert!(writer.take_error().is_none());
+    let long = "x".repeat(100);
+    assert!(
+        writer
+            .save(&[sample_server(&long, "c.example:19132")])
+            .is_err(),
+        "schema refusals stay immediate"
+    );
+
+    // A file where the parent directory should be makes every write fail.
+    let blocked = directory.join("blocked");
+    fs::write(&blocked, b"").unwrap();
+    let failing = ServerWriter::new(blocked.join("servers.json"));
+    failing
+        .save(&[sample_server("Lost", "d.example:19132")])
+        .unwrap();
+    failing.flush();
+    assert!(failing.take_error().is_some());
+    let _ = fs::remove_dir_all(&directory);
 }
