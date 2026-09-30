@@ -190,6 +190,7 @@ use pipeline::commands::{
     prepare_depth_liquid_indirect_batch_draws, prepare_indirect_batch_draws,
     prepare_model_indirect_batch_draws, record_visibility_direct_submission,
     record_visibility_mdi_submissions, sorted_visible_entities,
+    upload_indirect_commands_if_changed,
 };
 use pipeline::install_chunk_commands;
 #[allow(unused_imports)]
