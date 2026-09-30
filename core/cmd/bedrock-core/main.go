@@ -265,6 +265,7 @@ func runWithResourcePackCacheFactory(
 			ArtworkDir:    filepath.Join(opts.socketDir, "artwork"),
 			StoreImageDir: storeImageDir(opts.authCache),
 		})
+		controlServer.SetLogger(logger)
 		controlServer.SetServices(service)
 		controlServer.SetMarketplace(service.Marketplace(nil))
 		if tokenSource != nil {
