@@ -205,6 +205,13 @@
     "sha256": "1a352cc084482ade205e7f69052ae1236c8a983f1d356e664ace6ec04687d804"
   },
   {
+    "name": "InventoryContent",
+    "file": "inventory_content_armor_live_zeqa.bin",
+    "id": 49,
+    "byte_length": 47,
+    "sha256": "b40f0463f1cbf7f4371cf84c0ded8cc9307b791276c3dfb389a32d80483d4439"
+  },
+  {
     "name": "PlayerHotBar",
     "file": "player_hotbar.bin",
     "id": 48,

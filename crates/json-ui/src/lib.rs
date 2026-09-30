@@ -46,7 +46,8 @@ pub use bind::{
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteQuad, TextAlign, UvRect, color_value, emit, nine_slice,
+    Draw, DrawNode, RectOut, SpriteQuad, StateGate, TextAlign, UvRect, color_value, emit,
+    emit_gated, nine_slice,
 };
 pub use env::Env;
 pub use expr::{
@@ -56,7 +57,7 @@ pub use form::{
     ActionElement, ActionForm, ButtonImage, CachedLibrary, CatalogLibrary, CustomElement,
     CustomForm, FormButton, FormModel, FormRender, ModalForm, ResolveCache, bind_form,
     form_context, form_data_source, form_factory_id, form_screen_cancel, form_template,
-    render_bound, render_form, render_form_with,
+    render_bound, render_bound_gated, render_form, render_form_with,
 };
 pub use hud::{
     BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
@@ -66,7 +67,9 @@ pub use input::{
     HitKind, HitRegion, focus_order, global_mapping, hit_regions, hit_test, region_rect,
     scroll_target,
 };
-pub use layout::{LaidOut, LayoutEnv, Rect, TextMeasure, TextureSource, layout, layout_with};
+pub use layout::{
+    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
+};
 pub use localize::localize_text;
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
