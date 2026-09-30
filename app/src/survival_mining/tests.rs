@@ -466,6 +466,18 @@ fn release_clears_the_destroy_delay() {
     );
 }
 
+/// Local flight reaches the destroy conditions instead of always reading grounded-or-falling.
+#[test]
+fn local_flight_exempts_the_airborne_penalty() {
+    assert!(exempt_from_airborne_penalty(Some(
+        sim::MovementMode::Flying
+    )));
+    assert!(!exempt_from_airborne_penalty(Some(
+        sim::MovementMode::Walking
+    )));
+    assert!(!exempt_from_airborne_penalty(None));
+}
+
 /// Unbreaking III damages only a quarter of rolls.
 #[test]
 fn unbreaking_suppresses_damage_by_the_reference_chance() {
