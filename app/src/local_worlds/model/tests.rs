@@ -420,3 +420,33 @@ fn backend_label_follows_the_reported_runtime() {
         "Bedrock Dedicated Server (Docker)"
     );
 }
+
+#[test]
+fn create_defaults_to_superflat_only_where_the_dedicated_server_cannot_run() {
+    for (state, generator) in [
+        (
+            protocol::world_control::SetupState::Ready,
+            Generator::Normal,
+        ),
+        (
+            protocol::world_control::SetupState::Unsupported,
+            Generator::Flat,
+        ),
+    ] {
+        let mut menu = loaded(&[]);
+        let mut idle = status(WorldState::Idle, "");
+        idle.setup = Some(protocol::world_control::Setup {
+            state,
+            version: None,
+            bytes_done: 0,
+            bytes_total: 0,
+            eula_accepted: false,
+            error: None,
+            runtime: String::new(),
+            reason: None,
+        });
+        menu.apply(Event::Prefs(Prefs::default(), idle));
+        menu.update(Input::BeginCreate);
+        assert_eq!(menu.create_form().generator, generator, "{state:?}");
+    }
+}
