@@ -54,6 +54,10 @@ const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 /// computes in code (`VanillaSceneFactory::createGlobalVars`).
 pub(super) fn retail_context() -> Context {
     Context::desktop()
+        .with_flag("win10_edition", !cfg!(target_os = "macos"))
+        .with_flag("osx_edition", cfg!(target_os = "macos"))
+        .with_flag("pocket_edition", false)
+        .with_flag("console_edition", false)
         .with_flag("trial", false)
         .with_flag("education_edition", false)
         .with_flag("store_disabled", false)
@@ -236,22 +240,31 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     data.set_global("#version", text("v1.26.30"));
     data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
     data.set_global("#edu_demo_only_ui_visible", Scalar::Bool(false));
-    // The controller hardwires these: realms promo and upper online padding
-    // off, so Settings sits in the plain settings row.
+    // Retail Realms is enabled, so its row shows between Settings and
+    // Marketplace, as on the release client.
     flags(
         data,
         &[
             "#online_stack_visible",
+            "#realms_promo_visible",
             "#not_realms_promo_visible_and_supports_launching_legacy_version",
+            "#dressing_room_button_visible",
+            "#is_appearance_visible",
         ],
     );
     match &view.auth_state {
-        AuthState::SignedOut | AuthState::Failed(_) => flags(data, &["#sign_in_visible"]),
+        AuthState::SignedOut | AuthState::Failed(_) => {
+            flags(data, &["#sign_in_visible", "#upper_online_buttons_visible"])
+        }
         AuthState::Checking => {
             flags(data, &["#signingin_visible"]);
             data.set_global(
                 "#signingin_text",
-                text(translated(translate, "xbox.signingin", "Signing in...")),
+                text(translated(
+                    translate,
+                    "xbox.signingin",
+                    "Signing in with your Microsoft account...",
+                )),
             );
         }
         AuthState::Authenticated => flags(data, &["#gamertag_pic_and_label_visible"]),

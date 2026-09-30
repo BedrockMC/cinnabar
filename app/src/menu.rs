@@ -327,6 +327,10 @@ impl MenuRuntime {
         self.screen
     }
 
+    pub(crate) fn player_skin(&self) -> &crate::player_skin::LocalPlayerSkin {
+        &self.player_skin
+    }
+
     pub(crate) fn is_launcher(&self) -> bool {
         self.launcher
     }

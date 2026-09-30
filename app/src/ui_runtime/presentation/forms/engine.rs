@@ -22,6 +22,7 @@ use ui::{
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
 pub(crate) mod hud_renderers;
+mod menu_renderers;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
 use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
@@ -30,6 +31,9 @@ use crate::ui_runtime::{ServerFormIdentity, forms::EngineFrame};
 const UNWRAPPED_LOGICAL: f64 = 65_536.0;
 /// Player preview height relative to its renderer box (needs native measurement).
 const PREVIEW_BOX_SCALE: f32 = 2.2;
+/// Paper-doll preview height relative to its box, fitted to a 1.26.50 capture
+/// (needs native measurement).
+const PAPER_DOLL_BOX_SCALE: f32 = 0.9;
 /// Tooltip placement relative to the pointer and its padding, in virtual px
 /// (needs native measurement).
 const TOOLTIP_OFFSET: [f32; 2] = [8.0, -12.0];
@@ -54,6 +58,8 @@ pub(crate) struct FormEngine {
     pub(super) cache: Option<FormCache>,
     /// Resolve+bind and layout passes run, for cache tests and profiling.
     pub(super) passes: [usize; 2],
+    /// The title splash, picked once per launch.
+    splash: std::sync::OnceLock<Option<String>>,
 }
 
 pub(super) struct FormCache {
@@ -105,6 +111,7 @@ impl FormEngine {
             server_source: None,
             cache: None,
             passes: [0; 2],
+            splash: std::sync::OnceLock::new(),
         }
     }
 
@@ -290,6 +297,12 @@ impl FormEngine {
         &self.assets
     }
 
+    pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
+        self.splash
+            .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
+            .as_deref()
+    }
+
     pub(super) fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
     }
@@ -457,6 +470,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) hud: Option<&'a hud_renderers::HudPaint>,
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
+    pub(super) splash: Option<&'a str>,
 }
 
 /// Where a render writes its retained nodes, plus caller draw nodes painted on
@@ -669,10 +683,17 @@ impl Painter<'_> {
                 if w <= 0.0 || h <= 0.0 {
                     return None;
                 }
-                let height = (dest[3] - dest[1]) * PREVIEW_BOX_SCALE;
+                // The start screen's doll stands on its box's floor; the inventory's
+                // overflows its box.
+                let (height, top) = if renderer == "paper_doll_renderer" {
+                    let height = (dest[3] - dest[1]) * PAPER_DOLL_BOX_SCALE;
+                    (height, dest[3] - height)
+                } else {
+                    let height = (dest[3] - dest[1]) * PREVIEW_BOX_SCALE;
+                    (height, (dest[1] + dest[3]) * 0.5 - height * 0.25)
+                };
                 let width = height * w / h;
                 let centre = (dest[0] + dest[2]) * 0.5;
-                let top = (dest[1] + dest[3]) * 0.5 - height * 0.5 + height * 0.25;
                 Some((
                     UiVisual::Sprite {
                         texture_page: preview.page,
@@ -687,6 +708,11 @@ impl Painter<'_> {
                     ],
                 ))
             }
+            "splash_text_renderer" => {
+                self.splash(dest, &alpha);
+                None
+            }
+            "name_tag_renderer" => self.name_tag(data, dest, &alpha),
             "hover_text_renderer" => {
                 let text = data
                     .get("#hover_text")?
