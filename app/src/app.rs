@@ -746,6 +746,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir: layout.screenshots_dir(),
+        debug_overlay: args.dev_debug_overlay,
     });
     if !connection_requested {
         app.init_resource::<crate::menu::LauncherCoreSlot>();

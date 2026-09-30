@@ -418,6 +418,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 player_game_mode_uses_world_default: false,
                 server_authoritative_block_breaking: true,
                 hardcore: false,
+                hud_rules: protocol::HudRules::default(),
                 packs: crate::runtime::network::PackApplication::default(),
             })
             .unwrap();

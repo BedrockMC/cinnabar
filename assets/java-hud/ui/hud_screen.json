@@ -280,15 +280,37 @@
     "anchor_to": "top_left"
   },
 
-  // Chat: ten 9-px lines upward from 40 GUI px above the bottom, 320 wide.
+  // The position and days-played lines keep vanilla's top-left stack; chat
+  // moves to Java's ten 9-px lines upward from 40 GUI px above the bottom.
   "root_panel/chat_stack": {
     "type": "panel",
-    "size": [ 330, 90 ],
-    "anchor_from": "bottom_left",
-    "anchor_to": "bottom_left",
-    "offset": [ 0, -40 ],
+    "size": [ "100%", "100%" ],
     "controls": [
-      { "chat_panel@hud.chat_panel": {} }
+      {
+        "world_text_stack": {
+          "type": "stack_panel",
+          "orientation": "vertical",
+          "size": [ "40%", "100%c" ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "controls": [
+            { "player_position@hud.player_position": {} },
+            { "number_of_days_played@hud.number_of_days_played": {} }
+          ]
+        }
+      },
+      {
+        "java_chat": {
+          "type": "panel",
+          "size": [ 330, 90 ],
+          "anchor_from": "bottom_left",
+          "anchor_to": "bottom_left",
+          "offset": [ 0, -40 ],
+          "controls": [
+            { "chat_panel@hud.chat_panel": {} }
+          ]
+        }
+      }
     ]
   },
 

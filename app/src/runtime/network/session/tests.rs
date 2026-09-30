@@ -927,6 +927,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             player_game_mode_uses_world_default: false,
             server_authoritative_block_breaking: false,
             hardcore: false,
+            hud_rules: protocol::HudRules::default(),
             packs: crate::runtime::network::PackApplication::default(),
         },
         NetworkControlEvent::Failed {

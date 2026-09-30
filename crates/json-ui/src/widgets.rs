@@ -199,7 +199,14 @@ impl ScrollFrame {
             bar_box: prop_str(control, "scrollbar_box")
                 .unwrap_or("box")
                 .to_owned(),
-            requested: state.scroll_offset(key),
+            // A view that jumps to its end on update opens at the end until the caller scrolls it.
+            requested: state.scroll.get(key).copied().unwrap_or(
+                if bound_bool(control, "jump_to_bottom_on_update").unwrap_or(false) {
+                    f64::INFINITY
+                } else {
+                    0.0
+                },
+            ),
             always_visible: bound_bool(control, "scrollbar_always_visible").unwrap_or(false),
             speed: bound_number(control, "scroll_speed").unwrap_or(15.0),
             metrics: None,
@@ -219,7 +226,13 @@ impl ScrollFrame {
             thumb: None,
             speed: self.speed,
         });
-        Rect::new(content.x, content.y - offset, content.w, content.h)
+        // Overflowing content scrolls from the viewport's top whatever its anchor.
+        let top = if max > 0.0 {
+            viewport.y - offset
+        } else {
+            content.y
+        };
+        Rect::new(content.x, top, content.w, content.h)
     }
 
     /// Size and position the scrollbar box inside `track`; `None` hides it.

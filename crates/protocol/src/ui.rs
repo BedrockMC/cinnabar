@@ -156,6 +156,20 @@ pub enum UiEvent {
     /// SetDefaultGameType: the level's default mode changed; players whose
     /// mode is bound to the default follow it.
     DefaultGameMode(GameModeEvent),
+    HudRules(HudRules),
+}
+
+/// The world rules that raise HUD text; `None` leaves a rule as it was.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HudRules {
+    pub show_coordinates: Option<bool>,
+    pub show_days_played: Option<bool>,
+}
+
+impl HudRules {
+    pub const fn is_empty(self) -> bool {
+        self.show_coordinates.is_none() && self.show_days_played.is_none()
+    }
 }
 
 /// One wire game-mode value, retained without guessing.

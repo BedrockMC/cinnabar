@@ -503,3 +503,31 @@ fn ignored_instances_and_unanswered_collection_flags_draw_nothing() {
         .collect();
     assert_eq!(drawn, ["textures/ui/White"]);
 }
+
+#[test]
+fn java_pack_keeps_the_position_and_days_lines_top_left() {
+    let mut model = model();
+    model.player_position = Some("Position: 1, 64, -3".into());
+    model.days_played = Some("Days played: 2".into());
+    model.text_background_alpha = 0.5;
+    let Some(nodes) = render_with(&model, true) else {
+        return;
+    };
+    dump(&nodes);
+    let position = named(&nodes, "player_position_text");
+    let days = named(&nodes, "number_of_days_played_text");
+    assert_eq!(position.len(), 1);
+    assert_eq!(days.len(), 1);
+    assert!(matches!(&position[0].draw, Draw::Text { text, .. } if text == "Position: 1, 64, -3"));
+    // Centred in vanilla's 40%-wide top-left column.
+    assert!(position[0].dest.x < 480.0 * 0.4 && position[0].dest.y < 12.0);
+    assert!(days[0].dest.y > position[0].dest.y);
+    let backing = named(&nodes, "player_position");
+    assert!(backing.iter().all(|node| (node.alpha - 0.5).abs() < 1e-6));
+    // Off by default: neither line draws.
+    let Some(nodes) = render_with(&self::model(), true) else {
+        return;
+    };
+    assert!(named(&nodes, "player_position_text").is_empty());
+    assert!(named(&nodes, "number_of_days_played_text").is_empty());
+}
