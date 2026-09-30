@@ -288,6 +288,20 @@ impl ActorStore {
         }
     }
 
+    /// Records the view's `[pitch, yaw]` (degrees) for camera-facing animations.
+    pub(crate) fn set_camera_rotation(&mut self, rotation: [f32; 2]) {
+        if rotation.iter().all(|value| value.is_finite()) {
+            self.camera_rotation = rotation;
+        }
+    }
+
+    /// Records the view's world position for camera-relative animation queries.
+    pub(crate) fn set_camera_position(&mut self, position: [f32; 3]) {
+        if position.iter().all(|value| value.is_finite()) {
+            self.camera_position = position;
+        }
+    }
+
     /// Stores `(runtime_id, in_water, in_lava)` samples on their actors.
     pub(crate) fn set_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         for &(runtime_id, water, lava) in samples {
