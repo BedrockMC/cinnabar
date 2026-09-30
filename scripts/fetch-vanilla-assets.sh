@@ -418,7 +418,8 @@ validate_entry_name() {
     fi
     # 6. per-component rules.
     invalid_re='["<>|*?]'
-    ctrl_re="$(printf '[\001-\037]')"
+    # A literal \001 in an =~ pattern is misparsed by macOS's bash 3.2 (it matches '-').
+    ctrl_re='[[:cntrl:]]'
     IFS='/' read -r -a parts <<< "$normalized"
     cumulative=''
     relative=''
@@ -441,11 +442,14 @@ validate_entry_name() {
         # e. reserved Windows device names (base name before any extension).
         # Normalize deterministically with POSIX utilities so the system Bash
         # 3.2 shipped by macOS can enforce the same reserved-name contract.
+        # Only 3-4 character bases can be reserved, so the fork is skipped for the rest.
         local base lower
         base="${part%%.*}"
-        lower="$(printf '%s' "$base" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
-        if [[ "$lower" =~ ^(con|prn|aux|nul|com[1-9]|lpt[1-9])$ ]]; then
-            fatal "unsafe ZIP entry '$raw': reserved filename component '$part'"
+        if (( ${#base} == 3 || ${#base} == 4 )); then
+            lower="$(printf '%s' "$base" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+            if [[ "$lower" =~ ^(con|prn|aux|nul|com[1-9]|lpt[1-9])$ ]]; then
+                fatal "unsafe ZIP entry '$raw': reserved filename component '$part'"
+            fi
         fi
         if [[ -z "$cumulative" ]]; then
             cumulative="$part"
@@ -694,66 +698,54 @@ audit_extracted_tree() {
     # OTHER special node the extractor may materialize on Unix hosts, then
     # re-audits ACTUAL file counts and byte totals against the same bounds
     # in case headers lied.
-    local node rel sz
+    local node rel
     while IFS= read -r -d '' node; do
         rel="${node#"$temporary_extract"/}"
         fatal "unsafe extracted node '$rel': link and special filesystem entries are not allowed"
     done < <(find "$temporary_extract" -mindepth 1 ! -type d ! -type f -print0)
 
     local actual_files actual_bytes audit_line audit_status
-    if find --version >/dev/null 2>&1; then
-        # GNU find: one spawn for the whole tree. The awk guard reproduces the
-        # per-file and running-total bounds with identical diagnostics.
-        actual_files=-1
-        actual_bytes=-1
-        audit_line=''
-        audit_status=0
-        audit_line="$(find "$temporary_extract" -type f -printf '%s\t%P\n' | LC_ALL=C awk \
-            -v max_file="$effective_max_expanded_file_bytes" \
-            -v max_total="$effective_max_total_expanded_bytes" '
-            function fail(msg) { printf "%s\n", msg > "/dev/stderr"; bad = 1; exit 3 }
-            {
-                n++
-                sum += $1 + 0
-                if ($1 + 0 > max_file + 0) {
-                    fail("ZIP entry \047" $2 "\047 expanded size exceeded the maximum " max_file " bytes during extraction")
-                }
-                if (sum > max_total + 0) {
-                    fail("archive total expanded size exceeded the maximum " max_total " bytes during extraction")
-                }
+    # One find for the whole tree (GNU -printf, else batched BSD stat), never a
+    # fork per file. The awk guard reproduces the per-file and running-total
+    # bounds with identical diagnostics.
+    list_sizes() {
+        if find --version >/dev/null 2>&1; then
+            find "$temporary_extract" -type f -printf '%s\t%P\n'
+        else
+            find "$temporary_extract" -type f -exec stat -f '%z%t%N' -- {} +
+        fi
+    }
+    actual_files=-1
+    actual_bytes=-1
+    audit_line=''
+    audit_status=0
+    audit_line="$(list_sizes | LC_ALL=C awk -F'\t' \
+        -v root="$temporary_extract/" \
+        -v max_file="$effective_max_expanded_file_bytes" \
+        -v max_total="$effective_max_total_expanded_bytes" '
+        function fail(msg) { printf "%s\n", msg > "/dev/stderr"; bad = 1; exit 3 }
+        {
+            rel = $2
+            if (index(rel, root) == 1) { rel = substr(rel, length(root) + 1) }
+            n++
+            sum += $1 + 0
+            if ($1 + 0 > max_file + 0) {
+                fail("ZIP entry \047" rel "\047 expanded size exceeded the maximum " max_file " bytes during extraction")
             }
-            END {
-                if (!bad) { printf "%d %d\n", n, sum }
-            }')" || audit_status=$?
-        if [[ "$audit_status" -ne 0 ]]; then
-            exit 1
-        fi
-        actual_files="${audit_line%% *}"
-        actual_bytes="${audit_line#* }"
-        if [[ -z "$actual_files" || -z "$actual_bytes" ]]; then
-            fatal 'extracted tree audit failed'
-        fi
-    else
-        # Portable fallback (BSD/macOS): stat once per file. Slower but this
-        # branch only runs on platforms without GNU find.
-        actual_files=0
-        actual_bytes=0
-        while IFS= read -r -d '' node; do
-            rel="${node#"$temporary_extract"/}"
-            if ! sz="$(stat -c %s -- "$node" 2>/dev/null)"; then
-                if ! sz="$(stat -f %z -- "$node" 2>/dev/null)"; then
-                    fatal "extracted file size unavailable: $rel"
-                fi
-            fi
-            actual_files=$((actual_files + 1))
-            actual_bytes=$((actual_bytes + sz))
-            if [[ "$sz" -gt "$effective_max_expanded_file_bytes" ]]; then
-                fatal "ZIP entry '$rel' expanded size exceeded the maximum $effective_max_expanded_file_bytes bytes during extraction"
-            fi
-            if [[ "$actual_bytes" -gt "$effective_max_total_expanded_bytes" ]]; then
-                fatal "archive total expanded size exceeded the maximum $effective_max_total_expanded_bytes bytes during extraction"
-            fi
-        done < <(find "$temporary_extract" -type f -print0)
+            if (sum > max_total + 0) {
+                fail("archive total expanded size exceeded the maximum " max_total " bytes during extraction")
+            }
+        }
+        END {
+            if (!bad) { printf "%d %d\n", n, sum }
+        }')" || audit_status=$?
+    if [[ "$audit_status" -ne 0 ]]; then
+        exit 1
+    fi
+    actual_files="${audit_line%% *}"
+    actual_bytes="${audit_line#* }"
+    if [[ -z "$actual_files" || -z "$actual_bytes" ]]; then
+        fatal 'extracted tree audit failed'
     fi
     if [[ "$actual_files" -gt "$effective_max_archive_entries" ]]; then
         fatal "extracted tree file count $actual_files exceeds the maximum $effective_max_archive_entries"

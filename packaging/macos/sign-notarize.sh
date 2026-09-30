@@ -40,7 +40,7 @@ case "$target" in
         while IFS= read -r -d '' file; do
             if file "$file" | grep -q 'Mach-O'; then sign "$file"; fi
         done < <(find "$target/Contents/Resources" -type f -perm -u+x -print0)
-        sign "$target/Contents/MacOS/bedrock-core"
+        sign "$target/Contents/MacOS/bedrock-core" "$target/Contents/MacOS/bedrock-local-server"
         sign "$target"
         codesign --verify --deep --strict --verbose=2 "$target"
         archive="$(mktemp -d)/Cinnabar.zip"
