@@ -6,6 +6,12 @@ const SPYGLASS_USE_TICKS: u32 = 1_200;
 /// `CrossbowItem::getMaxUseDuration`: 25 ticks less 5 per Quick Charge level.
 const CROSSBOW_CHARGE_TICKS: u32 = 25;
 const QUICK_CHARGE_TICKS_PER_LEVEL: u32 = 5;
+/// Drink duration of `PotionItem` (and `OminousBottleItem`) and the milk `BucketItem`.
+const DRINK_TICKS: u32 = 32;
+/// `ItemUseSlowdownSystemImpl`'s factor for a use without `minecraft:use_modifiers`.
+const DEFAULT_USE_SLOWDOWN: f64 = 0.35;
+/// The vanilla spears' `use_modifiers.movement_modifier`.
+const SPEAR_USE_SLOWDOWN: f64 = 1.0;
 /// `EnderpearlItem::getCooldownDuration`.
 const ENDER_PEARL_COOLDOWN: Cooldown = Cooldown {
     category: "ender_pearl",
@@ -16,6 +22,27 @@ const WIND_CHARGE_COOLDOWN: Cooldown = Cooldown {
     category: "wind_charge",
     ticks: 10,
 };
+/// Vanilla foods whose `minecraft:food` sets `can_always_eat`.
+const ALWAYS_EDIBLE: &[&str] = &[
+    "enchanted_golden_apple",
+    "chorus_fruit",
+    "golden_apple",
+    "honey_bottle",
+    "suspicious_stew",
+];
+/// Wire names whose vanilla behavior-pack file keeps a legacy identifier.
+const PACK_ALIASES: &[(&str, &str)] = &[
+    (
+        "minecraft:enchanted_golden_apple",
+        "minecraft:appleEnchanted",
+    ),
+    ("minecraft:cooked_mutton", "minecraft:muttonCooked"),
+    ("minecraft:mutton", "minecraft:muttonRaw"),
+    ("minecraft:tropical_fish", "minecraft:clownfish"),
+    ("minecraft:cod", "minecraft:fish"),
+    ("minecraft:cooked_cod", "minecraft:cooked_fish"),
+];
+
 /// What a use needs before it starts outside creative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Needs {
@@ -23,6 +50,8 @@ pub(crate) enum Needs {
     Arrow,
     /// Arrows anywhere, or a firework rocket in the offhand.
     ArrowOrOffhandRocket,
+    /// Food points below full, as `FoodItemComponent::use` requires.
+    Appetite,
 }
 
 /// A use's shared cooldown, as `Player::startItemCooldown` records it.
@@ -36,7 +65,11 @@ pub(crate) struct Cooldown {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum AirUse {
     /// Starts a use that ends on release, or silently once `max_ticks` run out.
-    Hold { max_ticks: u32, needs: Needs },
+    Hold {
+        max_ticks: u32,
+        needs: Needs,
+        slowdown: f64,
+    },
     /// Consumes one item outside creative and swings, as a thrown projectile does.
     Throw { cooldown: Option<Cooldown> },
     /// Acts at once, as a loaded crossbow fires.
@@ -45,7 +78,11 @@ pub(crate) enum AirUse {
 
 impl AirUse {
     const fn hold(max_ticks: u32, needs: Needs) -> Self {
-        Self::Hold { max_ticks, needs }
+        Self::Hold {
+            max_ticks,
+            needs,
+            slowdown: DEFAULT_USE_SLOWDOWN,
+        }
     }
 
     pub(crate) const fn cooldown(self) -> Option<Cooldown> {
@@ -68,9 +105,26 @@ impl AirUse {
     }
 }
 
-/// The air use of `identifier`; `None` sends only the click-air transaction.
-pub(crate) fn classify(identifier: &str, charged: bool, quick_charge: u8) -> Option<AirUse> {
-    let name = identifier.strip_prefix("minecraft:")?;
+/// The behavior-pack identifier a wire identifier's use duration is filed under.
+pub(crate) fn pack_identifier(identifier: &str) -> Option<&'static str> {
+    PACK_ALIASES
+        .iter()
+        .find(|(wire, _)| *wire == identifier)
+        .map(|(_, pack)| *pack)
+}
+
+/// The air use of `identifier`; `pack_ticks` is the use duration its pack or item components
+/// state. `None` sends only the click-air transaction.
+pub(crate) fn classify(
+    identifier: &str,
+    charged: bool,
+    quick_charge: u8,
+    pack_ticks: Option<u32>,
+) -> Option<AirUse> {
+    let Some(name) = identifier.strip_prefix("minecraft:") else {
+        // A custom item with a stated use duration holds like vanilla `use_modifiers`.
+        return pack_ticks.map(|ticks| AirUse::hold(ticks, Needs::Nothing));
+    };
     Some(match name {
         "bow" => AirUse::hold(LONG_USE_TICKS, Needs::Arrow),
         "trident" => AirUse::hold(LONG_USE_TICKS, Needs::Nothing),
@@ -81,6 +135,7 @@ pub(crate) fn classify(identifier: &str, charged: bool, quick_charge: u8) -> Opt
                 .saturating_sub(u32::from(quick_charge) * QUICK_CHARGE_TICKS_PER_LEVEL),
             Needs::ArrowOrOffhandRocket,
         ),
+        "potion" | "ominous_bottle" | "milk_bucket" => AirUse::hold(DRINK_TICKS, Needs::Nothing),
         "snowball" | "egg" | "blue_egg" | "brown_egg" | "experience_bottle" | "splash_potion"
         | "lingering_potion" => AirUse::Throw { cooldown: None },
         "ender_pearl" => AirUse::Throw {
@@ -89,6 +144,21 @@ pub(crate) fn classify(identifier: &str, charged: bool, quick_charge: u8) -> Opt
         "wind_charge" => AirUse::Throw {
             cooldown: Some(WIND_CHARGE_COOLDOWN),
         },
-        _ => return None,
+        // Placed with its block; its pack use duration is not an air use.
+        "camera" => return None,
+        _ if name.ends_with("_spear") => AirUse::Hold {
+            max_ticks: pack_ticks?,
+            needs: Needs::Nothing,
+            slowdown: SPEAR_USE_SLOWDOWN,
+        },
+        // Every other vanilla item with a pack use duration is a food.
+        _ => AirUse::hold(
+            pack_ticks?,
+            if ALWAYS_EDIBLE.contains(&name) {
+                Needs::Nothing
+            } else {
+                Needs::Appetite
+            },
+        ),
     })
 }

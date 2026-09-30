@@ -2,8 +2,8 @@
 //! throwing.
 //!
 //! Follows `ClientInputCallbacks::handleBuildAction`, `GameMode::baseUseItem`,
-//! `GameMode::releaseUsingItem` and `Player::completeUsingItem`; projectiles and ammunition stay
-//! server-owned.
+//! `GameMode::releaseUsingItem` and `Player::completeUsingItem`; projectiles, food effects and
+//! ammunition stay server-owned.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -29,10 +29,6 @@ mod classify;
 pub(crate) use classify::{AirUse, Cooldown, Needs, classify};
 
 const QUICK_CHARGE_ENCHANTMENT_ID: i16 = 35;
-/// `ItemUseSlowdownSystemImpl`'s movement factor for an item in use without
-/// `minecraft:use_modifiers` (0.35, read from the 26.30 client). No handled air
-/// use carries that component.
-const ITEM_USE_SLOWDOWN: f64 = 0.35;
 /// `handleBuildAction` re-arms the next build action this long after an air use.
 const USE_REARM_MILLIS: u64 = 200;
 
@@ -41,6 +37,7 @@ struct ActiveUse {
     selection: FrozenMiningSelection,
     started_tick: u64,
     max_ticks: u32,
+    slowdown: f64,
 }
 
 /// A throw's locally consumed stack, shown until the server restates the slot.
@@ -101,7 +98,7 @@ impl ItemUseRuntime {
 
     /// Movement-input factor while a use runs; `None` when idle.
     pub(crate) fn movement_modifier(&self) -> Option<f64> {
-        self.active.as_ref().map(|_| ITEM_USE_SLOWDOWN)
+        self.active.as_ref().map(|active| active.slowdown)
     }
 
     /// A new session drops the press, the use, cooldowns and the prediction without packets.
@@ -199,11 +196,16 @@ impl ItemUseRuntime {
             .is_some_and(|cooldown| self.on_cooldown(cooldown.category));
         let mut change = None;
         match frame.air_use {
-            Some(AirUse::Hold { max_ticks, .. }) if frame.ready => {
+            Some(AirUse::Hold {
+                max_ticks,
+                slowdown,
+                ..
+            }) if frame.ready => {
                 self.active = Some(ActiveUse {
                     selection: selection.clone(),
                     started_tick: frame.tick,
                     max_ticks,
+                    slowdown,
                 });
                 outcome.started = true;
             }
@@ -293,13 +295,18 @@ fn held_request(selection: &FrozenMiningSelection, frame: &UseFrame) -> HeldItem
 pub(crate) fn selected_air_use(stream: &WorldStream, ui: &UiRuntime) -> Option<AirUse> {
     let stack = ui.selected_stack()?;
     let canonical = stream.canonical_item_stack(stack)?;
+    let identifier = canonical.identifier.as_deref()?;
     let quick_charge =
         protocol::item_enchantment_level(&stack.extra_data, QUICK_CHARGE_ENCHANTMENT_ID)
             .unwrap_or(0);
+    let pack_ticks = stream.item_max_use_ticks(identifier).or_else(|| {
+        classify::pack_identifier(identifier).and_then(|pack| stream.item_max_use_ticks(pack))
+    });
     classify(
-        canonical.identifier.as_deref()?,
+        identifier,
         canonical.charged_projectile.is_some(),
         quick_charge,
+        pack_ticks,
     )
 }
 
@@ -328,6 +335,11 @@ fn needs_met(stream: &WorldStream, ui: &UiRuntime, needs: Needs) -> bool {
                     .offhand_stack()
                     .is_some_and(|stack| is(stack, "minecraft:firework_rocket"))
         }
+        // Peaceful difficulty's always-edible rule is not modeled.
+        Needs::Appetite => ui
+            .hud()
+            .hunger()
+            .is_none_or(|hunger| hunger.current() < hunger.maximum()),
     }
 }
 

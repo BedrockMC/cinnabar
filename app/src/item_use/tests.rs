@@ -37,7 +37,7 @@ fn frame(tick: u64, held: bool) -> UseFrame {
         position: [0.5, 65.62, 0.5],
         held,
         selection: Some(selection(2, BOW)),
-        air_use: classify("minecraft:bow", false, 0),
+        air_use: classify("minecraft:bow", false, 0, None),
         ready: true,
         creative: false,
         press_consumed: false,
@@ -52,7 +52,7 @@ fn item_frame(
 ) -> UseFrame {
     UseFrame {
         selection: Some(selection),
-        air_use: classify(identifier, false, 0),
+        air_use: classify(identifier, false, 0, Some(32)),
         ..frame(tick, held)
     }
 }
@@ -133,15 +133,75 @@ fn crossbow_charge_follows_quick_charge_and_a_loaded_one_fires() {
     let hold = |ticks| AirUse::Hold {
         max_ticks: ticks,
         needs: Needs::ArrowOrOffhandRocket,
+        slowdown: 0.35,
     };
-    assert_eq!(classify("minecraft:crossbow", false, 0), Some(hold(25)));
-    assert_eq!(classify("minecraft:crossbow", false, 3), Some(hold(10)));
-    assert_eq!(classify("minecraft:crossbow", false, 9), Some(hold(0)));
     assert_eq!(
-        classify("minecraft:crossbow", true, 0),
+        classify("minecraft:crossbow", false, 0, None),
+        Some(hold(25))
+    );
+    assert_eq!(
+        classify("minecraft:crossbow", false, 3, None),
+        Some(hold(10))
+    );
+    assert_eq!(
+        classify("minecraft:crossbow", false, 9, None),
+        Some(hold(0))
+    );
+    assert_eq!(
+        classify("minecraft:crossbow", true, 0, None),
         Some(AirUse::Instant)
     );
-    assert_eq!(classify("minecraft:shield", false, 0), None);
+    assert_eq!(classify("minecraft:shield", false, 0, None), None);
+}
+
+/// Foods eat for their pack duration and need appetite unless `can_always_eat`; drinks, spears
+/// and custom use items follow their own vanilla rules.
+#[test]
+fn held_uses_follow_the_vanilla_item_rules() {
+    let hold = |max_ticks, needs, slowdown| {
+        Some(AirUse::Hold {
+            max_ticks,
+            needs,
+            slowdown,
+        })
+    };
+    assert_eq!(
+        classify("minecraft:bread", false, 0, Some(32)),
+        hold(32, Needs::Appetite, 0.35)
+    );
+    assert_eq!(
+        classify("minecraft:dried_kelp", false, 0, Some(16)),
+        hold(16, Needs::Appetite, 0.35)
+    );
+    assert_eq!(
+        classify("minecraft:golden_apple", false, 0, Some(32)),
+        hold(32, Needs::Nothing, 0.35)
+    );
+    assert_eq!(
+        classify("minecraft:honey_bottle", false, 0, Some(40)),
+        hold(40, Needs::Nothing, 0.35)
+    );
+    for drink in ["minecraft:potion", "minecraft:milk_bucket"] {
+        assert_eq!(
+            classify(drink, false, 0, None),
+            hold(32, Needs::Nothing, 0.35)
+        );
+    }
+    assert_eq!(
+        classify("minecraft:iron_spear", false, 0, Some(1_440_000)),
+        hold(1_440_000, Needs::Nothing, 1.0)
+    );
+    assert_eq!(
+        classify("zeqa:item.snack", false, 0, Some(20)),
+        hold(20, Needs::Nothing, 0.35)
+    );
+    assert_eq!(classify("zeqa:item.ffa", false, 0, None), None);
+    assert_eq!(classify("minecraft:camera", false, 0, Some(100_000)), None);
+    assert_eq!(classify("minecraft:stick", false, 0, None), None);
+    assert_eq!(
+        classify::pack_identifier("minecraft:enchanted_golden_apple"),
+        Some("minecraft:appleEnchanted")
+    );
 }
 
 #[test]
@@ -154,11 +214,11 @@ fn throwables_consume_one_and_pearls_and_wind_charges_cool_down() {
         "minecraft:lingering_potion",
     ] {
         assert_eq!(
-            classify(name, false, 0),
+            classify(name, false, 0, None),
             Some(AirUse::Throw { cooldown: None })
         );
     }
-    let cooldown = |name| classify(name, false, 0).and_then(AirUse::cooldown);
+    let cooldown = |name| classify(name, false, 0, None).and_then(AirUse::cooldown);
     assert_eq!(
         cooldown("minecraft:ender_pearl").map(|cooldown| (cooldown.category, cooldown.ticks)),
         Some(("ender_pearl", 20))
@@ -191,7 +251,7 @@ fn bow_press_starts_a_use_and_button_up_releases_it() {
 #[test]
 fn a_depleted_crossbow_charge_ends_without_a_packet() {
     let crossbow = |tick| UseFrame {
-        air_use: classify("minecraft:crossbow", false, 0),
+        air_use: classify("minecraft:crossbow", false, 0, None),
         ..frame(tick, true)
     };
     let mut runtime = ItemUseRuntime::default();
@@ -263,7 +323,7 @@ fn held_use_without_a_press_starts_nothing() {
     assert!(!runtime.is_using());
 }
 
-/// An accepted use slows movement input by vanilla's default factor until it ends.
+/// An accepted use slows movement by its item's factor until it ends.
 #[test]
 fn an_active_use_slows_movement_until_it_ends() {
     let mut runtime = ItemUseRuntime::default();
@@ -273,6 +333,13 @@ fn an_active_use_slows_movement_until_it_ends() {
     assert_eq!(runtime.movement_modifier(), Some(0.35));
     runtime.step(&frame(110, false));
     assert_eq!(runtime.movement_modifier(), None);
+
+    runtime.observe_press(true);
+    runtime.step(&UseFrame {
+        air_use: classify("minecraft:iron_spear", false, 0, Some(1_440_000)),
+        ..frame(120, true)
+    });
+    assert_eq!(runtime.movement_modifier(), Some(1.0));
 }
 
 /// A server menu item (no use behavior) sends a plain click-air on press and every 200 ms held.
@@ -389,6 +456,35 @@ fn an_ender_pearl_on_cooldown_sends_a_plain_click_air() {
     assert_eq!(summary(&wire(&cooling.packets[0])).1, 0);
     runtime.observe_press(true);
     assert!(runtime.step(&pearl(120, 15)).swung);
+}
+
+/// Eating runs its duration, completes silently and, still held, starts again after the re-arm;
+/// letting go early releases.
+#[test]
+fn eating_completes_silently_repeats_while_held_and_releases_early() {
+    let bread = |tick, held| item_frame(tick, held, stack(0, 257, 8), "minecraft:bread");
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert!(runtime.step(&bread(100, true)).started);
+    assert!(runtime.step(&bread(131, true)).packets.is_empty() && runtime.is_using());
+    let completed = runtime.step(&bread(132, true));
+    assert_eq!(kinds(&completed), ["use"]);
+    assert!(completed.started && runtime.is_using());
+    assert_eq!(kinds(&runtime.step(&bread(140, false))), ["release"]);
+    assert!(!runtime.is_using());
+}
+
+/// A full player's food sends click-air but starts no use.
+#[test]
+fn food_without_appetite_does_not_start() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let outcome = runtime.step(&UseFrame {
+        ready: false,
+        ..item_frame(100, true, stack(0, 257, 8), "minecraft:bread")
+    });
+    assert_eq!(kinds(&outcome), ["use"]);
+    assert!(!outcome.started && !runtime.is_using());
 }
 
 /// `TypedClientNetId::_generateNext` restarts at -4 once the counter leaves the negative range.
