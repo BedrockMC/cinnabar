@@ -357,7 +357,7 @@ impl FormEngine {
 /// `vanilla` under the built-in Java HUD pack, less its files for any namespace
 /// in `withdrawn`: a server pack authored against vanilla that restyles a
 /// namespace gets vanilla beneath it there, so it looks as designed. The title
-/// panels then take the logo's shape.
+/// panels then take the logo's shape and the Mojang footer is dropped.
 fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<String>) -> Catalog {
     let mut catalog = vanilla.clone();
     let kept = super::hud::JAVA_HUD_PACK
@@ -365,10 +365,11 @@ fn with_java_hud(vanilla: &Catalog, withdrawn: &std::collections::BTreeSet<Strin
         .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
         .map(|(path, _, bytes)| (*path, *bytes));
     catalog.apply_pack(kept);
-    catalog.apply_pack([(
-        "ui/cinnabar_title.json",
-        menu_renderers::TITLE_PANEL_OVERLAY,
-    )]);
+    catalog.apply_pack(
+        [("ui/cinnabar_title.json", menu_renderers::TITLE_PANEL_OVERLAY)]
+            .into_iter()
+            .chain(menu_renderers::NO_COPYRIGHT_OVERLAYS),
+    );
     catalog
 }
 
