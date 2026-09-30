@@ -528,14 +528,22 @@ pub async fn list_gatherings(socket_dir: &Path) -> Result<Vec<Gathering>, Bridge
     Ok(body.gatherings)
 }
 
-/// Pings up to 64 servers for their player counts and round trip.
+/// Addresses one `ping.v1` request may carry (the core's `catalog.MaxPingTargets`);
+/// a longer list was refused whole, so no row ever left "Loading ping".
+const MAX_PING_TARGETS: usize = 64;
+
+/// Pings servers for their player counts and round trip, in batches the core accepts.
 pub async fn ping_servers(
     socket_dir: &Path,
     addresses: &[String],
 ) -> Result<Vec<ServerPing>, BridgeError> {
-    let params = PingParams { addresses };
-    let body: PingBody = call(socket_dir, "ping.v1", Some(params)).await?;
-    Ok(body.servers)
+    let mut servers = Vec::with_capacity(addresses.len());
+    for batch in addresses.chunks(MAX_PING_TARGETS) {
+        let params = PingParams { addresses: batch };
+        let body: PingBody = call(socket_dir, "ping.v1", Some(params)).await?;
+        servers.extend(body.servers);
+    }
+    Ok(servers)
 }
 
 /// Reads the start screen's service data.

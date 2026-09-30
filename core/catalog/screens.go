@@ -269,7 +269,7 @@ func games(item playfabcatalog.Item, values []gatherings.AvailableGame) []Game {
 	return result
 }
 
-// maxCachedArtwork bounds the artwork directory; the oldest files go first.
+// maxCachedArtwork bounds the artwork directory; the least recently used files go first.
 const maxCachedArtwork = 256
 
 // CacheImages downloads each image into directory and fills its path; a
@@ -301,6 +301,15 @@ func FeaturedImages(servers []FeaturedServer) []*Image {
 		for game := range server.Games {
 			images = append(images, &server.Games[game].Image)
 		}
+	}
+	return images
+}
+
+// GatheringImages lists the artwork of gatherings for CacheImages.
+func GatheringImages(gatherings []Gathering) []*Image {
+	images := make([]*Image, 0, len(gatherings))
+	for index := range gatherings {
+		images = append(images, &gatherings[index].Image)
 	}
 	return images
 }

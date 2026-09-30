@@ -2,7 +2,7 @@
 fn correction_rebuilds_primary_controls_from_each_retained_input_snapshot() {
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
-    let mut input = physics_movement_input([0.25, 0.5], 0.0, true, false, true, false, false);
+    let mut input = physics_movement_input([0.25, 0.5], 0.0, true, false, true, false, None);
     input.item_use_movement_modifier = Some(0.5);
     input.movement_speed = Some(0.2);
     let context = PhysicsSampleContext {

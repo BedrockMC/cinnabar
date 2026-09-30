@@ -247,8 +247,9 @@ fn presented_message(
         .build(&runtime, 0, physical_size, DpiScale::new(1.0).unwrap())
         .unwrap();
 
-    assert!(menu.absorb_session_failure(reason));
-    presentation.set_menu_view(Some(menu.view()));
+    let mut view = menu.view();
+    view.message = Some(reason.to_owned());
+    presentation.set_menu_view(Some(view));
     let active = presentation
         .build(&runtime, 0, physical_size, DpiScale::new(1.0).unwrap())
         .unwrap();

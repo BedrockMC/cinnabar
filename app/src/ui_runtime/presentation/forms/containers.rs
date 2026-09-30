@@ -604,6 +604,7 @@ fn held_stack(
         layer: i32::MAX,
         alpha: 1.0,
         fades: Vec::new(),
+        flip_book: None,
         draw,
     };
     let mut nodes = vec![node(

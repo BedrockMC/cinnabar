@@ -289,3 +289,31 @@ fn seat_rotation_turns_the_rider_body_and_clamps_its_head() {
     assert_eq!(rider.yaw, 0.0);
     assert_eq!(rider.head_yaw, -30.0);
 }
+
+/// A negative seat lock is odd server data: it is skipped instead of panicking in the clamp.
+#[test]
+fn a_negative_seat_lock_is_skipped_without_panicking() {
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mount) = spawn(20, 20) else {
+        unreachable!();
+    };
+    let ActorEvent::Spawn(mut rider) = spawn(10, 10) else {
+        unreachable!();
+    };
+    rider.head_yaw = 100.0;
+    rider.metadata = Arc::from([
+        protocol::ActorMetadata {
+            key: 56,
+            value: protocol::ActorMetadataValue::Vector([0.0; 3]),
+        },
+        protocol::ActorMetadata {
+            key: 58,
+            value: protocol::ActorMetadataValue::Float(-30.0),
+        },
+    ]);
+    store.apply(1, 1, ActorEvent::Spawn(mount));
+    store.apply(1, 2, ActorEvent::Spawn(rider));
+    store.apply_link(1, 3, link(10, 20, ActorLinkType::Rider));
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.get(10).unwrap().head_yaw, 100.0);
+}

@@ -69,3 +69,16 @@ func TestPortsReadFromNumbersOrStrings(t *testing.T) {
 		}
 	}
 }
+
+// A partial refresh keeps the previous copy of each part that failed, and only those.
+func TestRefillKeepsOnlyFailedParts(t *testing.T) {
+	previous := Home{RealmInvites: 2, LiveEvents: []LiveEvent{{ID: "old"}}, Messages: []Message{{ID: "old"}}}
+	fresh := Home{RealmInvites: 5, Messages: []Message{{ID: "new"}}, failed: partEvents | partPersona}
+	got := fresh.Refill(previous)
+	if got.RealmInvites != 5 || got.Messages[0].ID != "new" || len(got.LiveEvents) != 1 || got.LiveEvents[0].ID != "old" {
+		t.Fatalf("refilled = %+v", got)
+	}
+	if fresh.Failed() || !(Home{failed: allHomeParts}).Failed() {
+		t.Fatal("Failed must mean every part failed")
+	}
+}

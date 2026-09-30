@@ -161,3 +161,15 @@ fn held_use_without_a_press_starts_nothing() {
     assert!(runtime.step(&frame(100, true)).packets.is_empty());
     assert!(!runtime.is_using());
 }
+
+/// An accepted use slows movement input by vanilla's default factor until it ends.
+#[test]
+fn an_active_use_slows_movement_until_it_ends() {
+    let mut runtime = ItemUseRuntime::default();
+    assert_eq!(runtime.movement_modifier(), None);
+    runtime.observe_press(true);
+    runtime.step(&frame(100, true));
+    assert_eq!(runtime.movement_modifier(), Some(0.35));
+    runtime.step(&frame(110, false));
+    assert_eq!(runtime.movement_modifier(), None);
+}

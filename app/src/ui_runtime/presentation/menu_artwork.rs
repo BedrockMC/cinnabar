@@ -22,7 +22,10 @@ const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 /// Largest side artwork keeps; bigger sources scale down, smaller stay native.
 const MAX_ARTWORK_SIDE: u32 = 512;
 const GUTTER: u32 = 1;
-const MAX_ARTWORKS: usize = 32;
+const MAX_ARTWORKS: usize = 64;
+/// Longest side kept for a list thumbnail (server logos, gamerpics, badges), so
+/// a whole featured list fits the art pages beside banners.
+pub(crate) const THUMBNAIL_SIDE: u32 = 128;
 /// The start screen's title texture, which Cinnabar's own logo replaces.
 pub(super) const TITLE_KEY: &str = "textures/ui/title";
 /// Cinnabar's logo; the pack's title draws only if this fails to decode.
@@ -45,7 +48,7 @@ struct Artwork {
 /// Shelf-packs the artwork at `paths` into the full-resolution art pages that
 /// start at texture page `first_page`; what does not fit is left out.
 pub(super) fn load(
-    paths: &[String],
+    paths: &[(String, u32)],
     oversized: &[(String, std::sync::Arc<[u8]>)],
     first_page: u16,
 ) -> MenuArtworkAtlas {
@@ -63,8 +66,8 @@ pub(super) fn load(
     let mut rest = paths
         .iter()
         .take(MAX_ARTWORKS)
-        .filter(|path| !path.is_empty() && unique.insert((*path).clone()))
-        .filter_map(|path| Some(artwork(path, decode(Path::new(path))?)))
+        .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
+        .filter_map(|(path, side)| Some(artwork(path, decode(Path::new(path), *side)?)))
         .collect::<Vec<_>>();
     rest.extend(
         oversized
@@ -131,7 +134,7 @@ pub(super) fn load(
     MenuArtworkAtlas { pages, refs }
 }
 
-fn decode(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
+fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     let file = File::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take((MAX_SOURCE_BYTES + 1) as u64)
@@ -140,7 +143,7 @@ fn decode(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     if bytes.len() > MAX_SOURCE_BYTES {
         return None;
     }
-    decode_bytes(&bytes, MAX_ARTWORK_SIDE)
+    decode_bytes(&bytes, max_side.min(MAX_ARTWORK_SIDE))
 }
 
 /// Premultiplied RGBA8 of an image no larger than `max_side` on either axis.
@@ -184,18 +187,29 @@ fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 }
 
 /// Every downloaded artwork path the menu view can draw.
-pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<String> {
-    let selected = view
-        .feeds
-        .selected_featured
-        .and_then(|index| view.featured.get(index))
+pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+    // The Servers tab shows the first experience until a server is picked.
+    let shown = match view.feeds.selected_saved {
+        Some(_) => None,
+        None => Some(view.feeds.selected_featured.unwrap_or(0)),
+    };
+    let selected = shown
+        .and_then(|index| {
+            view.featured
+                .iter()
+                .chain(view.gatherings.iter())
+                .nth(index)
+        })
         .and_then(|server| view.feeds.details.get(&server.address));
-    view.featured
+    let thumbnails = view
+        .featured
         .iter()
         .chain(view.gatherings.iter())
         .map(|server| server.image_path.clone())
         .chain(std::iter::once(view.feeds.profile.picture_path.clone()))
-        .chain(home_art(&view.feeds.home))
+        .map(|path| (path, THUMBNAIL_SIDE));
+    let full = home_art(&view.feeds.home)
+        .into_iter()
         .chain(selected.into_iter().flat_map(|details| {
             details
                 .screenshots
@@ -209,7 +223,10 @@ pub(super) fn view_paths(view: &crate::menu::MenuView) -> Vec<String> {
                 .map(crate::store::StoreSnapshot::image_paths)
                 .unwrap_or_default(),
         )
-        .filter(|path| !path.is_empty())
+        .map(|path| (path, MAX_ARTWORK_SIDE));
+    thumbnails
+        .chain(full)
+        .filter(|(path, _)| !path.is_empty())
         .collect()
 }
 
