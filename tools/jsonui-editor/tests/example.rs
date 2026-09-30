@@ -242,3 +242,73 @@ fn screens_list_the_example_screen() {
             .any(|s| s.reference == "example_common.row" && !s.screen)
     );
 }
+
+// A file previews its first `screen` control, else its first top-level control;
+// animations never qualify.
+#[test]
+fn pick_screen_prefers_screens_then_the_first_control() {
+    let mut session = session(&["base"]);
+    let pick = |session: &mut Session, path| api::pick_screen(session, 0, path);
+    assert_eq!(
+        pick(&mut session, "ui/example_screen.json").as_deref(),
+        Some(SCREEN)
+    );
+    assert_eq!(
+        pick(&mut session, "ui/example_common.json").as_deref(),
+        Some("example_common.fill")
+    );
+    assert!(api::has_control(&mut session, SCREEN));
+    assert!(!api::has_control(&mut session, "example.nope"));
+    assert!(!api::has_control(&mut session, ""));
+}
+
+// Pasted text lands in a scratch layer that stays on top, is listed in its
+// `_ui_defs.json`, previews its screen, and exports with the edits.
+#[test]
+fn pasted_text_becomes_a_scratch_file_on_top() {
+    let mut session = session(&["base"]);
+    let pasted = r#"// pasted
+    { "namespace": "mine",
+      "strip@example_common.fill": { "size": [10, 10] },
+      "my_screen": { "type": "screen", "controls": [ { "s@mine.strip": {} } ] } }"#;
+    let (layer, path) = session.workspace.new_scratch_file(pasted);
+    assert_eq!((layer, path.as_str()), (1, "ui/scratch.json"));
+    let defs = session
+        .workspace
+        .layer(1)
+        .unwrap()
+        .text("ui/_ui_defs.json")
+        .unwrap();
+    assert!(defs.contains("ui/scratch.json"));
+    assert_eq!(
+        api::pick_screen(&mut session, layer, &path).as_deref(),
+        Some("mine.my_screen")
+    );
+    let mut shown = view([320, 180]);
+    shown.reference = "mine.my_screen".into();
+    let frame = session.frame(&shown);
+    assert_eq!(rect(&frame, "/my_screen/s")[2..], [10.0, 10.0]);
+
+    assert_eq!(session.workspace.add_layer("later pack"), 1);
+    assert_eq!(session.workspace.scratch_index(), Some(2));
+    let (_, second) = session.workspace.new_scratch_file("");
+    assert_eq!(second, "ui/scratch_2.json");
+    assert_eq!(
+        api::pick_screen(&mut session, 2, &second).as_deref(),
+        Some("scratch_2.main_screen")
+    );
+
+    let zip = session.workspace.export_edits().unwrap();
+    let archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
+    let mut names: Vec<&str> = archive.file_names().collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "ui/_global_variables.json",
+            "ui/_ui_defs.json",
+            "ui/scratch.json",
+            "ui/scratch_2.json"
+        ]
+    );
+}
