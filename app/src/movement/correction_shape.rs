@@ -178,6 +178,45 @@ pub(crate) fn reconcile_prediction_correction(
     )
 }
 
+/// Live-to-target distance under which vanilla rewinds a tick-stamped teleport
+/// `MovePlayer` (`_onPlayerMovePacketReceived`, 16.0 read from the 26.30 client).
+const MOVE_PLAYER_REWIND_DISTANCE: f32 = 16.0;
+
+/// Enters one teleport-mode `MovePlayer`: a nearby, retained, unmounted tick
+/// replays from it with motion cleared as `MovePlayerInput` does; anything
+/// else resets history and snaps.
+pub(crate) fn reconcile_move_player_teleport(
+    ticker: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    network_position: [f32; 3],
+    tick: u64,
+    on_ground: bool,
+    world: &impl CollisionWorld,
+) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
+    let nearby = physics.network_position().is_some_and(|live| {
+        squared_distance(live, network_position)
+            < MOVE_PLAYER_REWIND_DISTANCE * MOVE_PLAYER_REWIND_DISTANCE
+    });
+    let mode =
+        if nearby && physics.retains_tick(tick) && physics.mode() != sim::MovementMode::Riding {
+            PhysicsCorrectionMode::ReplayIfRetained
+        } else {
+            PhysicsCorrectionMode::Snap
+        };
+    reconcile_physics_anchor(
+        ticker,
+        physics,
+        PhysicsAnchor {
+            network_position,
+            tick,
+            on_ground,
+            velocity: Some([0.0; 3]),
+        },
+        mode,
+        world,
+    )
+}
+
 /// Authoritative end-of-tick player state carried by a correction.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PhysicsAnchor {

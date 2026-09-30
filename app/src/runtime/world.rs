@@ -476,12 +476,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     let previous = local_physics
                         .network_position()
                         .unwrap_or(resolved.position);
-                    // Only a MovePlayer explicitly flagged as a teleport hard
-                    // re-anchors. An unmarked MovePlayer is an ordinary position
-                    // sync: classify it (confirm / replay / far-teleport) like a
-                    // CorrectPlayerMovePrediction so a small server nudge replays
-                    // instead of forcing a hard snap. Opt-in HandledTeleport
-                    // acknowledgement arms on the teleport path only.
+                    // A teleport rewinds when nearby and retained, else snaps. An
+                    // unmarked MovePlayer is classified like a correction (Cinnabar
+                    // policy). HandledTeleport arms on the teleport path only.
                     let outcome = if correction.teleported {
                         movement.note_server_teleport(ServerTeleportKind::MovePlayer);
                         crate::movement::note_correction(
@@ -491,13 +488,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
                             correction.on_ground,
                             local_physics.sample_at(tick),
                         );
-                        reconcile_candidate_physics_correction(
+                        crate::movement::reconcile_move_player_teleport(
                             &mut movement,
                             &mut local_physics,
                             resolved.position,
                             tick,
                             correction.on_ground,
-                            PhysicsCorrectionMode::Snap,
                             &world,
                         )
                         .ok()
