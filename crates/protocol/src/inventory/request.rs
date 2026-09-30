@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ContainerClosePacket, EnumsInteractPacketPayloadAction as InteractAction,
     EnumsTextProcessingEventOrigin, InteractPacket, ItemStackRequestPacket,
     ItemStackRequestPacketDataRequestData, TypedClientNetIdstructItemStackRequestIdTagint32T0,
@@ -25,7 +25,7 @@ pub fn open_inventory_packet(
         return Err(InventoryPacketError::InvalidInventoryTargetRuntimeId);
     }
     Ok(InteractPacket {
-        action: InteractAction::OpenInventory,
+        action: InteractAction::Openinventory,
         target_runtime_id: ActorRuntimeId {
             actor_runtime_id: target_runtime_id,
         },
@@ -88,7 +88,7 @@ pub fn item_stack_request_packet_filtered(
             strings_to_filter_origin: if filter_strings.is_empty() {
                 EnumsTextProcessingEventOrigin::Unknown
             } else {
-                EnumsTextProcessingEventOrigin::AnvilText
+                EnumsTextProcessingEventOrigin::Anviltext
             },
         }],
     }
@@ -142,7 +142,7 @@ pub fn container_close_packet(
 
 #[cfg(test)]
 mod tests {
-    use valentine::bedrock::version::v1_26_44::McpePacketData;
+    use valentine::bedrock::version::v1_26_51::McpePacketData;
 
     use super::*;
 
@@ -152,7 +152,7 @@ mod tests {
         let McpePacketData::InteractPacket(interact) = packet.data else {
             panic!("expected Interact packet");
         };
-        assert_eq!(interact.action, InteractAction::OpenInventory);
+        assert_eq!(interact.action, InteractAction::Openinventory);
         assert_eq!(interact.target_runtime_id.actor_runtime_id, 42);
         assert_eq!(interact.position, None);
         assert_eq!(

@@ -96,7 +96,7 @@ func TestNewUpstreamDialerDeclinesResourcePackAcquisitionWithoutBudget(t *testin
 	}
 }
 
-func TestProtocol2168RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
+func TestProtocol2193RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
 	// Body bytes are shared with crates/protocol/tests/chat_send.rs. Decoding
 	// them here prevents a self-round-trip from hiding a Rust/Go bridge
 	// disagreement in CommandOrigin or UUID byte order.

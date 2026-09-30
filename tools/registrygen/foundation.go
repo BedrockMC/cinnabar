@@ -12,8 +12,8 @@ import (
 const maxFoundationBytes = 16 * 1024
 
 const (
-	v2168FoundationBlockSHA256 = "e3768f6d70195b22ac3843f6ef49261a80cd83284bc9741c7eb4a446def6bec8"
-	v2168FoundationLightSHA256 = "f188240ec053128f771f0267d0197c19c071d57e67bd3c2cf69ae6ba5601cbab"
+	v2193FoundationBlockSHA256 = "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"
+	v2193FoundationLightSHA256 = "d7c80fd8990955e7a53c6ea0ed236c14e1b40819253814c45e86918628cb3eed"
 )
 
 type FoundationStatus string
@@ -131,19 +131,19 @@ func validateFoundationFields(foundation registryFoundation) error {
 	if foundation.Schema != "cinnabar.registry-foundation.v1" {
 		return errors.New("registry foundation schema must be cinnabar.registry-foundation.v1")
 	}
-	if foundation.GameVersion != "1.26.40" || foundation.Protocol != 2168 {
-		return errors.New("registry foundation must target game 1.26.40 and protocol 2168")
+	if foundation.GameVersion != "1.26.50" || foundation.Protocol != 2193 {
+		return errors.New("registry foundation must target game 1.26.50 and protocol 2193")
 	}
 	if foundation.Formats != (foundationFormats{Block: "BREG1003", Light: "LREG1001", Biome: "BIOREG01"}) {
 		return errors.New("registry foundation format labels do not match the stable formats")
 	}
 	wantOutputs := foundationOutputs{
-		Block: "crates/assets/data/block-registry-v2168.bin",
-		Light: "crates/assets/data/block-light-registry-v2168.bin",
-		Biome: "crates/assets/data/biome-registry-v2168.bin",
+		Block: "crates/assets/data/block-registry-v2193.bin",
+		Light: "crates/assets/data/block-light-registry-v2193.bin",
+		Biome: "crates/assets/data/biome-registry-v2193.bin",
 	}
 	if foundation.Outputs != wantOutputs {
-		return errors.New("registry foundation outputs must use the exact v2168 filenames")
+		return errors.New("registry foundation outputs must use the exact v2193 filenames")
 	}
 	if err := validateFoundationSources(foundation.Sources); err != nil {
 		return err
@@ -159,7 +159,7 @@ func validateFoundationFields(foundation registryFoundation) error {
 		}
 		if foundation.ProjectionBindings == nil || foundation.ProjectionBindings.Block != nil ||
 			foundation.ProjectionBindings.Light != nil || foundation.ProjectionBindings.Biome == nil ||
-			foundation.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+			foundation.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
 			return errors.New("blocked registry foundation must bind only the exact biome projection")
 		}
 	case FoundationReady:
@@ -170,11 +170,11 @@ func validateFoundationFields(foundation registryFoundation) error {
 			foundation.ProjectionBindings.Biome == nil || foundation.ProjectionBindings.Light == nil {
 			return errors.New("ready registry foundation requires three projection bindings")
 		}
-		if foundation.ProjectionBindings.Biome.SHA256 != "5209a8ec6d9b2690d062c124e206dc0f565d1937601c181798dbffbd9904272c" {
+		if foundation.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
 			return errors.New("ready registry foundation must preserve the exact biome projection binding")
 		}
-		if foundation.ProjectionBindings.Block.SHA256 != v2168FoundationBlockSHA256 ||
-			foundation.ProjectionBindings.Light.SHA256 != v2168FoundationLightSHA256 {
+		if foundation.ProjectionBindings.Block.SHA256 != v2193FoundationBlockSHA256 ||
+			foundation.ProjectionBindings.Light.SHA256 != v2193FoundationLightSHA256 {
 			return errors.New("ready registry foundation must bind the exact block and light projections")
 		}
 		for label, digest := range map[string]string{
@@ -194,19 +194,19 @@ func validateFoundationFields(foundation registryFoundation) error {
 
 func validateFoundationSources(sources foundationSources) error {
 	dragonfly := sources.Dragonfly
-	if dragonfly.Commit != "0c2c404540fc651873c24a020b0a48778bd56295" ||
-		dragonfly.Blob != "7006d9d46217425aab8e7d998f70c370b6b9c4eb" ||
-		dragonfly.SHA256 != "1dc6d7ea26b48b5b5e4702762e463b95e59eb109f26c0c3b74115d12cb1941a7" ||
-		dragonfly.Size != 2436125 {
+	if dragonfly.Commit != "4c7b5074be94fa83a1cd98e9c752083ad04a6e21" ||
+		dragonfly.Blob != "ee29e5e039086c10bdfb964621a8e146b4f7af19" ||
+		dragonfly.SHA256 != "f0784a6284d6ca7d98cc3472f4ce84241a11e11b18ed16f6591dfd5e6da6fbd6" ||
+		dragonfly.Size != 3102889 {
 		return errors.New("registry foundation Dragonfly source does not match the audited public identity")
 	}
 	if !validLowerHex(dragonfly.Commit, 20) || !validLowerHex(dragonfly.Blob, 20) || !validLowerHex(dragonfly.SHA256, 32) {
 		return errors.New("registry foundation Dragonfly hashes must be lowercase hexadecimal")
 	}
 	bds := sources.BDS
-	if bds.ArchiveSHA256 != "7b649671e1d88f8bd1499c580910f099e27533efc213f9faf5a5c68dd41a77c9" ||
-		bds.ExecutableSHA256 != "e7775e636b9fdcbc354823d92d0c22c12738a2141d12557d856744293d258372" ||
-		bds.OverlaySHA256 != "c52bbdfa8c92679595b5e342bee556a891a8aab91d5173f8670ff15e47e3efbb" {
+	if bds.ArchiveSHA256 != "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825" ||
+		bds.ExecutableSHA256 != "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443" ||
+		bds.OverlaySHA256 != "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339" {
 		return errors.New("registry foundation BDS source does not match the audited public identities")
 	}
 	for _, digest := range []string{bds.ArchiveSHA256, bds.ExecutableSHA256, bds.OverlaySHA256} {

@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     ActorDataBoundingBoxComponent, ActorDataFlagComponent, ActorUniqueId,
     ClientMovementPredictionSyncPacket,
 };
@@ -52,7 +52,7 @@ mod tests {
             unique_id: 7,
             flying: true,
         });
-        let valentine::bedrock::version::v1_26_44::McpePacketData::ClientMovementPredictionSyncPacket(
+        let valentine::bedrock::version::v1_26_51::McpePacketData::ClientMovementPredictionSyncPacket(
             body,
         ) = packet.data
         else {

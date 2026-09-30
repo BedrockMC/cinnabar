@@ -1,6 +1,6 @@
 use ::protocol::{RecipeCatalog, ScreenRecipeKind, decode_recipe_update};
 use bytes::BytesMut;
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_44::*};
+use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
 
 fn ingredient(key: &str, name: &str) -> CerealizerRecipeIngredientSerializedData {
     CerealizerRecipeIngredientSerializedData {

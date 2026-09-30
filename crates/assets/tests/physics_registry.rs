@@ -209,13 +209,13 @@ fn rejects_stale_or_malformed_carriers_without_partial_acceptance() {
     assert!(read_physics_registry(&valid, &stale_breg, &records).is_err());
 }
 
-const BREG_V2168: &[u8] = include_bytes!("../data/block-registry-v2168.bin");
-const PREG_V2168: &[u8] = include_bytes!("../data/block-physics-v2168.bin");
+const BREG_V2193: &[u8] = include_bytes!("../data/block-registry-v2193.bin");
+const PREG_V2193: &[u8] = include_bytes!("../data/block-physics-v2193.bin");
 
-/// Pinned sidecar digest of `crates/assets/data/block-physics-v2168.bin`
-/// (`block-physics-v2168.sha256`); guards the committed artifact against drift.
-const PREG_V2168_SHA256_HEX: &str =
-    "e74ffec848c46a24f5e292c35126cd589d2fbb61d6fb7a24e30d914301ed3df1";
+/// Pinned sidecar digest of `crates/assets/data/block-physics-v2193.bin`
+/// (`block-physics-v2193.sha256`); guards the committed artifact against drift.
+const PREG_V2193_SHA256_HEX: &str =
+    "3b695c48c6e0ced01ce296269e7d4e3e3d459d7d45235d7e9e8c3898fd1bb6d1";
 
 fn assert_physics_error(error: &AssetError, needle: &str) {
     match error {
@@ -230,32 +230,32 @@ fn assert_physics_error(error: &AssetError, needle: &str) {
 }
 
 #[test]
-fn committed_protocol_2168_artifact_decodes_against_its_own_breg() {
-    let records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
-    let registry = read_physics_registry_for_protocol(PREG_V2168, BREG_V2168, &records, 2168)
-        .expect("committed protocol-2168 PREG decodes against its pinned BREG");
+fn committed_protocol_2193_artifact_decodes_against_its_own_breg() {
+    let records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let registry = read_physics_registry_for_protocol(PREG_V2193, BREG_V2193, &records, 2193)
+        .expect("committed protocol-2193 PREG decodes against its pinned BREG");
     assert_eq!(registry.len(), records.len());
-    assert_eq!(registry.protocol(), 2168);
-    let expected_sha: [u8; 32] = Sha256::digest(PREG_V2168).into();
+    assert_eq!(registry.protocol(), 2193);
+    let expected_sha: [u8; 32] = Sha256::digest(PREG_V2193).into();
     let mut pinned = [0_u8; 32];
-    for (index, byte) in PREG_V2168_SHA256_HEX.as_bytes().chunks_exact(2).enumerate() {
+    for (index, byte) in PREG_V2193_SHA256_HEX.as_bytes().chunks_exact(2).enumerate() {
         pinned[index] = u8::from_str_radix(std::str::from_utf8(byte).unwrap(), 16).unwrap();
     }
     assert_eq!(registry.sha256(), expected_sha);
     assert_eq!(expected_sha, pinned, "artifact drifted from its sidecar");
     assert_eq!(
         registry.breg_sha256(),
-        Sha256::digest(BREG_V2168).as_slice()
+        Sha256::digest(BREG_V2193).as_slice()
     );
 
     for name in ["minecraft:air", "minecraft:stone"] {
         let identity = records
             .iter()
             .find(|record| record.name.as_ref() == name)
-            .unwrap_or_else(|| panic!("{name} exists in the checked-in v2168 BREG"));
+            .unwrap_or_else(|| panic!("{name} exists in the checked-in v2193 BREG"));
         let decoded: &BlockPhysicsRecord = registry
             .by_sequential_id(identity.sequential_id)
-            .unwrap_or_else(|| panic!("{name} decodes from the v2168 PREG"));
+            .unwrap_or_else(|| panic!("{name} decodes from the v2193 PREG"));
         assert_eq!(decoded.network_hash, identity.network_hash, "{name}");
         assert_eq!(
             decoded.boxes.as_ref(),
@@ -272,16 +272,16 @@ fn committed_protocol_2168_artifact_decodes_against_its_own_breg() {
 
 #[test]
 fn legacy_alias_keeps_rejecting_non_1001_carriers() {
-    let records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
-    let error = read_physics_registry(PREG_V2168, BREG_V2168, &records).unwrap_err();
+    let records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let error = read_physics_registry(PREG_V2193, BREG_V2193, &records).unwrap_err();
     assert_physics_error(&error, "protocol is not 1001");
 }
 
 #[test]
 fn header_protocol_readers_stamp_both_committed_carriers_without_a_full_decode() {
     assert_eq!(registry_header_protocol(BREG).unwrap(), 1001);
-    assert_eq!(registry_header_protocol(BREG_V2168).unwrap(), 2168);
-    assert_eq!(physics_registry_header_protocol(PREG_V2168).unwrap(), 2168);
+    assert_eq!(registry_header_protocol(BREG_V2193).unwrap(), 2193);
+    assert_eq!(physics_registry_header_protocol(PREG_V2193).unwrap(), 2193);
 
     let synthetic = valid_preg(&read_registry(BREG).unwrap());
     assert_eq!(physics_registry_header_protocol(&synthetic).unwrap(), 1001);
@@ -298,8 +298,8 @@ fn header_protocol_readers_reject_short_and_malformed_carriers() {
     ));
 
     assert!(physics_registry_header_protocol(&[]).is_err());
-    assert!(physics_registry_header_protocol(&PREG_V2168[..HEADER_BYTES_FLOOR - 1]).is_err());
-    let mut bad_preg_magic = PREG_V2168.to_vec();
+    assert!(physics_registry_header_protocol(&PREG_V2193[..HEADER_BYTES_FLOOR - 1]).is_err());
+    let mut bad_preg_magic = PREG_V2193.to_vec();
     bad_preg_magic[0] ^= 1;
     match physics_registry_header_protocol(&bad_preg_magic) {
         Err(AssetError::InvalidPhysicsRegistry { detail }) => {
@@ -315,24 +315,24 @@ const HEADER_BYTES_FLOOR: usize = 80;
 
 #[test]
 fn cross_version_bindings_are_rejected_in_both_directions() {
-    // v2168 carrier bound to a v1001 BREG: the stamped BREG digest cannot
+    // v2193 carrier bound to a v1001 BREG: the stamped BREG digest cannot
     // match, so the exact-BREG-SHA-256 binding rejects before any record.
-    let v2168_records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
+    let v2193_records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
     let error =
-        read_physics_registry_for_protocol(PREG_V2168, BREG, &v2168_records, 2168).unwrap_err();
+        read_physics_registry_for_protocol(PREG_V2193, BREG, &v2193_records, 2193).unwrap_err();
     assert_physics_error(&error, "exact BREG SHA-256 mismatch");
 
-    // Vice versa: a valid v1001 carrier presented with v2168 BREG bytes.
+    // Vice versa: a valid v1001 carrier presented with v2193 BREG bytes.
     let v1001_records = read_registry(BREG).unwrap();
     let preg1001 = valid_preg(&v1001_records);
-    let error = read_physics_registry_for_protocol(&preg1001, BREG_V2168, &v1001_records, 1001)
+    let error = read_physics_registry_for_protocol(&preg1001, BREG_V2193, &v1001_records, 1001)
         .unwrap_err();
     assert_physics_error(&error, "exact BREG SHA-256 mismatch");
 
-    // A v1001-stamped body can never satisfy an explicit 2168 expectation.
+    // A v1001-stamped body can never satisfy an explicit 2193 expectation.
     let error =
-        read_physics_registry_for_protocol(&preg1001, BREG, &v1001_records, 2168).unwrap_err();
-    assert_physics_error(&error, "protocol is not 2168");
+        read_physics_registry_for_protocol(&preg1001, BREG, &v1001_records, 2193).unwrap_err();
+    assert_physics_error(&error, "protocol is not 2193");
 }
 
 #[test]
@@ -349,12 +349,12 @@ fn unknown_physics_protocols_are_rejected_before_any_structural_read() {
 
 #[test]
 fn record_count_mismatch_rejection_is_preserved_for_both_versions() {
-    let v2168_records = read_registry_for_protocol(BREG_V2168, 2168).unwrap();
+    let v2193_records = read_registry_for_protocol(BREG_V2193, 2193).unwrap();
     let error = read_physics_registry_for_protocol(
-        PREG_V2168,
-        BREG_V2168,
-        &v2168_records[..v2168_records.len() - 1],
-        2168,
+        PREG_V2193,
+        BREG_V2193,
+        &v2193_records[..v2193_records.len() - 1],
+        2193,
     )
     .unwrap_err();
     assert_physics_error(&error, "does not match BREG records");

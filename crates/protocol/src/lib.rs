@@ -1,4 +1,4 @@
-//! Bedrock 1.26.44 (protocol 2168) packet definitions and codec.
+//! Bedrock 1.26.50 (protocol 2193) packet definitions and codec.
 
 mod actor;
 mod audio;
@@ -139,6 +139,7 @@ pub use item_capacity::vanilla_item_capacity;
 pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
+pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
 pub use login::{LoginSequence, PacketIdTraceSnapshot, PlaySession};
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -183,7 +184,6 @@ pub use ui::{
     server_settings_request_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
-pub use valentine::bedrock::version::v1_26_44::{GAME_VERSION, PROTOCOL_VERSION};
 pub use world::{
     ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
     BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,

@@ -1,0 +1,44 @@
+{
+  "schema": "cinnabar.biome-projection.v2",
+  "game_version": "1.26.50",
+  "protocol": 2193,
+  "sources": {
+    "bds": {
+      "executable_sha256": "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443",
+      "table_offset": 176215320,
+      "table_records": 89,
+      "table_sha256": "39812048dfedc2b5dd0c22043297de7869f4352fed7550b377b69e06854fc5b6",
+      "retail_records": 89,
+      "retail_sha256": "39812048dfedc2b5dd0c22043297de7869f4352fed7550b377b69e06854fc5b6"
+    },
+    "pmmp": {
+      "commit": "bdb44a48fb6beffb6e9f6864f06d2232eb62b6a3",
+      "sha256": "4f27df3f1e58476fc65e337f7cf3e275f65a98b6c40ea46c31b24016b85e0052"
+    },
+    "dragonfly": {
+      "module": "github.com/df-mc/dragonfly",
+      "version": "v0.11.5",
+      "module_sum": "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0="
+    },
+    "retail": {
+      "bds_archive_sha256": "f6348d84fa714d04ca194f207e89453ca6bba0a1359396475271a52a150471c6",
+      "bds_binary_sha256": "0a490c711d4a2ce075debcd979e8862b7eaba008373f9970f0edbb67f98f9207",
+      "biome_definitions": 89
+    }
+  },
+  "allowlist": {
+    "path": "crates/protocol/data/retail_biomes_1_26_50.txt",
+    "sha256": "6127c74c17455273bb5226f1e05e98709bc247c05a0137a8827cb97756c3b198",
+    "count": 89
+  },
+  "projection": {
+    "retained": 89,
+    "ignored_count": 0,
+    "ignored_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "output": {
+    "format": "BIOREG01",
+    "path": "crates/assets/data/biome-registry-v2193.bin",
+    "sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
+  }
+}

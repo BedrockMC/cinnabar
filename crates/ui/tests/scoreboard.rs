@@ -569,7 +569,6 @@ fn direct_store_fifo_rejection_and_clear_have_no_stale_mutation() {
 fn boss(action: BossAction, id: i64, title: &str, health: f32) -> BossBarEvent {
     BossBarEvent {
         target_entity_id: id,
-        player_id: 42,
         action,
         title: Arc::from(title),
         filtered_title: Arc::from(""),
@@ -613,17 +612,17 @@ fn boss_lifecycle_style_health_membership_and_stacking_are_stable() {
     assert_eq!(bars[0].health, 1.25);
     assert_eq!(bars[0].style.color, BossColor::Blue);
     assert_eq!(bars[0].style.overlay, BossOverlay::Notched20);
-    assert_eq!(store.registered_players(20), [42]);
 
     store
         .apply(6, boss(BossAction::Show, 20, "updated", 0.75))
         .unwrap();
     assert_eq!(store.stacked()[0].title.as_ref(), "updated");
-    assert_eq!(store.registered_players(20), [42]);
-    store
-        .apply(7, boss(BossAction::UnregisterPlayer, 20, "", 0.0))
-        .unwrap();
-    assert!(store.registered_players(20).is_empty());
+    assert_eq!(
+        store
+            .apply(7, boss(BossAction::UnregisterPlayer, 20, "", 0.0))
+            .unwrap(),
+        RetainedUiApply::Applied
+    );
     store.apply(8, boss(BossAction::Hide, 20, "", 0.0)).unwrap();
     assert_eq!(
         store

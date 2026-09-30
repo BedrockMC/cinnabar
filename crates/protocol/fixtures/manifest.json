@@ -11,7 +11,7 @@
     "file": "start_game.bin",
     "id": 11,
     "byte_length": 269,
-    "sha256": "c6a1c04d3bf94dcb1242dd62f4aeddd5d8521e530eb8864765339ce153563456"
+    "sha256": "cef9a4dcaa54a3c54879dd6f2b82ea6b2687e5c3315582d59b8fd5f086cb18f1"
   },
   {
     "name": "LevelChunk",
@@ -31,50 +31,50 @@
     "name": "PlayerAuthInput",
     "file": "player_auth_input.bin",
     "id": 144,
-    "byte_length": 105,
-    "sha256": "f0f721cac5f16327adcc0ded8adeb6b955bf981967e031654b226f041b64df89"
+    "byte_length": 99,
+    "sha256": "6f4d6df2fb330ce3c89648b0a81b169c0a75c8f1889efc00045a555f4eb7f74e"
   },
   {
     "name": "PlayerAuthInputBlockActions",
     "file": "player_auth_input_block_actions.bin",
     "id": 144,
-    "byte_length": 118,
-    "sha256": "267e8048fc09460d3b8c49ac483474bc6080de1eed7e884cfa24c82430593187"
+    "byte_length": 112,
+    "sha256": "abf2ce5f30440dbe2b99c7c00a8f8add82293d2203ab65ed551cd4f92244453b"
   },
   {
     "name": "PlayerAuthInputBreakBlock",
     "file": "player_auth_input_break_block.bin",
     "id": 144,
-    "byte_length": 186,
-    "sha256": "20b89fd20d493a5bfdd2d7e726f1eece06054b9727892c8cbfd93322e2567853"
+    "byte_length": 180,
+    "sha256": "33921c36debe1836580001781cf2675e9d1f7b23f9757c3fb6d34a458ceaa94b"
   },
   {
     "name": "PlayerAuthInputUseBlock",
     "file": "player_auth_input_use_block.bin",
     "id": 144,
-    "byte_length": 190,
-    "sha256": "d19cf51326bf06759f86ce3fae9b5f1d8fc840824e620aeb0ee3b4e459582938"
+    "byte_length": 184,
+    "sha256": "f8ce5de807a52584d14522ec32c49582a5296356ebbcc1ac6e9269fe70711776"
   },
   {
     "name": "PlayerAuthInputBlockActionsAndBreakBlock",
     "file": "player_auth_input_block_actions_and_break_block.bin",
     "id": 144,
-    "byte_length": 199,
-    "sha256": "a03477e262b56d3c0dc9984333f7aa42c47b4f7d214dddbbb1a1a7017ab9bfed"
+    "byte_length": 193,
+    "sha256": "9107c4ea7f670fb27dba4db81649a84957f1ef72719da68bc76fce1b6c8eead4"
   },
   {
     "name": "PlayerAuthInputMineBlock",
     "file": "player_auth_input_mine_block.bin",
     "id": 144,
-    "byte_length": 121,
-    "sha256": "52b965ef0b1640f146d982ee8e8e7a691abf54bda8cb6c8e589fce909394bae1"
+    "byte_length": 115,
+    "sha256": "d8bc276da2ee3dda3a005f6054d9303332374531b61631ee59a3ba8aff365202"
   },
   {
     "name": "PlayerAuthInputMineBlockAndPredict",
     "file": "player_auth_input_mine_block_and_predict.bin",
     "id": 144,
-    "byte_length": 129,
-    "sha256": "faf36a08e7fc9a133b2c5d589d2f6372ac52394d6c0e18df5a2b26f7e169fac7"
+    "byte_length": 123,
+    "sha256": "2ff6f7505d531d5333333e32da972459a890a3721e05188bb804b826e7078f1f"
   },
   {
     "name": "AddActor",
@@ -122,8 +122,8 @@
     "name": "BossEvent",
     "file": "boss_event.bin",
     "id": 74,
-    "byte_length": 28,
-    "sha256": "8f1e17a077a1df621eaa1830d38c68f14fd4ce7073db63be1e458a83a4eaf5f1"
+    "byte_length": 27,
+    "sha256": "69b4147fe67bab3645ff5bcc5f609a3880028b3d0907b8f0c7145f83102b31d0"
   },
   {
     "name": "ModalFormRequest",
@@ -208,68 +208,68 @@
     "name": "ItemStackResponse",
     "file": "item_stack_response.bin",
     "id": 148,
-    "byte_length": 47,
-    "sha256": "9c19f21d8e6622dc545c37f24732672edf9db5eb45edf977e783587fa02e828d"
+    "byte_length": 45,
+    "sha256": "aca5ae6f3160f7dfb43f43bbaf43b1435678a988ea282d7de126b42924c640ba"
   },
   {
     "name": "InventoryTransactionClickBlock",
     "file": "inventory_transaction_click_block.bin",
     "id": 30,
-    "byte_length": 85,
-    "sha256": "481b1e60edeeaf0c9c60b223e610a73886daacda11bf596aba03317fa8292f91"
+    "byte_length": 84,
+    "sha256": "5b78f8ab7c823ab5d20e146c48fa645b2cb1770041a8f9b50ce4d2ace23a6336"
   },
   {
     "name": "InventoryTransactionClickBlockEmptyHand",
     "file": "inventory_transaction_click_block_empty_hand.bin",
     "id": 30,
-    "byte_length": 56,
-    "sha256": "3bd736915819b4881fd040e3b712d552700c838f321194d4c37510c93d9c0695"
+    "byte_length": 55,
+    "sha256": "d19b05e2b54e40707772b9912fa832276ea608cbf5d8fc96d78c8680ec5be8ba"
   },
   {
     "name": "InventoryTransactionDestroyBlock",
     "file": "inventory_transaction_destroy_block.bin",
     "id": 30,
-    "byte_length": 85,
-    "sha256": "e340e5c6b18fa3006860d8af2282d3f1fc6ace52b83019a157b6310fc814769a",
+    "byte_length": 84,
+    "sha256": "67470cc7dd0b84d8b8bd7c87cd874e814dab82bfa6bcd6d7b6aa3ee8035f18ff",
     "wire_authority": "hashimthearab/gophertunnel",
-    "wire_commit": "9f42f3679a573fc4b51104569cc4f422036e28ec"
+    "wire_commit": "b725d82563e93308fd1f92d27da5e97301ad5040"
   },
   {
     "name": "InventoryTransactionDestroyBlockEmptyHand",
     "file": "inventory_transaction_destroy_block_empty_hand.bin",
     "id": 30,
-    "byte_length": 57,
-    "sha256": "e9c682d90e18ae7de03c0382f25e95b2fbd71184652afe10e4edc88af3501bb0",
+    "byte_length": 56,
+    "sha256": "6f51416c54717429876f0a049d2d33be4af24b2c500b1c087128779640447c18",
     "wire_authority": "hashimthearab/gophertunnel",
-    "wire_commit": "9f42f3679a573fc4b51104569cc4f422036e28ec"
+    "wire_commit": "b725d82563e93308fd1f92d27da5e97301ad5040"
   },
   {
     "name": "InventoryTransactionAttackActor",
     "file": "inventory_transaction_attack_actor.bin",
     "id": 30,
-    "byte_length": 83,
-    "sha256": "ec2abc3efb538843c79a3d78fde41da434a324803b3206652c5252ff8a3393e3"
+    "byte_length": 81,
+    "sha256": "4006ad37cd8896865570739eac1c1b2bc1da2f46188cf2e36f16c4e7980611be"
   },
   {
     "name": "InventoryTransactionAttackActorEmptyHand",
     "file": "inventory_transaction_attack_actor_empty_hand.bin",
     "id": 30,
-    "byte_length": 54,
-    "sha256": "6f724c6d702922e19f5c10f99d6bc580e3bec76de53a07ddbed51092a9caf665"
+    "byte_length": 52,
+    "sha256": "2f92f5fe10b736f7a897fff3804f8f2570e26ef2072b8e2293e01fdbae85bc5e"
   },
   {
     "name": "InventoryTransactionInteractActor",
     "file": "inventory_transaction_interact_actor.bin",
     "id": 30,
-    "byte_length": 78,
-    "sha256": "2f5898b884a85f7233931cc91256d5ab44eca71ad9b1f9397821b5af5e4e6eef"
+    "byte_length": 76,
+    "sha256": "c65792a5bc80ebc5e24be256a2d5466dbeaa01bb4a8bd06e0e32a99c135fc749"
   },
   {
     "name": "InventoryTransactionInteractActorEmptyHand",
     "file": "inventory_transaction_interact_actor_empty_hand.bin",
     "id": 30,
-    "byte_length": 45,
-    "sha256": "082c255cba3e55ae10b4033c937911e67cff39fce20d539d2b87a59f50a8ac32"
+    "byte_length": 43,
+    "sha256": "39d6d0b48e099351568ec92c8b76f63fbe4e7a704eb086452718a58000479cb5"
   },
   {
     "name": "ContainerClose",
@@ -282,10 +282,10 @@
     "name": "PlaySound",
     "file": "play_sound.bin",
     "id": 86,
-    "byte_length": 42,
-    "sha256": "bd520f81c922522d8dcf728c0b9865b725539ac65d2777f82fd8894b8f04c96e",
+    "byte_length": 48,
+    "sha256": "cc4af4e7a3908051d149734c15ba6c3fb68b5c1c37210933429871e60cb2866b",
     "wire_authority": "hashimthearab/gophertunnel",
-    "wire_commit": "0f3bd7e6f748ca972da664130af63244d625a6b8"
+    "wire_commit": "b725d82563e93308fd1f92d27da5e97301ad5040"
   },
   {
     "name": "StopSound",
@@ -365,7 +365,7 @@
     "name": "ItemStackResponseManualCraft",
     "file": "item_stack_response_manual_craft.bin",
     "id": 148,
-    "byte_length": 38,
-    "sha256": "6dddd859494383a6bab083ba8757534b17ea5a459803f79670e44f2b41bf201c"
+    "byte_length": 34,
+    "sha256": "83149b908cb77110d15ab39bac1a7ab8bab22003dc8c105c2c7448a8e2013f9f"
   }
 ]

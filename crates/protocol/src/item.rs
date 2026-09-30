@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use valentine::bedrock::{
     codec::{BedrockCodec, BedrockSized, Nbt},
-    version::v1_26_44::{
+    version::v1_26_51::{
         ActorRuntimeId, AnimateEntityPacket, AnimatePacket,
         EnumsAnimatePacketPayloadAction as AnimatePacketAction,
         EnumsItemVersion as ItemDataItemVersion, ItemRegistryPacket, MobEquipmentPacket,
@@ -34,7 +34,7 @@ pub use icons::item_icon_keys;
 /// descriptor whose trailing user data is an opaque length-prefixed buffer, so
 /// the shield ID is no longer needed to decode an item.
 type ItemStackDescriptor =
-    valentine::bedrock::version::v1_26_44::CerealizerNetworkItemStackDescriptorSerializedData;
+    valentine::bedrock::version::v1_26_51::CerealizerNetworkItemStackDescriptorSerializedData;
 
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
@@ -371,7 +371,7 @@ pub struct ItemRegistryEntry {
 /// omitted entries remain unsupported gaps and are never renumbered.
 #[must_use]
 pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
-    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_40.tsv");
+    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_50.tsv");
 
     let mut entries = Vec::with_capacity(RETAIL_ITEMS.lines().count());
     for line in RETAIL_ITEMS.lines() {
@@ -670,7 +670,7 @@ pub(crate) fn normalize_item_registry(
         let component_bytes = encode_extra(&item.item_component_data)?;
         let version = match item.item_version {
             ItemDataItemVersion::Legacy => ItemRegistryVersion::Legacy,
-            ItemDataItemVersion::DataDriven => ItemRegistryVersion::DataDriven,
+            ItemDataItemVersion::Datadriven => ItemRegistryVersion::DataDriven,
             ItemDataItemVersion::None => ItemRegistryVersion::None,
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
@@ -762,12 +762,12 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
     }
     let kind = match packet.action {
         AnimatePacketAction::Swing => ActorActionKind::SwingArm,
-        AnimatePacketAction::WakeUp => ActorActionKind::Wake,
-        AnimatePacketAction::CriticalHit => ActorActionKind::CriticalHit,
-        AnimatePacketAction::MagicCriticalHit => ActorActionKind::MagicCriticalHit,
+        AnimatePacketAction::Wakeup => ActorActionKind::Wake,
+        AnimatePacketAction::Criticalhit => ActorActionKind::CriticalHit,
+        AnimatePacketAction::Magiccriticalhit => ActorActionKind::MagicCriticalHit,
         AnimatePacketAction::Unknown(128u8) => ActorActionKind::RowRight,
         AnimatePacketAction::Unknown(129u8) => ActorActionKind::RowLeft,
-        AnimatePacketAction::NoAction => ActorActionKind::Ignored { action_id: 0 },
+        AnimatePacketAction::Noaction => ActorActionKind::Ignored { action_id: 0 },
         AnimatePacketAction::Unknown(action_id) => ActorActionKind::Ignored { action_id },
     };
     Ok(ItemActorEvent::Action(ActorActionEvent {
@@ -879,7 +879,7 @@ fn window_id(container_id: u8) -> Result<(u8, Option<ActorHandedness>), ItemPack
 #[cfg(test)]
 mod hotbar_tests {
     use valentine::bedrock::context::BedrockSession;
-    use valentine::bedrock::version::v1_26_44::McpePacketData;
+    use valentine::bedrock::version::v1_26_51::McpePacketData;
 
     use super::*;
     use crate::InventoryPacketError;

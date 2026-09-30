@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::{LevelEventPacket, SpawnParticleEffectPacket};
+use valentine::bedrock::version::v1_26_51::{LevelEventPacket, SpawnParticleEffectPacket};
 
 /// Longest effect identifier accepted from the wire.
 pub const MAX_PARTICLE_NAME_BYTES: usize = 256;
@@ -91,7 +91,7 @@ pub(crate) fn normalize_spawn(packet: SpawnParticleEffectPacket) -> Option<Parti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_44::Vec3;
+    use valentine::bedrock::version::v1_26_51::Vec3;
 
     fn level(event_id: i32, x: f32) -> LevelEventPacket {
         LevelEventPacket {

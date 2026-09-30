@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_44::{
+use valentine::bedrock::version::v1_26_51::{
     CameraInstruction, CameraPacket, CameraPresetsPacket, CameraShakePacket,
     EnumsCameraShakeAction as WireShakeAction, EnumsCameraShakeType as WireShakeType,
 };
@@ -278,7 +278,7 @@ pub(crate) fn normalize_instruction(
 }
 
 fn normalize_set(
-    set: valentine::bedrock::version::v1_26_44::CameraInstructionOptionsSetInstruction,
+    set: valentine::bedrock::version::v1_26_51::CameraInstructionOptionsSetInstruction,
 ) -> Result<CameraSetInstruction, WorldPacketError> {
     if let Some(ease) = &set.ease {
         validate_finite(ease.time, "set.ease.time")?;

@@ -22,9 +22,9 @@ import (
 	"time"
 )
 
-// TargetVersionPrefix is the Bedrock version whose dedicated server the client can join; bump it with the
-// client's pinned protocol.
-const TargetVersionPrefix = "1.26.44"
+// TargetVersionPrefix is the dedicated-server line fetched for the client's pinned protocol (2193, shared by
+// 1.26.50 through 1.26.52); matching is per dotted component, so "1.26.5" would not match 1.26.52.x.
+const TargetVersionPrefix = "1.26.52"
 
 const (
 	linksAPI        = "https://net-secondary.web.minecraft-services.net/api/v1.0/download/links"
@@ -85,7 +85,7 @@ type manifest struct {
 // Nothing is bundled or committed; builds live in Root/<version>/ with a provenance manifest.
 type Provisioner struct {
 	Root string
-	// Version, when set, is an exact build (for example "1.26.44.1") fetched from its versioned official URL;
+	// Version, when set, is an exact build (for example "1.26.52.3") fetched from its versioned official URL;
 	// otherwise the download API's current build must match VersionPrefix.
 	Version       string
 	VersionPrefix string // default TargetVersionPrefix

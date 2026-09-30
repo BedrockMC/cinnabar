@@ -228,7 +228,7 @@ func artworkURL(item playfabcatalog.Item, games []gatherings.AvailableGame) stri
 		}
 	}
 	for _, image := range item.Images {
-		if image.Type == playfabcatalog.ImageTypeThumbnail && validArtworkURL(image.URL) {
+		if strings.EqualFold(image.Type, playfabcatalog.ImageTypeThumbnail) && validArtworkURL(image.URL) {
 			return image.URL
 		}
 	}

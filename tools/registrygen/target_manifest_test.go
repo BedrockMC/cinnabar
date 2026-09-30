@@ -80,7 +80,7 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	if err != nil {
 		t.Fatal(err)
 	}
-	carrierPath := "crates/assets/data/block-item-routes-v2168.json"
+	carrierPath := "crates/assets/data/block-item-routes-v2193.json"
 	manifestPath := "assets/bedrock-target.json"
 	attributePath := ".gitattributes"
 	readSource := func(path string) []byte {
@@ -199,12 +199,12 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	if err := json.Unmarshal(payload, &target); err != nil {
 		t.Fatal(err)
 	}
-	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.40" || target.WireProtocol != 2168 || target.CodecFeature != "bedrock_1_26_44" {
+	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.50" || target.WireProtocol != 2193 || target.CodecFeature != "bedrock_1_26_51" {
 		t.Fatalf("unexpected target identity: %+v", target)
 	}
 	for name, path := range target.Artifacts {
-		if !strings.Contains(path, "2168") || strings.Contains(path, "1001") {
-			t.Fatalf("target artifact %s is not protocol-2168-only: %s", name, path)
+		if !strings.Contains(path, "2193") || strings.Contains(path, "1001") {
+			t.Fatalf("target artifact %s is not protocol-2193-only: %s", name, path)
 		}
 	}
 	for name, expected := range target.Hashes {
@@ -230,13 +230,13 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		}
 	}
 	consumers := map[string][]string{
-		"Makefile": {"assets/bedrock-target.json", target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "block-physics-v2168", "vanilla-v2168.mcbea"},
-		"app/src/asset_startup/world_provenance.rs":   {"block-registry-v2168.bin", "block-light-registry-v2168.bin", "biome-registry-v2168.bin", "bedrock-target.json"},
-		"app/src/install_layout.rs":                   {"block-physics-v2168.bin", "vanilla-v2168.mcbea"},
-		"tools/dist/src/layout.rs":                    {"block-physics-v2168.bin", "vanilla-v2168.mcbea"},
-		"app/src/metrics/diagnostics.rs":              {"block-registry-v2168.bin"},
-		"crates/asset-compiler/src/entity/item.rs":    {"block-registry-v2168.bin", "block-item-routes-v2168.json"},
-		"crates/asset-compiler/src/bin/assetc/cli.rs": {"vanilla-v2168.mcbea"},
+		"Makefile": {"assets/bedrock-target.json", target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "block-physics-v2193", "vanilla-v2193.mcbea"},
+		"app/src/asset_startup/world_provenance.rs":   {"block-registry-v2193.bin", "block-light-registry-v2193.bin", "biome-registry-v2193.bin", "bedrock-target.json"},
+		"app/src/install_layout.rs":                   {"block-physics-v2193.bin", "vanilla-v2193.mcbea"},
+		"tools/dist/src/layout.rs":                    {"block-physics-v2193.bin", "vanilla-v2193.mcbea"},
+		"app/src/metrics/diagnostics.rs":              {"block-registry-v2193.bin"},
+		"crates/asset-compiler/src/entity/item.rs":    {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
+		"crates/asset-compiler/src/bin/assetc/cli.rs": {"vanilla-v2193.mcbea"},
 		"crates/protocol/Cargo.toml":                  {target.CodecFeature},
 	}
 	for path, required := range consumers {
@@ -292,7 +292,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 				t.Fatalf("acceptance consumer %s does not derive %s from the target manifest or registry", path, value)
 			}
 		}
-		if strings.Contains(string(contents), "v1001") || strings.Contains(string(contents), "v2168") {
+		if strings.Contains(string(contents), "v1001") || strings.Contains(string(contents), "v2193") {
 			t.Fatalf("acceptance consumer %s hard-codes a versioned carrier instead of deriving the target", path)
 		}
 	}
@@ -303,7 +303,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	if !strings.Contains(string(workflow), "make physics-assets") {
 		t.Fatal("CI does not exercise the manifest-owned physics target")
 	}
-	for _, carrier := range []string{"block-physics-v1001", "block-physics-v2168"} {
+	for _, carrier := range []string{"block-physics-v1001", "block-physics-v2193"} {
 		if strings.Contains(string(workflow), carrier) {
 			t.Fatalf("CI hard-codes %s instead of using the manifest-owned Make target", carrier)
 		}
