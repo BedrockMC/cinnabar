@@ -21,7 +21,7 @@ use crate::Packet;
 
 /// Input flags exposed to the app without leaking the generated Valentine packet API.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PlayerInputFlags(u64);
+pub struct PlayerInputFlags(u128);
 
 impl PlayerInputFlags {
     pub const NONE: Self = Self(0);
@@ -82,8 +82,9 @@ impl PlayerInputFlags {
     pub const JUMP_CURRENT_RAW: Self = Self(1 << 61);
     pub const SNEAK_RELEASED_RAW: Self = Self(1 << 62);
     pub const SNEAK_PRESSED_RAW: Self = Self(1 << 63);
+    pub const SNEAK_CURRENT_RAW: Self = Self(1 << 64);
     #[must_use]
-    pub const fn bits(self) -> u64 {
+    pub const fn bits(self) -> u128 {
         self.0
     }
 
@@ -350,8 +351,8 @@ const INPUT_FLAG_ITEMS: [(InputFlagItem, &str); 66] = [
 /// app-facing [`PlayerInputFlags`] constants keep their meaning unchanged.
 fn input_data_items(flags: PlayerInputFlags) -> Vec<EnumsPlayerAuthInputPacketPayloadInputData> {
     let bits = flags.bits();
-    (0..u64::BITS)
-        .filter(|bit| bits & (1u64 << bit) != 0)
+    (0..u128::BITS)
+        .filter(|bit| bits & (1u128 << bit) != 0)
         .map(|bit| {
             INPUT_FLAG_ITEMS
                 .get(bit as usize)
@@ -397,9 +398,19 @@ mod locomotion_flag_tests {
             (PlayerInputFlags::START_FLYING, "StartFlying"),
             (PlayerInputFlags::STOP_FLYING, "StopFlying"),
             (PlayerInputFlags::START_USING_ITEM, "StartUsingItem"),
+            (PlayerInputFlags::SNEAK_CURRENT_RAW, "SneakCurrentRaw"),
         ] {
             let row = flag.bits().trailing_zeros() as usize;
             assert_eq!(INPUT_FLAG_ITEMS[row].1, name);
         }
+    }
+
+    /// Bit 64 lies past a u64 word and must still reach the wire list.
+    #[test]
+    fn sneak_current_raw_encodes_past_the_first_word() {
+        assert_eq!(
+            input_data_items(PlayerInputFlags::SNEAK_CURRENT_RAW),
+            [Item::Sneakcurrentraw]
+        );
     }
 }
